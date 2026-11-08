@@ -764,6 +764,12 @@ impl Shared {
                     self.scroll_to(inner, inst, name);
                 }
             }
+            // `SideMenu::ActivateItem(id)` (spec 049): the row's own click.
+            "activate-item" => {
+                if let Some(id) = args.first() {
+                    self.activate_menu_item(inner, inst, ctl, id);
+                }
+            }
             "setbreadcrumbdetail" | "clearbreadcrumbdetail" | "settitlevisible" | "setwindowstate" | "timer-start" | "timer-stop" => {}
             _ => {}
         }

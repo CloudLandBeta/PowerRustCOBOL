@@ -947,6 +947,14 @@ fn path_to(items: &[MenuItem], id: &str) -> Option<Vec<String>> {
     None
 }
 
+/// `SideMenu::ActivateItem(id)` (spec 049): what a click on that row of SideMenu `i` does — the same events, the same
+/// `SelectedItemId`, the same form loaded — and nothing for a disabled or unknown row, as in the desktop shell.
+pub fn activate_item(cx: &ViewCtx, i: usize, id: &str) -> Vec<Act> {
+    let mut click = Payload::new("click", "root");
+    click.id = Some(id.trim().to_owned());
+    menu(cx, i, &click, false)
+}
+
 fn menu(cx: &ViewCtx, i: usize, p: &Payload, bar: bool) -> Vec<Act> {
     let items = {
         let designed = menu_items(cx, i);
@@ -1937,6 +1945,29 @@ mod tests {
         assert!(acts.contains(&Act::Menu { item: "open".into() }));
         let item = item_of(&e.cx(&t), m, "open").unwrap();
         assert_eq!(menu_target(&item), MenuTarget::Embed { form: "Customers".into(), preserve_previous: false });
+    }
+
+    /// `SideMenu::ActivateItem(id)` (spec 049) is the row's own click: the same acts the operator's click gives, the form
+    /// loaded into the ContentPane among them; a disabled or unknown row gives none, as in the desktop shell.
+    #[test]
+    fn activate_item_is_the_rows_own_click() {
+        use cobolt_forms::menu::{MenuDefinition, MenuItem};
+        let (t, s) = tree_with("SideMenu", "SIDEMENU-1", &[]);
+        let mut e = Empty::default();
+        let dash = MenuItem { action: Some("open-form:dashboard-form".into()), ..MenuItem::new_action("dash", "Dashboard") };
+        let mut off = MenuItem::new_action("off", "Off");
+        off.enabled = false;
+        e.menus.insert("main-form", "SIDEMENU-1", MenuDefinition { menu: vec![dash, off], hash: String::new() });
+        let mut click = Payload::new("click", "root");
+        click.id = Some("dash".into());
+        let clicked = run(&t, s, &e, click);
+        let activated = activate_item(&e.cx(&t), s, " dash ");
+        assert_eq!(activated, clicked, "the same acts as the operator's click");
+        assert_eq!(names(&activated)[..3], ["SelectedItemId=dash", "onMenuClick(dash)", "onMenuItemClick(dash)"]);
+        assert!(activated.contains(&Act::Menu { item: "dash".into() }), "the row's form is loaded");
+        assert!(activate_item(&e.cx(&t), s, "off").is_empty(), "a disabled row does nothing");
+        assert!(activate_item(&e.cx(&t), s, "nope").is_empty(), "an unknown row does nothing");
+        println!("ActivateItem on the page: the row's click ({} acts, the form load among them); disabled and unknown rows: none", activated.len());
     }
 
     #[test]

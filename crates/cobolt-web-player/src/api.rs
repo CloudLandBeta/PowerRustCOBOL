@@ -1742,6 +1742,8 @@ impl Player {
     pub fn add_menu(&self, form: &str, control: &str, json: &str) -> Result<(), JsError> {
         let def: cobolt_forms::menu::MenuDefinition =
             serde_json::from_str(json).map_err(|e| JsError::new(&format!("the menu of `{control}` in form `{form}` is not valid: {e}")))?;
+        // The host answers `SideMenu::ActivateItem` from the same rows the page draws.
+        self.inner.host.borrow_mut().menus.insert(form, control, def.clone());
         self.inner.styles.borrow_mut().menus.insert(form, control, def);
         self.inner.styles_changed();
         Ok(())

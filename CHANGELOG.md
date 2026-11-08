@@ -1,5 +1,18 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.305 — 2026-11-07
+
+**Fix: `SideMenu::ActivateItem` works in a Web application, so a page can open on the form its program chooses.** *(Written on fixes-2x-web-activateitem, after 2.0.304.)*
+
+- **Symptom:** PowerOficina's main form calls `SIDEMENU-1::ActivateItem("dash")` in its `onLoad` to open on the Dashboard. On the desktop that works; in the browser the page stayed blank, because the web player did not know the method and the call did nothing.
+- **Fix:** the web player now answers `ActivateItem` the way the interpreter does. The answer is `1` for a row the menu has, and `0` for an empty or unknown id. The player looks the row up in the same designed menu and run-time rows that the page draws. The page then replays a click on that row. The click raises `onMenuClick` and `onMenuItemClick` with the row's id in `SelectedItemId`, and opens the row's form in the ContentPane or goes home. A disabled row does nothing, as the Developer's Guide says. The player in `assets/web-player/` is rebuilt.
+- **Checked:**
+  - Two new tests:
+    - `activate_item_answers_from_the_menu_and_leaves_the_click_to_the_page` covers the answers and the command sent to the page.
+    - `activate_item_is_the_rows_own_click` checks that the replayed click gives the same events and actions as a real click, and none for a disabled or unknown row.
+  - The whole `cobolt-web-player` test sweep passes, 435 library tests plus the integration suites; the freshness test passes after the rebuild.
+  - In the browser, PowerOficina opens on the Dashboard, with its row selected and the breadcrumb "PowerOficina › Dashboard".
+
 ## 2.0.304 — 2026-11-07
 
 **Fix: the PowerDemo3 Maps demo draws Elena's region along the official boundary of the province of A Coruna.** *(Written on fixes-2x, after 2.0.303.)*

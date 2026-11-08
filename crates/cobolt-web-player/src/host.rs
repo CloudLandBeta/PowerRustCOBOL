@@ -576,6 +576,9 @@ pub struct Host {
     /// The page was opened for a form the application does not have: `onRouteNotFound` is raised with this name once the
     /// form the page starts with is open (WASM-011 R6).
     not_found: Option<String>,
+    /// The menus the bundle carries, as the page has them (`Player::add_menu`): what `SideMenu::ActivateItem`
+    /// answers from, as the interpreter answers from the designed menu.
+    pub menus: crate::view::MenuStore,
 }
 
 /// What a standalone window knows of the form that opened it in another window: a **replica** of that
@@ -683,6 +686,7 @@ impl Host {
             aborted: false,
             reported_in_call: false,
             remote_opener: None,
+            menus: crate::view::MenuStore::default(),
         }
     }
 
@@ -2193,10 +2197,7 @@ impl Host {
                 CmdError::Deferred => String::new(),
             });
         }
-        let r = {
-            let tree = self.trees.get_mut(&inst).expect("checked");
-            methods::call(tree, idx, method, args)
-        };
+        let r = self.control_method(inst, idx, method, args);
         match r {
             Ok(o) => {
                 self.enqueue_requests(inst, o.events);
@@ -2259,6 +2260,27 @@ impl Host {
         }
     }
 
+    /// A method of a control, as [`methods::call`] runs it — except `ActivateItem` on a SideMenu (spec 049), which needs
+    /// the menu. The interpreter answers it from the designed rows and the program's own: `0` for an empty or unknown id,
+    /// else `1` and the shell does what a click on that row does. Here the answer comes from the same rows, and the click
+    /// is a command for the page, which holds the menu and the ContentPane (the page leaves a disabled row alone, as the
+    /// shell does).
+    fn control_method(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Result<methods::Outcome, MethodError> {
+        let menus = &self.menus;
+        let tree = self.trees.get_mut(&inst).expect("the instance is open");
+        if name.trim().eq_ignore_ascii_case("ActivateItem") && matches!(tree.ctls[idx].control_type(), Some(ControlType::SideMenu)) {
+            let id = args.first().map(|s| s.trim()).unwrap_or("");
+            let designed = menus.get(&tree.form_name, &tree.ctl(idx).name).map(|d| d.menu.as_slice()).unwrap_or(&[]);
+            let rows = cobolt_forms::menu::runtime::parse_rows(&tree.get(idx, cobolt_forms::menu::runtime::RUNTIME_ROWS_PROP));
+            if id.is_empty() || !cobolt_forms::menu::runtime::has_item(designed, &rows, id) {
+                return Ok(methods::Outcome { value: Some("0".into()), events: Vec::new() });
+            }
+            tree.command(idx, "activate-item", vec![id.to_owned()]);
+            return Ok(methods::Outcome { value: Some("1".into()), events: Vec::new() });
+        }
+        methods::call(tree, idx, name, args)
+    }
+
     /// Call a method of control `idx` of instance `inst` (the form itself when `idx` is 0).
     fn call_ctl(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Result<Option<String>, CmdError> {
         // Window-level verbs live on the form itself (ctrl 0) and on `super`.
@@ -2280,10 +2302,7 @@ impl Host {
         if let Some(r) = self.gfx_sync_call(inst, idx, name, args) {
             return r;
         }
-        let r = {
-            let tree = self.trees.get_mut(&inst).unwrap();
-            methods::call(tree, idx, name, args)
-        };
+        let r = self.control_method(inst, idx, name, args);
         match r {
             Ok(o) => {
                 self.enqueue_requests(inst, o.events);
@@ -2993,8 +3012,7 @@ impl Host {
                 Ok(None)
             }
             other => {
-                let tree = self.trees.get_mut(&inst).unwrap();
-                match methods::call(tree, idx, other, args) {
+                match self.control_method(inst, idx, other, args) {
                     Ok(o) => Ok(o.value),
                     Err(e) => Err(CmdError::Unknown(e.to_string())),
                 }

@@ -82,3 +82,38 @@ fn inside_the_shell_a_verb_becomes_a_command_and_its_answer_is_read_back() {
     assert_eq!(h.app_get("SecureStatus"), "-6", "a refusal of the shell");
     println!("inside the shell: 4 commands (store, load, delete, load refused), statuses 0 0 1 -6, the loaded value read back");
 }
+
+/// `SideMenu::ActivateItem(id)` (spec 049) answers what the interpreter answers — `1` for a row of the menu, designed or the
+/// program's own, `0` for an empty or unknown id — and leaves the click to the page, which holds the menu and the ContentPane.
+/// It used to answer nothing: the browser had no such method, so a shell could not open its first screen from `onLoad`.
+#[test]
+fn activate_item_answers_from_the_menu_and_leaves_the_click_to_the_page() {
+    use cobolt_forms::menu::{MenuDefinition, MenuItem};
+    let mut h = host(false);
+    let (tree, side) = crate::tree::testing::tree_with("SideMenu", "SIDEMENU-1", &[]);
+    let form = tree.form_name.clone();
+    h.trees.insert(1, tree);
+    let mut off = MenuItem::new_action("off", "Off");
+    off.enabled = false;
+    let dash = MenuItem { action: Some("open-form:dashboard-form".into()), ..MenuItem::new_action("dash", "Dashboard") };
+    h.menus.insert(&form, "SIDEMENU-1", MenuDefinition { menu: vec![dash, off], hash: String::new() });
+    let answer = |h: &mut Host, id: &str| h.control_method(1, side, "ActivateItem", &[id]).unwrap().value.unwrap_or_default();
+    let commands = |h: &mut Host| -> Vec<Vec<String>> {
+        h.trees.get_mut(&1).unwrap().take_changes().into_iter().filter_map(|c| match c {
+            Change::Command { name, args, .. } if name == "activate-item" => Some(args),
+            _ => None,
+        }).collect()
+    };
+    assert_eq!(answer(&mut h, " dash "), "1");
+    assert_eq!(commands(&mut h), vec![vec!["dash".to_owned()]], "one click for the page, the id trimmed");
+    assert_eq!(answer(&mut h, "off"), "1", "a disabled row is in the menu: the interpreter answers 1 and the click does nothing");
+    assert_eq!(commands(&mut h).len(), 1);
+    for id in ["", "nope", "DASH"] {
+        assert_eq!(answer(&mut h, id), "0", "`{id}`: not a row of the menu, as `has_item` reads it");
+        assert!(commands(&mut h).is_empty(), "`{id}`: nothing for the page");
+    }
+    let (other, lst) = crate::tree::testing::tree_with("ListBox", "LST-1", &[]);
+    h.trees.insert(2, other);
+    assert!(h.control_method(2, lst, "ActivateItem", &["dash"]).is_err(), "only a SideMenu has the method");
+    println!("ActivateItem on the web: 2 rows answered 1 with a click for the page, 3 ids answered 0 with none, a ListBox refused");
+}

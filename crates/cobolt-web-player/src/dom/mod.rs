@@ -387,6 +387,32 @@ impl Shared {
         }
     }
 
+    /// `SideMenu::ActivateItem(id)` (spec 049): the program asked for what a click on that row does, and it is done as
+    /// the operator's click is — its events, `SelectedItemId`, and the form it loads into the ContentPane.
+    pub(super) fn activate_menu_item(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, id: &str) {
+        let tile = self.tile_url(inner);
+        let acts = {
+            let Ok(host) = inner.host.try_borrow() else { return };
+            let Some(tree) = host.trees.get(&inst) else { return };
+            let Ok(st) = self.state.try_borrow() else { return };
+            let Some(iv) = st.instances.get(&inst) else { return };
+            let Ok(styles) = inner.styles.try_borrow() else { return };
+            let cx = ViewCtx {
+                tree,
+                assets: &styles.assets,
+                locale: &styles.locale,
+                ui: &iv.ui,
+                menus: &styles.menus,
+                image_origins: &inner.cfg.image_origins,
+                tile_url: &tile,
+            };
+            interact::activate_item(&cx, ctl, id)
+        };
+        if !acts.is_empty() {
+            inner.push(Inbox::Acts { inst, ctl, acts });
+        }
+    }
+
     /// Keys that reach the form's root: the form's own key events, and Enter pressing the default button.
     fn on_form_event(self: &Rc<Self>, inst: u32, kind: &str, ev: &Event, root: &Element) {
         let Some(inner) = self.inner.upgrade() else { return };
