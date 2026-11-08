@@ -655,7 +655,8 @@ mod tests {
     /// the desktop paints it at its place at once (`render.rs` CT::Switch: "costs the crate's knob-slide animation").
     #[test]
     fn the_base_stylesheet_moves_nothing_by_itself() {
-        let css = crate::base_css::base_layer();
+        // The one motion the page has is opt-in: the stripes of a control whose `LoadingEffect` is on (operator, 2026-11-08).
+        let css: String = crate::base_css::base_layer().lines().filter(|l| !l.contains("pr-loadfx") && !l.contains("pr-barber")).collect::<Vec<_>>().join("\n");
         assert!(!css.contains("transition") && !css.contains("@keyframes") && !css.contains("animation:"), "a motion the desktop does not have");
     }
 

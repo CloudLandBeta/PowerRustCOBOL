@@ -200,9 +200,14 @@ div.pr-line > svg > line { stroke: var(--pr-line-color, currentColor); stroke-wi
 .pr-badge-outline { background: transparent; }
 .pr-badge-count { min-width: 1.6em; text-align: center; padding: 0 .3em; }
 .pr-sidemenu { display: flex; flex-direction: column; overflow: hidden; }
-.pr-sm-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; min-height: 120px; }
-.pr-sm-header img { max-height: 80px; max-width: min(270px, 100%); }
+.pr-sm-header { display: flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; padding: 4px 12px; height: var(--pr-sm-header-h, 120px); flex: none; }
+.pr-sm-header img { width: 270px; height: 80px; max-width: 100%; max-height: 100%; object-fit: contain; }
 .pr-sm-title { font-weight: 600; }
+/* LoadingEffect: barber-shop stripes run left to right over the control while a Backend call is in flight; the answer takes them away. */
+.pr-loadfx { position: relative; }
+.pr-loadfx::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .15s; background: repeating-linear-gradient(135deg, rgba(255,255,255,.55) 0 12px, rgba(120,120,160,.28) 12px 24px); background-size: 34px 34px; }
+body[data-pr-busy] .pr-loadfx::after { opacity: 1; animation: pr-barber 0.8s linear infinite; }
+@keyframes pr-barber { to { background-position: 34px 0; } }
 .pr-sm-toggle { align-self: flex-end; margin: 0 8px 4px; background: transparent; border: 0; color: inherit; cursor: pointer; font: inherit; }
 .pr-sm-items { flex: 1; overflow: auto; margin: 0; padding: 0; list-style: none; }
 .pr-sidemenu .pr-menu-items { position: static; margin: 0; padding: 0 0 0 16px; list-style: none; }
@@ -214,7 +219,7 @@ div.pr-line > svg > line { stroke: var(--pr-line-color, currentColor); stroke-wi
 .pr-sidemenu.pr-collapsed .pr-menu-label, .pr-sidemenu.pr-collapsed .pr-menu-accel, .pr-sidemenu.pr-collapsed .pr-badge, .pr-sidemenu.pr-collapsed .pr-chevron,
 .pr-sidemenu.pr-collapsed .pr-menu-section { display: none; }
 .pr-sm-footer { flex: none; position: relative; height: var(--pr-sm-footer-h, auto); }
-.pr-main[data-shell] > .pr-form-root > .pr-form > .pr-surface > .pr-sidemenu { width: var(--pr-rail, 220px) !important; top: 0 !important; bottom: 0 !important; height: auto !important; }
+.pr-main[data-shell] > .pr-form-root > .pr-form > .pr-surface > .pr-sidemenu { position: fixed !important; width: var(--pr-rail, 220px) !important; top: 0 !important; bottom: 0 !important; height: auto !important; }
 .pr-shell-pane { position: absolute; top: 0; right: 0; bottom: 0; left: var(--pr-rail-end, 220px); display: flex; flex-direction: column; pointer-events: none; }
 .pr-shell-pane > * { pointer-events: auto; }
 .pr-crumb-host { flex: none; }

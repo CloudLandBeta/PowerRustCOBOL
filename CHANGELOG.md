@@ -1,5 +1,14 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.320 — 2026-11-08
+
+**Fix: the web page's sidebar takes the designer's logo pane and stays in place; a control can show a loading effect; a drawing that never appears says why.**
+- The logo pane is `HeaderHeight` tall (the page ignored it and used 120 px), the logo is centred in it and shrunk, never grown, to fit as the designer draws it.
+- A docked SideMenu is fixed to the window: it occupies its whole height and does not scroll with the page.
+- New property **Loading effect** (`LoadingEffect`, every control, Properties panel in six languages): while any call to the Backend is in flight, the control shows barber-shop stripes running left to right; the answer takes them away. The page marks itself `data-pr-busy` while a call is out.
+- A refused Scene3D/Canvas3D call, a graphics object that could not be made, and a picture with nowhere to go are now written to the browser console (`[pr] …`) instead of only to `LastError`.
+Not covered: the System KB tables and `chunked.data` for `LoadingEffect` (the rebuild needs the semantic model); the Developer's Guide (2.x.x never touches `docs/`).
+
 ## 2.0.315 — 2026-11-08
 
 **Fix: the web page's sidebar rail takes the desktop's measurements.** The Designer paints each rail row 42 px high with a 4 px gap, 12 px side padding, 22 px icons, 16 px nesting and a logo up to 270 × 80 in a 120 px header; the page used generic menu styles (rows about 28 px, 16 px icons, a 40 px logo), so the same text sat visibly tighter in the browser than in the RAD. The rail now uses the desktop's numbers. Other controls were not compared in this change. *(Written on fixes-2x-import-picked-asset, after 2.0.314.)*

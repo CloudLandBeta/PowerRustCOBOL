@@ -195,6 +195,7 @@ impl Shared {
             self.canvas.borrow_mut().canvases.entry((inst, ctl)).or_default();
         }
         if let Err(why) = self.make_object(&g, inst, ctl, kind, size) {
+            web_sys::console::warn_1(&format!("[pr] {kind} could not be made: {why}").into());
             return GfxAnswer::Refused(why);
         }
         self.canvas_run_all(inner, inst);
@@ -207,7 +208,11 @@ impl Shared {
         let json = serde_json::to_string(args).unwrap_or_else(|_| "[]".into());
         let answer = match call.call3(&g, &(ctl as u32).into(), &method_name.into(), &json.as_str().into()) {
             Ok(v) => GfxAnswer::Answer(v.as_string().unwrap_or_default()),
-            Err(e) => GfxAnswer::Refused(message(&e)),
+            Err(e) => {
+                // A refusal reaches the program as `LastError`; the console says it too, so a drawing that never appears has a reason to read.
+                web_sys::console::warn_1(&format!("[pr] {kind} {method_name}: {}", message(&e)).into());
+                GfxAnswer::Refused(message(&e))
+            }
         };
         if kind == "Canvas3D" && method_name.trim().eq_ignore_ascii_case("Render") && matches!(answer, GfxAnswer::Answer(_)) {
             self.picture3d(&g, inst, ctl);
@@ -390,9 +395,13 @@ impl Shared {
     /// Put straight-alpha RGBA of `w` x `h` on the control's `<canvas>`.
     fn put_pixels(&self, inst: u32, ctl: usize, bytes: &[u8], w: u32, h: u32) {
         if w == 0 || h == 0 {
+            web_sys::console::warn_1(&format!("[pr] a picture of {w} x {h} has nothing to paint").into());
             return;
         }
-        let Some(el) = self.control_element(inst, ctl).and_then(|c| c.query_selector("canvas").ok().flatten()) else { return };
+        let Some(el) = self.control_element(inst, ctl).and_then(|c| c.query_selector("canvas").ok().flatten()) else {
+            web_sys::console::warn_1(&"[pr] a picture arrived for a canvas that is not on the page".into());
+            return;
+        };
         let Ok(canvas) = el.dyn_into::<HtmlCanvasElement>() else { return };
         let Ok(image) = ImageData::new_with_u8_clamped_array_and_sh(Clamped(bytes), w, h) else { return };
         let ctx = canvas.get_context("2d").ok().flatten().and_then(|c| c.dyn_into::<CanvasRenderingContext2d>().ok());

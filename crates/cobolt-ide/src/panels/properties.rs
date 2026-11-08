@@ -6416,6 +6416,8 @@ impl PropertiesPanel {
         let key = cobolt_forms::accessible::ACCESSIBLE_LABEL;
         let cur = ctrl.get_prop(key).map(|v| v.as_str().to_owned()).unwrap_or_default();
         text_row_hint(ui, &mut self.hints, id, key, &cur, tr.lbl_accessible_label_lbl, "", action);
+        // Web and Mobile: barber-shop stripes over the control while a call to the Backend is in flight.
+        bool_prop_row(ui, id, "LoadingEffect", tr.lbl_loading_effect_lbl, ctrl, action);
         combo_prop_row(
             ui,
             id,

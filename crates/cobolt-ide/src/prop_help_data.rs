@@ -673,6 +673,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "屏幕阅读器为该控件读出的名称（桌面和浏览器中均适用）。为空时：使用控件自己的 Caption，否则使用 Tab 顺序中紧挨其前的 Label，否则使用其 Tooltip；都没有时，Web 或移动项目的 Check 会给出警告。",
         "Le nom qu'un lecteur d'écran annonce pour le contrôle, sur le bureau et dans un navigateur. Vide : le Caption du contrôle, sinon le Label juste avant lui dans l'ordre de tabulation, sinon son Tooltip ; sans aucun d'eux, le Check d'un projet Web ou Mobile avertit.",
     ] },
+    PropHelp { ty: "", prop: "LoadingEffect", text: [
+        "Web and Mobile: while any call to the Backend is in flight, the control shows barber-shop stripes running left to right; when the answer arrives the stripes go away. Off by default; the desktop ignores it.",
+        "Web y Móvil: mientras una llamada al Backend está en curso, el control muestra franjas de barbería que corren de izquierda a derecha; al llegar la respuesta desaparecen. Desactivado por defecto; el escritorio lo ignora.",
+        "Web e Mobile: enquanto uma chamada ao Backend está em andamento, o controle mostra listras de barbearia correndo da esquerda para a direita; quando a resposta chega, as listras somem. Desligado por padrão; o desktop ignora.",
+        "Web とモバイル: Backend への呼び出しが進行中のあいだ、コントロールに左から右へ流れる理容店風のストライプを表示し、応答が届くと消えます。既定はオフで、デスクトップでは無視されます。",
+        "Web 和移动：只要有对后端的调用在进行，控件就会显示从左向右移动的理发店条纹；应答到达后条纹消失。默认关闭；桌面版忽略此属性。",
+        "Web et Mobile : tant qu'un appel au Backend est en cours, le contrôle affiche des bandes de barbier qui défilent de gauche à droite ; la réponse les fait disparaître. Désactivé par défaut ; le bureau l'ignore.",
+    ] },
     PropHelp { ty: "", prop: "Transparency", text: [
         "How much of what lies behind shows through the control's face, 0 (opaque) to 100 (face not painted). It fades the background, frame and shadow; text and border stay legible. A CheckBox defaults to 100.",
         "Cuánto de lo que hay detrás se ve a través de la cara del control, de 0 (opaco) a 100 (cara sin pintar). Atenúa el fondo, el marco y la sombra; el texto y el borde siguen legibles. Un CheckBox tiene 100 por defecto.",

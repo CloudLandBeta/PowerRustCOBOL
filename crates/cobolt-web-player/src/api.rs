@@ -459,6 +459,8 @@ pub(crate) trait Surface {
     fn render(&self, inner: &Rc<Inner>);
     fn effect(&self, inner: &Rc<Inner>, e: &Effect);
     fn net_state(&self, inner: &Rc<Inner>, s: LinkState);
+    /// A call to the Backend is in flight (`busy`) or none is: the controls with a `LoadingEffect` show their stripes while it is.
+    fn net_busy(&self, _busy: bool) {}
     /// The connection is being retried (`blocked`) or gave up (`unreachable`): show, change or take away the "connecting"
     /// modal that blocks the application (WASM-016 R20–R21).
     fn net_blocked(&self, inner: &Rc<Inner>, blocked: bool, unreachable: bool);
@@ -694,11 +696,14 @@ impl Inner {
 
     /// Hand the connection's answers to the host and set the timer for its next deadline.
     fn drain_net(self: &Rc<Self>) {
-        let (outs, refresh, deadline) = {
+        let (outs, refresh, deadline, busy) = {
             let mut guard = self.net.borrow_mut();
             let Some(c) = guard.as_mut() else { return };
-            (c.take_out(), std::mem::take(&mut c.refresh_requested), c.next_deadline())
+            (c.take_out(), std::mem::take(&mut c.refresh_requested), c.next_deadline(), c.in_flight() > 0)
         };
+        if let Some(sf) = self.surface.borrow().as_ref() {
+            sf.net_busy(busy);
+        }
         let mut modal_changed = false;
         for o in outs {
             match o {

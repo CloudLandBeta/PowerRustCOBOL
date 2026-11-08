@@ -619,6 +619,8 @@ pub fn kind_decls(ctls: &[Ctl], i: usize) -> Decls {
                 if let Some(n) = num(c, "collapsedwidth") {
                     push(&mut d, "--pr-rail-collapsed", px(n));
                 }
+                // The logo pane is as tall as `HeaderHeight`, as the desktop's header pane is (sidebar.rs `header_h`).
+                push(&mut d, "--pr-sm-header-h", px(num(c, "headerheight").filter(|h| *h >= 0.0).unwrap_or(cobolt_forms::model::DEFAULT_SIDE_MENU_HEADER_H as f64)));
                 // The footer band is as tall as `FooterHeight` while the rail holds its footer Panel; without one it takes no room.
                 if has_footer_panel(ctls, i) {
                     push(&mut d, "--pr-sm-footer-h", px(side_menu_footer_height(c)));

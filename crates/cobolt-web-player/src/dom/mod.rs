@@ -1042,6 +1042,12 @@ impl Surface for Dom {
         self.sh.set_net_modal(inner, blocked, unreachable);
     }
 
+    fn net_busy(&self, busy: bool) {
+        if let Some(body) = self.sh.doc.body() {
+            let _ = if busy { body.set_attribute("data-pr-busy", "") } else { body.remove_attribute("data-pr-busy") };
+        }
+    }
+
     fn styles_changed(&self, inner: &Rc<Inner>) {
         self.sh.styles_changed(inner);
     }

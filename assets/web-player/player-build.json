@@ -52,24 +52,24 @@
       "sha256": "455030d4108decdb4fa392cd79fed4b306d33f7c6fc936b01486152d808a0106"
     },
     {
-      "bytes": 100558,
+      "bytes": 100730,
       "path": "plain/player.js",
-      "sha256": "01d41fa2526a2f50df0b691ceeb53f761ae56316d5accadfcea61eb71717322d"
+      "sha256": "cdc92fa15457437f78b5f3d726fbf9fc4caa290182831ff09ca901a91501c48e"
     },
     {
-      "bytes": 4023567,
+      "bytes": 4025664,
       "path": "plain/player_bg.wasm",
-      "sha256": "b3ff0c9d7473f2c8a60f50a96be909e03abe2c96bdd95f15bb29eb7310392299"
+      "sha256": "bb2c9d059fc0dbcc599460622e362e0b06d2e0892229d3a4b52b8d0bb24e9c29"
     },
     {
-      "bytes": 106849,
+      "bytes": 107021,
       "path": "threaded/player.js",
-      "sha256": "d079d0eb293b9ebc00b93ac5d70b41b6824754246c94f8260e2fe8a72dae3523"
+      "sha256": "279918288ab2cc814ad2b60aead4c3fecd125987c74834de75cbdd57a9c7f4a8"
     },
     {
-      "bytes": 3844783,
+      "bytes": 3846763,
       "path": "threaded/player_bg.wasm",
-      "sha256": "6c9dcf73e1e9e6610d7fb0dd9e0239d60f4fa1af15e8107051271bf5edc4d461"
+      "sha256": "e216af7b7ef06ac4c6256d8b025d4b1d35fbb4a74736c5092cf6dad822ea23a0"
     },
     {
       "bytes": 4556,
@@ -87,20 +87,20 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 4370668,
-      "after_wasm_opt_bytes": 4023567,
-      "cargo_output_bytes": 5864166,
-      "glue_js_bytes": 100558,
-      "gzip_bytes": 1389874,
+      "after_bindgen_bytes": 4372849,
+      "after_wasm_opt_bytes": 4025664,
+      "cargo_output_bytes": 5866545,
+      "glue_js_bytes": 100730,
+      "gzip_bytes": 1390349,
       "opt_level": "s",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 4146704,
-      "after_wasm_opt_bytes": 3844783,
-      "cargo_output_bytes": 5651389,
-      "glue_js_bytes": 106849,
-      "gzip_bytes": 1366726,
+      "after_bindgen_bytes": 4148794,
+      "after_wasm_opt_bytes": 3846763,
+      "cargo_output_bytes": 5653671,
+      "glue_js_bytes": 107021,
+      "gzip_bytes": 1367409,
       "opt_level": "s",
       "variant": "threaded"
     }
@@ -160,7 +160,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "479ffd3fd24070dc5c085b6316ddd4b5eee21692a5c82d05cef87e62ba4f8fd6",
+  "source_hash": "459e02fcec8af8034d48cbfff5d58c9bc6b3eb82112680ed68d7ec605640b250",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",

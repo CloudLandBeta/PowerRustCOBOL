@@ -694,6 +694,10 @@ pub fn class_names(ctl: &Ctl) -> Vec<String> {
             v.push(format!("pr-{}", type_class(t)));
         }
     }
+    // `LoadingEffect`: barber-shop stripes over the control while a call to the Backend is in flight (base_css `data-pr-busy`).
+    if ctl.raw("loadingeffect").is_some_and(crate::value::truthy) {
+        v.push("pr-loadfx".into());
+    }
     if let Some(c) = ctl.raw("cssclass") {
         for n in c.split_whitespace() {
             if n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
