@@ -1,5 +1,13 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.311 — 2026-11-08
+
+**Fix: a SideMenu follows the form when the form is stretched taller in the designer.** *(Written on fixes-2x, after 2.0.310.)*
+
+- **Symptom:** after a SideMenu was placed, stretching the form vertically left the rail at the height the form had when it was placed.
+- **Cause:** on a responsive form the form's grip changes the view size, and the layout carried a FullHeight SideMenu at its designed height instead of the laid-out one.
+- **Fix:** `laid_out_controls` (`cobolt-forms/src/layout/apply.rs`) pins a FullHeight SideMenu to the laid-out height, so every surface that lays a form out follows the stretch. FullHeight off is unchanged. Test: `a_full_height_side_menu_follows_the_laid_out_height`.
+
 ## 2.0.310 — 2026-11-08
 
 **Fix: the table of built-ins lists `COBOL::SecureStore`, `SecureLoad` and `SecureDelete`, which the interpreter has dispatched since 2.0.288.** *(Forward-port of 2.0.309, eee398ec on fixes-2x-builtins-secure; renumbered 2.0.310.)*

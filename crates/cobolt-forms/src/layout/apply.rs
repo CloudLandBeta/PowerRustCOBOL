@@ -156,6 +156,12 @@ pub fn laid_out_controls(controls: &[Control], layout: &LayoutOutput) -> Vec<Con
                     r.h.round() as i32,
                 );
             }
+            // A FullHeight SideMenu owns the window's whole height: it follows
+            // the size the form was laid out at, not the one it was designed at.
+            if c.side_menu_full_height() {
+                c.rect.y = 0;
+                c.rect.h = (layout.laid_out_size.1.round() as i32).max(1);
+            }
             c.set_prop(LAID_OUT, PropValue::Bool(true));
             if layout.hidden.contains(&c.id) || layout.expanded_away.contains(&c.id) {
                 c.set_prop(BREAKPOINT_VISIBLE, PropValue::Bool(false));
@@ -273,6 +279,22 @@ mod tests {
         });
         full.textures_delta.clear();
         out
+    }
+
+    /// A FullHeight SideMenu follows the size the form is laid out at (a
+    /// responsive form's grip only changes the view), not its designed height.
+    #[test]
+    fn a_full_height_side_menu_follows_the_laid_out_height() {
+        let mut side = Control::new("SIDE", ControlType::SideMenu, 0, 0);
+        side.rect = Rect::new(0, 0, 200, 480);
+        let mut layout = LayoutOutput::default();
+        layout.laid_out_size = (800.0, 900.0);
+        let laid = laid_out_controls(&[side.clone()], &layout);
+        assert_eq!((laid[0].rect.y, laid[0].rect.h), (0, 900));
+        side.set_prop("FullHeight", PropValue::Bool(false));
+        side.rect = Rect::new(0, 10, 200, 300);
+        let laid = laid_out_controls(&[side], &layout);
+        assert_eq!((laid[0].rect.y, laid[0].rect.h), (10, 300), "FullHeight off keeps the design");
     }
 
     /// A Panel anchored `Top,Right`, designed at x 300 in a 600 form, lands at
