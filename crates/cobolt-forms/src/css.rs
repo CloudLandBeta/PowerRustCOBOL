@@ -1136,6 +1136,15 @@ pub fn color_string(value: &str) -> Option<String> {
     color(value).map(|[r, g, b, a]| format!("#{r:02x}{g:02x}{b:02x}{a:02x}"))
 }
 
+/// The CSS name of an opaque colour, if it has one (the first of the list for two spellings, such as
+/// `gray` / `grey`): what a writer keeps when the developer wrote the colour by name.
+pub fn color_name(rgba: [u8; 4]) -> Option<&'static str> {
+    if rgba[3] != 255 {
+        return None;
+    }
+    NAMED.iter().find(|(_, c)| c[..] == rgba[..3]).map(|(n, _)| *n)
+}
+
 /// The CSS named colours (CSS Color Module Level 4).
 const NAMED: &[(&str, [u8; 3])] = &[
     ("aliceblue", [240, 248, 255]), ("antiquewhite", [250, 235, 215]), ("aqua", [0, 255, 255]),

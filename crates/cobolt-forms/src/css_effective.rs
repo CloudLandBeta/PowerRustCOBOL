@@ -32,6 +32,7 @@
 use std::collections::HashMap;
 
 use crate::css::{media_eval, parse_declarations_spanned, parse_selector, split_top, substitute_vars, DeclSpan, ElementRef, MediaEnv, Selector, Tri};
+use crate::css_reverse::{read, row_of, Ctx, Reading, Value};
 use crate::model::{Control, ControlType, Form};
 
 /// Where a sheet comes from.
@@ -505,6 +506,8 @@ pub struct Matched {
     pub line: usize,
     /// `false`: it applies only under an undecided condition, or through a simplified selector.
     pub certain: bool,
+    /// Index of the selector of the rule that matched (best one); `None` for `CssStyle`.
+    pub selector: Option<usize>,
     order: usize,
 }
 
@@ -554,14 +557,14 @@ fn conditions_hold(conds: &[Condition], env: Option<&MediaEnv>) -> Tri {
     all
 }
 
-/// The rule's best matching selector at `refs`: `(simplified, specificity)`, preferring a sure match,
+/// The rule's best matching selector at `refs`: `(simplified, specificity, index)`, preferring a sure match,
 /// then the more specific one.
-fn selector_hit(rule: &Rule, refs: &[ElementRef<'_>]) -> Option<(bool, (u32, u32, u32))> {
-    let mut best: Option<(bool, (u32, u32, u32))> = None;
-    for s in &rule.selectors {
+fn selector_hit(rule: &Rule, refs: &[ElementRef<'_>]) -> Option<(bool, (u32, u32, u32), usize)> {
+    let mut best: Option<(bool, (u32, u32, u32), usize)> = None;
+    for (si, s) in rule.selectors.iter().enumerate() {
         let Some(sel) = &s.parsed else { continue };
         if sel.matches(refs) {
-            let hit = (s.simplified, sel.specificity());
+            let hit = (s.simplified, sel.specificity(), si);
             best = match best {
                 Some(b) if (b.0, std::cmp::Reverse(b.1)) <= (hit.0, std::cmp::Reverse(hit.1)) => Some(b),
                 _ => Some(hit),
@@ -579,7 +582,7 @@ fn matching(sheets: &SheetSet, refs: &[ElementRef<'_>], env: Option<&MediaEnv>) 
         if cond == Tri::Fails {
             continue;
         }
-        let Some((simplified, specificity)) = selector_hit(rule, refs) else { continue };
+        let Some((simplified, specificity, selector)) = selector_hit(rule, refs) else { continue };
         let certain = !simplified && cond == Tri::Holds;
         for (di, d) in rule.decls.iter().enumerate() {
             out.push(Matched {
@@ -593,6 +596,7 @@ fn matching(sheets: &SheetSet, refs: &[ElementRef<'_>], env: Option<&MediaEnv>) 
                 sheet: Some(rule.source),
                 line: rule.line,
                 certain,
+                selector: Some(selector),
                 order: rule.order,
             });
         }
@@ -653,6 +657,7 @@ pub fn cascade(form: &Form, id: Option<&str>, sheets: &SheetSet, env: Option<&Me
                     sheet: None,
                     line: 0,
                     certain: true,
+                    selector: None,
                     order: css_style_order,
                 });
             }
@@ -664,6 +669,206 @@ pub fn cascade(form: &Form, id: Option<&str>, sheets: &SheetSet, env: Option<&Me
     let mut out = Cascaded { winners: winners_of(&all), may: all.iter().filter(|m| !m.certain).cloned().collect(), vars };
     out.may.sort_by_key(|m| m.order);
     out
+}
+
+// ── What the sheets make of the model's properties ────────────────────────────────────────────
+
+/// One model property a winning declaration sets.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entry {
+    /// The model property (`BackgroundColor`).
+    pub property: &'static str,
+    pub value: Value,
+    /// The CSS property that sets it.
+    pub css: String,
+    /// The layer of the declaration: only `Project` and above beat the properties layer (T4).
+    pub layer: Layer,
+    /// The sheet's label; `None` for the control's own `CssStyle`.
+    pub sheet: Option<String>,
+    /// 1-based line of the rule; 0 for `CssStyle`.
+    pub line: usize,
+    /// The declaration's value as written.
+    pub declared: String,
+    /// The winning rule can match an element other than this one (plan §1.4): its subject names a
+    /// type class, a `CssClass`, another attribute or no id, or its value comes through a `var()`.
+    pub shared: bool,
+}
+
+/// Why the canvas cannot paint a declaration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Why {
+    /// A CSS property the reverse table does not have.
+    OutsideTable,
+    /// A value of the R3 list, or an unresolved `var()`.
+    Unknown,
+    /// Geometry or layout: the designer places controls itself.
+    Geometry,
+    /// It applies only under an undecided condition, or through a simplified selector.
+    May,
+}
+
+/// A declaration the canvas does not paint, for the badge's tooltip.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Unpainted {
+    pub css: String,
+    pub value: String,
+    pub sheet: Option<String>,
+    pub line: usize,
+    pub why: Why,
+}
+
+/// What the sheets set on one control (or on the form), as model values.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Effective {
+    pub entries: Vec<Entry>,
+    pub unpainted: Vec<Unpainted>,
+}
+
+impl Effective {
+    pub fn get(&self, property: &str) -> Option<&Entry> {
+        self.entries.iter().find(|e| e.property == property)
+    }
+}
+
+const LAYOUT: &[&str] = &[
+    "width", "height", "min-width", "max-width", "min-height", "max-height", "margin", "margin-left", "margin-top", "margin-right", "margin-bottom", "top", "left", "right", "bottom", "inset", "position", "float",
+    "flex", "flex-direction", "flex-wrap", "flex-grow", "flex-shrink", "flex-basis", "grid", "grid-template-columns", "grid-template-rows", "gap", "row-gap", "column-gap", "order", "align-self", "overflow",
+    "overflow-x", "overflow-y", "box-sizing", "display", "transform-origin", "aspect-ratio",
+];
+
+/// The last compound of a selector, outside brackets and quotes.
+fn last_compound(sel: &str) -> &str {
+    let (mut cut, mut depth, mut quote) = (0, 0i32, None::<char>);
+    for (i, c) in sel.char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '[' | '(') => depth += 1,
+            (None, ']' | ')') => depth -= 1,
+            (None, ' ' | '>' | '+' | '~') if depth == 0 => cut = i + 1,
+            _ => {}
+        }
+    }
+    sel[cut..].trim()
+}
+
+fn names_this_control(sel: &str, id: &str) -> bool {
+    let subject = last_compound(sel).to_ascii_lowercase();
+    let id = id.to_ascii_lowercase();
+    let by_id = subject.match_indices(&format!("#{id}")).any(|(at, m)| !subject[at + m.len()..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+    by_id || subject.contains(&format!("[data-name=\"{id}\"]")) || subject.contains(&format!("[data-name='{id}']"))
+}
+
+fn is_shared(m: &Matched, sheets: &SheetSet, id: Option<&str>) -> bool {
+    let DeclSource::Rule { rule, .. } = m.source else { return false };
+    if m.value.contains("var(") {
+        return true;
+    }
+    let Some(id) = id else { return false };
+    let text = m.selector.and_then(|s| sheets.rules[rule].selectors.get(s)).map_or("", |s| s.text.as_str());
+    !names_this_control(text, id)
+}
+
+/// What `sheets` set on control `id` (`None`: the form's root) at screen `env`: the declarations that
+/// win, as model values with where they come from, and the ones the canvas cannot paint.
+pub fn effective(form: &Form, id: Option<&str>, sheets: &SheetSet, env: &MediaEnv) -> Effective {
+    let c = cascade(form, id, sheets, Some(env));
+    let ctl = id.and_then(|id| ancestry(form, id).last().copied());
+    // `em` in `font-size` is the size the element inherits; in any other property, its own.
+    let mut inherited = Ctx::new(ctl.map_or(ControlType::Panel, |c| c.control_type.clone()));
+    if let Some(n) = ctl.and_then(crate::layout::fonts::designed_size_opt) {
+        inherited.font_px = n;
+    }
+    let mut ctx = inherited.clone();
+    if let Some(Reading::Known(k)) = c.winner("font-size").and_then(|w| w.resolved.as_deref()).map(|v| read("font-size", v, &inherited)) {
+        if let Some((_, Value::Num(n))) = k.first() {
+            ctx.font_px = *n;
+        }
+    }
+    let label = |m: &Matched| m.sheet.map(|s| sheets.sources[s].label.clone());
+    let mut out = Effective::default();
+    for m in c.winners.iter().filter(|m| !m.css.starts_with("--")) {
+        let unp = |why| Unpainted { css: m.css.clone(), value: m.value.clone(), sheet: label(m), line: m.line, why };
+        let Some(resolved) = m.resolved.as_deref() else {
+            out.unpainted.push(unp(Why::Unknown));
+            continue;
+        };
+        match read(&m.css, resolved, if m.css == "font-size" { &inherited } else { &ctx }) {
+            Reading::Known(values) => {
+                let shared = is_shared(m, sheets, id);
+                for (property, value) in values {
+                    out.entries.push(Entry { property, value, css: m.css.clone(), layer: m.layer, sheet: label(m), line: m.line, declared: m.value.clone(), shared });
+                }
+            }
+            Reading::Unknown(_) if row_of(&m.css).is_some() => out.unpainted.push(unp(Why::Unknown)),
+            Reading::Unknown(_) => out.unpainted.push(unp(if LAYOUT.contains(&m.css.as_str()) { Why::Geometry } else { Why::OutsideTable })),
+        }
+    }
+    for m in c.may.iter().filter(|m| !m.css.starts_with("--")) {
+        out.unpainted.push(Unpainted { css: m.css.clone(), value: m.value.clone(), sheet: label(m), line: m.line, why: Why::May });
+    }
+    out
+}
+
+/// The colours a control paints exactly as the sheets give them (not faded by `Transparency`, which
+/// the page does not apply to a colour that comes from CSS): plain data for the render engine.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FinalColors {
+    pub face: Option<[u8; 4]>,
+    pub gradient: Option<([u8; 4], [u8; 4])>,
+    pub border: Option<[u8; 4]>,
+    pub shadow: Option<[u8; 4]>,
+}
+
+impl FinalColors {
+    /// From what the developer's rules (`Project` and above) set; the theme's values are the
+    /// properties' business, not CSS-final.
+    pub fn from_effective(e: &Effective) -> Self {
+        let colour = |p: &str| match e.entries.iter().find(|x| x.property == p && x.layer >= Layer::Project) {
+            Some(Entry { value: Value::Color(c), .. }) => Some(*c),
+            _ => None,
+        };
+        let opacity = e.entries.iter().find(|x| x.property == "ShadowOpacity").and_then(|x| if let Value::Num(n) = x.value { Some(n) } else { None });
+        FinalColors {
+            face: colour("BackgroundColor"),
+            gradient: colour("BackgroundGradientStartColor").zip(colour("BackgroundGradientEndColor")),
+            border: colour("BorderColor"),
+            shadow: colour("ShadowColor").map(|c| [c[0], c[1], c[2], opacity.map_or(c[3], |o| (o / 100.0 * 255.0).round().clamp(0.0, 255.0) as u8)]),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        *self == FinalColors::default()
+    }
+}
+
+/// [`FinalColors`] per control id, for the render engine.
+#[derive(Debug, Clone, Default)]
+pub struct CssFinal {
+    pub controls: HashMap<String, FinalColors>,
+}
+
+impl CssFinal {
+    /// Every control of `form` that has something in its colours.
+    pub fn of_form(form: &Form, sheets: &SheetSet, env: &MediaEnv) -> CssFinal {
+        fn walk(cs: &[Control], form: &Form, sheets: &SheetSet, env: &MediaEnv, out: &mut CssFinal) {
+            for c in cs {
+                let f = FinalColors::from_effective(&effective(form, Some(&c.id), sheets, env));
+                if !f.is_empty() {
+                    out.controls.insert(c.id.clone(), f);
+                }
+                walk(&c.children, form, sheets, env, out);
+            }
+        }
+        let mut out = CssFinal::default();
+        walk(&form.controls, form, sheets, env, &mut out);
+        out
+    }
+
+    pub fn get(&self, id: &str) -> Option<&FinalColors> {
+        self.controls.get(id)
+    }
 }
 
 #[cfg(test)]
@@ -822,6 +1027,55 @@ mod tests {
         eprintln!("css_effective may: :hover, undecided @media, @supports, decided Holds/Fails, Light/Dark");
     }
 
+
+    fn env() -> MediaEnv {
+        MediaEnv { width: 800.0, height: 600.0, scheme: Scheme::Light }
+    }
+
+    /// T3: `effective()` turns winning declarations into model values, keeps what it cannot paint
+    /// with its line, and decides `shared`.
+    #[test]
+    fn effective_reads_model_values_and_lists_what_the_canvas_cannot_paint() {
+        let f = form();
+        let css = ".pr-button { color: #112233; width: 50% }\n#BTN-1 { background-color: rgb(1, 2, 3); font-size: 1.5em; margin: 4px; transform: scale(2); padding: var(--none) }\n#BTN-1:hover { cursor: wait }\n@media (min-width: 1000px) { #BTN-1 { border-width: 9px } }\n";
+        let s = set(&[("webforms/F.css", Origin::Form, css)]);
+        let e = effective(&f, Some("BTN-1"), &s, &env());
+        assert_eq!(e.get("ForegroundColor").map(|x| x.value.clone()), Some(Value::Color([0x11, 0x22, 0x33, 255])));
+        assert_eq!(e.get("BackgroundColor").map(|x| (x.sheet.clone(), x.line, x.declared.clone())), Some((Some("webforms/F.css".into()), 2, "rgb(1, 2, 3)".into())));
+        assert_eq!(e.get("FontSize").map(|x| x.value.clone()), Some(Value::Num(21.0)), "1.5em of the default 14");
+        assert!(e.get("ForegroundColor").is_some_and(|x| x.shared), "a type-class rule can match another control");
+        assert!(e.get("BackgroundColor").is_some_and(|x| !x.shared), "an id rule is this control's own");
+        let why = |css: &str| e.unpainted.iter().find(|u| u.css == css).map(|u| (u.why, u.line));
+        assert_eq!(why("width"), Some((Why::Geometry, 1)), "width: 50% is layout, with its line");
+        assert_eq!(why("margin"), Some((Why::Geometry, 2)));
+        assert_eq!(why("transform"), Some((Why::Unknown, 2)), "the row exists, the model cannot hold it");
+        assert_eq!(why("padding"), Some((Why::Unknown, 2)), "an unresolved var()");
+        assert_eq!(why("cursor"), Some((Why::May, 3)), ":hover is a pseudo-class");
+        assert_eq!(why("border-width"), None, "width 800 < 1000: the condition Fails, so it is not even a candidate");
+    }
+
+    #[test]
+    fn a_var_value_is_shared_and_css_style_is_not() {
+        let mut f = form();
+        f.controls[1].properties.insert("CssStyle".into(), PropValue::String("color: red".into()));
+        let s = set(&[("a.css", Origin::Form, ":host { --c: blue } #BTN-1 { color: var(--c) } [data-name=\"BTN-1\"] { cursor: wait } .primary { padding: 2px }")]);
+        let e = effective(&f, Some("BTN-1"), &s, &env());
+        assert!(e.get("ForegroundColor").is_some_and(|x| x.shared && x.value == Value::Color([0, 0, 255, 255])), "through var(): shared");
+        assert!(e.get("Cursor").is_some_and(|x| !x.shared), "[data-name] of this control is its own");
+        assert!(e.get("PaddingLeft").is_none() && e.get("Padding").is_some_and(|x| x.shared), "a CssClass rule is shared");
+        let own = effective(&f, Some("BTN-2"), &s, &env());
+        assert!(own.get("ForegroundColor").is_some_and(|x| !x.shared && x.sheet.is_none() && x.line == 0), "CssStyle is this control's alone");
+        let colors = CssFinal::of_form(&f, &s, &env());
+        assert!(colors.get("BTN-2").is_none(), "a foreground colour is not a CSS-final face");
+        assert_eq!(colors.get("BTN-1").and_then(|c| c.face), None);
+        let fill = set(&[("a.css", Origin::Form, "#BTN-1 { background: linear-gradient(to right, red, blue); border: 2px solid green; box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5) }")]);
+        let c = CssFinal::of_form(&f, &fill, &env());
+        let b = c.get("BTN-1").expect("colours");
+        assert_eq!(b.gradient, Some(([255, 0, 0, 255], [0, 0, 255, 255])));
+        assert_eq!(b.border, Some([0, 128, 0, 255]));
+        assert_eq!(b.shadow, Some([0, 0, 0, 128]), "ShadowOpacity 50 is alpha 128");
+        eprintln!("css_effective effective(): model values, unpainted (geometry, Unknown, may), shared, CssFinal colours");
+    }
     #[test]
     fn rules_keep_their_lines_layers_conditions_and_declaration_ranges() {
         let css = "/* c */\n#A { color: red; margin: 0 !important }\n@layer pr-theme {\n  @media (min-width: 1px) { .x, .y:hover { padding: 1px } }\n}\n@font-face { font-family: F; src: url(x) }\n#B::after { color: blue }\n";

@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363); T3 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364); T4 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -105,7 +105,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - forms `css_overrides` green: its three existing tests, unchanged.
     - The forms build without `render` succeeds.
 
-- [ ] **T3 — The reverse table and `effective()`** (R2, R3, R7 data; AC1)
+- [x] **T3 — The reverse table and `effective()`** (R2, R3, R7 data; AC1)
   - Files: `crates/cobolt-forms/src/css_effective.rs`.
   - Do:
     - **`REVERSE`**, one row per CSS property of `CSS_TO_PROPERTIES`, decided as in plan §1.2's table. Each row has:
