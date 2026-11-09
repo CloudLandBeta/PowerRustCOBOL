@@ -85,7 +85,7 @@ fn paint(
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show_inside(root_ui, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls,
                     state,
                     form_size: Vec2::new(FORM.0, FORM.1),
@@ -415,7 +415,7 @@ fn tab_walk(controls: &[Control], layers: Vec<Layer>, state: &dyn FormState, pre
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(FORM.0, FORM.1));
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls,
                         state,
                         form_size: Vec2::new(FORM.0, FORM.1),
@@ -504,7 +504,7 @@ fn painted_with_clip(
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show_inside(root_ui, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls,
                     state: &DesignedState,
                     form_size: Vec2::new(FORM.0, FORM.1),
@@ -684,7 +684,7 @@ fn click_at(
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(FORM.0, FORM.1));
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls,
                         state,
                         form_size: Vec2::new(FORM.0, FORM.1),

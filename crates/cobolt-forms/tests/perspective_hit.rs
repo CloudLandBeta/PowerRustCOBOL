@@ -54,7 +54,7 @@ fn frame(ctx: &egui::Context, controls: &[Control], events: Vec<egui::Event>) ->
         },
         |root| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls,
                     state: &DesignedState,
                     form_size: FORM,
@@ -217,7 +217,7 @@ fn a_tilted_label_keeps_its_clicks_and_offers_no_text_selection() {
                     |root| {
                         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
                             let active = ActiveTabs::new();
-                            let input = RenderInput {
+                            let input = RenderInput { css_final: None,
                                 controls: &controls, state: &DesignedState, form_size: FORM, glass: true,
                                 mode: RenderMode::Interactive, active_tabs: &active, backdrop: Default::default(),
                             };

@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367); T7 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368); T8 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -195,7 +195,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
 
 ## Phase B — Painting
 
-- [ ] **T7 — `RenderInput.css_final` on both render paths** (R6)
+- [x] **T7 — `RenderInput.css_final` on both render paths** (R6)
   - Files: `crates/cobolt-forms/src/render.rs` (the face, gradient, border and shadow colour functions of `render_form` and `render_faces`).
   - Do:
     - `RenderInput` gains `css_final: Option<&CssFinal>`, `None` at every existing call site.

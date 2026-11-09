@@ -56,7 +56,7 @@ fn ns_per_frame(controls: &[Control]) -> f64 {
             },
             |root_ui| {
                 egui::CentralPanel::default().show(root_ui, |ui| {
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: egui::vec2(1400.0, 900.0),
@@ -139,7 +139,7 @@ fn ns_per_painted_frame(controls: &[Control]) -> f64 {
             },
             |root_ui| {
                 egui::CentralPanel::default().show(root_ui, |ui| {
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: egui::vec2(1400.0, 900.0),

@@ -144,7 +144,7 @@ fn a_chart_zooming_in_is_drawn_on_the_designer_canvas_from_its_first_frame() {
                         egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(480.0, 320.0))), ..Default::default() },
                         |root| {
                             egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-                                let input = RenderInput {
+                                let input = RenderInput { css_final: None,
                                     controls: &controls,
                                     state: &state,
                                     form_size: egui::vec2(460.0, 300.0),
@@ -208,7 +208,7 @@ fn the_charts_demo_form_zooms_in_from_nothing_on_the_canvas_and_in_the_preview()
                             egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1400.0, 900.0))), ..Default::default() },
                             |root| {
                                 egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-                                    let input = RenderInput {
+                                    let input = RenderInput { css_final: None,
                                         controls: &controls,
                                         state: &state,
                                         form_size: egui::vec2(form.width as f32, form.height as f32),

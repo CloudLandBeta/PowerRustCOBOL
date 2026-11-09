@@ -282,7 +282,7 @@ fn render_one(form: &Form, theme_default: Option<&str>, s: Surface, window: Vec2
                         controls = p.controls;
                         form_size = p.form_size;
                     }
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &controls,
                         state,
                         form_size,

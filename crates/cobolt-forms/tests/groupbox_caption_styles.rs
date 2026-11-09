@@ -162,7 +162,7 @@ fn painted(props: &[(&str, &str)]) -> (usize, usize) {
     input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 400.0)));
     let mut full = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-            let inp = RenderInput {
+            let inp = RenderInput { css_final: None,
                 controls: &controls,
                 state: &DesignedState,
                 form_size: vec2(600.0, 400.0),
@@ -219,7 +219,7 @@ fn the_top_border_is_open_behind_the_whole_caption_area() {
         let mut gap = None;
         let mut full = ctx.run_ui(input, |root| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedState,
                     form_size: vec2(600.0, 400.0),

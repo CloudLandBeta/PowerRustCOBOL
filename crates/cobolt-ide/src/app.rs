@@ -18754,7 +18754,7 @@ impl CoboltApp {
                             None => (&controls, egui::vec2(form_w, form_h), &st),
                         };
                         ui.set_min_size(render_size);
-                        let input = cobolt_forms::render::RenderInput {
+                        let input = cobolt_forms::render::RenderInput { css_final: None,
                             controls: render_controls,
                             state: render_state,
                             form_size: render_size,

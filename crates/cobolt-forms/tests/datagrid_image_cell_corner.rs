@@ -69,7 +69,7 @@ fn thumbnails_drawn(controls: &[Control]) -> usize {
             egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(480.0, 320.0))), ..Default::default() },
             |root| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: egui::vec2(460.0, 300.0),

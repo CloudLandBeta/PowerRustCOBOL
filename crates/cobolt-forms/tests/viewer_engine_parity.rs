@@ -52,7 +52,7 @@ fn painted(controls: &[Control], mode: RenderMode) -> Vec<(Rect, Color32)> {
         input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(760.0, 560.0)));
         let mut full = ctx.run_ui(input, |root| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
-                let rin = RenderInput {
+                let rin = RenderInput { css_final: None,
                     controls,
                     state: &Designed,
                     form_size: Vec2::new(700.0, 500.0),

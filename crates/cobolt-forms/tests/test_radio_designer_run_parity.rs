@@ -82,7 +82,7 @@ fn capture(
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show_inside(root_ui, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &controls,
                     state: &cobolt_forms::render::DesignedState,
                     form_size: Vec2::new(1211.0, 720.0),

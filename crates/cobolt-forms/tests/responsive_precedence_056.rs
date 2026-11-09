@@ -115,7 +115,7 @@ fn draw(s: Surface, controls: &[Control], layout: &BTreeMap<String, PropValue>) 
                     .iter()
                     .map(|c| (c.id.clone(), cobolt_forms::paint::ctrl_font_size(&laid_state.live(c))))
                     .collect();
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &p.controls,
                     state: &laid_state,
                     form_size: p.form_size,

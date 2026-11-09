@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+
+## 2.0.368 — 2026-11-09
+
+**Feature: the render engine paints a stylesheet's colours as given, on the canvas and on the running form (WASM-036 T7).** `RenderInput` gains `css_final`, the colours the page's stylesheet decided per control (face, gradient, border, shadow). A colour named there is not faded by the control's `Transparency` — CSS has no such property, so a Panel at `Transparency` 50 whose background comes from a rule shows that colour at full strength, while the same colour set as a property is still faded. Both `render_form` and `render_faces` publish it to the shared control painter, so the two paths agree; every existing call site passes `None` and paints exactly as before. A new test paints a Panel at `Transparency` 50 three ways (CSS colour, property colour, neither) on both paths, and the static-versus-faces parity guard now also runs with colours on two controls. Known edge: when a control's stylesheet face, gradient or shadow is named, its shadow is not faded either; DataGrid and ToolBar keep their own fade.
 ## 2.0.367 — 2026-11-09
 
 **Feature: the stylesheet engine caches what it computes and stays inside a budget on a big form (WASM-036 T6).** The sheets are parsed once until a text, an origin or the theme changes, and each control's effective values are computed once until the control, its containers, the screen or the sheets change; a lookup with nothing changed computes nothing. On a generated form of 200 controls and 501 rules the whole recompute takes 86 ms in a debug build and 13.7 ms in a release build (budgets 100 ms and 16 ms), a warm pass computes nothing, one edited control computes one, one changed sheet is parsed once. The cascade tests the selector before the media query, reads only the rules that declare custom properties when it walks the path for them, and resolves `var()` only for what it keeps.

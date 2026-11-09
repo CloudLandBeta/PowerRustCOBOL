@@ -50,7 +50,7 @@ fn clashes(footer: &[Control], pane: &[Control], scope_footer: bool) -> Vec<Stri
     raw.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(900.0, 600.0)));
 
     fn input_for<'a>(controls: &'a [Control], active: &'a ActiveTabs) -> RenderInput<'a> {
-        RenderInput {
+        RenderInput { css_final: None,
             controls,
             state: &DesignedState,
             form_size: Vec2::new(400.0, 200.0),

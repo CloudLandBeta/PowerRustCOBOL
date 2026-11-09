@@ -10929,7 +10929,7 @@ impl DesignerPanel {
                     let st: &dyn cobolt_forms::render::FormState = if laid.is_some() { &laid_st } else { &designer_st };
                     let without = super::grid_edit::Without { inner: st, hide: &hidden_grids };
                     let st: &dyn cobolt_forms::render::FormState = &without;
-                    let input = cobolt_forms::render::RenderInput {
+                    let input = cobolt_forms::render::RenderInput { css_final: None,
                         controls: controls_for_render,
                         state: st,
                         form_size: Vec2::new(form_w, form_h),
@@ -27240,7 +27240,7 @@ mod responsive_canvas_tests_056 {
                     let p = d.canvas_prepare(ui.ctx(), &d.form.controls.clone(), &st);
                     let laid = cobolt_forms::layout::apply::LaidOutState { inner: &st };
                     let active = cobolt_forms::containers::ActiveTabs::new();
-                    let input = cobolt_forms::render::RenderInput {
+                    let input = cobolt_forms::render::RenderInput { css_final: None,
                         controls: &p.controls,
                         state: &laid,
                         form_size: p.form_size,

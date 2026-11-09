@@ -54,7 +54,7 @@ fn corner_strokes(transparency: i64) -> Vec<Color32> {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(root, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedState,
                     form_size: size,

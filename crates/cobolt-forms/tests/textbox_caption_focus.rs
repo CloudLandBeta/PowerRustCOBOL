@@ -31,7 +31,7 @@ fn frame(ctx: &egui::Context, controls: &[Control], events: Vec<Event>) {
     input.events = events;
     let mut full = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-            let inp = RenderInput {
+            let inp = RenderInput { css_final: None,
                 controls,
                 state: &DesignedState,
                 form_size: size,

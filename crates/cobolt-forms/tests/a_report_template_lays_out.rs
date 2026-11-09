@@ -38,7 +38,7 @@ fn render(page: &str) -> (Rects, Texts) {
         input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), form));
         let mut out = ctx.run_ui(input, |root| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedState,
                     form_size: form,

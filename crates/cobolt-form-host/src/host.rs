@@ -1320,7 +1320,7 @@ impl FormBody {
         let active_tabs = self.active_tabs();
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(band));
         child.set_clip_rect(visible.intersect(ui.clip_rect()));
-        let input = cobolt_forms::render::RenderInput {
+        let input = cobolt_forms::render::RenderInput { css_final: None,
             controls: subtree,
             state: &st,
             form_size: band.size(),
@@ -3445,7 +3445,7 @@ impl FormBody {
                                 }
                             };
                             ui.set_min_size(render_size);
-                            let input = cobolt_forms::render::RenderInput {
+                            let input = cobolt_forms::render::RenderInput { css_final: None,
                                 controls: render_controls,
                                 state: render_state,
                                 form_size: render_size,
@@ -7279,7 +7279,7 @@ impl FormHost {
                                 }
                             };
                             ui.set_min_size(render_size);
-                            let input = cobolt_forms::render::RenderInput {
+                            let input = cobolt_forms::render::RenderInput { css_final: None,
                                 controls: render_controls,
                                 state: render_state,
                                 form_size: render_size,

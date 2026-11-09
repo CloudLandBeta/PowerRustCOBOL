@@ -76,7 +76,7 @@ fn painted(
     let mut props: Vec<(String, String)> = Vec::new();
     let mut full = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-            let inp = RenderInput {
+            let inp = RenderInput { css_final: None,
                 controls,
                 state,
                 form_size: FORM,

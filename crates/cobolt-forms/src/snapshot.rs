@@ -175,7 +175,7 @@ pub fn render_form_image(form: &Form, opts: &SnapshotOptions) -> egui::ColorImag
                     controls = p.controls;
                     form_size = p.form_size;
                 }
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &controls,
                     state,
                     form_size,

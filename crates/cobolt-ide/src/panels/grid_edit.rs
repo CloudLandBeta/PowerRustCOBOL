@@ -1048,7 +1048,7 @@ pub(crate) fn draw_grid(
         child.disable();
         child.set_opacity(1.0);
     }
-    let input = cobolt_forms::render::RenderInput {
+    let input = cobolt_forms::render::RenderInput { css_final: None,
         controls: &controls,
         state: &cobolt_forms::render::DesignedState,
         form_size: f.screen.size(),

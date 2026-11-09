@@ -107,7 +107,7 @@ fn frame(
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(root, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls,
                     state: &DesignedState,
                     form_size: FORM,
@@ -443,7 +443,7 @@ fn fullscreen_asks_the_window_and_gives_it_back() {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show(root, |ui| {
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: FORM,
@@ -538,7 +538,7 @@ fn a_platform_that_has_not_gone_fullscreen_yet_is_not_a_platform_leaving_it() {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show(root, |ui| {
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: FORM,
@@ -729,7 +729,7 @@ fn leaving_fullscreen_by_the_toolbar_does_not_ping_pong() {
         let mut written: Vec<String> = Vec::new();
         let mut full = ctx.run_ui(input, |root| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedState,
                     form_size: FORM,

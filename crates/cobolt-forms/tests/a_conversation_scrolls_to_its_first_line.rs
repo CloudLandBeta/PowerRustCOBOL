@@ -42,7 +42,7 @@ fn frame_all(
     let snapshot = controls.to_vec();
     let mut full = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-            let inp = RenderInput {
+            let inp = RenderInput { css_final: None,
                 controls: &snapshot,
                 state: &DesignedState,
                 form_size: form,

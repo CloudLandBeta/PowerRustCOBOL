@@ -624,6 +624,10 @@ pub struct RenderInput<'a> {
     pub active_tabs: &'a ActiveTabs,
     /// Form background.
     pub backdrop: Backdrop,
+    /// WASM-036 — the colours the page's stylesheet decided, per control ([`crate::css_effective::CssFinal`]).
+    /// A colour named there is painted as given, not faded by the control's `Transparency`. `None` for
+    /// a form with no stylesheet: nothing changes.
+    pub css_final: Option<&'a crate::css_effective::CssFinal>,
 }
 
 /// Chrome the HOST paints between the form's backdrop and its controls, given
@@ -2812,6 +2816,7 @@ fn render_form_inner(
     scope: Option<egui::Id>,
 ) -> RenderOutput {
 
+    let _css_final = crate::paint::publish_css_final(ui.ctx(), input.css_final);
     let mut out = RenderOutput::default();
     // Each control's drawn alpha, for the corner-notch pass at the end of the
     // frame: it re-composites the control's own shadow and must use the alpha
@@ -4844,6 +4849,7 @@ pub fn render_faces_with(
     at_grid: &mut dyn FnMut(&Control),
     after_container: &mut dyn FnMut(usize, &HashMap<String, Rect>),
 ) -> RenderOutput {
+    let _css_final = crate::paint::publish_css_final(painter.ctx(), input.css_final);
     let mut out = RenderOutput::default();
     let controls = input.controls;
     // Layer-major, as `render_form` draws (spec 091 R9, R10): both surfaces ask
@@ -16042,7 +16048,7 @@ mod tests {
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
-                        let rin = RenderInput {
+                        let rin = RenderInput { css_final: None,
                             controls: &controls,
                             state: &DesignedVisibility,
                             form_size: Vec2::new(400.0, 300.0),
@@ -16096,7 +16102,7 @@ mod tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
-                        let rin = RenderInput {
+                        let rin = RenderInput { css_final: None,
                             controls: &controls,
                             state: &DesignedVisibility,
                             form_size: Vec2::new(400.0, 300.0),
@@ -16200,7 +16206,7 @@ mod tests {
             let mut captured: Option<RenderOutput> = None;
             let mut out = self.ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &self.controls,
                         state: &DesignedVisibility,
                         form_size: self.form,
@@ -17368,7 +17374,7 @@ mod tests {
                 Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(760.0, 560.0)));
             let mut out = ctx.run_ui(input, |root| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls,
                         state,
                         form_size: Vec2::new(700.0, 500.0),
@@ -17534,7 +17540,7 @@ mod tests {
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
-                        let rin = RenderInput {
+                        let rin = RenderInput { css_final: None,
                             controls: &controls,
                             state: &DesignedVisibility,
                             form_size: Vec2::new(400.0, 300.0),
@@ -17596,7 +17602,7 @@ mod tests {
                     let canvas = DesignedState;
                     let running = DesignedVisibility;
                     let state: &dyn FormState = if faces { &canvas } else { &running };
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state,
                         form_size: Vec2::new(300.0, 200.0),
@@ -17652,7 +17658,7 @@ mod tests {
         let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(300.0, 200.0));
-                let rin = RenderInput {
+                let rin = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedState,
                     form_size: Vec2::new(300.0, 200.0),
@@ -17700,7 +17706,7 @@ mod tests {
         let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(300.0, 200.0));
-                let rin = RenderInput {
+                let rin = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedState,
                     form_size: Vec2::new(300.0, 200.0),
@@ -17795,7 +17801,7 @@ mod tests {
             let mut full = ctx.run_ui(raw, |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(300.0, 200.0));
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: Vec2::new(300.0, 200.0),
@@ -17876,7 +17882,7 @@ mod tests {
         let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 300.0));
-                let rin = RenderInput {
+                let rin = RenderInput { css_final: None,
                     controls: &controls,
                     state: &state,
                     form_size: Vec2::new(400.0, 300.0),
@@ -17964,7 +17970,7 @@ mod tests {
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(400.0, 300.0));
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedVisibility,
                         form_size: Vec2::new(400.0, 300.0),
@@ -18092,7 +18098,7 @@ mod tests {
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(400.0, 300.0));
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedVisibility,
                         form_size: Vec2::new(400.0, 300.0),
@@ -18180,7 +18186,7 @@ mod tests {
                         // containing the whole popup.
                         let form = Vec2::new(400.0, 28.0);
                         ui.allocate_ui(form, |ui| {
-                            let rin = RenderInput {
+                            let rin = RenderInput { css_final: None,
                                 controls: &controls,
                                 state: &DesignedVisibility,
                                 form_size: form,
@@ -18298,7 +18304,7 @@ mod tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
-                        let rin = RenderInput {
+                        let rin = RenderInput { css_final: None,
                             controls: &controls,
                             state: &DesignedVisibility,
                             form_size: Vec2::new(400.0, 200.0),
@@ -18368,7 +18374,7 @@ mod tests {
         ctx.data_mut(|d| d.insert_temp(egui::Id::new(("menu_open", "MenuBar-1")), Some(0usize)));
         let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-                let rin = RenderInput {
+                let rin = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedVisibility,
                     form_size: Vec2::new(400.0, 200.0),
@@ -18447,7 +18453,7 @@ mod tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
-                        let rin = RenderInput {
+                        let rin = RenderInput { css_final: None,
                             controls: &controls,
                             state: &DesignedVisibility,
                             form_size: Vec2::new(400.0, 200.0),
@@ -18553,7 +18559,7 @@ mod tests {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedVisibility,
                         form_size: Vec2::new(400.0, 200.0),
@@ -18632,7 +18638,7 @@ mod tests {
         ctx.run_ui(Default::default(), |root_ui| {
             egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 300.0));
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedVisibility,
                     form_size: Vec2::new(400.0, 300.0),
@@ -18683,7 +18689,7 @@ mod tests {
         let mut out = ctx.run_ui(Default::default(), |root_ui| {
             egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 200.0));
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedVisibility,
                     form_size: Vec2::new(400.0, 200.0),
@@ -18812,7 +18818,7 @@ mod tests {
                 let mut out = ctx.run_ui(raw, |root_ui| {
                     egui::CentralPanel::default().show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
-                        let input = RenderInput {
+                        let input = RenderInput { css_final: None,
                             controls: &controls,
                             state: &DesignedVisibility,
                             form_size: Vec2::new(400.0, 300.0),
@@ -18893,7 +18899,7 @@ mod tests {
             let mut out = ctx.run_ui(raw, |root_ui| {
                 egui::CentralPanel::default().show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(600.0, 400.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedVisibility,
                         form_size: Vec2::new(600.0, 400.0),
@@ -18994,7 +19000,7 @@ mod tests {
             let mut out = self.ctx.run_ui(raw, |root_ui| {
                 egui::CentralPanel::default().show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(600.0, 400.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedVisibility,
                         form_size: Vec2::new(600.0, 400.0),
@@ -19328,7 +19334,7 @@ mod tests {
             let mut out = ctx.run_ui(raw, |root_ui| {
                 egui::CentralPanel::default().show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(400.0, 300.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedVisibility,
                         form_size: Vec2::new(400.0, 300.0),
@@ -20019,7 +20025,7 @@ mod tests {
             let st = MapState(&overrides);
             let mut out = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &controls,
                         state: &st,
                         form_size: Vec2::new(400.0, 300.0),
@@ -20405,7 +20411,7 @@ mod tests {
 
             egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 500.0));
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedState,
                     form_size: Vec2::new(400.0, 500.0),
@@ -20456,7 +20462,7 @@ mod tests {
 
             egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 500.0));
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls: &controls,
                     state: &state,
                     form_size: Vec2::new(400.0, 500.0),
@@ -20535,7 +20541,7 @@ mod tests {
             |root_ui| {
                 egui::CentralPanel::default().show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(640.0, 480.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: Vec2::new(640.0, 480.0),
@@ -20576,7 +20582,7 @@ mod tests {
             |root_ui| {
                 egui::CentralPanel::default().show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(640.0, 480.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: Vec2::new(640.0, 480.0),
@@ -20671,7 +20677,7 @@ mod tests {
                 },
                 |root| {
                     egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
-                        let input = RenderInput {
+                        let input = RenderInput { css_final: None,
                             controls: &controls,
                             state: &DesignedState,
                             form_size: Vec2::new(400.0, 200.0),
@@ -20766,7 +20772,7 @@ mod tests {
             |root_ui| {
                 egui::CentralPanel::default().show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(640.0, 480.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: Vec2::new(640.0, 480.0),
@@ -21143,7 +21149,7 @@ mod tests {
             |root_ui| {
                 egui::CentralPanel::default().show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(640.0, 480.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: Vec2::new(640.0, 480.0),
@@ -21184,7 +21190,7 @@ mod tests {
             |root_ui| {
                 egui::CentralPanel::default().show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(640.0, 480.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: Vec2::new(640.0, 480.0),
@@ -21940,7 +21946,7 @@ mod tests {
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls,
                             state: &st,
                             form_size: Vec2::new(400.0, 300.0),
@@ -22497,7 +22503,7 @@ mod tests {
             |root_ui| {
                 egui::CentralPanel::default().show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(640.0, 480.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: Vec2::new(640.0, 480.0),
@@ -22581,7 +22587,7 @@ mod tests {
             |root_ui| {
                 egui::CentralPanel::default().show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(640.0, 480.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: Vec2::new(640.0, 480.0),
@@ -22781,7 +22787,7 @@ mod tests {
             |root_ui| {
                 egui::CentralPanel::default().show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(640.0, 480.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: Vec2::new(640.0, 480.0),
@@ -23039,7 +23045,7 @@ mod tests {
             let ctx = &ctx;
             egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 300.0));
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedState,
                     form_size: Vec2::new(400.0, 300.0),
@@ -23094,46 +23100,57 @@ mod tests {
                 c
             },
         ];
-        let ctx = egui::Context::default();
-        ctx.set_fonts(egui::FontDefinitions::default());
-        let active = ActiveTabs::new();
-        let (mut rects_form, mut rects_faces) = (None, None);
-        ctx.run_ui(Default::default(), |root_ui| {
-            let ctx = root_ui.ctx().clone();
-            let ctx = &ctx;
-            egui::CentralPanel::default().show_inside(root_ui, |ui| {
-                ui.set_min_size(Vec2::new(400.0, 300.0));
-                let input = RenderInput {
-                    controls: &controls,
-                    state: &DesignedState,
-                    form_size: Vec2::new(400.0, 300.0),
-                    glass: true,
-                    mode: RenderMode::Static,
-                    active_tabs: &active,
-                    backdrop: Backdrop::default(),
-                };
-                rects_form = Some(render_form(ui, &input).control_rects);
-                let painter = ui.painter().clone();
-                let origin = ui.min_rect().min;
-                rects_faces = Some(render_faces(&painter, origin, &input).control_rects);
-            });
-        }).textures_delta.clear();
-        let rf = rects_form.expect("render_form rects");
-        let fc = rects_faces.expect("render_faces rects");
-        for id in ["Pnl", "Chart", "Pic", "Txt", "Lbl"] {
-            let a = rf
-                .get(id)
-                .unwrap_or_else(|| panic!("render_form missing {id}"));
-            let b = fc
-                .get(id)
-                .unwrap_or_else(|| panic!("render_faces missing {id}"));
-            assert!(
-                (a.min.x - b.min.x).abs() < 0.5
-                    && (a.min.y - b.min.y).abs() < 0.5
-                    && (a.width() - b.width()).abs() < 0.5
-                    && (a.height() - b.height()).abs() < 0.5,
-                "geometry mismatch for {id}: render_form={a:?} render_faces={b:?}",
+        // WASM-036 T7: once as before (`None`), once with the stylesheet's colours on two of the
+        // controls — the colours change what is painted, never where.
+        let mut css = crate::css_effective::CssFinal::default();
+        for id in ["Pnl", "Txt"] {
+            css.controls.insert(
+                id.into(),
+                crate::css_effective::FinalColors { face: Some([255, 0, 0, 255]), border: Some([0, 0, 255, 255]), ..Default::default() },
             );
+        }
+        for with_css in [false, true] {
+            let ctx = egui::Context::default();
+            ctx.set_fonts(egui::FontDefinitions::default());
+            let active = ActiveTabs::new();
+            let (mut rects_form, mut rects_faces) = (None, None);
+            ctx.run_ui(Default::default(), |root_ui| {
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(400.0, 300.0));
+                    let input = RenderInput { css_final: with_css.then_some(&css),
+                        controls: &controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Static,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    rects_form = Some(render_form(ui, &input).control_rects);
+                    let painter = ui.painter().clone();
+                    let origin = ui.min_rect().min;
+                    rects_faces = Some(render_faces(&painter, origin, &input).control_rects);
+                });
+            }).textures_delta.clear();
+            let rf = rects_form.expect("render_form rects");
+            let fc = rects_faces.expect("render_faces rects");
+            for id in ["Pnl", "Chart", "Pic", "Txt", "Lbl"] {
+                let a = rf
+                    .get(id)
+                    .unwrap_or_else(|| panic!("render_form missing {id}"));
+                let b = fc
+                    .get(id)
+                    .unwrap_or_else(|| panic!("render_faces missing {id}"));
+                assert!(
+                    (a.min.x - b.min.x).abs() < 0.5
+                        && (a.min.y - b.min.y).abs() < 0.5
+                        && (a.width() - b.width()).abs() < 0.5
+                        && (a.height() - b.height()).abs() < 0.5,
+                    "geometry mismatch for {id}: render_form={a:?} render_faces={b:?}",
+                );
+            }
         }
     }
 
@@ -23379,7 +23396,7 @@ mod tests {
                                 // has scroll room, reproducing the binary where the form is
                                 // bigger than the window (drag-to-scroll can steal a drag).
                                 ui.set_min_size(Vec2::new(2000.0, 2000.0));
-                                let inp = RenderInput {
+                                let inp = RenderInput { css_final: None,
                                     controls,
                                     state: &st,
                                     form_size: Vec2::new(2000.0, 2000.0),
@@ -23499,7 +23516,7 @@ mod tests {
                                     // Content larger than the viewport â the outer area
                                     // has room to (wrongly) scroll if the grid bleeds.
                                     ui.set_min_size(Vec2::new(2000.0, 2000.0));
-                                    let inp = RenderInput {
+                                    let inp = RenderInput { css_final: None,
                                         controls,
                                         state: &st,
                                         form_size: Vec2::new(2000.0, 2000.0),
@@ -23581,7 +23598,7 @@ mod tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls,
                             state: &st,
                             form_size: Vec2::new(1000.0, 800.0),
@@ -23784,7 +23801,7 @@ mod tests {
                 let mut full = ctx.run_ui(input, |root_ui| {
                     egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls,
                             state: &NoState,
                             form_size: Vec2::new(400.0, 300.0),
@@ -23860,7 +23877,7 @@ mod tests {
             let active = ActiveTabs::new();
             let mut rects = HashMap::new();
             let mut full = ctx.run_ui(egui::RawInput::default(), |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &controls,
                     state: &NoState,
                     form_size: Vec2::new(400.0, 300.0),
@@ -24002,7 +24019,7 @@ mod tests {
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls,
                             state: &st,
                             form_size: Vec2::new(400.0, 300.0),
@@ -24405,7 +24422,7 @@ mod tests {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: Vec2::new(600.0, 300.0),
@@ -25392,7 +25409,7 @@ mod tests {
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls: &c,
                             state: &st,
                             form_size: Vec2::new(400.0, 300.0),
@@ -25935,7 +25952,7 @@ mod tests {
             let st = MapState(&overrides);
             let mut full = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &tabs,
                         state: &st,
                         form_size: Vec2::new(400.0, 300.0),
@@ -26018,7 +26035,7 @@ mod tests {
                     };
                     let prepared = crate::layout::apply::prepare_with_rail(ui.ctx(), &form.controls, &st, &spec, Vec2::new(1200.0, 800.0), None);
                     let laid = crate::layout::apply::LaidOutState { inner: &st };
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &prepared.controls,
                         state: &laid,
                         form_size: prepared.form_size,
@@ -26118,7 +26135,7 @@ mod tests {
                 let st = MapState(&overrides);
                 let mut out = ctx.run_ui(input, |root_ui| {
                     egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls: &controls,
                             state: &st,
                             form_size: Vec2::new(500.0, 400.0),
@@ -26195,7 +26212,7 @@ mod tests {
             let st = MapState(&overrides);
             let mut out = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &controls,
                         state: &st,
                         form_size: Vec2::new(400.0, 300.0),
@@ -26242,7 +26259,7 @@ mod tests {
             let st = MapState(&overrides);
             let mut out = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &controls,
                         state: &st,
                         form_size: Vec2::new(400.0, 300.0),
@@ -26354,7 +26371,7 @@ mod tests {
                     // The footer first, in its own id space and its own band.
                     let band = Rect::from_min_size(pos2(0.0, 600.0), Vec2::new(200.0, 40.0));
                     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(band));
-                    let finput = RenderInput {
+                    let finput = RenderInput { css_final: None,
                         controls: &footer,
                         state: &st,
                         form_size: band.size(),
@@ -26368,7 +26385,7 @@ mod tests {
                         .inner;
                     updates.borrow_mut().extend(out.prop_updates);
                     // Then the pane.
-                    let pinput = RenderInput {
+                    let pinput = RenderInput { css_final: None,
                         controls: &pane,
                         state: &st,
                         form_size: Vec2::new(400.0, 300.0),
@@ -26664,7 +26681,7 @@ mod tests {
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls,
                             state: &st,
                             form_size: Vec2::new(400.0, 300.0),
@@ -27888,7 +27905,7 @@ mod tests {
             let st = MapState(&overrides);
             let mut full = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &controls,
                         state: &st,
                         form_size: Vec2::new(976.0, 496.0),
@@ -27977,7 +27994,7 @@ mod tests {
                 let st = MapState(&overrides);
                 let mut full = ctx.run_ui(input, |root_ui| {
                     egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls: &controls,
                             state: &st,
                             form_size: Vec2::new(976.0, 400.0),
@@ -28408,7 +28425,7 @@ mod tests {
             let mut full = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(400.0, 300.0));
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls,
                         state: &st,
                         form_size: Vec2::new(400.0, 300.0),
@@ -29535,7 +29552,7 @@ mod tests {
             input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
             let mut full = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedVisibility,
                         form_size: Vec2::new(400.0, 300.0),
@@ -31700,7 +31717,7 @@ mod tests {
                 let st = Shown;
                 let mut full = ctx.run_ui(input, |root_ui| {
                     egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls: &controls,
                             state: &st,
                             form_size: Vec2::new(640.0, 300.0),
@@ -31859,7 +31876,7 @@ mod tests {
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls,
                             state,
                             form_size: Vec2::new(400.0, 300.0),
@@ -31915,7 +31932,7 @@ mod tests {
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls: &timer,
                             state: &DesignedState,
                             form_size: Vec2::new(400.0, 300.0),
@@ -32176,7 +32193,7 @@ mod shape_dump {
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     let st = MapState_dump(&overrides);
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &st,
                         form_size: Vec2::new(600.0, 300.0),
@@ -32251,7 +32268,7 @@ mod shape_dump {
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     let st = MapState_dump(&overrides);
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &st,
                         form_size: Vec2::new(600.0, 300.0),
@@ -32330,7 +32347,7 @@ mod shape_dump {
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     let st = MapState_dump(&overrides);
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &st,
                         form_size: Vec2::new(600.0, 300.0),
@@ -32409,7 +32426,7 @@ mod shape_dump {
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     let st = MapState_dump(&overrides);
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &st,
                         form_size: Vec2::new(600.0, 300.0),
@@ -32636,7 +32653,7 @@ mod shape_dump {
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     let st = MapState_dump(&overrides);
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &st,
                         form_size: Vec2::new(DG_FORM_W, DG_FORM_H),
@@ -32825,7 +32842,7 @@ mod shape_dump {
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     let st = MapState_dump(&overrides);
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &st,
                         form_size: Vec2::new(600.0, 300.0),
@@ -32967,7 +32984,7 @@ mod elegance_live_tests {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: Vec2::new(400.0, 300.0),
@@ -33006,7 +33023,7 @@ mod elegance_live_tests {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: Vec2::new(400.0, 300.0),
@@ -33210,7 +33227,7 @@ mod listbox_scroll_tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls: &controls,
                             state: &DesignedState,
                             form_size: Vec2::new(400.0, 300.0),
@@ -33348,7 +33365,7 @@ mod maps_corner_tests {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: Vec2::new(FORM_W, FORM_H),
@@ -33851,7 +33868,7 @@ mod notch_ambient_tests {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: FORM,
@@ -34049,7 +34066,7 @@ mod beyond_the_form_edge_tests {
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.set_min_size(FORM);
-                            let rin = RenderInput {
+                            let rin = RenderInput { css_final: None,
                                 controls: &controls,
                                 state: &DesignedState,
                                 form_size: FORM,
@@ -34150,7 +34167,7 @@ mod beyond_the_form_edge_tests {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
-                    let rin = RenderInput {
+                    let rin = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: FORM,
@@ -34274,7 +34291,7 @@ mod splitter_subtree_tests {
             egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(700.0, 500.0));
                 let st = MapState(&overrides);
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls: &controls,
                     state: &st,
                     form_size: Vec2::new(640.0, 480.0),
@@ -34369,7 +34386,7 @@ mod splitter_subtree_tests {
             egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(1000.0, 600.0));
                 let st = MapState(&overrides);
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls: &controls,
                     state: &st,
                     form_size: Vec2::new(900.0, 500.0),
@@ -34460,7 +34477,7 @@ mod container_visibility_tests {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &controls,
                         state,
                         form_size: Vec2::new(400.0, 300.0),
@@ -34597,7 +34614,7 @@ mod container_enabled_tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
-                        let inp = RenderInput {
+                        let inp = RenderInput { css_final: None,
                             controls: &controls,
                             state,
                             form_size: Vec2::new(400.0, 300.0),
@@ -34840,7 +34857,7 @@ mod hyperlink_tests {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
                     let st = Plain;
                     let active = crate::containers::ActiveTabs::default();
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls,
                         state: &st,
                         form_size: Vec2::new(400.0, 300.0),

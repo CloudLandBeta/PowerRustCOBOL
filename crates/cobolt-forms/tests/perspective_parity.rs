@@ -90,7 +90,7 @@ fn draw(controls: &[Control], surface: Surface) -> Seen {
             |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show(root_ui, |ui| {
                     ui.set_min_size(egui::vec2(460.0, 300.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: egui::vec2(460.0, 300.0),

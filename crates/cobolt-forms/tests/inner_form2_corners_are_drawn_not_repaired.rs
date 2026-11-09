@@ -88,7 +88,7 @@ fn repaired_corners(form: &Form, s: Surface) -> [bool; 4] {
                     Surface::Run => &Stringified,
                     _ => &DesignedState,
                 };
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls,
                     state,
                     form_size: size,

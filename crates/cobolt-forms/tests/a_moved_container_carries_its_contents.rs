@@ -65,7 +65,7 @@ fn rects(controls: &[Control], state: &dyn FormState) -> HashMap<String, Rect> {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(root, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls,
                     state,
                     form_size: size,

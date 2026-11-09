@@ -119,7 +119,7 @@ fn shapes(
                     Surface::Run => &Stringified,
                     _ => &DesignedState,
                 };
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls,
                     state,
                     form_size: Vec2::new(600.0, 400.0),

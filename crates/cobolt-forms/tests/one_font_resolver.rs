@@ -197,7 +197,7 @@ fn every_control_paints_at_the_resolved_size() {
         input.max_texture_side = Some(8192);
         let mut full = ctx.run_ui(input, |root| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedState,
                     form_size: vec2(400.0, 300.0),

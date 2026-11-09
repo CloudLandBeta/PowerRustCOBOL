@@ -97,7 +97,7 @@ fn render(s: Surface) -> (Vec<egui::epaint::ClippedShape>, HashMap<String, Rect>
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(root, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedState,
                     form_size: size,

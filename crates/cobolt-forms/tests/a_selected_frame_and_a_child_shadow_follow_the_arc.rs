@@ -99,7 +99,7 @@ fn a_childs_shadow_at_a_rounded_corner_is_shaped_to_the_parents_arc() {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(root, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &controls,
                     state: &DesignedState,
                     form_size: Vec2::new(600.0, 400.0),

@@ -41,7 +41,7 @@ fn painted(ct: &ControlType, run: bool) -> Vec<Rect> {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show_inside(root_ui, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls: &controls,
                     state: &cobolt_forms::render::DesignedState,
                     form_size: Vec2::new(600.0, 400.0),

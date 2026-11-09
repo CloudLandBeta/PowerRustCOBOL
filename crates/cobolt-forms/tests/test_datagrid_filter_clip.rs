@@ -62,7 +62,7 @@ fn shapes_in(controls: &[Control], probe: Rect) -> usize {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(root, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls,
                     state: &DesignedState,
                     form_size: size,

@@ -200,7 +200,7 @@ impl Desk {
         let mut full = self.ctx.run_ui(raw, |root| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
                 ui.set_min_size(Vec2::new(W, H));
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls,
                     state: &DesignedState,
                     form_size: Vec2::new(W, H),

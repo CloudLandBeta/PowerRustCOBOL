@@ -53,7 +53,7 @@ fn tooltip_painted(ctrl: Control, tip: &str) -> bool {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show(root, |ui| {
-                    let inp = RenderInput {
+                    let inp = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: size,

@@ -64,7 +64,7 @@ fn a_control_over_the_breadcrumb_frame_paints_on_top_of_it() {
         },
         |root_ui| {
             egui::CentralPanel::default().show(root_ui, |ui| {
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls: &controls,
                     state: &state,
                     form_size: egui::vec2(800.0, 500.0),
@@ -135,7 +135,7 @@ fn a_form_with_no_chrome_paints_no_frame() {
         },
         |root_ui| {
             egui::CentralPanel::default().show(root_ui, |ui| {
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls: &controls,
                     state: &state,
                     form_size: egui::vec2(300.0, 200.0),

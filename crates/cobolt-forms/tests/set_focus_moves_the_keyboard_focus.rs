@@ -52,7 +52,7 @@ fn frame_in(ctx: &egui::Context, controls: &[Control], events: Vec<egui::Event>,
                 if blocked {
                     ui.disable();
                 }
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls,
                     state: &DesignedState,
                     form_size: size,

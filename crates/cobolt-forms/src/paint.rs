@@ -1909,6 +1909,16 @@ pub fn control_shadow_stack(
     rect: egui::Rect,
     alpha_mul: f32,
 ) -> ShadowStack {
+    let css = css_final_of(ctx, &ctrl.id);
+    let css_stamped;
+    let ctrl = match &css {
+        Some(fc) => {
+            css_stamped = css_stamp(ctrl, fc);
+            &css_stamped
+        }
+        None => ctrl,
+    };
+    let css_unfaded = css.is_some_and(|f| f.face.is_some() || f.gradient.is_some() || f.shadow.is_some());
     // Nothing painted the card, so nothing cast a shadow: report none, or the
     // notch mask re-composites a halo that was never on the surface.
     if paints_no_card(ctrl) {
@@ -1929,7 +1939,7 @@ pub fn control_shadow_stack(
     // ancestor alpha alone would restore, inside every corner notch, a shadow
     // that was never painted outside one.
     match regular_drop_shadow(ctrl, rect, false).filter(|s| !s.overlay) {
-        Some(shadow) => regular_shadow_stack(&shadow, alpha_mul * face_opacity_of(ctrl)),
+        Some(shadow) => regular_shadow_stack(&shadow, alpha_mul * if css_unfaded { 1.0 } else { face_opacity_of(ctrl) }),
         None => ShadowStack::default(),
     }
 }
@@ -2778,6 +2788,80 @@ pub fn face_opacity_of(ctrl: &Control) -> f32 {
     }
 }
 
+// ── WASM-036 T7 — the colours the page's stylesheet decided ──────────────────────────────────────
+
+fn css_final_slot() -> egui::Id {
+    egui::Id::new("prc-css-final")
+}
+
+/// What [`publish_css_final`] put back when the render call ends: the surface that was current
+/// before it (a surface painted inside another one's pass keeps its own colours).
+pub struct CssFinalGuard {
+    ctx: egui::Context,
+    previous: Option<std::sync::Arc<crate::css_effective::CssFinal>>,
+}
+
+impl Drop for CssFinalGuard {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        self.ctx.data_mut(|d| match previous {
+            Some(p) => {
+                d.insert_temp(css_final_slot(), p);
+            }
+            None => {
+                d.remove::<std::sync::Arc<crate::css_effective::CssFinal>>(css_final_slot());
+            }
+        });
+    }
+}
+
+/// Makes `css` the stylesheet colours of the surface being painted, until the guard drops. `None`
+/// (every desktop form) clears it, so nothing changes for a form with no stylesheet.
+pub fn publish_css_final(ctx: &egui::Context, css: Option<&crate::css_effective::CssFinal>) -> CssFinalGuard {
+    let previous = ctx.data(|d| d.get_temp::<std::sync::Arc<crate::css_effective::CssFinal>>(css_final_slot()));
+    let now = css.filter(|c| !c.controls.is_empty()).map(|c| std::sync::Arc::new(c.clone()));
+    ctx.data_mut(|d| match now {
+        Some(n) => {
+            d.insert_temp(css_final_slot(), n);
+        }
+        None => {
+                d.remove::<std::sync::Arc<crate::css_effective::CssFinal>>(css_final_slot());
+            }
+    });
+    CssFinalGuard { ctx: ctx.clone(), previous }
+}
+
+fn css_final_of(ctx: &egui::Context, id: &str) -> Option<crate::css_effective::FinalColors> {
+    ctx.data(|d| d.get_temp::<std::sync::Arc<crate::css_effective::CssFinal>>(css_final_slot())).and_then(|c| c.get(id).copied())
+}
+
+fn css_hex(c: [u8; 4]) -> String {
+    format!("#{:02X}{:02X}{:02X}{:02X}", c[0], c[1], c[2], c[3])
+}
+
+/// A copy of `ctrl` whose face, gradient, border and shadow properties carry the stylesheet's colours.
+fn css_stamp(ctrl: &Control, fc: &crate::css_effective::FinalColors) -> Control {
+    let mut c = ctrl.clone();
+    if let Some(f) = fc.face {
+        c.set_prop("BackgroundColor", css_hex(f));
+    }
+    if let Some((a, b)) = fc.gradient {
+        c.set_prop("BackgroundGradientEnabled", "true");
+        c.set_prop("BackgroundGradientStartColor", css_hex(a));
+        c.set_prop("BackgroundGradientEndColor", css_hex(b));
+    }
+    if let Some(b) = fc.border {
+        c.set_prop("BorderColor", css_hex(b));
+    }
+    if let Some(s) = fc.shadow {
+        c.set_prop("ShadowEnabled", "true");
+        c.set_prop("ShadowColor", css_hex([s[0], s[1], s[2], 255]));
+        c.set_prop("ShadowOpacity", ((s[3] as f32 / 255.0) * 100.0).round().to_string());
+    }
+    c
+}
+
+
 /// A caption already laid out, ready to be drawn — the galley, where its draw
 /// origin sits, and the colour it falls back to.
 ///
@@ -3025,6 +3109,18 @@ fn draw_control_body(
 ) {
     use crate::ControlType as CT;
 
+    // WASM-036 T7 — the colours the page's stylesheet decided, painted as given.
+    let css = css_final_of(painter.ctx(), &ctrl.id);
+    let css_stamped;
+    let ctrl = match &css {
+        Some(fc) => {
+            css_stamped = css_stamp(ctrl, fc);
+            &css_stamped
+        }
+        None => ctrl,
+    };
+    let css_unfaded = css.is_some_and(|f| f.face.is_some() || f.gradient.is_some() || f.shadow.is_some());
+
     publish_glow_colors(ctrl);
     let r = ctrl.rect;
     // Compute the base rect, then apply scale around the control center.
@@ -3053,7 +3149,9 @@ fn draw_control_body(
     // Ancestor *container* transparencies are still folded into the incoming
     // `alpha_mul` by the render walk, so a faded container dims its whole
     // subtree (spec 012) exactly as before.
-    let face_alpha = alpha_mul * face_opacity_of(ctrl);
+    // A colour from the stylesheet is not faded by `Transparency` (CSS has no such property): the
+    // face, the gradient and the shadow it names paint at the inherited alpha alone.
+    let face_alpha = alpha_mul * if css_unfaded { 1.0 } else { face_opacity_of(ctrl) };
 
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
     let c_scale = |c: u8| -> u8 { ((c as f32) * alpha_mul) as u8 };

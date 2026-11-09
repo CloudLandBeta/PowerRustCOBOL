@@ -151,7 +151,7 @@ fn painted(surface: Surface, grid: &Control) -> Vec<String> {
             |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(400.0, 300.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: Vec2::new(400.0, 300.0),
@@ -253,7 +253,7 @@ fn painted_layers(surface: Surface, controls: &[Control], layers: Vec<cobolt_for
             |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
                     ui.set_min_size(Vec2::new(400.0, 300.0));
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state: &DesignedState,
                         form_size: Vec2::new(400.0, 300.0),

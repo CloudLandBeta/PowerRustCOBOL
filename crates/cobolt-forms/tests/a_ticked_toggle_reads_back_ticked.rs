@@ -72,7 +72,7 @@ fn frame_with(
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(root, |ui| {
-                let inp = RenderInput {
+                let inp = RenderInput { css_final: None,
                     controls,
                     state,
                     form_size: size,

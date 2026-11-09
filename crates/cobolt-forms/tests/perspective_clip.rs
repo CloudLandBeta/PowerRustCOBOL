@@ -76,7 +76,7 @@ fn frame(controls: &[Control], layers: Vec<Layer>, state: &dyn FormState, path: 
             |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show(root_ui, |ui| {
                     ui.set_min_size(FORM);
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls,
                         state,
                         form_size: FORM,
@@ -322,7 +322,7 @@ fn a_tilted_animator_keeps_playing() {
             |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show(root_ui, |ui| {
                     ui.set_min_size(FORM);
-                    let input = RenderInput {
+                    let input = RenderInput { css_final: None,
                         controls: &controls,
                         state: &DesignedState,
                         form_size: FORM,

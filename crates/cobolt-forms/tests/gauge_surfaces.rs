@@ -52,7 +52,7 @@ fn needle_ink(mode: RenderMode, state: &dyn FormState, via_faces: bool, ctrl: &C
         },
         |root_ui| {
             egui::CentralPanel::default().show(root_ui, |ui| {
-                let input = RenderInput {
+                let input = RenderInput { css_final: None,
                     controls: &controls,
                     state,
                     form_size: egui::vec2(600.0, 400.0),
