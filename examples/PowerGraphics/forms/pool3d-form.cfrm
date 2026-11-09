@@ -43,6 +43,11 @@
        01 WS-CPX                                 GLOBAL    PIC S9(3)V9(5).
        01 WS-CPZ                                 GLOBAL    PIC S9(3)V9(5).
        01 WS-PULL                                GLOBAL    PIC S9(3)V9(5).
+       01 WS-DRAG                                GLOBAL    PIC 9           VALUE 0.
+       01 WS-LPX                                 GLOBAL    PIC S9(5)V99.
+       01 WS-LPY                                 GLOBAL    PIC S9(5)V99.
+       01 WS-MDX                                 GLOBAL    PIC S9(5)V99.
+       01 WS-MDY                                 GLOBAL    PIC S9(5)V99.
        01 WS-POWER                               GLOBAL    PIC 9V99        VALUE 0.50.
        01 WS-STATE                               GLOBAL    PIC 9           VALUE 0.
        01 WS-MODE                                GLOBAL    PIC 9           VALUE 0.
@@ -69,24 +74,24 @@
   <form-events>
     <Event name="onLoad" paragraph="POOL3D-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
            *> The physics world: gravity pulls down 9.81 m/s2; it steps in 1/180 s slices so a fast ball cannot tunnel.
-           SET     WS-WORLD                      TO    PHY-3::CreateWorld( 0 -9.81 0 )
+           SET     WS-WORLD                      TO    PHY-3::CreateWorld( 0, -9.81 0 )
            PHY-3::SetFixedStep( WS-WORLD 0.0055556 8 )
            SET     WS-SCN                        TO    SCN-1::GetHandle()
 
            *> The static colliders: the slab under the felt and the cushions (inner faces at x +-4 and z +-2), each stopping short
            *> of the pockets: the long sides are in two pieces with a 0.86 gap in the middle and the corners stay open (0.45), so a
            *> ball that rolls into a pocket meets no wall and drops.
-           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 0 -0.2 0 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 0, -0.2 0 )
            PHY-3::AddBox( WS-WORLD WS-WALL 4.4 0.2 2.4 1 0 0 )
-           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 -1.99 0.15 -2.1 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0, -1.99 0.15, -2.1 )
            PHY-3::AddBox( WS-WORLD WS-WALL 1.56 0.15 0.1 1 0 0.9 )
-           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 1.99 0.15 -2.1 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 1.99 0.15, -2.1 )
            PHY-3::AddBox( WS-WORLD WS-WALL 1.56 0.15 0.1 1 0 0.9 )
-           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 -1.99 0.15 2.1 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0, -1.99 0.15 2.1 )
            PHY-3::AddBox( WS-WORLD WS-WALL 1.56 0.15 0.1 1 0 0.9 )
            SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 1.99 0.15 2.1 )
            PHY-3::AddBox( WS-WORLD WS-WALL 1.56 0.15 0.1 1 0 0.9 )
-           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 -4.1 0.15 0 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0, -4.1 0.15 0 )
            PHY-3::AddBox( WS-WORLD WS-WALL 0.1 0.15 1.55 1 0 0.9 )
            SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 4.1 0.15 0 )
            PHY-3::AddBox( WS-WORLD WS-WALL 0.1 0.15 1.55 1 0 0.9 )
@@ -147,22 +152,22 @@
 
            *> The room floor, the wooden body, the felt and the four wooden cushions.
            SET     WS-PART                       TO    SCN-1::AddPlane( 30 30 )
-           SCN-1::SetPosition( WS-PART 0 -1.6 0 )
+           SCN-1::SetPosition( WS-PART 0, -1.6 0 )
            SCN-1::SetColor( WS-PART "#22262E" )
            SET     WS-PART                       TO    SCN-1::AddBox( 9.2 0.3 5.2 )
-           SCN-1::SetPosition( WS-PART 0 -0.25 0 )
+           SCN-1::SetPosition( WS-PART 0, -0.25 0 )
            SCN-1::SetColor( WS-PART "#5A3217" )
            SET     WS-PART                       TO    SCN-1::AddBox( 8 0.1 4 )
-           SCN-1::SetPosition( WS-PART 0 -0.05 0 )
+           SCN-1::SetPosition( WS-PART 0, -0.05 0 )
            SCN-1::SetColor( WS-PART "#0F7A40" )
            SET     WS-PART                       TO    SCN-1::AddBox( 8.8 0.3 0.2 )
-           SCN-1::SetPosition( WS-PART 0 0.15 -2.1 )
+           SCN-1::SetPosition( WS-PART 0 0.15, -2.1 )
            SCN-1::SetColor( WS-PART "#7A4422" )
            SET     WS-PART                       TO    SCN-1::AddBox( 8.8 0.3 0.2 )
            SCN-1::SetPosition( WS-PART 0 0.15 2.1 )
            SCN-1::SetColor( WS-PART "#7A4422" )
            SET     WS-PART                       TO    SCN-1::AddBox( 0.2 0.3 4.4 )
-           SCN-1::SetPosition( WS-PART -4.1 0.15 0 )
+           SCN-1::SetPosition( WS-PART, -4.1 0.15 0 )
            SCN-1::SetColor( WS-PART "#7A4422" )
            SET     WS-PART                       TO    SCN-1::AddBox( 0.2 0.3 4.4 )
            SCN-1::SetPosition( WS-PART 4.1 0.15 0 )
@@ -170,16 +175,16 @@
 
            *> Four legs and six black pockets.
            SET     WS-PART                       TO    SCN-1::AddCylinder( 0.22 1.3 )
-           SCN-1::SetPosition( WS-PART -4.2 -1 -2.2 )
+           SCN-1::SetPosition( WS-PART, -4.2, -1, -2.2 )
            SCN-1::SetColor( WS-PART "#4A2812" )
            SET     WS-PART                       TO    SCN-1::AddCylinder( 0.22 1.3 )
-           SCN-1::SetPosition( WS-PART 4.2 -1 -2.2 )
+           SCN-1::SetPosition( WS-PART 4.2, -1, -2.2 )
            SCN-1::SetColor( WS-PART "#4A2812" )
            SET     WS-PART                       TO    SCN-1::AddCylinder( 0.22 1.3 )
-           SCN-1::SetPosition( WS-PART -4.2 -1 2.2 )
+           SCN-1::SetPosition( WS-PART, -4.2, -1 2.2 )
            SCN-1::SetColor( WS-PART "#4A2812" )
            SET     WS-PART                       TO    SCN-1::AddCylinder( 0.22 1.3 )
-           SCN-1::SetPosition( WS-PART 4.2 -1 2.2 )
+           SCN-1::SetPosition( WS-PART 4.2, -1 2.2 )
            SCN-1::SetColor( WS-PART "#4A2812" )
            PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
                SET     WS-PART                   TO    SCN-1::AddCylinder( 0.2 0.02 )
@@ -189,9 +194,9 @@
 
            *> The lights: a sun with shadows and two lamps above the felt.
            SET     WS-LIGHT                      TO    SCN-1::AddDirectionalLight( 1 0.96 0.9 0.9 1 )
-           SCN-1::SetRotation( WS-LIGHT -62 20 0 )
+           SCN-1::SetRotation( WS-LIGHT, -62 20 0 )
            SET     WS-LIGHT                      TO    SCN-1::AddPointLight( 1 0.93 0.8 2.5 14 )
-           SCN-1::SetPosition( WS-LIGHT -2.2 3.2 0 )
+           SCN-1::SetPosition( WS-LIGHT, -2.2 3.2 0 )
            SET     WS-LIGHT                      TO    SCN-1::AddPointLight( 1 0.93 0.8 2.5 14 )
            SCN-1::SetPosition( WS-LIGHT 2.2 3.2 0 )
 
@@ -214,17 +219,17 @@
            SET     WS-STICK                      TO    SCN-1::AddGroup()
            SET     WS-PART                       TO    SCN-1::AddCylinder( 0.03 3 )
            SCN-1::SetRotation( WS-PART 0 0 90 )
-           SCN-1::SetPosition( WS-PART -1.55 0 0 )
+           SCN-1::SetPosition( WS-PART, -1.55 0 0 )
            SCN-1::SetColor( WS-PART "#D9B070" )
            SCN-1::SetParent( WS-PART WS-STICK )
            SET     WS-PART                       TO    SCN-1::AddBox( 2.2 0.012 0.012 )
-           SCN-1::SetPosition( WS-PART 1.2 -0.02 0 )
+           SCN-1::SetPosition( WS-PART 1.42, -0.02 0 )
            SCN-1::SetColor( WS-PART "#FFFFFF" )
            SCN-1::SetParent( WS-PART WS-STICK )
 ]]></Event>
     <Event name="P3D-RACK" paragraph="P3D-RACK"><![CDATA[       PROCEDURE DIVISION.
            *> The cue ball, then fifteen balls in a triangle; each body drives its node.
-           SET     WS-BALL(1)                    TO    PHY-3::AddBody( WS-WORLD 1 -2.2 0.111 0 )
+           SET     WS-BALL(1)                    TO    PHY-3::AddBody( WS-WORLD 1, -2.2 0.111 0 )
            PHY-3::AddBall( WS-WORLD WS-BALL(1) 0.11 1 0 0.93 )
            PHY-3::BindNode( WS-WORLD WS-BALL(1) WS-SCN WS-NODE(1) )
            MOVE    1                             TO    WS-ALIVE(1)
@@ -275,7 +280,7 @@
                    PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
                        COMPUTE WS-DX = WS-BX - WS-PKX(WS-J)
                        COMPUTE WS-DZ = WS-BZ - WS-PKZ(WS-J)
-                       IF      WS-DX * WS-DX + WS-DZ * WS-DZ < 0.12
+                       IF      WS-DX * WS-DX + WS-DZ * WS-DZ < 0.04
                            MOVE    1             TO    WS-POT
                        END-IF
                    END-PERFORM
@@ -318,7 +323,7 @@
 
            *> A potted cue ball comes back on the head spot.
            IF      WS-RESPAWN = 1
-               SET     WS-BALL(1)                TO    PHY-3::AddBody( WS-WORLD 1 -2.2 0.111 0 )
+               SET     WS-BALL(1)                TO    PHY-3::AddBody( WS-WORLD 1, -2.2 0.111 0 )
                PHY-3::AddBall( WS-WORLD WS-BALL(1) 0.11 1 0 0.93 )
                PHY-3::BindNode( WS-WORLD WS-BALL(1) WS-SCN WS-NODE(1) )
                SCN-1::SetVisible( WS-NODE(1) 1 )
@@ -447,7 +452,7 @@
 
            *> The cue sits behind the cue ball, pulled back as the power grows; it hides while the balls roll.
            IF      WS-STATE = 0
-               COMPUTE WS-PULL = 0.14 + WS-POWER * 0.5
+               COMPUTE WS-PULL = 0.17 + WS-POWER * 0.5
                COMPUTE WS-DX = WS-CX - WS-AX * WS-PULL
                COMPUTE WS-DZ = WS-CZ - WS-AZ * WS-PULL
                SCN-1::SetPosition( WS-STICK WS-DX 0.14 WS-DZ )
@@ -467,6 +472,46 @@
     <Property name="AccessibleLabel">3D pool table: Tab switches between rotating the table and aiming the cue; the arrows act on the current mode; Space hits the ball</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
+    <Event name="onPointerDown" paragraph="CNV-3D--ONPOINTERDOWN"><![CDATA[       PROCEDURE DIVISION.
+           *> A press starts a drag: remember where the pointer is.
+           MOVE    1                             TO    WS-DRAG
+           COMPUTE WS-LPX = CNV-3D::PointerX
+           COMPUTE WS-LPY = CNV-3D::PointerY
+]]></Event>
+    <Event name="onPointerUp" paragraph="CNV-3D--ONPOINTERUP"><![CDATA[       PROCEDURE DIVISION.
+           MOVE    0                             TO    WS-DRAG
+]]></Event>
+    <Event name="onPointerMove" paragraph="CNV-3D--ONPOINTERMOVE"><![CDATA[       PROCEDURE DIVISION.
+           *> Dragging with the mouse: in ROTATE TABLE mode it orbits the camera (left and right turn the table, up and down raise
+           *> or lower the view); in AIM THE CUE mode left and right turn the cue and up and down set the power.
+           IF      WS-DRAG = 1
+               COMPUTE WS-MDX = CNV-3D::PointerX - WS-LPX
+               COMPUTE WS-MDY = CNV-3D::PointerY - WS-LPY
+               COMPUTE WS-LPX = CNV-3D::PointerX
+               COMPUTE WS-LPY = CNV-3D::PointerY
+               IF      WS-MODE = 1
+                   COMPUTE WS-CAMA = WS-CAMA - WS-MDX * 0.4
+                   COMPUTE WS-CAMH = WS-CAMH + WS-MDY * 0.03
+                   IF      WS-CAMH > 9
+                       MOVE    9                 TO    WS-CAMH
+                   END-IF
+                   IF      WS-CAMH < 2
+                       MOVE    2                 TO    WS-CAMH
+                   END-IF
+               ELSE
+                   IF      WS-STATE = 0
+                       COMPUTE WS-ANG = WS-ANG - WS-MDX * 0.3
+                       COMPUTE WS-POWER = WS-POWER + WS-MDY * 0.004
+                       IF      WS-POWER > 0.98
+                           MOVE    0.98          TO    WS-POWER
+                       END-IF
+                       IF      WS-POWER < 0.02
+                           MOVE    0.02          TO    WS-POWER
+                       END-IF
+                   END-IF
+               END-IF
+           END-IF
+]]></Event>
     <Event name="onFrame" paragraph="CNV-3D--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
            *> Moves the balls one frame: friction, pockets, the end of a shot.
            *> Uses: WS-WORLD and the ball tables.
@@ -521,7 +566,7 @@
   </Control>
   <Control id="LBL-HELP" type="Label" x="10" y="524" w="520" h="24" tab-order="5" z-order="0" visible="true" enabled="true">
     <Property name="Definition">The controls of the game: Tab or the Mode button switches mode, the arrows act on the current mode, Space or gamepad button A hits the ball.</Property>
-    <Property name="Caption">Click the table, then: Tab = mode, arrows = rotate / aim, up-down = height / power, Space = hit.</Property>
+    <Property name="Caption">Drag the mouse to turn the table (or the cue in AIM mode). Tab = mode, arrows = rotate / aim, up-down = height / power, Space = hit.</Property>
     <Property name="ForegroundColor">#C8D0DC</Property>
   </Control>
   <Control id="BTN-MODE" type="Button" x="420" y="552" w="120" h="32" tab-order="6" z-order="0" visible="true" enabled="true">

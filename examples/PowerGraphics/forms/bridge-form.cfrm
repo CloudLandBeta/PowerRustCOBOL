@@ -766,7 +766,7 @@
            COMPUTE WS-CAMY = 4.8 + WS-CARY * 0.4
            COMPUTE WS-LKX = WS-CARX * 0.3
            SCN-1::SetPosition( WS-CAM WS-CAMX WS-CAMY 9.5 )
-           SCN-1::LookAt( WS-CAM WS-LKX 1 -10 )
+           SCN-1::LookAt( WS-CAM WS-LKX 1, -10 )
 
            *> The score line under the canvas.
            MOVE    WS-DIST                       TO    WS-E1

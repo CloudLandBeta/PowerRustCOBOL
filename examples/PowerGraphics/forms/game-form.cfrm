@@ -106,15 +106,16 @@
     <Property name="CornerRadius">0</Property>
     <Property name="BorderStyle">Single</Property>
     <Event name="onFrame" paragraph="CNV-GAME--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
-           *> Input: the arrow keys push the player's ball.
+           *> Input: the arrow keys push the player's ball. An impulse changes the speed by impulse / mass, and the ball weighs about 800
+           *> (density 1, radius 16), so 2000 adds about 2.5 units a second each frame the key is held.
            IF      CNV-GAME::IsKeyDown( "ArrowLeft" ) = 1
-               PHY-1::ApplyImpulse( WS-WORLD, WS-BALL(1), -3, 0 )
+               PHY-1::ApplyImpulse( WS-WORLD, WS-BALL(1), -2000, 0 )
            END-IF
            IF      CNV-GAME::IsKeyDown( "ArrowRight" ) = 1
-               PHY-1::ApplyImpulse( WS-WORLD, WS-BALL(1), 3, 0 )
+               PHY-1::ApplyImpulse( WS-WORLD, WS-BALL(1), 2000, 0 )
            END-IF
            IF      CNV-GAME::IsKeyDown( "ArrowUp" ) = 1
-               PHY-1::ApplyImpulse( WS-WORLD, WS-BALL(1), 0, -6 )
+               PHY-1::ApplyImpulse( WS-WORLD, WS-BALL(1), 0, -3500 )
            END-IF
 
            PHY-1::Step( WS-WORLD 0.016667 )

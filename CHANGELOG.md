@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.343 — 2026-11-09
+
+**Fix: the Pitfall foes are now cartoons, and the PowerGraphics showcase no longer misreads negative call arguments.** The alligators, logs, fires and scorpions of both worlds were plain blocks; each now has a face and animation (an angry rolling log, a mossy log with a peeking eye, a campfire that glares, a scuttling scorpion; on the other side a spinning skull, a tombstone with red eyes, a ghost flame, an ethereal scorpion, and skeleton alligators), with the same hit areas as before. In the bridge, pool and runner forms a negative number after another argument (`WS-A -1`) was read as a subtraction; those calls now use a comma. The 3D pool also gains mouse drag (rotate the table or aim and set power), a pocket that takes a ball at half its width, and a corrected cue; the 2D pool pocket is slightly larger; the arrows in the launcher form push the yellow square with enough force.
+
 ## 2.0.342 — 2026-11-09
 
 **Fix: in the 3D pool game a ball now falls into a pocket instead of bouncing off it.** Same cause as the 2D game (2.0.341): the four cushions were unbroken, so a ball met a wall before a pocket. The cushions now stop short of every pocket, and a ball that crosses the cushion line or comes within 0.35 of a pocket centre is potted. Checked and run headless without errors; a pot was not seen in the 3D game, which cannot be drawn without a GPU.

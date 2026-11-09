@@ -166,7 +166,7 @@
                    PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
                        COMPUTE WS-DX = WS-BX - WS-PKX(WS-J)
                        COMPUTE WS-DY = WS-BY - WS-PKY(WS-J)
-                       IF      WS-DX * WS-DX + WS-DY * WS-DY < 900
+                       IF      WS-DX * WS-DX + WS-DY * WS-DY < 484
                            MOVE    1             TO    WS-POT
                        END-IF
                    END-PERFORM
