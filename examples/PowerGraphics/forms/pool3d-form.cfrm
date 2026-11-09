@@ -5,6 +5,8 @@
        01 WS-WALL                                GLOBAL    PIC 9(10).
        01 WS-CAM                                 GLOBAL    PIC 9(10).
        01 WS-STICK                               GLOBAL    PIC 9(10).
+       01 WS-TILTG                               GLOBAL    PIC 9(10).
+       01 WS-TLT                                 GLOBAL    PIC S9(3).
        01 WS-PART                                GLOBAL    PIC 9(10).
        01 WS-LIGHT                               GLOBAL    PIC 9(10).
        01 WS-NODE-T                              GLOBAL    PIC 9(10).
@@ -217,11 +219,17 @@
 
            *> The cue: a group whose origin is the tip; the stick lies along its -X axis, a white guide along +X.
            SET     WS-STICK                      TO    SCN-1::AddGroup()
+           *> The stick hangs from an inner group tipped 10 degrees about the tip, so the butt rises and the cue passes OVER the cushion
+           *> instead of through it; the guide below stays level (it hangs from the outer group, which only turns).
+           SET     WS-TILTG                      TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-TILTG WS-STICK )
+           MOVE    -10                           TO    WS-TLT
+           SCN-1::SetRotation( WS-TILTG 0 0 WS-TLT )
            SET     WS-PART                       TO    SCN-1::AddCylinder( 0.03 3 )
            SCN-1::SetRotation( WS-PART 0 0 90 )
            SCN-1::SetPosition( WS-PART, -1.55 0 0 )
            SCN-1::SetColor( WS-PART "#D9B070" )
-           SCN-1::SetParent( WS-PART WS-STICK )
+           SCN-1::SetParent( WS-PART WS-TILTG )
            SET     WS-PART                       TO    SCN-1::AddBox( 2.2 0.012 0.012 )
            SCN-1::SetPosition( WS-PART 1.42, -0.02 0 )
            SCN-1::SetColor( WS-PART "#FFFFFF" )
@@ -255,9 +263,9 @@
            MOVE    0                             TO    WS-CZ
 ]]></Event>
     <Event name="P3D-SHOOT" paragraph="P3D-SHOOT"><![CDATA[       PROCEDURE DIVISION.
-           *> The cue ball leaves along the aim at 2 to 12 metres a second, growing with the power.
+           *> The cue ball leaves along the aim at 3 to 18 metres a second, growing with the power.
            IF      WS-STATE = 0
-               COMPUTE WS-SPD = 2 + WS-POWER * 10
+               COMPUTE WS-SPD = 3 + WS-POWER * 15
                COMPUTE WS-VX = WS-AX * WS-SPD
                COMPUTE WS-VZ = WS-AZ * WS-SPD
                PHY-3::SetVelocity( WS-WORLD WS-BALL(1) WS-VX 0 WS-VZ )

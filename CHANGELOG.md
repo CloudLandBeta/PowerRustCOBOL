@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.353 — 2026-11-09
+
+**Fix: the cue of the 3D pool game is tipped 10 degrees so it passes over the cushion, and its shot is 1.5 times stronger.** The stick lay flat at ball height and appeared to cross the table border when aimed from near a cushion; its butt now rises, while the white aiming guide stays level. The cue ball leaves at 3 plus 15 times the power (it was 2 plus 10 times).
+
 ## 2.0.352 — 2026-11-09
 
 **Fix: ImageBuffer.LoadAsset loads a picture from the project's Assets folder on the desktop, and the PowerGraphics Image Lab shows the chibi.** The desktop host gave the graphics objects no asset source, so LoadAsset always failed; it now reads the file under the project's Assets folder (a name that is absolute or climbs out of that folder is refused). The Image Lab opens with the chibi picture (Assets/chibi.png) on a blue background instead of an orange block, so the filters show on a real image.
