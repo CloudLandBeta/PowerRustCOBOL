@@ -122,6 +122,10 @@ pub struct SelectorData {
     pub(crate) parsed: Option<Selector>,
     /// `true`: it was simplified to be tested, so a match is only "may".
     pub simplified: bool,
+    /// The id the subject names, if it does: an element without it cannot match (a quick reject).
+    pub(crate) need_id: Option<String>,
+    /// The classes the subject names: an element without all of them cannot match.
+    pub(crate) need_classes: Vec<String>,
 }
 
 /// A style rule.
@@ -149,6 +153,10 @@ pub struct SheetSet {
     pub rules: Vec<Rule>,
     /// Per source, how many selectors the subset could not read (Check reports them).
     pub unparsed: Vec<usize>,
+    /// Some rule declares a custom property (`--name`): only then does the cascade walk the path for them.
+    pub has_vars: bool,
+    /// The rules that declare one, so that walk reads only those.
+    pub var_rules: Vec<usize>,
 }
 
 impl SheetSet {
@@ -174,7 +182,8 @@ impl SheetSet {
                     if parsed.is_none() {
                         unparsed += 1;
                     }
-                    selectors.push(SelectorData { text: sel.to_owned(), parsed, simplified });
+                    let (need_id, need_classes) = subject_needs(&testable_text);
+                    selectors.push(SelectorData { text: sel.to_owned(), parsed, simplified, need_id, need_classes });
                 }
                 if selectors.is_empty() {
                     // Every selector styles a pseudo-element: no rule for an element.
@@ -182,6 +191,10 @@ impl SheetSet {
                 }
                 let decls = parse_declarations_spanned(s.text, raw.open + 1..raw.close);
                 let order = set.rules.len();
+                if decls.iter().any(|d| d.decl.name.starts_with("--")) {
+                    set.has_vars = true;
+                    set.var_rules.push(order);
+                }
                 set.rules.push(Rule { source: si, line: raw.line, layer, conditions: raw.conditions, selectors, decls, body: raw.open + 1..raw.close, order });
             }
             set.sources.push(Source { label: s.label.to_owned(), text: s.text.to_owned(), origin: s.origin });
@@ -315,6 +328,51 @@ fn scan(css: &str) -> Vec<RawRule> {
         i += 1;
     }
     out
+}
+
+/// The id and the classes the subject (last compound) of a testable selector names. `:host` and
+/// pseudo-less subjects with nothing to name need nothing.
+fn subject_needs(testable: &str) -> (Option<String>, Vec<String>) {
+    if testable.contains(":host") {
+        return (None, Vec::new());
+    }
+    let mut cut = 0;
+    let (mut depth, mut quote) = (0i32, None::<char>);
+    for (i, c) in testable.char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '[' | '(') => depth += 1,
+            (None, ']' | ')') => depth -= 1,
+            (None, ' ' | '>' | '+' | '~') if depth == 0 => cut = i + 1,
+            _ => {}
+        }
+    }
+    let subject = &testable[cut..];
+    let (mut id, mut classes) = (None, Vec::new());
+    let (mut depth, mut chars) = (0i32, subject.chars().peekable());
+    while let Some(c) = chars.next() {
+        match c {
+            '[' | '(' => depth += 1,
+            ']' | ')' => depth -= 1,
+            '#' | '.' if depth == 0 => {
+                let mut name = String::new();
+                while chars.peek().is_some_and(|c| c.is_alphanumeric() || *c == '-' || *c == '_') {
+                    name.push(chars.next().unwrap_or(' '));
+                }
+                if !name.is_empty() {
+                    if c == '#' {
+                        id = Some(name);
+                    } else {
+                        classes.push(name);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    (id, classes)
 }
 
 /// A CSS identifier with its escapes resolved: `\31 A` is `1A`, `\.x` is `.x`.
@@ -594,8 +652,14 @@ fn conditions_hold(conds: &[Condition], env: Option<&MediaEnv>) -> Tri {
 /// then the more specific one.
 fn selector_hit(rule: &Rule, refs: &[ElementRef<'_>]) -> Option<(bool, (u32, u32, u32), usize)> {
     let mut best: Option<(bool, (u32, u32, u32), usize)> = None;
+    let last = refs.last();
     for (si, s) in rule.selectors.iter().enumerate() {
         let Some(sel) = &s.parsed else { continue };
+        if let Some(last) = last {
+            if s.need_id.as_deref().is_some_and(|id| !last.id.is_some_and(|x| x.eq_ignore_ascii_case(id))) || s.need_classes.iter().any(|c| !last.classes.iter().any(|x| x == c)) {
+                continue;
+            }
+        }
         if sel.matches(refs) {
             let hit = (s.simplified, sel.specificity(), si);
             best = match best {
@@ -608,14 +672,24 @@ fn selector_hit(rule: &Rule, refs: &[ElementRef<'_>]) -> Option<(bool, (u32, u32
 }
 
 /// Every declaration of `sheets` that matches the element at the end of `refs`.
-fn matching(sheets: &SheetSet, refs: &[ElementRef<'_>], env: Option<&MediaEnv>) -> Vec<Matched> {
+fn matching(sheets: &SheetSet, refs: &[ElementRef<'_>], env: Option<&MediaEnv>, only: Option<&[usize]>) -> Vec<Matched> {
     let mut out = Vec::new();
-    for (ri, rule) in sheets.rules.iter().enumerate() {
+    let all: Vec<usize>;
+    let which: &[usize] = match only {
+        Some(o) => o,
+        None => {
+            all = (0..sheets.rules.len()).collect();
+            &all
+        }
+    };
+    for &ri in which {
+        let rule = &sheets.rules[ri];
+        // The cheap test first: most rules do not match the element at all.
+        let Some((simplified, specificity, selector)) = selector_hit(rule, refs) else { continue };
         let cond = conditions_hold(&rule.conditions, env);
         if cond == Tri::Fails {
             continue;
         }
-        let Some((simplified, specificity, selector)) = selector_hit(rule, refs) else { continue };
         let certain = !simplified && cond == Tri::Holds;
         for (di, d) in rule.decls.iter().enumerate() {
             out.push(Matched {
@@ -664,8 +738,8 @@ pub fn cascade(form: &Form, id: Option<&str>, sheets: &SheetSet, env: Option<&Me
 
     // Custom properties inherit: resolve them element by element down the path.
     let mut vars: HashMap<String, String> = HashMap::new();
-    for k in 0..refs.len() {
-        let here: Vec<Matched> = matching(sheets, &refs[..=k], env).into_iter().filter(|m| m.css.starts_with("--")).collect();
+    for k in 0..if sheets.has_vars { refs.len() } else { 0 } {
+        let here: Vec<Matched> = matching(sheets, &refs[..=k], env, Some(&sheets.var_rules)).into_iter().filter(|m| m.css.starts_with("--")).collect();
         for w in winners_of(&here) {
             if let Some(v) = substitute_vars(&w.value, &vars) {
                 vars.insert(w.css.clone(), v);
@@ -673,7 +747,7 @@ pub fn cascade(form: &Form, id: Option<&str>, sheets: &SheetSet, env: Option<&Me
         }
     }
 
-    let mut all = matching(sheets, &refs, env);
+    let mut all = matching(sheets, &refs, env, None);
     if let Some(ctl) = id.and_then(|id| ancestry(form, id).last().copied()) {
         if let Some(text) = ctl.get_prop("CssStyle").map(|v| v.as_str().to_owned()).filter(|s| !s.trim().is_empty()) {
             for (di, d) in parse_declarations_spanned(&text, 0..text.len()).into_iter().enumerate() {
@@ -694,10 +768,11 @@ pub fn cascade(form: &Form, id: Option<&str>, sheets: &SheetSet, env: Option<&Me
             }
         }
     }
-    for m in &mut all {
-        m.resolved = substitute_vars(&m.value, &vars);
+    let mut out = Cascaded { winners: winners_of(&all), may: all.into_iter().filter(|m| !m.certain).collect(), vars };
+    // `var()` is resolved for what is kept only.
+    for m in out.winners.iter_mut().chain(out.may.iter_mut()) {
+        m.resolved = if m.value.contains("var(") { substitute_vars(&m.value, &out.vars) } else { Some(m.value.clone()) };
     }
-    let mut out = Cascaded { winners: winners_of(&all), may: all.iter().filter(|m| !m.certain).cloned().collect(), vars };
     out.may.sort_by_key(|m| m.order);
     out
 }
@@ -823,12 +898,13 @@ pub fn effective(form: &Form, id: Option<&str>, sheets: &SheetSet, env: &MediaEn
     }
     // The properties layer (rank 2) beats the theme and the base (0, 1) for a normal declaration: where the
     // control's own property is written, the stored value is the effective one.
-    let props = ctl.map(|c| props_layer(c, form)).unwrap_or_default();
+    let props = std::cell::OnceCell::new();
+    let props_of = || props.get_or_init(|| ctl.map(|c| props_layer(c, form)).unwrap_or_default());
     let label = |m: &Matched| m.sheet.map(|s| sheets.sources[s].label.clone());
     let mut out = Effective::default();
     let mut keys: HashMap<&'static str, (u8, (u32, u32, u32), usize)> = HashMap::new();
     for m in c.winners.iter().filter(|m| !m.css.starts_with("--")) {
-        if m.layer < Layer::Props && !m.important && props.iter().any(|(k, _)| *k == m.css) {
+        if m.layer < Layer::Props && !m.important && props_of().iter().any(|(k, _)| *k == m.css) {
             continue;
         }
         let unp = |why| Unpainted { css: m.css.clone(), value: m.value.clone(), sheet: label(m), line: m.line, why };
@@ -1135,6 +1211,117 @@ fn spatial_props(ctl: &Control, form: &Form, out: &mut Vec<(&'static str, PropsD
         put(out, "box-shadow");
     }
 }
+// ── The cache (WASM-036 R20) ──────────────────────────────────────────────────────────────────
+
+use std::hash::{Hash, Hasher};
+
+/// What the cache did, for the performance test and the result block.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CacheStats {
+    /// Times the sheets were parsed.
+    pub sheet_parses: usize,
+    /// Controls whose effective values were computed.
+    pub computed: usize,
+    /// Lookups answered without computing.
+    pub hits: usize,
+}
+
+/// The properties a control's effective values are computed from, besides its identity: every
+/// model property the reverse table names, and what `props_layer` reads.
+const INPUTS: &[&str] = &[
+    "BackgroundColor", "BackgroundGradientEnabled", "BackgroundGradientStartColor", "BackgroundGradientEndColor", "BackgroundGradientDirection", "ForegroundColor", "FontName", "FontSize", "Bold", "Italic",
+    "Underline", "Strikethrough", "Cursor", "Padding", "PaddingLeft", "PaddingTop", "PaddingRight", "PaddingBottom", "CornerRadius", "CornerRadiusTopLeft", "CornerRadiusTopRight", "CornerRadiusBottomLeft",
+    "CornerRadiusBottomRight", "BorderRadius", "BorderStyle", "BorderColor", "BorderWidth", "ShadowEnabled", "ShadowColor", "ShadowLightColor", "ShadowOpacity", "ShadowDirection", "ShadowDistance",
+    "ShadowBlur", "ShadowBlurStrength", "BorderBlur", "TextAlignment", "VerticalAlignment", "WordWrap", "Transparency", "HideBackground", "CssClass", "CssStyle",
+];
+
+fn control_key(form: &Form, id: &str, env: &MediaEnv, sheets_key: u64) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    sheets_key.hash(&mut h);
+    form.name.hash(&mut h);
+    form.theme.hash(&mut h);
+    (env.width.to_bits(), env.height.to_bits(), env.scheme as u8).hash(&mut h);
+    // The path: every container on the way, and the control, by what a selector can ask of them.
+    for c in ancestry(form, id) {
+        c.id.hash(&mut h);
+        c.control_type.as_str().hash(&mut h);
+        c.parent.hash(&mut h);
+        c.layer.hash(&mut h);
+        // The properties the values are computed from, order-independent (the map's order is not stable).
+        let mut acc = 0u64;
+        for (k, v) in &c.properties {
+            if INPUTS.iter().any(|i| i.eq_ignore_ascii_case(k)) {
+                let mut ph = std::collections::hash_map::DefaultHasher::new();
+                k.to_ascii_lowercase().hash(&mut ph);
+                (v.as_str(), v.as_i64()).hash(&mut ph);
+                acc ^= ph.finish();
+            }
+        }
+        acc.hash(&mut h);
+    }
+    h.finish()
+}
+
+fn sheets_key(sources: &[SheetSource<'_>], theme_id: &str) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    theme_id.hash(&mut h);
+    for s in sources {
+        s.label.hash(&mut h);
+        (s.origin as u8).hash(&mut h);
+        s.text.hash(&mut h);
+    }
+    h.finish()
+}
+
+/// The sheets parsed once and each control's [`Effective`] computed once, until something they
+/// are computed from changes: the sheet texts or the theme, the screen, or the control and its
+/// containers. A lookup with nothing changed computes nothing.
+#[derive(Default)]
+pub struct EffectiveCache {
+    key: Option<u64>,
+    sheets: SheetSet,
+    controls: HashMap<String, (u64, Effective)>,
+    pub stats: CacheStats,
+}
+
+impl EffectiveCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The sheets for `sources`, parsed again only when a text, an origin or the theme changed.
+    pub fn sheets(&mut self, sources: &[SheetSource<'_>], theme_id: &str) -> &SheetSet {
+        let key = sheets_key(sources, theme_id);
+        if self.key != Some(key) {
+            self.sheets = SheetSet::parse(sources);
+            self.key = Some(key);
+            self.controls.clear();
+            self.stats.sheet_parses += 1;
+        }
+        &self.sheets
+    }
+
+    /// What the sheets set on control `id` (`None` is not cached: the form's root is asked once per paint).
+    pub fn effective(&mut self, form: &Form, id: &str, sources: &[SheetSource<'_>], theme_id: &str, env: &MediaEnv) -> &Effective {
+        self.sheets(sources, theme_id);
+        let key = control_key(form, id, env, self.key.unwrap_or(0));
+        let fresh = matches!(self.controls.get(id), Some((k, _)) if *k == key);
+        if fresh {
+            self.stats.hits += 1;
+        } else {
+            let e = effective(form, Some(id), &self.sheets, env);
+            self.controls.insert(id.to_owned(), (key, e));
+            self.stats.computed += 1;
+        }
+        &self.controls[id].1
+    }
+
+    /// Forget everything (a project closed).
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
