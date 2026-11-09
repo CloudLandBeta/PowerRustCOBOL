@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.342 — 2026-11-09
+
+**Fix: in the 3D pool game a ball now falls into a pocket instead of bouncing off it.** Same cause as the 2D game (2.0.341): the four cushions were unbroken, so a ball met a wall before a pocket. The cushions now stop short of every pocket, and a ball that crosses the cushion line or comes within 0.35 of a pocket centre is potted. Checked and run headless without errors; a pot was not seen in the 3D game, which cannot be drawn without a GPU.
+
 ## 2.0.341 — 2026-11-09
 
 **Fix: in the 2D pool game a ball now falls into a pocket instead of bouncing off it.** The cushions were four unbroken walls, so a ball met a wall before it reached a pocket, and a pocket only caught a ball that stopped almost exactly on its centre. The cushions now stop short of every pocket (the long sides leave a 76 pixel gap in the middle and both ends open at the corners), and a ball whose centre crosses the cushion line, or comes within 30 pixels of a pocket, is potted.

@@ -73,17 +73,23 @@
            PHY-3::SetFixedStep( WS-WORLD 0.0055556 8 )
            SET     WS-SCN                        TO    SCN-1::GetHandle()
 
-           *> The static colliders: the slab under the felt and the four cushions (inner faces at x +-4 and z +-2).
+           *> The static colliders: the slab under the felt and the cushions (inner faces at x +-4 and z +-2), each stopping short
+           *> of the pockets: the long sides are in two pieces with a 0.86 gap in the middle and the corners stay open (0.45), so a
+           *> ball that rolls into a pocket meets no wall and drops.
            SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 0 -0.2 0 )
            PHY-3::AddBox( WS-WORLD WS-WALL 4.4 0.2 2.4 1 0 0 )
-           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 0 0.15 -2.1 )
-           PHY-3::AddBox( WS-WORLD WS-WALL 4.4 0.15 0.1 1 0 0.9 )
-           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 0 0.15 2.1 )
-           PHY-3::AddBox( WS-WORLD WS-WALL 4.4 0.15 0.1 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 -1.99 0.15 -2.1 )
+           PHY-3::AddBox( WS-WORLD WS-WALL 1.56 0.15 0.1 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 1.99 0.15 -2.1 )
+           PHY-3::AddBox( WS-WORLD WS-WALL 1.56 0.15 0.1 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 -1.99 0.15 2.1 )
+           PHY-3::AddBox( WS-WORLD WS-WALL 1.56 0.15 0.1 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 1.99 0.15 2.1 )
+           PHY-3::AddBox( WS-WORLD WS-WALL 1.56 0.15 0.1 1 0 0.9 )
            SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 -4.1 0.15 0 )
-           PHY-3::AddBox( WS-WORLD WS-WALL 0.1 0.15 2.2 1 0 0.9 )
+           PHY-3::AddBox( WS-WORLD WS-WALL 0.1 0.15 1.55 1 0 0.9 )
            SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 4.1 0.15 0 )
-           PHY-3::AddBox( WS-WORLD WS-WALL 0.1 0.15 2.2 1 0 0.9 )
+           PHY-3::AddBox( WS-WORLD WS-WALL 0.1 0.15 1.55 1 0 0.9 )
 
            *> The six pockets: four corners and the middle of the long sides.
            MOVE    -3.95                         TO    WS-PKX(1)
@@ -269,10 +275,14 @@
                    PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
                        COMPUTE WS-DX = WS-BX - WS-PKX(WS-J)
                        COMPUTE WS-DZ = WS-BZ - WS-PKZ(WS-J)
-                       IF      WS-DX * WS-DX + WS-DZ * WS-DZ < 0.08
+                       IF      WS-DX * WS-DX + WS-DZ * WS-DZ < 0.12
                            MOVE    1             TO    WS-POT
                        END-IF
                    END-PERFORM
+                   *> A ball whose centre has crossed the cushion line went through a gap: it is in a pocket.
+                   IF      WS-BX < -3.97 OR WS-BX > 3.97 OR WS-BZ < -1.97 OR WS-BZ > 1.97
+                       MOVE    1                 TO    WS-POT
+                   END-IF
                    IF      WS-POT = 1
                        PHY-3::RemoveBody( WS-WORLD WS-BALL(WS-I) )
                        SCN-1::SetVisible( WS-NODE(WS-I) 0 )
