@@ -139,7 +139,8 @@ fn register_fonts(registry: &mut Registry) {
 fn to_value(v: &CobolValue) -> Value {
     let text = v.as_display_string();
     let t = text.trim();
-    if v.is_numeric() || t.parse::<f64>().is_ok() {
+    // A number is short: a longer run of digits is a block of data (a COBOL table) that only looks like one.
+    if t.len() <= 40 && (v.is_numeric() || t.parse::<f64>().is_ok()) {
         if let Ok(n) = t.parse::<i64>() {
             return Value::Int(n);
         }
@@ -602,6 +603,26 @@ mod tests {
         assert!(pending >= 10_000);
         assert_eq!(calls_after - calls_before, 1, "one list, one execution");
         assert_eq!(i.obj_get("CANVAS-1", "LastError"), "");
+    }
+
+    /// A table of digits handed to `SetSeriesFromTable` is a block of bytes, not a number: a hundred thousand rows of
+    /// six-digit zoned values read as one huge number (infinity), and the call was refused, so a big table drew nothing.
+    #[test]
+    fn a_table_of_digits_reaches_set_series_from_table_as_a_block_not_a_number() {
+        let mut i = interp(&[("PLOT-1", "Plot", &[])]);
+        let rows = 100_000usize;
+        let mut block = String::with_capacity(rows * 12);
+        for r in 1..=rows {
+            block.push_str(&format!("{:06}{:06}", r, (r * 7919) % 10007));
+        }
+        let series = call(&mut i, "PLOT-1", "AddSeries", &["scatter", "table"]);
+        let t0 = Instant::now();
+        let skipped = call(&mut i, "PLOT-1", "SetSeriesFromTable", &[&series, &block, &rows.to_string(), "12", "0:zoned(6,0); 6:zoned(6,0)"]);
+        let took = t0.elapsed();
+        let err = i.obj_get("PLOT-1", "LastError");
+        println!("big table: {rows} rows through the interpreter in {:.1} ms, skipped {skipped:?}, LastError {err:?}", took.as_secs_f64() * 1e3);
+        assert_eq!(err, "");
+        assert_eq!(skipped, "0");
     }
 
     /// The drawn pixels come back: `GetPixel` after `Present`.
