@@ -532,6 +532,33 @@ impl Shared {
                 };
                 self.open_named(inner, &form, Some(inst), mode, Vec::new());
             }
+            MenuTarget::Home => {
+                if !shell_on {
+                    return;
+                }
+                // Home is the main form's own content: every form the ContentPane holds goes, newest first, as a
+                // click on the first crumb does (spec 049 R22); one holding unsaved changes asks first (WASM-011 R8).
+                let leaving: Vec<u32> = self
+                    .state
+                    .try_borrow()
+                    .map(|st| {
+                        let at = st.chain.iter().position(|c| c.inst == inst).unwrap_or(0);
+                        st.chain[at + 1..].iter().rev().map(|c| c.inst).collect()
+                    })
+                    .unwrap_or_default();
+                let item = item.to_owned();
+                let again = Box::new(move |sh: &Rc<Shared>| {
+                    if let Some(inner) = sh.inner.upgrade() {
+                        sh.resolve_menu_item(&inner, inst, ctl, &item);
+                    }
+                });
+                if !self.may_leave(inner, &leaving, false, again) {
+                    return;
+                }
+                for i in leaving {
+                    inner.push(Inbox::CloseInstance(i));
+                }
+            }
             MenuTarget::None => {}
         }
     }

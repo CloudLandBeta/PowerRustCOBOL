@@ -14,8 +14,8 @@
 //! group from the real width of each entry, the axis lines and the grid. Where the painter's numbers live
 //! in `cobolt_forms::chart` (the radar's layout, the rows, the range) they are used from there, not copied.
 //!
-//! The load animation and the value tween reach it as a frame of `UiState::chart_frames` (`crate::motion`). What it leaves out, on purpose: hover tips (the
-//! browser's own `<title>`), the border and the gradient ring of a chart that shows its background (the
+//! The load animation and the value tween reach it as a frame of `UiState::chart_frames` (`crate::motion`). Hover tips are the browser's own `<title>` on each mark. What it leaves out, on purpose:
+//! the border and the gradient ring of a chart that shows its background (the
 //! chart's own box paints them, as CSS) and the Monochrome look (the older renderer keeps it).
 //!
 //! A chart is drawn for the size its box really has, not for the size it was designed at (`ViewCtx::box_size`):
@@ -443,6 +443,7 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
     let c = Ctx { cx, i, ty: ty.clone(), w, h };
     let fr = frame(&c);
     let geo = geometry(&c);
+    let names = series_names(&c, geo.series_count.max(geo.plotted.len()).max(1));
     let pal = palette(&c);
     let ctl = cx.tree.ctl(i);
     let name = ctl.name.clone();
@@ -519,7 +520,8 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
                     if r > 0.0 {
                         rect = rect.attr("rx", f(r));
                     }
-                    data = data.child(rect);
+                    let hover = geo.rows.get(i).map(|(l, v)| (l.as_str(), v.get(si).copied().unwrap_or(0.0))).and_then(|(l, v)| tip(&c, l, Some(&names[si.min(names.len() - 1)]), v, None));
+                    data = data.child(titled(rect, hover));
                 }
             }
         }
@@ -533,10 +535,13 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
                 let colour = pal[si % pal.len()];
                 let pts = curve.iter().map(|(x, y)| format!("{},{}", f(*x), f(*y))).collect::<Vec<_>>().join(" ");
                 data = data.child(sv("polyline").attr("points", pts).attr("fill", "none").attr("stroke", rgb(colour)).attr("stroke-width", "1.8").attr("stroke-linejoin", "round"));
-                if show_points {
-                    for &(x, y) in &raw {
+                // Every data point answers the pointer, drawn or not: an unseen one is a transparent disc of at least 7 px.
+                for (k, &(x, y)) in raw.iter().enumerate() {
+                    let hover = geo.rows.get(k).and_then(|(l, v)| tip(&c, l, Some(&names[si.min(names.len() - 1)]), v.get(si).copied().unwrap_or(0.0), None));
+                    if show_points {
                         data = data.child(sv("circle").attr("cx", f(x)).attr("cy", f(y)).attr("r", f(point_r)).attr("fill", rgb(colour)));
                     }
+                    data = data.child(titled(sv("circle").attr("cx", f(x)).attr("cy", f(y)).attr("r", f(point_r.max(7.0))).attr("fill", "transparent"), hover));
                 }
             }
         }
@@ -579,7 +584,12 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
                 let lift = |v: u8| ((v as f64 * 255.0 / alpha as f64).round()).min(255.0) as u8;
                 let fill = [lift(base[0]), lift(base[1]), lift(base[2]), alpha];
                 let points = pts.iter().map(|(x, y)| format!("{},{}", f(*x), f(*y))).collect::<Vec<_>>().join(" ");
-                data = data.child(sv("polygon").attr("points", points).attr("fill", rgb(fill)).attr("stroke", rgb(bg)).attr("stroke-width", "0.8").attr("stroke-linejoin", "round"));
+                let slice = sv("polygon").attr("points", points).attr("fill", rgb(fill)).attr("stroke", rgb(bg)).attr("stroke-width", "0.8").attr("stroke-linejoin", "round");
+                let hover = geo.live.get(si).and_then(|(l, v)| {
+                    let total = geo.live.iter().map(|(_, v)| v.max(0.0) as f64).sum::<f64>();
+                    tip(&c, l, None, *v, (total > 0.0).then(|| v.max(0.0) as f64 / total))
+                });
+                data = data.child(titled(slice, hover));
                 start += sweep;
             }
         }
@@ -696,12 +706,34 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
     }
     svg = svg.child(chrome);
     root = root.child(svg);
-    Some(with_titles(root, &c, &geo))
+    Some(root)
 }
 
-/// Each mark's hover text is the browser's own: the label and the value, as the painter's tip names them.
-fn with_titles(root: VNode, _c: &Ctx, _geo: &Geometry) -> VNode {
-    root
+/// Each mark's hover text is the browser's own (`<title>` inside the mark): the category, the series and the value of the
+/// dimension the pointer is over. Only a chart that holds data has any (the sample drawn at design time has no values),
+/// and `ShowTooltips` off silences them.
+fn tip(c: &Ctx, label: &str, series: Option<&str>, value: f32, share: Option<f64>) -> Option<String> {
+    if !c.flag("ShowTooltips", true) {
+        return None;
+    }
+    let v = fmt_number(((value as f64) * 1e4).round() / 1e4);
+    let mut s = match series {
+        Some(name) if !label.is_empty() => format!("{label}\n{name}: {v}"),
+        Some(name) => format!("{name}: {v}"),
+        None => format!("{label}: {v}"),
+    };
+    if let Some(p) = share {
+        s.push_str(&format!(" ({}%)", fmt_number((p * 1000.0).round() / 10.0)));
+    }
+    Some(s)
+}
+
+/// The mark with its hover text, when it has one.
+fn titled(mark: VNode, tip: Option<String>) -> VNode {
+    match tip {
+        Some(t) => mark.child(sv("title").text(t)),
+        None => mark,
+    }
 }
 
 fn radar(c: &Ctx, fr: &Frame, pal: &[Rgba], bg: Rgba, mut data: VNode) -> VNode {
@@ -713,6 +745,7 @@ fn radar(c: &Ctx, fr: &Frame, pal: &[Rgba], bg: Rgba, mut data: VNode) -> VNode 
             parse_chart_rows(&raw)
         }
     };
+    let has_data = !live.is_empty();
     let levels = c.num("GridLevels").map(|v| v.round().clamp(1.0, chart::RADAR_MAX_LEVELS as f64) as usize).unwrap_or(chart::RADAR_DEFAULT_LEVELS);
     let (rows, scale) = if live.is_empty() {
         let rows = chart::radar_sample_rows(3);
@@ -766,6 +799,7 @@ fn radar(c: &Ctx, fr: &Frame, pal: &[Rgba], bg: Rgba, mut data: VNode) -> VNode 
     let grow = c.s("__ChartGrow").trim().parse::<f32>().unwrap_or(1.0).clamp(0.0, 1.0);
     let vertices = chart::radar_vertices(&layout, &scale, &rows, grow);
     let fractions = chart::radar_fractions(&rows, &scale);
+    let names = series_names(c, rows.iter().map(|(_, v)| v.len()).max().unwrap_or(1).max(1));
     let area = |poly: &[(f32, f32)]| -> f32 {
         (0..poly.len()).map(|i| { let (p, q) = (poly[i], poly[(i + 1) % poly.len()]); (p.0 * q.1 - q.0 * p.1) * 0.5 }).sum::<f32>().abs()
     };
@@ -792,7 +826,8 @@ fn radar(c: &Ctx, fr: &Frame, pal: &[Rgba], bg: Rgba, mut data: VNode) -> VNode 
                 let shown = axes == 1 || (fractions[si][ai] > 0.0 && dist >= marker_r * 2.0);
                 if shown {
                     data = data.child(sv("circle").attr("cx", f(p.0 as f64)).attr("cy", f(p.1 as f64)).attr("r", f(marker_r + 1.5)).attr("fill", rgb(halo)));
-                    data = data.child(sv("circle").attr("cx", f(p.0 as f64)).attr("cy", f(p.1 as f64)).attr("r", f(marker_r)).attr("fill", rgb(base)));
+                    let hover = if !has_data { None } else { rows.get(ai).and_then(|(l, v)| tip(c, l, Some(&names[si.min(names.len() - 1)]), v.get(si).copied().unwrap_or(0.0), None)) };
+                    data = data.child(titled(sv("circle").attr("cx", f(p.0 as f64)).attr("cy", f(p.1 as f64)).attr("r", f(marker_r)).attr("fill", rgb(base)), hover));
                 }
             }
         }
@@ -1139,6 +1174,31 @@ mod tests {
             let written: Vec<&String> = texts.iter().map(|(t, ..)| t).filter(|t| MONTHS.contains(t.as_str()) || PAYMENTS.contains(t.as_str())).collect();
             assert!(written.is_empty(), "no axis line, no labels: {written:?}");
         }
+    }
+
+    /// The hover text of every mark: the category, the series and the value (a slice also its share).
+    fn tips(kind: &str, props: &[(&str, &str)]) -> Vec<String> {
+        let mut all = vec![("Width", "420"), ("Height", "260")];
+        all.extend_from_slice(props);
+        let (t, i) = crate::tree::testing::tree_with(kind, "CH", &all);
+        let e = super::super::Empty::default();
+        let n = chart(&e.cx(&t), i).expect("drawn by this painter");
+        let mut found = Vec::new();
+        n.find_all(&|v| v.tag == "title", &mut found);
+        found.iter().filter_map(|v| v.text.clone()).collect()
+    }
+
+    #[test]
+    fn every_mark_names_the_dimension_under_the_pointer() {
+        let bars = tips("BarChart", &[("__ChartData", PAYMENTS)]);
+        assert_eq!(bars.len(), 4);
+        assert_eq!(bars[0], "Cash\nSeries 1: 5");
+        let slices = tips("PieChart", &[("__ChartData", PAYMENTS)]);
+        assert_eq!(slices[3], "Pix: 4 (28.6%)");
+        let points = tips("LineChart", &[("__ChartData", PAYMENTS), ("ShowPoints", "false")]);
+        assert_eq!(points.len(), 4, "a point answers the pointer even when it is not drawn");
+        assert!(tips("PieChart", &[("__ChartData", PAYMENTS), ("ShowTooltips", "false")]).is_empty());
+        assert!(tips("BarChart", &[]).is_empty(), "the design-time sample has no values to name");
     }
 
     #[test]

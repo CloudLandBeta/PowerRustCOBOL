@@ -816,6 +816,14 @@ fn data_grid(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
             }
             vec![Act::Ui(UiOp::GridScroll { left, top }), ev1("onScroll", format!("{top:.0},{left:.0}"))]
         }
+        // A column's filter box: what is typed narrows the rows, as the desktop's does (`ColumnFilters`, one `column=value` line each).
+        "input" if p.part.as_deref() == Some("filter") => {
+            let Some(col) = p.col.filter(|c| *c >= 0).map(|c| c as usize) else { return Vec::new() };
+            let Some(title) = datagrid::title_of(cx, i, col) else { return Vec::new() };
+            vec![quiet("ColumnFilters", datagrid::with_filter(&cx.tree.get(i, "ColumnFilters"), &title, &p.value))]
+        }
+        // Clicking in a filter box only focuses it: it is not a header click, so it never sorts.
+        "click" | "dblclick" if p.part.as_deref() == Some("filter") => Vec::new(),
         "click" | "dblclick" => {
             // The CSV button exports the grid as the desktop's does (`cobolt_forms::datagrid::export_csv`,
             // the desktop's own rule): the desktop writes `<id>.csv` (or `CSVExportPath`) into its working
@@ -1011,6 +1019,8 @@ pub enum MenuTarget {
     Embed { form: String, preserve_previous: bool },
     /// Open the form in a window of its own (`open-standalone-*:NAME`).
     Standalone { form: String, sync: bool },
+    /// The shell's Home (action `home`, spec 051): the forms loaded in the ContentPane go, and the main form's own content shows.
+    Home,
     /// Nothing to load: the program's `onMenuClick` handler decides.
     None,
 }
@@ -1021,6 +1031,9 @@ pub fn menu_target(item: &MenuItem) -> MenuTarget {
     }
     if let Some((form, sync)) = open_standalone_target(item) {
         return MenuTarget::Standalone { form: form.to_owned(), sync };
+    }
+    if item.action.as_deref() == Some("home") {
+        return MenuTarget::Home;
     }
     MenuTarget::None
 }
@@ -1866,6 +1879,27 @@ mod tests {
         e2.ui.grid_sort.insert(g, (1, false));
         let acts = run(&t, g, &e2, head);
         assert!(acts.contains(&Act::Ui(UiOp::GridSort { col: 1, descending: true })), "a second click reverses");
+    }
+
+    #[test]
+    fn typing_in_a_column_filter_box_writes_column_filters_and_never_sorts() {
+        let (t, g) = tree_with("DataGrid", "G", &[("Columns", "A:string\nB:string"), ("Rows", "x\ty"), ("ShowColumnFilters", "1")]);
+        let e = Empty::default();
+        let mut typed = Payload::new("input", "filter");
+        typed.part = Some("filter".into());
+        typed.col = Some(1);
+        typed.value = "ab".into();
+        assert_eq!(names(&run(&t, g, &e, typed)), ["ColumnFilters=B=ab"]);
+        let mut click = Payload::new("click", "filter");
+        click.part = Some("filter".into());
+        click.col = Some(1);
+        assert!(run(&t, g, &e, click).is_empty(), "a click in the box is not a header click");
+    }
+
+    #[test]
+    fn a_menu_item_with_the_home_action_targets_home() {
+        let item = MenuItem { action: Some("home".into()), ..MenuItem::new_action("dash", "Dashboard") };
+        assert_eq!(menu_target(&item), MenuTarget::Home);
     }
 
     #[test]

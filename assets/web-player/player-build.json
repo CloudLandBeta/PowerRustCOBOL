@@ -7,9 +7,9 @@
       "sha256": "c45b4f656c0fd2be200a9df0e9ac07806b049507f6a5be35fe229b5f32dd7825"
     },
     {
-      "bytes": 3190556,
+      "bytes": 3190477,
       "path": "parts/canvas/canvas_bg.wasm",
-      "sha256": "454366ec4bfeebe8c78294bb72a24ffe181c299b1c08f9c3a610783c839f1935"
+      "sha256": "2c85fcaec1f882232906fc6358154e315ed6a6cbe2f344b6d05091baa2197b61"
     },
     {
       "bytes": 25244,
@@ -17,9 +17,9 @@
       "sha256": "4e76bd99e7392dd110f0f81382d99997084868048882b57322bea5ddb8282c60"
     },
     {
-      "bytes": 5974700,
+      "bytes": 5974604,
       "path": "parts/graphics/graphics_bg.wasm",
-      "sha256": "2a530e808e1f2cc176f01ff3435ea41fa19f7a6a3315e94e8c50e635db941f7d"
+      "sha256": "940773a0346c4dabc452edc8cfb73b3fe7d8e2f3a72f388ee99145d5f2295daa"
     },
     {
       "bytes": 143445,
@@ -27,9 +27,9 @@
       "sha256": "a4bc10688eec50f27d70b50f87e80ae65ca1bb2afd2dc061a5b7ca8fc94552e0"
     },
     {
-      "bytes": 8470085,
+      "bytes": 8469962,
       "path": "parts/graphics3d/graphics3d_bg.wasm",
-      "sha256": "4c104141ba47b81b23063d1d0d14cb12dd7f4f0baf4d66a266398ae309a75a5d"
+      "sha256": "eede9b88c0dd88347b02a5775b0e81b2c3f80359ca590d78b4545498b96dbbba"
     },
     {
       "bytes": 7985,
@@ -37,9 +37,9 @@
       "sha256": "2585e75ede88c4a08edb85882d76f07972c94362415cad19fb64745caca9f26d"
     },
     {
-      "bytes": 2218097,
+      "bytes": 2218089,
       "path": "parts/mermaid/mermaid_bg.wasm",
-      "sha256": "6994f61cfcf86e9272f46d27d455a74267d70aad949059c3cf97a6d79f386570"
+      "sha256": "b9de463f8842d2c54c38607916e1fd0d36ce2be53d40a3a9752da39c8a6bc3ff"
     },
     {
       "bytes": 6785,
@@ -49,27 +49,27 @@
     {
       "bytes": 216662,
       "path": "parts/pdf/pdf_bg.wasm",
-      "sha256": "455030d4108decdb4fa392cd79fed4b306d33f7c6fc936b01486152d808a0106"
+      "sha256": "ca0cde3411d798c28249112d8ed35d06f994595813dc32ae74e0aa88980d3bbb"
     },
     {
       "bytes": 100730,
       "path": "plain/player.js",
-      "sha256": "cdc92fa15457437f78b5f3d726fbf9fc4caa290182831ff09ca901a91501c48e"
+      "sha256": "8c3be4f2680d7f2fc0acb5d354d966156b3845ddb82f7fd85a9ee538c916917c"
     },
     {
-      "bytes": 4025664,
+      "bytes": 4030712,
       "path": "plain/player_bg.wasm",
-      "sha256": "bb2c9d059fc0dbcc599460622e362e0b06d2e0892229d3a4b52b8d0bb24e9c29"
+      "sha256": "e6b334292e7bed20fb52b72df7816c59d2e7ab203a88a557409364d51ca09646"
     },
     {
       "bytes": 107021,
       "path": "threaded/player.js",
-      "sha256": "279918288ab2cc814ad2b60aead4c3fecd125987c74834de75cbdd57a9c7f4a8"
+      "sha256": "54588aa45cc9b518427b6a9f78fa5bd205bd86946f8fe18cec143accfb07ef07"
     },
     {
-      "bytes": 3846763,
+      "bytes": 3852571,
       "path": "threaded/player_bg.wasm",
-      "sha256": "e216af7b7ef06ac4c6256d8b025d4b1d35fbb4a74736c5092cf6dad822ea23a0"
+      "sha256": "e89771702211cabd6c774932246a4ff13b07b5ff017df9463679047fca2473d7"
     },
     {
       "bytes": 4556,
@@ -87,58 +87,58 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 4372849,
-      "after_wasm_opt_bytes": 4025664,
-      "cargo_output_bytes": 5866545,
+      "after_bindgen_bytes": 4378458,
+      "after_wasm_opt_bytes": 4030712,
+      "cargo_output_bytes": 5872597,
       "glue_js_bytes": 100730,
-      "gzip_bytes": 1390349,
+      "gzip_bytes": 1392172,
       "opt_level": "s",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 4148794,
-      "after_wasm_opt_bytes": 3846763,
-      "cargo_output_bytes": 5653671,
+      "after_bindgen_bytes": 4155145,
+      "after_wasm_opt_bytes": 3852571,
+      "cargo_output_bytes": 5660598,
       "glue_js_bytes": 107021,
-      "gzip_bytes": 1367409,
+      "gzip_bytes": 1370070,
       "opt_level": "s",
       "variant": "threaded"
     }
   ],
   "parts": [
     {
-      "after_bindgen_bytes": 2392225,
-      "after_wasm_opt_bytes": 2218097,
-      "cargo_output_bytes": 2540322,
+      "after_bindgen_bytes": 2392339,
+      "after_wasm_opt_bytes": 2218089,
+      "cargo_output_bytes": 2540448,
       "glue_js_bytes": 7985,
-      "gzip_bytes": 798384,
+      "gzip_bytes": 798403,
       "name": "mermaid",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 3459506,
-      "after_wasm_opt_bytes": 3190556,
-      "cargo_output_bytes": 3620218,
+      "after_bindgen_bytes": 3459442,
+      "after_wasm_opt_bytes": 3190477,
+      "cargo_output_bytes": 3620154,
       "glue_js_bytes": 19178,
-      "gzip_bytes": 1255619,
+      "gzip_bytes": 1255535,
       "name": "canvas",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 6574559,
-      "after_wasm_opt_bytes": 5974700,
-      "cargo_output_bytes": 7476164,
+      "after_bindgen_bytes": 6574431,
+      "after_wasm_opt_bytes": 5974604,
+      "cargo_output_bytes": 7476036,
       "glue_js_bytes": 25244,
-      "gzip_bytes": 2376384,
+      "gzip_bytes": 2376562,
       "name": "graphics",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 9326593,
-      "after_wasm_opt_bytes": 8470085,
-      "cargo_output_bytes": 10979548,
+      "after_bindgen_bytes": 9326465,
+      "after_wasm_opt_bytes": 8469962,
+      "cargo_output_bytes": 10979420,
       "glue_js_bytes": 143445,
-      "gzip_bytes": 3349073,
+      "gzip_bytes": 3349143,
       "name": "graphics3d",
       "opt_level": "s"
     },
@@ -147,7 +147,7 @@
       "after_wasm_opt_bytes": 216662,
       "cargo_output_bytes": 265623,
       "glue_js_bytes": 6785,
-      "gzip_bytes": 100613,
+      "gzip_bytes": 100610,
       "name": "pdf",
       "opt_level": "s"
     }
@@ -160,7 +160,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "459e02fcec8af8034d48cbfff5d58c9bc6b3eb82112680ed68d7ec605640b250",
+  "source_hash": "5f01e5c14364c24a5a6167facbc9cd68b0cba724e020a19db9d6fcaf84a884fc",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",

@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.331 — 2026-11-08
+- **Fix: in a web page the SideMenu's Home item works, and every DataGrid has a filter box over each column.** A menu item whose action is `home` did nothing in the browser (only the desktop shell took it back to the start screen); it now closes the forms loaded above the shell's first screen, as the desktop does. A DataGrid reserved the filter band but drew no boxes; each column now has a filter box under its title, typing in it narrows the rows (written to `ColumnFilters`, `column=value` per line, empty removes it) and clicking in it never sorts. The row is on by default for every grid; `ShowColumnFilters` set to false turns it off.
+- **Fix: hovering a chart in a web page names the dimension under the pointer.** A bar, a line point (drawn or not), a pie or donut slice and a radar vertex now carry the browser's hover text: the category, the series and the value, and a slice also its share (`Pix: 4 (28.6%)`). `ShowTooltips` set to false silences it; the design-time sample, which has no values, shows none.
+
 ## 2.0.330 — 2026-11-08
 
 **Fix: the Backend window and its button speak Brazilian Portuguese.** "Registo" is "Registro", "Ligações" is "Conexões", "registadas" is "registradas", and "está a funcionar" is "está em execução".

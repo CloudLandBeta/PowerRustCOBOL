@@ -151,6 +151,8 @@ pub const BASE_CSS: &str = r#"
 .pr-dg-row { position: absolute; left: 0; display: flex; }
 .pr-dg-c, .pr-dg-hc { position: relative; flex: none; box-sizing: border-box; padding: 0 2px; overflow: clip; overflow-clip-margin: content-box; }
 .pr-dg-hc { cursor: pointer; user-select: none; }
+.pr-dg-filter { position: absolute; left: 4px; box-sizing: border-box; padding: 0 6px; border: 1px solid rgba(15, 23, 42, 0.25); border-radius: 4px; background: rgba(255, 255, 255, 0.9); color: #0F172A; font-family: inherit; cursor: text; user-select: text; }
+.pr-dg-filter:focus { outline: 2px solid #4F46E5; outline-offset: -1px; }
 .pr-dg-fz { position: sticky; z-index: 2; }
 /* The desktop's glyphs are hinted to the pixel grid and a browser's are not: at the grid's sizes the two carry the same
    ink with no outline added (measured on the grid's titles and cells), which the labels' calibrated outline would overshoot. */

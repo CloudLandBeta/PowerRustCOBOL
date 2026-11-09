@@ -137,6 +137,8 @@ pub struct Col {
     pub font: f64,
     pub header_font: f64,
     pub mask: String,
+    /// What the column's filter box holds (`ColumnFilters`).
+    pub filter: String,
 }
 
 /// Every colour the grid is painted in.
@@ -176,6 +178,8 @@ pub struct Grid {
     pub sheet_h: f64,
     pub title: String,
     pub show_csv: bool,
+    /// The filter row is drawn under the titles (`ShowColumnFilters`; on unless the form turns it off, so every grid on a page filters).
+    pub filters_on: bool,
     pub sort: Option<(usize, bool)>,
     pub grid_line: DataGridGridLineStyle,
     advanced: DataGridAdvanced,
@@ -302,7 +306,7 @@ impl Grid {
         let look = Look { header_bg, header_fg, cell_fg, line, underlay, alt, alt_rows: !alt_none && !alt_cols, alt_cols, face_opacity };
 
         // The bands above the rows.
-        let show_filters = flag(c, "ShowColumnFilters", false);
+        let show_filters = flag(c, "ShowColumnFilters", true);
         let header_h = if show_filters { (row_h * 1.85).max(row_h + 18.0) } else { row_h };
         let title = sv("Title").trim().to_owned();
         let show_csv = flag(c, "ShowCSVExportButton", false) && flag(c, "ExportCSV", true);
@@ -357,6 +361,7 @@ impl Grid {
                 font: meta.map(|m| m.font_size).filter(|s| *s > 0).map(|s| s as f64).unwrap_or(font as f64),
                 header_font: meta.map(|m| m.header_font_size.max(6) as f64).unwrap_or(12.0),
                 mask: meta.map(|m| m.cobol_mask.clone()).unwrap_or_default(),
+                filter: advanced.filters.iter().find(|f| f.column_id.eq_ignore_ascii_case(name)).map(|f| f.value.clone()).unwrap_or_default(),
             });
             x += width;
         }
@@ -389,6 +394,7 @@ impl Grid {
             sheet_h,
             title,
             show_csv,
+            filters_on: show_filters,
             sort,
             grid_line,
             advanced,
@@ -517,8 +523,30 @@ impl Grid {
                 }
             }
             let size = col.header_font;
-            let title_y = if self.header_h > 0.0 { metrics::text_top(self.header_h, size) } else { 0.0 };
+            let title_band = if self.filters_on { self.row_h } else { self.header_h };
+            let title_y = if title_band > 0.0 { metrics::text_top(title_band, size) } else { 0.0 };
             hc = hc.child(self.text("t", &col.title, size, Self::text_left(DataGridTextAlignment::Center, &col.title, size, col.w), title_y, l.header_fg));
+            // The filter box under the title: what is typed keeps the rows whose cell contains it, ignoring case.
+            if self.filters_on && col.source != usize::MAX {
+                let box_h = (self.header_h - self.row_h - 6.0).max(14.0);
+                hc = hc.child(
+                    VNode::new("input")
+                        .key("filter")
+                        .class("pr-dg-filter")
+                        .attr("type", "text")
+                        .attr("data-part", "filter")
+                        .attr("data-c", col.display.to_string())
+                        .attr("aria-label", format!("Filter {}", col.title))
+                        .attr("autocomplete", "off")
+                        .attr("spellcheck", "false")
+                        .prop_str("value", col.filter.clone())
+                        .style("top", px(self.row_h))
+                        .style("width", px((col.w - 10.0).max(8.0)))
+                        .style("height", px(box_h))
+                        .style("font-size", px(col.font.min(13.0)))
+                        .on("input"),
+                );
+            }
             // The two buttons that move the column left and right.
             if self.reorder && col.w >= 58.0 {
                 let btn_h = (self.row_h - 6.0).max(10.0);
@@ -874,6 +902,24 @@ pub fn data_grid(cx: &ViewCtx, i: usize) -> VNode {
 /// The data column (from 0) a display column shows, for what a click reports (`ClickedColumn`): `None` when no data is behind it.
 pub fn source_of(cx: &ViewCtx, i: usize, display: usize) -> Option<usize> {
     Grid::new(cx, i).cols.iter().find(|c| c.display == display).map(|c| c.source).filter(|s| *s != usize::MAX)
+}
+
+/// The title of the display column `display`: what `ColumnFilters` calls it.
+pub fn title_of(cx: &ViewCtx, i: usize, display: usize) -> Option<String> {
+    Grid::new(cx, i).cols.iter().find(|c| c.display == display).map(|c| c.title.clone())
+}
+
+/// `ColumnFilters` (`column=value` lines) with the filter of `title` set to `value`; an empty value removes it.
+pub fn with_filter(current: &str, title: &str, value: &str) -> String {
+    let mut lines: Vec<String> = current
+        .lines()
+        .filter(|l| l.split_once('=').is_some_and(|(c, _)| !c.trim().eq_ignore_ascii_case(title)))
+        .map(str::to_owned)
+        .collect();
+    if !value.trim().is_empty() {
+        lines.push(format!("{title}={value}"));
+    }
+    lines.join("\n")
 }
 
 /// Rows the grid has, as `Rows` is parsed: what a click on a row is checked against.
