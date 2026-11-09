@@ -849,7 +849,11 @@ impl WebPreview {
         }
         let project_dir = launch.manifest.parent().map(Path::to_path_buf).unwrap_or_default();
         let exports = project_dir.join(cobolt_compiler::project_kind::BACKEND_FOLDER).join("exports.toml");
-        if self.reuse(&launch, intent) {
+        // The page being served is only reopened while the Backend it was built for still runs: after a Stop (the
+        // Backend button, the Backend window) a Run starts the Backend again, and a new Preview, instead of
+        // reopening a page that can only say "Connecting to the server…".
+        let backend_gone = self.backend_for.is_some() && !ide_backend.as_ref().is_some_and(|r| r.is_running());
+        if !backend_gone && self.reuse(&launch, intent) {
             return Some(false);
         }
         // Chosen again below when this start runs a Backend of its own.
@@ -2771,6 +2775,32 @@ mod tests {
         pump_until(&mut p, &mut ide, "the page to be served", 30, |p| p.serving());
         assert_eq!(*backend.urls.lock().unwrap(), [url.clone()]);
         assert!(!p.notes().iter().any(|n| matches!(n, Note::BackendStarting { .. })), "{:?}", p.notes());
+        ide.take().unwrap().stop();
+    }
+
+    /// After the Backend is stopped (its button, its window) a Run starts it again: the page being
+    /// served was built for a Backend that is gone, and reopening it only says "Connecting to the server…".
+    #[test]
+    fn a_run_after_the_backend_was_stopped_starts_it_again() {
+        quiet();
+        let rcrun = built_rcrun();
+        let manifest = backend_project("be-rerun", "127.0.0.1:0", "");
+        let backend = Fake::new();
+        let (mut p, mut ide) = (WebPreview::default(), None);
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(true));
+        pump_until(&mut p, &mut ide, "the page to be served", 90, |p| p.serving());
+        let first = ide.as_ref().and_then(|r| r.url()).unwrap().to_owned();
+        // Running again while the Backend runs only reopens the page.
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(false));
+        assert_eq!(backend.urls.lock().unwrap().len(), 1);
+        // Stop, as the Backend button does; the Preview stays served.
+        ide.take().unwrap().stop();
+        assert!(p.serving());
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(true), "the Backend starts again");
+        pump_until(&mut p, &mut ide, "the page to be served again", 90, |p| p.serving() && !p.awaiting_backend());
+        let second = ide.as_ref().and_then(|r| r.url()).unwrap().to_owned();
+        assert!(get_health(&second).starts_with("HTTP/1.1 200"));
+        println!("Backend {first} stopped; Run started it again on {second}");
         ide.take().unwrap().stop();
     }
 

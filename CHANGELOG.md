@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.325 — 2026-11-08
+
+**Fix: Run starts the Backend again after it was stopped.** With the page served and the Backend stopped (the Backend button, the Backend window), Run only reopened the page that was already served, which was built for a Backend that no longer existed and said "Connecting to the server…" forever. The Preview reopens the served page only while its Backend still runs; otherwise Run starts the Backend and builds a new Preview. Test: `a_run_after_the_backend_was_stopped_starts_it_again`.
+
 ## 2.0.324 — 2026-11-08
 
 **Fix: a hidden file in the web player's folder no longer stops the Backend from running.** Opening the player's `assets/web-player/parts` folder in Finder leaves a `.DS_Store` there, and the Web build took every entry of that folder for a player part: it refused with "the player part `.DS_Store` lacks its entry files", the Preview ended, and the Backend the Preview had started was stopped a moment after it began ("Backend parado"), so Run seemed to do nothing. Only folders are parts now, an entry whose name begins with a dot is never one, and the files of a part are read without its hidden entries. Test: `hidden_files_are_not_player_parts`.
