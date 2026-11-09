@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365); T5 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366); T6 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -145,7 +145,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
 
     The player's existing `the_ides_override_map_names_rows_of_this_table` stays green.
 
-- [ ] **T5 — `css_edit`: the planner and Remove** (R9, R10, R11 "Only this control", R12, R14 Remove, R16, R18; AC6, AC8)
+- [x] **T5 — `css_edit`: the planner and Remove** (R9, R10, R11 "Only this control", R12, R14 Remove, R16, R18; AC6, AC8)
   - Files: new `crates/cobolt-forms/src/css_edit.rs` (`pub mod`, not behind `render`).
   - Do: `plan(form, id, property, new, sources, env, choice) -> Result<Plan, Refusal>`, as in plan §1.5:
     1. **Not certain, or from the theme:** `Plan::StoreProperty`.

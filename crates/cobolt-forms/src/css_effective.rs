@@ -136,6 +136,8 @@ pub struct Rule {
     pub selectors: Vec<SelectorData>,
     /// Its declarations, ranges in the source's text.
     pub decls: Vec<DeclSpan>,
+    /// The rule's body, between its braces, in the source's text.
+    pub body: std::ops::Range<usize>,
     /// Position in source order over the whole set.
     pub order: usize,
 }
@@ -180,7 +182,7 @@ impl SheetSet {
                 }
                 let decls = parse_declarations_spanned(s.text, raw.open + 1..raw.close);
                 let order = set.rules.len();
-                set.rules.push(Rule { source: si, line: raw.line, layer, conditions: raw.conditions, selectors, decls, order });
+                set.rules.push(Rule { source: si, line: raw.line, layer, conditions: raw.conditions, selectors, decls, body: raw.open + 1..raw.close, order });
             }
             set.sources.push(Source { label: s.label.to_owned(), text: s.text.to_owned(), origin: s.origin });
             set.unparsed.push(unparsed);
@@ -315,10 +317,38 @@ fn scan(css: &str) -> Vec<RawRule> {
     out
 }
 
+/// A CSS identifier with its escapes resolved: `\31 A` is `1A`, `\.x` is `.x`.
+pub(crate) fn unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let mut hex = String::new();
+        while hex.len() < 6 && it.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
+            hex.push(it.next().unwrap_or('0'));
+        }
+        if hex.is_empty() {
+            if let Some(n) = it.next() {
+                out.push(n);
+            }
+        } else {
+            if it.peek().is_some_and(|c| c.is_ascii_whitespace()) {
+                it.next();
+            }
+            out.push(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32).unwrap_or('\u{FFFD}'));
+        }
+    }
+    out
+}
+
 /// A selector the subset can test, and whether it was simplified to get there (a pseudo-class taken
 /// out, the subject's element type taken out). `:host` is kept: it names the root of the path.
 /// `None`: it styles a pseudo-element, another box.
 fn testable(selector: &str) -> Option<(String, bool)> {
+    let selector = &unescape(selector);
     if selector.contains("::") || selector.contains(":before") || selector.contains(":after") {
         return None;
     }
@@ -600,7 +630,7 @@ fn matching(sheets: &SheetSet, refs: &[ElementRef<'_>], env: Option<&MediaEnv>) 
                 line: rule.line,
                 certain,
                 selector: Some(selector),
-                order: rule.order,
+                order: rule.order * 65536 + di,
             });
         }
     }
@@ -644,11 +674,9 @@ pub fn cascade(form: &Form, id: Option<&str>, sheets: &SheetSet, env: Option<&Me
     }
 
     let mut all = matching(sheets, &refs, env);
-    let mut css_style_order = sheets.rules.len();
     if let Some(ctl) = id.and_then(|id| ancestry(form, id).last().copied()) {
         if let Some(text) = ctl.get_prop("CssStyle").map(|v| v.as_str().to_owned()).filter(|s| !s.trim().is_empty()) {
             for (di, d) in parse_declarations_spanned(&text, 0..text.len()).into_iter().enumerate() {
-                css_style_order += 1;
                 all.push(Matched {
                     css: d.decl.name,
                     value: d.decl.value,
@@ -661,7 +689,7 @@ pub fn cascade(form: &Form, id: Option<&str>, sheets: &SheetSet, env: Option<&Me
                     line: 0,
                     certain: true,
                     selector: None,
-                    order: css_style_order,
+                    order: (sheets.rules.len() + 1) * 65536 + di,
                 });
             }
         }
@@ -695,6 +723,10 @@ pub struct Entry {
     /// The winning rule can match an element other than this one (plan §1.4): its subject names a
     /// type class, a `CssClass`, another attribute or no id, or its value comes through a `var()`.
     pub shared: bool,
+    /// Where the declaration is: a rule of a sheet, or the control's `CssStyle`.
+    pub decl: DeclSource,
+    /// It carries `!important`.
+    pub important: bool,
 }
 
 /// Why the canvas cannot paint a declaration.
@@ -757,7 +789,7 @@ fn last_compound(sel: &str) -> &str {
 }
 
 fn names_this_control(sel: &str, id: &str) -> bool {
-    let subject = last_compound(sel).to_ascii_lowercase();
+    let subject = unescape(last_compound(sel)).to_ascii_lowercase();
     let id = id.to_ascii_lowercase();
     let by_id = subject.match_indices(&format!("#{id}")).any(|(at, m)| !subject[at + m.len()..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
     by_id || subject.contains(&format!("[data-name=\"{id}\"]")) || subject.contains(&format!("[data-name='{id}']"))
@@ -794,6 +826,7 @@ pub fn effective(form: &Form, id: Option<&str>, sheets: &SheetSet, env: &MediaEn
     let props = ctl.map(|c| props_layer(c, form)).unwrap_or_default();
     let label = |m: &Matched| m.sheet.map(|s| sheets.sources[s].label.clone());
     let mut out = Effective::default();
+    let mut keys: HashMap<&'static str, (u8, (u32, u32, u32), usize)> = HashMap::new();
     for m in c.winners.iter().filter(|m| !m.css.starts_with("--")) {
         if m.layer < Layer::Props && !m.important && props.iter().any(|(k, _)| *k == m.css) {
             continue;
@@ -807,7 +840,21 @@ pub fn effective(form: &Form, id: Option<&str>, sheets: &SheetSet, env: &MediaEn
             Reading::Known(values) => {
                 let shared = is_shared(m, sheets, id);
                 for (property, value) in values {
-                    out.entries.push(Entry { property, value, css: m.css.clone(), layer: m.layer, sheet: label(m), line: m.line, declared: m.value.clone(), shared });
+                    // A shorthand and a longhand can both set a property: the later one in the cascade wins it.
+                    let entry = Entry { property, value, css: m.css.clone(), layer: m.layer, sheet: label(m), line: m.line, declared: m.value.clone(), shared, decl: m.source, important: m.important };
+                    match keys.get(property) {
+                        Some(k) if *k >= m.key() => {}
+                        Some(_) => {
+                            keys.insert(property, m.key());
+                            if let Some(at) = out.entries.iter().position(|e| e.property == property) {
+                                out.entries[at] = entry;
+                            }
+                        }
+                        None => {
+                            keys.insert(property, m.key());
+                            out.entries.push(entry);
+                        }
+                    }
                 }
             }
             Reading::Unknown(_) if row_of(&m.css).is_some() => out.unpainted.push(unp(Why::Unknown)),

@@ -675,6 +675,38 @@ pub fn gradient_angle_deg(name: &str) -> f32 {
     angle_of_direction(name)
 }
 
+
+/// The CSS longhand that sets model property `property`, the one an edit writes when the winning
+/// declaration is a shorthand it cannot rewrite in place.
+pub fn longhand_of(property: &str) -> Option<&'static str> {
+    Some(match property {
+        "BackgroundColor" => "background-color",
+        "ForegroundColor" => "color",
+        "BorderColor" => "border-color",
+        "BorderStyle" => "border-style",
+        "BorderWidth" => "border-width",
+        "FontName" => "font-family",
+        "FontSize" => "font-size",
+        "Bold" => "font-weight",
+        "Italic" => "font-style",
+        "Underline" | "Strikethrough" => "text-decoration",
+        "Cursor" => "cursor",
+        "Padding" => "padding",
+        "PaddingLeft" => "padding-left",
+        "PaddingTop" => "padding-top",
+        "PaddingRight" => "padding-right",
+        "PaddingBottom" => "padding-bottom",
+        "CornerRadius" => "border-radius",
+        "CornerRadiusTopLeft" => "border-top-left-radius",
+        "CornerRadiusTopRight" => "border-top-right-radius",
+        "CornerRadiusBottomLeft" => "border-bottom-left-radius",
+        "CornerRadiusBottomRight" => "border-bottom-right-radius",
+        "TextAlignment" => "text-align",
+        "WordWrap" => "white-space",
+        p if p.starts_with("Shadow") => "box-shadow",
+        _ => return None,
+    })
+}
 #[cfg(test)]
 mod tests {
     use super::*;

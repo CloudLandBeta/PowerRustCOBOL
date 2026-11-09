@@ -97,6 +97,7 @@ pub mod viewer;
 /// layout, and nothing fetched.
 pub mod css;
 /// Which properties a control's stylesheets override (WASM-007 R12).
+pub mod css_edit;
 pub mod css_effective;
 pub mod css_overrides;
 pub mod css_reverse;
