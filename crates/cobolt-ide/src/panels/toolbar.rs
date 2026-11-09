@@ -72,7 +72,7 @@ pub fn show(
 
             // ── Open file ─────────────────────────────────────────────────────
             let open_resp = if aurora {
-                crate::aurora::pill(ui, true, tr.tb_open, pills.open)
+                crate::aurora::icon_pill(ui, true, tr.tb_open, pills.open, &designer::icon_folder_open)
             } else {
                 icon_only(ui, true, tr.tb_open, None, &designer::icon_folder_open)
             };
@@ -87,7 +87,7 @@ pub fn show(
             // shows a greyed Save, so the button itself is the dirty indicator.
             let save_enabled = has_active && has_unsaved;
             let save_resp = if aurora {
-                crate::aurora::pill(ui, save_enabled, tr.tb_save, pills.open)
+                crate::aurora::icon_pill(ui, save_enabled, tr.tb_save, pills.open, &designer::icon_save)
             } else {
                 icon_only(ui, save_enabled, tr.tb_save, None, &designer::icon_save)
             };
@@ -103,7 +103,7 @@ pub fn show(
 
             // ── Check (parse/analyse only) ────────────────────────────────────
             let check_resp = if aurora {
-                crate::aurora::pill(ui, has_active, tr.tb_check, pills.check)
+                crate::aurora::icon_pill(ui, has_active, tr.tb_check, pills.check, &designer::icon_check)
             } else {
                 icon_only(ui, has_active, tr.tb_check, None, &designer::icon_check)
             };
@@ -114,7 +114,7 @@ pub fn show(
 
             // ── Project-wide code search (spec 053) ───────────────────────────
             let search_resp = if aurora {
-                crate::aurora::pill(ui, has_active, tr.tb_search, pills.search)
+                crate::aurora::icon_pill(ui, has_active, tr.tb_search, pills.search, &designer::icon_magnifier)
             } else {
                 icon_only(ui, has_active, tr.tb_search, None, &designer::icon_magnifier)
             }
@@ -126,7 +126,7 @@ pub fn show(
 
             // ── Build binary ──────────────────────────────────────────────────
             let build_resp = if aurora {
-                crate::aurora::pill(ui, compilable && !building, tr.tb_build, pills.build)
+                crate::aurora::icon_pill(ui, compilable && !building, tr.tb_build, pills.build, &designer::icon_build)
             } else {
                 icon_only(ui, compilable && !building, tr.tb_build, None, &designer::icon_build)
             };
@@ -149,7 +149,7 @@ pub fn show(
 
             // ── Run (interpreted) ─────────────────────────────────────────────
             let run_resp = if aurora {
-                crate::aurora::pill(ui, !busy && compilable, tr.tb_run, pills.run)
+                crate::aurora::icon_pill(ui, !busy && compilable, tr.tb_run, pills.run, &designer::icon_run)
             } else {
                 icon_only(ui, !busy && compilable, tr.tb_run, Some(Color32::from_rgb(80, 200, 80)), &designer::icon_run)
             };
@@ -163,7 +163,7 @@ pub fn show(
 
             // ── Debug (right of Run; in a project, enabled once it has been built) ─
             let dbg_resp = if aurora {
-                crate::aurora::pill(ui, !busy && debuggable, tr.tb_debug, pills.debug)
+                crate::aurora::icon_pill(ui, !busy && debuggable, tr.tb_debug, pills.debug, &designer::icon_bug)
             } else {
                 icon_only(ui, !busy && debuggable, tr.tb_debug, Some(Color32::from_rgb(200, 150, 80)), &designer::icon_bug)
             };
@@ -177,7 +177,7 @@ pub fn show(
 
             // ── Stop ─────────────────────────────────────────────────────────
             let stop_resp = if aurora {
-                crate::aurora::pill(ui, busy, tr.tb_stop, pills.stop)
+                crate::aurora::icon_pill(ui, busy, tr.tb_stop, pills.stop, &designer::icon_stop)
             } else {
                 icon_only(ui, busy, tr.tb_stop, Some(Color32::from_rgb(220, 80, 80)), &designer::icon_stop)
             };
@@ -256,7 +256,7 @@ fn task_wizard_toggle(
         } else {
             crate::aurora::pills().open
         };
-        crate::aurora::pill(ui, true, tr.task_wizard_toggle, look)
+        crate::aurora::icon_pill(ui, true, tr.task_wizard_toggle, look, &designer::icon_task_wizard)
     } else {
         toolbar_icon(ui, true, on, tr.task_wizard_toggle, &designer::icon_task_wizard)
     };

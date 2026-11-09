@@ -639,16 +639,37 @@ fn engaged_pill_of(pal: &Palette) -> Pill {
 /// the gradient, a lit top edge and a shaded bottom edge. The label keeps the
 /// widget's own text and behaviour; only the face is painted.
 pub fn pill(ui: &mut Ui, enabled: bool, label: &str, look: Pill) -> Response {
+    pill_with(ui, enabled, look, |ink| egui::Button::new(egui::RichText::new(label).color(ink)), None)
+}
+
+/// The same pill with an icon instead of a label; the label is the tooltip
+/// (operator, 2026-11-08: the labels overlapped, in every theme).
+pub fn icon_pill(
+    ui: &mut Ui,
+    enabled: bool,
+    tooltip: &str,
+    look: Pill,
+    icon: &dyn Fn(&mut Vec<Shape>, Rect, Color32),
+) -> Response {
+    pill_with(ui, enabled, look, |_| egui::Button::new("").min_size(egui::vec2(44.0, 29.0)), Some(icon))
+        .on_hover_text(tooltip)
+        .on_disabled_hover_text(tooltip)
+}
+
+fn pill_with<'a>(
+    ui: &mut Ui,
+    enabled: bool,
+    look: Pill,
+    button: impl FnOnce(Color32) -> egui::Button<'a>,
+    icon: Option<&dyn Fn(&mut Vec<Shape>, Rect, Color32)>,
+) -> Response {
     let pal = palette().unwrap_or(&PASTEL);
     let look = if enabled { look } else { pal.pills.disabled };
     let pill_r = pal.pill_radius;
     let slot = ui.painter().add(Shape::Noop);
     let resp = ui.add_enabled(
         enabled,
-        egui::Button::new(egui::RichText::new(label).color(look.ink))
-            .fill(Color32::TRANSPARENT)
-            .stroke(Stroke::NONE)
-            .corner_radius(CornerRadius::same(pill_r)),
+        button(look.ink).fill(Color32::TRANSPARENT).stroke(Stroke::NONE).corner_radius(CornerRadius::same(pill_r)),
     );
     let r = resp.rect;
     // A radius of 18 or more means a capsule: round ends whatever the height.
@@ -680,6 +701,9 @@ pub fn pill(ui: &mut Ui, enabled: bool, label: &str, look: Pill) -> Response {
         Stroke::new(2.0, Color32::from_rgba_unmultiplied(0, 0, 0, 26)),
     ));
     ui.painter().set(slot, Shape::Vec(shapes));
+    if let Some(icon) = icon {
+        crate::panels::designer::paint_toolbar_icon(ui.painter(), r.center(), icon, look.ink);
+    }
     resp
 }
 

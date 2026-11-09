@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.326 — 2026-11-08
+
+**Fix: the IDE's top toolbar is icon-only in the Aurora themes too, so it looks the same with a project open or not.** Open, Save, Check, Search, Build, Run, Debug, Stop and the Task Wizard switch kept their text labels on the Aurora pills (2.0.323 had changed only the other themes), so the buttons overlapped once a project was open. The pills now carry the same icons, and the label is the tooltip.
+
 ## 2.0.325 — 2026-11-08
 
 **Fix: Run starts the Backend again after it was stopped.** With the page served and the Backend stopped (the Backend button, the Backend window), Run only reopened the page that was already served, which was built for a Backend that no longer existed and said "Connecting to the server…" forever. The Preview reopens the served page only while its Backend still runs; otherwise Run starts the Backend and builds a new Preview. Test: `a_run_after_the_backend_was_stopped_starts_it_again`.

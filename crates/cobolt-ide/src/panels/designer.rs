@@ -19510,6 +19510,20 @@ pub(crate) fn toolbar_icon_button(
     resp.on_hover_text(tooltip).on_disabled_hover_text(tooltip)
 }
 
+/// Paints a toolbar icon at the standard size, centred on `center`.
+pub(crate) fn paint_toolbar_icon(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    draw_fn: &dyn Fn(&mut Vec<Shape>, Rect, Color32),
+    col: Color32,
+) {
+    let icon_rect = Rect::from_center_size(center, Vec2::splat(30.0));
+    let mut shapes: Vec<Shape> = Vec::new();
+    draw_fn(&mut shapes, icon_rect, col);
+    normalize_icon(&mut shapes, icon_rect.center(), 21.0);
+    painter.extend(shapes);
+}
+
 fn icon_inspector(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     // A mini bar-chart glyph on a baseline — the metrics/inspector icon.
     let (w, h) = (r.width(), r.height());
