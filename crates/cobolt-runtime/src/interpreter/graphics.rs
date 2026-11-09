@@ -39,6 +39,29 @@ pub fn project_limits() -> Limits {
     PROJECT_LIMITS.get().cloned().unwrap_or_default()
 }
 
+/// The desktop host's side of `LoadAsset`: a file under `<project>/Assets/`, named relative to that folder. A name that is
+/// absolute or climbs out of the folder (`..`) is refused. Saving is not offered by this host yet.
+struct ProjectAssets;
+
+impl cobolt_graphics::resources::AssetHost for ProjectAssets {
+    fn asset(&self, name: &str) -> Option<Vec<u8>> {
+        project_asset(&cobolt_forms::assets::current_base()?, name)
+    }
+
+    fn save(&self, _name: &str, _bytes: &[u8]) -> Result<(), String> {
+        Err("Save is not available on the desktop host yet".to_owned())
+    }
+}
+
+/// The bytes of `<base>/Assets/<name>`; `None` for a name that is absolute or climbs out of the folder, or a file that is not there.
+fn project_asset(base: &std::path::Path, name: &str) -> Option<Vec<u8>> {
+    let rel = std::path::Path::new(name);
+    if rel.is_absolute() || rel.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return None;
+    }
+    std::fs::read(base.join("Assets").join(rel)).ok()
+}
+
 /// What the interpreter keeps for the graphics objects of one running form.
 pub(crate) struct GraphicsState {
     pub registry: Registry,
@@ -58,6 +81,7 @@ impl GraphicsState {
     pub(crate) fn with_limits(limits: Limits) -> GraphicsState {
         let mut registry = Registry::new(limits);
         register_fonts(&mut registry);
+        registry.set_assets(std::sync::Arc::new(ProjectAssets));
         GraphicsState { registry, handles: HashMap::new(), frame_canvas: None, instance: crate::canvas_frames::next_instance(), frames: 0, gpu_gen: 0 }
     }
 
@@ -573,6 +597,19 @@ mod tests {
         call(&mut i, "CANVAS-1", "FillRect", &["0", "0", "4", "4"]);
         assert_eq!(i.obj_get("CANVAS-1", "LastError"), "");
         println!("T31 desktop (interpreter): {} refusals, each a sentence: {}", said.len(), said.join(" | "));
+    }
+
+    /// `LoadAsset` on the desktop reads a file from the project's `Assets/` folder (the PowerGraphics image lab loads `chibi.png`),
+    /// and refuses a name that leaves that folder.
+    #[test]
+    fn load_asset_reads_the_projects_assets_folder_and_stays_inside_it() {
+        let project = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/PowerGraphics");
+        let bytes = project_asset(&project, "chibi.png").expect("the image lab's picture is in the project's Assets");
+        assert!(bytes.starts_with(b"\x89PNG"), "a PNG file");
+        assert!(project_asset(&project, "../PowerGraphics.project.toml").is_none(), "no climbing out of Assets");
+        assert!(project_asset(&project, "/etc/hosts").is_none(), "no absolute path");
+        assert!(project_asset(&project, "no-such.png").is_none());
+        println!("LoadAsset (desktop): chibi.png read, {} bytes; `..` and absolute names refused", bytes.len());
     }
 
     /// 10,000 shapes then one `Present`: the library ran the list once.

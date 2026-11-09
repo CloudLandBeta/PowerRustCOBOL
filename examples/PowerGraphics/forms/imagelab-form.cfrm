@@ -50,10 +50,11 @@
            CLASS RUST-RANGE IS "Rust.Range"]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="IMAGELAB-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
-           *> A blue picture with an orange block laid over it.
+           *> The chibi picture (Assets/chibi.png, 536 x 565) is loaded and shrunk to 228 x 240, then laid over a blue 320 x 240 picture.
            IMG-A::Create( 320 240 "#3366AA" )
-           IMG-B::Create( 120 80 "#FFAA00" )
-           IMG-A::Composite( IMG-B::GetHandle() 100 80 )
+           IMG-B::LoadAsset( "chibi.png" )
+           IMG-B::Resize( 228 240 )
+           IMG-A::Composite( IMG-B::GetHandle() 46 0 )
            IMG-A::DrawOnto( CNV-LAB::GetHandle() 0 0 )
            CNV-LAB::Present()
 ]]></Event>
@@ -81,7 +82,7 @@
     <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="IMG-A" type="ImageBuffer" x="340" y="330" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
-    <Property name="Definition">The picture the filters change: 320 by 240 pixels, held in memory.</Property>
+    <Property name="Definition">The picture the filters change: the chibi on a blue background, 320 by 240 pixels, held in memory.</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -98,7 +99,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
   </Control>
   <Control id="IMG-B" type="ImageBuffer" x="410" y="330" w="60" h="24" tab-order="2" z-order="0" visible="true" enabled="true">
-    <Property name="Definition">The orange block that is laid over the picture when the form opens.</Property>
+    <Property name="Definition">The chibi picture, loaded from Assets/chibi.png and laid over the blue background when the form opens.</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>

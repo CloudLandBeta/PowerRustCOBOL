@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.352 — 2026-11-09
+
+**Fix: ImageBuffer.LoadAsset loads a picture from the project's Assets folder on the desktop, and the PowerGraphics Image Lab shows the chibi.** The desktop host gave the graphics objects no asset source, so LoadAsset always failed; it now reads the file under the project's Assets folder (a name that is absolute or climbs out of that folder is refused). The Image Lab opens with the chibi picture (Assets/chibi.png) on a blue background instead of an orange block, so the filters show on a real image.
+
 ## 2.0.351 — 2026-11-09
 
 **Fix: the PowerGraphics game window has a Reset button.** It puts the yellow sprite and the four red balls back in their starting row, at rest, so the physics demo can be replayed without closing the window.
