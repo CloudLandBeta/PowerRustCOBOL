@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.324 — 2026-11-08
+
+**Fix: a hidden file in the web player's folder no longer stops the Backend from running.** Opening the player's `assets/web-player/parts` folder in Finder leaves a `.DS_Store` there, and the Web build took every entry of that folder for a player part: it refused with "the player part `.DS_Store` lacks its entry files", the Preview ended, and the Backend the Preview had started was stopped a moment after it began ("Backend parado"), so Run seemed to do nothing. Only folders are parts now, an entry whose name begins with a dot is never one, and the files of a part are read without its hidden entries. Test: `hidden_files_are_not_player_parts`.
+
 ## 2.0.323 — 2026-11-08
 
 **Feature: the IDE's top toolbar shows icons only, and the designer's toolbar is 20% smaller.** Open, Save, Check, Search, Build, Run, Debug, Stop and the Task Wizard switch lose their text labels, which overlapped on a narrow window; each label is now the button's tooltip. The designer's icon toolbar draws its buttons at 80% of the former size (a 29 px cell, a 21 px icon) so the row no longer runs into the language selector. Under the Aurora Pastel theme the pills keep their labels.

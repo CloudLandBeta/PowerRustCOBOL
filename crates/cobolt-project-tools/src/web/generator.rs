@@ -654,7 +654,8 @@ fn files_under(dir: &Path) -> Vec<(String, Vec<u8>)> {
         let Ok(rd) = std::fs::read_dir(dir) else {
             return;
         };
-        let mut entries: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+        // A hidden entry (macOS's `.DS_Store`, an editor's swap file) is the machine's, never the player's.
+        let mut entries: Vec<_> = rd.flatten().filter(|e| !e.file_name().to_string_lossy().starts_with('.')).map(|e| e.path()).collect();
         entries.sort();
         for p in entries {
             if p.is_dir() {
@@ -686,9 +687,12 @@ fn load_player(dir: &Path) -> PlayerInput {
     };
     let mut parts = Vec::new();
     if let Ok(rd) = std::fs::read_dir(dir.join("parts")) {
+        // Only the folders are parts, and a hidden one (`.DS_Store` is a file, but `.git` is not) is not a part.
         let mut names: Vec<_> = rd
             .flatten()
+            .filter(|e| e.path().is_dir())
             .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| !n.starts_with('.'))
             .collect();
         names.sort();
         for name in names {
@@ -1517,5 +1521,24 @@ mod tests {
                 other => panic!("{label}: expected a refusal, got {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn hidden_files_are_not_player_parts() {
+        let root = std::env::temp_dir().join(format!("pr-hidden-parts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let part = root.join("parts").join("graphics3d");
+        std::fs::create_dir_all(&part).unwrap();
+        std::fs::write(part.join("graphics3d.js"), "js").unwrap();
+        std::fs::write(part.join("graphics3d_bg.wasm"), "wasm").unwrap();
+        std::fs::write(part.join(".DS_Store"), "junk").unwrap();
+        std::fs::write(root.join("parts").join(".DS_Store"), "junk").unwrap();
+        std::fs::create_dir_all(root.join("parts").join(".hidden-dir")).unwrap();
+        let p = load_player(&root);
+        let names: Vec<&str> = p.parts.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, ["graphics3d"], "{names:?}");
+        let files: Vec<&str> = p.parts[0].files.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(files, ["graphics3d.js", "graphics3d_bg.wasm"], "{files:?}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
