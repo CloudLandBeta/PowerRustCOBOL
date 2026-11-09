@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.356 — 2026-11-09
+
+**Fix: the bands on the striped balls of the 3D pool game follow the surface of the ball.** The band was a ring that stood out of the ball like a collar. It is now a slightly larger sphere, squeezed along its vertical axis, that shows only around the equator of the white ball, so the colour lies flush on the curve and rolls with the ball.
+
 ## 2.0.355 — 2026-11-09
 
 **Fix: the Pitfall explorer's knees bent the wrong way.** The leg angle was kept in an item that shared its name with an older unsigned whole-number item of the form, so negative angles lost their sign and fractions were cut off, and the shin pointed forward. The leg now uses its own signed item: the thigh swings from the hip and the shin trails backward, bending most as the leg passes under the body.

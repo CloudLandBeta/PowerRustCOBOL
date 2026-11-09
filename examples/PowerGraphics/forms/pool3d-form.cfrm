@@ -208,8 +208,10 @@
                SET     WS-NODE(WS-I)             TO    SCN-1::AddSphere( 0.11 24 )
                IF      WS-I > 9
                    SCN-1::SetColor( WS-NODE(WS-I) "#F4F4EC" )
-                   SET     WS-PART               TO    SCN-1::AddTorus( 0.108 0.035 )
-                   SCN-1::SetRotation( WS-PART 90 0 0 )
+                   *> The band lies ON the ball: a slightly larger sphere squeezed along the vertical axis pokes out of the white
+                   *> ball only around its equator, so the colour follows the curved surface instead of standing out of it.
+                   SET     WS-PART               TO    SCN-1::AddSphere( 0.1105 24 )
+                   SCN-1::SetScale( WS-PART, 1, 0.955, 1 )
                    SCN-1::SetColor( WS-PART WS-COL(WS-I) )
                    SCN-1::SetParent( WS-PART WS-NODE(WS-I) )
                ELSE
