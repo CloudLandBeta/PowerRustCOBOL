@@ -359,6 +359,8 @@ impl<H: ProjectHost> ProjectTools<H> {
                                    "description": "Picture the form in a window this wide, in points, laid out for it as a responsive form is (default: its designed width). Use it with height to see the form on another screen." },
                         "height": { "type": "number", "minimum": 64, "maximum": 8000,
                                     "description": "The window's height, in points (default: its designed height)." },
+                        "color_scheme": { "type": "string", "enum": ["light", "dark"],
+                                          "description": "A Web or Mobile form: the colour scheme the page is pictured in, which decides its prefers-color-scheme rules (default light)." },
                         "in_shell": { "type": "boolean",
                                       "description": "Picture the form inside the project's application shell (main form with a SideMenu)." }
                     },
@@ -637,7 +639,14 @@ impl<H: ProjectHost> ProjectTools<H> {
             (w, h) => Some([w.unwrap_or(0.0) as f32, h.unwrap_or(0.0) as f32]),
         };
         if web {
-            return web_form::render(&self.host, root, &path, scale, window);
+            // WASM-036 R17: `light` when absent — the page is asked for the scheme, never left to the system's.
+            let dark = match args.get("color_scheme").and_then(Value::as_str).map(str::trim) {
+                None | Some("") => Some(false),
+                Some(s) if s.eq_ignore_ascii_case("light") => Some(false),
+                Some(s) if s.eq_ignore_ascii_case("dark") => Some(true),
+                Some(other) => return Err(format!("color_scheme is 'light' or 'dark', not '{other}'")),
+            };
+            return web_form::render(&self.host, root, &path, scale, window, dark);
         }
         render::run(&self.host, root, self.shared.renderer.as_ref(), &path, scale, window)
     }

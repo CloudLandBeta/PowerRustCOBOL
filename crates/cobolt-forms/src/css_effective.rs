@@ -975,6 +975,25 @@ impl FinalColors {
     }
 }
 
+/// `controls` with every property the developer's own rules (`Project` and above) decide set to its
+/// effective value, children included: the controls as the page shows them, for a canvas or a picture.
+/// What the table cannot paint (`unpainted`) is left as stored.
+pub fn effective_controls(form: &Form, sheets: &SheetSet, env: &MediaEnv) -> Vec<Control> {
+    fn walk(cs: &[Control], form: &Form, sheets: &SheetSet, env: &MediaEnv) -> Vec<Control> {
+        cs.iter()
+            .map(|c| {
+                let mut out = c.clone();
+                for e in effective(form, Some(&c.id), sheets, env).entries.iter().filter(|e| e.layer >= Layer::Project) {
+                    out.set_prop(e.property, e.value.to_property_text());
+                }
+                out.children = walk(&c.children, form, sheets, env);
+                out
+            })
+            .collect()
+    }
+    walk(&form.controls, form, sheets, env)
+}
+
 /// [`FinalColors`] per control id, for the render engine.
 #[derive(Debug, Clone, Default)]
 pub struct CssFinal {

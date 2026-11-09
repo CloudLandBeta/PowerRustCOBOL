@@ -36,11 +36,26 @@ pub struct SnapshotOptions {
     /// the designed size. A responsive form is laid out for it, never below
     /// the form's minimum — as a running window cannot be made smaller.
     pub window: Option<(f32, f32)>,
+    /// A Web or Mobile form's stylesheets, in cascade order (WASM-036 R6): the form is pictured
+    /// with the values they decide, as the canvas shows them. Empty for a Desktop form, whose
+    /// picture is then exactly what it was.
+    pub sheets: Vec<SnapshotSheet>,
+    /// The colour scheme `@media (prefers-color-scheme)` answers (R17).
+    pub color_scheme: crate::css::Scheme,
+}
+
+/// One stylesheet of a picture.
+#[derive(Debug, Clone)]
+pub struct SnapshotSheet {
+    /// Its project-relative name.
+    pub label: String,
+    pub text: String,
+    pub origin: crate::css_effective::Origin,
 }
 
 impl Default for SnapshotOptions {
     fn default() -> Self {
-        Self { theme_default: None, themes_dir: None, scale: 1.0, window: None }
+        Self { theme_default: None, themes_dir: None, scale: 1.0, window: None, sheets: Vec::new(), color_scheme: crate::css::Scheme::Light }
     }
 }
 
@@ -147,6 +162,17 @@ pub fn render_form_image(form: &Form, opts: &SnapshotOptions) -> egui::ColorImag
     let laid = crate::layout::apply::LaidOutState { inner: &Stringified };
     let state: &dyn FormState = if form.lays_out() { &laid } else { &Stringified };
     let mut picture = egui::ColorImage::filled([1, 1], Color32::TRANSPARENT);
+    // The stylesheets' verdict, once: the controls as the page shows them, and the colours the
+    // page decided (painted unfaded). Nothing for a form with no sheet.
+    let (form_controls, css_final) = if opts.sheets.is_empty() {
+        (form.controls.clone(), None)
+    } else {
+        let sources: Vec<crate::css_effective::SheetSource<'_>> =
+            opts.sheets.iter().map(|s| crate::css_effective::SheetSource { label: &s.label, text: &s.text, origin: s.origin }).collect();
+        let set = crate::css_effective::SheetSet::parse(&sources);
+        let env = crate::css::MediaEnv { width: window.x, height: window.y, scheme: opts.color_scheme };
+        (crate::css_effective::effective_controls(form, &set, &env), Some(crate::css_effective::CssFinal::of_form(form, &set, &env)))
+    };
     // Three frames: textures and fonts settle on the first, sizes on the
     // second; the third is the picture.
     for (i, time) in [0.0, 0.5, 1.0].into_iter().enumerate() {
@@ -160,7 +186,7 @@ pub fn render_form_image(form: &Form, opts: &SnapshotOptions) -> egui::ColorImag
                     }
                 });
                 let image = tex.as_ref().map(|t| (t.id(), t.size_vec2()));
-                let mut controls = form.controls.clone();
+                let mut controls = form_controls.clone();
                 let mut form_size = window;
                 if form.lays_out() {
                     let spec = crate::layout::apply::FormSpec {
@@ -171,11 +197,11 @@ pub fn render_form_image(form: &Form, opts: &SnapshotOptions) -> egui::ColorImag
                         pinned_breakpoint: None,
                         pinned_font_scale: None,
                     };
-                    let p = crate::layout::apply::prepare_with_rail(ui.ctx(), &form.controls, &Stringified, &spec, window, None);
+                    let p = crate::layout::apply::prepare_with_rail(ui.ctx(), &form_controls, &Stringified, &spec, window, None);
                     controls = p.controls;
                     form_size = p.form_size;
                 }
-                let inp = RenderInput { css_final: None,
+                let inp = RenderInput { css_final: css_final.as_ref(),
                     controls: &controls,
                     state,
                     form_size,
@@ -230,6 +256,37 @@ mod tests {
         let [r, g, b, a] = px(&spatial).to_srgba_unmultiplied();
         assert_eq!(a, 255, "opaque: the stand-in desktop is behind the glass");
         assert!(r < 160 && g < 160 && b < 160, "glass over a dim desktop, not the form's white: {:?}", [r, g, b]);
+    }
+
+    /// WASM-036 T8 — a stylesheet's colour reaches the picture, in the scheme asked, and a form
+    /// with no sheet is pictured exactly as before.
+    #[test]
+    fn a_stylesheets_colour_is_in_the_picture_in_the_scheme_asked() {
+        use crate::css::Scheme;
+        use crate::css_effective::Origin;
+        use crate::model::{ControlType, PropValue};
+        let mut form = Form::new("F", "F", 200, 120);
+        let mut p = Control::new("PNL-1", ControlType::Panel, 20, 20);
+        p.rect = crate::model::Rect::new(20, 20, 160, 80);
+        p.set_prop("CssClass", PropValue::String("go".into()));
+        p.set_prop("Transparency", PropValue::String("50".into()));
+        form.controls.push(p);
+        let sheet = SnapshotSheet {
+            label: "app.css".into(),
+            text: ".go { background-color: #12ab34 } @media (prefers-color-scheme: dark) { .go { background-color: #ab3412 } }".into(),
+            origin: Origin::Project,
+        };
+        let px = |img: &egui::ColorImage| img.pixels[60 * img.size[0] + 100].to_srgba_unmultiplied();
+        let near = |got: [u8; 4], want: [u8; 3]| got[..3].iter().zip(want).all(|(g, w)| (*g as i32 - w as i32).abs() <= 1);
+        let t0 = std::time::Instant::now();
+        let light = render_form_image(&form, &SnapshotOptions { sheets: vec![sheet.clone()], ..Default::default() });
+        let dark = render_form_image(&form, &SnapshotOptions { sheets: vec![sheet], color_scheme: Scheme::Dark, ..Default::default() });
+        let none = render_form_image(&form, &SnapshotOptions::default());
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        println!("a_stylesheets_colour_is_in_the_picture: light {:?}, dark {:?}, none {:?} ({ms:.0} ms for 3 pictures)", px(&light), px(&dark), px(&none));
+        assert!(near(px(&light), [0x12, 0xab, 0x34]), "the rule's colour, unfaded by Transparency 50: {:?}", px(&light));
+        assert!(near(px(&dark), [0xab, 0x34, 0x12]), "the dark rule's colour: {:?}", px(&dark));
+        assert!(!near(px(&none), [0x12, 0xab, 0x34]), "no sheet, no rule colour");
     }
 
     /// A responsive form pictured in a bigger window is laid out for it, and

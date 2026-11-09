@@ -188,6 +188,7 @@ pub fn form_renderer() -> cobolt_project_tools::tools::render::Renderer {
                 themes_dir: Some(themes_dir),
                 scale: picture.scale,
                 window: picture.window.map(|[w, h]| (w, h)),
+                ..Default::default()
             };
         cobolt_forms::snapshot::render_form_png(cfrm, project, &opts)
     })

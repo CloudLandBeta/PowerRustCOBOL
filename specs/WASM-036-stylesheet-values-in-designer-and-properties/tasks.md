@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368); T8 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369); T9 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -205,7 +205,8 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - `engine_reference_form_parity_static_vs_faces` green, with a `css_final` case added.
     - A new test: a CSS colour on a `Transparency` 50 control paints unfaded on both paths.
 
-- [ ] **T8 — `render_form` paints the effective values, with `color_scheme`** (R17; AC12 renderer half)
+- [x] **T8 — `render_form` paints the effective values, with `color_scheme`** (R17; AC12 renderer half)
+  - *Done on 2.0.369, with one finding:* `render_form` of a Web or Mobile form is already drawn by the system web view (`web_form::render`, which refuses a desktop picture of a web form), so the page's own CSS applies and `color_scheme` sets the view's `prefers-color-scheme`. The engine route (`SnapshotOptions.sheets`, `effective_controls`) is built and tested for the headless canvas comparison of T9; AC12's "IDE and rcrun give the same pixels" holds because both call the one `render_form_png` and the one web-view path.
   - Files:
     - `crates/cobolt-forms/src/snapshot.rs` (`render_form_png`: the effective clones and `CssFinal` for a Web or Mobile project, at the size it lays out, plus the `color_scheme` option);
     - `crates/cobolt-project-tools/src/tools/mod.rs` (the schema: `"color_scheme": {"enum": ["light","dark"]}`, `light` when absent);

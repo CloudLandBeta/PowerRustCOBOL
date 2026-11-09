@@ -61,7 +61,7 @@ impl Drop for OpenPage {
     }
 }
 
-fn open(root: &ProjectRoot, rel: &str, window: Option<[f32; 2]>, dpr: f32) -> Result<(OpenPage, cobolt_forms::Form), String> {
+fn open(root: &ProjectRoot, rel: &str, window: Option<[f32; 2]>, dpr: f32, dark: Option<bool>) -> Result<(OpenPage, cobolt_forms::Form), String> {
     let helper = preview::helper_path().ok_or_else(|| {
         format!(
             "a web form is drawn by the system web view through the headless helper {}, which is not installed beside \
@@ -69,11 +69,11 @@ fn open(root: &ProjectRoot, rel: &str, window: Option<[f32; 2]>, dpr: f32) -> Re
             preview::HELPER_NAME
         )
     })?;
-    open_with(&helper, root, rel, window, dpr)
+    open_with(&helper, root, rel, window, dpr, dark)
 }
 
 /// [`open`] with the helper given (the browser runner looks for it in more places than the IDE does).
-pub(crate) fn open_with(helper: &std::path::Path, root: &ProjectRoot, rel: &str, window: Option<[f32; 2]>, dpr: f32) -> Result<(OpenPage, cobolt_forms::Form), String> {
+pub(crate) fn open_with(helper: &std::path::Path, root: &ProjectRoot, rel: &str, window: Option<[f32; 2]>, dpr: f32, dark: Option<bool>) -> Result<(OpenPage, cobolt_forms::Form), String> {
     let abs = root.resolve(rel)?;
     if !abs.is_file() {
         return Err(format!("no form at {rel}"));
@@ -104,7 +104,7 @@ pub(crate) fn open_with(helper: &std::path::Path, root: &ProjectRoot, rel: &str,
     let [w, h] = window.unwrap_or([form.width as f32, form.height as f32]);
     let (w, h) = ((w.round() as u32).max(64), (h.round() as u32).max(64));
     let url = format!("{}?pr-form={}", server.url(), form.name);
-    let emulation = Emulation { dpr: Some(dpr), ..Emulation::default() };
+    let emulation = Emulation { dpr: Some(dpr), dark, ..Emulation::default() };
     let session = match PreviewSession::start(&url, w, h, &emulation, helper) {
         Ok(s) => s,
         Err(e) => {
@@ -130,8 +130,8 @@ pub(crate) fn picture(page: &mut OpenPage) -> Result<(Vec<u8>, u32, u32), String
 }
 
 /// `render_form` for a web form: the page once the form is on it.
-pub fn render(host: &impl ProjectHost, root: &ProjectRoot, rel: &str, scale: f32, window: Option<[f32; 2]>) -> Result<(Vec<u8>, Value), String> {
-    let (mut page, _form) = open(root, rel, window, scale)?;
+pub fn render(host: &impl ProjectHost, root: &ProjectRoot, rel: &str, scale: f32, window: Option<[f32; 2]>, dark: Option<bool>) -> Result<(Vec<u8>, Value), String> {
+    let (mut page, _form) = open(root, rel, window, scale, dark)?;
     let (_, _, errors) = page.session.script(vec![form_on_the_page()], 30)?;
     if !errors.is_empty() {
         return Err(format!("the form did not appear on the page: {}", errors.join("; ")));
@@ -145,6 +145,10 @@ pub fn render(host: &impl ProjectHost, root: &ProjectRoot, rel: &str, scale: f32
         "note": "As the system web view draws the built page once the form is on it (its opening handlers have run).",
         "engine": ENGINE,
     });
+    if let Some(dark) = dark {
+        // WASM-036 R17: the colour scheme the page's `prefers-color-scheme` answered.
+        answer["color_scheme"] = json!(if dark { "dark" } else { "light" });
+    }
     if window.is_some() {
         // The viewport the page was laid out in, in CSS pixels.
         answer["window"] = json!([(w as f32 / scale).round(), (h as f32 / scale).round()]);
@@ -200,7 +204,7 @@ fn reads_a_value(step: &Value) -> bool {
 /// `run_form` for a web form: the steps through real DOM events, then a picture.
 pub fn run(root: &ProjectRoot, rel: &str, steps: &[Value], limit_s: u64) -> Result<(Option<Vec<u8>>, Value), String> {
     let started = Instant::now();
-    let (mut page, _form) = open(root, rel, None, 1.0)?;
+    let (mut page, _form) = open(root, rel, None, 1.0, None)?;
     // The script: the form first, then each step the helper has; the others
     // are reported as not done, with why.
     let mut script = vec![form_on_the_page()];

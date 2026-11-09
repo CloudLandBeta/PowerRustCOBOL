@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.369 — 2026-11-09
+
+**Feature: `render_form` takes `color_scheme`, and the form engine can picture a form with its stylesheets (WASM-036 T8).** The MCP `render_form` tool has a new optional argument, `color_scheme` (`light` or `dark`, `light` when absent): a Web or Mobile form's page is now asked for that scheme, so a rule under `@media (prefers-color-scheme: dark)` shows in the picture, and the answer names the scheme used. A Web or Mobile form was already drawn by the real web view, which applies the page's CSS itself; that stays, since a desktop picture of a web form would not be what the browser shows. For the engine, `SnapshotOptions` gains `sheets` and `color_scheme`, and `effective_controls` gives the controls with the developer's rules' values set: a picture of a form with a stylesheet shows the rule's colour (unfaded by `Transparency`), in Light or in Dark; a form with no sheet is pictured exactly as before. A new test pictures a Panel at `Transparency` 50 in both schemes and without a sheet. Desktop forms are unchanged.
+
 ## 2.0.368 — 2026-11-09
 
 **Feature: the render engine paints a stylesheet's colours as given, on the canvas and on the running form (WASM-036 T7).** `RenderInput` gains `css_final`, the colours the page's stylesheet decided per control (face, gradient, border, shadow). A colour named there is not faded by the control's `Transparency` — CSS has no such property, so a Panel at `Transparency` 50 whose background comes from a rule shows that colour at full strength, while the same colour set as a property is still faded. Both `render_form` and `render_faces` publish it to the shared control painter, so the two paths agree; every existing call site passes `None` and paints exactly as before. A new test paints a Panel at `Transparency` 50 three ways (CSS colour, property colour, neither) on both paths, and the static-versus-faces parity guard now also runs with colours on two controls. Known edge: when a control's stylesheet face, gradient or shadow is named, its shadow is not faded either; DataGrid and ToolBar keep their own fade.

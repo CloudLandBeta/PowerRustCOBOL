@@ -121,7 +121,7 @@ pub fn run(root: &ProjectRoot, form: &str, window: Option<[f32; 2]>, steps: &[St
     let helper = find_helper().ok_or_else(|| {
         RunnerError::NoWebView(format!("the helper {} is not installed beside this program (set PRC_WEB_PREVIEW)", preview::HELPER_NAME))
     })?;
-    let (mut page, _form) = web_form::open_with(&helper, root, form, window, 1.0).map_err(|e| {
+    let (mut page, _form) = web_form::open_with(&helper, root, form, window, 1.0, None).map_err(|e| {
         if e.contains("web view") || e.contains("helper") {
             RunnerError::NoWebView(e)
         } else {
