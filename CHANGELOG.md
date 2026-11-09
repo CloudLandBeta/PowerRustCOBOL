@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.351 — 2026-11-09
+
+**Fix: the PowerGraphics game window has a Reset button.** It puts the yellow sprite and the four red balls back in their starting row, at rest, so the physics demo can be replayed without closing the window.
+
 ## 2.0.348 — 2026-11-09
 
 **Fix: in the street runner the camera moves the opposite way, a hurdle makes him fall and ends the game, and there is no empty lane to hide in.** When the runner moves left the camera slides right, and the other way round. Every obstacle is now a hurdle across the whole street (road and both sidewalks), so each one has to be jumped; hitting one, or a parked car, makes him tip forward and ends the run with a banner showing the score (distance), and Space runs again from where he lies. The HUD shows the best distance of the session instead of a crash count.

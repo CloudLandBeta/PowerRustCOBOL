@@ -304,4 +304,19 @@
            INVOKE    ME::OpenFormSync("RUNNER-FORM")
 ]]></Event>
   </Control>
+  <Control id="BTN-RESET" type="Button" x="500" y="346" w="130" h="32" tab-order="12" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Puts the yellow sprite and the four red balls back where they started: the same row, at rest.</Property>
+    <Property name="Caption">Reset</Property>
+    <Event name="onClick" paragraph="BTN-RESET--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           *> Every ball goes back to its place in the row (40 + 80 x its number, 60), with no speed and no turn.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 5
+               COMPUTE WS-X = 40 + WS-I * 80
+               PHY-1::SetPosition( WS-WORLD WS-BALL(WS-I) WS-X 60 )
+               PHY-1::SetVelocity( WS-WORLD WS-BALL(WS-I) 0 0 )
+               PHY-1::SetRotation( WS-WORLD WS-BALL(WS-I) 0 )
+               PHY-1::SetAngularVelocity( WS-WORLD WS-BALL(WS-I) 0 )
+           END-PERFORM
+           CNV-GAME::SetFocus()
+]]></Event>
+  </Control>
 </Form>
