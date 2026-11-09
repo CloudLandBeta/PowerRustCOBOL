@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.344 — 2026-11-09
+
+**Fix: the street runner shows both arms and both legs, has traffic in its lanes, and can reach the sidewalks.** A negative number written after a comma as the first argument of a call (`SetPosition( WS-ARML, -0.37 0.68 0 )`) placed the left arm and left leg at the centre of the body, hiding the arm and stacking the legs on one side; the negatives now go through named items. Six obstacles stand in the three lanes (cars to dodge or jump, orange barriers to jump); a hit slows the runner, pushes the obstacle away and counts a crash, and the parked cars are solid too. The street is wider, the runner can move across the road onto either sidewalk (the curb lifts it 14 cm), and the HUD shows the crash count.
+
 ## 2.0.343 — 2026-11-09
 
 **Fix: the Pitfall foes are now cartoons, and the PowerGraphics showcase no longer misreads negative call arguments.** The alligators, logs, fires and scorpions of both worlds were plain blocks; each now has a face and animation (an angry rolling log, a mossy log with a peeking eye, a campfire that glares, a scuttling scorpion; on the other side a spinning skull, a tombstone with red eyes, a ghost flame, an ethereal scorpion, and skeleton alligators), with the same hit areas as before. In the bridge, pool and runner forms a negative number after another argument (`WS-A -1`) was read as a subtraction; those calls now use a comma. The 3D pool also gains mouse drag (rotate the table or aim and set power), a pocket that takes a ball at half its width, and a corrected cue; the 2D pool pocket is slightly larger; the arrows in the launcher form push the yellow square with enough force.

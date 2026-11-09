@@ -64,6 +64,22 @@
        01 WS-ED                                  GLOBAL    PIC -ZZZ9.9.
        01 WS-E1                                  GLOBAL    PIC Z(6)9.
        01 WS-E2                                  GLOBAL    PIC ZZ9.
+       01 WS-N1                                   GLOBAL    PIC S9(3)V9(3).
+       01 WS-N2                                   GLOBAL    PIC S9(3)V9(3).
+       01 WS-N3                                   GLOBAL    PIC S9(3)V9(3).
+       01 WS-N4                                   GLOBAL    PIC S9(3)V9(3).
+       01 WS-OBS                                 GLOBAL.
+           05 WS-OG                              PIC 9(10)    OCCURS 6.
+           05 WS-OX                              PIC S9(3)V9(3) OCCURS 6.
+           05 WS-OZ                              PIC S9(5)V9(3) OCCURS 6.
+       01 WS-OR                                  GLOBAL    PIC 9(5)        VALUE 0.
+       01 WS-GH                                  GLOBAL    PIC S9(3)V9(3)  VALUE 0.
+       01 WS-HX                                  GLOBAL    PIC S9(3)V9(3).
+       01 WS-HZ                                  GLOBAL    PIC S9(3)V9(3).
+       01 WS-HH                                  GLOBAL    PIC S9(3)V9(3).
+       01 WS-CRASH                               GLOBAL    PIC 9(4)        VALUE 0.
+       01 WS-FL                                  GLOBAL    PIC 99          VALUE 0.
+       01 WS-E3                                  GLOBAL    PIC ZZZ9.
        01 WS-HUD                                 GLOBAL    PIC X(80).
 ]]></working-storage>
   <form-events>
@@ -75,7 +91,8 @@
 
            *> The sun: a warm directional light low over the horizon that casts shadows.
            SET     WS-SUN                        TO    SCN-1::AddDirectionalLight( 1 0.62 0.36 1.25 1 )
-           SCN-1::SetRotation( WS-SUN, -28 18 0 )
+           MOVE    -28  TO    WS-N1
+           SCN-1::SetRotation( WS-SUN WS-N1 18 0 )
 
            *> Builds the runner.
            *> Uses: SCN-1 (the scene) and the handle items WS-RUN ... WS-ELR.
@@ -109,7 +126,8 @@
            SCN-1::SetPosition( WS-HIP 0 1.2 0 )
            SET     WS-TOR                        TO    SCN-1::AddGroup()
            SCN-1::SetParent( WS-TOR WS-HIP )
-           SCN-1::SetRotation( WS-TOR, -12 0 0 )
+           MOVE    -12  TO    WS-N1
+           SCN-1::SetRotation( WS-TOR WS-N1 0 0 )
 
            *> A tank top and orange shorts.
            SET     WS-H                          TO    SCN-1::AddBox( 0.55 0.75 0.3 )
@@ -118,7 +136,8 @@
            SCN-1::SetColor( WS-H "#1FB6D9" )
            SET     WS-H                          TO    SCN-1::AddBox( 0.58 0.28 0.34 )
            SCN-1::SetParent( WS-H WS-HIP )
-           SCN-1::SetPosition( WS-H 0, -0.02 0 )
+           MOVE    -0.02  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#F0702A" )
 
            *> The bald head: a smooth sphere with a shiny skin material (low roughness) that catches the sun.
@@ -133,22 +152,27 @@
            *> Left arm: a shoulder group, an upper arm, an elbow group (bent 70 degrees), a forearm and a hand.
            SET     WS-ARML                       TO    SCN-1::AddGroup()
            SCN-1::SetParent( WS-ARML WS-TOR )
-           SCN-1::SetPosition( WS-ARML, -0.37 0.68 0 )
+           MOVE    -0.37  TO    WS-N1
+           SCN-1::SetPosition( WS-ARML WS-N1 0.68 0 )
            SET     WS-H                          TO    SCN-1::AddCylinder( 0.07 0.42 )
            SCN-1::SetParent( WS-H WS-ARML )
-           SCN-1::SetPosition( WS-H 0, -0.21 0 )
+           MOVE    -0.21  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#E9B48C" )
            SET     WS-ELL                        TO    SCN-1::AddGroup()
            SCN-1::SetParent( WS-ELL WS-ARML )
-           SCN-1::SetPosition( WS-ELL 0, -0.42 0 )
+           MOVE    -0.42  TO    WS-N1
+           SCN-1::SetPosition( WS-ELL 0 WS-N1 0 )
            SCN-1::SetRotation( WS-ELL 70 0 0 )
            SET     WS-H                          TO    SCN-1::AddCylinder( 0.06 0.4 )
            SCN-1::SetParent( WS-H WS-ELL )
-           SCN-1::SetPosition( WS-H 0, -0.2 0 )
+           MOVE    -0.2  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#E9B48C" )
            SET     WS-H                          TO    SCN-1::AddSphere( 0.08 )
            SCN-1::SetParent( WS-H WS-ELL )
-           SCN-1::SetPosition( WS-H 0, -0.42 0 )
+           MOVE    -0.42  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#E9B48C" )
 
            *> Right arm.
@@ -157,59 +181,76 @@
            SCN-1::SetPosition( WS-ARMR 0.37 0.68 0 )
            SET     WS-H                          TO    SCN-1::AddCylinder( 0.07 0.42 )
            SCN-1::SetParent( WS-H WS-ARMR )
-           SCN-1::SetPosition( WS-H 0, -0.21 0 )
+           MOVE    -0.21  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#E9B48C" )
            SET     WS-ELR                        TO    SCN-1::AddGroup()
            SCN-1::SetParent( WS-ELR WS-ARMR )
-           SCN-1::SetPosition( WS-ELR 0, -0.42 0 )
+           MOVE    -0.42  TO    WS-N1
+           SCN-1::SetPosition( WS-ELR 0 WS-N1 0 )
            SCN-1::SetRotation( WS-ELR 70 0 0 )
            SET     WS-H                          TO    SCN-1::AddCylinder( 0.06 0.4 )
            SCN-1::SetParent( WS-H WS-ELR )
-           SCN-1::SetPosition( WS-H 0, -0.2 0 )
+           MOVE    -0.2  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#E9B48C" )
            SET     WS-H                          TO    SCN-1::AddSphere( 0.08 )
            SCN-1::SetParent( WS-H WS-ELR )
-           SCN-1::SetPosition( WS-H 0, -0.42 0 )
+           MOVE    -0.42  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#E9B48C" )
 
            *> Left leg: a hip joint, a thigh, a knee group, a shin and a white shoe.
            SET     WS-LEGL                       TO    SCN-1::AddGroup()
            SCN-1::SetParent( WS-LEGL WS-HIP )
-           SCN-1::SetPosition( WS-LEGL, -0.15, -0.15 0 )
+           MOVE    -0.15  TO    WS-N1
+           MOVE    -0.15  TO    WS-N2
+           SCN-1::SetPosition( WS-LEGL WS-N1 WS-N2 0 )
            SET     WS-H                          TO    SCN-1::AddCylinder( 0.1 0.5 )
            SCN-1::SetParent( WS-H WS-LEGL )
-           SCN-1::SetPosition( WS-H 0, -0.25 0 )
+           MOVE    -0.25  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#E9B48C" )
            SET     WS-KNL                        TO    SCN-1::AddGroup()
            SCN-1::SetParent( WS-KNL WS-LEGL )
-           SCN-1::SetPosition( WS-KNL 0, -0.5 0 )
+           MOVE    -0.5  TO    WS-N1
+           SCN-1::SetPosition( WS-KNL 0 WS-N1 0 )
            SET     WS-H                          TO    SCN-1::AddCylinder( 0.08 0.5 )
            SCN-1::SetParent( WS-H WS-KNL )
-           SCN-1::SetPosition( WS-H 0, -0.25 0 )
+           MOVE    -0.25  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#E9B48C" )
            SET     WS-H                          TO    SCN-1::AddBox( 0.17 0.1 0.32 )
            SCN-1::SetParent( WS-H WS-KNL )
-           SCN-1::SetPosition( WS-H 0, -0.52, -0.06 )
+           MOVE    -0.52  TO    WS-N1
+           MOVE    -0.06  TO    WS-N2
+           SCN-1::SetPosition( WS-H 0 WS-N1 WS-N2 )
            SCN-1::SetColor( WS-H "#FFFFFF" )
 
            *> Right leg.
            SET     WS-LEGR                       TO    SCN-1::AddGroup()
            SCN-1::SetParent( WS-LEGR WS-HIP )
-           SCN-1::SetPosition( WS-LEGR 0.15, -0.15 0 )
+           MOVE    -0.15  TO    WS-N1
+           SCN-1::SetPosition( WS-LEGR 0.15 WS-N1 0 )
            SET     WS-H                          TO    SCN-1::AddCylinder( 0.1 0.5 )
            SCN-1::SetParent( WS-H WS-LEGR )
-           SCN-1::SetPosition( WS-H 0, -0.25 0 )
+           MOVE    -0.25  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#E9B48C" )
            SET     WS-KNR                        TO    SCN-1::AddGroup()
            SCN-1::SetParent( WS-KNR WS-LEGR )
-           SCN-1::SetPosition( WS-KNR 0, -0.5 0 )
+           MOVE    -0.5  TO    WS-N1
+           SCN-1::SetPosition( WS-KNR 0 WS-N1 0 )
            SET     WS-H                          TO    SCN-1::AddCylinder( 0.08 0.5 )
            SCN-1::SetParent( WS-H WS-KNR )
-           SCN-1::SetPosition( WS-H 0, -0.25 0 )
+           MOVE    -0.25  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#E9B48C" )
            SET     WS-H                          TO    SCN-1::AddBox( 0.17 0.1 0.32 )
            SCN-1::SetParent( WS-H WS-KNR )
-           SCN-1::SetPosition( WS-H 0, -0.52, -0.06 )
+           MOVE    -0.52  TO    WS-N1
+           MOVE    -0.06  TO    WS-N2
+           SCN-1::SetPosition( WS-H 0 WS-N1 WS-N2 )
            SCN-1::SetColor( WS-H "#FFFFFF" )
 ]]></Event>
     <Event name="RUN-BUILD-STREET" paragraph="RUN-BUILD-STREET"><![CDATA[       PROCEDURE DIVISION.
@@ -231,18 +272,21 @@
            SET     WS-FOLLOW                     TO    SCN-1::AddGroup()
            SET     WS-H                          TO    SCN-1::AddPlane( 120 300 )
            SCN-1::SetParent( WS-H WS-FOLLOW )
-           SCN-1::SetPosition( WS-H 0, -0.06 0 )
+           MOVE    -0.06  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#1D1B22" )
-           SET     WS-H                          TO    SCN-1::AddPlane( 9 300 )
+           SET     WS-H                          TO    SCN-1::AddPlane( 12 300 )
            SCN-1::SetParent( WS-H WS-FOLLOW )
-           SCN-1::SetPosition( WS-H 0, -0.03 0 )
+           MOVE    -0.03  TO    WS-N1
+           SCN-1::SetPosition( WS-H 0 WS-N1 0 )
            SCN-1::SetColor( WS-H "#34363E" )
            SET     WS-MAT                        TO    SCN-1::GetMaterial( WS-H )
            SCN-1::SetRoughness( WS-MAT 0.3 )
            SCN-1::SetMetallic( WS-MAT 0.25 )
            SET     WS-H                          TO    SCN-1::AddBox( 3 0.2 300 )
            SCN-1::SetParent( WS-H WS-FOLLOW )
-           SCN-1::SetPosition( WS-H, -7.6 0.04 0 )
+           MOVE    -7.6  TO    WS-N1
+           SCN-1::SetPosition( WS-H WS-N1 0.04 0 )
            SCN-1::SetColor( WS-H "#9A9CA6" )
            SET     WS-H                          TO    SCN-1::AddBox( 3 0.2 300 )
            SCN-1::SetParent( WS-H WS-FOLLOW )
@@ -250,11 +294,14 @@
            SCN-1::SetColor( WS-H "#9A9CA6" )
            SET     WS-H                          TO    SCN-1::AddBox( 0.12 0.02 300 )
            SCN-1::SetParent( WS-H WS-FOLLOW )
-           SCN-1::SetPosition( WS-H, -4.3, -0.01 0 )
+           MOVE    -4.3  TO    WS-N1
+           MOVE    -0.01  TO    WS-N2
+           SCN-1::SetPosition( WS-H WS-N1 WS-N2 0 )
            SCN-1::SetColor( WS-H "#EDEDED" )
            SET     WS-H                          TO    SCN-1::AddBox( 0.12 0.02 300 )
            SCN-1::SetParent( WS-H WS-FOLLOW )
-           SCN-1::SetPosition( WS-H 4.3, -0.01 0 )
+           MOVE    -0.01  TO    WS-N1
+           SCN-1::SetPosition( WS-H 4.3 WS-N1 0 )
            SCN-1::SetColor( WS-H "#EDEDED" )
 
            *> The dashed lane marks are ONE box drawn forty times (SetInstances): a column-major 4x4 matrix per copy, the
@@ -386,16 +433,82 @@
                SCN-1::SetColor( WS-H "#0E0E10" )
                SET     WS-H                      TO    SCN-1::AddBox( 1.92 0.35 0.7 )
                SCN-1::SetParent( WS-H WS-CG(WS-J) )
-               SCN-1::SetPosition( WS-H 0 0.2, -1.3 )
+               MOVE    -1.3  TO    WS-N1
+               SCN-1::SetPosition( WS-H 0 0.2 WS-N1 )
                SCN-1::SetColor( WS-H "#0E0E10" )
                SET     WS-H                      TO    SCN-1::AddBox( 0.35 0.14 0.05 )
                SCN-1::SetParent( WS-H WS-CG(WS-J) )
-               SCN-1::SetPosition( WS-H, -0.6 0.6 2.02 )
+               MOVE    -0.6  TO    WS-N1
+               SCN-1::SetPosition( WS-H WS-N1 0.6 2.02 )
                SCN-1::SetMaterial( WS-H WS-MATR )
                SET     WS-H                      TO    SCN-1::AddBox( 0.35 0.14 0.05 )
                SCN-1::SetParent( WS-H WS-CG(WS-J) )
                SCN-1::SetPosition( WS-H 0.6 0.6 2.02 )
                SCN-1::SetMaterial( WS-H WS-MATR )
+           END-PERFORM
+
+           *> Six obstacles in the three lanes (x = -3.2, 0, 3.2), 30 m apart: cars in slots 1, 3, 5 and orange barriers in slots 2, 4, 6.
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+               COMPUTE WS-OZ(WS-J) = 0 - 30 - WS-J * 30
+               COMPUTE WS-N = FUNCTION MOD( WS-J * 7 3 )
+               COMPUTE WS-OX(WS-J) = ( WS-N - 1 ) * 3.2
+               SET     WS-OG(WS-J)               TO    SCN-1::AddGroup()
+               SCN-1::SetPosition( WS-OG(WS-J) WS-OX(WS-J) 0 WS-OZ(WS-J) )
+               IF      FUNCTION MOD( WS-J 2 ) = 1
+                   *> A car seen from behind: body, glass cabin, wheels and two glowing tail lights.
+                   SET     WS-H                  TO    SCN-1::AddBox( 1.9 0.6 4.2 )
+                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
+                   SCN-1::SetPosition( WS-H 0 0.55 0 )
+                   EVALUATE WS-J
+                       WHEN 1  SCN-1::SetColor( WS-H "#F2B31B" )
+                       WHEN 3  SCN-1::SetColor( WS-H "#E23B7A" )
+                       WHEN 5  SCN-1::SetColor( WS-H "#35C4A0" )
+                   END-EVALUATE
+                   SET     WS-MAT                TO    SCN-1::GetMaterial( WS-H )
+                   SCN-1::SetMetallic( WS-MAT 0.7 )
+                   SCN-1::SetRoughness( WS-MAT 0.2 )
+                   SET     WS-H                  TO    SCN-1::AddBox( 1.6 0.5 2.2 )
+                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
+                   SCN-1::SetPosition( WS-H 0 1.1 0.3 )
+                   SCN-1::SetColor( WS-H "#1B2530" )
+                   SET     WS-H                  TO    SCN-1::AddBox( 0.4 0.16 0.06 )
+                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
+                   MOVE    -0.65                 TO    WS-N1
+                   SCN-1::SetPosition( WS-H WS-N1 0.7 2.12 )
+                   SCN-1::SetMaterial( WS-H WS-MATR )
+                   SET     WS-H                  TO    SCN-1::AddBox( 0.4 0.16 0.06 )
+                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
+                   SCN-1::SetPosition( WS-H 0.65 0.7 2.12 )
+                   SCN-1::SetMaterial( WS-H WS-MATR )
+                   SET     WS-H                  TO    SCN-1::AddBox( 2 0.36 0.7 )
+                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
+                   MOVE    -1.4                  TO    WS-N1
+                   SCN-1::SetPosition( WS-H 0 0.18 WS-N1 )
+                   SCN-1::SetColor( WS-H "#0E0E10" )
+                   SET     WS-H                  TO    SCN-1::AddBox( 2 0.36 0.7 )
+                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
+                   SCN-1::SetPosition( WS-H 0 0.18 1.4 )
+                   SCN-1::SetColor( WS-H "#0E0E10" )
+               ELSE
+                   *> A low barrier: an orange bar on two legs with a white stripe.
+                   SET     WS-H                  TO    SCN-1::AddBox( 3 0.4 0.3 )
+                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
+                   SCN-1::SetPosition( WS-H 0 0.5 0 )
+                   SCN-1::SetColor( WS-H "#FF6A13" )
+                   SET     WS-H                  TO    SCN-1::AddBox( 3.02 0.1 0.32 )
+                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
+                   SCN-1::SetPosition( WS-H 0 0.5 0 )
+                   SCN-1::SetColor( WS-H "#FFFFFF" )
+                   SET     WS-H                  TO    SCN-1::AddBox( 0.18 0.4 0.3 )
+                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
+                   MOVE    -1.2                  TO    WS-N1
+                   SCN-1::SetPosition( WS-H WS-N1 0.2 0 )
+                   SCN-1::SetColor( WS-H "#444444" )
+                   SET     WS-H                  TO    SCN-1::AddBox( 0.18 0.4 0.3 )
+                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
+                   SCN-1::SetPosition( WS-H 1.2 0.2 0 )
+                   SCN-1::SetColor( WS-H "#444444" )
+               END-IF
            END-PERFORM
 ]]></Event>
     <Event name="RUN-SET-BUILDING" paragraph="RUN-SET-BUILDING"><![CDATA[       PROCEDURE DIVISION.
@@ -430,10 +543,14 @@
            COMPUTE WS-S2 = FUNCTION COS( WS-PH - 0.4 )
            IF      WS-AIR = 1
                SCN-1::SetRotation( WS-LEGL 55 0 0 )
-               SCN-1::SetRotation( WS-LEGR, -25 0 0 )
-               SCN-1::SetRotation( WS-KNL, -70 0 0 )
-               SCN-1::SetRotation( WS-KNR, -35 0 0 )
-               SCN-1::SetRotation( WS-ARML, -60 0 0 )
+               MOVE    -25  TO    WS-N1
+               SCN-1::SetRotation( WS-LEGR WS-N1 0 0 )
+               MOVE    -70  TO    WS-N1
+               SCN-1::SetRotation( WS-KNL WS-N1 0 0 )
+               MOVE    -35  TO    WS-N1
+               SCN-1::SetRotation( WS-KNR WS-N1 0 0 )
+               MOVE    -60  TO    WS-N1
+               SCN-1::SetRotation( WS-ARML WS-N1 0 0 )
                SCN-1::SetRotation( WS-ARMR 60 0 0 )
            ELSE
                *> Thighs: 44 degrees forward at the front of the stride, 28 back; WS-S is the sine of the phase.
@@ -461,10 +578,10 @@
 ]]></Event>
     <Event name="RUN-STEP" paragraph="RUN-STEP"><![CDATA[       PROCEDURE DIVISION.
            *> Input: left and right change lane (clamped to the three lanes), up and down change the speed, Space jumps.
-           IF      CNV-3D::IsKeyDown( "ArrowLeft" ) = 1 AND WS-RX > -3.2
+           IF      CNV-3D::IsKeyDown( "ArrowLeft" ) = 1 AND WS-RX > -7.4
                SUBTRACT 0.22                     FROM  WS-RX
            END-IF
-           IF      CNV-3D::IsKeyDown( "ArrowRight" ) = 1 AND WS-RX < 3.2
+           IF      CNV-3D::IsKeyDown( "ArrowRight" ) = 1 AND WS-RX < 7.4
                ADD     0.22                      TO    WS-RX
            END-IF
            IF      CNV-3D::IsKeyDown( "ArrowUp" ) = 1 AND WS-SPEED < 45
@@ -484,11 +601,20 @@
            END-IF
 
            *> Motion: a frame is 1/30 s; gravity pulls the jump down.
+           *> The sidewalks are a 14 cm curb: standing on one lifts the runner.
+           IF      WS-RX > 6.1 OR WS-RX < -6.1
+               MOVE    0.14                      TO    WS-GH
+           ELSE
+               MOVE    0                         TO    WS-GH
+           END-IF
+           IF      WS-AIR = 0
+               MOVE    WS-GH                     TO    WS-RY
+           END-IF
            IF      WS-AIR = 1
                SUBTRACT 0.8                      FROM  WS-VY
                COMPUTE WS-RY = WS-RY + WS-VY / 30
-               IF      WS-RY <= 0
-                   MOVE    0                     TO    WS-RY
+               IF      WS-RY <= WS-GH
+                   MOVE    WS-GH                 TO    WS-RY
                    MOVE    0                     TO    WS-AIR
                END-IF
            END-IF
@@ -510,7 +636,8 @@
            SCN-1::SetPosition( WS-FOLLOW 0 0 WS-Z )
            COMPUTE WS-SN = FUNCTION INTEGER( WS-RZ / 8 ) * 8
            MOVE    WS-SN                         TO    WS-Z
-           SCN-1::SetPosition( WS-MARKS 0, -0.01 WS-Z )
+           MOVE    -0.01  TO    WS-N1
+           SCN-1::SetPosition( WS-MARKS 0 WS-N1 WS-Z )
 
            *> A building, lamp or car that falls behind the camera is carried 120 m ahead.
            PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 20
@@ -547,6 +674,61 @@
                END-IF
            END-PERFORM
 
+           *> A lane obstacle that falls behind is carried 180 m ahead into a lane chosen from the recycle count.
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+               IF      WS-OZ(WS-J) > WS-RZ + 12
+                   SUBTRACT 180                  FROM  WS-OZ(WS-J)
+                   ADD     1                     TO    WS-OR
+                   COMPUTE WS-N = FUNCTION MOD( WS-OR * 5 + WS-J 3 )
+                   COMPUTE WS-OX(WS-J) = ( WS-N - 1 ) * 3.2
+                   SCN-1::SetPosition( WS-OG(WS-J) WS-OX(WS-J) 0 WS-OZ(WS-J) )
+               END-IF
+           END-PERFORM
+
+           *> Collisions. Slots 1, 3, 5 are cars (long, 1 m tall: dodge them or jump at the right moment); slots 2, 4, 6 are low barriers
+           *> (jump them). A hit slows the runner and pushes the obstacle out of the way.
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+               IF      FUNCTION MOD( WS-J 2 ) = 1
+                   MOVE    1.2                   TO    WS-HX
+                   MOVE    2.4                   TO    WS-HZ
+                   MOVE    1.0                   TO    WS-HH
+               ELSE
+                   MOVE    1.6                   TO    WS-HX
+                   MOVE    0.8                   TO    WS-HZ
+                   MOVE    0.55                  TO    WS-HH
+               END-IF
+               COMPUTE WS-A1 = WS-RX - WS-OX(WS-J)
+               COMPUTE WS-A2 = WS-RZ - WS-OZ(WS-J)
+               COMPUTE WS-A3 = 0 - WS-HX
+               COMPUTE WS-A4 = 0 - WS-HZ
+               IF      WS-A1 < WS-HX AND WS-A1 > WS-A3 AND WS-A2 < WS-HZ AND WS-A2 > WS-A4 AND WS-RY < WS-HH
+                   MOVE    10                    TO    WS-SPEED
+                   ADD     1                     TO    WS-CRASH
+                   MOVE    30                    TO    WS-FL
+                   SUBTRACT 180                  FROM  WS-OZ(WS-J)
+                   SCN-1::SetPosition( WS-OG(WS-J) WS-OX(WS-J) 0 WS-OZ(WS-J) )
+               END-IF
+           END-PERFORM
+           *> The parked cars at the kerbs are solid too.
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+               IF      FUNCTION MOD( WS-J 2 ) = 1
+                   MOVE    5.3                   TO    WS-X
+               ELSE
+                   MOVE    -5.3                  TO    WS-X
+               END-IF
+               COMPUTE WS-A1 = WS-RX - WS-X
+               COMPUTE WS-A2 = WS-RZ - WS-CZ(WS-J)
+               IF      WS-A1 < 1.3 AND WS-A1 > -1.3 AND WS-A2 < 2.4 AND WS-A2 > -2.4 AND WS-RY < 1.0
+                   MOVE    10                    TO    WS-SPEED
+                   ADD     1                     TO    WS-CRASH
+                   MOVE    30                    TO    WS-FL
+                   MOVE    0                     TO    WS-RX
+               END-IF
+           END-PERFORM
+           IF      WS-FL > 0
+               SUBTRACT 1                        FROM  WS-FL
+           END-IF
+
            *> The camera sits behind, above and a little to the right of the runner, so the swing of the legs shows from the side.
            COMPUTE WS-X = WS-RX * 0.5 + 2.6
            COMPUTE WS-Y = 3.4 + WS-RY * 0.4
@@ -560,8 +742,14 @@
            COMPUTE WS-A1 = WS-SPEED * 3.6
            MOVE    WS-A1                         TO    WS-E2
            MOVE    SPACES                        TO    WS-HUD
-           STRING  "Distance " WS-E1 " m     Speed " WS-E2 " km/h"
-                   DELIMITED BY SIZE INTO WS-HUD
+           MOVE    WS-CRASH                      TO    WS-E3
+           IF      WS-FL > 0
+               STRING  "CRASH!   Distance " WS-E1 " m   Speed " WS-E2 " km/h   Crashes " WS-E3
+                       DELIMITED BY SIZE INTO WS-HUD
+           ELSE
+               STRING  "Distance " WS-E1 " m   Speed " WS-E2 " km/h   Crashes " WS-E3
+                       DELIMITED BY SIZE INTO WS-HUD
+           END-IF
            SET     LBL-DIST::Caption             TO    WS-HUD
 ]]></Event>
   </user-procedures>
