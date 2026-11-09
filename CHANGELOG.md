@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.346 — 2026-11-09
+
+**Fix: the roadster of the PowerGraphics bridge run now looks like a silver supercar seen from behind.** The red box with a spoiler is replaced by a low silver wedge with wide rear haunches, a dark roof and rear-deck panel with two vents, a red light bar across the whole tail, a dark bumper with a diffuser, fins and a number plate, silver rims inside wider rear tyres, thin headlights, a front splitter and side skirts. Hit areas and the blue glow underneath are unchanged.
+
 ## 2.0.345 — 2026-11-09
 
 **Feature: Help ▸ Examples is grouped by kind of application, and lists the new demos.** Under Help ▸ Examples there are now three submenus: Desktop (PowerChat, PowerDemo3, PowerSpatial, PowerAnalytics, PowerCloud and the new PowerGraphics showcase of Canvas2D, Canvas3D, Physics2D, Physics3D and Scene3D), Web (PowerWebHello, PowerAnalyticsWeb) and Mobile (PowerMobileHello). Every new entry has its hover description in the six interface languages.

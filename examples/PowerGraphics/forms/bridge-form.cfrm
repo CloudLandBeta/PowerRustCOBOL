@@ -10,6 +10,8 @@
            05 WS-M-TIRE                          PIC 9(10).
            05 WS-M-HEAD                          PIC 9(10).
            05 WS-M-TAIL                          PIC 9(10).
+           05 WS-M-DARK                          PIC 9(10).
+           05 WS-M-RIM                           PIC 9(10).
            05 WS-M-WATER                         PIC 9(10).
            05 WS-M-PYLON                         PIC 9(10).
            05 WS-M-CAB                           PIC 9(10).
@@ -79,6 +81,7 @@
        01 WS-HIT                                 GLOBAL    PIC 9.
        01 WS-DX                                  GLOBAL    PIC S9(5)V9(3).
        01 WS-DZ                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-DY                                  GLOBAL    PIC S9(3)V9(3).
        01 WS-LIM                                 GLOBAL    PIC S9(5)V9(3).
        01 WS-RND                                 GLOBAL    PIC 9V9(6).
        01 WS-PROB                                GLOBAL    PIC 9V9(4).
@@ -158,9 +161,17 @@
            SCN-1::SetMaterialColor( WS-M-RAILM "#FF2BD6" )
            SCN-1::SetEmissive( WS-M-RAILM 1 0.1 0.8 )
            SET     WS-M-CAR                      TO    SCN-1::CreateMaterial()
-           SCN-1::SetMaterialColor( WS-M-CAR "#D40F1E" )
-           SCN-1::SetMetallic( WS-M-CAR 0.9 )
-           SCN-1::SetRoughness( WS-M-CAR 0.15 )
+           SCN-1::SetMaterialColor( WS-M-CAR "#E4E7EC" )
+           SCN-1::SetMetallic( WS-M-CAR 0.65 )
+           SCN-1::SetRoughness( WS-M-CAR 0.22 )
+           SET     WS-M-DARK                     TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-DARK "#17181C" )
+           SCN-1::SetMetallic( WS-M-DARK 0.3 )
+           SCN-1::SetRoughness( WS-M-DARK 0.45 )
+           SET     WS-M-RIM                      TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-RIM "#B9BEC8" )
+           SCN-1::SetMetallic( WS-M-RIM 0.95 )
+           SCN-1::SetRoughness( WS-M-RIM 0.2 )
            SET     WS-M-GLASS                    TO    SCN-1::CreateMaterial()
            SCN-1::SetMaterialColor( WS-M-GLASS "#0B1824" )
            SCN-1::SetMetallic( WS-M-GLASS 0.7 )
@@ -384,57 +395,142 @@
                MOVE    0                         TO    OB-ACT(WS-I)
            END-PERFORM
 
-           *> ---- The roadster: low red body, hood, glass cabin, spoiler, four wheels, head and tail lights, a blue glow underneath.
+           *> ---- The roadster, modelled on a silver supercar seen from behind: a low wedge body with wide rear haunches, a dark
+           *> roof and rear-deck panel, a red light bar across the whole tail, a dark diffuser with fins and a plate, silver rims,
+           *> thin headlights, a splitter and side skirts, and a blue glow underneath. It faces -z; the camera sees its tail (+z).
            SET     WS-CAR                        TO    SCN-1::AddGroup()
-           SET     WS-N                          TO    SCN-1::AddBox( 1.9 0.5 4.4 )
-           SCN-1::SetPosition( WS-N, 0, 0.55, 0 )
+           *> Lower body.
+           SET     WS-N                          TO    SCN-1::AddBox( 2.0, 0.4, 4.6 )
+           SCN-1::SetPosition( WS-N, 0, 0.5, 0 )
            SCN-1::SetMaterial( WS-N WS-M-CAR )
            SCN-1::SetParent( WS-N WS-CAR )
-           SET     WS-N                          TO    SCN-1::AddBox( 1.7 0.25 1.4 )
-           SCN-1::SetPosition( WS-N, 0, 0.88, -1.3 )
+           *> Wide rear haunches.
+           SET     WS-N                          TO    SCN-1::AddBox( 2.1, 0.3, 1.8 )
+           SCN-1::SetPosition( WS-N, 0, 0.78, 1.35 )
            SCN-1::SetMaterial( WS-N WS-M-CAR )
            SCN-1::SetParent( WS-N WS-CAR )
-           SET     WS-N                          TO    SCN-1::AddBox( 1.5 0.5 1.7 )
-           SCN-1::SetPosition( WS-N, 0, 1.05, 0.5 )
+           *> Nose.
+           SET     WS-N                          TO    SCN-1::AddBox( 1.85, 0.22, 1.5 )
+           SCN-1::SetPosition( WS-N, 0, 0.64, -1.55 )
+           SCN-1::SetMaterial( WS-N WS-M-CAR )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Bonnet.
+           SET     WS-N                          TO    SCN-1::AddBox( 1.55, 0.16, 1.3 )
+           SCN-1::SetPosition( WS-N, 0, 0.8, -1.2 )
+           SCN-1::SetMaterial( WS-N WS-M-CAR )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Cabin glass.
+           SET     WS-N                          TO    SCN-1::AddBox( 1.5, 0.42, 1.9 )
+           SCN-1::SetPosition( WS-N, 0, 1.04, 0.1 )
            SCN-1::SetMaterial( WS-N WS-M-GLASS )
            SCN-1::SetParent( WS-N WS-CAR )
-           SET     WS-N                          TO    SCN-1::AddBox( 1.8 0.08 0.4 )
-           SCN-1::SetPosition( WS-N, 0, 1.05, 2 )
-           SCN-1::SetMaterial( WS-N WS-M-CAR )
+           *> Dark roof panel.
+           SET     WS-N                          TO    SCN-1::AddBox( 1.3, 0.06, 1.6 )
+           SCN-1::SetPosition( WS-N, 0, 1.27, 0.15 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
            SCN-1::SetParent( WS-N WS-CAR )
+           *> Dark rear-deck panel.
+           SET     WS-N                          TO    SCN-1::AddBox( 1.2, 0.05, 1.55 )
+           SCN-1::SetPosition( WS-N, 0, 0.955, 1.5 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Left deck vent.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.4, 0.04, 0.45 )
+           SCN-1::SetPosition( WS-N, -0.42, 0.98, 1.05 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Right deck vent.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.4, 0.04, 0.45 )
+           SCN-1::SetPosition( WS-N, 0.42, 0.98, 1.05 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> The red light bar across the tail.
+           SET     WS-N                          TO    SCN-1::AddBox( 1.9, 0.07, 0.05 )
+           SCN-1::SetPosition( WS-N, 0, 0.82, 2.31 )
+           SCN-1::SetMaterial( WS-N WS-M-TAIL )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Dark rear bumper.
+           SET     WS-N                          TO    SCN-1::AddBox( 1.95, 0.3, 0.34 )
+           SCN-1::SetPosition( WS-N, 0, 0.4, 2.27 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Diffuser fin 1.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.06, 0.2, 0.3 )
+           SCN-1::SetPosition( WS-N, -0.55, 0.27, 2.4 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Diffuser fin 2.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.06, 0.2, 0.3 )
+           SCN-1::SetPosition( WS-N, -0.18, 0.27, 2.4 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Diffuser fin 3.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.06, 0.2, 0.3 )
+           SCN-1::SetPosition( WS-N, 0.18, 0.27, 2.4 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Diffuser fin 4.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.06, 0.2, 0.3 )
+           SCN-1::SetPosition( WS-N, 0.55, 0.27, 2.4 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Number plate.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.42, 0.14, 0.03 )
+           SCN-1::SetPosition( WS-N, 0, 0.6, 2.32 )
+           SCN-1::SetMaterial( WS-N WS-M-RIM )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Front splitter.
+           SET     WS-N                          TO    SCN-1::AddBox( 2.0, 0.1, 0.35 )
+           SCN-1::SetPosition( WS-N, 0, 0.27, -2.3 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Left headlight.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.5, 0.06, 0.04 )
+           SCN-1::SetPosition( WS-N, -0.62, 0.72, -2.31 )
+           SCN-1::SetMaterial( WS-N WS-M-HEAD )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Right headlight.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.5, 0.06, 0.04 )
+           SCN-1::SetPosition( WS-N, 0.62, 0.72, -2.31 )
+           SCN-1::SetMaterial( WS-N WS-M-HEAD )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Left side skirt.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.1, 0.18, 3.0 )
+           SCN-1::SetPosition( WS-N, -1.02, 0.3, 0 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Right side skirt.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.1, 0.18, 3.0 )
+           SCN-1::SetPosition( WS-N, 1.02, 0.3, 0 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Four wheels: a dark tyre and a silver rim on each; the rear ones are wider.
            PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 4
-               SET     WS-N                      TO    SCN-1::AddCylinder( 0.38 0.3 )
-               SCN-1::SetRotation( WS-N, 0, 0, 90 )
                IF      WS-J < 3
                    COMPUTE WS-DX = -1
+                   COMPUTE WS-DY = -1.14
                ELSE
                    COMPUTE WS-DX = 1
+                   COMPUTE WS-DY = 1.14
                END-IF
                IF      FUNCTION MOD( WS-J, 2 ) = 1
-                   SCN-1::SetPosition( WS-N, WS-DX, 0.38, -1.35 )
+                   MOVE    -1.4                  TO    WS-DZ
+                   SET     WS-N                  TO    SCN-1::AddCylinder( 0.4, 0.3 )
                ELSE
-                   SCN-1::SetPosition( WS-N, WS-DX, 0.38, 1.35 )
+                   MOVE    1.4                   TO    WS-DZ
+                   SET     WS-N                  TO    SCN-1::AddCylinder( 0.42, 0.38 )
                END-IF
+               SCN-1::SetRotation( WS-N, 0, 0, 90 )
+               SCN-1::SetPosition( WS-N, WS-DX, 0.4, WS-DZ )
                SCN-1::SetMaterial( WS-N WS-M-TIRE )
                SCN-1::SetParent( WS-N WS-CAR )
+               SET     WS-N                      TO    SCN-1::AddCylinder( 0.27, 0.34 )
+               SCN-1::SetRotation( WS-N, 0, 0, 90 )
+               SCN-1::SetPosition( WS-N, WS-DY, 0.4, WS-DZ )
+               SCN-1::SetMaterial( WS-N WS-M-RIM )
+               SCN-1::SetParent( WS-N WS-CAR )
            END-PERFORM
-           SET     WS-N                          TO    SCN-1::AddSphere( 0.18 )
-           SCN-1::SetPosition( WS-N, -0.7, 0.62, -2.2 )
-           SCN-1::SetMaterial( WS-N WS-M-HEAD )
-           SCN-1::SetParent( WS-N WS-CAR )
-           SET     WS-N                          TO    SCN-1::AddSphere( 0.18 )
-           SCN-1::SetPosition( WS-N, 0.7, 0.62, -2.2 )
-           SCN-1::SetMaterial( WS-N WS-M-HEAD )
-           SCN-1::SetParent( WS-N WS-CAR )
-           SET     WS-N                          TO    SCN-1::AddBox( 0.55 0.12 0.06 )
-           SCN-1::SetPosition( WS-N, -0.6, 0.7, 2.2 )
-           SCN-1::SetMaterial( WS-N WS-M-TAIL )
-           SCN-1::SetParent( WS-N WS-CAR )
-           SET     WS-N                          TO    SCN-1::AddBox( 0.55 0.12 0.06 )
-           SCN-1::SetPosition( WS-N, 0.6, 0.7, 2.2 )
-           SCN-1::SetMaterial( WS-N WS-M-TAIL )
-           SCN-1::SetParent( WS-N WS-CAR )
-           SET     WS-N                          TO    SCN-1::AddPointLight( 0.2 0.6 1 3 8 )
+           SET     WS-N                          TO    SCN-1::AddPointLight( 0.2, 0.6, 1, 3, 8 )
            SCN-1::SetPosition( WS-N, 0, 0.1, 0 )
            SCN-1::SetParent( WS-N WS-CAR )
 
