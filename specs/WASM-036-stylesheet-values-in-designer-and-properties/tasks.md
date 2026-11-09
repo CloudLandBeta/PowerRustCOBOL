@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370); T10 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371); T11 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -245,7 +245,8 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - **R20:** a frame with nothing changed computes nothing (counted).
     - **R6:** the form file is byte-identical after the frames.
 
-- [ ] **T10 — The Properties panel shows the effective values** (R5, R15 display; AC3, AC11 display half)
+- [x] **T10 — The Properties panel shows the effective values** (R5, R15 display; AC3, AC11 display half)
+  - *Done on 2.0.371.* Keys added: `css_stored_value`, `css_unknown_value`, `css_mixed_values`; `css_from_theme` and `css_not_in_effect` were not needed (a theme value is the properties' business; a failed condition shows no mark). Tests in `designer_css_effective_tests.rs`.
   - Files: `crates/cobolt-ide/src/panels/properties.rs`, `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/src/i18n.rs`, `designer_css_effective_tests.rs`.
   - Do:
     - **The effective clone:** `show_control` gets the selected control's effective clone, as the breakpoint view passes `overridden_control`. `show_form` gets the form with its effective look.

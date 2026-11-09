@@ -168,3 +168,69 @@ fn the_badge_lists_what_the_canvas_cannot_paint_up_to_eight_then_how_many_more()
     assert!(u.iter().any(|x| x.css == "width" && x.line == 1), "{u:?}");
     assert_eq!(d.form.controls[0].rect.w, 160, "a width: 50% keeps its designed rectangle");
 }
+
+// ── T10: the Properties panel ────────────────────────────────────────────────────────────────────
+
+fn props_panel(sheet: &str) -> super::super::properties::PropertiesPanel {
+    let mut p = super::super::properties::PropertiesPanel::new();
+    p.web_project = true;
+    p.css_sheets = vec![("webforms/F.css".into(), sheet.to_owned())];
+    p
+}
+
+fn buttons(n: usize) -> Form {
+    let mut f = Form::new("F", "F", 400, 300);
+    for i in 1..=n {
+        let mut b = Control::new(&format!("BTN-{i}"), ControlType::Button, 10, 10 + 40 * i as i32);
+        b.set_prop("CssClass", PropValue::String("go".into()));
+        f.controls.push(b);
+    }
+    f
+}
+
+#[test]
+fn the_properties_panel_shows_the_effective_value_and_a_mark_in_each_language() {
+    let t0 = std::time::Instant::now();
+    let form = buttons(1);
+    let c = form.controls[0].clone();
+    let mut p = props_panel("#BTN-1 { background-color: rgb(10 132 255) }\n");
+    let eff = p.css_effective_control(&form, &c).expect("a rule decides a value");
+    assert_eq!(cobolt_forms::paint::parse_color(eff.get_prop("BackgroundColor").unwrap().as_str()), Color32::from_rgb(10, 132, 255), "AC3: the row's value is the page's");
+    assert_ne!(c.get_prop("BackgroundColor").map(|v| v.as_str().to_owned()), eff.get_prop("BackgroundColor").map(|v| v.as_str().to_owned()), "the stored value is not the displayed one");
+    let mut langs = 0;
+    for lang in crate::i18n::Language::ALL {
+        let tr = lang.tr();
+        let marks = p.css_marks_for(&form, &c, &tr);
+        let m = marks.get("backgroundcolor").expect("the mark");
+        assert!(m.contains("webforms/F.css:1"), "{lang:?}: the mark names the sheet and the line: {m}");
+        let stored = c.get_prop("BackgroundColor").map(|v| v.as_str().to_owned()).unwrap_or_default();
+        assert!(stored.is_empty() || m.contains(&stored), "{lang:?}: the stored value is in the tooltip: {m}");
+        langs += 1;
+    }
+    // A desktop form is shown as stored.
+    p.web_project = false;
+    assert!(p.css_effective_control(&form, &c).is_none() && p.css_marks_for(&form, &c, &crate::i18n::Language::English.tr()).is_empty());
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("┌─ designer_css_effective: the Properties panel\n│ BackgroundColor row = rgb(10 132 255), mark names webforms/F.css:1 in {langs} languages, Desktop unchanged\n│ time: {ms:.1} ms\n└─ {}/{} passed, 0 failed", langs + 2, langs + 2);
+}
+
+#[test]
+fn a_value_the_canvas_cannot_read_is_shown_as_written_and_a_mixed_selection_is_marked() {
+    let tr = crate::i18n::Language::English.tr();
+    let form = buttons(3);
+    // Unknown: a colour function the table does not read.
+    let mut p = props_panel("#BTN-1 { background-color: color-mix(in srgb, red, blue) }\n");
+    let unknown = p.css_unknown_of(&form, &form.controls[0], &tr);
+    println!("unknown: {unknown:?}");
+    assert!(unknown.get("backgroundcolor").is_some_and(|t| t.contains("color-mix")), "{unknown:?}");
+
+    // Mixed: two of three buttons get a colour from a rule that names them.
+    let mut p = props_panel("#BTN-1 { background-color: #112233 }\n#BTN-2 { background-color: #112233 }\n#BTN-3 { background-color: #445566 }\n");
+    let ids: Vec<String> = form.controls.iter().map(|c| c.id.clone()).collect();
+    let mixed = p.css_mixed_of(&form, &ids, &tr);
+    let m = mixed.get("backgroundcolor").expect("three buttons, two colours: mixed");
+    assert!(m.contains("#112233ff") && m.contains("#445566ff"), "{m}");
+    let same = p.css_mixed_of(&form, &ids[..2], &tr);
+    assert!(!same.contains_key("backgroundcolor"), "two buttons with the same colour are not mixed: {same:?}");
+    println!("┌─ designer_css_effective: unknown and mixed\n│ color-mix() shown read-only; 3 buttons / 2 colours marked mixed, 2 buttons / 1 colour not\n└─ 3/3 passed, 0 failed");
+}

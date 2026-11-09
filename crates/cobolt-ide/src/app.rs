@@ -20919,6 +20919,10 @@ impl CoboltApp {
                 // while a layer or the Non-Visuals tab is active.
                 d.properties.form_size_locked = !d.form_resizable();
                 d.properties.web_project = web_project;
+                // WASM-036: the rows read the values the canvas paints, at its size and in its scheme.
+                let (cw, ch) = d.canvas_size();
+                d.properties.css_env = Some((cw, ch, d.css_scheme));
+                d.properties.css_theme_id = cobolt_forms::theme::resolve_theme_id(d.form.theme.as_deref(), d.project_form_theme.as_deref());
                 // …and with a layer's tab active (and no control selected) the pane
                 // shows that layer.
                 d.properties.layer_view = d.tabs.active_layer().and_then(|name| {
@@ -20935,6 +20939,7 @@ impl CoboltApp {
                     count: d.selected_ids.len(),
                     uniform: d.selection_is_uniform(),
                     common_keys: d.common_property_keys(),
+                    ids: d.selected_ids.clone(),
                 };
                 // SAFETY: form and properties are different fields — field-level split.
                 let form = &d.form as *const cobolt_forms::Form;

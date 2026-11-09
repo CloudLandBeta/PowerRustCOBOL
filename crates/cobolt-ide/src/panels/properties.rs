@@ -653,6 +653,9 @@ pub struct MultiSelection {
     /// The property names every one of them carries. Only consulted when the
     /// selection is not uniform; a uniform one shares its whole vocabulary.
     pub common_keys: Vec<String>,
+    /// WASM-036 — the selected controls' ids, so a property whose effective value differs among
+    /// them is marked "mixed". Empty where the caller has not said.
+    pub ids: Vec<String>,
 }
 
 /// What an empty API Key box means: the key lives in the machine-local store
@@ -4540,10 +4543,14 @@ pub struct PropertiesPanel {
     pub css_sheets: Vec<(String, String)>,
     /// The label of the project's own stylesheet among `css_sheets` (its rules sit in `@layer pr-app`, under the form's); `None` when the project has none.
     pub css_project_sheet: Option<String>,
+    /// WASM-036 — what the canvas answers `@media` with (width, height, scheme) and the theme the
+    /// form resolves to, set by the app each frame, so the rows show the values the canvas paints.
+    pub css_env: Option<(f32, f32, cobolt_forms::css::Scheme)>,
+    pub css_theme_id: String,
+    /// Each control's effective values, computed once until something they depend on changes.
+    css_cache: cobolt_forms::css_effective::EffectiveCache,
     /// When the app last looked at the sheets on disk.
     pub css_sheets_checked: Option<std::time::Instant>,
-    /// The marks of the inspected control, and what they were computed from.
-    css_marks: Option<(u64, std::collections::HashMap<String, String>)>,
     /// Spec 091 — set by the designer each frame: the layer the tab bar has active,
     /// when one is. With no control selected the pane then shows the layer — its
     /// name and its backdrop — instead of the form, since a layer has the form's
@@ -4675,39 +4682,123 @@ impl PropertiesPanel {
         self.binding_editor.is_some()
     }
 
-    /// WASM-007 R12 — the marks of control `c`: each property a stylesheet rule or its `CssStyle`
-    /// overrides, with the text its mark's tooltip says. Computed again only when the control's
-    /// classes, style, place or the sheets change.
-    fn css_marks_for(&mut self, form: &Form, c: &Control, tr: &Tr) -> std::collections::HashMap<String, String> {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        (&c.id, &c.parent, &c.layer, &self.css_sheets, tr.css_overridden_by).hash(&mut h);
-        for key in ["CssClass", "CssStyle"] {
-            c.get_prop(key).map(|v| v.as_str().to_owned()).hash(&mut h);
+    /// What the sheets make of control `c` at the canvas's size and scheme (WASM-036 R5); `None`
+    /// where the form is not a Web or Mobile one.
+    pub(crate) fn css_effective_of(&mut self, form: &Form, c: &Control) -> Option<cobolt_forms::css_effective::Effective> {
+        use cobolt_forms::css_effective::{Origin, SheetSource};
+        if !self.web_project {
+            return None;
         }
-        let stamp = h.finish();
-        if let Some((s, marks)) = &self.css_marks {
-            if *s == stamp {
-                return marks.clone();
+        let (w, h, scheme) = self.css_env.unwrap_or((form.width as f32, form.height as f32, cobolt_forms::css::Scheme::Light));
+        let env = cobolt_forms::css::MediaEnv { width: w, height: h, scheme };
+        let project = self.css_project_sheet.as_deref();
+        let sources: Vec<SheetSource<'_>> = self
+            .css_sheets
+            .iter()
+            .map(|(label, text)| SheetSource { label, text, origin: if Some(label.as_str()) == project { Origin::Project } else { Origin::Form } })
+            .collect();
+        Some(self.css_cache.effective(form, &c.id, &sources, &self.css_theme_id, &env).clone())
+    }
+
+    /// `c` with the values the developer's rules decide (WASM-036 R5): what the page shows, for the rows.
+    pub(crate) fn css_effective_control(&mut self, form: &Form, c: &Control) -> Option<Control> {
+        let e = self.css_effective_of(form, c)?;
+        let mut out = c.clone();
+        let mut changed = false;
+        for x in e.entries.iter().filter(|x| x.layer >= cobolt_forms::css_effective::Layer::Project) {
+            out.set_prop(x.property, x.value.to_property_text());
+            changed = true;
+        }
+        changed.then_some(out)
+    }
+
+    /// WASM-007 R12 / WASM-036 R5 — the marks of control `c`: each property a stylesheet rule or its
+    /// `CssStyle` decides, with the text its mark's tooltip says: where it comes from and the value the
+    /// form file stores (which the page does not use).
+    pub(crate) fn css_marks_for(&mut self, form: &Form, c: &Control, tr: &Tr) -> std::collections::HashMap<String, String> {
+        let Some(e) = self.css_effective_of(form, c) else {
+            return Default::default();
+        };
+        let stored = |p: &str| c.get_prop(p).map(|v| v.as_str().to_owned()).filter(|v| !v.trim().is_empty());
+        let with_stored = |text: String, p: &str| match stored(p) {
+            Some(v) => format!("{text}\n{}", tr.css_stored_value.replacen("{}", &v, 1)),
+            None => text,
+        };
+        let mut marks = std::collections::HashMap::new();
+        // A rule that may apply (a state, a condition the IDE cannot decide) is a "may" mark, never over a certain one.
+        for u in e.unpainted.iter().filter(|u| u.why == cobolt_forms::css_effective::Why::May) {
+            for (css, props) in cobolt_forms::css_overrides::CSS_TO_PROPERTIES {
+                if css.eq_ignore_ascii_case(&u.css) {
+                    for p in *props {
+                        let at = u.sheet.as_deref().map(|f| format!("{f}:{}", u.line)).unwrap_or_default();
+                        marks.insert(p.to_ascii_lowercase(), with_stored(tr.css_may_be_overridden.replacen("{}", &at, 1), p));
+                    }
+                }
             }
         }
-        let sheets: Vec<(&str, &str)> = self.css_sheets.iter().map(|(l, t)| (l.as_str(), t.as_str())).collect();
-        let found = cobolt_forms::css_overrides::overrides(form, &c.id, &sheets);
-        let marks: std::collections::HashMap<String, String> = found
-            .properties
-            .iter()
-            .map(|o| {
-                let at = o.file.as_deref().map(|f| format!("{f}:{}", o.line));
-                let text = match (at, o.certain) {
-                    (None, _) => tr.css_overridden_by_style.to_owned(),
-                    (Some(at), true) => tr.css_overridden_by.replacen("{}", &at, 1),
-                    (Some(at), false) => tr.css_may_be_overridden.replacen("{}", &at, 1),
-                };
-                (o.property.to_ascii_lowercase(), text)
-            })
-            .collect();
-        self.css_marks = Some((stamp, marks.clone()));
+        for x in e.entries.iter().filter(|x| x.layer >= cobolt_forms::css_effective::Layer::Project) {
+            let text = match x.sheet.as_deref().map(|f| format!("{f}:{}", x.line)) {
+                None => tr.css_overridden_by_style.to_owned(),
+                Some(at) => tr.css_overridden_by.replacen("{}", &at, 1),
+            };
+            marks.insert(x.property.to_ascii_lowercase(), with_stored(text, x.property));
+        }
         marks
+    }
+
+    /// WASM-036 R5 — per property the page decides in a way the canvas cannot read (`calc()`, a
+    /// `var()` with no value): the CSS as written, drawn read-only in place of the editor.
+    pub(crate) fn css_unknown_of(&mut self, form: &Form, c: &Control, tr: &Tr) -> std::collections::HashMap<String, String> {
+        let Some(e) = self.css_effective_of(form, c) else {
+            return Default::default();
+        };
+        let mut out = std::collections::HashMap::new();
+        for u in e.unpainted.iter().filter(|u| u.why == cobolt_forms::css_effective::Why::Unknown) {
+            for (css, props) in cobolt_forms::css_overrides::CSS_TO_PROPERTIES {
+                if css.eq_ignore_ascii_case(&u.css) {
+                    for p in *props {
+                        out.insert(p.to_ascii_lowercase(), tr.css_unknown_value.replacen("{}", &format!("{}: {}", u.css, u.value), 1));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// WASM-036 R15 — with several controls selected, the properties whose effective value is not the
+    /// same on all of them, with the values listed for the tooltip.
+    pub(crate) fn css_mixed_of(&mut self, form: &Form, ids: &[String], tr: &Tr) -> std::collections::HashMap<String, String> {
+        let mut values: std::collections::BTreeMap<&'static str, Vec<String>> = Default::default();
+        let mut n = 0;
+        for id in ids {
+            let Some(c) = form.find_control(id) else { continue };
+            n += 1;
+            let Some(e) = self.css_effective_of(form, c) else { return Default::default() };
+            for p in cobolt_forms::css_overrides::CSS_TO_PROPERTIES.iter().flat_map(|(_, props)| props.iter()) {
+                let v = e
+                    .entries
+                    .iter()
+                    .find(|x| x.property == *p && x.layer >= cobolt_forms::css_effective::Layer::Project)
+                    .map(|x| x.value.to_property_text())
+                    .or_else(|| c.get_prop(p).map(|v| v.as_str().to_owned()))
+                    .unwrap_or_default();
+                values.entry(p).or_default().push(v);
+            }
+        }
+        let mut out = std::collections::HashMap::new();
+        if n > 1 {
+            for (p, vs) in values {
+                let mut distinct = vs.clone();
+                distinct.sort();
+                distinct.dedup();
+                // Only a property some rule decides for at least one of them can be mixed by CSS.
+                let ruled = ids.iter().filter_map(|id| form.find_control(id)).any(|c| self.css_effective_of(form, c).is_some_and(|e| e.entries.iter().any(|x| x.property == p && x.layer >= cobolt_forms::css_effective::Layer::Project)));
+                if distinct.len() > 1 && ruled {
+                    out.insert(p.to_ascii_lowercase(), tr.css_mixed_values.replacen("{}", &distinct.join(", "), 1));
+                }
+            }
+        }
+        out
     }
 
     pub fn new() -> Self {
@@ -4717,8 +4808,10 @@ impl PropertiesPanel {
             web_project: false,
             css_sheets: Vec::new(),
             css_project_sheet: None,
+            css_env: None,
+            css_theme_id: String::new(),
+            css_cache: Default::default(),
             css_sheets_checked: None,
-            css_marks: None,
             layer_view: None,
             hints: Default::default(),
             caption_warn: Vec::new(),
@@ -4907,9 +5000,21 @@ impl PropertiesPanel {
         let single = multi.as_ref().is_none_or(|m| m.count <= 1);
         let marks = match ctrl.filter(|_| self.web_project && single) {
             Some(c) => self.css_marks_for(form, c, tr),
-            None => Default::default(),
+            None => match (&multi, ctrl) {
+                // Several controls: a property they do not agree on is marked mixed.
+                (Some(m), Some(_)) if self.web_project && !m.ids.is_empty() => self.css_mixed_of(form, &m.ids, tr),
+                _ => Default::default(),
+            },
         };
         CSS_MARKS.with(|m| *m.borrow_mut() = marks);
+        let unknown = match ctrl.filter(|_| self.web_project && single) {
+            Some(c) => self.css_unknown_of(form, c, tr),
+            None => Default::default(),
+        };
+        CSS_UNKNOWN.with(|m| *m.borrow_mut() = unknown);
+        // The rows show the values the page shows: the control with the rules' values set.
+        let css_ctrl: Option<Control> = ctrl.filter(|_| single).and_then(|c| self.css_effective_control(form, c));
+        let ctrl = css_ctrl.as_ref().or(ctrl);
         WEB_FORM.with(|w| *w.borrow_mut() = self.web_project.then(|| tr.prop_web_approximate.to_owned()));
         RESET_LABEL.with(|l| *l.borrow_mut() = tr.prop_reset_to_base.to_owned());
         ScrollArea::vertical()
@@ -14177,6 +14282,7 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
         sort_place(ui, shown);
     }
     let enabled = ROWS_ENABLED.with(|e| e.get());
+    let css_unknown = CSS_UNKNOWN.with(|m| m.borrow().get(&row_key(label, key).to_ascii_lowercase()).cloned());
     // Rows sit flush against one another so the only separators are the dashed grid
     // lines. The default inter-widget gap left a darker, unfilled strip below each
     // line that read as a drop shadow — zeroing the vertical spacing removes it.
@@ -14308,7 +14414,13 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
                 ui.disable();
             }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                value(ui);
+                // WASM-036 R5: a value the page gives in CSS the canvas cannot read is shown as written, read-only.
+                match css_unknown {
+                    Some(text) => {
+                        ui.label(RichText::new(text).monospace().weak());
+                    }
+                    None => value(ui),
+                }
             });
         },
     );
@@ -14381,6 +14493,8 @@ thread_local! {
     static RESET_REQUEST: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
     /// WASM-007 R12 — per lower-case property key, the "overridden by CSS" text of its mark.
     static CSS_MARKS: std::cell::RefCell<std::collections::HashMap<String, String>> = std::cell::RefCell::new(Default::default());
+    /// WASM-036 R5 — per lower-case property key, the CSS the page gives it that the canvas cannot read.
+    static CSS_UNKNOWN: std::cell::RefCell<std::collections::HashMap<String, String>> = std::cell::RefCell::new(Default::default());
     /// WASM-004 R6 — while a web or mobile form is inspected, the start of an approximate property's tooltip;
     /// `None` on a desktop form, where every row is drawn as before.
     static WEB_FORM: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
@@ -17191,21 +17305,20 @@ mod tests {
         panel.web_project = true;
         panel.css_sheets = vec![
             ("webforms/application.css".into(), "\n.wide { color: blue }\n".into()),
-            ("webforms/F.css".into(), "#BTN-1 { background-color: red }\n@media (width < 600px) {\n  .wide { padding: 2px }\n}\n".into()),
+            ("webforms/F.css".into(), "#BTN-1 { background-color: red }\n@container (min-width: 10px) {\n  .wide { padding: 2px }\n}\n".into()),
         ];
         let c = form.find_control("BTN-1").unwrap().clone();
         let marks = panel.css_marks_for(&form, &c, tr);
-        assert_eq!(marks.get("backgroundcolor").map(String::as_str), Some("Overridden by CSS (webforms/F.css:1)"));
-        assert_eq!(marks.get("foregroundcolor").map(String::as_str), Some("Overridden by CSS (webforms/application.css:2)"));
+        assert!(marks.get("backgroundcolor").is_some_and(|t| t.starts_with("Overridden by CSS (webforms/F.css:1)")), "{marks:?}");
+        assert!(marks.get("foregroundcolor").is_some_and(|t| t.starts_with("Overridden by CSS (webforms/application.css:2)")), "{marks:?}");
         assert!(marks.get("paddingleft").is_some_and(|t| t.starts_with("May be overridden by CSS (webforms/F.css:3)")), "{marks:?}");
-        assert_eq!(marks.get("cursor").map(String::as_str), Some(tr.css_overridden_by_style));
+        assert!(marks.get("cursor").is_some_and(|t| t.starts_with(tr.css_overridden_by_style)), "{marks:?}");
         assert!(!marks.contains_key("bold"));
 
         // The mark is drawn on the row (the word CSS beside the name) on a web form only.
         let mut shown = |web: bool| {
             let ctx = egui::Context::default();
             panel.web_project = web;
-            panel.css_marks = None;
             let mut full = ctx.run_ui(
                 egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 9000.0))), ..Default::default() },
                 |ui| {
@@ -19990,6 +20103,7 @@ mod property_split_tests {
                 "Height".to_owned(),
                 "Caption".to_owned(),
             ],
+            ids: Vec::new(),
         };
 
         let ctx = egui::Context::default();
