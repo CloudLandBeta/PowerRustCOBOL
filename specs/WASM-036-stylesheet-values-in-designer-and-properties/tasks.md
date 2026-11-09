@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376), T16 done (2.0.377), T17 done (2.0.378); T18 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376), T16 done (2.0.377), T17 done (2.0.378), T18 done (2.0.379); T19 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -362,7 +362,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - The contract test is green.
   - *Done (2.0.378).* The tool is `form.properties` (native name `form_properties`), declared by the **Web Form Designer** agent (the desktop Form Designer has no stylesheet to read). The main thread publishes the open form while a workflow runs (`agent_form_properties.rs`); the tool reads the stylesheets from disk at call time. Grace's own tool list is empty by design, so she gets none. The context's section is `STYLESHEET OVERRIDES`, in Light unless the designer shows Dark.
 
-- [ ] **T18 — The agent writes through the panel's path** (R23; AC19)
+- [x] **T18 — The agent writes through the panel's path** (R23; AC19)
   - Files: `crates/cobolt-ide/src/panels/designer.rs` (`apply_agent_change_set`'s `SetProperty` arm, designer.rs:4081 → `css_apply` for a Web or Mobile form; operations held in `pending_css_question`), `crates/cobolt-ide/src/agent.rs` (the ledger lines in `last_change_outcome`).
   - Do:
     - **Each operation's ledger line** is one of: `stored`; `written <file>:<line>`; `held: waiting for the developer's answer`; `no effect: … wins`; `not writable`; `refused: …`.

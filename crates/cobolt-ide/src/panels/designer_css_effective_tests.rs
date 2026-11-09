@@ -668,3 +668,78 @@ fn the_designers_scheme_changes_what_it_shows_and_where_an_edit_goes_and_is_neve
     let ms = t0.elapsed().as_secs_f64() * 1000.0;
     println!("┌─ designer_css_effective: Light / Dark\n│ Light #eeeeee, Dark #111111 (certain, never may); an edit in Dark goes inside the dark block, undone; form untouched; prefs round trip; 6 languages\n│ time: {ms:.1} ms\n└─ 9/9 passed, 0 failed");
 }
+
+// ── T18: the agent writes through the panel's path ───────────────────────────────────────────────
+
+fn change_set(ops: serde_json::Value) -> crate::agent::AgentChangeSet {
+    serde_json::from_value(serde_json::json!({ "operations": ops })).expect("a change-set")
+}
+
+#[test]
+fn a_change_set_goes_through_the_panels_path_and_is_one_undo_step() {
+    let t0 = std::time::Instant::now();
+    // A form-sheet rule overrides BackgroundColor; the agent sets it, and a Caption the sheet does not decide.
+    let sheet = "/* mine */\n#PNL-1 { background-color: #112233 }\n";
+    let mut f = Fixture::new("agent", &[("F.css", false, sheet)], form());
+    let undo_before = f.d.undo_stack.len();
+    f.d.apply_agent_change_set(&change_set(serde_json::json!([
+        { "op": "set_property", "control_id": "PNL-1", "key": "BackgroundColor", "value": "#445566ff" },
+        { "op": "set_property", "control_id": "PNL-1", "key": "Enabled", "value": "false" },
+    ])));
+    assert_eq!(f.read("F.css"), "/* mine */\n#PNL-1 { background-color: #445566 }\n", "AC19: that declaration, byte diff");
+    let ledger = f.d.last_change_outcome.clone();
+    assert!(ledger.contains("PNL-1.BackgroundColor: written F.css:2"), "the ledger names file and line: {ledger}");
+    assert!(ledger.contains("PNL-1.Enabled: stored"), "{ledger}");
+    assert_eq!(f.d.undo_stack.len(), undo_before + 1, "the whole change-set is one undo step");
+    f.d.undo();
+    assert_eq!(f.read("F.css"), sheet, "AC19: Ctrl+Z restores the sheet");
+
+    // Two operations on one sheet in one change-set: the second sees the first.
+    let two = "#PNL-1 { background-color: #112233; color: #aa0000 }\n";
+    let mut f = Fixture::new("agent2", &[("F.css", false, two)], form());
+    f.d.apply_agent_change_set(&change_set(serde_json::json!([
+        { "op": "set_property", "control_id": "PNL-1", "key": "BackgroundColor", "value": "#445566ff" },
+        { "op": "set_property", "control_id": "PNL-1", "key": "ForegroundColor", "value": "#0000ffff" },
+    ])));
+    assert_eq!(f.read("F.css"), "#PNL-1 { background-color: #445566; color: #0000ff }\n", "both declarations, one sheet");
+    f.d.undo();
+    assert_eq!(f.read("F.css"), two);
+
+    // A shared rule: held until answered; Cancel leaves the files byte-identical (AC19).
+    let shared = ".pr-button { color: #112233 }\n";
+    let mut f = Fixture::new("agent3", &[("F.css", false, shared)], three_buttons());
+    f.d.apply_agent_change_set(&change_set(serde_json::json!([
+        { "op": "set_property", "control_id": "BTN-1", "key": "ForegroundColor", "value": "#445566ff" },
+    ])));
+    assert_eq!(f.read("F.css"), shared, "nothing is written before the answer");
+    assert!(f.d.css_question.is_some(), "the question is raised");
+    assert!(f.d.last_change_outcome.contains("held: waiting for the developer's answer"), "{}", f.d.last_change_outcome);
+    f.d.css_answer(Answer::Cancel);
+    assert_eq!(f.read("F.css"), shared, "Cancel: byte-identical");
+    assert!(f.d.css_agent_held.is_empty());
+    f.d.apply_agent_change_set(&change_set(serde_json::json!([
+        { "op": "set_property", "control_id": "BTN-1", "key": "ForegroundColor", "value": "#445566ff" },
+    ])));
+    f.d.css_answer(Answer::ChangeRule);
+    assert_eq!(f.read("F.css"), ".pr-button { color: #445566 }\n", "answered: the rule is changed");
+
+    // A value no rule can show: nothing written, the winner named.
+    let win = ".pr-button { color: green !important }\n";
+    let mut f = Fixture::new("agent4", &[("application.css", true, win), ("F.css", false, "")], three_buttons());
+    f.d.apply_agent_change_set(&change_set(serde_json::json!([
+        { "op": "set_property", "control_id": "BTN-1", "key": "ForegroundColor", "value": "#0000ffff" },
+    ])));
+    f.d.css_answer(Answer::OnlyThisControl);
+    assert_eq!((f.read("application.css"), f.read("F.css")), (win.to_owned(), String::new()));
+
+    // A Desktop form: the change-set is applied as before.
+    let mut d = DesignerPanel::new(form());
+    d.apply_agent_change_set(&change_set(serde_json::json!([
+        { "op": "set_property", "control_id": "PNL-1", "key": "Enabled", "value": "false" },
+    ])));
+    assert!(d.last_change_outcome.contains("applied: set_property PNL-1::Enabled"), "{}", d.last_change_outcome);
+    assert!(!d.form.find_control("PNL-1").unwrap().enabled, "the change-set was applied as before");
+    assert!(!d.last_change_outcome.contains("stored"), "a Desktop ledger is unchanged: {}", d.last_change_outcome);
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("┌─ designer_css_effective: the agent's change-set\n│ writes the declaration and says file:line; one undo step; two ops on one sheet; shared rule held, Cancel byte-identical, answered applies; Desktop unchanged\n│ time: {ms:.1} ms\n└─ 15/15 passed, 0 failed");
+}

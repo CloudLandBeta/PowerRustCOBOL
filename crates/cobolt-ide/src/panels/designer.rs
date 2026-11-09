@@ -1361,6 +1361,18 @@ pub struct CssQuestion {
     pub info: super::css_rule_question::RuleInfo,
 }
 
+/// What a change-set's `set_property` on a Web or Mobile form comes to (WASM-036 R23).
+pub(crate) enum CssAgent {
+    /// No stylesheet decides the value: the property is stored, as always.
+    Store,
+    /// The stylesheets are changed by these commands; the text says where, for the ledger.
+    Write { cmds: Vec<Cmd>, at: String },
+    /// Waiting for the developer's answer to the shared-rule question.
+    Held,
+    /// Not written, with the reason, for the ledger.
+    Said(String),
+}
+
 /// A declaration waiting for the developer to confirm its removal (R10).
 #[derive(Debug, Clone)]
 pub struct CssRemoveQuestion {
@@ -2972,6 +2984,9 @@ pub struct DesignerPanel {
     css_forced: Option<cobolt_forms::css_edit::Choice>,
     /// The question being raised is for an edit of several selected controls.
     css_multi: bool,
+    /// WASM-036 R23 — `set_property` operations of a change-set held until the shared-rule question is
+    /// answered (the answer applies to all of them, as one undo step).
+    css_agent_held: Vec<(String, String, PropValue)>,
     /// WASM-036 R10 — a CSS row's "Remove the CSS declaration", waiting for its confirmation.
     pub css_remove_question: Option<CssRemoveQuestion>,
     /// WASM-036 R10 — a CSS row's "Go to the rule": the sheet's file and the rule's line, for the app
@@ -3373,6 +3388,7 @@ impl DesignerPanel {
             css_question: None,
             css_forced: None,
             css_multi: false,
+            css_agent_held: Vec::new(),
             css_remove_question: None,
             css_go_to: None,
             dirty: false,
@@ -4029,6 +4045,11 @@ impl DesignerPanel {
         // Spec 082 — the menus a `set_menu_items` rewrites are planned against the files on disk,
         // which no form-free check can see: a refusal found here is part of the verdicts below.
         let (menu_plans, menu_notes) = self.plan_menu_item_ops(cs, &mut status);
+        // WASM-036 R23: a change-set plans against the stylesheets as they are on disk now.
+        self.css_agent_held.clear();
+        if self.properties.web_project {
+            self.css_reload_sheets();
+        }
         // The account is taken HERE, from the verdicts this function already
         // has, so every caller gets it without asking and none can skip it.
         self.last_change_outcome = crate::agent::outcome_ledger(cs, &status);
@@ -4206,6 +4227,26 @@ impl DesignerPanel {
                     let Some(pv) = json_to_prop(value) else {
                         continue;
                     };
+                    // WASM-036 R23 — a Web or Mobile form: the panel's own path decides, and the ledger says what became of it.
+                    if self.properties.web_project && !self.is_form_id(control_id) {
+                        let what = format!("set_property {control_id}.{key}");
+                        match self.css_agent_plan(control_id, key, &pv) {
+                            CssAgent::Store => self.last_change_outcome.push_str(&format!("\n- {what}: stored")),
+                            CssAgent::Write { cmds: written, at } => {
+                                self.last_change_outcome.push_str(&format!("\n- {what}: written {at}"));
+                                cmds.extend(written);
+                                continue;
+                            }
+                            CssAgent::Held => {
+                                self.last_change_outcome.push_str(&format!("\n- {what}: held: waiting for the developer's answer"));
+                                continue;
+                            }
+                            CssAgent::Said(why) => {
+                                self.last_change_outcome.push_str(&format!("\n- {what}: {why}"));
+                                continue;
+                            }
+                        }
+                    }
                     let old = if self.is_form_id(control_id) {
                         self.get_form_prop(key).map(PropValue::String)
                     } else {
@@ -9391,6 +9432,101 @@ impl DesignerPanel {
         true
     }
 
+    /// Read the stylesheets from disk into the designer's copies (a change-set plans against them).
+    fn css_reload_sheets(&mut self) {
+        let files = self.properties.css_sheet_files.clone();
+        if files.len() != self.properties.css_sheets.len() {
+            return;
+        }
+        for (i, f) in files.iter().enumerate() {
+            if let Ok(b) = std::fs::read(f) {
+                self.properties.css_sheets[i].1 = String::from_utf8_lossy(&b).into_owned();
+            }
+        }
+    }
+
+    /// WASM-036 R23 — what a change-set's `set_property` comes to on a Web or Mobile form: it goes
+    /// through the same planner as the panel. Several operations of one change-set plan against the
+    /// designer's copies of the sheets, each seeing the one before; the commands they make are the
+    /// change-set's own, so the whole change-set stays one undo step.
+    pub(crate) fn css_agent_plan(&mut self, ctrl_id: &str, key: &str, value: &PropValue) -> CssAgent {
+        use cobolt_forms::css_edit::{plan, Choice, Plan, Refusal};
+        use cobolt_forms::css_effective::{effective, Layer, Origin, SheetSet, SheetSource};
+        if !self.properties.web_project || key.starts_with('_') || self.is_form_id(ctrl_id) || self.form.find_control(ctrl_id).is_none() {
+            return CssAgent::Store;
+        }
+        let files = self.properties.css_sheet_files.clone();
+        if files.is_empty() || files.len() != self.properties.css_sheets.len() {
+            return CssAgent::Store;
+        }
+        let (w, h) = self.canvas_size();
+        let env = cobolt_forms::css::MediaEnv { width: w, height: h, scheme: self.css_scheme };
+        let project = self.properties.css_project_sheet.clone();
+        let sheets = self.properties.css_sheets.clone();
+        let sources: Vec<SheetSource<'_>> = sheets
+            .iter()
+            .map(|(label, text)| SheetSource { label, text, origin: if Some(label) == project.as_ref() { Origin::Project } else { Origin::Form } })
+            .collect();
+        let eff = effective(&self.form, Some(ctrl_id), &SheetSet::parse(&sources), &env);
+        let Some(entry) = eff.get(key).filter(|e| e.layer >= Layer::Project) else {
+            return CssAgent::Store;
+        };
+        let Some(new) = Self::css_value_of(&entry.value, value.as_str()) else {
+            return CssAgent::Store;
+        };
+        if new == entry.value {
+            return CssAgent::Said("no change: that value is already the one in effect".to_owned());
+        }
+        let choice = match self.css_forced {
+            Some(c) => c,
+            None if entry.shared => {
+                // Nothing is written until the developer answers; the operation waits with the others.
+                if self.css_question.is_none() {
+                    let (sheet, line) = (entry.sheet.clone(), entry.line);
+                    self.css_ask(ctrl_id, key, value, sheet, line, &sheets, project.as_deref());
+                }
+                self.css_agent_held.push((ctrl_id.to_owned(), key.to_owned(), value.clone()));
+                return CssAgent::Held;
+            }
+            None => Choice::ChangeRule,
+        };
+        let layers: Vec<String> = self.form.layers.iter().map(|l| l.name.clone()).collect();
+        let options = cobolt_forms::stylesheet_lint::Options { layers: &layers, ..Default::default() };
+        let (edits, css_style) = match plan(&self.form, ctrl_id, key, &new, &sources, &env, choice, &options) {
+            Ok(Plan::StoreProperty) => return CssAgent::Store,
+            Ok(Plan::Edit { sheets, css_style }) => (sheets, css_style),
+            Err(Refusal::NotWritable) => return CssAgent::Said("not writable: no CSS can hold this value".to_owned()),
+            Err(Refusal::NoEffect { file, line }) => return CssAgent::Said(format!("no effect: {}:{line} wins", file.unwrap_or_else(|| "CssStyle".to_owned()))),
+            Err(Refusal::Lint { file, line, message }) => return CssAgent::Said(format!("refused: {}:{line} {message}", file.unwrap_or_default())),
+            Err(Refusal::CannotEdit(why)) => return CssAgent::Said(format!("refused: {why}")),
+            Err(Refusal::NoControl) => return CssAgent::Store,
+        };
+        let index_of = |label: &str| sheets.iter().position(|(l, _)| l == label);
+        if let Some(open) = &self.css_modal_unapplied {
+            if edits.iter().any(|e| index_of(&e.label).and_then(|i| files.get(i)) == Some(open)) {
+                return CssAgent::Said("refused: the stylesheet window holds text that is not applied yet".to_owned());
+            }
+        }
+        let at = match (&entry.sheet, css_style.is_some()) {
+            (Some(f), false) => format!("{f}:{}", entry.line),
+            (Some(f), true) => format!("{f}:{} (CssStyle)", entry.line),
+            (None, _) => "CssStyle".to_owned(),
+        };
+        let mut cmds: Vec<Cmd> = Vec::new();
+        for e in &edits {
+            if let Some(i) = index_of(&e.label) {
+                cmds.push(Cmd::SetStylesheet { path: files[i].clone(), before: e.before.clone(), after: e.after.clone() });
+                // The next operation of this change-set plans against this text.
+                self.properties.css_sheets[i].1 = e.after.clone();
+            }
+        }
+        if let Some(style) = css_style {
+            let old = self.form.find_control(ctrl_id).and_then(|c| c.get_prop("CssStyle").cloned());
+            cmds.push(Cmd::SetProperty { id: ctrl_id.to_owned(), key: "CssStyle".into(), old, new: PropValue::String(style) });
+        }
+        CssAgent::Write { cmds, at }
+    }
+
     /// Hold the edit and work out what the question says: the rule's selector and place, and how many
     /// other controls it styles — on this form, and, for a project sheet's rule, on the project's other
     /// forms (loaded once, with a time limit: a count that was cut short is "at least").
@@ -9461,6 +9597,23 @@ impl DesignerPanel {
             Answer::OnlyThisControl => Some(cobolt_forms::css_edit::Choice::OnlyThisControl),
             Answer::Cancel | Answer::Pending => None,
         };
+        let held = std::mem::take(&mut self.css_agent_held);
+        if self.css_forced.is_some() && !held.is_empty() {
+            // The change-set's held operations: one answer, one undo step.
+            let mut batch: Vec<Cmd> = Vec::new();
+            for (c, k, v) in held {
+                let before = self.undo_stack.len();
+                self.css_route(&c, &k, &v);
+                batch.extend(self.undo_stack.drain(before..));
+            }
+            if !batch.is_empty() {
+                self.undo_stack.push(Cmd::Batch { cmds: batch });
+                self.redo_stack.clear();
+                self.dirty = true;
+            }
+            self.css_forced = None;
+            return;
+        }
         if self.css_forced.is_some() {
             // One answer covers every selected control; the whole edit is one undo step.
             if q.multi && self.selected_ids.len() > 1 {
