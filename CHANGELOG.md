@@ -4,6 +4,10 @@
 
 **Fix: in the street runner the camera moves the opposite way, a hurdle makes him fall and ends the game, and there is no empty lane to hide in.** When the runner moves left the camera slides right, and the other way round. Every obstacle is now a hurdle across the whole street (road and both sidewalks), so each one has to be jumped; hitting one, or a parked car, makes him tip forward and ends the run with a banner showing the score (distance), and Space runs again from where he lies. The HUD shows the best distance of the session instead of a crash count.
 
+## 2.0.349 — 2026-11-09
+
+**Fix: the Pitfall explorer's legs now bend when he runs.** Each leg is a thigh and a shin: the thigh swings from the hip and the knee bends backwards, most as the leg passes under the body and almost straight as it reaches back, like the street runner's stride. In the air the legs tuck, and standing they are straight.
+
 ## 2.0.347 — 2026-11-09
 
 **Feature: the bridge roadster jumps with cold-gas thrusters, and a crazy chicken crosses the road.** The jump is now a blast of compressed air from four nozzles under the tail, with white plumes and puffs of air. The tank holds three jumps (one per press of Space or the pad trigger, also in mid-air); the engine refills one jump in about 1.5 s, and an air meter with a light-blue bar sits at the bottom of the window. The car also gets a rear wing and nozzles. After every 15 to 25 enemy vehicles a chicken runs across the road between them, zig-zagging and hopping (touching it blows the car up; jump over it or change lane); every tenth chicken instead runs behind the roadster without touching it, then stumbles, tumbles and disappears.

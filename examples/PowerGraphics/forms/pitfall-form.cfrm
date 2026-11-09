@@ -37,6 +37,16 @@
        01 WS-PB                                  GLOBAL    PIC 9(4).
        01 WS-NF                                  GLOBAL    PIC 9.
        01 WS-FSPD                                GLOBAL    PIC 9V99.
+       01 WS-LJ                                  GLOBAL    PIC 9.
+       01 WS-LPH                                 GLOBAL    PIC S9(3)V9(4).
+       01 WS-LA                                  GLOBAL    PIC S9V9(4).
+       01 WS-LB                                  GLOBAL    PIC S9(3)V9(4).
+       01 WS-LK                                  GLOBAL    PIC S9V9(4).
+       01 WS-LHY                                 GLOBAL    PIC S9(4)V99.
+       01 WS-LKX                                 GLOBAL    PIC S9(4)V99.
+       01 WS-LKY                                 GLOBAL    PIC S9(4)V99.
+       01 WS-LFX                                 GLOBAL    PIC S9(4)V99.
+       01 WS-LFY                                 GLOBAL    PIC S9(4)V99.
        01 WS-PX                                  GLOBAL    PIC S9(4)V99 VALUE 40.
        01 WS-PY                                  GLOBAL    PIC S9(4)V99 VALUE 400.
        01 WS-PVX                                 GLOBAL    PIC S9(2)V99 VALUE 0.
@@ -1213,8 +1223,40 @@
                CNV-PIT::SetStrokeColor( "#2A5BB0" )
                CNV-PIT::SetLineWidth( 5 )
                CNV-PIT::SetLineCap( 1 )
-               CNV-PIT::DrawLine( WS-PX WS-PY - 22 WS-PX + WS-X2 WS-PY )
-               CNV-PIT::DrawLine( WS-PX WS-PY - 22 WS-PX - WS-X2 WS-PY )
+               *> Two legs of two segments each: the thigh swings from the hip, the knee bends backwards (most when the leg passes
+               *> under the body, almost straight when it reaches back), as in a real stride. In the air the legs tuck; standing, they are straight.
+               COMPUTE WS-LPH = WS-ANIM * 0.35
+               COMPUTE WS-LHY = WS-PY - 22
+               PERFORM VARYING WS-LJ FROM 1 BY 1 UNTIL WS-LJ > 2
+                   IF      WS-ONGR = 0
+                       IF      WS-LJ = 1
+                           MOVE    0.9           TO    WS-LA
+                           MOVE    1.2           TO    WS-LK
+                       ELSE
+                           MOVE    -0.3          TO    WS-LA
+                           MOVE    0.8           TO    WS-LK
+                       END-IF
+                   ELSE
+                       IF      WS-PVX = 0
+                           MOVE    0.05          TO    WS-LA
+                           MOVE    0.05          TO    WS-LK
+                       ELSE
+                           MOVE    WS-LPH        TO    WS-LB
+                           IF      WS-LJ = 2
+                               COMPUTE WS-LB = WS-LPH + 3.141593
+                           END-IF
+                           COMPUTE WS-LA = 0.65 * FUNCTION SIN( WS-LB )
+                           COMPUTE WS-LK = 0.8 + 0.7 * FUNCTION COS( WS-LB - 0.4 )
+                       END-IF
+                   END-IF
+                   COMPUTE WS-LKX = WS-PX + WS-FACE * 12 * FUNCTION SIN( WS-LA )
+                   COMPUTE WS-LKY = WS-LHY + 12 * FUNCTION COS( WS-LA )
+                   COMPUTE WS-LB = WS-LA - WS-LK
+                   COMPUTE WS-LFX = WS-LKX + WS-FACE * 12 * FUNCTION SIN( WS-LB )
+                   COMPUTE WS-LFY = WS-LKY + 12 * FUNCTION COS( WS-LB )
+                   CNV-PIT::DrawLine( WS-PX WS-LHY WS-LKX WS-LKY )
+                   CNV-PIT::DrawLine( WS-LKX WS-LKY WS-LFX WS-LFY )
+               END-PERFORM
                CNV-PIT::SetStrokeColor( "#2E9E3A" )
                CNV-PIT::SetLineWidth( 8 )
                CNV-PIT::DrawLine( WS-PX WS-PY - 44 WS-PX WS-PY - 24 )
