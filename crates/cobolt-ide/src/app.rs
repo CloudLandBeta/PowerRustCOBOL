@@ -20573,6 +20573,11 @@ impl CoboltApp {
                     .map(|(p, _)| p.as_path())
                     == Some(form_path.as_path());
                 let run_form_tip = run_form_tip(self.cobolt_project.as_ref().map(|p| p.kind()));
+                let scheme_tip = format!(
+                    "{}\n{}",
+                    if self.designers[idx].1.css_scheme == cobolt_forms::css::Scheme::Dark { tr.css_scheme_dark } else { tr.css_scheme_light },
+                    tr.css_scheme_tip
+                );
                 ui.horizontal_centered(|ui| {
                     action = draw_icon_toolbar(
                         ui,
@@ -20610,6 +20615,12 @@ impl CoboltApp {
                         },
                         tr.task_wizard_catalogue_tip,
                         run_form_tip,
+                        if self.is_web_project() {
+                            let dark = self.designers[idx].1.css_scheme == cobolt_forms::css::Scheme::Dark;
+                            Some((dark, scheme_tip.as_str()))
+                        } else {
+                            None
+                        },
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         egui::ComboBox::from_id_salt("designer_lang_selector")
@@ -20672,6 +20683,15 @@ impl CoboltApp {
                         let d = &mut self.designers[idx].1;
                         d.magnifier_on = !d.magnifier_on;
                         d.magnifier_feed = None;
+                    }
+                    DesignerToolbarAction::ToggleScheme => {
+                        let dark = self.designers[idx].1.css_scheme != cobolt_forms::css::Scheme::Dark;
+                        self.designers[idx].1.css_scheme = if dark { cobolt_forms::css::Scheme::Dark } else { cobolt_forms::css::Scheme::Light };
+                        self.designers[idx].1.css_scheme_loaded = true;
+                        // Only the designer's view: remembered per project on this machine, never written to a form or a sheet.
+                        if let Some(dir) = self.project_dir() {
+                            crate::ui_prefs::save_css_scheme_dark(&dir.to_string_lossy(), dark);
+                        }
                     }
                     DesignerToolbarAction::ToggleTaskWizard => self.toggle_task_wizard(ui.ctx()),
                     DesignerToolbarAction::OpenTaskCatalogue => {
@@ -21004,6 +21024,13 @@ impl CoboltApp {
         let stored_creds = self.controls_with_stored_credentials(&self.designers[idx].1.form);
         // WASM-017 R2 — `Instances` is offered only where a form is fixed memory.
         let web_project = self.is_web_project();
+        // The scheme this project was last looked at in (once per designer).
+        if web_project && !self.designers[idx].1.css_scheme_loaded {
+            let dark = self.project_dir().is_some_and(|d| crate::ui_prefs::load_css_scheme_dark(&d.to_string_lossy()));
+            let d = &mut self.designers[idx].1;
+            d.css_scheme_loaded = true;
+            d.css_scheme = if dark { cobolt_forms::css::Scheme::Dark } else { cobolt_forms::css::Scheme::Light };
+        }
         self.refresh_css_sheets(idx, web_project);
         self.drive_css_writes(idx, panel_ui.ctx(), tr);
         let drawer = crate::panels::designer::show_props_drawer(

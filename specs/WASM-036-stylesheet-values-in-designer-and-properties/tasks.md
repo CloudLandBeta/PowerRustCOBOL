@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375); T15 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376); T16 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -321,7 +321,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
 
 ## Phase E — The colour scheme
 
-- [ ] **T15 — Light / Dark in the designer** (R24, R25; AC20)
+- [x] **T15 — Light / Dark in the designer** (R24, R25; AC20)
   - Files: `crates/cobolt-ide/src/panels/designer.rs` (`css_scheme`, a two-state button in `draw_icon_toolbar` for Web and Mobile forms), `crates/cobolt-ide/src/ui_prefs.rs` (`UiPrefs`, ui_prefs.rs:24: the scheme per project path), `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/src/i18n.rs`.
   - Do:
     - **The choice** sets `MediaEnv.scheme` and invalidates the `Effective` caches.

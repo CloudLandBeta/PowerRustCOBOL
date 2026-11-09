@@ -103,6 +103,10 @@ pub struct UiPrefs {
     /// The folder the last New Project went into, offered as the next one's
     /// *Project location*. Empty until a project has been created.
     pub new_project_location: String,
+    /// The projects whose Web or Mobile forms the designer shows in the dark colour scheme
+    /// (WASM-036 R24, R25), by project folder. A project not listed is shown in Light. Machine-level
+    /// and never in a form or a stylesheet: it is how *this developer* looks at the page.
+    pub css_scheme_dark: std::collections::BTreeSet<String>,
 }
 
 /// How many recent projects are remembered.
@@ -230,6 +234,22 @@ pub fn set_announcement_dismissed(id: &str) {
 
 /// The colour chosen for the Form Designer's grid lines (spec 088 A3), or `None` for the
 /// theme's accent.
+/// Does the designer show this project's Web and Mobile forms in the dark scheme?
+pub fn load_css_scheme_dark(project: &str) -> bool {
+    UiPrefs::load().css_scheme_dark.contains(project)
+}
+
+/// Remember the designer's colour scheme for `project`.
+pub fn save_css_scheme_dark(project: &str, dark: bool) {
+    let mut prefs = UiPrefs::load();
+    if dark {
+        prefs.css_scheme_dark.insert(project.to_owned());
+    } else {
+        prefs.css_scheme_dark.remove(project);
+    }
+    prefs.save();
+}
+
 pub fn load_layout_grid_color() -> Option<egui::Color32> {
     layout_grid_color_of(&UiPrefs::load().layout_grid_color)
 }
@@ -410,6 +430,7 @@ mod tests {
             layout_grid_color: "#FF8800FF".into(),
             recent_projects: vec!["/home/dev/Inventory/Inventory.project.toml".into()],
             new_project_location: "/home/dev".into(),
+            css_scheme_dark: ["/home/dev/Inventory".to_owned()].into(),
         };
         let back: UiPrefs = toml::from_str(&toml::to_string_pretty(&p).unwrap()).unwrap();
         assert_eq!(p, back);

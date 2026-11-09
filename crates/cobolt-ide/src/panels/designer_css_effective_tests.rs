@@ -613,3 +613,58 @@ fn an_edit_of_three_selected_buttons_asks_once_and_is_one_undo_step() {
     let ms = t0.elapsed().as_secs_f64() * 1000.0;
     println!("┌─ designer_css_effective: several controls selected\n│ 3 buttons, 2 effective colours: one question; Change the rule -> 3 equal, one undo restores both files; Only this control; Cancel\n│ time: {ms:.1} ms\n└─ 3/3 passed, 0 failed");
 }
+
+// ── T15: Light / Dark in the designer ────────────────────────────────────────────────────────────
+
+#[test]
+fn the_designers_scheme_changes_what_it_shows_and_where_an_edit_goes_and_is_never_written_to_the_form() {
+    use cobolt_forms::css::Scheme;
+    let t0 = std::time::Instant::now();
+    let sheet = ".pr-button { background-color: #eeeeee }\n@media (prefers-color-scheme: dark) {\n  #BTN-1 { background-color: #111111 }\n}\n";
+    let tr = crate::i18n::Language::English.tr();
+    let mut f = Fixture::new("scheme", &[("F.css", false, sheet)], three_buttons());
+    let form_before = format!("{:?}", f.d.form);
+    let bg = |d: &mut DesignerPanel| {
+        let c = d.form.find_control("BTN-1").unwrap().clone();
+        let form = d.form.clone();
+        let e = d.properties.css_effective_of(&form, &c).expect("effective");
+        (e.entries.iter().find(|x| x.property == "BackgroundColor").map(|x| x.value.to_property_text()), e.unpainted.iter().filter(|u| u.why == cobolt_forms::css_effective::Why::May).count())
+    };
+    // Light: the other value, and the dark rule is not a "may".
+    f.d.properties.css_env = Some((400.0, 300.0, Scheme::Light));
+    let (light, may) = bg(&mut f.d);
+    assert_eq!(light.as_deref(), Some("#eeeeeeff"), "AC20 Light");
+    assert_eq!(may, 0, "the dark rule is not marked may in Light");
+    let canvas_light = f.d.css_style_view().unwrap();
+    // Dark: #111111, certain.
+    f.d.css_scheme = Scheme::Dark;
+    f.d.properties.css_env = Some((400.0, 300.0, Scheme::Dark));
+    let (dark, may) = bg(&mut f.d);
+    assert_eq!(dark.as_deref(), Some("#111111ff"), "AC20 Dark");
+    assert_eq!(may, 0);
+    let canvas_dark = f.d.css_style_view().unwrap();
+    assert_ne!(canvas_light.values.get("BTN-1"), canvas_dark.values.get("BTN-1"), "the canvas follows the scheme");
+    // An edit in Dark rewrites the declaration inside the dark block.
+    set(&mut f, "BTN-1", "BackgroundColor", "#222222ff");
+    assert_eq!(f.read("F.css"), ".pr-button { background-color: #eeeeee }\n@media (prefers-color-scheme: dark) {\n  #BTN-1 { background-color: #222222 }\n}\n", "AC20: inside the dark block, byte diff");
+    f.d.undo();
+    assert_eq!(f.read("F.css"), sheet);
+    // The form is the same in both schemes; the scheme lives in the user's preferences only.
+    f.d.css_scheme = Scheme::Light;
+    assert_eq!(format!("{:?}", f.d.form), form_before, "the form is untouched by the scheme");
+    let mut prefs = crate::ui_prefs::UiPrefs::default();
+    prefs.css_scheme_dark.insert("/home/dev/Inventory".into());
+    let back: crate::ui_prefs::UiPrefs = toml::from_str(&toml::to_string_pretty(&prefs).unwrap()).unwrap();
+    assert!(back.css_scheme_dark.contains("/home/dev/Inventory"), "a fresh load restores the choice");
+    assert!(toml::from_str::<crate::ui_prefs::UiPrefs>("language = \"fr\"\n").unwrap().css_scheme_dark.is_empty(), "a project starts in Light");
+    for lang in crate::i18n::Language::ALL {
+        let t = lang.tr();
+        for s in [t.css_scheme_light, t.css_scheme_dark, t.css_scheme_tip] {
+            assert!(!s.trim().is_empty(), "{lang:?}: an empty string");
+        }
+        assert_ne!(t.css_scheme_light, t.css_scheme_dark);
+    }
+    let _ = tr;
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("┌─ designer_css_effective: Light / Dark\n│ Light #eeeeee, Dark #111111 (certain, never may); an edit in Dark goes inside the dark block, undone; form untouched; prefs round trip; 6 languages\n│ time: {ms:.1} ms\n└─ 9/9 passed, 0 failed");
+}

@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.376 — 2026-11-09
+
+**Feature: a Light / Dark switch for the designer's Web and Mobile forms (WASM-036 T15).** The designer's toolbar has a two-state button, on a Web or Mobile form only, that chooses which colour scheme the designer shows the page in: the canvas and the Properties panel's values follow it, so a `@media (prefers-color-scheme: dark)` rule is the value in effect, certain and unmarked, in Dark, and the other rule's value in Light. An edit made in Dark rewrites the declaration inside the dark block. The choice is only how the developer looks at the page: it is remembered per project on this machine (in the user's preferences, `css_scheme_dark`), a project starts in Light, and it is never written to the form file or to a stylesheet; the Preview, Run and the built application are not driven by it. A Desktop form has no such button. New texts `css_scheme_light`, `css_scheme_dark`, `css_scheme_tip` in six languages. Test: `the_designers_scheme_changes_what_it_shows_and_where_an_edit_goes_and_is_never_written_to_the_form`.
+
 ## 2.0.375 — 2026-11-09
 
 **Feature: editing a value with several controls selected asks once and is one undo step (WASM-036 T14).** On a Web or Mobile form, a change made in the Properties panel with several controls selected is applied to each of them by the same rules as for one control: a value a rule of the project's or the form's stylesheet decides is written into that stylesheet, a value no rule decides is stored as a property. When the rule that decides the value for any of them styles other controls too, nothing is written until the developer answers one question, before anything is applied; the answer (change the rule, or give each selected control its own value, or cancel) covers the whole selection. The whole edit — every sheet it touched and every property — is one undo step: one Ctrl+Z restores every file byte for byte. Test: `an_edit_of_three_selected_buttons_asks_once_and_is_one_undo_step` (three buttons with two different effective colours).

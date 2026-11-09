@@ -590,7 +590,7 @@ mod tests {
                                 action = draw_icon_toolbar(
                                     ui, true, true, true, false, true, "Cut", "Copy", "Paste", "Duplicate", "Format painter", "Tab order", "Tab list",
                                     false, false, true, true, false, false, false, false, false, false, false, "Magnifier", true, "Show Grid",
-                                    on.get(), "Task Wizard", "Choose a task", "Run Form",
+                                    on.get(), "Task Wizard", "Choose a task", "Run Form", None,
                                 );
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     egui::ComboBox::from_id_salt("designer_lang_selector")

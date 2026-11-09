@@ -2955,6 +2955,8 @@ pub struct DesignerPanel {
     pub(crate) css_cache: cobolt_forms::css_effective::EffectiveCache,
     /// WASM-036 R24 — the colour scheme the canvas answers `prefers-color-scheme` with.
     pub css_scheme: cobolt_forms::css::Scheme,
+    /// The project's remembered scheme was read into `css_scheme` (once per designer).
+    pub css_scheme_loaded: bool,
     /// WASM-036 R9 — what the write path has to say, and the sheets it wrote (for the preview); the
     /// app drains both every frame.
     pub css_messages: Vec<CssMessage>,
@@ -3362,6 +3364,7 @@ impl DesignerPanel {
             theme_switches: Vec::new(),
             css_cache: Default::default(),
             css_scheme: cobolt_forms::css::Scheme::Light,
+            css_scheme_loaded: false,
             css_messages: Vec::new(),
             css_written: Vec::new(),
             css_modal_unapplied: None,
@@ -19089,6 +19092,8 @@ pub(crate) enum DesignerToolbarAction {
     ToggleGlass,
     /// Spec 089 — the toolbox's magnifier.
     ToggleMagnifier,
+    /// WASM-036 R24 — Light / Dark of the page, for a Web or Mobile form.
+    ToggleScheme,
     /// Spec 104 — the Task Wizard switch, and its ▾ (the catalogue).
     ToggleTaskWizard,
     OpenTaskCatalogue,
@@ -19180,6 +19185,8 @@ pub(crate) fn draw_icon_toolbar(
     // The Run Form button's tip: the live interpreter, or where a Web or Mobile
     // project runs (`run_form_tip` in app.rs).
     run_form_tip: &str,
+    // WASM-036 R24 — a Web or Mobile form: `(dark, tooltip)` of the Light / Dark button; `None` on Desktop.
+    scheme: Option<(bool, &str)>,
 ) -> DesignerToolbarAction {
     use egui::{Color32, Rect, Vec2};
 
@@ -19396,6 +19403,11 @@ pub(crate) fn draw_icon_toolbar(
         }
         if icon_btn(ui, true, magnifier_on, magnifier_tip, &icon_magnifier) {
             action = DesignerToolbarAction::ToggleMagnifier;
+        }
+        if let Some((dark, tip)) = scheme {
+            if icon_btn(ui, true, dark, tip, &icon_scheme) {
+                action = DesignerToolbarAction::ToggleScheme;
+            }
         }
         // Spec 104 R1–R3 — the Task Wizard switch, after the Magnifier, and its ▾:
         // a narrow cell that always works. While the switch is off it turns the wizard
@@ -19885,6 +19897,20 @@ pub(crate) fn icon_magnifier(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         [centre + Vec2::splat(d), centre + Vec2::splat(d + r.width() * 0.26)],
         Stroke::new(2.4, c),
     ));
+}
+
+/// A disc with its right half filled: the Light / Dark switch.
+fn icon_scheme(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let centre = r.center();
+    let rad = r.width() * 0.34;
+    out.push(Shape::circle_stroke(centre, rad, Stroke::new(1.6, c)));
+    let n = 16;
+    let mut pts = vec![centre + Vec2::new(0.0, -rad)];
+    for i in 0..=n {
+        let a = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * i as f32 / n as f32;
+        pts.push(centre + Vec2::new(a.cos(), a.sin()) * rad);
+    }
+    out.push(Shape::convex_polygon(pts, c, Stroke::NONE));
 }
 
 fn icon_glass(out: &mut Vec<Shape>, r: Rect, c: Color32) {
