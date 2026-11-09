@@ -33,7 +33,7 @@ use std::collections::HashMap;
 
 use crate::css::{media_eval, parse_declarations_spanned, parse_selector, split_top, substitute_vars, DeclSpan, ElementRef, MediaEnv, Selector, Tri};
 use crate::css_reverse::{read, row_of, Ctx, Reading, Value};
-use crate::model::{Control, ControlType, Form};
+use crate::model::{Control, ControlType, Form, PropValue};
 
 /// Where a sheet comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -438,7 +438,7 @@ fn classes(c: &Control) -> Vec<String> {
 /// The path to the form's root element (`id` `None`) or to control `id`; `None` when the form has
 /// no such control. The root is `section.pr-form-root`; a layered control sits in
 /// `div.pr-form-layer`, any other in `div.pr-form` > `div.pr-surface`; a TabControl's children
-/// are in its `div.pr-tabpanel`, a Splitter's in its `div.pr-pane`.
+/// are in its `div.pr-tabpages` > `div.pr-tabpages` > `div.pr-tabpanel`, a Splitter's in its `div.pr-pane`.
 pub fn element_path(form: &Form, id: Option<&str>) -> Option<Vec<PathEl>> {
     let mut root = PathEl::new("section", &["pr-form-root"]);
     root.attrs.push(("data-pr-form".to_owned(), form.name.clone()));
@@ -466,7 +466,10 @@ pub fn element_path(form: &Form, id: Option<&str>) -> Option<Vec<PathEl>> {
         path.push(el);
         if i + 1 < chain.len() {
             match c.control_type {
-                ControlType::TabControl => path.push(PathEl::new("div", &["pr-tabpanel"])),
+                ControlType::TabControl => {
+                    path.push(PathEl::new("div", &["pr-tabpages"]));
+                    path.push(PathEl::new("div", &["pr-tabpanel"]));
+                }
                 ControlType::Splitter => path.push(PathEl::new("div", &["pr-pane"])),
                 _ => {}
             }
@@ -786,9 +789,15 @@ pub fn effective(form: &Form, id: Option<&str>, sheets: &SheetSet, env: &MediaEn
             ctx.font_px = *n;
         }
     }
+    // The properties layer (rank 2) beats the theme and the base (0, 1) for a normal declaration: where the
+    // control's own property is written, the stored value is the effective one.
+    let props = ctl.map(|c| props_layer(c, form)).unwrap_or_default();
     let label = |m: &Matched| m.sheet.map(|s| sheets.sources[s].label.clone());
     let mut out = Effective::default();
     for m in c.winners.iter().filter(|m| !m.css.starts_with("--")) {
+        if m.layer < Layer::Props && !m.important && props.iter().any(|(k, _)| *k == m.css) {
+            continue;
+        }
         let unp = |why| Unpainted { css: m.css.clone(), value: m.value.clone(), sheet: label(m), line: m.line, why };
         let Some(resolved) = m.resolved.as_deref() else {
             out.unpainted.push(unp(Why::Unknown));
@@ -871,6 +880,214 @@ impl CssFinal {
     }
 }
 
+// ── The properties layer, as data ─────────────────────────────────────────────────────────────
+
+/// What the player's `@layer pr-props` says for one CSS property of one control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropsDecl {
+    /// Written from the control's own property: when this layer wins, the value is the stored one.
+    Own,
+    /// Written, but not as the stored value (a `Bold` becomes `font-weight: 400` and a text shadow, a
+    /// Label's padding is the player's inset plus the property): the property still wins the property.
+    Computed,
+    /// Written by the form's theme (Spatial) into the same rule.
+    Theme,
+}
+
+fn text_of(c: &Control, key: &str) -> Option<String> {
+    c.get_prop(key).map(|v| match v {
+        PropValue::String(s) => s.trim().to_owned(),
+        PropValue::Int(n) => n.to_string(),
+        PropValue::Bool(b) => (if *b { "1" } else { "0" }).to_owned(),
+    })
+}
+
+fn num_of(c: &Control, key: &str) -> Option<f64> {
+    text_of(c, key).and_then(|s| s.parse::<f64>().ok())
+}
+
+fn flag(c: &Control, key: &str) -> bool {
+    text_of(c, key).is_some_and(|s| matches!(s.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+}
+
+fn is_chart(t: &ControlType) -> bool {
+    matches!(t, ControlType::BarChart | ControlType::LineChart | ControlType::PieChart | ControlType::AreaChart | ControlType::ScatterChart | ControlType::DonutChart | ControlType::RadarChart)
+}
+
+/// The CSS properties the player writes for `ctl`'s own properties, and whose they are: the rules
+/// of plan §0.2 (`cobolt-web-player/src/css.rs::appearance` and `view/style.rs::kind_decls`),
+/// held to the player by its `props_layer` test over every control type. Names are the ones of
+/// `CSS_TO_PROPERTIES`; a CSS property not listed is not written from a property.
+pub fn props_layer(ctl: &Control, form: &Form) -> Vec<(&'static str, PropsDecl)> {
+    use PropsDecl::*;
+    if ctl.control_type.is_non_visual() {
+        return Vec::new();
+    }
+    let t = &ctl.control_type;
+    let mut out: Vec<(&'static str, PropsDecl)> = Vec::new();
+    let face = !matches!(t, ControlType::Line);
+    let transparency = num_of(ctl, "Transparency").unwrap_or(0.0);
+    let _ = transparency;
+    // Background.
+    if face {
+        if flag(ctl, "BackgroundGradientEnabled") {
+            out.push(("background-image", Own));
+        } else if let Some(c) = text_of(ctl, "BackgroundColor").and_then(|s| crate::css::color(&s)) {
+            let default = crate::css::color(crate::model::DEFAULT_BACKGROUND_COLOR).is_some_and(|d| d[..3] == c[..3]) && c[3] == 255;
+            if !default {
+                out.push(("background-color", Own));
+            } else if is_chart(t) && !flag(ctl, "HideBackground") {
+                out.push(("background-color", Computed));
+            }
+        }
+    }
+    // Text.
+    if text_of(ctl, "ForegroundColor").and_then(|s| crate::css::color(&s)).is_some() {
+        out.push(("color", Own));
+    }
+    if text_of(ctl, "FontName").is_some_and(|s| !s.is_empty()) {
+        out.push(("font-family", Own));
+    }
+    if num_of(ctl, "FontSize").is_some_and(|n| n > 0.0) {
+        out.push(("font-size", Own));
+    }
+    if flag(ctl, "Bold") {
+        out.push(("font-weight", Computed));
+    }
+    if flag(ctl, "Italic") {
+        out.push(("font-style", Own));
+    }
+    if flag(ctl, "Underline") || flag(ctl, "Strikethrough") {
+        out.push(("text-decoration", Own));
+    }
+    if face {
+        if num_of(ctl, "CornerRadius").is_some_and(|r| r as i64 > 0) {
+            out.push(("border-radius", Own));
+        }
+        if let Some(style) = text_of(ctl, "BorderStyle") {
+            out.push(("border", Own));
+            if matches!(style.to_ascii_lowercase().as_str(), "raised" | "outset" | "sunken" | "inset") {
+                out.push(("border-color", Computed));
+            }
+        }
+        if flag(ctl, "ShadowEnabled") && !matches!(t, ControlType::Timer | ControlType::AgentObject | ControlType::KnowledgeBase | ControlType::RestClient | ControlType::SqlDatabase | ControlType::IndexedFile) {
+            out.push(("box-shadow", Own));
+        }
+    }
+    if !matches!(t, ControlType::Panel | ControlType::GroupBox) {
+        if num_of(ctl, "Padding").is_some_and(|p| p as i64 > 0) {
+            out.push(("padding", Own));
+        }
+        for (k, css) in [("PaddingLeft", "padding-left"), ("PaddingTop", "padding-top"), ("PaddingRight", "padding-right"), ("PaddingBottom", "padding-bottom")] {
+            if num_of(ctl, k).is_some() {
+                out.push((css, Own));
+            }
+        }
+    }
+    if text_of(ctl, "Cursor").is_some_and(|s| !s.is_empty()) {
+        out.push(("cursor", Own));
+    }
+    // A container's client area (`layout_css::container`): the padding, plus the 2 px the desktop takes off a
+    // Panel or GroupBox, less the border the element draws itself; written when any side is left.
+    if matches!(t, ControlType::Panel | ControlType::GroupBox | ControlType::TabControl | ControlType::Splitter | ControlType::SideMenu | ControlType::StatusBar | ControlType::ToolBar | ControlType::MenuBar) {
+        let card = matches!(t, ControlType::Panel | ControlType::GroupBox);
+        let all = num_of(ctl, "Padding").unwrap_or(0.0);
+        let border = if card && flag(ctl, "HideBackground") {
+            0.0
+        } else {
+            let width = num_of(ctl, "BorderWidth").unwrap_or(1.0).clamp(0.0, 32.0);
+            match text_of(ctl, "BorderStyle").map(|s| s.to_ascii_lowercase()) {
+                None => if matches!(t, ControlType::GroupBox) { 1.0 } else { 0.0 },
+                Some(s) if s.is_empty() || s == "none" => 0.0,
+                Some(s) if s == "double" => width.max(3.0),
+                Some(_) => width,
+            }
+        };
+        let chrome = if card { 2.0 } else { 0.0 };
+        let left = ["PaddingTop", "PaddingRight", "PaddingBottom", "PaddingLeft"].iter().map(|k| (num_of(ctl, k).unwrap_or(all) + chrome - border).max(0.0)).sum::<f64>();
+        if left > 0.0 {
+            out.retain(|(k, _)| *k != "padding");
+            out.push(("padding", Computed));
+        }
+    }
+    // What a type adds by itself: always written, from the properties or their defaults.
+    match t {
+        ControlType::Label => {
+            out.push(("display", Computed));
+            for css in ["justify-content", "align-items", "text-align", "white-space"] {
+                out.push((css, Computed));
+            }
+            if !out.iter().any(|(k, _)| *k == "padding") {
+                out.push(("padding", Computed));
+            }
+        }
+        ControlType::Button => {
+            for css in ["display", "align-items", "justify-content"] {
+                out.push((css, Computed));
+            }
+            if !out.iter().any(|(k, _)| *k == "padding") {
+                out.push(("padding", Computed));
+            }
+        }
+        ControlType::TextBox => {
+            out.push(("text-align", Computed));
+            if !out.iter().any(|(k, _)| *k == "padding") {
+                out.push(("padding", Computed));
+            }
+        }
+        ControlType::PictureBox => out.push(("background", Computed)),
+        _ => {}
+    }
+    // `ZOrder` and `Visible` are the layout's: the player writes no `z-index` or `display` from them.
+    spatial_props(ctl, form, &mut out);
+    out
+}
+
+/// What the Spatial theme writes into the same rule (`theme_css.rs::spatial_decls`): where the
+/// properties are silent, its radius, its face and its rim.
+fn spatial_props(ctl: &Control, form: &Form, out: &mut Vec<(&'static str, PropsDecl)>) {
+    if !form.theme.as_deref().is_some_and(|t| t.trim().eq_ignore_ascii_case(crate::theme::SPATIAL)) {
+        return;
+    }
+    let t = &ctl.control_type;
+    let gradient = flag(ctl, "BackgroundGradientEnabled");
+    let seeded = [crate::model::DEFAULT_BACKGROUND_COLOR, crate::model::NEUMORPHIC_SURFACE_COLOR, crate::model::NEUMORPHIC_DARK_SURFACE_COLOR];
+    let named = text_of(ctl, "BackgroundColor").and_then(|s| crate::css::color(&s)).filter(|c| c[3] > 0 && !seeded.iter().any(|s| crate::css::color(s).is_some_and(|d| d == *c)));
+    #[derive(PartialEq)]
+    enum Face {
+        Card,
+        Input,
+        Button,
+        Label,
+    }
+    let face = match t {
+        ControlType::Button => Some(Face::Button),
+        ControlType::Panel | ControlType::GroupBox => (!flag(ctl, "HideBackground") && !gradient).then_some(Face::Card),
+        ControlType::TextBox | ControlType::ComboBox | ControlType::NumericUpDown | ControlType::DateTimePicker => (!gradient).then_some(Face::Input),
+        ControlType::Label => (named.is_some() && !gradient).then_some(Face::Label),
+        _ => None,
+    };
+    let Some(face) = face else { return };
+    fn put(out: &mut Vec<(&'static str, PropsDecl)>, css: &'static str) {
+        if !out.iter().any(|(k, _)| *k == css) {
+            out.push((css, PropsDecl::Theme));
+        }
+    }
+    let seeded_radius = if matches!(t, ControlType::Button) { 3 } else { 0 };
+    let own_radius = num_of(ctl, "CornerRadius").or_else(|| num_of(ctl, "BorderRadius")).map(|r| r as i64);
+    if face != Face::Label && own_radius.is_none_or(|r| r == seeded_radius) {
+        put(out, "border-radius");
+    }
+    if !out.iter().any(|(k, _)| *k == "background-image") && (named.is_some() || face != Face::Label) {
+        put(out, "background-color");
+    }
+    let style = text_of(ctl, "BorderStyle").unwrap_or_default().to_ascii_lowercase();
+    let width = num_of(ctl, "BorderWidth").unwrap_or(1.0).clamp(0.0, 32.0);
+    let own_border = !matches!(style.as_str(), "" | "none") && (width > 0.0 || style == "double");
+    if !own_border && num_of(ctl, "Transparency").unwrap_or(0.0) < 100.0 {
+        put(out, "box-shadow");
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -977,7 +1194,7 @@ mod tests {
         split.children.push(Control::new("IN-SPL", ControlType::Button, 0, 0));
         f.controls.push(tabs);
         f.controls.push(split);
-        let css = ".pr-tabcontrol > .pr-tabpanel > .pr-button { color: tab } .pr-splitter > .pr-pane > .pr-button { color: pane } [data-pr-form=\"F\"] { --root: yes } section.pr-form-root { margin: 0 }";
+        let css = ".pr-tabcontrol > .pr-tabpages > .pr-tabpanel > .pr-button { color: tab } .pr-splitter > .pr-pane > .pr-button { color: pane } [data-pr-form=\"F\"] { --root: yes } section.pr-form-root { margin: 0 }";
         let s = set(&[("f.css", Origin::Form, css)]);
         assert_eq!(value(&cascade(&f, Some("IN-TAB"), &s, None), "color").as_deref(), Some("tab"));
         assert_eq!(value(&cascade(&f, Some("IN-SPL"), &s, None), "color").as_deref(), Some("pane"));
@@ -1075,6 +1292,24 @@ mod tests {
         assert_eq!(b.border, Some([0, 128, 0, 255]));
         assert_eq!(b.shadow, Some([0, 0, 0, 128]), "ShadowOpacity 50 is alpha 128");
         eprintln!("css_effective effective(): model values, unpainted (geometry, Unknown, may), shared, CssFinal colours");
+    }
+
+    #[test]
+    fn the_properties_layer_beats_the_theme_but_not_important_or_the_developer() {
+        let mut f = form();
+        f.controls[0].properties.insert("ForegroundColor".into(), PropValue::String("#FFFFFFFF".into()));
+        let theme = ".pr-button { color: red; background-color: blue } .pr-label { color: green }";
+        let s = set(&[("elegance", Origin::Theme, theme)]);
+        let e = effective(&f, Some("BTN-1"), &s, &env());
+        assert!(e.get("ForegroundColor").is_none(), "the property is written into pr-props: the stored value is the effective one");
+        assert!(e.get("BackgroundColor").is_some_and(|x| x.layer == Layer::Theme && x.sheet.as_deref() == Some("elegance")), "no property written: the theme's face shows");
+        let important = set(&[("elegance", Origin::Theme, ".pr-button { color: red !important }")]);
+        assert!(effective(&f, Some("BTN-1"), &important, &env()).get("ForegroundColor").is_some(), "an important theme declaration beats pr-props");
+        let dev = set(&[("elegance", Origin::Theme, theme), ("f.css", Origin::Form, "#BTN-1 { color: teal }")]);
+        assert!(effective(&f, Some("BTN-1"), &dev, &env()).get("ForegroundColor").is_some_and(|x| x.layer == Layer::Unlayered));
+        let layer = props_layer(&f.controls[0], &f);
+        assert!(layer.contains(&("color", PropsDecl::Own)) && layer.contains(&("align-items", PropsDecl::Computed)) && layer.contains(&("padding", PropsDecl::Computed)), "{layer:?}");
+        assert!(props_layer(&Control::new("T-1", ControlType::Timer, 0, 0), &f).is_empty(), "a non-visual control has no box");
     }
     #[test]
     fn rules_keep_their_lines_layers_conditions_and_declaration_ranges() {

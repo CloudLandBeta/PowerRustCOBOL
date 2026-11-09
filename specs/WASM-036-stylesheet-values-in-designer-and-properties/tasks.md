@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364); T4 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365); T5 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -125,7 +125,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - `unpainted` holding a `width: 50%` declaration with its line;
     - `shared` true for `.pr-button` and false for `#BTN-1`.
 
-- [ ] **T4 — The props layer as data, pinned to the player** (R1; plan §0.2)
+- [x] **T4 — The props layer as data, pinned to the player** (R1; plan §0.2)
   - Files:
     - `crates/cobolt-forms/src/css_effective.rs`: `props_layer(ctl, form) -> Vec<(&'static str, PropsDecl)>`, used at rank 2 by `effective()`;
     - `crates/cobolt-web-player/src/css.rs` and `crates/cobolt-web-player/src/dom/instance.rs`: the tests.

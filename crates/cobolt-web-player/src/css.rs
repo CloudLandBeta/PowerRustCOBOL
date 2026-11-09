@@ -1041,4 +1041,116 @@ mod tests {
         assert_eq!(cursor("whatever"), "default");
         assert_eq!(direction_vector("West"), (-1.0, 0.0));
     }
+
+    /// WASM-036 T4: the IDE's `props_layer` names the CSS properties this player writes from a control's
+    /// own properties (`control_decls`), over every visible control type, seeded, absent and edge values,
+    /// Spatial on and off. A difference is a row of the table that no longer says what the player does.
+    #[test]
+    fn props_layer_names_what_control_decls_writes() {
+        use cobolt_forms::css_effective::props_layer;
+        use std::collections::BTreeSet;
+        let watched: BTreeSet<&str> = cobolt_forms::css_reverse::REVERSE.iter().map(|r| r.css).collect();
+        let variants: &[&[(&str, &str)]] = &[
+            &[],
+            &[("BackgroundColor", "#F0F0F0FF")],
+            &[("BackgroundColor", "#336699FF"), ("Transparency", "30")],
+            &[("BackgroundColor", "#00000000")],
+            &[("BackgroundGradientEnabled", "1"), ("BackgroundGradientStartColor", "#FF0000FF"), ("BackgroundGradientEndColor", "#0000FFFF")],
+            &[("ForegroundColor", "#FFFFFFFF"), ("FontName", "Segoe UI"), ("FontSize", "14"), ("Italic", "1"), ("Underline", "1")],
+            &[("FontName", ""), ("FontSize", "0"), ("Bold", "1"), ("Strikethrough", "1")],
+            &[("CornerRadius", "0")],
+            &[("CornerRadius", "8"), ("BorderStyle", "Single"), ("BorderWidth", "2"), ("BorderColor", "#FF0000FF")],
+            &[("BorderStyle", "Raised")],
+            &[("BorderStyle", "")],
+            &[("ShadowEnabled", "1"), ("ShadowDistance", "6")],
+            &[("Padding", "6"), ("PaddingLeft", "10")],
+            &[("Padding", "0"), ("PaddingTop", "3"), ("PaddingBottom", "4")],
+            &[("Cursor", "Hand"), ("ZOrder", "3")],
+            &[("Cursor", ""), ("ZOrder", "0")],
+            &[("Visible", "false")],
+            &[("TextAlignment", "Right"), ("VerticalAlignment", "Bottom"), ("WordWrap", "1")],
+        ];
+        let (mut checked, mut diffs) = (0usize, Vec::new());
+        for spatial in [false, true] {
+            for t in cobolt_forms::ControlType::ALL {
+                if t.is_non_visual() {
+                    continue;
+                }
+                for (vi, props) in variants.iter().enumerate() {
+                    let theme = if spatial { " theme=\"spatial\"" } else { "" };
+                    let body: String = props.iter().map(|(k, v)| format!("<Property name=\"{k}\">{v}</Property>")).collect();
+                    let xml = format!(
+                        r##"<?xml version="1.0" encoding="UTF-8"?><Form name="main-form" title="Demo" width="640" height="480" index-base="1"{theme}><Control id="C-1" type="{}" x="10" y="10" w="300" h="200">{body}</Control></Form>"##,
+                        t.as_str()
+                    );
+                    let tree = crate::tree::testing::tree_of(&xml[xml.find("<Control").unwrap_or(0)..xml.rfind("</Form>").unwrap_or(xml.len())]);
+                    let Some(i) = tree.by_name("C-1") else { continue };
+                    let mut tree = tree;
+                    if spatial {
+                        tree.set(0, "theme", cobolt_forms::theme::SPATIAL);
+                    }
+                    let got: BTreeSet<String> = crate::view::style::control_decls(&tree.ctls, i, true).into_iter().map(|(k, _)| k).filter(|k| watched.contains(k.as_str())).collect();
+                    let form = cobolt_forms::xml::load_form_from_str(&xml).expect("form");
+                    let ours: BTreeSet<String> = props_layer(&form.controls[0], &form).into_iter().map(|(k, _)| k.to_owned()).collect();
+                    checked += 1;
+                    if got != ours {
+                        diffs.push(format!("{} v{vi}{}: player-only {:?}, table-only {:?}", t.as_str(), if spatial { " spatial" } else { "" }, got.difference(&ours).collect::<Vec<_>>(), ours.difference(&got).collect::<Vec<_>>()));
+                    }
+                }
+            }
+        }
+        println!("WASM-036 props_layer: {checked} (type, values, theme) cases, {} differ", diffs.len());
+        let mut grouped: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+        for d in &diffs {
+            let (head, rest) = d.split_once(": ").unwrap_or((d, ""));
+            let (ty, v) = head.split_once(" ").unwrap_or((head, ""));
+            grouped.entry(rest.to_owned()).or_default().push(format!("{ty}:{v}"));
+        }
+        let summary: Vec<String> = grouped.iter().map(|(k, v)| format!("{k}  <- {}", v.join(" "))).collect();
+        assert!(diffs.is_empty(), "{} of {checked}:\n{}", diffs.len(), summary.join("\n").replace(" ", " ").lines().map(|l| if l.len() > 1500 { l[..1500].to_owned() } else { l.to_owned() }).collect::<Vec<_>>().join("\n"));
+    }
+
+    /// WASM-036 T4: the element path the IDE builds (`css_effective::element_path`) names the classes the
+    /// player mounts (`dom/instance.rs`, `view/controls.rs`), and `rem` is the browser's 16 px the IDE uses.
+    #[test]
+    fn element_path_and_root_font_are_the_players() {
+        use cobolt_forms::css_effective::element_path;
+        use cobolt_forms::{Control, ControlType, Form};
+        let instance = include_str!("dom/instance.rs");
+        let controls = include_str!("view/controls.rs");
+        let base = include_str!("base_css.rs");
+        let mut f = Form::new("F", "F", 640, 480);
+        let mut tabs = Control::new("TABS", ControlType::TabControl, 0, 0);
+        tabs.children.push(Control::new("IN-TAB", ControlType::Button, 0, 0));
+        let mut split = Control::new("SPL", ControlType::Splitter, 0, 0);
+        split.children.push(Control::new("IN-SPL", ControlType::Button, 0, 0));
+        let mut layered = Control::new("LAY", ControlType::Button, 0, 0);
+        layered.layer = Some("L1".into());
+        f.controls.extend([tabs, split, layered]);
+        let mut classes = std::collections::BTreeSet::new();
+        for id in [None, Some("IN-TAB"), Some("IN-SPL"), Some("LAY")] {
+            for el in element_path(&f, id).expect("path") {
+                for c in &el.classes {
+                    if !c.starts_with("pr-control") && c != "pr-button" && c != "pr-tabcontrol" && c != "pr-splitter" {
+                        classes.insert((el.tag, c.clone()));
+                    }
+                }
+            }
+        }
+        let mounts = |tag: &str, class: &str| -> bool {
+            let quoted = format!("\"{class}\"");
+            match (tag, class) {
+                ("section" | "div", "pr-form-root" | "pr-form" | "pr-surface" | "pr-form-layer") => instance.contains(&format!("h::el(doc, \"{tag}\", &[{quoted}])")),
+                ("div", "pr-tabpages" | "pr-tabpanel" | "pr-pane") => controls.contains(&format!(".class({quoted})")) && controls.contains("VNode::new(\"div\")"),
+                _ => false,
+            }
+        };
+        for (tag, class) in &classes {
+            assert!(mounts(tag, class), "the IDE's path has {tag}.{class}, which the player does not mount");
+        }
+        assert!(base.contains(".pr-splitter > .pr-pane") && base.contains(".pr-tabpanel"), "the player styles these elements");
+        assert!(!base.contains("html {") && !base.contains(":root { font-size") && !base.contains(":host { font-size"), "no root font size of its own: rem is the browser's 16 px");
+        assert_eq!(cobolt_forms::css_reverse::Ctx::new(ControlType::Panel).root_px, 16.0);
+        println!("WASM-036 element path: {} (tag, class) pairs of the IDE's paths found in the player; root font 16 px", classes.len());
+    }
 }
