@@ -1,0 +1,497 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="POOL2D-FORM" title="PowerGraphics - Pool (top view)" width="820" height="560" background="#1B1F27FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" definition="A top-view pool game: a Canvas2D draws the table and the balls, a Physics2D world moves them, collides them and lets the player pot them in six pockets." index-base="1">
+  <working-storage><![CDATA[       01 WS-WORLD                               GLOBAL    PIC 9(10).
+       01 WS-WALL                                GLOBAL    PIC 9(10).
+       01 WS-BALLS                               GLOBAL.
+           05 WS-BALL                            PIC 9(10)    OCCURS 16.
+           05 WS-ALIVE                           PIC 9        OCCURS 16.
+           05 WS-COL                             PIC X(7)     OCCURS 16.
+       01 WS-POCKETS                             GLOBAL.
+           05 WS-PKX                             PIC 9(4)     OCCURS 6.
+           05 WS-PKY                             PIC 9(4)     OCCURS 6.
+       01 WS-I                                   GLOBAL    PIC 99.
+       01 WS-J                                   GLOBAL    PIC 99.
+       01 WS-ROW                                 GLOBAL    PIC 99.
+       01 WS-K                                   GLOBAL    PIC 99.
+       01 WS-POS                                 GLOBAL    PIC X(80).
+       01 WS-F1                                  GLOBAL    PIC X(24).
+       01 WS-F2                                  GLOBAL    PIC X(24).
+       01 WS-F3                                  GLOBAL    PIC X(24).
+       01 WS-F4                                  GLOBAL    PIC X(24).
+       01 WS-F5                                  GLOBAL    PIC X(24).
+       01 WS-F6                                  GLOBAL    PIC X(24).
+       01 WS-F7                                  GLOBAL    PIC X(24).
+       01 WS-F8                                  GLOBAL    PIC X(24).
+       01 WS-BX                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-BY                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-VX                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-VY                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-SPD                                 GLOBAL    PIC S9(5)V9(3).
+       01 WS-DX                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-DY                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-AX                                  GLOBAL    PIC S9(2)V9(5)  VALUE 1.
+       01 WS-AY                                  GLOBAL    PIC S9(2)V9(5)  VALUE 0.
+       01 WS-LEN                                 GLOBAL    PIC S9(5)V9(3).
+       01 WS-CX                                  GLOBAL    PIC S9(5)V9(3)  VALUE 220.
+       01 WS-CY                                  GLOBAL    PIC S9(5)V9(3)  VALUE 240.
+       01 WS-X2                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-Y2                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-PULL                                GLOBAL    PIC S9(5)V9(3).
+       01 WS-POWER                               GLOBAL    PIC 9V99        VALUE 0.50.
+       01 WS-STATE                               GLOBAL    PIC 9           VALUE 0.
+       01 WS-MOVING                              GLOBAL    PIC 99.
+       01 WS-POTTED                              GLOBAL    PIC 99          VALUE 0.
+       01 WS-SHOTS                               GLOBAL    PIC 9(3)        VALUE 0.
+       01 WS-FOULS                               GLOBAL    PIC 9(3)        VALUE 0.
+       01 WS-RESPAWN                             GLOBAL    PIC 9           VALUE 0.
+       01 WS-POT                                 GLOBAL    PIC 9           VALUE 0.
+       01 WS-SPACE                               GLOBAL    PIC 9           VALUE 0.
+       01 WS-BN                                  GLOBAL    PIC 99.
+       01 WS-NUMED                               GLOBAL    PIC Z9.
+       01 WS-NUMTXT                              GLOBAL    PIC X(2).
+       01 WS-HUD                                 GLOBAL    PIC X(80).
+       01 WS-TMP                                 GLOBAL    PIC 9(3).
+       01 WS-E1                                  GLOBAL    PIC ZZ9.
+       01 WS-E2                                  GLOBAL    PIC ZZ9.
+       01 WS-E3                                  GLOBAL    PIC ZZ9.
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="POOL2D-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           *> The world has no gravity (the table is seen from above); balls move in steps of 1/180 s.
+           SET     WS-WORLD                      TO    PHY-1::CreateWorld( 0 0 )
+           PHY-1::SetFixedStep( WS-WORLD 0.0055556 8 )
+
+           *> Four static cushions around the felt: the inner faces sit at x 50 and 750, y 50 and 430.
+           SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 400 30 )
+           PHY-1::AddBox( WS-WORLD WS-WALL 400 20 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 400 450 )
+           PHY-1::AddBox( WS-WORLD WS-WALL 400 20 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 30 240 )
+           PHY-1::AddBox( WS-WORLD WS-WALL 20 260 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 770 240 )
+           PHY-1::AddBox( WS-WORLD WS-WALL 20 260 1 0 0.9 )
+
+           *> The six pockets: four corners and the middle of the long sides.
+           MOVE    46                            TO    WS-PKX(1)
+           MOVE    46                            TO    WS-PKY(1)
+           MOVE    400                           TO    WS-PKX(2)
+           MOVE    40                            TO    WS-PKY(2)
+           MOVE    754                           TO    WS-PKX(3)
+           MOVE    46                            TO    WS-PKY(3)
+           MOVE    46                            TO    WS-PKX(4)
+           MOVE    434                           TO    WS-PKY(4)
+           MOVE    400                           TO    WS-PKX(5)
+           MOVE    440                           TO    WS-PKY(5)
+           MOVE    754                           TO    WS-PKX(6)
+           MOVE    434                           TO    WS-PKY(6)
+
+           *> The colours of the balls: 1 is the cue ball, 2 to 8 are solids 1 to 7... the 8 is black, 10 to 16 are stripes.
+           MOVE    "#F4F4EC"                     TO    WS-COL(1)
+           MOVE    "#F5C400"                     TO    WS-COL(2)
+           MOVE    "#1C4FD8"                     TO    WS-COL(3)
+           MOVE    "#D62020"                     TO    WS-COL(4)
+           MOVE    "#6A2C91"                     TO    WS-COL(5)
+           MOVE    "#F07A10"                     TO    WS-COL(6)
+           MOVE    "#0F8F3F"                     TO    WS-COL(7)
+           MOVE    "#7A1F1F"                     TO    WS-COL(8)
+           MOVE    "#111111"                     TO    WS-COL(9)
+           MOVE    "#F5C400"                     TO    WS-COL(10)
+           MOVE    "#1C4FD8"                     TO    WS-COL(11)
+           MOVE    "#D62020"                     TO    WS-COL(12)
+           MOVE    "#6A2C91"                     TO    WS-COL(13)
+           MOVE    "#F07A10"                     TO    WS-COL(14)
+           MOVE    "#0F8F3F"                     TO    WS-COL(15)
+           MOVE    "#7A1F1F"                     TO    WS-COL(16)
+
+           *> Racks the balls.
+           *> Uses: WS-WORLD, the colours and the pockets above.
+           *> Result: the cue ball and fifteen balls exist in the world; the counters are zero.
+           CALL "POOL-RACK"
+]]></Event>
+    <Event name="onClose" paragraph="POOL2D-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <user-procedures>
+    <Event name="POOL-RACK" paragraph="POOL-RACK"><![CDATA[       PROCEDURE DIVISION.
+           *> The cue ball, then fifteen balls in a triangle whose point faces the cue ball.
+           SET     WS-BALL(1)                    TO    PHY-1::AddBody( WS-WORLD 1 220 240 )
+           PHY-1::AddBall( WS-WORLD WS-BALL(1) 11 1 0 0.93 )
+           MOVE    1                             TO    WS-ALIVE(1)
+           MOVE    2                             TO    WS-I
+           PERFORM VARYING WS-ROW FROM 0 BY 1 UNTIL WS-ROW > 4
+               PERFORM VARYING WS-K FROM 0 BY 1 UNTIL WS-K > WS-ROW
+                   COMPUTE WS-BX = 540 + WS-ROW * 19.6
+                   COMPUTE WS-BY = 240 + WS-K * 22.4 - WS-ROW * 11.2
+                   SET     WS-BALL(WS-I)         TO    PHY-1::AddBody( WS-WORLD 1 WS-BX WS-BY )
+                   PHY-1::AddBall( WS-WORLD WS-BALL(WS-I) 11 1 0 0.93 )
+                   MOVE    1                     TO    WS-ALIVE(WS-I)
+                   ADD     1                     TO    WS-I
+               END-PERFORM
+           END-PERFORM
+           MOVE    0                             TO    WS-POTTED
+           MOVE    0                             TO    WS-SHOTS
+           MOVE    0                             TO    WS-FOULS
+           MOVE    0                             TO    WS-STATE
+           MOVE    220                           TO    WS-CX
+           MOVE    240                           TO    WS-CY
+]]></Event>
+    <Event name="POOL-SHOOT" paragraph="POOL-SHOOT"><![CDATA[       PROCEDURE DIVISION.
+           *> The cue ball leaves along the aim at a speed that grows with the power (100 to 1100 pixels a second).
+           IF      WS-STATE = 0
+               COMPUTE WS-SPD = 100 + WS-POWER * 1000
+               COMPUTE WS-VX = WS-AX * WS-SPD
+               COMPUTE WS-VY = WS-AY * WS-SPD
+               PHY-1::SetVelocity( WS-WORLD WS-BALL(1) WS-VX WS-VY )
+               ADD     1                         TO    WS-SHOTS
+               MOVE    1                         TO    WS-STATE
+           END-IF
+]]></Event>
+    <Event name="POOL-PHYSICS" paragraph="POOL-PHYSICS"><![CDATA[       PROCEDURE DIVISION.
+           PHY-1::Step( WS-WORLD 0.016667 )
+           MOVE    0                             TO    WS-MOVING
+           MOVE    0                             TO    WS-RESPAWN
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 16
+               IF      WS-ALIVE(WS-I) = 1
+                   MOVE    0                     TO    WS-POT
+                   SET     WS-POS                TO    PHY-1::GetPosition( WS-WORLD WS-BALL(WS-I) )
+                   UNSTRING WS-POS DELIMITED BY SPACE INTO WS-F1 WS-F2
+                   COMPUTE WS-BX = FUNCTION NUMVAL( WS-F1 )
+                   COMPUTE WS-BY = FUNCTION NUMVAL( WS-F2 )
+                   PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+                       COMPUTE WS-DX = WS-BX - WS-PKX(WS-J)
+                       COMPUTE WS-DY = WS-BY - WS-PKY(WS-J)
+                       IF      WS-DX * WS-DX + WS-DY * WS-DY < 484
+                           MOVE    1             TO    WS-POT
+                       END-IF
+                   END-PERFORM
+                   IF      WS-POT = 1
+                       PHY-1::RemoveBody( WS-WORLD WS-BALL(WS-I) )
+                       MOVE    0                 TO    WS-ALIVE(WS-I)
+                       IF      WS-I = 1
+                           ADD     1             TO    WS-FOULS
+                           MOVE    1             TO    WS-RESPAWN
+                       ELSE
+                           ADD     1             TO    WS-POTTED
+                       END-IF
+                   ELSE
+                       *> Rolling friction: every ball loses a little speed each frame and stops under 8 px/s.
+                       SET     WS-POS            TO    PHY-1::GetVelocity( WS-WORLD WS-BALL(WS-I) )
+                       UNSTRING WS-POS DELIMITED BY SPACE INTO WS-F1 WS-F2
+                       COMPUTE WS-VX = FUNCTION NUMVAL( WS-F1 )
+                       COMPUTE WS-VY = FUNCTION NUMVAL( WS-F2 )
+                       COMPUTE WS-SPD = FUNCTION SQRT( WS-VX * WS-VX + WS-VY * WS-VY )
+                       IF      WS-SPD < 8
+                           PHY-1::SetVelocity( WS-WORLD WS-BALL(WS-I) 0 0 )
+                       ELSE
+                           COMPUTE WS-VX = WS-VX * 0.987
+                           COMPUTE WS-VY = WS-VY * 0.987
+                           PHY-1::SetVelocity( WS-WORLD WS-BALL(WS-I) WS-VX WS-VY )
+                           ADD     1             TO    WS-MOVING
+                       END-IF
+                       IF      WS-I = 1
+                           MOVE    WS-BX         TO    WS-CX
+                           MOVE    WS-BY         TO    WS-CY
+                       END-IF
+                   END-IF
+               END-IF
+           END-PERFORM
+
+           *> A potted cue ball comes back on the head spot.
+           IF      WS-RESPAWN = 1
+               SET     WS-BALL(1)                TO    PHY-1::AddBody( WS-WORLD 1 220 240 )
+               PHY-1::AddBall( WS-WORLD WS-BALL(1) 11 1 0 0.93 )
+               MOVE    1                         TO    WS-ALIVE(1)
+               MOVE    220                       TO    WS-CX
+               MOVE    240                       TO    WS-CY
+           END-IF
+
+           IF      WS-POTTED = 15
+               MOVE    2                         TO    WS-STATE
+           END-IF
+           IF      WS-STATE = 1 AND WS-MOVING = 0
+               MOVE    0                         TO    WS-STATE
+           END-IF
+]]></Event>
+    <Event name="POOL-INPUT" paragraph="POOL-INPUT"><![CDATA[       PROCEDURE DIVISION.
+           *> The arrows turn the aim (left, right) and set the power (up, down); Space shoots.
+           IF      CNV-POOL::IsKeyDown( "ArrowLeft" ) = 1
+               COMPUTE WS-X2 = WS-AX * 0.99955 + WS-AY * 0.03
+               COMPUTE WS-Y2 = WS-AY * 0.99955 - WS-AX * 0.03
+               MOVE    WS-X2                     TO    WS-AX
+               MOVE    WS-Y2                     TO    WS-AY
+           END-IF
+           IF      CNV-POOL::IsKeyDown( "ArrowRight" ) = 1
+               COMPUTE WS-X2 = WS-AX * 0.99955 - WS-AY * 0.03
+               COMPUTE WS-Y2 = WS-AY * 0.99955 + WS-AX * 0.03
+               MOVE    WS-X2                     TO    WS-AX
+               MOVE    WS-Y2                     TO    WS-AY
+           END-IF
+           IF      CNV-POOL::IsKeyDown( "ArrowUp" ) = 1 AND WS-POWER < 0.98
+               ADD     0.01                      TO    WS-POWER
+           END-IF
+           IF      CNV-POOL::IsKeyDown( "ArrowDown" ) = 1 AND WS-POWER > 0.02
+               SUBTRACT 0.01                     FROM  WS-POWER
+           END-IF
+           IF      CNV-POOL::IsKeyDown( "Space" ) = 1
+               IF      WS-SPACE = 0
+                   MOVE    1                     TO    WS-SPACE
+                   *> Shoots with the current aim and power.
+                   *> Uses: WS-AX and WS-AY (the aim), WS-POWER (0 to 1), WS-STATE (must be 0).
+                   *> Result: the cue ball is moving and WS-STATE is 1.
+                   CALL "POOL-SHOOT"
+               END-IF
+           ELSE
+               MOVE    0                         TO    WS-SPACE
+           END-IF
+]]></Event>
+    <Event name="POOL-DRAW-BALL" paragraph="POOL-DRAW-BALL"><![CDATA[       PROCEDURE DIVISION.
+           *> Draws ball WS-BN (1 is the cue ball) at WS-BX, WS-BY: shadow, body, stripe, number disc and highlight.
+           CNV-POOL::SetFillColor( "#00000077" )
+           CNV-POOL::BeginPath()
+           CNV-POOL::Arc( WS-BX + 3 WS-BY + 4 11 0 6.2831853 0 )
+           CNV-POOL::Fill( 0 )
+           IF      WS-BN > 9
+               CNV-POOL::SetFillColor( "#F4F4EC" )
+           ELSE
+               CNV-POOL::SetFillColor( WS-COL(WS-BN) )
+           END-IF
+           CNV-POOL::BeginPath()
+           CNV-POOL::Arc( WS-BX WS-BY 11 0 6.2831853 0 )
+           CNV-POOL::Fill( 0 )
+           IF      WS-BN > 9
+               CNV-POOL::Save()
+               CNV-POOL::BeginPath()
+               CNV-POOL::Arc( WS-BX WS-BY 11 0 6.2831853 0 )
+               CNV-POOL::Clip( 0 )
+               CNV-POOL::SetFillColor( WS-COL(WS-BN) )
+               CNV-POOL::FillRect( WS-BX - 12 WS-BY - 5 24 10 )
+               CNV-POOL::Restore()
+           END-IF
+           IF      WS-BN > 1
+               CNV-POOL::SetFillColor( "#FFFFFF" )
+               CNV-POOL::BeginPath()
+               CNV-POOL::Arc( WS-BX WS-BY 5 0 6.2831853 0 )
+               CNV-POOL::Fill( 0 )
+               COMPUTE WS-TMP = WS-BN - 1
+               MOVE    WS-TMP                    TO    WS-NUMED
+               MOVE    FUNCTION TRIM( WS-NUMED ) TO    WS-NUMTXT
+               CNV-POOL::SetFont( "bold 8px Ubuntu" )
+               CNV-POOL::SetTextAlign( 4 )
+               CNV-POOL::SetTextBaseline( 3 )
+               CNV-POOL::SetFillColor( "#000000" )
+               CNV-POOL::DrawText( WS-NUMTXT WS-BX WS-BY 0 1 )
+           END-IF
+           CNV-POOL::SetAlpha( 0.55 )
+           CNV-POOL::SetFillColor( "#FFFFFF" )
+           CNV-POOL::BeginPath()
+           CNV-POOL::Arc( WS-BX - 4 WS-BY - 4 2.6 0 6.2831853 0 )
+           CNV-POOL::Fill( 0 )
+           CNV-POOL::SetAlpha( 1 )
+]]></Event>
+  </user-procedures>
+  <Control id="CNV-POOL" type="Canvas2D" x="10" y="10" w="800" h="480" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 800 by 480 pool table: it draws the wooden rail, the felt, the pockets, the balls, the cue and the aim line sixty times a second, and takes the mouse and the keyboard to aim and shoot.</Property>
+    <Property name="Width">800</Property>
+    <Property name="Height">480</Property>
+    <Property name="TargetFps">60</Property>
+    <Property name="FixedStep">True</Property>
+    <Property name="AccessibleLabel">Pool table seen from above: move the mouse or use the left and right arrows to aim, the up and down arrows to set the power, click or press Space to shoot</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Event name="onPointerMove" paragraph="CNV-POOL--ONPOINTERMOVE"><![CDATA[       PROCEDURE DIVISION.
+           *> The aim follows the mouse: the unit vector from the cue ball to the pointer.
+           COMPUTE WS-DX = CNV-POOL::PointerX - WS-CX
+           COMPUTE WS-DY = CNV-POOL::PointerY - WS-CY
+           COMPUTE WS-LEN = FUNCTION SQRT( WS-DX * WS-DX + WS-DY * WS-DY )
+           IF      WS-LEN > 3
+               COMPUTE WS-AX = WS-DX / WS-LEN
+               COMPUTE WS-AY = WS-DY / WS-LEN
+               IF      WS-LEN > 260
+                   MOVE    0.99                  TO    WS-POWER
+               ELSE
+                   COMPUTE WS-POWER = WS-LEN / 262
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="onPointerDown" paragraph="CNV-POOL--ONPOINTERDOWN"><![CDATA[       PROCEDURE DIVISION.
+           *> A click shoots: the farther the pointer from the cue ball, the harder the shot.
+           *> Uses: WS-AX and WS-AY (the aim), WS-POWER (0 to 1), WS-STATE (must be 0).
+           *> Result: the cue ball is moving and WS-STATE is 1.
+           CALL "POOL-SHOOT"
+]]></Event>
+    <Event name="onFrame" paragraph="CNV-POOL--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
+           *> Moves the balls one frame: friction, pockets, the end of a shot.
+           *> Uses: WS-WORLD and the ball tables.
+           *> Result: positions are up to date, WS-POTTED, WS-FOULS and WS-STATE are updated.
+           CALL "POOL-PHYSICS"
+           IF      WS-STATE = 0
+               *> Reads the arrows and Space.
+               *> Uses: the keys held on CNV-POOL.
+               *> Result: WS-AX, WS-AY and WS-POWER change; Space may start a shot.
+               CALL "POOL-INPUT"
+           END-IF
+
+           *> The rail, then the felt lit from the middle.
+           CNV-POOL::Clear( "#1B1F27" )
+           CNV-POOL::SetFillColor( "#4A2812" )
+           CNV-POOL::BeginPath()
+           CNV-POOL::RoundRect( 2 2 796 476 28 28 28 28 )
+           CNV-POOL::Fill( 0 )
+           CNV-POOL::SetFillColor( "#6B3A1B" )
+           CNV-POOL::BeginPath()
+           CNV-POOL::RoundRect( 6 6 788 468 24 24 24 24 )
+           CNV-POOL::Fill( 0 )
+           CNV-POOL::SetRadialGradient( 0 400 240 20 400 240 420 "0 529485567 1 172304127" )
+           CNV-POOL::FillRect( 40 40 720 400 )
+           CNV-POOL::SetStrokeColor( "#06301A" )
+           CNV-POOL::SetLineWidth( 3 )
+           CNV-POOL::StrokeRect( 50 50 700 380 )
+           CNV-POOL::SetFillColor( "#E8D8A0" )
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 7
+               COMPUTE WS-BX = 40 + WS-I * 90
+               CNV-POOL::BeginPath()
+               CNV-POOL::Arc( WS-BX 14 3 0 6.2831853 0 )
+               CNV-POOL::Fill( 0 )
+               CNV-POOL::BeginPath()
+               CNV-POOL::Arc( WS-BX 466 3 0 6.2831853 0 )
+               CNV-POOL::Fill( 0 )
+           END-PERFORM
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+               CNV-POOL::SetFillColor( "#000000" )
+               CNV-POOL::BeginPath()
+               CNV-POOL::Arc( WS-PKX(WS-J) WS-PKY(WS-J) 22 0 6.2831853 0 )
+               CNV-POOL::Fill( 0 )
+               CNV-POOL::SetStrokeColor( "#B08A3A" )
+               CNV-POOL::SetLineWidth( 3 )
+               CNV-POOL::BeginPath()
+               CNV-POOL::Arc( WS-PKX(WS-J) WS-PKY(WS-J) 23 0 6.2831853 0 )
+               CNV-POOL::Stroke()
+           END-PERFORM
+
+           *> The aim line stops at the first ball or cushion the ray meets.
+           IF      WS-STATE = 0
+               COMPUTE WS-X2 = WS-CX + WS-AX * 13
+               COMPUTE WS-Y2 = WS-CY + WS-AY * 13
+               SET     WS-POS                    TO    PHY-1::RayCast( WS-WORLD WS-X2 WS-Y2 WS-AX WS-AY 900 )
+               UNSTRING WS-POS DELIMITED BY SPACE INTO WS-F1 WS-F2 WS-F3 WS-F4 WS-F5 WS-F6 WS-F7 WS-F8
+               COMPUTE WS-LEN = 300
+               IF      FUNCTION NUMVAL( WS-F1 ) = 1
+                   COMPUTE WS-LEN = FUNCTION NUMVAL( WS-F4 )
+               END-IF
+               COMPUTE WS-DX = WS-X2 + WS-AX * WS-LEN
+               COMPUTE WS-DY = WS-Y2 + WS-AY * WS-LEN
+               CNV-POOL::SetStrokeColor( "#FFFFFF" )
+               CNV-POOL::SetAlpha( 0.45 )
+               CNV-POOL::SetLineWidth( 1.5 )
+               CNV-POOL::SetDash( "6 6" 0 )
+               CNV-POOL::BeginPath()
+               CNV-POOL::MoveTo( WS-X2 WS-Y2 )
+               CNV-POOL::LineTo( WS-DX WS-DY )
+               CNV-POOL::Stroke()
+               CNV-POOL::SetDash( "" 0 )
+               CNV-POOL::SetAlpha( 1 )
+               CNV-POOL::BeginPath()
+               CNV-POOL::Arc( WS-DX WS-DY 11 0 6.2831853 0 )
+               CNV-POOL::Stroke()
+           END-IF
+
+           *> The balls that are still on the table.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 16
+               IF      WS-ALIVE(WS-I) = 1
+                   SET     WS-POS                TO    PHY-1::GetPosition( WS-WORLD WS-BALL(WS-I) )
+                   UNSTRING WS-POS DELIMITED BY SPACE INTO WS-F1 WS-F2
+                   COMPUTE WS-BX = FUNCTION NUMVAL( WS-F1 )
+                   COMPUTE WS-BY = FUNCTION NUMVAL( WS-F2 )
+                   MOVE    WS-I                  TO    WS-BN
+                   *> Draws one ball.
+                   *> Uses: WS-BN (the ball, 1 is the cue ball), WS-BX and WS-BY (its centre).
+                   *> Result: the ball is on the canvas.
+                   CALL "POOL-DRAW-BALL"
+               END-IF
+           END-PERFORM
+
+           *> The cue, drawn behind the cue ball and pulled back as the power grows.
+           IF      WS-STATE = 0
+               COMPUTE WS-PULL = 16 + WS-POWER * 50
+               COMPUTE WS-X2 = WS-CX - WS-AX * WS-PULL
+               COMPUTE WS-Y2 = WS-CY - WS-AY * WS-PULL
+               COMPUTE WS-DX = WS-X2 - WS-AX * 260
+               COMPUTE WS-DY = WS-Y2 - WS-AY * 260
+               CNV-POOL::SetStrokeColor( "#D9B070" )
+               CNV-POOL::SetLineWidth( 6 )
+               CNV-POOL::SetLineCap( 1 )
+               CNV-POOL::BeginPath()
+               CNV-POOL::MoveTo( WS-X2 WS-Y2 )
+               CNV-POOL::LineTo( WS-DX WS-DY )
+               CNV-POOL::Stroke()
+               CNV-POOL::SetStrokeColor( "#2A1A0C" )
+               CNV-POOL::SetLineWidth( 3 )
+               CNV-POOL::BeginPath()
+               CNV-POOL::MoveTo( WS-X2 WS-Y2 )
+               CNV-POOL::LineTo( WS-X2 - WS-AX * 6 WS-Y2 - WS-AY * 6 )
+               CNV-POOL::Stroke()
+           END-IF
+
+           *> The score on the upper rail and the power bar on the lower one.
+           CNV-POOL::SetFont( "bold 14px Ubuntu" )
+           CNV-POOL::SetTextAlign( 2 )
+           CNV-POOL::SetTextBaseline( 3 )
+           CNV-POOL::SetFillColor( "#F2E6C8" )
+           MOVE    WS-POTTED                     TO    WS-E1
+           MOVE    WS-SHOTS                      TO    WS-E2
+           MOVE    WS-FOULS                      TO    WS-E3
+           MOVE    SPACES                        TO    WS-HUD
+           STRING  "Potted " WS-E1 " of 15     Shots " WS-E2 "     Fouls " WS-E3
+                   DELIMITED BY SIZE INTO WS-HUD
+           CNV-POOL::DrawText( WS-HUD 76 26 0 1 )
+           CNV-POOL::SetTextAlign( 4 )
+           CNV-POOL::SetFillColor( "#00000088" )
+           CNV-POOL::FillRect( 300 452 200 10 )
+           CNV-POOL::SetFillColor( "#E8B030" )
+           COMPUTE WS-TMP = WS-POWER * 200
+           CNV-POOL::FillRect( 300 452 WS-TMP 10 )
+           IF      WS-STATE = 2
+               CNV-POOL::SetFillColor( "#000000BB" )
+               CNV-POOL::FillRect( 150 170 500 140 )
+               CNV-POOL::SetFont( "bold 28px Ubuntu" )
+               CNV-POOL::SetFillColor( "#FFD966" )
+               CNV-POOL::DrawText( "Table cleared!" 400 220 0 1 )
+               CNV-POOL::SetFont( "16px Ubuntu" )
+               CNV-POOL::SetFillColor( "#FFFFFF" )
+               CNV-POOL::DrawText( "Press New game to rack again." 400 262 0 1 )
+           END-IF
+           CNV-POOL::Present()
+]]></Event>
+  </Control>
+  <Control id="PHY-1" type="Physics2D" x="10" y="520" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The two-dimensional physics world of the table: sixteen balls and four cushions with no gravity, stepped in 1/180 s slices so a fast ball cannot pass through another.</Property>
+  </Control>
+  <Control id="BTN-NEW" type="Button" x="560" y="500" w="120" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Racks the fifteen balls again and puts the cue ball back on the head spot.</Property>
+    <Property name="Caption">New game</Property>
+    <Event name="onClick" paragraph="BTN-NEW--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 16
+               IF      WS-ALIVE(WS-I) = 1
+                   PHY-1::RemoveBody( WS-WORLD WS-BALL(WS-I) )
+                   MOVE    0                     TO    WS-ALIVE(WS-I)
+               END-IF
+           END-PERFORM
+           *> Racks the balls.
+           *> Uses: WS-WORLD and the tables set at load.
+           *> Result: sixteen balls exist again; the counters are zero.
+           CALL "POOL-RACK"
+]]></Event>
+  </Control>
+  <Control id="BTN-BACK" type="Button" x="690" y="500" w="120" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Closes the pool game and returns to the previous window.</Property>
+    <Property name="Caption">Close</Property>
+    <Event name="onClick" paragraph="BTN-BACK--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::Close()
+]]></Event>
+  </Control>
+  <Control id="LBL-HELP" type="Label" x="80" y="500" w="470" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The controls of the game: mouse to aim and set the power, click or Space to shoot, arrows as a keyboard alternative.</Property>
+    <Property name="Caption">Mouse: aim and power, click to shoot. Keys: left/right aim, up/down power, Space shoots.</Property>
+    <Property name="ForegroundColor">#C8D0DC</Property>
+  </Control>
+</Form>

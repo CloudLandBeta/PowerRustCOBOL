@@ -1,0 +1,823 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="BRIDGE-FORM" title="PowerGraphics - Infinite bridge" width="820" height="620" background="#1B1F27FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" definition="An endless bridge race: a red roadster built from Scene3D primitives runs on a bridge that is recycled as it goes, the player changes lanes and jumps over trucks, beetles, bikes and gaps, and a Canvas3D draws it every frame." index-base="1">
+  <working-storage><![CDATA[       01 WS-MATS                                GLOBAL.
+           05 WS-M-ROAD                          PIC 9(10).
+           05 WS-M-STRIPE                        PIC 9(10).
+           05 WS-M-RAILC                         PIC 9(10).
+           05 WS-M-RAILM                         PIC 9(10).
+           05 WS-M-CAR                           PIC 9(10).
+           05 WS-M-GLASS                         PIC 9(10).
+           05 WS-M-TIRE                          PIC 9(10).
+           05 WS-M-HEAD                          PIC 9(10).
+           05 WS-M-TAIL                          PIC 9(10).
+           05 WS-M-WATER                         PIC 9(10).
+           05 WS-M-PYLON                         PIC 9(10).
+           05 WS-M-CAB                           PIC 9(10).
+           05 WS-M-SKIN                          PIC 9(10).
+           05 WS-M-FIRE                          PIC 9(10).
+           05 WS-M-DEBRIS                        PIC 9(10).
+       01 WS-HANDLES                             GLOBAL.
+           05 WS-N                               PIC 9(10).
+           05 WS-GRP                             PIC 9(10).
+           05 WS-CAR                             PIC 9(10).
+           05 WS-CAM                             PIC 9(10).
+           05 WS-SUN                             PIC 9(10).
+           05 WS-FLASH                           PIC 9(10).
+       01 WS-SEGS                                GLOBAL.
+           05 SEG-G                              PIC 9(10)         OCCURS 24.
+           05 SEG-R                              PIC 9(10)         OCCURS 24.
+           05 SEG-P                              PIC 9(10)         OCCURS 24.
+           05 SEG-Z                              PIC S9(5)V9(3)    OCCURS 24.
+           05 SEG-GAP                            PIC 9             OCCURS 24.
+           05 SEG-PY                             PIC 9             OCCURS 24.
+       01 WS-OBS                                 GLOBAL.
+           05 OB-G                               PIC 9(10)         OCCURS 12.
+           05 OB-T                               PIC 9(10)         OCCURS 12.
+           05 OB-V                               PIC 9(10)         OCCURS 12.
+           05 OB-B                               PIC 9(10)         OCCURS 12.
+           05 OB-MAT                             PIC 9(10)         OCCURS 12.
+           05 OB-ACT                             PIC 9             OCCURS 12.
+           05 OB-Z                               PIC S9(5)V9(3)    OCCURS 12.
+           05 OB-X                               PIC S9(5)V9(3)    OCCURS 12.
+           05 OB-H                               PIC S9(2)V9(2)    OCCURS 12.
+           05 OB-HL                              PIC S9(2)V9(2)    OCCURS 12.
+           05 OB-W                               PIC S9(2)V9(2)    OCCURS 12.
+       01 WS-PARTS                               GLOBAL.
+           05 PT-N                               PIC 9(10)         OCCURS 28.
+           05 PT-X                               PIC S9(5)V9(3)    OCCURS 28.
+           05 PT-Y                               PIC S9(5)V9(3)    OCCURS 28.
+           05 PT-Z                               PIC S9(5)V9(3)    OCCURS 28.
+           05 PT-VX                              PIC S9(5)V9(3)    OCCURS 28.
+           05 PT-VY                              PIC S9(5)V9(3)    OCCURS 28.
+           05 PT-VZ                              PIC S9(5)V9(3)    OCCURS 28.
+       01 WS-PALETTE                             GLOBAL.
+           05 WS-PAL                             PIC X(7)          OCCURS 6.
+       01 WS-I                                   GLOBAL    PIC 99.
+       01 WS-J                                   GLOBAL    PIC 99.
+       01 WS-K                                   GLOBAL    PIC 99.
+       01 WS-SI                                  GLOBAL    PIC 99.
+       01 WS-OI                                  GLOBAL    PIC 99.
+       01 WS-STATE                               GLOBAL    PIC 9           VALUE 0.
+       01 WS-TIMER                               GLOBAL    PIC S999        VALUE 0.
+       01 WS-DIST                                GLOBAL    PIC 9(6)V99     VALUE 0.
+       01 WS-BEST                                GLOBAL    PIC 9(6)V99     VALUE 0.
+       01 WS-SPEED                               GLOBAL    PIC 9(3)V99     VALUE 30.
+       01 WS-MOVE                                GLOBAL    PIC S9(3)V9(4).
+       01 WS-SEGCNT                              GLOBAL    PIC 9(6)        VALUE 0.
+       01 WS-LASTGAP                             GLOBAL    PIC 9           VALUE 0.
+       01 WS-LANE                                GLOBAL    PIC 9           VALUE 2.
+       01 WS-DIR                                 GLOBAL    PIC S9          VALUE 0.
+       01 WS-LASTDIR                             GLOBAL    PIC S9          VALUE 0.
+       01 WS-AXIS                                GLOBAL    PIC S9V999.
+       01 WS-CARX                                GLOBAL    PIC S9(3)V9(3)  VALUE 0.
+       01 WS-CARY                                GLOBAL    PIC S9(3)V9(3)  VALUE 0.
+       01 WS-CARVY                               GLOBAL    PIC S9(3)V9(3)  VALUE 0.
+       01 WS-TX                                  GLOBAL    PIC S9(3)V9(3).
+       01 WS-TILT                                GLOBAL    PIC S9(3)V9(3).
+       01 WS-PITCH                               GLOBAL    PIC S9(3)V9(3).
+       01 WS-OVER                                GLOBAL    PIC 9.
+       01 WS-HIT                                 GLOBAL    PIC 9.
+       01 WS-DX                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-DZ                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-LIM                                 GLOBAL    PIC S9(5)V9(3).
+       01 WS-RND                                 GLOBAL    PIC 9V9(6).
+       01 WS-PROB                                GLOBAL    PIC 9V9(4).
+       01 WS-GAPPROB                             GLOBAL    PIC 9V9(4).
+       01 WS-LANESEL                             GLOBAL    PIC 9.
+       01 WS-TYPE                                GLOBAL    PIC 9.
+       01 WS-PI                                  GLOBAL    PIC 9.
+       01 WS-INT                                 GLOBAL    PIC S9(3)V99.
+       01 WS-SCALE                               GLOBAL    PIC S9V99.
+       01 WS-CAMX                                GLOBAL    PIC S9(3)V9(3).
+       01 WS-CAMY                                GLOBAL    PIC S9(3)V9(3).
+       01 WS-LKX                                 GLOBAL    PIC S9(3)V9(3).
+       01 WS-KMH                                 GLOBAL    PIC 9(4).
+       01 WS-E1                                  GLOBAL    PIC ZZZZZ9.
+       01 WS-E2                                  GLOBAL    PIC ZZZ9.
+       01 WS-E3                                  GLOBAL    PIC ZZZZZ9.
+       01 WS-MSG                                 GLOBAL    PIC X(24).
+       01 WS-HUD                                 GLOBAL    PIC X(120).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="BRIDGE-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           *> Seeds the random numbers, builds every node of the scene once, then starts the first run.
+           COMPUTE WS-RND = FUNCTION RANDOM( 20261109 )
+           MOVE    "#E53935"                     TO    WS-PAL(1)
+           MOVE    "#FDD835"                     TO    WS-PAL(2)
+           MOVE    "#1E88E5"                     TO    WS-PAL(3)
+           MOVE    "#43A047"                     TO    WS-PAL(4)
+           MOVE    "#8E24AA"                     TO    WS-PAL(5)
+           MOVE    "#FB8C00"                     TO    WS-PAL(6)
+
+           *> Creates the materials, the sky, the lights, the sea, the bridge segments, the obstacles, the car and the sparks.
+           *> Uses: SCN-1 (the scene) and the tables in working storage.
+           *> Result: every node exists (the obstacles and sparks hidden) and the camera is chosen.
+           CALL "BRG-BUILD"
+           CNV-3D::SetScene( SCN-1::GetHandle() )
+           CNV-3D::SetCamera( WS-CAM )
+
+           *> Puts the world at its start: the car in the middle lane, the first road, the first obstacles.
+           *> Uses: the node tables made by BRG-BUILD.
+           *> Result: distance 0, speed 30, WS-STATE 0.
+           CALL "BRG-RESET"
+           CNV-3D::SetFocus()
+           CNV-3D::Render()
+]]></Event>
+    <Event name="onClose" paragraph="BRIDGE-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <user-procedures>
+    <Event name="BRG-BUILD" paragraph="BRG-BUILD"><![CDATA[       PROCEDURE DIVISION.
+           *> ---- The look: a sunset sky that the fog melts the far bridge into, and a sun that casts shadows.
+           SCN-1::SetBackgroundGradient( "#241047" "#FF7E4F" )
+           SCN-1::SetFog( 0.96 0.47 0.32 70 280 )
+           SCN-1::SetAmbient( 0.65 0.5 0.75 0.55 )
+           SET     WS-SUN                        TO    SCN-1::AddDirectionalLight( 1 0.82 0.62 1.4 1 )
+           SCN-1::SetRotation( WS-SUN, -38, 25, 0 )
+           SET     WS-N                          TO    SCN-1::AddPointLight( 1 0.15 0.85 5 34 )
+           SCN-1::SetPosition( WS-N, -8, 5, -8 )
+           SET     WS-N                          TO    SCN-1::AddPointLight( 0.1 0.85 1 5 34 )
+           SCN-1::SetPosition( WS-N, 8, 5, -22 )
+           SET     WS-FLASH                      TO    SCN-1::AddPointLight( 1 0.6 0.2 0 40 )
+           SET     WS-CAM                        TO    SCN-1::AddCamera( 62 0.1 400 )
+           SCN-1::SetPosition( WS-CAM, 0, 4.8, 9.5 )
+           SCN-1::LookAt( WS-CAM, 0, 1, -10 )
+
+           *> ---- Materials, shared by many nodes.
+           SET     WS-M-ROAD                     TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-ROAD "#2B2D3A" )
+           SCN-1::SetMetallic( WS-M-ROAD 0.35 )
+           SCN-1::SetRoughness( WS-M-ROAD 0.3 )
+           SET     WS-M-STRIPE                   TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-STRIPE "#FFF6C8" )
+           SCN-1::SetEmissive( WS-M-STRIPE 0.9 0.85 0.5 )
+           SET     WS-M-RAILC                    TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-RAILC "#00E5FF" )
+           SCN-1::SetEmissive( WS-M-RAILC 0 0.8 1 )
+           SET     WS-M-RAILM                    TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-RAILM "#FF2BD6" )
+           SCN-1::SetEmissive( WS-M-RAILM 1 0.1 0.8 )
+           SET     WS-M-CAR                      TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-CAR "#D40F1E" )
+           SCN-1::SetMetallic( WS-M-CAR 0.9 )
+           SCN-1::SetRoughness( WS-M-CAR 0.15 )
+           SET     WS-M-GLASS                    TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-GLASS "#0B1824" )
+           SCN-1::SetMetallic( WS-M-GLASS 0.7 )
+           SCN-1::SetRoughness( WS-M-GLASS 0.05 )
+           SET     WS-M-TIRE                     TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-TIRE "#141414" )
+           SCN-1::SetRoughness( WS-M-TIRE 0.9 )
+           SET     WS-M-HEAD                     TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-HEAD "#FFFFE0" )
+           SCN-1::SetEmissive( WS-M-HEAD 1 1 0.8 )
+           SET     WS-M-TAIL                     TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-TAIL "#FF1030" )
+           SCN-1::SetEmissive( WS-M-TAIL 1 0.05 0.15 )
+           SET     WS-M-WATER                    TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-WATER "#0E5FA8" )
+           SCN-1::SetMetallic( WS-M-WATER 0.9 )
+           SCN-1::SetRoughness( WS-M-WATER 0.06 )
+           SET     WS-M-PYLON                    TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-PYLON "#E8E8F4" )
+           SCN-1::SetMetallic( WS-M-PYLON 0.8 )
+           SCN-1::SetRoughness( WS-M-PYLON 0.3 )
+           SET     WS-M-CAB                      TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-CAB "#2E3A4A" )
+           SCN-1::SetMetallic( WS-M-CAB 0.5 )
+           SCN-1::SetRoughness( WS-M-CAB 0.35 )
+           SET     WS-M-SKIN                     TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-SKIN "#F2C29B" )
+           SET     WS-M-FIRE                     TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-FIRE "#FFAA10" )
+           SCN-1::SetEmissive( WS-M-FIRE 1 0.55 0.05 )
+           SCN-1::SetUnlit( WS-M-FIRE 1 )
+           SET     WS-M-DEBRIS                   TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-DEBRIS "#4A1212" )
+           SCN-1::SetMetallic( WS-M-DEBRIS 0.6 )
+           SCN-1::SetRoughness( WS-M-DEBRIS 0.4 )
+
+           *> ---- The sea, far below the bridge.
+           SET     WS-N                          TO    SCN-1::AddPlane( 700 700 )
+           SCN-1::SetPosition( WS-N, 0, -5, -150 )
+           SCN-1::SetMaterial( WS-N WS-M-WATER )
+
+           *> ---- Twenty-four bridge segments of ten units: road, lane dashes, two glowing rails, a pylon with a top beam.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 24
+               SET     SEG-G(WS-I)               TO    SCN-1::AddGroup()
+               SET     WS-N                      TO    SCN-1::AddBox( 10 0.4 10 )
+               SCN-1::SetPosition( WS-N, 0, -0.2, 0 )
+               SCN-1::SetMaterial( WS-N WS-M-ROAD )
+               SCN-1::SetParent( WS-N SEG-G(WS-I) )
+               MOVE    WS-N                      TO    SEG-R(WS-I)
+               SET     WS-N                      TO    SCN-1::AddBox( 0.14 0.02 4 )
+               SCN-1::SetPosition( WS-N, -1.6, 0.21, 0 )
+               SCN-1::SetMaterial( WS-N WS-M-STRIPE )
+               SCN-1::SetParent( WS-N SEG-R(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddBox( 0.14 0.02 4 )
+               SCN-1::SetPosition( WS-N, 1.6, 0.21, 0 )
+               SCN-1::SetMaterial( WS-N WS-M-STRIPE )
+               SCN-1::SetParent( WS-N SEG-R(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddBox( 0.3 0.7 10 )
+               SCN-1::SetPosition( WS-N, -5.15, 0.35, 0 )
+               SCN-1::SetParent( WS-N SEG-G(WS-I) )
+               IF      FUNCTION MOD( WS-I, 2 ) = 1
+                   SCN-1::SetMaterial( WS-N WS-M-RAILC )
+               ELSE
+                   SCN-1::SetMaterial( WS-N WS-M-RAILM )
+               END-IF
+               SET     WS-N                      TO    SCN-1::AddBox( 0.3 0.7 10 )
+               SCN-1::SetPosition( WS-N, 5.15, 0.35, 0 )
+               SCN-1::SetParent( WS-N SEG-G(WS-I) )
+               IF      FUNCTION MOD( WS-I, 2 ) = 1
+                   SCN-1::SetMaterial( WS-N WS-M-RAILM )
+               ELSE
+                   SCN-1::SetMaterial( WS-N WS-M-RAILC )
+               END-IF
+               SET     SEG-P(WS-I)               TO    SCN-1::AddGroup()
+               SCN-1::SetParent( SEG-P(WS-I) SEG-G(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddBox( 0.6 14 0.6 )
+               SCN-1::SetPosition( WS-N, -5.6, 7, 0 )
+               SCN-1::SetMaterial( WS-N WS-M-PYLON )
+               SCN-1::SetParent( WS-N SEG-P(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddBox( 0.6 14 0.6 )
+               SCN-1::SetPosition( WS-N, 5.6, 7, 0 )
+               SCN-1::SetMaterial( WS-N WS-M-PYLON )
+               SCN-1::SetParent( WS-N SEG-P(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddBox( 12 0.6 0.6 )
+               SCN-1::SetPosition( WS-N, 0, 13.7, 0 )
+               SCN-1::SetMaterial( WS-N WS-M-PYLON )
+               SCN-1::SetParent( WS-N SEG-P(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddSphere( 0.5 )
+               SCN-1::SetPosition( WS-N, -5.6, 14.4, 0 )
+               SCN-1::SetMaterial( WS-N WS-M-RAILM )
+               SCN-1::SetParent( WS-N SEG-P(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddSphere( 0.5 )
+               SCN-1::SetPosition( WS-N, 5.6, 14.4, 0 )
+               SCN-1::SetMaterial( WS-N WS-M-RAILC )
+               SCN-1::SetParent( WS-N SEG-P(WS-I) )
+               SCN-1::SetVisible( SEG-P(WS-I) 0 )
+           END-PERFORM
+
+           *> ---- Twelve obstacle slots; each holds a truck, a beetle and a bike, and shows the one it is given.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 12
+               SET     OB-G(WS-I)                TO    SCN-1::AddGroup()
+               SET     OB-MAT(WS-I)              TO    SCN-1::CreateMaterial()
+               SCN-1::SetMaterialColor( OB-MAT(WS-I) "#E53935" )
+               SCN-1::SetMetallic( OB-MAT(WS-I) 0.55 )
+               SCN-1::SetRoughness( OB-MAT(WS-I) 0.3 )
+
+               *> The truck: trailer, cab, windscreen, six wheels, two tail lights.
+               SET     OB-T(WS-I)                TO    SCN-1::AddGroup()
+               SCN-1::SetParent( OB-T(WS-I) OB-G(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddBox( 2.1 1.8 5 )
+               SCN-1::SetPosition( WS-N, 0, 1.3, 1.2 )
+               SCN-1::SetMaterial( WS-N OB-MAT(WS-I) )
+               SCN-1::SetParent( WS-N OB-T(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddBox( 2 1.5 1.8 )
+               SCN-1::SetPosition( WS-N, 0, 1.15, -2.1 )
+               SCN-1::SetMaterial( WS-N WS-M-CAB )
+               SCN-1::SetParent( WS-N OB-T(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddBox( 1.8 0.5 0.05 )
+               SCN-1::SetPosition( WS-N, 0, 1.55, -3.03 )
+               SCN-1::SetMaterial( WS-N WS-M-GLASS )
+               SCN-1::SetParent( WS-N OB-T(WS-I) )
+               PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+                   SET     WS-N                  TO    SCN-1::AddCylinder( 0.45 0.3 )
+                   SCN-1::SetRotation( WS-N, 0, 0, 90 )
+                   IF      WS-J < 4
+                       COMPUTE WS-DX = -1
+                   ELSE
+                       COMPUTE WS-DX = 1
+                   END-IF
+                   EVALUATE FUNCTION MOD( WS-J, 3 )
+                       WHEN 1
+                           SCN-1::SetPosition( WS-N, WS-DX, 0.45, -2.2 )
+                       WHEN 2
+                           SCN-1::SetPosition( WS-N, WS-DX, 0.45, 0.4 )
+                       WHEN OTHER
+                           SCN-1::SetPosition( WS-N, WS-DX, 0.45, 2.3 )
+                   END-EVALUATE
+                   SCN-1::SetMaterial( WS-N WS-M-TIRE )
+                   SCN-1::SetParent( WS-N OB-T(WS-I) )
+               END-PERFORM
+               SET     WS-N                      TO    SCN-1::AddBox( 0.5 0.2 0.06 )
+               SCN-1::SetPosition( WS-N, -0.6, 0.9, 3.72 )
+               SCN-1::SetMaterial( WS-N WS-M-TAIL )
+               SCN-1::SetParent( WS-N OB-T(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddBox( 0.5 0.2 0.06 )
+               SCN-1::SetPosition( WS-N, 0.6, 0.9, 3.72 )
+               SCN-1::SetMaterial( WS-N WS-M-TAIL )
+               SCN-1::SetParent( WS-N OB-T(WS-I) )
+               SCN-1::SetVisible( OB-T(WS-I) 0 )
+
+               *> The beetle: two rounded blobs for body and roof, four wheels, round headlights.
+               SET     OB-V(WS-I)                TO    SCN-1::AddGroup()
+               SCN-1::SetParent( OB-V(WS-I) OB-G(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddSphere( 1 )
+               SCN-1::SetScale( WS-N, 1, 0.8, 1.9 )
+               SCN-1::SetPosition( WS-N, 0, 0.95, 0 )
+               SCN-1::SetMaterial( WS-N OB-MAT(WS-I) )
+               SCN-1::SetParent( WS-N OB-V(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddSphere( 1 )
+               SCN-1::SetScale( WS-N, 0.85, 0.55, 1 )
+               SCN-1::SetPosition( WS-N, 0, 1.5, 0.2 )
+               SCN-1::SetMaterial( WS-N WS-M-GLASS )
+               SCN-1::SetParent( WS-N OB-V(WS-I) )
+               PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 4
+                   SET     WS-N                  TO    SCN-1::AddCylinder( 0.38 0.25 )
+                   SCN-1::SetRotation( WS-N, 0, 0, 90 )
+                   IF      WS-J < 3
+                       COMPUTE WS-DX = -0.95
+                   ELSE
+                       COMPUTE WS-DX = 0.95
+                   END-IF
+                   IF      FUNCTION MOD( WS-J, 2 ) = 1
+                       SCN-1::SetPosition( WS-N, WS-DX, 0.38, -1.15 )
+                   ELSE
+                       SCN-1::SetPosition( WS-N, WS-DX, 0.38, 1.15 )
+                   END-IF
+                   SCN-1::SetMaterial( WS-N WS-M-TIRE )
+                   SCN-1::SetParent( WS-N OB-V(WS-I) )
+               END-PERFORM
+               SET     WS-N                      TO    SCN-1::AddSphere( 0.2 )
+               SCN-1::SetPosition( WS-N, -0.6, 0.85, -1.75 )
+               SCN-1::SetMaterial( WS-N WS-M-HEAD )
+               SCN-1::SetParent( WS-N OB-V(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddSphere( 0.2 )
+               SCN-1::SetPosition( WS-N, 0.6, 0.85, -1.75 )
+               SCN-1::SetMaterial( WS-N WS-M-HEAD )
+               SCN-1::SetParent( WS-N OB-V(WS-I) )
+               SCN-1::SetVisible( OB-V(WS-I) 0 )
+
+               *> The bike: a frame, two wheels, a rider with a head, a headlight.
+               SET     OB-B(WS-I)                TO    SCN-1::AddGroup()
+               SCN-1::SetParent( OB-B(WS-I) OB-G(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddBox( 0.25 0.5 1.7 )
+               SCN-1::SetPosition( WS-N, 0, 0.8, 0 )
+               SCN-1::SetMaterial( WS-N OB-MAT(WS-I) )
+               SCN-1::SetParent( WS-N OB-B(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddCylinder( 0.4 0.15 )
+               SCN-1::SetRotation( WS-N, 0, 0, 90 )
+               SCN-1::SetPosition( WS-N, 0, 0.4, -0.8 )
+               SCN-1::SetMaterial( WS-N WS-M-TIRE )
+               SCN-1::SetParent( WS-N OB-B(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddCylinder( 0.4 0.15 )
+               SCN-1::SetRotation( WS-N, 0, 0, 90 )
+               SCN-1::SetPosition( WS-N, 0, 0.4, 0.8 )
+               SCN-1::SetMaterial( WS-N WS-M-TIRE )
+               SCN-1::SetParent( WS-N OB-B(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddBox( 0.45 0.8 0.35 )
+               SCN-1::SetPosition( WS-N, 0, 1.45, 0.1 )
+               SCN-1::SetMaterial( WS-N WS-M-CAB )
+               SCN-1::SetParent( WS-N OB-B(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddSphere( 0.28 )
+               SCN-1::SetPosition( WS-N, 0, 2.05, 0 )
+               SCN-1::SetMaterial( WS-N WS-M-SKIN )
+               SCN-1::SetParent( WS-N OB-B(WS-I) )
+               SET     WS-N                      TO    SCN-1::AddSphere( 0.12 )
+               SCN-1::SetPosition( WS-N, 0, 1, -1 )
+               SCN-1::SetMaterial( WS-N WS-M-HEAD )
+               SCN-1::SetParent( WS-N OB-B(WS-I) )
+               SCN-1::SetVisible( OB-B(WS-I) 0 )
+               SCN-1::SetVisible( OB-G(WS-I) 0 )
+               MOVE    0                         TO    OB-ACT(WS-I)
+           END-PERFORM
+
+           *> ---- The roadster: low red body, hood, glass cabin, spoiler, four wheels, head and tail lights, a blue glow underneath.
+           SET     WS-CAR                        TO    SCN-1::AddGroup()
+           SET     WS-N                          TO    SCN-1::AddBox( 1.9 0.5 4.4 )
+           SCN-1::SetPosition( WS-N, 0, 0.55, 0 )
+           SCN-1::SetMaterial( WS-N WS-M-CAR )
+           SCN-1::SetParent( WS-N WS-CAR )
+           SET     WS-N                          TO    SCN-1::AddBox( 1.7 0.25 1.4 )
+           SCN-1::SetPosition( WS-N, 0, 0.88, -1.3 )
+           SCN-1::SetMaterial( WS-N WS-M-CAR )
+           SCN-1::SetParent( WS-N WS-CAR )
+           SET     WS-N                          TO    SCN-1::AddBox( 1.5 0.5 1.7 )
+           SCN-1::SetPosition( WS-N, 0, 1.05, 0.5 )
+           SCN-1::SetMaterial( WS-N WS-M-GLASS )
+           SCN-1::SetParent( WS-N WS-CAR )
+           SET     WS-N                          TO    SCN-1::AddBox( 1.8 0.08 0.4 )
+           SCN-1::SetPosition( WS-N, 0, 1.05, 2 )
+           SCN-1::SetMaterial( WS-N WS-M-CAR )
+           SCN-1::SetParent( WS-N WS-CAR )
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 4
+               SET     WS-N                      TO    SCN-1::AddCylinder( 0.38 0.3 )
+               SCN-1::SetRotation( WS-N, 0, 0, 90 )
+               IF      WS-J < 3
+                   COMPUTE WS-DX = -1
+               ELSE
+                   COMPUTE WS-DX = 1
+               END-IF
+               IF      FUNCTION MOD( WS-J, 2 ) = 1
+                   SCN-1::SetPosition( WS-N, WS-DX, 0.38, -1.35 )
+               ELSE
+                   SCN-1::SetPosition( WS-N, WS-DX, 0.38, 1.35 )
+               END-IF
+               SCN-1::SetMaterial( WS-N WS-M-TIRE )
+               SCN-1::SetParent( WS-N WS-CAR )
+           END-PERFORM
+           SET     WS-N                          TO    SCN-1::AddSphere( 0.18 )
+           SCN-1::SetPosition( WS-N, -0.7, 0.62, -2.2 )
+           SCN-1::SetMaterial( WS-N WS-M-HEAD )
+           SCN-1::SetParent( WS-N WS-CAR )
+           SET     WS-N                          TO    SCN-1::AddSphere( 0.18 )
+           SCN-1::SetPosition( WS-N, 0.7, 0.62, -2.2 )
+           SCN-1::SetMaterial( WS-N WS-M-HEAD )
+           SCN-1::SetParent( WS-N WS-CAR )
+           SET     WS-N                          TO    SCN-1::AddBox( 0.55 0.12 0.06 )
+           SCN-1::SetPosition( WS-N, -0.6, 0.7, 2.2 )
+           SCN-1::SetMaterial( WS-N WS-M-TAIL )
+           SCN-1::SetParent( WS-N WS-CAR )
+           SET     WS-N                          TO    SCN-1::AddBox( 0.55 0.12 0.06 )
+           SCN-1::SetPosition( WS-N, 0.6, 0.7, 2.2 )
+           SCN-1::SetMaterial( WS-N WS-M-TAIL )
+           SCN-1::SetParent( WS-N WS-CAR )
+           SET     WS-N                          TO    SCN-1::AddPointLight( 0.2 0.6 1 3 8 )
+           SCN-1::SetPosition( WS-N, 0, 0.1, 0 )
+           SCN-1::SetParent( WS-N WS-CAR )
+
+           *> ---- Twenty-eight sparks and pieces for the explosion: spheres of fire and boxes of debris, hidden until a crash.
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 28
+               IF      FUNCTION MOD( WS-K, 2 ) = 1
+                   SET     PT-N(WS-K)            TO    SCN-1::AddSphere( 0.28 )
+                   SCN-1::SetMaterial( PT-N(WS-K) WS-M-FIRE )
+               ELSE
+                   SET     PT-N(WS-K)            TO    SCN-1::AddBox( 0.4 0.3 0.5 )
+                   SCN-1::SetMaterial( PT-N(WS-K) WS-M-DEBRIS )
+               END-IF
+               SCN-1::SetVisible( PT-N(WS-K) 0 )
+           END-PERFORM
+]]></Event>
+    <Event name="BRG-RESET" paragraph="BRG-RESET"><![CDATA[       PROCEDURE DIVISION.
+           *> A new run: score zero, the car in the middle lane, no sparks, no obstacles, a clean road, obstacles far ahead.
+           MOVE    0                             TO    WS-STATE
+           MOVE    0                             TO    WS-DIST
+           MOVE    30                            TO    WS-SPEED
+           MOVE    2                             TO    WS-LANE
+           MOVE    0                             TO    WS-CARX
+           MOVE    0                             TO    WS-CARY
+           MOVE    0                             TO    WS-CARVY
+           MOVE    0                             TO    WS-LASTGAP
+           MOVE    0                             TO    WS-SEGCNT
+           SCN-1::SetVisible( WS-CAR 1 )
+           SCN-1::SetPosition( WS-CAR, 0, 0, 0 )
+           SCN-1::SetLight( WS-FLASH 1 0.6 0.2 0 40 )
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 28
+               SCN-1::SetVisible( PT-N(WS-K) 0 )
+           END-PERFORM
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 12
+               MOVE    0                         TO    OB-ACT(WS-I)
+               SCN-1::SetVisible( OB-G(WS-I) 0 )
+           END-PERFORM
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 24
+               COMPUTE SEG-Z(WS-I) = 20 - (WS-I - 1) * 10
+               MOVE    0                         TO    SEG-GAP(WS-I)
+               SCN-1::SetVisible( SEG-R(WS-I) 1 )
+               SCN-1::SetPosition( SEG-G(WS-I) 0 0 SEG-Z(WS-I) )
+               IF      FUNCTION MOD( WS-I, 4 ) = 0
+                   MOVE    1                     TO    SEG-PY(WS-I)
+               ELSE
+                   MOVE    0                     TO    SEG-PY(WS-I)
+               END-IF
+               IF      SEG-PY(WS-I) = 1
+                   SCN-1::SetVisible( SEG-P(WS-I) 1 )
+               ELSE
+                   SCN-1::SetVisible( SEG-P(WS-I) 0 )
+               END-IF
+           END-PERFORM
+           *> The first six segments (the ones near the car) stay clean; the rest get gaps and obstacles like any new segment.
+           PERFORM VARYING WS-I FROM 7 BY 1 UNTIL WS-I > 24
+               MOVE    WS-I                      TO    WS-SI
+               *> Decides what the segment WS-SI carries: a gap, an obstacle or nothing.
+               *> Uses: WS-SI, WS-DIST (difficulty), the obstacle slots.
+               *> Result: SEG-GAP(WS-SI) is set and the road shown or hidden; a free slot may hold a vehicle on the segment.
+               CALL "BRG-SPAWN"
+           END-PERFORM
+]]></Event>
+    <Event name="BRG-SPAWN" paragraph="BRG-SPAWN"><![CDATA[       PROCEDURE DIVISION.
+           *> Difficulty grows with the distance: more gaps, more vehicles, sometimes two at once.
+           COMPUTE WS-PROB = 0.3 + WS-DIST / 4000
+           IF      WS-PROB > 0.8
+               MOVE    0.8                       TO    WS-PROB
+           END-IF
+           COMPUTE WS-GAPPROB = 0.1 + WS-DIST / 12000
+           IF      WS-GAPPROB > 0.22
+               MOVE    0.22                      TO    WS-GAPPROB
+           END-IF
+           MOVE    0                             TO    SEG-GAP(WS-SI)
+           SCN-1::SetVisible( SEG-R(WS-SI) 1 )
+           IF      FUNCTION MOD( WS-SEGCNT, 4 ) = 0
+               SCN-1::SetVisible( SEG-P(WS-SI) 1 )
+           ELSE
+               SCN-1::SetVisible( SEG-P(WS-SI) 0 )
+           END-IF
+           COMPUTE WS-RND = FUNCTION RANDOM
+           IF      WS-RND < WS-GAPPROB AND WS-LASTGAP = 0
+               MOVE    1                         TO    SEG-GAP(WS-SI)
+               MOVE    1                         TO    WS-LASTGAP
+               SCN-1::SetVisible( SEG-R(WS-SI) 0 )
+           ELSE
+               MOVE    0                         TO    WS-LASTGAP
+               COMPUTE WS-RND = FUNCTION RANDOM
+               IF      WS-RND < WS-PROB
+                   *> Puts a random vehicle on a random lane of the segment WS-SI.
+                   *> Uses: WS-SI, the free obstacle slots, the palette.
+                   *> Result: one slot is active and visible on that segment.
+                   CALL "BRG-PLACE"
+                   COMPUTE WS-RND = FUNCTION RANDOM
+                   IF      WS-RND < WS-DIST / 6000
+                       *> A second vehicle on another lane of the same segment.
+                       *> Uses: WS-SI, the free obstacle slots, the palette.
+                       *> Result: another slot is active and visible.
+                       CALL "BRG-PLACE"
+                   END-IF
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="BRG-PLACE" paragraph="BRG-PLACE"><![CDATA[       PROCEDURE DIVISION.
+           MOVE    0                             TO    WS-OI
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 12 OR WS-OI > 0
+               IF      OB-ACT(WS-J) = 0
+                   MOVE    WS-J                  TO    WS-OI
+               END-IF
+           END-PERFORM
+           IF      WS-OI > 0
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE WS-LANESEL = FUNCTION INTEGER( WS-RND * 2.99 ) + 1
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE WS-TYPE = FUNCTION INTEGER( WS-RND * 2.99 ) + 1
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE WS-PI = FUNCTION INTEGER( WS-RND * 5.99 ) + 1
+               COMPUTE WS-RND = FUNCTION RANDOM
+               MOVE    1                         TO    OB-ACT(WS-OI)
+               COMPUTE OB-Z(WS-OI) = SEG-Z(WS-SI) + (WS-RND - 0.5) * 4
+               COMPUTE OB-X(WS-OI) = (WS-LANESEL - 2) * 3.2
+               SCN-1::SetMaterialColor( OB-MAT(WS-OI) WS-PAL(WS-PI) )
+               SCN-1::SetVisible( OB-T(WS-OI) 0 )
+               SCN-1::SetVisible( OB-V(WS-OI) 0 )
+               SCN-1::SetVisible( OB-B(WS-OI) 0 )
+               EVALUATE WS-TYPE
+                   WHEN 1
+                       SCN-1::SetVisible( OB-T(WS-OI) 1 )
+                       MOVE    2.2               TO    OB-H(WS-OI)
+                       MOVE    3.5               TO    OB-HL(WS-OI)
+                       MOVE    1.9               TO    OB-W(WS-OI)
+                   WHEN 2
+                       SCN-1::SetVisible( OB-V(WS-OI) 1 )
+                       MOVE    1.6               TO    OB-H(WS-OI)
+                       MOVE    1.9               TO    OB-HL(WS-OI)
+                       MOVE    1.8               TO    OB-W(WS-OI)
+                   WHEN OTHER
+                       SCN-1::SetVisible( OB-B(WS-OI) 1 )
+                       MOVE    1.5               TO    OB-H(WS-OI)
+                       MOVE    1                 TO    OB-HL(WS-OI)
+                       MOVE    1.3               TO    OB-W(WS-OI)
+               END-EVALUATE
+               SCN-1::SetPosition( OB-G(WS-OI) OB-X(WS-OI) 0 OB-Z(WS-OI) )
+               SCN-1::SetVisible( OB-G(WS-OI) 1 )
+           END-IF
+]]></Event>
+    <Event name="BRG-INPUT" paragraph="BRG-INPUT"><![CDATA[       PROCEDURE DIVISION.
+           *> Left and right arrows, or the left stick, change lane once per press; Space or the pad's A button and right trigger jump.
+           MOVE    0                             TO    WS-DIR
+           IF      CNV-3D::IsKeyDown( "ArrowLeft" ) = 1
+               MOVE    -1                        TO    WS-DIR
+           END-IF
+           IF      CNV-3D::IsKeyDown( "ArrowRight" ) = 1
+               MOVE    1                         TO    WS-DIR
+           END-IF
+           COMPUTE WS-AXIS = CNV-3D::GamepadAxis( 0 )
+           IF      WS-AXIS < -0.5
+               MOVE    -1                        TO    WS-DIR
+           END-IF
+           IF      WS-AXIS > 0.5
+               MOVE    1                         TO    WS-DIR
+           END-IF
+           IF      WS-DIR NOT = 0 AND WS-DIR NOT = WS-LASTDIR
+               COMPUTE WS-LANE = WS-LANE + WS-DIR
+               IF      WS-LANE < 1
+                   MOVE    1                     TO    WS-LANE
+               END-IF
+               IF      WS-LANE > 3
+                   MOVE    3                     TO    WS-LANE
+               END-IF
+           END-IF
+           MOVE    WS-DIR                        TO    WS-LASTDIR
+           IF      CNV-3D::IsKeyDown( "Space" ) = 1
+               OR  CNV-3D::GamepadButton( 0 ) = 1
+               OR  CNV-3D::GamepadButton( 7 ) = 1
+               IF      WS-CARY = 0
+                   MOVE    14.5                  TO    WS-CARVY
+                   MOVE    0.01                  TO    WS-CARY
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="BRG-CRASH" paragraph="BRG-CRASH"><![CDATA[       PROCEDURE DIVISION.
+           *> The car blows up: the world stops, the car disappears, a flash lights up and the pieces fly out of it.
+           MOVE    1                             TO    WS-STATE
+           MOVE    110                           TO    WS-TIMER
+           MOVE    0                             TO    WS-SPEED
+           IF      WS-DIST > WS-BEST
+               MOVE    WS-DIST                   TO    WS-BEST
+           END-IF
+           SCN-1::SetVisible( WS-CAR 0 )
+           SCN-1::SetPosition( WS-FLASH, WS-CARX, 1.5, 0 )
+           SCN-1::SetLight( WS-FLASH 1 0.6 0.2 12 40 )
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 28
+               COMPUTE PT-X(WS-K) = WS-CARX
+               COMPUTE WS-DX = WS-CARY + 0.8
+               COMPUTE PT-Y(WS-K) = WS-DX
+               MOVE    0                         TO    PT-Z(WS-K)
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE PT-VX(WS-K) = (WS-RND - 0.5) * 16
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE PT-VY(WS-K) = WS-RND * 12 + 3
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE PT-VZ(WS-K) = (WS-RND - 0.5) * 16
+               SCN-1::SetScale( PT-N(WS-K), 1, 1, 1 )
+               SCN-1::SetPosition( PT-N(WS-K) PT-X(WS-K) PT-Y(WS-K) PT-Z(WS-K) )
+               SCN-1::SetVisible( PT-N(WS-K) 1 )
+           END-PERFORM
+]]></Event>
+    <Event name="BRG-STEP" paragraph="BRG-STEP"><![CDATA[       PROCEDURE DIVISION.
+           IF      WS-STATE = 0
+               *> Reads the lane keys, the jump key and the gamepad.
+               *> Uses: the held keys and the pad on CNV-3D, WS-CARY.
+               *> Result: WS-LANE changes on a press; WS-CARVY is set when the car jumps from the ground.
+               CALL "BRG-INPUT"
+               COMPUTE WS-SPEED = 30 + WS-DIST * 0.018
+               IF      WS-SPEED > 78
+                   MOVE    78                    TO    WS-SPEED
+               END-IF
+               COMPUTE WS-MOVE = WS-SPEED * 0.016667
+               ADD     WS-MOVE                   TO    WS-DIST
+
+               *> The bridge slides toward the camera; a segment that passes it goes to the far end and is dressed anew.
+               MOVE    0                         TO    WS-OVER
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 24
+                   ADD     WS-MOVE               TO    SEG-Z(WS-I)
+                   IF      SEG-Z(WS-I) >= 25
+                       SUBTRACT 240              FROM  SEG-Z(WS-I)
+                       ADD     1                 TO    WS-SEGCNT
+                       MOVE    WS-I              TO    WS-SI
+                       *> Dresses the recycled segment WS-SI with a gap, a vehicle or nothing.
+                       *> Uses: WS-SI, WS-DIST, WS-SEGCNT, the obstacle slots.
+                       *> Result: SEG-GAP(WS-SI), the road and pylon visibility and a possible vehicle are set.
+                       CALL "BRG-SPAWN"
+                   END-IF
+                   SCN-1::SetPosition( SEG-G(WS-I) 0 0 SEG-Z(WS-I) )
+                   IF      SEG-GAP(WS-I) = 1 AND SEG-Z(WS-I) >= -5 AND SEG-Z(WS-I) < 5
+                       MOVE    1                 TO    WS-OVER
+                   END-IF
+               END-PERFORM
+
+               *> The vehicles slide with the bridge and leave when they pass the camera.
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 12
+                   IF      OB-ACT(WS-I) = 1
+                       ADD     WS-MOVE           TO    OB-Z(WS-I)
+                       IF      OB-Z(WS-I) > 14
+                           MOVE    0             TO    OB-ACT(WS-I)
+                           SCN-1::SetVisible( OB-G(WS-I) 0 )
+                       ELSE
+                           SCN-1::SetPosition( OB-G(WS-I) OB-X(WS-I) 0 OB-Z(WS-I) )
+                       END-IF
+                   END-IF
+               END-PERFORM
+
+               *> The car eases toward its lane, and flies or falls under gravity (the ground is gone over a gap).
+               COMPUTE WS-TX = (WS-LANE - 2) * 3.2
+               COMPUTE WS-CARX = WS-CARX + (WS-TX - WS-CARX) * 0.22
+               COMPUTE WS-CARVY = WS-CARVY - 34 * 0.016667
+               COMPUTE WS-CARY = WS-CARY + WS-CARVY * 0.016667
+               IF      WS-CARY <= 0 AND WS-OVER = 0 AND WS-CARY > -0.9
+                   MOVE    0                     TO    WS-CARY
+                   MOVE    0                     TO    WS-CARVY
+               END-IF
+               COMPUTE WS-TILT = (WS-TX - WS-CARX) * -5
+               COMPUTE WS-PITCH = WS-CARVY * 0.9
+               IF      WS-PITCH > 14
+                   MOVE    14                    TO    WS-PITCH
+               END-IF
+               IF      WS-PITCH < -14
+                   MOVE    -14                   TO    WS-PITCH
+               END-IF
+               SCN-1::SetPosition( WS-CAR WS-CARX WS-CARY 0 )
+               SCN-1::SetRotation( WS-CAR WS-PITCH 0 WS-TILT )
+
+               *> Collisions: a vehicle in the car's lane and length that is taller than the car's height, or a fall into a gap.
+               MOVE    0                         TO    WS-HIT
+               IF      WS-CARY < -0.9
+                   MOVE    1                     TO    WS-HIT
+               END-IF
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 12
+                   IF      OB-ACT(WS-I) = 1
+                       MOVE    OB-Z(WS-I)        TO    WS-DZ
+                       IF      WS-DZ < 0
+                           COMPUTE WS-DZ = 0 - WS-DZ
+                       END-IF
+                       COMPUTE WS-DX = OB-X(WS-I) - WS-CARX
+                       IF      WS-DX < 0
+                           COMPUTE WS-DX = 0 - WS-DX
+                       END-IF
+                       COMPUTE WS-LIM = OB-HL(WS-I) + 2.2
+                       IF      WS-DZ < WS-LIM AND WS-DX < OB-W(WS-I) AND WS-CARY < OB-H(WS-I)
+                           MOVE    1             TO    WS-HIT
+                       END-IF
+                   END-IF
+               END-PERFORM
+               IF      WS-HIT = 1
+                   *> Blows the car up and stops the world.
+                   *> Uses: WS-CARX, WS-CARY, WS-DIST, WS-BEST.
+                   *> Result: WS-STATE is 1, the car is hidden, the pieces and the flash are visible.
+                   CALL "BRG-CRASH"
+               END-IF
+           ELSE
+               *> The explosion: pieces fly and fall, shrink as the timer runs out; the flash fades; then a new run.
+               SUBTRACT 1                        FROM  WS-TIMER
+               COMPUTE WS-SCALE = WS-TIMER / 110
+               IF      WS-SCALE < 0.05
+                   MOVE    0.05                  TO    WS-SCALE
+               END-IF
+               PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 28
+                   COMPUTE PT-VY(WS-K) = PT-VY(WS-K) - 25 * 0.016667
+                   COMPUTE PT-X(WS-K) = PT-X(WS-K) + PT-VX(WS-K) * 0.016667
+                   COMPUTE PT-Y(WS-K) = PT-Y(WS-K) + PT-VY(WS-K) * 0.016667
+                   COMPUTE PT-Z(WS-K) = PT-Z(WS-K) + PT-VZ(WS-K) * 0.016667
+                   SCN-1::SetPosition( PT-N(WS-K) PT-X(WS-K) PT-Y(WS-K) PT-Z(WS-K) )
+                   SCN-1::SetScale( PT-N(WS-K) WS-SCALE WS-SCALE WS-SCALE )
+               END-PERFORM
+               COMPUTE WS-INT = WS-TIMER / 110 * 12
+               IF      WS-INT < 0
+                   MOVE    0                     TO    WS-INT
+               END-IF
+               SCN-1::SetLight( WS-FLASH 1 0.6 0.2 WS-INT 40 )
+               IF      WS-TIMER <= 0
+                   *> Starts a new run from the beginning with the score at zero.
+                   *> Uses: the node tables.
+                   *> Result: distance 0, speed 30, WS-STATE 0, a fresh road and obstacles.
+                   CALL "BRG-RESET"
+               END-IF
+           END-IF
+
+           *> The camera sits above and behind the car and follows it a little sideways and up when it jumps.
+           COMPUTE WS-CAMX = WS-CARX * 0.5
+           COMPUTE WS-CAMY = 4.8 + WS-CARY * 0.4
+           COMPUTE WS-LKX = WS-CARX * 0.3
+           SCN-1::SetPosition( WS-CAM WS-CAMX WS-CAMY 9.5 )
+           SCN-1::LookAt( WS-CAM WS-LKX 1 -10 )
+
+           *> The score line under the canvas.
+           MOVE    WS-DIST                       TO    WS-E1
+           COMPUTE WS-KMH = WS-SPEED * 3.6
+           MOVE    WS-KMH                        TO    WS-E2
+           MOVE    WS-BEST                       TO    WS-E3
+           MOVE    SPACES                        TO    WS-MSG
+           IF      WS-STATE = 1
+               MOVE    "BOOM! Restarting..."     TO    WS-MSG
+           END-IF
+           MOVE    SPACES                        TO    WS-HUD
+           STRING  "Distance " WS-E1 " m    Speed " WS-E2 " km/h    Best " WS-E3 " m    " WS-MSG
+                   DELIMITED BY SIZE INTO WS-HUD
+           SET     LBL-SCORE::Caption            TO    WS-HUD
+]]></Event>
+  </user-procedures>
+  <Control id="CNV-3D" type="Canvas3D" x="10" y="10" w="800" h="520" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 800 by 520 view of the bridge. It raises onFrame sixty times a second; the handler moves the world, the car and the camera and draws the scene, and it reads the arrows, Space and the gamepad.</Property>
+    <Property name="Width">800</Property>
+    <Property name="Height">520</Property>
+    <Property name="TargetFps">60</Property>
+    <Property name="FixedStep">True</Property>
+    <Property name="AccessibleLabel">Bridge race: left and right arrows change lane, Space or the gamepad trigger jumps over vehicles and gaps</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Event name="onFrame" paragraph="CNV-3D--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
+           *> Advances the game one frame and aims the camera.
+           *> Uses: WS-STATE, the keys and the pad on CNV-3D, the node tables.
+           *> Result: the world, the car, the camera and the score line are up to date.
+           CALL "BRG-STEP"
+           CNV-3D::Render()
+]]></Event>
+  </Control>
+  <Control id="SCN-1" type="Scene3D" x="10" y="590" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 3D scene of the bridge game: sea, recycled bridge segments with rails and pylons, twelve vehicle slots, the red roadster, the lights, the fog and the pieces of the explosion.</Property>
+  </Control>
+  <Control id="LBL-SCORE" type="Label" x="10" y="538" w="560" h="28" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The score line: the distance reached in metres, the speed and the best distance of this session.</Property>
+    <Property name="Caption">Distance 0 m</Property>
+    <Property name="ForegroundColor">#FFD966</Property>
+  </Control>
+  <Control id="LBL-HELP" type="Label" x="10" y="568" w="560" h="28" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The controls of the game: click the view first, then left and right arrows change lane, Space or the gamepad trigger jumps.</Property>
+    <Property name="Caption">Click the view, then: left/right = lane, Space or pad trigger = jump.</Property>
+    <Property name="ForegroundColor">#C8D0DC</Property>
+  </Control>
+  <Control id="BTN-BACK" type="Button" x="690" y="540" w="120" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Closes the bridge game and returns to the previous window.</Property>
+    <Property name="Caption">Close</Property>
+    <Event name="onClick" paragraph="BTN-BACK--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::Close()
+]]></Event>
+  </Control>
+</Form>

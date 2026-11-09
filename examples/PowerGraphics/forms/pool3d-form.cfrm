@@ -1,0 +1,551 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="POOL3D-FORM" title="PowerGraphics - Pool (3D)" width="820" height="600" background="#1B1F27FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" definition="A three-dimensional pool game in the traditional view: a Canvas3D draws a lit table with shadows, a Scene3D holds the table and the sixteen balls, a Physics3D world moves and collides the balls and drives their nodes." index-base="1">
+  <working-storage><![CDATA[       01 WS-WORLD                               GLOBAL    PIC 9(10).
+       01 WS-SCN                                 GLOBAL    PIC 9(10).
+       01 WS-WALL                                GLOBAL    PIC 9(10).
+       01 WS-CAM                                 GLOBAL    PIC 9(10).
+       01 WS-STICK                               GLOBAL    PIC 9(10).
+       01 WS-PART                                GLOBAL    PIC 9(10).
+       01 WS-LIGHT                               GLOBAL    PIC 9(10).
+       01 WS-NODE-T                              GLOBAL    PIC 9(10).
+       01 WS-BALLS                               GLOBAL.
+           05 WS-BALL                            PIC 9(10)    OCCURS 16.
+           05 WS-NODE                            PIC 9(10)    OCCURS 16.
+           05 WS-ALIVE                           PIC 9        OCCURS 16.
+           05 WS-COL                             PIC X(7)     OCCURS 16.
+       01 WS-POCKETS                             GLOBAL.
+           05 WS-PKX                             PIC S9V99    OCCURS 6.
+           05 WS-PKZ                             PIC S9V99    OCCURS 6.
+       01 WS-I                                   GLOBAL    PIC 99.
+       01 WS-J                                   GLOBAL    PIC 99.
+       01 WS-ROW                                 GLOBAL    PIC 99.
+       01 WS-K                                   GLOBAL    PIC 99.
+       01 WS-POS                                 GLOBAL    PIC X(80).
+       01 WS-F1                                  GLOBAL    PIC X(24).
+       01 WS-F2                                  GLOBAL    PIC X(24).
+       01 WS-F3                                  GLOBAL    PIC X(24).
+       01 WS-BX                                  GLOBAL    PIC S9(3)V9(5).
+       01 WS-BY                                  GLOBAL    PIC S9(3)V9(5).
+       01 WS-BZ                                  GLOBAL    PIC S9(3)V9(5).
+       01 WS-VX                                  GLOBAL    PIC S9(3)V9(5).
+       01 WS-VZ                                  GLOBAL    PIC S9(3)V9(5).
+       01 WS-SPD                                 GLOBAL    PIC S9(3)V9(5).
+       01 WS-DX                                  GLOBAL    PIC S9(3)V9(5).
+       01 WS-DZ                                  GLOBAL    PIC S9(3)V9(5).
+       01 WS-CX                                  GLOBAL    PIC S9(3)V9(5)  VALUE -2.2.
+       01 WS-CZ                                  GLOBAL    PIC S9(3)V9(5)  VALUE 0.
+       01 WS-ANG                                 GLOBAL    PIC S9(3)V9(3)  VALUE 0.
+       01 WS-RAD                                 GLOBAL    PIC S9(3)V9(5).
+       01 WS-AX                                  GLOBAL    PIC S9V9(5)     VALUE 1.
+       01 WS-AZ                                  GLOBAL    PIC S9V9(5)     VALUE 0.
+       01 WS-CAMA                                GLOBAL    PIC S9(3)V9(3)  VALUE 0.
+       01 WS-CAMH                                GLOBAL    PIC S9(2)V9(3)  VALUE 5.5.
+       01 WS-CPX                                 GLOBAL    PIC S9(3)V9(5).
+       01 WS-CPZ                                 GLOBAL    PIC S9(3)V9(5).
+       01 WS-PULL                                GLOBAL    PIC S9(3)V9(5).
+       01 WS-POWER                               GLOBAL    PIC 9V99        VALUE 0.50.
+       01 WS-STATE                               GLOBAL    PIC 9           VALUE 0.
+       01 WS-MODE                                GLOBAL    PIC 9           VALUE 0.
+       01 WS-MOVING                              GLOBAL    PIC 99.
+       01 WS-POTTED                              GLOBAL    PIC 99          VALUE 0.
+       01 WS-SHOTS                               GLOBAL    PIC 9(3)        VALUE 0.
+       01 WS-FOULS                               GLOBAL    PIC 9(3)        VALUE 0.
+       01 WS-RESPAWN                             GLOBAL    PIC 9           VALUE 0.
+       01 WS-POT                                 GLOBAL    PIC 9           VALUE 0.
+       01 WS-SPACE                               GLOBAL    PIC 9           VALUE 0.
+       01 WS-TABK                                GLOBAL    PIC 9           VALUE 0.
+       01 WS-LEFT                                GLOBAL    PIC 9.
+       01 WS-RIGHT                               GLOBAL    PIC 9.
+       01 WS-UP                                  GLOBAL    PIC 9.
+       01 WS-DOWN                                GLOBAL    PIC 9.
+       01 WS-FIRE                                GLOBAL    PIC 9.
+       01 WS-SWITCH                              GLOBAL    PIC 9.
+       01 WS-PAD                                 GLOBAL    PIC S9V999.
+       01 WS-E1                                  GLOBAL    PIC ZZ9.
+       01 WS-E2                                  GLOBAL    PIC ZZ9.
+       01 WS-E3                                  GLOBAL    PIC ZZ9.
+       01 WS-HUD                                 GLOBAL    PIC X(80).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="POOL3D-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           *> The physics world: gravity pulls down 9.81 m/s2; it steps in 1/180 s slices so a fast ball cannot tunnel.
+           SET     WS-WORLD                      TO    PHY-3::CreateWorld( 0 -9.81 0 )
+           PHY-3::SetFixedStep( WS-WORLD 0.0055556 8 )
+           SET     WS-SCN                        TO    SCN-1::GetHandle()
+
+           *> The static colliders: the slab under the felt and the four cushions (inner faces at x +-4 and z +-2).
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 0 -0.2 0 )
+           PHY-3::AddBox( WS-WORLD WS-WALL 4.4 0.2 2.4 1 0 0 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 0 0.15 -2.1 )
+           PHY-3::AddBox( WS-WORLD WS-WALL 4.4 0.15 0.1 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 0 0.15 2.1 )
+           PHY-3::AddBox( WS-WORLD WS-WALL 4.4 0.15 0.1 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 -4.1 0.15 0 )
+           PHY-3::AddBox( WS-WORLD WS-WALL 0.1 0.15 2.2 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-3::AddBody( WS-WORLD 0 4.1 0.15 0 )
+           PHY-3::AddBox( WS-WORLD WS-WALL 0.1 0.15 2.2 1 0 0.9 )
+
+           *> The six pockets: four corners and the middle of the long sides.
+           MOVE    -3.95                         TO    WS-PKX(1)
+           MOVE    -1.95                         TO    WS-PKZ(1)
+           MOVE    0                             TO    WS-PKX(2)
+           MOVE    -2                            TO    WS-PKZ(2)
+           MOVE    3.95                          TO    WS-PKX(3)
+           MOVE    -1.95                         TO    WS-PKZ(3)
+           MOVE    -3.95                         TO    WS-PKX(4)
+           MOVE    1.95                          TO    WS-PKZ(4)
+           MOVE    0                             TO    WS-PKX(5)
+           MOVE    2                             TO    WS-PKZ(5)
+           MOVE    3.95                          TO    WS-PKX(6)
+           MOVE    1.95                          TO    WS-PKZ(6)
+
+           *> The colours: 1 is the cue ball, 2 to 8 solids 1 to 7, 9 the black, 10 to 16 the stripes.
+           MOVE    "#F4F4EC"                     TO    WS-COL(1)
+           MOVE    "#F5C400"                     TO    WS-COL(2)
+           MOVE    "#1C4FD8"                     TO    WS-COL(3)
+           MOVE    "#D62020"                     TO    WS-COL(4)
+           MOVE    "#6A2C91"                     TO    WS-COL(5)
+           MOVE    "#F07A10"                     TO    WS-COL(6)
+           MOVE    "#0F8F3F"                     TO    WS-COL(7)
+           MOVE    "#7A1F1F"                     TO    WS-COL(8)
+           MOVE    "#111111"                     TO    WS-COL(9)
+           MOVE    "#F5C400"                     TO    WS-COL(10)
+           MOVE    "#1C4FD8"                     TO    WS-COL(11)
+           MOVE    "#D62020"                     TO    WS-COL(12)
+           MOVE    "#6A2C91"                     TO    WS-COL(13)
+           MOVE    "#F07A10"                     TO    WS-COL(14)
+           MOVE    "#0F8F3F"                     TO    WS-COL(15)
+           MOVE    "#7A1F1F"                     TO    WS-COL(16)
+
+           *> Builds the table, the lights, the camera, the cue and the sixteen ball nodes.
+           *> Uses: WS-SCN (the scene) and the colours above.
+           *> Result: the scene is complete; WS-NODE(1..16), WS-CAM and WS-STICK name its nodes.
+           CALL "P3D-BUILD"
+
+           *> Puts the balls on the table as bodies bound to their nodes.
+           *> Uses: WS-WORLD, WS-SCN and WS-NODE(1..16).
+           *> Result: sixteen bodies exist and each drives its node; the counters are zero.
+           CALL "P3D-RACK"
+
+           CNV-3D::SetScene( WS-SCN )
+           CNV-3D::SetCamera( WS-CAM )
+           CNV-3D::Render()
+]]></Event>
+    <Event name="onClose" paragraph="POOL3D-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <user-procedures>
+    <Event name="P3D-BUILD" paragraph="P3D-BUILD"><![CDATA[       PROCEDURE DIVISION.
+           SCN-1::SetBackgroundGradient( "#2A3550" "#06080E" )
+           SCN-1::SetAmbient( 1 1 1 0.35 )
+
+           *> The room floor, the wooden body, the felt and the four wooden cushions.
+           SET     WS-PART                       TO    SCN-1::AddPlane( 30 30 )
+           SCN-1::SetPosition( WS-PART 0 -1.6 0 )
+           SCN-1::SetColor( WS-PART "#22262E" )
+           SET     WS-PART                       TO    SCN-1::AddBox( 9.2 0.3 5.2 )
+           SCN-1::SetPosition( WS-PART 0 -0.25 0 )
+           SCN-1::SetColor( WS-PART "#5A3217" )
+           SET     WS-PART                       TO    SCN-1::AddBox( 8 0.1 4 )
+           SCN-1::SetPosition( WS-PART 0 -0.05 0 )
+           SCN-1::SetColor( WS-PART "#0F7A40" )
+           SET     WS-PART                       TO    SCN-1::AddBox( 8.8 0.3 0.2 )
+           SCN-1::SetPosition( WS-PART 0 0.15 -2.1 )
+           SCN-1::SetColor( WS-PART "#7A4422" )
+           SET     WS-PART                       TO    SCN-1::AddBox( 8.8 0.3 0.2 )
+           SCN-1::SetPosition( WS-PART 0 0.15 2.1 )
+           SCN-1::SetColor( WS-PART "#7A4422" )
+           SET     WS-PART                       TO    SCN-1::AddBox( 0.2 0.3 4.4 )
+           SCN-1::SetPosition( WS-PART -4.1 0.15 0 )
+           SCN-1::SetColor( WS-PART "#7A4422" )
+           SET     WS-PART                       TO    SCN-1::AddBox( 0.2 0.3 4.4 )
+           SCN-1::SetPosition( WS-PART 4.1 0.15 0 )
+           SCN-1::SetColor( WS-PART "#7A4422" )
+
+           *> Four legs and six black pockets.
+           SET     WS-PART                       TO    SCN-1::AddCylinder( 0.22 1.3 )
+           SCN-1::SetPosition( WS-PART -4.2 -1 -2.2 )
+           SCN-1::SetColor( WS-PART "#4A2812" )
+           SET     WS-PART                       TO    SCN-1::AddCylinder( 0.22 1.3 )
+           SCN-1::SetPosition( WS-PART 4.2 -1 -2.2 )
+           SCN-1::SetColor( WS-PART "#4A2812" )
+           SET     WS-PART                       TO    SCN-1::AddCylinder( 0.22 1.3 )
+           SCN-1::SetPosition( WS-PART -4.2 -1 2.2 )
+           SCN-1::SetColor( WS-PART "#4A2812" )
+           SET     WS-PART                       TO    SCN-1::AddCylinder( 0.22 1.3 )
+           SCN-1::SetPosition( WS-PART 4.2 -1 2.2 )
+           SCN-1::SetColor( WS-PART "#4A2812" )
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+               SET     WS-PART                   TO    SCN-1::AddCylinder( 0.2 0.02 )
+               SCN-1::SetPosition( WS-PART WS-PKX(WS-J) 0.012 WS-PKZ(WS-J) )
+               SCN-1::SetColor( WS-PART "#000000" )
+           END-PERFORM
+
+           *> The lights: a sun with shadows and two lamps above the felt.
+           SET     WS-LIGHT                      TO    SCN-1::AddDirectionalLight( 1 0.96 0.9 0.9 1 )
+           SCN-1::SetRotation( WS-LIGHT -62 20 0 )
+           SET     WS-LIGHT                      TO    SCN-1::AddPointLight( 1 0.93 0.8 2.5 14 )
+           SCN-1::SetPosition( WS-LIGHT -2.2 3.2 0 )
+           SET     WS-LIGHT                      TO    SCN-1::AddPointLight( 1 0.93 0.8 2.5 14 )
+           SCN-1::SetPosition( WS-LIGHT 2.2 3.2 0 )
+
+           *> The camera and the sixteen ball nodes (stripes carry a coloured band around a white ball).
+           SET     WS-CAM                        TO    SCN-1::AddCamera( 45 0.1 60 )
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 16
+               SET     WS-NODE(WS-I)             TO    SCN-1::AddSphere( 0.11 24 )
+               IF      WS-I > 9
+                   SCN-1::SetColor( WS-NODE(WS-I) "#F4F4EC" )
+                   SET     WS-PART               TO    SCN-1::AddTorus( 0.108 0.035 )
+                   SCN-1::SetRotation( WS-PART 90 0 0 )
+                   SCN-1::SetColor( WS-PART WS-COL(WS-I) )
+                   SCN-1::SetParent( WS-PART WS-NODE(WS-I) )
+               ELSE
+                   SCN-1::SetColor( WS-NODE(WS-I) WS-COL(WS-I) )
+               END-IF
+           END-PERFORM
+
+           *> The cue: a group whose origin is the tip; the stick lies along its -X axis, a white guide along +X.
+           SET     WS-STICK                      TO    SCN-1::AddGroup()
+           SET     WS-PART                       TO    SCN-1::AddCylinder( 0.03 3 )
+           SCN-1::SetRotation( WS-PART 0 0 90 )
+           SCN-1::SetPosition( WS-PART -1.55 0 0 )
+           SCN-1::SetColor( WS-PART "#D9B070" )
+           SCN-1::SetParent( WS-PART WS-STICK )
+           SET     WS-PART                       TO    SCN-1::AddBox( 2.2 0.012 0.012 )
+           SCN-1::SetPosition( WS-PART 1.2 -0.02 0 )
+           SCN-1::SetColor( WS-PART "#FFFFFF" )
+           SCN-1::SetParent( WS-PART WS-STICK )
+]]></Event>
+    <Event name="P3D-RACK" paragraph="P3D-RACK"><![CDATA[       PROCEDURE DIVISION.
+           *> The cue ball, then fifteen balls in a triangle; each body drives its node.
+           SET     WS-BALL(1)                    TO    PHY-3::AddBody( WS-WORLD 1 -2.2 0.111 0 )
+           PHY-3::AddBall( WS-WORLD WS-BALL(1) 0.11 1 0 0.93 )
+           PHY-3::BindNode( WS-WORLD WS-BALL(1) WS-SCN WS-NODE(1) )
+           MOVE    1                             TO    WS-ALIVE(1)
+           SCN-1::SetVisible( WS-NODE(1) 1 )
+           MOVE    2                             TO    WS-I
+           PERFORM VARYING WS-ROW FROM 0 BY 1 UNTIL WS-ROW > 4
+               PERFORM VARYING WS-K FROM 0 BY 1 UNTIL WS-K > WS-ROW
+                   COMPUTE WS-BX = 1.8 + WS-ROW * 0.2
+                   COMPUTE WS-BZ = WS-K * 0.225 - WS-ROW * 0.1125
+                   SET     WS-BALL(WS-I)         TO    PHY-3::AddBody( WS-WORLD 1 WS-BX 0.111 WS-BZ )
+                   PHY-3::AddBall( WS-WORLD WS-BALL(WS-I) 0.11 1 0 0.93 )
+                   PHY-3::BindNode( WS-WORLD WS-BALL(WS-I) WS-SCN WS-NODE(WS-I) )
+                   MOVE    1                     TO    WS-ALIVE(WS-I)
+                   SCN-1::SetVisible( WS-NODE(WS-I) 1 )
+                   ADD     1                     TO    WS-I
+               END-PERFORM
+           END-PERFORM
+           MOVE    0                             TO    WS-POTTED
+           MOVE    0                             TO    WS-SHOTS
+           MOVE    0                             TO    WS-FOULS
+           MOVE    0                             TO    WS-STATE
+           MOVE    -2.2                          TO    WS-CX
+           MOVE    0                             TO    WS-CZ
+]]></Event>
+    <Event name="P3D-SHOOT" paragraph="P3D-SHOOT"><![CDATA[       PROCEDURE DIVISION.
+           *> The cue ball leaves along the aim at 2 to 12 metres a second, growing with the power.
+           IF      WS-STATE = 0
+               COMPUTE WS-SPD = 2 + WS-POWER * 10
+               COMPUTE WS-VX = WS-AX * WS-SPD
+               COMPUTE WS-VZ = WS-AZ * WS-SPD
+               PHY-3::SetVelocity( WS-WORLD WS-BALL(1) WS-VX 0 WS-VZ )
+               ADD     1                         TO    WS-SHOTS
+               MOVE    1                         TO    WS-STATE
+           END-IF
+]]></Event>
+    <Event name="P3D-PHYSICS" paragraph="P3D-PHYSICS"><![CDATA[       PROCEDURE DIVISION.
+           PHY-3::Step( WS-WORLD 0.016667 )
+           MOVE    0                             TO    WS-MOVING
+           MOVE    0                             TO    WS-RESPAWN
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 16
+               IF      WS-ALIVE(WS-I) = 1
+                   MOVE    0                     TO    WS-POT
+                   SET     WS-POS                TO    PHY-3::GetPosition( WS-WORLD WS-BALL(WS-I) )
+                   UNSTRING WS-POS DELIMITED BY SPACE INTO WS-F1 WS-F2 WS-F3
+                   COMPUTE WS-BX = FUNCTION NUMVAL( WS-F1 )
+                   COMPUTE WS-BY = FUNCTION NUMVAL( WS-F2 )
+                   COMPUTE WS-BZ = FUNCTION NUMVAL( WS-F3 )
+                   PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+                       COMPUTE WS-DX = WS-BX - WS-PKX(WS-J)
+                       COMPUTE WS-DZ = WS-BZ - WS-PKZ(WS-J)
+                       IF      WS-DX * WS-DX + WS-DZ * WS-DZ < 0.08
+                           MOVE    1             TO    WS-POT
+                       END-IF
+                   END-PERFORM
+                   IF      WS-POT = 1
+                       PHY-3::RemoveBody( WS-WORLD WS-BALL(WS-I) )
+                       SCN-1::SetVisible( WS-NODE(WS-I) 0 )
+                       MOVE    0                 TO    WS-ALIVE(WS-I)
+                       IF      WS-I = 1
+                           ADD     1             TO    WS-FOULS
+                           MOVE    1             TO    WS-RESPAWN
+                       ELSE
+                           ADD     1             TO    WS-POTTED
+                       END-IF
+                   ELSE
+                       *> Rolling friction: each ball loses a little speed every frame, stays on the felt and stops under 0.09 m/s.
+                       SET     WS-POS            TO    PHY-3::GetVelocity( WS-WORLD WS-BALL(WS-I) )
+                       UNSTRING WS-POS DELIMITED BY SPACE INTO WS-F1 WS-F2 WS-F3
+                       COMPUTE WS-VX = FUNCTION NUMVAL( WS-F1 )
+                       COMPUTE WS-VZ = FUNCTION NUMVAL( WS-F3 )
+                       COMPUTE WS-SPD = FUNCTION SQRT( WS-VX * WS-VX + WS-VZ * WS-VZ )
+                       IF      WS-SPD < 0.09
+                           PHY-3::SetVelocity( WS-WORLD WS-BALL(WS-I) 0 0 0 )
+                       ELSE
+                           COMPUTE WS-VX = WS-VX * 0.987
+                           COMPUTE WS-VZ = WS-VZ * 0.987
+                           PHY-3::SetVelocity( WS-WORLD WS-BALL(WS-I) WS-VX 0 WS-VZ )
+                           ADD     1             TO    WS-MOVING
+                       END-IF
+                       IF      WS-I = 1
+                           MOVE    WS-BX         TO    WS-CX
+                           MOVE    WS-BZ         TO    WS-CZ
+                       END-IF
+                   END-IF
+               END-IF
+           END-PERFORM
+
+           *> A potted cue ball comes back on the head spot.
+           IF      WS-RESPAWN = 1
+               SET     WS-BALL(1)                TO    PHY-3::AddBody( WS-WORLD 1 -2.2 0.111 0 )
+               PHY-3::AddBall( WS-WORLD WS-BALL(1) 0.11 1 0 0.93 )
+               PHY-3::BindNode( WS-WORLD WS-BALL(1) WS-SCN WS-NODE(1) )
+               SCN-1::SetVisible( WS-NODE(1) 1 )
+               MOVE    1                         TO    WS-ALIVE(1)
+               MOVE    -2.2                      TO    WS-CX
+               MOVE    0                         TO    WS-CZ
+           END-IF
+
+           IF      WS-POTTED = 15
+               MOVE    2                         TO    WS-STATE
+           END-IF
+           IF      WS-STATE = 1 AND WS-MOVING = 0
+               MOVE    0                         TO    WS-STATE
+           END-IF
+]]></Event>
+    <Event name="P3D-INPUT" paragraph="P3D-INPUT"><![CDATA[       PROCEDURE DIVISION.
+           *> The arrows (or the left stick) and the buttons of the pad become four directions and two actions.
+           MOVE    0                             TO    WS-LEFT
+           MOVE    0                             TO    WS-RIGHT
+           MOVE    0                             TO    WS-UP
+           MOVE    0                             TO    WS-DOWN
+           MOVE    0                             TO    WS-FIRE
+           MOVE    0                             TO    WS-SWITCH
+           IF      CNV-3D::IsKeyDown( "ArrowLeft" ) = 1
+               MOVE    1                         TO    WS-LEFT
+           END-IF
+           IF      CNV-3D::IsKeyDown( "ArrowRight" ) = 1
+               MOVE    1                         TO    WS-RIGHT
+           END-IF
+           IF      CNV-3D::IsKeyDown( "ArrowUp" ) = 1
+               MOVE    1                         TO    WS-UP
+           END-IF
+           IF      CNV-3D::IsKeyDown( "ArrowDown" ) = 1
+               MOVE    1                         TO    WS-DOWN
+           END-IF
+           COMPUTE WS-PAD = CNV-3D::GamepadAxis( 0 )
+           IF      WS-PAD < -0.3
+               MOVE    1                         TO    WS-LEFT
+           END-IF
+           IF      WS-PAD > 0.3
+               MOVE    1                         TO    WS-RIGHT
+           END-IF
+           COMPUTE WS-PAD = CNV-3D::GamepadAxis( 1 )
+           IF      WS-PAD < -0.3
+               MOVE    1                         TO    WS-UP
+           END-IF
+           IF      WS-PAD > 0.3
+               MOVE    1                         TO    WS-DOWN
+           END-IF
+           IF      CNV-3D::IsKeyDown( "Space" ) = 1 OR CNV-3D::GamepadButton( 0 ) = 1
+               MOVE    1                         TO    WS-FIRE
+           END-IF
+           IF      CNV-3D::IsKeyDown( "Tab" ) = 1 OR CNV-3D::GamepadButton( 2 ) = 1
+               MOVE    1                         TO    WS-SWITCH
+           END-IF
+
+           *> Tab (or pad button 2) alternates the mode once per press.
+           IF      WS-SWITCH = 1
+               IF      WS-TABK = 0
+                   MOVE    1                     TO    WS-TABK
+                   IF      WS-MODE = 0
+                       MOVE    1                 TO    WS-MODE
+                   ELSE
+                       MOVE    0                 TO    WS-MODE
+                   END-IF
+               END-IF
+           ELSE
+               MOVE    0                         TO    WS-TABK
+           END-IF
+
+           IF      WS-MODE = 1
+               *> ROTATE TABLE: left and right orbit the camera, up and down raise and lower it.
+               IF      WS-LEFT = 1
+                   SUBTRACT 1.5                  FROM  WS-CAMA
+               END-IF
+               IF      WS-RIGHT = 1
+                   ADD     1.5                   TO    WS-CAMA
+               END-IF
+               IF      WS-UP = 1 AND WS-CAMH < 9
+                   ADD     0.05                  TO    WS-CAMH
+               END-IF
+               IF      WS-DOWN = 1 AND WS-CAMH > 2
+                   SUBTRACT 0.05                 FROM  WS-CAMH
+               END-IF
+           ELSE
+               *> AIM: left and right turn the cue around the cue ball, up and down set the power.
+               IF      WS-LEFT = 1
+                   ADD     1.2                   TO    WS-ANG
+               END-IF
+               IF      WS-RIGHT = 1
+                   SUBTRACT 1.2                  FROM  WS-ANG
+               END-IF
+               IF      WS-UP = 1 AND WS-POWER < 0.98
+                   ADD     0.01                  TO    WS-POWER
+               END-IF
+               IF      WS-DOWN = 1 AND WS-POWER > 0.02
+                   SUBTRACT 0.01                 FROM  WS-POWER
+               END-IF
+           END-IF
+
+           *> Space (or pad button 0) hits the ball, once per press.
+           IF      WS-FIRE = 1
+               IF      WS-SPACE = 0
+                   MOVE    1                     TO    WS-SPACE
+                   *> Hits the cue ball along the aim.
+                   *> Uses: WS-AX and WS-AZ (the aim), WS-POWER (0 to 1), WS-STATE (must be 0).
+                   *> Result: the cue ball moves and WS-STATE is 1.
+                   CALL "P3D-SHOOT"
+               END-IF
+           ELSE
+               MOVE    0                         TO    WS-SPACE
+           END-IF
+]]></Event>
+    <Event name="P3D-VIEW" paragraph="P3D-VIEW"><![CDATA[       PROCEDURE DIVISION.
+           *> The aim vector from the cue angle (0 degrees is +X, turning left is counter-clockwise seen from above).
+           COMPUTE WS-RAD = WS-ANG * 0.0174533
+           COMPUTE WS-AX = FUNCTION COS( WS-RAD )
+           COMPUTE WS-AZ = 0 - FUNCTION SIN( WS-RAD )
+
+           *> The camera orbits the middle of the table at 6.5 m from its axis.
+           COMPUTE WS-RAD = WS-CAMA * 0.0174533
+           COMPUTE WS-CPX = 6.5 * FUNCTION SIN( WS-RAD )
+           COMPUTE WS-CPZ = 6.5 * FUNCTION COS( WS-RAD )
+           SCN-1::SetPosition( WS-CAM WS-CPX WS-CAMH WS-CPZ )
+           SCN-1::LookAt( WS-CAM 0 0 0 )
+
+           *> The cue sits behind the cue ball, pulled back as the power grows; it hides while the balls roll.
+           IF      WS-STATE = 0
+               COMPUTE WS-PULL = 0.14 + WS-POWER * 0.5
+               COMPUTE WS-DX = WS-CX - WS-AX * WS-PULL
+               COMPUTE WS-DZ = WS-CZ - WS-AZ * WS-PULL
+               SCN-1::SetPosition( WS-STICK WS-DX 0.14 WS-DZ )
+               SCN-1::SetRotation( WS-STICK 0 WS-ANG 0 )
+               SCN-1::SetVisible( WS-STICK 1 )
+           ELSE
+               SCN-1::SetVisible( WS-STICK 0 )
+           END-IF
+]]></Event>
+  </user-procedures>
+  <Control id="CNV-3D" type="Canvas3D" x="10" y="10" w="800" h="480" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 800 by 480 three-dimensional view of the pool table. It raises onFrame sixty times a second; the handler steps the physics, reads the keys and the gamepad, moves the camera and the cue, and draws the scene.</Property>
+    <Property name="Width">800</Property>
+    <Property name="Height">480</Property>
+    <Property name="TargetFps">60</Property>
+    <Property name="FixedStep">True</Property>
+    <Property name="AccessibleLabel">3D pool table: Tab switches between rotating the table and aiming the cue; the arrows act on the current mode; Space hits the ball</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Event name="onFrame" paragraph="CNV-3D--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
+           *> Moves the balls one frame: friction, pockets, the end of a shot.
+           *> Uses: WS-WORLD and the ball tables.
+           *> Result: the bound nodes are where the bodies are; WS-POTTED, WS-FOULS and WS-STATE are updated.
+           CALL "P3D-PHYSICS"
+
+           *> Reads the arrows, Tab, Space and the gamepad.
+           *> Uses: the keys held on CNV-3D and the pad.
+           *> Result: the aim, the power or the camera angle change; Space may start a shot.
+           CALL "P3D-INPUT"
+
+           *> Places the camera and the cue.
+           *> Uses: WS-ANG, WS-POWER, WS-CAMA, WS-CAMH, WS-CX, WS-CZ, WS-STATE.
+           *> Result: WS-AX and WS-AZ hold the aim; the camera and the cue stand where they should.
+           CALL "P3D-VIEW"
+
+           MOVE    WS-POTTED                     TO    WS-E1
+           MOVE    WS-SHOTS                      TO    WS-E2
+           MOVE    WS-FOULS                      TO    WS-E3
+           MOVE    SPACES                        TO    WS-HUD
+           IF      WS-STATE = 2
+               STRING  "Table cleared in " WS-E2 " shots with " WS-E3 " fouls. Press New game."
+                       DELIMITED BY SIZE INTO WS-HUD
+           ELSE
+               STRING  "Potted " WS-E1 " of 15     Shots " WS-E2 "     Fouls " WS-E3
+                       DELIMITED BY SIZE INTO WS-HUD
+           END-IF
+           SET     LBL-SCORE::Caption            TO    WS-HUD
+           IF      WS-MODE = 1
+               SET     LBL-MODE::Caption         TO    "Mode: ROTATE TABLE (Tab switches)"
+           ELSE
+               SET     LBL-MODE::Caption         TO    "Mode: AIM THE CUE (Tab switches)"
+           END-IF
+           CNV-3D::Render()
+]]></Event>
+  </Control>
+  <Control id="SCN-1" type="Scene3D" x="10" y="560" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 3D scene of the pool room: the table, its felt, cushions, legs and pockets, three lights (one casting shadows), the camera, the cue and the sixteen balls.</Property>
+  </Control>
+  <Control id="PHY-3" type="Physics3D" x="80" y="560" w="60" h="24" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The three-dimensional physics world of the table: sixteen balls resting on a slab with four cushions, stepped in 1/180 s slices; each ball body drives its scene node.</Property>
+  </Control>
+  <Control id="LBL-SCORE" type="Label" x="10" y="496" w="400" h="24" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The score line: balls potted of fifteen, shots taken and fouls, or the end message when the table is cleared.</Property>
+    <Property name="Caption">Potted 0 of 15</Property>
+    <Property name="ForegroundColor">#F2E6C8</Property>
+  </Control>
+  <Control id="LBL-MODE" type="Label" x="420" y="496" w="390" h="24" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The current mode: ROTATE TABLE (the arrows orbit the camera) or AIM THE CUE (the arrows turn the cue and set the power).</Property>
+    <Property name="Caption">Mode: AIM THE CUE (Tab switches)</Property>
+    <Property name="ForegroundColor">#FFD966</Property>
+  </Control>
+  <Control id="LBL-HELP" type="Label" x="10" y="524" w="520" h="24" tab-order="5" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The controls of the game: Tab or the Mode button switches mode, the arrows act on the current mode, Space or gamepad button A hits the ball.</Property>
+    <Property name="Caption">Click the table, then: Tab = mode, arrows = rotate / aim, up-down = height / power, Space = hit.</Property>
+    <Property name="ForegroundColor">#C8D0DC</Property>
+  </Control>
+  <Control id="BTN-MODE" type="Button" x="420" y="552" w="120" h="32" tab-order="6" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Switches between rotating the table (orbiting the camera) and aiming the cue.</Property>
+    <Property name="Caption">Mode</Property>
+    <Event name="onClick" paragraph="BTN-MODE--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           IF      WS-MODE = 0
+               MOVE    1                         TO    WS-MODE
+           ELSE
+               MOVE    0                         TO    WS-MODE
+           END-IF
+]]></Event>
+  </Control>
+  <Control id="BTN-NEW" type="Button" x="550" y="552" w="120" h="32" tab-order="7" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Racks the fifteen balls again and puts the cue ball back on the head spot.</Property>
+    <Property name="Caption">New game</Property>
+    <Event name="onClick" paragraph="BTN-NEW--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 16
+               IF      WS-ALIVE(WS-I) = 1
+                   PHY-3::RemoveBody( WS-WORLD WS-BALL(WS-I) )
+                   MOVE    0                     TO    WS-ALIVE(WS-I)
+               END-IF
+           END-PERFORM
+           *> Racks the balls.
+           *> Uses: WS-WORLD, WS-SCN and the ball nodes made at load.
+           *> Result: sixteen bodies exist again and drive their nodes; the counters are zero.
+           CALL "P3D-RACK"
+]]></Event>
+  </Control>
+  <Control id="BTN-BACK" type="Button" x="690" y="552" w="120" h="32" tab-order="8" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Closes the 3D pool game and returns to the previous window.</Property>
+    <Property name="Caption">Close</Property>
+    <Event name="onClick" paragraph="BTN-BACK--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::Close()
+]]></Event>
+  </Control>
+</Form>

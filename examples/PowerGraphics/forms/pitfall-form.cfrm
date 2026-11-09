@@ -1,0 +1,1131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="PITFALL-FORM" title="PowerGraphics - Pitfall: the other side" width="820" height="680" background="#1B1F27FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" definition="A reinterpretation of the Atari jungle runner on an 800 by 600 Canvas2D: the first world looks like the original, and when the explorer dies the jungle turns noir and the explorer returns as a ghost among skeleton alligators and ethereal scorpions. One hundred screens per world, built with the original screen generator." index-base="1">
+  <working-storage><![CDATA[       01 WS-SCREENS                             GLOBAL.
+           05 WS-SB                              PIC 999      OCCURS 200.
+       01 WS-TRAILS                              GLOBAL.
+           05 WS-TRX                             PIC S9(4)V99 OCCURS 14.
+           05 WS-TRY                             PIC S9(4)V99 OCCURS 14.
+       01 WS-FOES                                GLOBAL.
+           05 WS-FX                              PIC S9(4)V99 OCCURS 3.
+           05 WS-FKIND                           PIC 9        OCCURS 3.
+           05 WS-FDONE                           PIC 9        OCCURS 3.
+           05 WS-FSIDE                           PIC S9       OCCURS 3.
+           05 WS-FSP                             PIC S9V99    OCCURS 3.
+       01 WS-LB                                  GLOBAL    PIC 999.
+       01 WS-B3                                  GLOBAL    PIC 9.
+       01 WS-B4                                  GLOBAL    PIC 9.
+       01 WS-B5                                  GLOBAL    PIC 9.
+       01 WS-B7                                  GLOBAL    PIC 9.
+       01 WS-FB                                  GLOBAL    PIC 9.
+       01 WS-T2                                  GLOBAL    PIC 9(4).
+       01 WS-I                                   GLOBAL    PIC 999.
+       01 WS-J                                   GLOBAL    PIC 999.
+       01 WS-WORLD                               GLOBAL    PIC 9        VALUE 1.
+       01 WS-SCR                                 GLOBAL    PIC 999      VALUE 1.
+       01 WS-MAXSCR                              GLOBAL    PIC 999      VALUE 1.
+       01 WS-SCORE                               GLOBAL    PIC 9(5)     VALUE 0.
+       01 WS-JUMPED                              GLOBAL    PIC 9(5)     VALUE 0.
+       01 WS-STATE                               GLOBAL    PIC 9        VALUE 4.
+       01 WS-TMR                                 GLOBAL    PIC 9(5)     VALUE 0.
+       01 WS-T                                   GLOBAL    PIC 9(6)     VALUE 0.
+       01 WS-B                                   GLOBAL    PIC 999.
+       01 WS-O                                   GLOBAL    PIC 9.
+       01 WS-G                                   GLOBAL    PIC 9.
+       01 WS-GK                                  GLOBAL    PIC 9.
+       01 WS-GOK                                 GLOBAL    PIC 9.
+       01 WS-PA                                  GLOBAL    PIC 9(4).
+       01 WS-PB                                  GLOBAL    PIC 9(4).
+       01 WS-NF                                  GLOBAL    PIC 9.
+       01 WS-FSPD                                GLOBAL    PIC 9V99.
+       01 WS-PX                                  GLOBAL    PIC S9(4)V99 VALUE 40.
+       01 WS-PY                                  GLOBAL    PIC S9(4)V99 VALUE 400.
+       01 WS-PVX                                 GLOBAL    PIC S9(2)V99 VALUE 0.
+       01 WS-PVY                                 GLOBAL    PIC S9(2)V99 VALUE 0.
+       01 WS-ONGR                                GLOBAL    PIC 9        VALUE 1.
+       01 WS-FACE                                GLOBAL    PIC S9       VALUE 1.
+       01 WS-ANIM                                GLOBAL    PIC 9(6)     VALUE 0.
+       01 WS-VGRAB                               GLOBAL    PIC 9        VALUE 0.
+       01 WS-VCD                                 GLOBAL    PIC 99       VALUE 0.
+       01 WS-VANG                                GLOBAL    PIC S9V9(4).
+       01 WS-VTX                                 GLOBAL    PIC S9(4)V99 VALUE 400.
+       01 WS-VTY                                 GLOBAL    PIC S9(4)V99 VALUE 350.
+       01 WS-VPX                                 GLOBAL    PIC S9(4)V99 VALUE 400.
+       01 WS-VPY                                 GLOBAL    PIC S9(4)V99 VALUE 350.
+       01 WS-VPIV                                GLOBAL    PIC 9(4).
+       01 WS-KL                                  GLOBAL    PIC 9.
+       01 WS-KR                                  GLOBAL    PIC 9.
+       01 WS-KJ                                  GLOBAL    PIC 9.
+       01 WS-JP                                  GLOBAL    PIC 9.
+       01 WS-JMP                                 GLOBAL    PIC 9        VALUE 0.
+       01 WS-AXIS                                GLOBAL    PIC S9V999.
+       01 WS-X1                                  GLOBAL    PIC S9(5)V99.
+       01 WS-Y1                                  GLOBAL    PIC S9(5)V99.
+       01 WS-X2                                  GLOBAL    PIC S9(5)V99.
+       01 WS-Y2                                  GLOBAL    PIC S9(5)V99.
+       01 WS-D                                   GLOBAL    PIC S9(5)V99.
+       01 WS-SW                                  GLOBAL    PIC S9V999.
+       01 WS-SIDE                                GLOBAL    PIC S9.
+       01 WS-FH                                  GLOBAL    PIC 99.
+       01 WS-E1                                  GLOBAL    PIC ZZZZ9.
+       01 WS-E2                                  GLOBAL    PIC ZZ9.
+       01 WS-HUD                                 GLOBAL    PIC X(80).
+       01 WS-ALPHA                               GLOBAL    PIC 9V99.
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="PITFALL-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           *> Builds the two hundred screen bytes (100 for the jungle, 100 for the other side).
+           *> Uses: nothing; the generator has its own seeds.
+           *> Result: WS-SB(1) to WS-SB(200) hold the bytes that describe every screen.
+           CALL "PIT-GEN"
+           *> Sets up screen 1 of world 1.
+           *> Uses: WS-WORLD and WS-SCR (both 1).
+           *> Result: the foes, the pit and the vine of the first screen are in place.
+           CALL "PIT-LOAD"
+]]></Event>
+    <Event name="onClose" paragraph="PITFALL-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <user-procedures>
+    <Event name="PIT-GEN" paragraph="PIT-GEN"><![CDATA[       PROCEDURE DIVISION.
+           *> The screen generator of the original game: an 8-bit shift register. Each step moves the byte one bit to the left and feeds
+           *> the new bit 0 with the exclusive-or of bits 3, 4, 5 and 7, the register of the polynomial x^8 + x^6 + x^5 + x^4 + 1 (it never
+           *> reaches zero and repeats only after 255 steps). The first screen of the jungle is the original seed, 196 (hexadecimal C4); the
+           *> other side starts from 167 (hexadecimal A7). The byte of a screen says what it holds: bits 0-2 the foes, bits 3-5 the ground
+           *> (solid, tar pit with a vine, or alligator pond with a vine), bits 6-7 where the trees stand.
+           MOVE    196                           TO    WS-LB
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 200
+               IF      WS-I = 101
+                   MOVE    167                   TO    WS-LB
+               END-IF
+               MOVE    WS-LB                     TO    WS-SB(WS-I)
+               COMPUTE WS-B3 = FUNCTION MOD( FUNCTION INTEGER( WS-LB / 8 ) , 2 )
+               COMPUTE WS-B4 = FUNCTION MOD( FUNCTION INTEGER( WS-LB / 16 ) , 2 )
+               COMPUTE WS-B5 = FUNCTION MOD( FUNCTION INTEGER( WS-LB / 32 ) , 2 )
+               COMPUTE WS-B7 = FUNCTION MOD( FUNCTION INTEGER( WS-LB / 128 ) , 2 )
+               COMPUTE WS-FB = FUNCTION MOD( WS-B3 + WS-B4 + WS-B5 + WS-B7 , 2 )
+               COMPUTE WS-T2 = WS-LB * 2
+               COMPUTE WS-LB = FUNCTION MOD( WS-T2 , 256 ) + WS-FB
+           END-PERFORM
+]]></Event>
+    <Event name="PIT-LOAD" paragraph="PIT-LOAD"><![CDATA[       PROCEDURE DIVISION.
+           *> Reads the byte of screen WS-SCR of world WS-WORLD and sets the ground, the vine and the foes.
+           COMPUTE WS-I = (WS-WORLD - 1) * 100 + WS-SCR
+           MOVE    WS-SB(WS-I)                   TO    WS-B
+           COMPUTE WS-O = FUNCTION MOD( WS-B , 8 )
+           COMPUTE WS-G = FUNCTION MOD( FUNCTION INTEGER( WS-B / 8 ) , 8 )
+           MOVE    0                             TO    WS-GK
+           IF      WS-G = 2 OR WS-G = 3
+               MOVE    1                         TO    WS-GK
+           END-IF
+           IF      WS-G = 4 OR WS-G = 5
+               MOVE    2                         TO    WS-GK
+           END-IF
+           IF      WS-SCR = 1 AND WS-WORLD = 1
+               MOVE    0                         TO    WS-GK
+               MOVE    7                         TO    WS-O
+           END-IF
+           COMPUTE WS-PA = 270 + FUNCTION MOD( WS-B , 5 ) * 30
+           IF      WS-GK = 1
+               COMPUTE WS-PB = WS-PA + 150
+           ELSE
+               COMPUTE WS-PB = WS-PA + 200
+           END-IF
+           COMPUTE WS-VPIV = (WS-PA + WS-PB) / 2
+           IF      WS-WORLD = 1
+               MOVE    2.4                       TO    WS-FSPD
+           ELSE
+               MOVE    3.2                       TO    WS-FSPD
+           END-IF
+           MOVE    0                             TO    WS-NF
+           EVALUATE WS-O
+               WHEN 0  MOVE 1 TO WS-NF
+               WHEN 1  MOVE 2 TO WS-NF
+               WHEN 2  MOVE 3 TO WS-NF
+               WHEN 3  MOVE 1 TO WS-NF
+               WHEN 4  MOVE 2 TO WS-NF
+               WHEN 5  MOVE 1 TO WS-NF
+               WHEN 6  MOVE 1 TO WS-NF
+               WHEN OTHER MOVE 0 TO WS-NF
+           END-EVALUATE
+           IF      WS-GK > 0 AND WS-NF > 1
+               MOVE    1                         TO    WS-NF
+           END-IF
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-NF
+               MOVE    0                         TO    WS-FDONE(WS-I)
+               MOVE    0                         TO    WS-FSP(WS-I)
+               EVALUATE TRUE
+                   WHEN WS-O < 3
+                       MOVE    1                 TO    WS-FKIND(WS-I)
+                       COMPUTE WS-FX(WS-I) = 760 + WS-I * 230
+                   WHEN WS-O = 3 OR WS-O = 4
+                       MOVE    2                 TO    WS-FKIND(WS-I)
+                       COMPUTE WS-FX(WS-I) = 140 + FUNCTION MOD( WS-B , 7 ) * 18 + (WS-I - 1) * 230
+                       IF      WS-GK > 0
+                           COMPUTE WS-FX(WS-I) = WS-PA - 70
+                       END-IF
+                   WHEN WS-O = 5
+                       MOVE    4                 TO    WS-FKIND(WS-I)
+                       COMPUTE WS-FX(WS-I) = 200 + FUNCTION MOD( WS-B , 4 ) * 40
+                       IF      WS-GK > 0
+                           COMPUTE WS-FX(WS-I) = WS-PA - 70
+                       END-IF
+                   WHEN OTHER
+                       MOVE    3                 TO    WS-FKIND(WS-I)
+                       COMPUTE WS-FX(WS-I) = 420 + FUNCTION MOD( WS-B , 9 ) * 20
+                       COMPUTE WS-FSP(WS-I) = WS-FSPD / 3
+                       IF      WS-GK > 0
+                           COMPUTE WS-FX(WS-I) = WS-PA - 90
+                       END-IF
+               END-EVALUATE
+               IF      WS-PX > WS-FX(WS-I)
+                   MOVE    1                     TO    WS-FSIDE(WS-I)
+               ELSE
+                   MOVE    -1                    TO    WS-FSIDE(WS-I)
+               END-IF
+           END-PERFORM
+           MOVE    0                             TO    WS-VGRAB
+           MOVE    30                            TO    WS-VCD
+]]></Event>
+    <Event name="PIT-GROUND" paragraph="PIT-GROUND"><![CDATA[       PROCEDURE DIVISION.
+           *> What is under the explorer's feet at WS-PX: WS-GOK is 1 for ground, 0 for a hole and 2 for an open alligator mouth.
+           MOVE    1                             TO    WS-GOK
+           IF      WS-GK > 0 AND WS-PX >= WS-PA AND WS-PX <= WS-PB
+               MOVE    0                         TO    WS-GOK
+               IF      WS-GK = 2
+                   PERFORM VARYING WS-J FROM 0 BY 1 UNTIL WS-J > 2
+                       COMPUTE WS-X1 = WS-PA + 5 + WS-J * 65
+                       IF      WS-PX >= WS-X1 AND WS-PX <= WS-X1 + 60
+                           COMPUTE WS-T2 = FUNCTION MOD( WS-T + WS-J * 47 , 140 )
+                           IF      WS-T2 < 55
+                               MOVE    2         TO    WS-GOK
+                           ELSE
+                               MOVE    1         TO    WS-GOK
+                           END-IF
+                       END-IF
+                   END-PERFORM
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="PIT-DIE" paragraph="PIT-DIE">
+<![CDATA[       PROCEDURE DIVISION.
+           *> The explorer dies: the frame counter of the death scene starts, the world will be told apart in PIT-TICK.
+           IF      WS-STATE = 0
+               MOVE    1                         TO    WS-STATE
+               MOVE    0                         TO    WS-TMR
+               MOVE    0                         TO    WS-VGRAB
+           END-IF
+]]></Event>
+    <Event name="PIT-NOIR" paragraph="PIT-NOIR">
+<![CDATA[       PROCEDURE DIVISION.
+           *> Enters the other side: world 2, screen 1, the explorer as a ghost; the score is kept.
+           MOVE    2                             TO    WS-WORLD
+           MOVE    1                             TO    WS-SCR
+           MOVE    1                             TO    WS-MAXSCR
+           MOVE    40                            TO    WS-PX
+           MOVE    400                           TO    WS-PY
+           MOVE    0                             TO    WS-PVX
+           MOVE    0                             TO    WS-PVY
+           MOVE    1                             TO    WS-ONGR
+           MOVE    0                             TO    WS-STATE
+           MOVE    0                             TO    WS-TMR
+           *> Sets up screen 1 of the other side.
+           *> Uses: WS-WORLD (2) and WS-SCR (1).
+           *> Result: noir foes and ground are in place.
+           CALL "PIT-LOAD"
+]]></Event>
+    <Event name="PIT-RESTART" paragraph="PIT-RESTART">
+<![CDATA[       PROCEDURE DIVISION.
+           *> A new game: the jungle, screen 1, no points.
+           MOVE    1                             TO    WS-WORLD
+           MOVE    1                             TO    WS-SCR
+           MOVE    1                             TO    WS-MAXSCR
+           MOVE    0                             TO    WS-SCORE
+           MOVE    0                             TO    WS-JUMPED
+           MOVE    40                            TO    WS-PX
+           MOVE    400                           TO    WS-PY
+           MOVE    0                             TO    WS-PVX
+           MOVE    0                             TO    WS-PVY
+           MOVE    1                             TO    WS-ONGR
+           MOVE    0                             TO    WS-STATE
+           MOVE    0                             TO    WS-TMR
+           *> Sets up screen 1 of the jungle.
+           *> Uses: WS-WORLD (1) and WS-SCR (1).
+           *> Result: the first screen is in place.
+           CALL "PIT-LOAD"
+]]></Event>
+    <Event name="PIT-UPDATE" paragraph="PIT-UPDATE"><![CDATA[       PROCEDURE DIVISION.
+           ADD     1                             TO    WS-T
+           IF      WS-VCD > 0
+               SUBTRACT 1                        FROM  WS-VCD
+           END-IF
+
+           *> The vine swings on its own clock; its tip leaves a trail of fourteen points.
+           MOVE    WS-VTX                        TO    WS-VPX
+           MOVE    WS-VTY                        TO    WS-VPY
+           COMPUTE WS-VANG = 0.85 * FUNCTION SIN( WS-T * 0.04 )
+           COMPUTE WS-VTX = WS-VPIV + 250 * FUNCTION SIN( WS-VANG )
+           COMPUTE WS-VTY = 100 + 250 * FUNCTION COS( WS-VANG )
+           PERFORM VARYING WS-I FROM 14 BY -1 UNTIL WS-I < 2
+               COMPUTE WS-J = WS-I - 1
+               MOVE    WS-TRX(WS-J)              TO    WS-TRX(WS-I)
+               MOVE    WS-TRY(WS-J)              TO    WS-TRY(WS-I)
+           END-PERFORM
+           MOVE    WS-VTX                        TO    WS-TRX(1)
+           MOVE    WS-VTY                        TO    WS-TRY(1)
+
+           *> The keys: arrows or the pad's stick, Space or the pad's first button.
+           MOVE    0                             TO    WS-KL
+           MOVE    0                             TO    WS-KR
+           MOVE    0                             TO    WS-KJ
+           SET     WS-AXIS                       TO    CNV-PIT::GamepadAxis( 0 )
+           IF      CNV-PIT::IsKeyDown( "ArrowLeft" ) = 1 OR WS-AXIS < -0.4
+               MOVE    1                         TO    WS-KL
+           END-IF
+           IF      CNV-PIT::IsKeyDown( "ArrowRight" ) = 1 OR WS-AXIS > 0.4
+               MOVE    1                         TO    WS-KR
+           END-IF
+           IF      CNV-PIT::IsKeyDown( "Space" ) = 1 OR CNV-PIT::GamepadButton( 0 ) = 1
+               MOVE    1                         TO    WS-KJ
+           END-IF
+           MOVE    0                             TO    WS-JP
+           IF      WS-KJ = 1 AND WS-JMP = 0
+               MOVE    1                         TO    WS-JP
+           END-IF
+           MOVE    WS-KJ                         TO    WS-JMP
+
+           IF      WS-VGRAB = 1
+               *> Hanging on the vine: the explorer follows the tip; a jump lets go with the speed of the swing.
+               COMPUTE WS-PX = WS-VTX
+               COMPUTE WS-PY = WS-VTY + 44
+               IF      WS-JP = 1
+                   COMPUTE WS-PVX = (WS-VTX - WS-VPX) * 1.2
+                   IF      WS-PVX > 7
+                       MOVE    7                 TO    WS-PVX
+                   END-IF
+                   IF      WS-PVX < -7
+                       MOVE    -7                TO    WS-PVX
+                   END-IF
+                   MOVE    -5                    TO    WS-PVY
+                   MOVE    0                     TO    WS-VGRAB
+                   MOVE    25                    TO    WS-VCD
+                   MOVE    0                     TO    WS-ONGR
+                   IF      WS-PVX > 0
+                       MOVE    1                 TO    WS-FACE
+                   ELSE
+                       MOVE    -1                TO    WS-FACE
+                   END-IF
+               END-IF
+           ELSE
+               IF      WS-ONGR = 1
+                   MOVE    0                     TO    WS-PVX
+                   IF      WS-KL = 1
+                       MOVE    -3                TO    WS-PVX
+                       MOVE    -1                TO    WS-FACE
+                   END-IF
+                   IF      WS-KR = 1
+                       MOVE    3                 TO    WS-PVX
+                       MOVE    1                 TO    WS-FACE
+                   END-IF
+                   IF      WS-JP = 1
+                       MOVE    -9.5              TO    WS-PVY
+                       MOVE    0                 TO    WS-ONGR
+                   END-IF
+                   IF      WS-PVX NOT = 0
+                       ADD     1                 TO    WS-ANIM
+                   END-IF
+               ELSE
+                   IF      WS-KL = 1
+                       MOVE    -3                TO    WS-PVX
+                   END-IF
+                   IF      WS-KR = 1
+                       MOVE    3                 TO    WS-PVX
+                   END-IF
+                   ADD     0.5                   TO    WS-PVY
+               END-IF
+               COMPUTE WS-PX = WS-PX + WS-PVX
+               IF      WS-ONGR = 0
+                   COMPUTE WS-PY = WS-PY + WS-PVY
+               END-IF
+
+               *> What is under the feet.
+               *> Uses: WS-PX, the ground kind and the pit of this screen.
+               *> Result: WS-GOK is 1 (ground), 0 (hole) or 2 (open alligator mouth).
+               CALL "PIT-GROUND"
+               IF      WS-ONGR = 1
+                   IF      WS-GOK = 0
+                       MOVE    0                 TO    WS-ONGR
+                       MOVE    0                 TO    WS-PVY
+                   END-IF
+                   IF      WS-GOK = 2
+                       *> The explorer dies.
+                       *> Uses: WS-STATE (must be 0).
+                       *> Result: WS-STATE is 1, the death scene starts.
+                       CALL "PIT-DIE"
+                   END-IF
+               ELSE
+                   IF      WS-PVY > 0 AND WS-PY >= 400 AND WS-PY < 414
+                       IF      WS-GOK = 1
+                           MOVE    400           TO    WS-PY
+                           MOVE    0             TO    WS-PVY
+                           MOVE    1             TO    WS-ONGR
+                       END-IF
+                       IF      WS-GOK = 2
+                           *> The explorer dies.
+                           *> Uses: WS-STATE (must be 0).
+                           *> Result: WS-STATE is 1, the death scene starts.
+                           CALL "PIT-DIE"
+                       END-IF
+                   END-IF
+                   IF      WS-PY > 446
+                       *> The explorer dies.
+                       *> Uses: WS-STATE (must be 0).
+                       *> Result: WS-STATE is 1, the death scene starts.
+                       CALL "PIT-DIE"
+                   END-IF
+               END-IF
+
+               *> Catching the vine: in the air, near the tip, with the vine free.
+               IF      WS-GK > 0 AND WS-ONGR = 0 AND WS-VCD = 0 AND WS-STATE = 0
+                   COMPUTE WS-D = (WS-PX - WS-VTX) * (WS-PX - WS-VTX) + (WS-PY - 22 - WS-VTY) * (WS-PY - 22 - WS-VTY)
+                   IF      WS-D < 1100
+                       MOVE    1                 TO    WS-VGRAB
+                   END-IF
+               END-IF
+           END-IF
+
+           *> The foes move, and every one the explorer clears in the air counts one point.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-NF
+               EVALUATE WS-FKIND(WS-I)
+                   WHEN 1
+                       COMPUTE WS-FX(WS-I) = WS-FX(WS-I) - WS-FSPD
+                       IF      WS-FX(WS-I) < -30
+                           MOVE    830           TO    WS-FX(WS-I)
+                           MOVE    0             TO    WS-FDONE(WS-I)
+                       END-IF
+                       MOVE    26                TO    WS-FH
+                   WHEN 2
+                       MOVE    28                TO    WS-FH
+                   WHEN 4
+                       MOVE    34                TO    WS-FH
+                   WHEN OTHER
+                       COMPUTE WS-FX(WS-I) = WS-FX(WS-I) + WS-FSP(WS-I)
+                       IF      WS-FX(WS-I) > 700
+                           MOVE    -0.7          TO    WS-FSP(WS-I)
+                           COMPUTE WS-FSP(WS-I) = 0 - WS-FSPD / 3
+                       END-IF
+                       IF      WS-FX(WS-I) < 150
+                           COMPUTE WS-FSP(WS-I) = WS-FSPD / 3
+                       END-IF
+                       MOVE    22                TO    WS-FH
+               END-EVALUATE
+               COMPUTE WS-D = WS-PX - WS-FX(WS-I)
+               IF      WS-D < 0
+                   COMPUTE WS-D = 0 - WS-D
+               END-IF
+               IF      WS-STATE = 0 AND WS-VGRAB = 0 AND WS-D < 20 AND WS-PY > 400 - WS-FH + 2
+                   *> The explorer dies.
+                   *> Uses: WS-STATE (must be 0).
+                   *> Result: WS-STATE is 1, the death scene starts.
+                   CALL "PIT-DIE"
+               END-IF
+               IF      WS-PX > WS-FX(WS-I)
+                   MOVE    1                     TO    WS-SIDE
+               ELSE
+                   MOVE    -1                    TO    WS-SIDE
+               END-IF
+               IF      WS-SIDE NOT = WS-FSIDE(WS-I) AND WS-FDONE(WS-I) = 0 AND WS-STATE = 0
+                   MOVE    1                     TO    WS-FDONE(WS-I)
+                   ADD     1                     TO    WS-SCORE
+                   ADD     1                     TO    WS-JUMPED
+               END-IF
+               MOVE    WS-SIDE                   TO    WS-FSIDE(WS-I)
+           END-PERFORM
+
+           *> The edges of the screen: the right edge is the next screen, the left edge the one before.
+           IF      WS-STATE = 0 AND WS-PX > 792
+               ADD     1                         TO    WS-SCR
+               IF      WS-SCR > 100
+                   IF      WS-WORLD = 1
+                       ADD     2                 TO    WS-SCORE
+                       *> Enters the other side.
+                       *> Uses: nothing.
+                       *> Result: world 2, screen 1.
+                       CALL "PIT-NOIR"
+                   ELSE
+                       ADD     2                 TO    WS-SCORE
+                       MOVE    3                 TO    WS-STATE
+                       MOVE    0                 TO    WS-TMR
+                   END-IF
+               ELSE
+                   IF      WS-SCR > WS-MAXSCR
+                       MOVE    WS-SCR            TO    WS-MAXSCR
+                       ADD     2                 TO    WS-SCORE
+                   END-IF
+                   MOVE    12                    TO    WS-PX
+                   *> Sets up the next screen.
+                   *> Uses: WS-WORLD and WS-SCR.
+                   *> Result: foes, ground and vine of the new screen.
+                   CALL "PIT-LOAD"
+               END-IF
+           END-IF
+           IF      WS-STATE = 0 AND WS-PX < 8
+               IF      WS-SCR = 1
+                   MOVE    8                     TO    WS-PX
+               ELSE
+                   SUBTRACT 1                    FROM  WS-SCR
+                   MOVE    788                   TO    WS-PX
+                   *> Sets up the previous screen.
+                   *> Uses: WS-WORLD and WS-SCR.
+                   *> Result: foes, ground and vine of that screen.
+                   CALL "PIT-LOAD"
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="PIT-TICK" paragraph="PIT-TICK"><![CDATA[       PROCEDURE DIVISION.
+           *> One tick of the game by state: 4 title, 0 play, 1 death scene, 2 game over, 3 heaven.
+           EVALUATE WS-STATE
+               WHEN 4
+                   ADD     1                     TO    WS-T
+                   IF      CNV-PIT::IsKeyDown( "Space" ) = 1 OR CNV-PIT::GamepadButton( 0 ) = 1
+                       *> A new game.
+                       *> Uses: nothing.
+                       *> Result: jungle, screen 1, zero points, WS-STATE is 0.
+                       CALL "PIT-RESTART"
+                       MOVE    1                 TO    WS-JMP
+                   END-IF
+               WHEN 0
+                   *> Moves the explorer, the foes and the vine one frame.
+                   *> Uses: the keys, the screen state.
+                   *> Result: position, score and state are up to date.
+                   CALL "PIT-UPDATE"
+               WHEN 1
+                   ADD     1                     TO    WS-TMR
+                   ADD     1                     TO    WS-T
+                   IF      WS-TMR > 170
+                       IF      WS-WORLD = 1
+                           *> Enters the other side.
+                           *> Uses: nothing.
+                           *> Result: world 2, screen 1, ghost explorer.
+                           CALL "PIT-NOIR"
+                       ELSE
+                           MOVE    2             TO    WS-STATE
+                           MOVE    0             TO    WS-TMR
+                           MOVE    1             TO    WS-JMP
+                       END-IF
+                   END-IF
+               WHEN 2
+                   ADD     1                     TO    WS-TMR
+                   ADD     1                     TO    WS-T
+                   IF      WS-TMR > 60 AND ( CNV-PIT::IsKeyDown( "Space" ) = 1 OR CNV-PIT::GamepadButton( 0 ) = 1 )
+                       *> A new game.
+                       *> Uses: nothing.
+                       *> Result: jungle, screen 1, zero points, WS-STATE is 0.
+                       CALL "PIT-RESTART"
+                       MOVE    1                 TO    WS-JMP
+                   END-IF
+               WHEN OTHER
+                   ADD     1                     TO    WS-TMR
+                   ADD     1                     TO    WS-T
+                   IF      WS-TMR > 700 AND ( CNV-PIT::IsKeyDown( "Space" ) = 1 OR CNV-PIT::GamepadButton( 0 ) = 1 )
+                       *> A new game.
+                       *> Uses: nothing.
+                       *> Result: jungle, screen 1, zero points, WS-STATE is 0.
+                       CALL "PIT-RESTART"
+                       MOVE    1                 TO    WS-JMP
+                   END-IF
+           END-EVALUATE
+]]></Event>
+    <Event name="PIT-DRAW-BG" paragraph="PIT-DRAW-BG"><![CDATA[       PROCEDURE DIVISION.
+           *> The backdrop of the screen: canopy, trunks and the two strips of ground; jungle or noir by WS-WORLD.
+           IF      WS-WORLD = 1
+               CNV-PIT::Clear( "#2F8F2F" )
+               CNV-PIT::SetFillColor( "#0E5A14" )
+               CNV-PIT::FillRect( 0 0 800 150 )
+               CNV-PIT::SetFillColor( "#167A1E" )
+               PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 9
+                   CNV-PIT::DrawCircle( WS-I * 90 + 20 140 54 1 )
+               END-PERFORM
+               CNV-PIT::SetFillColor( "#0A4A10" )
+               PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 8
+                   CNV-PIT::DrawCircle( WS-I * 100 + 60 150 40 1 )
+               END-PERFORM
+           ELSE
+               CNV-PIT::SetLinearGradient( 0 0 0 0 400 "0 33753855 1 236596479" )
+               CNV-PIT::FillRect( 0 0 800 420 )
+               CNV-PIT::SetFillColor( "#9AA6B8" )
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I < 1 OR WS-I > 28
+                   COMPUTE WS-X1 = FUNCTION MOD( WS-I * 137 + WS-B * 7 , 790 ) + 5
+                   COMPUTE WS-Y1 = FUNCTION MOD( WS-I * 53 , 120 ) + 8
+                   CNV-PIT::DrawCircle( WS-X1 WS-Y1 1 1 )
+               END-PERFORM
+               *> The half-moon above the tree line, with its pale halo.
+               CNV-PIT::SetRadialGradient( 0 640 78 6 640 78 130 "0 3722899536 1 3722899456" )
+               CNV-PIT::FillRect( 500 0 300 220 )
+               CNV-PIT::SetFillColor( "#E8EDF2" )
+               CNV-PIT::BeginPath()
+               CNV-PIT::Arc( 640 78 40 4.712389 1.570796 0 )
+               CNV-PIT::ClosePath()
+               CNV-PIT::Fill( 0 )
+               CNV-PIT::SetFillColor( "#C9D1DC" )
+               CNV-PIT::DrawCircle( 656 70 6 1 )
+               CNV-PIT::DrawCircle( 650 94 4 1 )
+               CNV-PIT::SetFillColor( "#03050A" )
+               CNV-PIT::FillRect( 0 118 800 40 )
+               PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 9
+                   CNV-PIT::DrawCircle( WS-I * 90 + 20 150 52 1 )
+               END-PERFORM
+               PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 12
+                   COMPUTE WS-Y1 = 120 + FUNCTION MOD( WS-I * 29 + WS-B , 22 )
+                   CNV-PIT::DrawCircle( WS-I * 66 + 10 WS-Y1 34 1 )
+               END-PERFORM
+           END-IF
+           *> The trunks: four of them, shifted by the byte of the screen.
+           PERFORM VARYING WS-J FROM 0 BY 1 UNTIL WS-J > 3
+               COMPUTE WS-X1 = 60 + WS-J * 210 + FUNCTION MOD( WS-B * (WS-J + 3) , 70 )
+               IF      WS-WORLD = 1
+                   CNV-PIT::SetFillColor( "#4F320F" )
+                   CNV-PIT::FillRect( WS-X1 140 28 262 )
+                   CNV-PIT::SetFillColor( "#6B4518" )
+                   CNV-PIT::FillRect( WS-X1 140 9 262 )
+               ELSE
+                   CNV-PIT::SetFillColor( "#070B10" )
+                   CNV-PIT::FillRect( WS-X1 140 28 262 )
+                   CNV-PIT::SetFillColor( "#121B26" )
+                   CNV-PIT::FillRect( WS-X1 140 6 262 )
+               END-IF
+           END-PERFORM
+           IF      WS-WORLD = 1
+               CNV-PIT::SetFillColor( "#C8A050" )
+               CNV-PIT::FillRect( 0 400 800 22 )
+               CNV-PIT::SetFillColor( "#5C3A18" )
+               CNV-PIT::FillRect( 0 422 800 178 )
+               CNV-PIT::SetFillColor( "#24160A" )
+               CNV-PIT::FillRect( 0 480 800 70 )
+               CNV-PIT::SetFillColor( "#7A5028" )
+               PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 12
+                   CNV-PIT::FillRect( WS-I * 64 + 4 486 56 14 )
+                   CNV-PIT::FillRect( WS-I * 64 + 36 506 56 14 )
+               END-PERFORM
+           ELSE
+               CNV-PIT::SetFillColor( "#161C24" )
+               CNV-PIT::FillRect( 0 400 800 22 )
+               CNV-PIT::SetFillColor( "#07090D" )
+               CNV-PIT::FillRect( 0 422 800 178 )
+               CNV-PIT::SetFillColor( "#0E131A" )
+               PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 12
+                   CNV-PIT::FillRect( WS-I * 64 + 4 486 56 14 )
+                   CNV-PIT::FillRect( WS-I * 64 + 36 506 56 14 )
+               END-PERFORM
+           END-IF
+]]></Event>
+    <Event name="PIT-DRAW-PIT" paragraph="PIT-DRAW-PIT"><![CDATA[       PROCEDURE DIVISION.
+           *> The hole of the screen (tar pit or alligator pond) and, on both, the vine with its glowing trail on the other side.
+           IF      WS-GK = 1
+               IF      WS-WORLD = 1
+                   CNV-PIT::SetFillColor( "#0B0B0B" )
+               ELSE
+                   CNV-PIT::SetFillColor( "#000000" )
+               END-IF
+               CNV-PIT::FillRect( WS-PA 400 WS-PB - WS-PA 70 )
+               CNV-PIT::SetFillColor( "#3A3A3A" )
+               PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 4
+                   COMPUTE WS-X1 = WS-PA + 18 + WS-I * 30
+                   COMPUTE WS-Y1 = 408 + FUNCTION MOD( WS-T / 6 + WS-I * 3 , 9 )
+                   CNV-PIT::DrawCircle( WS-X1 WS-Y1 3 1 )
+               END-PERFORM
+           END-IF
+           IF      WS-GK = 2
+               IF      WS-WORLD = 1
+                   CNV-PIT::SetFillColor( "#1F6FD0" )
+               ELSE
+                   CNV-PIT::SetFillColor( "#050D18" )
+               END-IF
+               CNV-PIT::FillRect( WS-PA 400 WS-PB - WS-PA 70 )
+               PERFORM VARYING WS-J FROM 0 BY 1 UNTIL WS-J > 2
+                   COMPUTE WS-X1 = WS-PA + 5 + WS-J * 65
+                   COMPUTE WS-T2 = FUNCTION MOD( WS-T + WS-J * 47 , 140 )
+                   IF      WS-WORLD = 1
+                       CNV-PIT::SetFillColor( "#2E8B2E" )
+                   ELSE
+                       CNV-PIT::SetFillColor( "#D9D6C8" )
+                   END-IF
+                   CNV-PIT::FillRect( WS-X1 400 60 18 )
+                   IF      WS-T2 < 55
+                       *> The mouth is open: the upper jaw rises, teeth show, stepping here is death.
+                       CNV-PIT::BeginPath()
+                       CNV-PIT::MoveTo( WS-X1 400 )
+                       CNV-PIT::LineTo( WS-X1 + 60 372 )
+                       CNV-PIT::LineTo( WS-X1 + 60 400 )
+                       CNV-PIT::ClosePath()
+                       CNV-PIT::Fill( 0 )
+                       CNV-PIT::SetFillColor( "#FFFFFF" )
+                       PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 4
+                           CNV-PIT::FillRect( WS-X1 + 8 + WS-I * 10 396 4 7 )
+                       END-PERFORM
+                       CNV-PIT::SetFillColor( "#D03030" )
+                       CNV-PIT::FillRect( WS-X1 + 4 398 52 3 )
+                   ELSE
+                       CNV-PIT::SetFillColor( "#101010" )
+                       CNV-PIT::DrawCircle( WS-X1 + 50 404 3 1 )
+                   END-IF
+                   IF      WS-WORLD = 2
+                       CNV-PIT::SetFillColor( "#7FE8FF" )
+                       CNV-PIT::DrawCircle( WS-X1 + 48 405 2.5 1 )
+                       CNV-PIT::SetStrokeColor( "#5A5A50" )
+                       CNV-PIT::SetLineWidth( 1.5 )
+                       PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 3
+                           CNV-PIT::DrawLine( WS-X1 + 6 + WS-I * 9 402 WS-X1 + 6 + WS-I * 9 416 )
+                       END-PERFORM
+                   END-IF
+               END-PERFORM
+           END-IF
+]]></Event>
+    <Event name="PIT-DRAW-VINE" paragraph="PIT-DRAW-VINE"><![CDATA[       PROCEDURE DIVISION.
+           *> The vine hangs from the canopy at WS-VPIV; in the other world it glows and leaves a fading trail.
+           IF      WS-GK > 0
+               IF      WS-WORLD = 2
+                   PERFORM VARYING WS-I FROM 14 BY -1 UNTIL WS-I < 1
+                       COMPUTE WS-ALPHA = (15 - WS-I) / 60
+                       CNV-PIT::SetAlpha( WS-ALPHA )
+                       CNV-PIT::SetStrokeColor( "#FFFFFF" )
+                       CNV-PIT::SetLineWidth( 7 )
+                       CNV-PIT::SetLineCap( 1 )
+                       CNV-PIT::BeginPath()
+                       CNV-PIT::MoveTo( WS-VPIV 100 )
+                       CNV-PIT::LineTo( WS-TRX(WS-I) WS-TRY(WS-I) )
+                       CNV-PIT::Stroke()
+                   END-PERFORM
+                   CNV-PIT::SetAlpha( 0.35 )
+                   CNV-PIT::SetStrokeColor( "#BFE8FF" )
+                   CNV-PIT::SetLineWidth( 11 )
+                   CNV-PIT::BeginPath()
+                   CNV-PIT::MoveTo( WS-VPIV 100 )
+                   CNV-PIT::LineTo( WS-VTX WS-VTY )
+                   CNV-PIT::Stroke()
+                   CNV-PIT::SetAlpha( 1 )
+                   CNV-PIT::SetStrokeColor( "#FFFFFF" )
+               ELSE
+                   CNV-PIT::SetStrokeColor( "#2B1A08" )
+               END-IF
+               CNV-PIT::SetLineWidth( 4 )
+               CNV-PIT::SetLineCap( 1 )
+               CNV-PIT::BeginPath()
+               CNV-PIT::MoveTo( WS-VPIV 100 )
+               CNV-PIT::LineTo( WS-VTX WS-VTY )
+               CNV-PIT::Stroke()
+           END-IF
+]]></Event>
+    <Event name="PIT-DRAW-FOES" paragraph="PIT-DRAW-FOES"><![CDATA[       PROCEDURE DIVISION.
+           *> The foes of the screen. Jungle: logs, fire, scorpions. Other side: rolling skulls, ghost fire, ethereal scorpions.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-NF
+               MOVE    WS-FX(WS-I)               TO    WS-X1
+               EVALUATE WS-FKIND(WS-I)
+                   WHEN 1
+                       IF      WS-WORLD = 1
+                           CNV-PIT::SetFillColor( "#7A4A1A" )
+                           CNV-PIT::BeginPath()
+                           CNV-PIT::RoundRect( WS-X1 - 22 376 44 24 10 10 10 10 )
+                           CNV-PIT::Fill( 0 )
+                           CNV-PIT::SetStrokeColor( "#4F2E0C" )
+                           CNV-PIT::SetLineWidth( 2 )
+                           COMPUTE WS-X2 = FUNCTION MOD( WS-T * 2 , 20 )
+                           CNV-PIT::DrawLine( WS-X1 - 20 + WS-X2 378 WS-X1 - 20 + WS-X2 398 )
+                           CNV-PIT::DrawLine( WS-X1 - 8 + WS-X2 378 WS-X1 - 8 + WS-X2 398 )
+                       ELSE
+                           CNV-PIT::SetFillColor( "#D9D6C8" )
+                           CNV-PIT::DrawCircle( WS-X1 386 14 1 )
+                           CNV-PIT::SetFillColor( "#05070A" )
+                           CNV-PIT::DrawCircle( WS-X1 - 5 383 4 1 )
+                           CNV-PIT::DrawCircle( WS-X1 + 5 383 4 1 )
+                           CNV-PIT::FillRect( WS-X1 - 3 391 6 5 )
+                           CNV-PIT::SetFillColor( "#FF4040" )
+                           CNV-PIT::DrawCircle( WS-X1 - 5 383 1.5 1 )
+                           CNV-PIT::DrawCircle( WS-X1 + 5 383 1.5 1 )
+                       END-IF
+                   WHEN 2
+                       IF      WS-WORLD = 1
+                           CNV-PIT::SetFillColor( "#7A4A1A" )
+                           CNV-PIT::BeginPath()
+                           CNV-PIT::RoundRect( WS-X1 - 24 372 48 28 8 8 8 8 )
+                           CNV-PIT::Fill( 0 )
+                           CNV-PIT::SetFillColor( "#9C6428" )
+                           CNV-PIT::DrawCircle( WS-X1 - 24 386 8 1 )
+                       ELSE
+                           CNV-PIT::SetFillColor( "#CFCABA" )
+                           CNV-PIT::BeginPath()
+                           CNV-PIT::RoundRect( WS-X1 - 24 372 48 28 8 8 8 8 )
+                           CNV-PIT::Fill( 0 )
+                           CNV-PIT::SetFillColor( "#05070A" )
+                           CNV-PIT::DrawCircle( WS-X1 - 10 384 5 1 )
+                           CNV-PIT::DrawCircle( WS-X1 + 10 384 5 1 )
+                           CNV-PIT::SetFillColor( "#FF5050" )
+                           CNV-PIT::DrawCircle( WS-X1 - 10 384 1.8 1 )
+                           CNV-PIT::DrawCircle( WS-X1 + 10 384 1.8 1 )
+                       END-IF
+                   WHEN 4
+                       COMPUTE WS-Y1 = 6 * FUNCTION SIN( WS-T * 0.3 )
+                       IF      WS-WORLD = 1
+                           CNV-PIT::SetFillColor( "#E86A10" )
+                       ELSE
+                           CNV-PIT::SetAlpha( 0.8 )
+                           CNV-PIT::SetFillColor( "#8FD8FF" )
+                       END-IF
+                       CNV-PIT::BeginPath()
+                       CNV-PIT::MoveTo( WS-X1 - 14 400 )
+                       CNV-PIT::LineTo( WS-X1 + WS-Y1 366 )
+                       CNV-PIT::LineTo( WS-X1 + 14 400 )
+                       CNV-PIT::ClosePath()
+                       CNV-PIT::Fill( 0 )
+                       IF      WS-WORLD = 1
+                           CNV-PIT::SetFillColor( "#FFD040" )
+                       ELSE
+                           CNV-PIT::SetFillColor( "#FFFFFF" )
+                       END-IF
+                       CNV-PIT::BeginPath()
+                       CNV-PIT::MoveTo( WS-X1 - 7 400 )
+                       CNV-PIT::LineTo( WS-X1 + WS-Y1 / 2 380 )
+                       CNV-PIT::LineTo( WS-X1 + 7 400 )
+                       CNV-PIT::ClosePath()
+                       CNV-PIT::Fill( 0 )
+                       CNV-PIT::SetAlpha( 1 )
+                   WHEN OTHER
+                       IF      WS-WORLD = 1
+                           CNV-PIT::SetFillColor( "#C0301C" )
+                           CNV-PIT::SetStrokeColor( "#C0301C" )
+                       ELSE
+                           CNV-PIT::SetAlpha( 0.75 )
+                           CNV-PIT::SetFillColor( "#7FF0FF" )
+                           CNV-PIT::SetStrokeColor( "#7FF0FF" )
+                       END-IF
+                       CNV-PIT::BeginPath()
+                       CNV-PIT::Ellipse( WS-X1 390 14 8 0 0 6.2831853 0 )
+                       CNV-PIT::Fill( 0 )
+                       CNV-PIT::SetLineWidth( 3 )
+                       CNV-PIT::BeginPath()
+                       CNV-PIT::Arc( WS-X1 + 12 386 10 3.4 5.9 0 )
+                       CNV-PIT::Stroke()
+                       CNV-PIT::DrawCircle( WS-X1 + 20 376 3 1 )
+                       CNV-PIT::DrawLine( WS-X1 - 12 388 WS-X1 - 20 380 )
+                       CNV-PIT::DrawLine( WS-X1 - 8 396 WS-X1 - 16 400 )
+                       CNV-PIT::DrawLine( WS-X1 + 6 396 WS-X1 + 10 400 )
+                       CNV-PIT::SetAlpha( 1 )
+               END-EVALUATE
+           END-PERFORM
+]]></Event>
+    <Event name="PIT-DRAW-PLAYER" paragraph="PIT-DRAW-PLAYER"><![CDATA[       PROCEDURE DIVISION.
+           *> The explorer (feet at WS-PX, WS-PY) in the jungle; the ghost, with a wavy hem and two dark eyes, on the other side.
+           COMPUTE WS-X2 = 8 * FUNCTION SIN( WS-ANIM * 0.35 )
+           IF      WS-ONGR = 0
+               MOVE    7                         TO    WS-X2
+           END-IF
+           IF      WS-PVX = 0 AND WS-ONGR = 1
+               MOVE    0                         TO    WS-X2
+           END-IF
+           IF      WS-WORLD = 1
+               CNV-PIT::SetStrokeColor( "#2A5BB0" )
+               CNV-PIT::SetLineWidth( 5 )
+               CNV-PIT::SetLineCap( 1 )
+               CNV-PIT::DrawLine( WS-PX WS-PY - 22 WS-PX + WS-X2 WS-PY )
+               CNV-PIT::DrawLine( WS-PX WS-PY - 22 WS-PX - WS-X2 WS-PY )
+               CNV-PIT::SetStrokeColor( "#2E9E3A" )
+               CNV-PIT::SetLineWidth( 8 )
+               CNV-PIT::DrawLine( WS-PX WS-PY - 44 WS-PX WS-PY - 24 )
+               CNV-PIT::SetStrokeColor( "#E8B27A" )
+               CNV-PIT::SetLineWidth( 4 )
+               IF      WS-VGRAB = 1
+                   CNV-PIT::DrawLine( WS-PX WS-PY - 42 WS-PX - 3 WS-PY - 50 )
+                   CNV-PIT::DrawLine( WS-PX WS-PY - 42 WS-PX + 3 WS-PY - 50 )
+               ELSE
+                   CNV-PIT::DrawLine( WS-PX WS-PY - 40 WS-PX + WS-FACE * 10 WS-PY - 28 + WS-X2 / 4 )
+                   CNV-PIT::DrawLine( WS-PX WS-PY - 40 WS-PX - WS-FACE * 6 WS-PY - 28 - WS-X2 / 4 )
+               END-IF
+               CNV-PIT::SetFillColor( "#E8B27A" )
+               CNV-PIT::DrawCircle( WS-PX WS-PY - 52 7 1 )
+               CNV-PIT::SetFillColor( "#5A3510" )
+               CNV-PIT::FillRect( WS-PX - 8 WS-PY - 61 16 5 )
+           ELSE
+               COMPUTE WS-X1 = 3 * FUNCTION SIN( WS-T * 0.12 )
+               CNV-PIT::SetRadialGradient( 0 WS-PX WS-PY - 34 4 WS-PX WS-PY - 34 46 "0 4294967184 1 4294967040" )
+               CNV-PIT::FillRect( WS-PX - 50 WS-PY - 84 100 100 )
+               CNV-PIT::SetAlpha( 0.78 )
+               CNV-PIT::SetFillColor( "#EFF6FF" )
+               CNV-PIT::BeginPath()
+               CNV-PIT::Arc( WS-PX WS-PY - 44 12 3.141593 0 0 )
+               CNV-PIT::LineTo( WS-PX + 12 WS-PY + WS-X1 - 2 )
+               CNV-PIT::LineTo( WS-PX + 6 WS-PY - 6 )
+               CNV-PIT::LineTo( WS-PX WS-PY + WS-X1 )
+               CNV-PIT::LineTo( WS-PX - 6 WS-PY - 6 )
+               CNV-PIT::LineTo( WS-PX - 12 WS-PY - WS-X1 - 2 )
+               CNV-PIT::ClosePath()
+               CNV-PIT::Fill( 0 )
+               CNV-PIT::SetAlpha( 1 )
+               CNV-PIT::SetFillColor( "#101820" )
+               CNV-PIT::DrawCircle( WS-PX - 4 + WS-FACE * 2 WS-PY - 46 2.6 1 )
+               CNV-PIT::DrawCircle( WS-PX + 4 + WS-FACE * 2 WS-PY - 46 2.6 1 )
+               CNV-PIT::BeginPath()
+               CNV-PIT::Ellipse( WS-PX + WS-FACE * 2 WS-PY - 38 2.5 3.5 0 0 6.2831853 0 )
+               CNV-PIT::Fill( 0 )
+           END-IF
+]]></Event>
+    <Event name="PIT-DRAW-NOIR" paragraph="PIT-DRAW-NOIR"><![CDATA[       PROCEDURE DIVISION.
+           *> The fog and the blinking eyes of the other side: eyes in the trees (each blinks on its own beat), drifting fog on top.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 9
+               COMPUTE WS-X1 = FUNCTION MOD( WS-I * 97 + WS-B * 53 , 760 ) + 20
+               COMPUTE WS-Y1 = 176 + FUNCTION MOD( WS-I * 41 + WS-B * 31 , 170 )
+               COMPUTE WS-T2 = FUNCTION MOD( WS-T + WS-I * 37 + WS-B , 190 )
+               IF      WS-T2 < 150
+                   IF      FUNCTION MOD( WS-I , 3 ) = 0
+                       CNV-PIT::SetFillColor( "#FFD040" )
+                   ELSE
+                       CNV-PIT::SetFillColor( "#FF3030" )
+                   END-IF
+                   CNV-PIT::SetAlpha( 0.28 )
+                   CNV-PIT::DrawCircle( WS-X1 - 7 WS-Y1 6 1 )
+                   CNV-PIT::DrawCircle( WS-X1 + 7 WS-Y1 6 1 )
+                   CNV-PIT::SetAlpha( 1 )
+                   CNV-PIT::BeginPath()
+                   CNV-PIT::Ellipse( WS-X1 - 7 WS-Y1 3 2 0 0 6.2831853 0 )
+                   CNV-PIT::Fill( 0 )
+                   CNV-PIT::BeginPath()
+                   CNV-PIT::Ellipse( WS-X1 + 7 WS-Y1 3 2 0 0 6.2831853 0 )
+                   CNV-PIT::Fill( 0 )
+               END-IF
+           END-PERFORM
+           CNV-PIT::SetFillColor( "#B8C4D0" )
+           PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 6
+               COMPUTE WS-X1 = FUNCTION MOD( WS-I * 170 + WS-T / 3 , 1000 ) - 100
+               COMPUTE WS-Y1 = 300 + (WS-I * 37) - (WS-I / 3) * 90 + 10 * FUNCTION SIN( WS-T * 0.01 + WS-I )
+               CNV-PIT::SetAlpha( 0.08 )
+               CNV-PIT::BeginPath()
+               CNV-PIT::Ellipse( WS-X1 WS-Y1 190 34 0 0 6.2831853 0 )
+               CNV-PIT::Fill( 0 )
+               CNV-PIT::BeginPath()
+               CNV-PIT::Ellipse( WS-X1 + 70 WS-Y1 + 12 120 24 0 0 6.2831853 0 )
+               CNV-PIT::Fill( 0 )
+           END-PERFORM
+           CNV-PIT::SetAlpha( 1 )
+           CNV-PIT::SetLinearGradient( 0 0 330 0 440 "0 3099906048 1 3099906128" )
+           CNV-PIT::FillRect( 0 330 800 110 )
+]]></Event>
+    <Event name="PIT-DRAW-HUD" paragraph="PIT-DRAW-HUD"><![CDATA[       PROCEDURE DIVISION.
+           *> The score, the screen and the world over the picture.
+           CNV-PIT::SetFont( "bold 18px Ubuntu" )
+           CNV-PIT::SetTextAlign( 2 )
+           CNV-PIT::SetTextBaseline( 1 )
+           IF      WS-WORLD = 1
+               CNV-PIT::SetFillColor( "#FFF5C0" )
+           ELSE
+               CNV-PIT::SetFillColor( "#C9D8EA" )
+           END-IF
+           MOVE    WS-SCORE                      TO    WS-E1
+           MOVE    SPACES                        TO    WS-HUD
+           STRING  "SCORE " WS-E1 DELIMITED BY SIZE INTO WS-HUD
+           CNV-PIT::DrawText( WS-HUD 14 10 0 1 )
+           CNV-PIT::SetTextAlign( 3 )
+           MOVE    WS-SCR                        TO    WS-E2
+           MOVE    SPACES                        TO    WS-HUD
+           IF      WS-WORLD = 1
+               STRING  "THE JUNGLE  " WS-E2 "/100" DELIMITED BY SIZE INTO WS-HUD
+           ELSE
+               STRING  "THE OTHER SIDE  " WS-E2 "/100" DELIMITED BY SIZE INTO WS-HUD
+           END-IF
+           CNV-PIT::DrawText( WS-HUD 786 10 0 1 )
+]]></Event>
+    <Event name="PIT-DRAW-HEAVEN" paragraph="PIT-DRAW-HEAVEN"><![CDATA[       PROCEDURE DIVISION.
+           *> The cutscene: the ghost leaves the forest, rises through the clouds and goes into the light.
+           CNV-PIT::SetLinearGradient( 0 0 0 0 600 "0 4293501183 1 270020863" )
+           CNV-PIT::FillRect( 0 0 800 600 )
+           PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 9
+               COMPUTE WS-X1 = 400 + (WS-I - 5) * 40
+               CNV-PIT::SetLinearGradient( 0 400 0 WS-X1 600 "0 4294230128 1 4294230016" )
+               CNV-PIT::BeginPath()
+               CNV-PIT::MoveTo( 400 -20 )
+               CNV-PIT::LineTo( WS-X1 - 40 + FUNCTION MOD( WS-TMR , 40 ) 600 )
+               CNV-PIT::LineTo( WS-X1 + 10 + FUNCTION MOD( WS-TMR , 40 ) 600 )
+               CNV-PIT::ClosePath()
+               CNV-PIT::Fill( 0 )
+           END-PERFORM
+           CNV-PIT::SetFillColor( "#FFFFFF" )
+           CNV-PIT::SetAlpha( 0.8 )
+           PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 7
+               COMPUTE WS-X1 = FUNCTION MOD( WS-I * 150 + WS-TMR / 2 , 900 ) - 60
+               COMPUTE WS-Y1 = 480 + FUNCTION MOD( WS-I * 37 , 90 ) - WS-TMR / 6
+               CNV-PIT::BeginPath()
+               CNV-PIT::Ellipse( WS-X1 WS-Y1 80 22 0 0 6.2831853 0 )
+               CNV-PIT::Fill( 0 )
+           END-PERFORM
+           CNV-PIT::SetAlpha( 1 )
+           COMPUTE WS-Y2 = 560 - WS-TMR * 0.7
+           COMPUTE WS-X2 = 400 + 14 * FUNCTION SIN( WS-TMR * 0.05 )
+           CNV-PIT::SetRadialGradient( 0 WS-X2 WS-Y2 6 WS-X2 WS-Y2 70 "0 4294967184 1 4294967040" )
+           CNV-PIT::FillRect( WS-X2 - 80 WS-Y2 - 80 160 160 )
+           CNV-PIT::SetFillColor( "#FFFFFF" )
+           CNV-PIT::BeginPath()
+           CNV-PIT::Arc( WS-X2 WS-Y2 - 20 14 3.141593 0 0 )
+           CNV-PIT::LineTo( WS-X2 + 14 WS-Y2 + 14 )
+           CNV-PIT::LineTo( WS-X2 + 7 WS-Y2 + 4 )
+           CNV-PIT::LineTo( WS-X2 WS-Y2 + 14 )
+           CNV-PIT::LineTo( WS-X2 - 7 WS-Y2 + 4 )
+           CNV-PIT::LineTo( WS-X2 - 14 WS-Y2 + 14 )
+           CNV-PIT::ClosePath()
+           CNV-PIT::Fill( 0 )
+           CNV-PIT::SetFillColor( "#C0902A" )
+           CNV-PIT::DrawCircle( WS-X2 - 5 WS-Y2 - 22 2.4 1 )
+           CNV-PIT::DrawCircle( WS-X2 + 5 WS-Y2 - 22 2.4 1 )
+           CNV-PIT::SetFont( "bold 34px Ubuntu" )
+           CNV-PIT::SetTextAlign( 4 )
+           CNV-PIT::SetTextBaseline( 3 )
+           CNV-PIT::SetFillColor( "#FFFFFF" )
+           IF      WS-TMR > 260
+               CNV-PIT::DrawText( "At peace at last." 400 150 0 1 )
+           END-IF
+           IF      WS-TMR > 480
+               CNV-PIT::SetFont( "bold 22px Ubuntu" )
+               MOVE    WS-SCORE                  TO    WS-E1
+               MOVE    SPACES                    TO    WS-HUD
+               STRING  "Final score " WS-E1 DELIMITED BY SIZE INTO WS-HUD
+               CNV-PIT::DrawText( WS-HUD 400 200 0 1 )
+           END-IF
+           IF      WS-TMR > 700
+               CNV-PIT::SetFont( "16px Ubuntu" )
+               CNV-PIT::DrawText( "Press Space to play again" 400 240 0 1 )
+           END-IF
+]]></Event>
+    <Event name="PIT-DRAW-OVERLAY" paragraph="PIT-DRAW-OVERLAY"><![CDATA[       PROCEDURE DIVISION.
+           *> The messages on top: the title, the death scene (with the score) and the game over.
+           CNV-PIT::SetTextAlign( 4 )
+           CNV-PIT::SetTextBaseline( 3 )
+           EVALUATE WS-STATE
+               WHEN 4
+                   CNV-PIT::SetFillColor( "#000000B0" )
+                   CNV-PIT::FillRect( 0 150 800 300 )
+                   CNV-PIT::SetFont( "bold 46px Ubuntu" )
+                   CNV-PIT::SetFillColor( "#FFE27A" )
+                   CNV-PIT::DrawText( "PITFALL: THE OTHER SIDE" 400 220 0 1 )
+                   CNV-PIT::SetFont( "18px Ubuntu" )
+                   CNV-PIT::SetFillColor( "#FFFFFF" )
+                   CNV-PIT::DrawText( "Cross 100 screens of jungle. Jump the foes: 1 point each; every screen: 2 points." 400 290 0 1 )
+                   CNV-PIT::DrawText( "Arrows walk, Space jumps and lets go of the vine (gamepad: stick and first button)." 400 322 0 1 )
+                   CNV-PIT::SetFillColor( "#9AD8FF" )
+                   CNV-PIT::DrawText( "Die once, and the jungle will not be the same." 400 366 0 1 )
+                   IF      FUNCTION MOD( WS-T , 60 ) < 40
+                       CNV-PIT::SetFillColor( "#FFFFFF" )
+                       CNV-PIT::DrawText( "Press Space" 400 410 0 1 )
+                   END-IF
+               WHEN 1
+                   IF      WS-TMR > 40
+                       COMPUTE WS-ALPHA = (WS-TMR - 40) / 140
+                       IF      WS-ALPHA > 0.9
+                           MOVE    0.9           TO    WS-ALPHA
+                       END-IF
+                       CNV-PIT::SetAlpha( WS-ALPHA )
+                       CNV-PIT::SetFillColor( "#000000" )
+                       CNV-PIT::FillRect( 0 0 800 600 )
+                       CNV-PIT::SetAlpha( 1 )
+                       CNV-PIT::SetFont( "bold 44px Ubuntu" )
+                       CNV-PIT::SetFillColor( "#E03030" )
+                       CNV-PIT::DrawText( "YOU DIED" 400 250 0 1 )
+                       CNV-PIT::SetFont( "22px Ubuntu" )
+                       CNV-PIT::SetFillColor( "#FFFFFF" )
+                       MOVE    WS-SCORE          TO    WS-E1
+                       MOVE    SPACES            TO    WS-HUD
+                       STRING  "Score " WS-E1 DELIMITED BY SIZE INTO WS-HUD
+                       CNV-PIT::DrawText( WS-HUD 400 300 0 1 )
+                       IF      WS-WORLD = 1
+                           CNV-PIT::SetFillColor( "#9AD8FF" )
+                           CNV-PIT::DrawText( "...and you rise again, on the other side." 400 346 0 1 )
+                       END-IF
+                   END-IF
+               WHEN 2
+                   CNV-PIT::SetFillColor( "#000000C8" )
+                   CNV-PIT::FillRect( 0 0 800 600 )
+                   CNV-PIT::SetFont( "bold 48px Ubuntu" )
+                   CNV-PIT::SetFillColor( "#E8E8F0" )
+                   CNV-PIT::DrawText( "GAME OVER" 400 230 0 1 )
+                   CNV-PIT::SetFont( "26px Ubuntu" )
+                   MOVE    WS-SCORE              TO    WS-E1
+                   MOVE    WS-JUMPED             TO    WS-E2
+                   MOVE    SPACES                TO    WS-HUD
+                   STRING  "Score " WS-E1 "   (foes jumped " WS-E2 ")" DELIMITED BY SIZE INTO WS-HUD
+                   CNV-PIT::DrawText( WS-HUD 400 290 0 1 )
+                   IF      WS-TMR > 60 AND FUNCTION MOD( WS-T , 60 ) < 40
+                       CNV-PIT::SetFont( "18px Ubuntu" )
+                       CNV-PIT::DrawText( "Press Space to start again" 400 350 0 1 )
+                   END-IF
+           END-EVALUATE
+]]></Event>
+  </user-procedures>
+  <Control id="CNV-PIT" type="Canvas2D" x="10" y="10" w="800" h="600" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 800 by 600 drawing surface of the game: a jungle that turns into a noir forest after the first death. It runs the game and draws everything sixty times a second; the arrows and Space (or a gamepad) play it.</Property>
+    <Property name="Width">800</Property>
+    <Property name="Height">600</Property>
+    <Property name="TargetFps">60</Property>
+    <Property name="FixedStep">True</Property>
+    <Property name="AccessibleLabel">Pitfall: the other side. Left and right arrows walk, Space jumps and lets go of the vine</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Event name="onFrame" paragraph="CNV-PIT--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
+           *> Plays one frame by state.
+           *> Uses: WS-STATE and the keys held on CNV-PIT.
+           *> Result: position, foes, score and state are up to date.
+           CALL "PIT-TICK"
+
+           *> The backdrop of the screen.
+           *> Uses: WS-WORLD (jungle or noir), WS-B (the byte of the screen).
+           *> Result: sky, canopy, trunks and ground are on the canvas.
+           CALL "PIT-DRAW-BG"
+           IF      WS-STATE = 3
+               *> The heaven cutscene replaces the picture.
+               *> Uses: WS-TMR (the frame of the scene).
+               *> Result: the ghost rises on the canvas.
+               CALL "PIT-DRAW-HEAVEN"
+           ELSE
+               *> The pit or the pond of the screen.
+               *> Uses: WS-GK, WS-PA, WS-PB, WS-T.
+               *> Result: the hole is on the canvas.
+               CALL "PIT-DRAW-PIT"
+               *> The vine and its trail.
+               *> Uses: WS-VPIV, WS-VTX, WS-VTY and the trail points.
+               *> Result: the vine is on the canvas.
+               CALL "PIT-DRAW-VINE"
+               *> The foes.
+               *> Uses: WS-NF, WS-FX, WS-FKIND, WS-WORLD.
+               *> Result: the foes are on the canvas.
+               CALL "PIT-DRAW-FOES"
+               IF      WS-STATE NOT = 1 OR WS-TMR < 40 OR FUNCTION MOD( WS-TMR , 6 ) < 3
+                   *> The explorer (or the ghost).
+                   *> Uses: WS-PX, WS-PY, WS-ONGR, WS-VGRAB, WS-WORLD.
+                   *> Result: the figure is on the canvas.
+                   CALL "PIT-DRAW-PLAYER"
+               END-IF
+               IF      WS-WORLD = 2
+                   *> The fog and the eyes.
+                   *> Uses: WS-T and WS-B.
+                   *> Result: fog and eyes are on the canvas.
+                   CALL "PIT-DRAW-NOIR"
+               END-IF
+               *> Score and screen.
+               *> Uses: WS-SCORE, WS-SCR, WS-WORLD.
+               *> Result: the status line is on the canvas.
+               CALL "PIT-DRAW-HUD"
+           END-IF
+           *> The title, the death scene and the game over.
+           *> Uses: WS-STATE, WS-TMR, WS-SCORE.
+           *> Result: the messages are on the canvas.
+           CALL "PIT-DRAW-OVERLAY"
+           CNV-PIT::Present()
+]]></Event>
+  </Control>
+  <Control id="BTN-BACK" type="Button" x="690" y="632" w="120" h="32" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Closes the game and returns to the previous window.</Property>
+    <Property name="Caption">Close</Property>
+    <Event name="onClick" paragraph="BTN-BACK--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::Close()
+]]></Event>
+  </Control>
+  <Control id="LBL-HELP" type="Label" x="10" y="632" w="670" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The controls of the game, shown under the canvas.</Property>
+    <Property name="Caption">Click the canvas first. Arrows walk. Space jumps. Touch a vine tip in the air to grab it; press Space to let go.</Property>
+    <Property name="ForegroundColor">#C8D0DC</Property>
+  </Control>
+</Form>

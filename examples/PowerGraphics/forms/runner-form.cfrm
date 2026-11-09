@@ -1,0 +1,600 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="RUNNER-FORM" title="PowerGraphics - Bald runner" width="820" height="590" background="#1B1F27FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" definition="A Scene3D showcase: a stylised bald runner built from primitives and animated by code runs down an endless sunset city street (buildings with lit windows, street lamps with point lights, parked cars, fog, a shadow-casting sun) seen from behind and above by a Canvas3D." index-base="1">
+  <working-storage><![CDATA[       01 WS-RUN                                 GLOBAL    PIC 9(10).
+       01 WS-TOR                                 GLOBAL    PIC 9(10).
+       01 WS-HIP                                 GLOBAL    PIC 9(10).
+       01 WS-HEAD                                GLOBAL    PIC 9(10).
+       01 WS-LEGL                                GLOBAL    PIC 9(10).
+       01 WS-LEGR                                GLOBAL    PIC 9(10).
+       01 WS-KNL                                 GLOBAL    PIC 9(10).
+       01 WS-KNR                                 GLOBAL    PIC 9(10).
+       01 WS-ARML                                GLOBAL    PIC 9(10).
+       01 WS-ARMR                                GLOBAL    PIC 9(10).
+       01 WS-ELL                                 GLOBAL    PIC 9(10).
+       01 WS-ELR                                 GLOBAL    PIC 9(10).
+       01 WS-CAM                                 GLOBAL    PIC 9(10).
+       01 WS-SUN                                 GLOBAL    PIC 9(10).
+       01 WS-FOLLOW                              GLOBAL    PIC 9(10).
+       01 WS-MARKS                               GLOBAL    PIC 9(10).
+       01 WS-H                                   GLOBAL    PIC 9(10).
+       01 WS-MAT                                 GLOBAL    PIC 9(10).
+       01 WS-MATW                                GLOBAL    PIC 9(10).
+       01 WS-MATC                                GLOBAL    PIC 9(10).
+       01 WS-MATB                                GLOBAL    PIC 9(10).
+       01 WS-MATR                                GLOBAL    PIC 9(10).
+       01 WS-TABLES                              GLOBAL.
+           05 WS-BG                              PIC 9(10)    OCCURS 20.
+           05 WS-BB                              PIC 9(10)    OCCURS 20.
+           05 WS-BW                              PIC 9(10)    OCCURS 60.
+           05 WS-BZ                              PIC S9(5)V9(3) OCCURS 20.
+           05 WS-LG                              PIC 9(10)    OCCURS 6.
+           05 WS-LZ                              PIC S9(5)V9(3) OCCURS 6.
+           05 WS-CG                              PIC 9(10)    OCCURS 6.
+           05 WS-CZ                              PIC S9(5)V9(3) OCCURS 6.
+       01 WS-I                                   GLOBAL    PIC 99.
+       01 WS-J                                   GLOBAL    PIC 99.
+       01 WS-K                                   GLOBAL    PIC 99.
+       01 WS-N                                   GLOBAL    PIC 99.
+       01 WS-W                                   GLOBAL    PIC 99.
+       01 WS-REC                                 GLOBAL    PIC 9(5)        VALUE 0.
+       01 WS-VAR                                 GLOBAL    PIC 99.
+       01 WS-SCL                                 GLOBAL    PIC S9(3)V9(3).
+       01 WS-SIDE                                GLOBAL    PIC S9.
+       01 WS-X                                   GLOBAL    PIC S9(5)V9(3).
+       01 WS-Y                                   GLOBAL    PIC S9(5)V9(3).
+       01 WS-Z                                   GLOBAL    PIC S9(5)V9(3).
+       01 WS-DIST                                GLOBAL    PIC S9(7)V9(3)  VALUE 0.
+       01 WS-RX                                  GLOBAL    PIC S9(3)V9(3)  VALUE 0.
+       01 WS-RY                                  GLOBAL    PIC S9(3)V9(3)  VALUE 0.
+       01 WS-RZ                                  GLOBAL    PIC S9(7)V9(3)  VALUE 0.
+       01 WS-VY                                  GLOBAL    PIC S9(3)V9(3)  VALUE 0.
+       01 WS-AIR                                 GLOBAL    PIC 9           VALUE 0.
+       01 WS-SPACE                               GLOBAL    PIC 9           VALUE 0.
+       01 WS-SPEED                               GLOBAL    PIC S9(3)V9(3)  VALUE 16.
+       01 WS-PH                                  GLOBAL    PIC S9(3)V9(5)  VALUE 0.
+       01 WS-S                                   GLOBAL    PIC S9(3)V9(5).
+       01 WS-S2                                  GLOBAL    PIC S9(3)V9(5).
+       01 WS-A1                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-A2                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-A3                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-A4                                  GLOBAL    PIC S9(5)V9(3).
+       01 WS-SN                                  GLOBAL    PIC S9(7).
+       01 WS-PTR                                 GLOBAL    PIC 9(5).
+       01 WS-INST                                GLOBAL    PIC X(6000).
+       01 WS-ED                                  GLOBAL    PIC -ZZZ9.9.
+       01 WS-E1                                  GLOBAL    PIC Z(6)9.
+       01 WS-E2                                  GLOBAL    PIC ZZ9.
+       01 WS-HUD                                 GLOBAL    PIC X(80).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="RUNNER-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           *> The sky: a dusk gradient, warm fog that swallows the far end of the street, a faint violet ambient light.
+           SCN-1::SetBackgroundGradient( "#2E2766" "#FF9A5A" )
+           SCN-1::SetFog( 1 0.6 0.38 22 115 )
+           SCN-1::SetAmbient( 0.55 0.4 0.6 0.55 )
+
+           *> The sun: a warm directional light low over the horizon that casts shadows.
+           SET     WS-SUN                        TO    SCN-1::AddDirectionalLight( 1 0.62 0.36 1.25 1 )
+           SCN-1::SetRotation( WS-SUN -28 18 0 )
+
+           *> Builds the runner.
+           *> Uses: SCN-1 (the scene) and the handle items WS-RUN ... WS-ELR.
+           *> Result: a node tree RUN > HIP > legs and RUN > HIP > TORSO > head and arms exists at the origin.
+           CALL "RUN-BUILD-RUNNER"
+
+           *> Builds the street: road, sidewalks, lane marks, buildings, lamps and parked cars.
+           *> Uses: SCN-1 and the handle and z tables.
+           *> Result: every street node exists, buildings spread over 120 m of street.
+           CALL "RUN-BUILD-STREET"
+
+           SET     WS-CAM                        TO    SCN-1::AddCamera( 62 0.1 300 )
+           CNV-3D::SetScene( SCN-1::GetHandle() )
+           CNV-3D::SetCamera( WS-CAM )
+
+           *> Poses the runner, moves the camera.
+           *> Uses: WS-PH, WS-RX, WS-RY, WS-RZ.
+           *> Result: the first frame is ready.
+           CALL "RUN-STEP"
+           CNV-3D::Render()
+]]></Event>
+    <Event name="onClose" paragraph="RUNNER-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <user-procedures>
+    <Event name="RUN-BUILD-RUNNER" paragraph="RUN-BUILD-RUNNER"><![CDATA[       PROCEDURE DIVISION.
+           *> RUN is the whole runner; HIP carries the legs and the shorts; TOR (the torso group) leans forward and carries the head and the arms.
+           SET     WS-RUN                        TO    SCN-1::AddGroup()
+           SET     WS-HIP                        TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-HIP WS-RUN )
+           SCN-1::SetPosition( WS-HIP 0 1.2 0 )
+           SET     WS-TOR                        TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-TOR WS-HIP )
+           SCN-1::SetRotation( WS-TOR -12 0 0 )
+
+           *> A tank top and orange shorts.
+           SET     WS-H                          TO    SCN-1::AddBox( 0.55 0.75 0.3 )
+           SCN-1::SetParent( WS-H WS-TOR )
+           SCN-1::SetPosition( WS-H 0 0.4 0 )
+           SCN-1::SetColor( WS-H "#1FB6D9" )
+           SET     WS-H                          TO    SCN-1::AddBox( 0.58 0.28 0.34 )
+           SCN-1::SetParent( WS-H WS-HIP )
+           SCN-1::SetPosition( WS-H 0 -0.02 0 )
+           SCN-1::SetColor( WS-H "#F0702A" )
+
+           *> The bald head: a smooth sphere with a shiny skin material (low roughness) that catches the sun.
+           SET     WS-HEAD                       TO    SCN-1::AddSphere( 0.22 32 )
+           SCN-1::SetParent( WS-HEAD WS-TOR )
+           SCN-1::SetPosition( WS-HEAD 0 1.07 0 )
+           SCN-1::SetColor( WS-HEAD "#E9B48C" )
+           SET     WS-MAT                        TO    SCN-1::GetMaterial( WS-HEAD )
+           SCN-1::SetRoughness( WS-MAT 0.1 )
+           SCN-1::SetMetallic( WS-MAT 0 )
+
+           *> Left arm: a shoulder group, an upper arm, an elbow group (bent 70 degrees), a forearm and a hand.
+           SET     WS-ARML                       TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-ARML WS-TOR )
+           SCN-1::SetPosition( WS-ARML -0.37 0.68 0 )
+           SET     WS-H                          TO    SCN-1::AddCylinder( 0.07 0.42 )
+           SCN-1::SetParent( WS-H WS-ARML )
+           SCN-1::SetPosition( WS-H 0 -0.21 0 )
+           SCN-1::SetColor( WS-H "#E9B48C" )
+           SET     WS-ELL                        TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-ELL WS-ARML )
+           SCN-1::SetPosition( WS-ELL 0 -0.42 0 )
+           SCN-1::SetRotation( WS-ELL 70 0 0 )
+           SET     WS-H                          TO    SCN-1::AddCylinder( 0.06 0.4 )
+           SCN-1::SetParent( WS-H WS-ELL )
+           SCN-1::SetPosition( WS-H 0 -0.2 0 )
+           SCN-1::SetColor( WS-H "#E9B48C" )
+           SET     WS-H                          TO    SCN-1::AddSphere( 0.08 )
+           SCN-1::SetParent( WS-H WS-ELL )
+           SCN-1::SetPosition( WS-H 0 -0.42 0 )
+           SCN-1::SetColor( WS-H "#E9B48C" )
+
+           *> Right arm.
+           SET     WS-ARMR                       TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-ARMR WS-TOR )
+           SCN-1::SetPosition( WS-ARMR 0.37 0.68 0 )
+           SET     WS-H                          TO    SCN-1::AddCylinder( 0.07 0.42 )
+           SCN-1::SetParent( WS-H WS-ARMR )
+           SCN-1::SetPosition( WS-H 0 -0.21 0 )
+           SCN-1::SetColor( WS-H "#E9B48C" )
+           SET     WS-ELR                        TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-ELR WS-ARMR )
+           SCN-1::SetPosition( WS-ELR 0 -0.42 0 )
+           SCN-1::SetRotation( WS-ELR 70 0 0 )
+           SET     WS-H                          TO    SCN-1::AddCylinder( 0.06 0.4 )
+           SCN-1::SetParent( WS-H WS-ELR )
+           SCN-1::SetPosition( WS-H 0 -0.2 0 )
+           SCN-1::SetColor( WS-H "#E9B48C" )
+           SET     WS-H                          TO    SCN-1::AddSphere( 0.08 )
+           SCN-1::SetParent( WS-H WS-ELR )
+           SCN-1::SetPosition( WS-H 0 -0.42 0 )
+           SCN-1::SetColor( WS-H "#E9B48C" )
+
+           *> Left leg: a hip joint, a thigh, a knee group, a shin and a white shoe.
+           SET     WS-LEGL                       TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-LEGL WS-HIP )
+           SCN-1::SetPosition( WS-LEGL -0.15 -0.15 0 )
+           SET     WS-H                          TO    SCN-1::AddCylinder( 0.1 0.5 )
+           SCN-1::SetParent( WS-H WS-LEGL )
+           SCN-1::SetPosition( WS-H 0 -0.25 0 )
+           SCN-1::SetColor( WS-H "#E9B48C" )
+           SET     WS-KNL                        TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-KNL WS-LEGL )
+           SCN-1::SetPosition( WS-KNL 0 -0.5 0 )
+           SET     WS-H                          TO    SCN-1::AddCylinder( 0.08 0.5 )
+           SCN-1::SetParent( WS-H WS-KNL )
+           SCN-1::SetPosition( WS-H 0 -0.25 0 )
+           SCN-1::SetColor( WS-H "#E9B48C" )
+           SET     WS-H                          TO    SCN-1::AddBox( 0.17 0.1 0.32 )
+           SCN-1::SetParent( WS-H WS-KNL )
+           SCN-1::SetPosition( WS-H 0 -0.52 -0.06 )
+           SCN-1::SetColor( WS-H "#FFFFFF" )
+
+           *> Right leg.
+           SET     WS-LEGR                       TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-LEGR WS-HIP )
+           SCN-1::SetPosition( WS-LEGR 0.15 -0.15 0 )
+           SET     WS-H                          TO    SCN-1::AddCylinder( 0.1 0.5 )
+           SCN-1::SetParent( WS-H WS-LEGR )
+           SCN-1::SetPosition( WS-H 0 -0.25 0 )
+           SCN-1::SetColor( WS-H "#E9B48C" )
+           SET     WS-KNR                        TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-KNR WS-LEGR )
+           SCN-1::SetPosition( WS-KNR 0 -0.5 0 )
+           SET     WS-H                          TO    SCN-1::AddCylinder( 0.08 0.5 )
+           SCN-1::SetParent( WS-H WS-KNR )
+           SCN-1::SetPosition( WS-H 0 -0.25 0 )
+           SCN-1::SetColor( WS-H "#E9B48C" )
+           SET     WS-H                          TO    SCN-1::AddBox( 0.17 0.1 0.32 )
+           SCN-1::SetParent( WS-H WS-KNR )
+           SCN-1::SetPosition( WS-H 0 -0.52 -0.06 )
+           SCN-1::SetColor( WS-H "#FFFFFF" )
+]]></Event>
+    <Event name="RUN-BUILD-STREET" paragraph="RUN-BUILD-STREET"><![CDATA[       PROCEDURE DIVISION.
+           *> Shared materials: warm and cool lit windows, a glowing lamp bulb, a red tail light.
+           SET     WS-MATW                       TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-MATW "#FFD98A" )
+           SCN-1::SetEmissive( WS-MATW 1 0.78 0.4 )
+           SET     WS-MATC                       TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-MATC "#9FD8FF" )
+           SCN-1::SetEmissive( WS-MATC 0.55 0.8 1 )
+           SET     WS-MATB                       TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-MATB "#FFE2A0" )
+           SCN-1::SetEmissive( WS-MATB 1 0.85 0.5 )
+           SET     WS-MATR                       TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-MATR "#FF2020" )
+           SCN-1::SetEmissive( WS-MATR 1 0.1 0.1 )
+
+           *> A group that follows the runner carries the ground, the road, the sidewalks and the edge lines, so the street never ends.
+           SET     WS-FOLLOW                     TO    SCN-1::AddGroup()
+           SET     WS-H                          TO    SCN-1::AddPlane( 120 300 )
+           SCN-1::SetParent( WS-H WS-FOLLOW )
+           SCN-1::SetPosition( WS-H 0 -0.06 0 )
+           SCN-1::SetColor( WS-H "#1D1B22" )
+           SET     WS-H                          TO    SCN-1::AddPlane( 9 300 )
+           SCN-1::SetParent( WS-H WS-FOLLOW )
+           SCN-1::SetPosition( WS-H 0 -0.03 0 )
+           SCN-1::SetColor( WS-H "#34363E" )
+           SET     WS-MAT                        TO    SCN-1::GetMaterial( WS-H )
+           SCN-1::SetRoughness( WS-MAT 0.3 )
+           SCN-1::SetMetallic( WS-MAT 0.25 )
+           SET     WS-H                          TO    SCN-1::AddBox( 3 0.2 300 )
+           SCN-1::SetParent( WS-H WS-FOLLOW )
+           SCN-1::SetPosition( WS-H -7.6 0.04 0 )
+           SCN-1::SetColor( WS-H "#9A9CA6" )
+           SET     WS-H                          TO    SCN-1::AddBox( 3 0.2 300 )
+           SCN-1::SetParent( WS-H WS-FOLLOW )
+           SCN-1::SetPosition( WS-H 7.6 0.04 0 )
+           SCN-1::SetColor( WS-H "#9A9CA6" )
+           SET     WS-H                          TO    SCN-1::AddBox( 0.12 0.02 300 )
+           SCN-1::SetParent( WS-H WS-FOLLOW )
+           SCN-1::SetPosition( WS-H -4.3 -0.01 0 )
+           SCN-1::SetColor( WS-H "#EDEDED" )
+           SET     WS-H                          TO    SCN-1::AddBox( 0.12 0.02 300 )
+           SCN-1::SetParent( WS-H WS-FOLLOW )
+           SCN-1::SetPosition( WS-H 4.3 -0.01 0 )
+           SCN-1::SetColor( WS-H "#EDEDED" )
+
+           *> The dashed lane marks are ONE box drawn forty times (SetInstances): a column-major 4x4 matrix per copy, the
+           *> translation in the last four numbers. The node itself steps 8 m at a time with the runner, so the dashes scroll.
+           SET     WS-MARKS                      TO    SCN-1::AddBox( 0.15 0.02 2.5 )
+           SCN-1::SetColor( WS-MARKS "#FFE9A8" )
+           MOVE    SPACES                        TO    WS-INST
+           MOVE    1                             TO    WS-PTR
+           PERFORM VARYING WS-K FROM 0 BY 1 UNTIL WS-K > 19
+               PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 2
+                   IF      WS-J = 1
+                       MOVE    -1.5              TO    WS-ED
+                   ELSE
+                       MOVE    1.5               TO    WS-ED
+                   END-IF
+                   COMPUTE WS-A1 = 24 - WS-K * 8
+                   STRING  "1 0 0 0 0 1 0 0 0 0 1 0 " WS-ED " 0 " WS-A1 " 1 "
+                           DELIMITED BY SIZE INTO WS-INST WITH POINTER WS-PTR
+               END-PERFORM
+           END-PERFORM
+           SCN-1::SetInstances( WS-MARKS WS-INST )
+
+           *> Twenty buildings, ten a side, 12 m apart. A body box, three bands of lit windows, varied colours and finishes.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 20
+               COMPUTE WS-K = ( WS-I + 1 ) / 2
+               COMPUTE WS-BZ(WS-I) = 12 - WS-K * 12
+               SET     WS-BG(WS-I)               TO    SCN-1::AddGroup()
+               SET     WS-BB(WS-I)               TO    SCN-1::AddBox( 6 10 10 )
+               SCN-1::SetParent( WS-BB(WS-I) WS-BG(WS-I) )
+               EVALUATE FUNCTION MOD( WS-I 5 )
+                   WHEN 0  SCN-1::SetColor( WS-BB(WS-I) "#6C7A9C" )
+                   WHEN 1  SCN-1::SetColor( WS-BB(WS-I) "#A0675B" )
+                   WHEN 2  SCN-1::SetColor( WS-BB(WS-I) "#4E6E81" )
+                   WHEN 3  SCN-1::SetColor( WS-BB(WS-I) "#8C8C94" )
+                   WHEN 4  SCN-1::SetColor( WS-BB(WS-I) "#7A5C8C" )
+               END-EVALUATE
+               SET     WS-MAT                    TO    SCN-1::GetMaterial( WS-BB(WS-I) )
+               IF      FUNCTION MOD( WS-I 3 ) = 0
+                   SCN-1::SetMetallic( WS-MAT 0.6 )
+                   SCN-1::SetRoughness( WS-MAT 0.25 )
+               ELSE
+                   SCN-1::SetMetallic( WS-MAT 0.05 )
+                   SCN-1::SetRoughness( WS-MAT 0.8 )
+               END-IF
+               PERFORM VARYING WS-W FROM 1 BY 1 UNTIL WS-W > 3
+                   COMPUTE WS-N = ( WS-I - 1 ) * 3 + WS-W
+                   SET     WS-BW(WS-N)           TO    SCN-1::AddBox( 0.1 1.2 8 )
+                   SCN-1::SetParent( WS-BW(WS-N) WS-BG(WS-I) )
+                   IF      FUNCTION MOD( WS-I 2 ) = 1
+                       SCN-1::SetMaterial( WS-BW(WS-N) WS-MATW )
+                   ELSE
+                       SCN-1::SetMaterial( WS-BW(WS-N) WS-MATC )
+                   END-IF
+               END-PERFORM
+               MOVE    WS-I                      TO    WS-N
+               *> Sizes and places building WS-N from its z in WS-BZ and the recycle count.
+               *> Uses: WS-N (the slot), WS-BZ(WS-N), WS-REC.
+               *> Result: the group is on its side of the street, the body and the window bands have a new height.
+               CALL "RUN-SET-BUILDING"
+           END-PERFORM
+
+           *> Six lamps, 20 m apart, alternating sides: a pole, an arm, a glowing bulb and a point light that pools on the asphalt.
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+               COMPUTE WS-LZ(WS-J) = 10 - WS-J * 20
+               IF      FUNCTION MOD( WS-J 2 ) = 1
+                   MOVE    -1                    TO    WS-SIDE
+               ELSE
+                   MOVE    1                     TO    WS-SIDE
+               END-IF
+               SET     WS-LG(WS-J)               TO    SCN-1::AddGroup()
+               COMPUTE WS-X = WS-SIDE * 7
+               COMPUTE WS-Z = WS-LZ(WS-J)
+               SCN-1::SetPosition( WS-LG(WS-J) WS-X 0.14 WS-Z )
+               SET     WS-H                      TO    SCN-1::AddCylinder( 0.07 5.2 )
+               SCN-1::SetParent( WS-H WS-LG(WS-J) )
+               SCN-1::SetPosition( WS-H 0 2.6 0 )
+               SCN-1::SetColor( WS-H "#2A2C33" )
+               SET     WS-MAT                    TO    SCN-1::GetMaterial( WS-H )
+               SCN-1::SetMetallic( WS-MAT 0.8 )
+               SCN-1::SetRoughness( WS-MAT 0.4 )
+               COMPUTE WS-A1 = WS-SIDE * -0.5
+               SET     WS-H                      TO    SCN-1::AddBox( 1 0.07 0.07 )
+               SCN-1::SetParent( WS-H WS-LG(WS-J) )
+               SCN-1::SetPosition( WS-H WS-A1 5.2 0 )
+               SCN-1::SetColor( WS-H "#2A2C33" )
+               COMPUTE WS-A1 = WS-SIDE * -1
+               SET     WS-H                      TO    SCN-1::AddSphere( 0.18 )
+               SCN-1::SetParent( WS-H WS-LG(WS-J) )
+               SCN-1::SetPosition( WS-H WS-A1 5.1 0 )
+               SCN-1::SetMaterial( WS-H WS-MATB )
+               SET     WS-H                      TO    SCN-1::AddPointLight( 1 0.8 0.5 2.2 18 )
+               SCN-1::SetParent( WS-H WS-LG(WS-J) )
+               SCN-1::SetPosition( WS-H WS-A1 4.9 0 )
+           END-PERFORM
+
+           *> Six parked cars with glossy metallic paint, tail lights and a darker cabin.
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+               COMPUTE WS-CZ(WS-J) = 0 - WS-J * 20
+               IF      FUNCTION MOD( WS-J 2 ) = 1
+                   MOVE    1                     TO    WS-SIDE
+               ELSE
+                   MOVE    -1                    TO    WS-SIDE
+               END-IF
+               SET     WS-CG(WS-J)               TO    SCN-1::AddGroup()
+               COMPUTE WS-X = WS-SIDE * 5.3
+               COMPUTE WS-Z = WS-CZ(WS-J)
+               SCN-1::SetPosition( WS-CG(WS-J) WS-X 0 WS-Z )
+               SET     WS-H                      TO    SCN-1::AddBox( 1.8 0.55 4 )
+               SCN-1::SetParent( WS-H WS-CG(WS-J) )
+               SCN-1::SetPosition( WS-H 0 0.5 0 )
+               EVALUATE FUNCTION MOD( WS-J 3 )
+                   WHEN 0  SCN-1::SetColor( WS-H "#D8342C" )
+                   WHEN 1  SCN-1::SetColor( WS-H "#2D6FD6" )
+                   WHEN 2  SCN-1::SetColor( WS-H "#E6C229" )
+               END-EVALUATE
+               SET     WS-MAT                    TO    SCN-1::GetMaterial( WS-H )
+               SCN-1::SetMetallic( WS-MAT 0.75 )
+               SCN-1::SetRoughness( WS-MAT 0.18 )
+               SET     WS-H                      TO    SCN-1::AddBox( 1.5 0.5 2.1 )
+               SCN-1::SetParent( WS-H WS-CG(WS-J) )
+               SCN-1::SetPosition( WS-H 0 1.02 0.2 )
+               SCN-1::SetColor( WS-H "#1B2530" )
+               SET     WS-MAT                    TO    SCN-1::GetMaterial( WS-H )
+               SCN-1::SetMetallic( WS-MAT 0.9 )
+               SCN-1::SetRoughness( WS-MAT 0.08 )
+               SET     WS-H                      TO    SCN-1::AddBox( 1.92 0.35 0.7 )
+               SCN-1::SetParent( WS-H WS-CG(WS-J) )
+               SCN-1::SetPosition( WS-H 0 0.2 1.3 )
+               SCN-1::SetColor( WS-H "#0E0E10" )
+               SET     WS-H                      TO    SCN-1::AddBox( 1.92 0.35 0.7 )
+               SCN-1::SetParent( WS-H WS-CG(WS-J) )
+               SCN-1::SetPosition( WS-H 0 0.2 -1.3 )
+               SCN-1::SetColor( WS-H "#0E0E10" )
+               SET     WS-H                      TO    SCN-1::AddBox( 0.35 0.14 0.05 )
+               SCN-1::SetParent( WS-H WS-CG(WS-J) )
+               SCN-1::SetPosition( WS-H -0.6 0.6 2.02 )
+               SCN-1::SetMaterial( WS-H WS-MATR )
+               SET     WS-H                      TO    SCN-1::AddBox( 0.35 0.14 0.05 )
+               SCN-1::SetParent( WS-H WS-CG(WS-J) )
+               SCN-1::SetPosition( WS-H 0.6 0.6 2.02 )
+               SCN-1::SetMaterial( WS-H WS-MATR )
+           END-PERFORM
+]]></Event>
+    <Event name="RUN-SET-BUILDING" paragraph="RUN-SET-BUILDING"><![CDATA[       PROCEDURE DIVISION.
+           *> Building WS-N goes to z = WS-BZ(WS-N) on the left (odd slots) or right (even) of the street; its height is 55% to 181% of the base,
+           *> chosen from the slot and the number of times buildings were recycled, so the skyline keeps changing.
+           COMPUTE WS-VAR = FUNCTION MOD( WS-N * 7 + WS-REC * 13 10 )
+           COMPUTE WS-SCL = 0.55 + WS-VAR * 0.14
+           IF      FUNCTION MOD( WS-N 2 ) = 1
+               MOVE    -12.5                     TO    WS-X
+               MOVE    3.05                      TO    WS-A3
+           ELSE
+               MOVE    12.5                      TO    WS-X
+               MOVE    -3.05                     TO    WS-A3
+           END-IF
+           COMPUTE WS-Z = WS-BZ(WS-N)
+           SCN-1::SetPosition( WS-BG(WS-N) WS-X 0 WS-Z )
+           SCN-1::SetScale( WS-BB(WS-N) 1 WS-SCL 1 )
+           COMPUTE WS-A1 = 5 * WS-SCL
+           SCN-1::SetPosition( WS-BB(WS-N) 0 WS-A1 0 )
+           PERFORM VARYING WS-W FROM 1 BY 1 UNTIL WS-W > 3
+               COMPUTE WS-K = ( WS-N - 1 ) * 3 + WS-W
+               COMPUTE WS-A2 = WS-SCL * ( WS-W * 2.4 )
+               SCN-1::SetPosition( WS-BW(WS-K) WS-A3 WS-A2 0 )
+           END-PERFORM
+]]></Event>
+    <Event name="RUN-ANIMATE" paragraph="RUN-ANIMATE"><![CDATA[       PROCEDURE DIVISION.
+           *> The gait: one phase angle WS-PH drives every joint. Legs and arms swing opposite to each other; the knees bend as the
+           *> leg comes through; the hips bob twice per stride. In the air the runner tucks.
+           COMPUTE WS-S = FUNCTION SIN( WS-PH )
+           COMPUTE WS-S2 = FUNCTION SIN( WS-PH + 2.2 )
+           IF      WS-AIR = 1
+               SCN-1::SetRotation( WS-LEGL 55 0 0 )
+               SCN-1::SetRotation( WS-LEGR -25 0 0 )
+               SCN-1::SetRotation( WS-KNL -70 0 0 )
+               SCN-1::SetRotation( WS-KNR -35 0 0 )
+               SCN-1::SetRotation( WS-ARML -60 0 0 )
+               SCN-1::SetRotation( WS-ARMR 60 0 0 )
+           ELSE
+               COMPUTE WS-A1 = 42 * WS-S
+               COMPUTE WS-A2 = 0 - WS-A1
+               SCN-1::SetRotation( WS-LEGL WS-A1 0 0 )
+               SCN-1::SetRotation( WS-LEGR WS-A2 0 0 )
+               COMPUTE WS-A3 = 0 - 45 * WS-S
+               COMPUTE WS-A4 = 45 * WS-S
+               SCN-1::SetRotation( WS-ARML WS-A3 0 0 )
+               SCN-1::SetRotation( WS-ARMR WS-A4 0 0 )
+               IF      WS-S2 < 0
+                   COMPUTE WS-A1 = -8
+                   COMPUTE WS-A2 = -8 - 55 * ( 0 - WS-S2 )
+               ELSE
+                   COMPUTE WS-A1 = -8 - 55 * WS-S2
+                   COMPUTE WS-A2 = -8
+               END-IF
+               SCN-1::SetRotation( WS-KNL WS-A1 0 0 )
+               SCN-1::SetRotation( WS-KNR WS-A2 0 0 )
+           END-IF
+           COMPUTE WS-A1 = 1.2 + WS-RY + 0.05 * FUNCTION SIN( WS-PH * 2 )
+           SCN-1::SetPosition( WS-HIP 0 WS-A1 0 )
+]]></Event>
+    <Event name="RUN-STEP" paragraph="RUN-STEP"><![CDATA[       PROCEDURE DIVISION.
+           *> Input: left and right change lane (clamped to the three lanes), up and down change the speed, Space jumps.
+           IF      CNV-3D::IsKeyDown( "ArrowLeft" ) = 1 AND WS-RX > -3.2
+               SUBTRACT 0.22                     FROM  WS-RX
+           END-IF
+           IF      CNV-3D::IsKeyDown( "ArrowRight" ) = 1 AND WS-RX < 3.2
+               ADD     0.22                      TO    WS-RX
+           END-IF
+           IF      CNV-3D::IsKeyDown( "ArrowUp" ) = 1 AND WS-SPEED < 45
+               ADD     0.3                       TO    WS-SPEED
+           END-IF
+           IF      CNV-3D::IsKeyDown( "ArrowDown" ) = 1 AND WS-SPEED > 8
+               SUBTRACT 0.4                      FROM  WS-SPEED
+           END-IF
+           IF      CNV-3D::IsKeyDown( "Space" ) = 1
+               IF      WS-SPACE = 0 AND WS-AIR = 0
+                   MOVE    1                     TO    WS-AIR
+                   MOVE    8.2                   TO    WS-VY
+               END-IF
+               MOVE    1                         TO    WS-SPACE
+           ELSE
+               MOVE    0                         TO    WS-SPACE
+           END-IF
+
+           *> Motion: a frame is 1/30 s; gravity pulls the jump down.
+           IF      WS-AIR = 1
+               SUBTRACT 0.8                      FROM  WS-VY
+               COMPUTE WS-RY = WS-RY + WS-VY / 30
+               IF      WS-RY <= 0
+                   MOVE    0                     TO    WS-RY
+                   MOVE    0                     TO    WS-AIR
+               END-IF
+           END-IF
+           COMPUTE WS-DIST = WS-DIST + WS-SPEED / 30
+           COMPUTE WS-RZ = 0 - WS-DIST
+           COMPUTE WS-PH = WS-PH + WS-SPEED * 0.04
+           IF      WS-PH > 6.2831853
+               SUBTRACT 6.2831853                FROM  WS-PH
+           END-IF
+
+           *> Poses the runner's joints from WS-PH.
+           *> Uses: WS-PH, WS-AIR, WS-RY.
+           *> Result: legs, knees, arms and hips are rotated for this frame.
+           CALL "RUN-ANIMATE"
+           SCN-1::SetPosition( WS-RUN WS-RX WS-RY WS-RZ )
+
+           *> The ground follows the runner; the lane marks step 8 m at a time.
+           COMPUTE WS-Z = WS-RZ - 100
+           SCN-1::SetPosition( WS-FOLLOW 0 0 WS-Z )
+           COMPUTE WS-SN = FUNCTION INTEGER( WS-RZ / 8 ) * 8
+           MOVE    WS-SN                         TO    WS-Z
+           SCN-1::SetPosition( WS-MARKS 0 -0.01 WS-Z )
+
+           *> A building, lamp or car that falls behind the camera is carried 120 m ahead.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 20
+               IF      WS-BZ(WS-I) > WS-RZ + 24
+                   SUBTRACT 120                  FROM  WS-BZ(WS-I)
+                   ADD     1                     TO    WS-REC
+                   MOVE    WS-I                  TO    WS-N
+                   *> Sizes and places building WS-N again.
+                   *> Uses: WS-N, WS-BZ(WS-N), WS-REC.
+                   *> Result: the building stands 120 m further on, with a new height.
+                   CALL "RUN-SET-BUILDING"
+               END-IF
+           END-PERFORM
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+               IF      WS-LZ(WS-J) > WS-RZ + 24
+                   SUBTRACT 120                  FROM  WS-LZ(WS-J)
+                   COMPUTE WS-Z = WS-LZ(WS-J)
+                   IF      FUNCTION MOD( WS-J 2 ) = 1
+                       MOVE    -7                TO    WS-X
+                   ELSE
+                       MOVE    7                 TO    WS-X
+                   END-IF
+                   SCN-1::SetPosition( WS-LG(WS-J) WS-X 0.14 WS-Z )
+               END-IF
+               IF      WS-CZ(WS-J) > WS-RZ + 24
+                   SUBTRACT 120                  FROM  WS-CZ(WS-J)
+                   COMPUTE WS-Z = WS-CZ(WS-J)
+                   IF      FUNCTION MOD( WS-J 2 ) = 1
+                       MOVE    5.3               TO    WS-X
+                   ELSE
+                       MOVE    -5.3              TO    WS-X
+                   END-IF
+                   SCN-1::SetPosition( WS-CG(WS-J) WS-X 0 WS-Z )
+               END-IF
+           END-PERFORM
+
+           *> The camera sits behind and above the runner and looks down the street.
+           COMPUTE WS-X = WS-RX * 0.5
+           COMPUTE WS-Y = 3.4 + WS-RY * 0.4
+           COMPUTE WS-Z = WS-RZ + 6.5
+           SCN-1::SetPosition( WS-CAM WS-X WS-Y WS-Z )
+           COMPUTE WS-X = WS-RX * 0.7
+           COMPUTE WS-Z = WS-RZ - 8
+           SCN-1::LookAt( WS-CAM WS-X 1.3 WS-Z )
+
+           MOVE    WS-DIST                       TO    WS-E1
+           COMPUTE WS-A1 = WS-SPEED * 3.6
+           MOVE    WS-A1                         TO    WS-E2
+           MOVE    SPACES                        TO    WS-HUD
+           STRING  "Distance " WS-E1 " m     Speed " WS-E2 " km/h"
+                   DELIMITED BY SIZE INTO WS-HUD
+           SET     LBL-DIST::Caption             TO    WS-HUD
+]]></Event>
+  </user-procedures>
+  <Control id="CNV-3D" type="Canvas3D" x="10" y="10" w="800" h="480" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 800 by 480 street view: a 3D canvas that draws the runner scene thirty times a second. Click it, then use the keys.</Property>
+    <Property name="Width">800</Property>
+    <Property name="Height">480</Property>
+    <Property name="TargetFps">30</Property>
+    <Property name="AccessibleLabel">A bald runner seen from behind running down a city street at sunset: left and right arrows change lane, up and down change speed, Space jumps</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Event name="onFrame" paragraph="CNV-3D--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
+           *> Moves the runner and the camera one frame.
+           *> Uses: the keys held on CNV-3D, WS-SPEED, WS-DIST.
+           *> Result: the scene is up to date and LBL-DIST shows the distance and speed.
+           CALL "RUN-STEP"
+           CNV-3D::Render()
+]]></Event>
+  </Control>
+  <Control id="SCN-1" type="Scene3D" x="10" y="550" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 3D scene of the street: the runner's node tree, the buildings, lamps, cars, the road, the sun and the camera.</Property>
+  </Control>
+  <Control id="LBL-DIST" type="Label" x="10" y="500" w="520" h="28" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The distance the runner has covered in metres and the current speed in kilometres an hour.</Property>
+    <Property name="Caption">Distance 0 m</Property>
+    <Property name="ForegroundColor">#FFD9A0</Property>
+  </Control>
+  <Control id="LBL-HELP" type="Label" x="10" y="528" w="640" h="24" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The keys of the showcase: click the street, then left and right to change lane, up and down for speed, Space to jump.</Property>
+    <Property name="Caption">Click the street, then: left/right change lane, up/down speed, Space jumps.</Property>
+    <Property name="ForegroundColor">#C8D0DC</Property>
+  </Control>
+  <Control id="BTN-BACK" type="Button" x="690" y="500" w="120" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Closes the runner showcase and returns to the previous window.</Property>
+    <Property name="Caption">Close</Property>
+    <Event name="onClick" paragraph="BTN-BACK--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::Close()
+]]></Event>
+  </Control>
+</Form>

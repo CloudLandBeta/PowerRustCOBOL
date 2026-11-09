@@ -268,4 +268,39 @@
     <Property name="CornerRadius">0</Property>
     <Property name="BorderStyle">None</Property>
   </Control>
+  <Control id="BTN-PITFALL" type="Button" x="500" y="136" w="130" h="32" tab-order="7" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Opens Pitfall, a 800 by 600 reinterpretation of the Atari game drawn on a Canvas2D, with a noir ghost world after the first death.</Property>
+    <Property name="Caption">Pitfall (Canvas2D)</Property>
+    <Event name="onClick" paragraph="BTN-PITFALL--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::OpenFormSync("PITFALL-FORM")
+]]></Event>
+  </Control>
+  <Control id="BTN-BRIDGE" type="Button" x="500" y="178" w="130" h="32" tab-order="8" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Opens the infinite bridge: a roadster jumps over vehicles and gaps, drawn by a Canvas3D from a Scene3D.</Property>
+    <Property name="Caption">Bridge run (3D)</Property>
+    <Event name="onClick" paragraph="BTN-BRIDGE--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::OpenFormSync("BRIDGE-FORM")
+]]></Event>
+  </Control>
+  <Control id="BTN-POOL2D" type="Button" x="500" y="220" w="130" h="32" tab-order="9" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Opens the top-view pool game, whose balls are moved by a Physics2D world.</Property>
+    <Property name="Caption">Pool (Physics2D)</Property>
+    <Event name="onClick" paragraph="BTN-POOL2D--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::OpenFormSync("POOL2D-FORM")
+]]></Event>
+  </Control>
+  <Control id="BTN-POOL3D" type="Button" x="500" y="262" w="130" h="32" tab-order="10" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Opens the 3D pool game, whose balls are moved by a Physics3D world and shown by a Scene3D.</Property>
+    <Property name="Caption">Pool 3D (Physics3D)</Property>
+    <Event name="onClick" paragraph="BTN-POOL3D--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::OpenFormSync("POOL3D-FORM")
+]]></Event>
+  </Control>
+  <Control id="BTN-RUNNER" type="Button" x="500" y="304" w="130" h="32" tab-order="11" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Opens the bald runner jogging down a city street, a Scene3D with a hierarchy of nodes, lights and fog.</Property>
+    <Property name="Caption">Street runner</Property>
+    <Event name="onClick" paragraph="BTN-RUNNER--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::OpenFormSync("RUNNER-FORM")
+]]></Event>
+  </Control>
 </Form>
