@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376), T16 done (2.0.377), T17 done (2.0.378), T18 done (2.0.379), T19 and T20 done (2.0.380: `chunked.data` regeneration owed to the operator, the semantic model is not on this machine); T21 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376), T16 done (2.0.377), T17 done (2.0.378), T18 done (2.0.379), T19 and T20 done (2.0.380: `chunked.data` regeneration owed to the operator, the semantic model is not on this machine); T21 done (2.0.381); T22 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -390,7 +390,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - IDE `prebuilt_chunked_kb_matches_the_published_documentation` green.
     - `strings` of `chunked.data` scanned for credentials before the commit.
 
-- [ ] **T21 — The differential test in Chrome** (R1, R4; AC2)
+- [x] **T21 — The differential test in Chrome** (R1, R4; AC2)
   - Files: new `crates/cobolt-web-bundle/tests/css_effective_chrome.rs` (uses `tests/support/cdp.rs`, as `matrix_chrome.rs` does), and its fixture project under `crates/cobolt-web-bundle/tests/projects/`.
   - Do:
     - Mount the AC2 fixture at 412 × 915 in headless Chrome. It sets the same property at each level: theme, stored, project sheet, form sheet, class, id, `CssStyle`, `!important`, `@media (max-width: 500px)` and `:hover`.

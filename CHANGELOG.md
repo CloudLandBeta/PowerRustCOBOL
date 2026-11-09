@@ -1,6 +1,11 @@
 # PowerRustCOBOL — Changelog
 
 
+
+## 2.0.381 — 2026-11-09
+
+**Test: the designer's cascade equals Chrome's computed style at nine levels (WASM-036 T21, AC2).** New `crates/cobolt-web-bundle/tests/css_effective_chrome.rs` builds a 412 × 915 Web form with one Panel per level of the cascade — a stored property, the project sheet, the form sheet, a class rule, an id rule beating the class, `CssStyle`, an `!important` rule against a later normal one, an `@media (max-width: 500px)` rule and a `:hover` rule — opens it in headless Chrome and compares `getComputedStyle(...).backgroundColor` with the value and the source the designer's engine reports. Result: 9 of 9 agree. The theme layer is not compared (it is the player's own sheet, not a sheet of the fixture). With no Chrome the test prints that it was skipped.
+
 ## 2.0.380 — 2026-11-09
 
 **Documentation: the System Knowledge Base describes the designer's CSS behaviour (WASM-036 T19, T20).** The stylesheet section of the platform documentation that Grace and the agents read (`project_model_and_settings.md`) now says what the designer does on a Web or Mobile form: the canvas paints the stylesheets' colours in the Light or Dark scheme the toolbar chooses (a view only, never written to a form or a sheet), the Properties panel shows the value in effect with a CSS mark naming the sheet and line, an edit of a value a rule decides is written into that declaration as one undo step, a shared rule asks first (once for a whole selection), the mark's menu offers **Go to the rule** and **Remove the CSS declaration**, `check` notes the overrides, and the Web Form Designer agent reads them with `form.properties` and writes through the same path. The `CssClass` entry no longer says the designer does not paint the CSS. The i18n audit of the feature's 26 texts found each in all six languages; the two marks planned for a value from the theme and a rule not in effect were not added (the theme's value is shown without a mark, and a rule not in effect is reported by the write's own message). **Owed to the operator:** `assets/knowledge/chunked.data` must be regenerated (`cargo run -p cobolt-ide --example build_chunked_kb`) once the semantic model is downloaded; `prebuilt_chunked_kb_matches_the_published_documentation` stays red until then, as it already was.
