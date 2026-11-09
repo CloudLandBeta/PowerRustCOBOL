@@ -15527,6 +15527,10 @@ impl CoboltApp {
             files.push(root.join(rel));
         }
         files.extend(crate::project_fs::form_stylesheet(path));
+        d.properties.css_project_sheet = match (&project_dir, &app_rel) {
+            (Some(root), Some(rel)) if root.join(rel).is_file() => Some(label(&root.join(rel))),
+            _ => None,
+        };
         let sheets: Vec<(String, String)> = files
             .iter()
             .filter_map(|f| std::fs::read(f).ok().map(|b| (label(f), String::from_utf8_lossy(&b).into_owned())))

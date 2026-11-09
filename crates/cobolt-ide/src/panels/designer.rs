@@ -824,6 +824,25 @@ const ANIM_BADGE_FILL: Color32 = Color32::from_rgba_premultiplied(255, 180, 0, 1
 /// The fill of the CSS badge (WASM-007 R12): a control styled by CSS the designer does not paint.
 const CSS_BADGE_FILL: Color32 = Color32::from_rgba_premultiplied(40, 110, 220, 220);
 
+/// The badge's tooltip (WASM-036 R7): its header, up to eight `file:line  declaration` lines, then
+/// how many more there are.
+pub(crate) fn css_badge_text(tr: &crate::i18n::Tr, unpainted: &[cobolt_forms::css_effective::Unpainted]) -> String {
+    const MAX: usize = 8;
+    let mut text = tr.css_badge_header.to_owned();
+    for u in unpainted.iter().take(MAX) {
+        let at = match &u.sheet {
+            Some(f) => format!("{f}:{}", u.line),
+            None => "CssStyle".to_owned(),
+        };
+        text.push_str(&format!("\n{at}  {}: {}", u.css, u.value));
+    }
+    if unpainted.len() > MAX {
+        text.push('\n');
+        text.push_str(&tr.css_badge_more.replace("{}", &(unpainted.len() - MAX).to_string()));
+    }
+    text
+}
+
 /// The layer a control is declared in: its outermost container's (spec 091 R8).
 fn root_layer<'a>(by_id: &HashMap<&str, &'a Control>, c: &'a Control, laps: usize) -> Option<&'a str> {
     let mut cur = c;
@@ -2882,9 +2901,11 @@ pub struct DesignerPanel {
     /// WASM-007 R4, R6 — a theme switch made by the developer (the theme before it), awaiting the
     /// app's update of the form's stylesheet. Drained every frame by `App::drain_theme_switches`.
     pub theme_switches: Vec<Option<String>>,
-    /// WASM-007 R12 — the controls a stylesheet rule or their `CssStyle` styles (upper-case ids),
-    /// and what they were found for; the canvas badges them.
-    css_styled: (u64, std::collections::HashSet<String>),
+    /// WASM-036 — each control's effective values under the sheets, computed once until something
+    /// they are computed from changes (R20).
+    pub(crate) css_cache: cobolt_forms::css_effective::EffectiveCache,
+    /// WASM-036 R24 — the colour scheme the canvas answers `prefers-color-scheme` with.
+    pub css_scheme: cobolt_forms::css::Scheme,
 
     pub dirty: bool,
     pub close_requested: bool,
@@ -3270,7 +3291,8 @@ impl DesignerPanel {
             menu_cache_dirty: Vec::new(),
             main_form_changes: Vec::new(),
             theme_switches: Vec::new(),
-            css_styled: Default::default(),
+            css_cache: Default::default(),
+            css_scheme: cobolt_forms::css::Scheme::Light,
             dirty: false,
             close_requested: false,
             close_confirm: false,
@@ -9109,33 +9131,26 @@ impl DesignerPanel {
 
     // ── Rendering ─────────────────────────────────────────────────────────────
 
-    /// WASM-007 R12 — the controls the canvas badges: a rule of the developer's stylesheets
-    /// (`properties.css_sheets`) matches them, or they have a `CssStyle`. Found again only when the
-    /// sheets or a control's id, type, place, classes or style change.
-    pub fn css_styled_ids(&mut self) -> std::collections::HashSet<String> {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        self.properties.css_sheets.hash(&mut h);
-        for c in &self.form.controls {
-            (&c.id, c.control_type.as_str(), &c.parent, &c.layer).hash(&mut h);
-            for key in ["CssClass", "CssStyle"] {
-                c.get_prop(key).map(|v| v.as_str().to_owned()).hash(&mut h);
-            }
+    /// WASM-036 R6 — what the project's and the form's stylesheets make of every control, at the
+    /// size and in the scheme the canvas shows. `None` for a Desktop form (no sheet to read), so its
+    /// canvas paints the stored properties exactly as before (R19).
+    pub(crate) fn css_style_view(&mut self) -> Option<cobolt_forms::css_effective::StyleView> {
+        use cobolt_forms::css_effective::{Origin, SheetSource, StyleView};
+        if !self.properties.web_project {
+            return None;
         }
-        let stamp = h.finish();
-        if self.css_styled.0 != stamp {
-            let sheets: Vec<(&str, &str)> = self.properties.css_sheets.iter().map(|(l, t)| (l.as_str(), t.as_str())).collect();
-            let has_style = |c: &Control| c.get_prop("CssStyle").is_some_and(|v| !v.as_str().trim().is_empty());
-            let styled = self
-                .form
-                .controls
-                .iter()
-                .filter(|c| has_style(c) || (!sheets.is_empty() && cobolt_forms::css_overrides::overrides(&self.form, &c.id, &sheets).styled))
-                .map(|c| c.id.to_ascii_uppercase())
-                .collect();
-            self.css_styled = (stamp, styled);
-        }
-        self.css_styled.1.clone()
+        let (w, h) = self.canvas_size();
+        let env = cobolt_forms::css::MediaEnv { width: w, height: h, scheme: self.css_scheme };
+        let theme = cobolt_forms::theme::resolve_theme_id(self.form.theme.as_deref(), self.project_form_theme.as_deref());
+        let project = self.properties.css_project_sheet.as_deref();
+        let sources: Vec<SheetSource<'_>> = self
+            .properties
+            .css_sheets
+            .iter()
+            .map(|(label, text)| SheetSource { label, text, origin: if Some(label.as_str()) == project { Origin::Project } else { Origin::Form } })
+            .collect();
+        let view = StyleView::build(&self.form, &sources, &theme, &env, &mut self.css_cache);
+        (!view.is_empty()).then_some(view)
     }
 
     pub fn show(
@@ -10772,7 +10787,7 @@ impl DesignerPanel {
 
                 // Draw controls sorted by z_order
                 let selected_ids = self.selected_ids.clone();
-                let css_styled = self.css_styled_ids();
+                let css_view = self.css_style_view();
                 let (form_w, form_h) = self.canvas_size();
 
                 // Build render list in container tree order — parents before
@@ -10896,6 +10911,9 @@ impl DesignerPanel {
                     self.tabs.is_non_visuals().then(|| self.non_visuals_view());
                 let controls_for_render: &[cobolt_forms::model::Control] =
                     nv_view.as_deref().unwrap_or(controls_for_render);
+                // WASM-036 R6 — the controls as the page's stylesheets make them, painted by the same engine.
+                let css_stamped: Option<Vec<cobolt_forms::model::Control>> = css_view.as_ref().map(|v| v.stamp(controls_for_render));
+                let controls_for_render: &[cobolt_forms::model::Control] = css_stamped.as_deref().unwrap_or(controls_for_render);
                 // Spec 094 — the DataGrids are drawn by the interactive renderer, not
                 // as static faces: the face the shared painter has for a grid is a
                 // label ("⊞ DataGrid (5 cols)"), not the grid. They are left out of
@@ -10929,7 +10947,7 @@ impl DesignerPanel {
                     let st: &dyn cobolt_forms::render::FormState = if laid.is_some() { &laid_st } else { &designer_st };
                     let without = super::grid_edit::Without { inner: st, hide: &hidden_grids };
                     let st: &dyn cobolt_forms::render::FormState = &without;
-                    let input = cobolt_forms::render::RenderInput { css_final: None,
+                    let input = cobolt_forms::render::RenderInput { css_final: css_view.as_ref().map(|v| &v.css_final),
                         controls: controls_for_render,
                         state: st,
                         form_size: Vec2::new(form_w, form_h),
@@ -11084,14 +11102,18 @@ impl DesignerPanel {
                             );
                         }
                     }
-                    // WASM-007 R12 — CSS the designer does not paint: a badge at the top-left corner.
+                    // WASM-007 R12 / WASM-036 R7 — CSS the designer does not paint: a badge at the top-left corner,
+                    // for the declarations the canvas cannot show, listed in its tooltip.
                     let css_centre = egui::pos2(crect.min.x + 2.0, crect.min.y + 2.0);
-                    if css_styled.contains(&ctrl.id.to_ascii_uppercase()) && !covered(css_centre) {
-                        let r = egui::Rect::from_center_size(css_centre, Vec2::splat(12.0));
-                        painter.circle_filled(r.center(), 5.0, CSS_BADGE_FILL);
-                        painter.text(r.center(), egui::Align2::CENTER_CENTER, "#", egui::FontId::proportional(7.0), Color32::WHITE);
-                        ui.interact(r, egui::Id::new(("css_badge", ctrl.id.as_str())), egui::Sense::hover())
-                            .on_hover_text(crate::ui_text::idef("Styled by CSS the designer does not paint", &[]));
+                    if let Some(unpainted) = css_view.as_ref().and_then(|v| v.unpainted.get(&ctrl.id)).filter(|u| !u.is_empty()) {
+                        if !covered(css_centre) {
+                            let r = egui::Rect::from_center_size(css_centre, Vec2::splat(12.0));
+                            painter.circle_filled(r.center(), 5.0, CSS_BADGE_FILL);
+                            painter.text(r.center(), egui::Align2::CENTER_CENTER, "#", egui::FontId::proportional(7.0), Color32::WHITE);
+                            let tr = crate::i18n::current_tr(ui.ctx());
+                            ui.interact(r, egui::Id::new(("css_badge", ctrl.id.as_str())), egui::Sense::hover())
+                                .on_hover_text(css_badge_text(&tr, unpainted));
+                        }
                     }
                     // Animation badge tooltip — hover to see the animation list.
                     let badge_centre = egui::pos2(crect.max.x - 2.0, crect.min.y + 2.0);
@@ -23063,24 +23085,6 @@ mod text_align_tests {
         println!("theme {other} and back to {theme:?}: {compared} control properties restored");
     }
 
-    /// WASM-007 R12 / T22: the canvas badges a control its `CssStyle` or a developer rule styles,
-    /// and not one only the generated theme block (which the properties beat) names.
-    #[test]
-    fn the_css_badge_marks_styled_controls_and_not_the_theme_blocks() {
-        let mut d = DesignerPanel::new(Form::new("F", "F", 400, 300));
-        let mut a = Control::new("BTN-1", ControlType::Button, 0, 0);
-        a.set_prop("CssStyle", "color: red");
-        let mut b = Control::new("BTN-2", ControlType::Button, 0, 40);
-        b.set_prop("CssClass", "card");
-        d.form.controls.extend([a, b, Control::new("BTN-3", ControlType::Button, 0, 80)]);
-        assert_eq!(d.css_styled_ids(), ["BTN-1".to_owned()].into_iter().collect(), "with no sheet, the inline style alone");
-        let generated = cobolt_forms::web_themes::form_stylesheet("elegance", &[ControlType::Button]);
-        d.properties.css_sheets = vec![("webforms/F.css".into(), format!("{generated}.card {{ border-color: red }}\n"))];
-        let styled = d.css_styled_ids();
-        assert!(styled.contains("BTN-1") && styled.contains("BTN-2"), "{styled:?}");
-        assert!(!styled.contains("BTN-3"), "the theme's type rule alone is no badge: {styled:?}");
-    }
-
     #[test]
     fn a_theme_switch_is_recorded_for_the_stylesheet_and_its_undo_is_not() {
         // WASM-007 T18: the app updates (or asks about) the form's stylesheet after each switch the
@@ -27731,6 +27735,9 @@ mod perspective_096;
 #[cfg(test)]
 #[path = "designer_page_backdrop_tests.rs"]
 mod page_backdrop;
+#[cfg(test)]
+#[path = "designer_css_effective_tests.rs"]
+mod designer_css_effective_tests;
 
 // A chart's AnimateValues / AnimateOnLoad / AnimationDuration, written by the Properties pane,
 // are stored — `set_property` reserves only `Anim<N>_<Field>` for the animation list.

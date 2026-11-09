@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369); T9 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370); T10 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -224,7 +224,8 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
 
 ## Phase C — Showing it in the IDE
 
-- [ ] **T9 — The designer's canvas and badge** (R6, R7, R8, R20; AC4, AC5)
+- [x] **T9 — The designer's canvas and badge** (R6, R7, R8, R20; AC4, AC5)
+  - *Done on 2.0.370 in `designer_css_effective_tests.rs`* (canvas fill in Light and Dark, the engine's picture agreeing, a Desktop form unchanged, 30 frames computing nothing, an edited sheet shown in the next frame, the badge text). The background code (`FormLook`) was left as it is: the form's own root rule is not read yet.
   - Files: `crates/cobolt-ide/src/panels/designer.rs`, `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/src/i18n.rs`, the new `designer_css_effective_tests.rs`.
   - Do:
     - **The `MediaEnv`** comes from `canvas_size()` and from `css_scheme`, which is Light until T15.

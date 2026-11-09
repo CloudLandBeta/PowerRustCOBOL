@@ -1292,6 +1292,65 @@ fn sheets_key(sources: &[SheetSource<'_>], theme_id: &str) -> u64 {
     h.finish()
 }
 
+/// What a form's stylesheets make of every control, computed through an [`EffectiveCache`]: the
+/// values the developer's rules decide (for the canvas to paint), the colours painted unfaded
+/// ([`CssFinal`]), and the declarations the canvas cannot paint (for its badge).
+#[derive(Debug, Clone, Default)]
+pub struct StyleView {
+    /// Per control id, the model property and the text the rules give it.
+    pub values: HashMap<String, Vec<(&'static str, String)>>,
+    pub css_final: CssFinal,
+    pub unpainted: HashMap<String, Vec<Unpainted>>,
+}
+
+impl StyleView {
+    /// The view of `form` under `sources` for the screen `env`; computes only what the cache has
+    /// not already.
+    pub fn build(form: &Form, sources: &[SheetSource<'_>], theme_id: &str, env: &MediaEnv, cache: &mut EffectiveCache) -> StyleView {
+        fn walk(cs: &[Control], form: &Form, sources: &[SheetSource<'_>], theme_id: &str, env: &MediaEnv, cache: &mut EffectiveCache, out: &mut StyleView) {
+            for c in cs {
+                let e = cache.effective(form, &c.id, sources, theme_id, env);
+                let values: Vec<(&'static str, String)> = e.entries.iter().filter(|x| x.layer >= Layer::Project).map(|x| (x.property, x.value.to_property_text())).collect();
+                if !values.is_empty() {
+                    out.values.insert(c.id.clone(), values);
+                }
+                let f = FinalColors::from_effective(e);
+                if !f.is_empty() {
+                    out.css_final.controls.insert(c.id.clone(), f);
+                }
+                if !e.unpainted.is_empty() {
+                    out.unpainted.insert(c.id.clone(), e.unpainted.clone());
+                }
+                walk(&c.children, form, sources, theme_id, env, cache, out);
+            }
+        }
+        let mut out = StyleView::default();
+        walk(&form.controls, form, sources, theme_id, env, cache, &mut out);
+        out
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty() && self.css_final.controls.is_empty() && self.unpainted.is_empty()
+    }
+
+    /// `controls` (flat or nested, as laid out for a frame) with the rules' values set, by id.
+    pub fn stamp(&self, controls: &[Control]) -> Vec<Control> {
+        controls
+            .iter()
+            .map(|c| {
+                let mut out = c.clone();
+                if let Some(v) = self.values.get(&c.id) {
+                    for (p, t) in v {
+                        out.set_prop(*p, t.clone());
+                    }
+                }
+                out.children = self.stamp(&c.children);
+                out
+            })
+            .collect()
+    }
+}
+
 /// The sheets parsed once and each control's [`Effective`] computed once, until something they
 /// are computed from changes: the sheet texts or the theme, the screen, or the control and its
 /// containers. A lookup with nothing changed computes nothing.

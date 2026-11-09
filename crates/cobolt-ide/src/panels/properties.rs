@@ -4538,6 +4538,8 @@ pub struct PropertiesPanel {
     /// WASM-007 R12 — the project's and the form's stylesheets, `(label, text)` in cascade order,
     /// set by the app on a web or mobile project (empty otherwise). The designer's badge reads them too.
     pub css_sheets: Vec<(String, String)>,
+    /// The label of the project's own stylesheet among `css_sheets` (its rules sit in `@layer pr-app`, under the form's); `None` when the project has none.
+    pub css_project_sheet: Option<String>,
     /// When the app last looked at the sheets on disk.
     pub css_sheets_checked: Option<std::time::Instant>,
     /// The marks of the inspected control, and what they were computed from.
@@ -4714,6 +4716,7 @@ impl PropertiesPanel {
             form_size_locked: false,
             web_project: false,
             css_sheets: Vec::new(),
+            css_project_sheet: None,
             css_sheets_checked: None,
             css_marks: None,
             layer_view: None,
