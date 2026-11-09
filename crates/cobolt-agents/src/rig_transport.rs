@@ -39,11 +39,13 @@ pub struct AgentTools {
     pub knowledge_search: Option<HostToolFn>,
     pub egui_tree: Option<HostToolFn>,
     pub egui_rects: Option<HostToolFn>,
+    /// `form.properties` — what a Web or Mobile form's stylesheets decide (WASM-036 R22); read-only.
+    pub form_properties: Option<HostToolFn>,
 }
 
 impl AgentTools {
     pub fn is_empty(&self) -> bool {
-        self.knowledge_search.is_none() && self.egui_tree.is_none() && self.egui_rects.is_none()
+        self.knowledge_search.is_none() && self.egui_tree.is_none() && self.egui_rects.is_none() && self.form_properties.is_none()
     }
 }
 
@@ -705,6 +707,18 @@ host_tool!(
     serde_json::json!({ "type": "object", "properties": {} })
 );
 
+host_tool!(
+    FormPropertiesTool,
+    "form_properties",
+    "Read the properties of the open Web or Mobile form (READ-ONLY): for the form, or for the control named in `control`, every mapped property's stored value, the value the page's stylesheets make effective, and where that value comes from (file:line, Style, theme, property), in the designer's colour scheme.",
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "control": { "type": "string", "description": "The control's name; leave out for the form" }
+        }
+    })
+);
+
 /// Hidden reasoning seen in one response: how many blocks, and how much text
 /// they rendered to (encrypted blocks render to nothing, hence both counters).
 #[derive(Default)]
@@ -872,6 +886,9 @@ where
     if let Some(f) = &call.tools.egui_rects {
         toolbox.push(Box::new(EguiRectsTool(f.clone())));
     }
+    if let Some(f) = &call.tools.form_properties {
+        toolbox.push(Box::new(FormPropertiesTool(f.clone())));
+    }
     let agent = if toolbox.is_empty() {
         builder.build()
     } else {
@@ -945,7 +962,7 @@ where
         // available in my current environment") with the whole schema in hand.
         let (native, foreign): (Vec<_>, Vec<_>) = tool_calls
             .into_iter()
-            .partition(|(name, _)| matches!(name.as_str(), "knowledge_search" | "egui_tree" | "egui_rects"));
+            .partition(|(name, _)| matches!(name.as_str(), "knowledge_search" | "egui_tree" | "egui_rects" | "form_properties"));
         if !foreign.is_empty() {
             let mut out = text.trim_end().to_string();
             // Any native calls in the same round still execute; their results
@@ -955,6 +972,7 @@ where
                     "knowledge_search" => call.tools.knowledge_search.clone(),
                     "egui_tree" => call.tools.egui_tree.clone(),
                     "egui_rects" => call.tools.egui_rects.clone(),
+                    "form_properties" => call.tools.form_properties.clone(),
                     _ => None,
                 };
                 if let Some(f) = exec {
@@ -997,6 +1015,7 @@ where
                 "knowledge_search" => call.tools.knowledge_search.clone(),
                 "egui_tree" => call.tools.egui_tree.clone(),
                 "egui_rects" => call.tools.egui_rects.clone(),
+                "form_properties" => call.tools.form_properties.clone(),
                 _ => None,
             };
             let outcome = match exec {

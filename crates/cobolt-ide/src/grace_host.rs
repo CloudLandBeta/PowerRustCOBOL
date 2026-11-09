@@ -1132,6 +1132,19 @@ impl DbAgentInvoker {
                 }
             }
         }
+        if declared.contains("form.properties") {
+            let record = record.clone();
+            let f: HostToolFn = std::sync::Arc::new(move |args: serde_json::Value| {
+                let result = crate::agent_form_properties::observe(&args);
+                record("form.properties", &args, result.ok, result.summary.clone());
+                if result.ok {
+                    Ok(result.detail)
+                } else {
+                    Err(result.detail)
+                }
+            });
+            tools.form_properties = Some(f);
+        }
         tools
     }
 }

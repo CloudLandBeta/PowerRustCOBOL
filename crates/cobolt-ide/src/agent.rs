@@ -3188,6 +3188,20 @@ pub fn build_context_with_project(
 ) -> String {
     let kind = project.map(CoboltProject::kind).unwrap_or(cobolt_compiler::project_kind::ProjectKind::Desktop);
     let mut out = build_context_for(form, kind);
+    // WASM-036 R22: what a Web or Mobile form's stylesheets decide, after the kind header and before CONTROLS.
+    if !kind.is_desktop() {
+        if let (Some(root), Some(project)) = (project_root, project) {
+            let form_file = form_file(form, root);
+            let sheet = project.web.as_ref().map(|w| w.stylesheet.clone()).or_else(|| project.mobile.as_ref().map(|m| m.stylesheet.clone()));
+            let theme = cobolt_forms::theme::resolve_theme_id(form.theme.as_deref(), project.form_theme_default());
+            let lines = crate::agent_form_properties::context_lines(form, form_file.as_deref(), Some(root), sheet.as_deref(), &theme);
+            if !lines.is_empty() {
+                let at = out.find("LAYERS (").unwrap_or(out.len());
+                out.insert_str(at, &lines);
+                out.insert(at + lines.len(), '\n');
+            }
+        }
+    }
     // The menus go inside the form's own inventory, before the per-type
     // legends, so the specialists' slice of it (`control_inventory_excerpt`)
     // carries them too.
@@ -3207,6 +3221,11 @@ pub fn build_context_with_project(
 /// The folder holding `form`'s `.cfrm`: a form is saved under its own name
 /// (`SIDEBAR-FORM` → `sidebar-form.cfrm`), anywhere under the Forms category.
 fn form_dir(form: &Form, project_root: &Path) -> Option<std::path::PathBuf> {
+    form_file(form, project_root).and_then(|f| f.parent().map(Path::to_path_buf))
+}
+
+/// The file `form` is saved in, anywhere under the Forms category.
+fn form_file(form: &Form, project_root: &Path) -> Option<std::path::PathBuf> {
     crate::project_model::recursive_category_files(project_root, crate::project_model::Category::Forms)
         .into_iter()
         .find(|rel| {
@@ -3215,7 +3234,7 @@ fn form_dir(form: &Form, project_root: &Path) -> Option<std::path::PathBuf> {
                 .and_then(|s| s.to_str())
                 .is_some_and(|s| s.eq_ignore_ascii_case(&form.name))
         })
-        .and_then(|rel| project_root.join(rel).parent().map(Path::to_path_buf))
+        .map(|rel| project_root.join(rel))
 }
 
 /// `MENU ITEMS`: the designed tree of every SideMenu and MenuBar on the form.

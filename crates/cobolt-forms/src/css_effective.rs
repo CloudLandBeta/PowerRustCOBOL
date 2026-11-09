@@ -1407,6 +1407,112 @@ impl EffectiveCache {
     }
 }
 
+// ── What an agent is told (WASM-036 R22) ───────────────────────────────────────────────────────
+
+/// Where an entry's value comes from, as an agent reads it: `file:line`, `Style` (the control's own
+/// `CssStyle`), `theme`, `base` or `property` (the form file's stored value).
+pub fn source_text(e: &Entry) -> String {
+    match (e.layer, &e.sheet) {
+        (Layer::Project | Layer::Unlayered, Some(f)) => format!("{f}:{}", e.line),
+        (Layer::Project | Layer::Unlayered, None) => "Style".to_owned(),
+        (Layer::Theme, _) => "theme".to_owned(),
+        (Layer::Base, _) => "base".to_owned(),
+        (Layer::Props, _) => "property".to_owned(),
+    }
+}
+
+/// The form's own stored value of a mapped property, where the form has one.
+fn form_stored(form: &Form, property: &str) -> Option<String> {
+    Some(match property {
+        "BackgroundColor" => form.background_color.clone(),
+        "BackgroundGradientEnabled" => form.background_gradient_enabled.to_string(),
+        "BackgroundGradientStartColor" => form.background_gradient_start_color.clone(),
+        "BackgroundGradientEndColor" => form.background_gradient_end_color.clone(),
+        "BackgroundGradientDirection" => form.background_gradient_direction.clone(),
+        _ => return None,
+    })
+}
+
+/// Every model property a CSS declaration can set, once, in table order.
+fn mapped_properties() -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for (_, props) in crate::css_overrides::CSS_TO_PROPERTIES {
+        for p in *props {
+            if !out.contains(p) {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// What `form.properties` answers: for the form (`target` `None`) or one control, every mapped
+/// property's stored value, the value in effect and where that value comes from, at `env`. The
+/// control is matched by id or name, case-insensitively. `Err` names what was not found.
+pub fn properties_report(form: &Form, sources: &[SheetSource<'_>], theme_id: &str, env: &MediaEnv, target: Option<&str>) -> Result<serde_json::Value, String> {
+    let (name, control, eff) = match target.map(str::trim).filter(|t| !t.is_empty() && !t.eq_ignore_ascii_case("form")) {
+        None => {
+            let set = SheetSet::parse(sources);
+            ("Form".to_owned(), None, effective(form, None, &set, env))
+        }
+        Some(t) => {
+            fn find<'a>(cs: &'a [Control], t: &str) -> Option<&'a Control> {
+                cs.iter().find_map(|c| if c.id.eq_ignore_ascii_case(t) { Some(c) } else { find(&c.children, t) })
+            }
+            let c = find(&form.controls, t).ok_or_else(|| format!("no control named \"{t}\" on the form {}", form.name))?;
+            let mut cache = EffectiveCache::new();
+            let e = cache.effective(form, &c.id, sources, theme_id, env).clone();
+            (c.id.clone(), Some(c), e)
+        }
+    };
+    let rows: Vec<serde_json::Value> = mapped_properties()
+        .into_iter()
+        .map(|p| {
+            let stored = match control {
+                Some(c) => c.get_prop(p).map(|v| v.as_str().to_owned()),
+                None => form_stored(form, p),
+            };
+            // The last entry of the winners for the property is the one in effect.
+            let won = eff.entries.iter().find(|e| e.property == p);
+            let (effective, source) = match won {
+                Some(e) => (Some(e.value.to_property_text()), source_text(e)),
+                None => (stored.clone(), "property".to_owned()),
+            };
+            serde_json::json!({ "property": p, "stored": stored, "effective": effective, "source": source })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "target": name,
+        "scheme": if env.scheme == crate::css::Scheme::Dark { "dark" } else { "light" },
+        "size": format!("{}x{}", env.width as i64, env.height as i64),
+        "properties": rows,
+    }))
+}
+
+/// One line per control (and for the form) whose properties a stylesheet decides: what the agent must
+/// know before it sets a property that a rule will override. Empty when no stylesheet decides anything.
+pub fn override_lines(form: &Form, sources: &[SheetSource<'_>], theme_id: &str, env: &MediaEnv) -> String {
+    let mut out = String::new();
+    let line = |id: &str, e: &Effective, out: &mut String| {
+        let decided: Vec<String> = e.entries.iter().filter(|x| x.layer >= Layer::Project).map(|x| format!("{}={} ({})", x.property, x.value.to_property_text(), source_text(x))).collect();
+        if !decided.is_empty() {
+            out.push_str(&format!("  {id}: {}\n", decided.join(", ")));
+        }
+    };
+    let set = SheetSet::parse(sources);
+    line("Form", &effective(form, None, &set, env), &mut out);
+    let mut cache = EffectiveCache::new();
+    fn walk(cs: &[Control], form: &Form, sources: &[SheetSource<'_>], theme_id: &str, env: &MediaEnv, cache: &mut EffectiveCache, out: &mut String, line: &dyn Fn(&str, &Effective, &mut String)) {
+        for c in cs {
+            let e = cache.effective(form, &c.id, sources, theme_id, env).clone();
+            line(&c.id, &e, out);
+            walk(&c.children, form, sources, theme_id, env, cache, out, line);
+        }
+    }
+    walk(&form.controls, form, sources, theme_id, env, &mut cache, &mut out, &line);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

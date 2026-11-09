@@ -1760,7 +1760,7 @@ impl AgentsDb {
                     agent.max_tokens = llm.max_tokens;
                     agent.timeout_secs = llm.timeout_secs;
                     agent.routing = WEB_FORM_DESIGNER_ROUTING.into();
-                    agent.tools = vec!["egui.tree".into(), "egui.rects".into()];
+                    agent.tools = vec!["egui.tree".into(), "egui.rects".into(), "form.properties".into()];
                 }
                 let _ = self.save_all();
                 self.sort_rail();
@@ -2333,7 +2333,7 @@ impl AgentsDb {
             WEB_FORM_DESIGNER_ROUTING,
             &["Receives: user form requests"],
             &web_form_prompt,
-            &["egui.tree", "egui.rects"],
+            &["egui.tree", "egui.rects", "form.properties"],
             llm,
         ) as usize;
         changed += self.repair_builtin_definition(

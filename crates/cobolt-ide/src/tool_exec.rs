@@ -220,6 +220,7 @@ fn unwrap_double_nested_args(call: &mut ToolCall) {
 
 const GIT_TOOL_CONTRACT: &str = "\n\n--- Tool execution (git) — how you actually run git ---\nYou run git through one tool. To execute a command, END your reply with exactly one fenced JSON block and nothing after it:\n```json\n{\"tool_calls\":[{\"tool\":\"git.run\",\"args\":{\"argv\":[\"status\",\"--porcelain\"]}}]}\n```\n`argv` is the git argument vector WITHOUT the leading \"git\" (e.g. [\"commit\",\"-m\",\"message\"]). Do not pass -C, --git-dir, or --work-tree — the executor is already bound to the open project's repository and will reject them. Read and local-mutation ops run immediately; network and history-rewriting ops (push, fetch, pull, rebase, reset --hard) are GATED on explicit operator approval and will not run if declined. Each command returns its real exit status and output as a TOOL RESULTS block — a non-zero exit is a failure, never a success. When the task is complete, reply with your final result and DO NOT emit a tool_calls block.";
 
+const FORM_TOOL_CONTRACT: &str = "\n\n--- Form properties (read only) ---\nA Web or Mobile form's stylesheets can decide a property's value over the one the form file stores. Call the native function tool `form_properties` (arguments `{\"control\": \"<name>\"}`, or `{}` for the form) to read, for each mapped property, its stored value, the value the page uses and where that value comes from (`file:line`, `Style`, `theme` or `property`), in the colour scheme the designer shows. It is READ-ONLY and answers only while a Web or Mobile form is open in the designer. Every change is still a change-set operation; setting a property a stylesheet rule decides is written into that rule, not stored beside it.";
 const EGUI_TOOL_CONTRACT: &str = "\n\n--- Live UI inspection (observe only) ---\nYou may inspect the rendered form to verify your work by calling the native function tools `egui_tree` (widget tree) or `egui_rects` (geometry). They are READ-ONLY: they let you SEE the rendered UI; they do NOT change it. Every form edit must be expressed as change-set operations, never by driving the live UI. Call the tool directly — do not describe the call in prose or emit any fenced tool_calls JSON block.";
 
 const DOCUMENTATION_TOOL_CONTRACT: &str = "\n\n--- Tool execution (project Knowledge Base) ---\nYou create and inspect project Knowledge Base documents through these tools. To write a Markdown document, END your reply with exactly one fenced JSON block and nothing after it:\n```json\n{\"tool_calls\":[{\"tool\":\"documentation.write\",\"args\":{\"path\":\"/Knowledge Base/Projects/example.md\",\"content\":\"# Example\\n\"}}]}\n```\nUse documentation.list with empty args and documentation.read with {\"path\":\"/Knowledge Base/...\"}. Writes are restricted to the open project's Knowledge Base/ folder and are automatically indexed in the project's vector Knowledge Base index. A document exists only after a successful TOOL RESULTS response. When finished, reply with your final result and DO NOT emit a tool_calls block.";
@@ -272,6 +273,9 @@ pub fn tool_contract_appendix(declared: &HashSet<String>) -> String {
     }
     if declared.iter().any(|t| t.starts_with("egui.")) {
         out.push_str(EGUI_TOOL_CONTRACT);
+    }
+    if declared.iter().any(|t| t.starts_with("form.")) {
+        out.push_str(FORM_TOOL_CONTRACT);
     }
     if declared.iter().any(|t| t.starts_with("documentation.")) {
         out.push_str(DOCUMENTATION_TOOL_CONTRACT);
@@ -585,6 +589,13 @@ impl<'a> IdeToolBackend<'a> {
             }
             Err(e) => ToolResult::err(format!("git could not run: {e}"), e),
         }
+    }
+
+    fn exec_form(&mut self, call: &ToolCall) -> ToolResult {
+        if call.tool != "form.properties" {
+            return ToolResult::critical(format!("unknown form tool \u{201c}{}\u{201d}", call.tool));
+        }
+        crate::agent_form_properties::observe(&call.args)
     }
 
     fn exec_egui(&mut self, call: &ToolCall) -> ToolResult {
@@ -1396,6 +1407,8 @@ impl ToolBackend for IdeToolBackend<'_> {
             self.exec_git(call)
         } else if call.tool.starts_with("egui.") {
             self.exec_egui(call)
+        } else if call.tool.starts_with("form.") {
+            self.exec_form(call)
         } else if call.tool.starts_with("documentation.") {
             self.exec_documentation(agent, call)
         } else if call.tool.starts_with("knowledge.") {

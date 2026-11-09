@@ -932,6 +932,7 @@ pub struct CoboltApp {
     /// WASM-036 R11 — the shared-rule question window (its size is its own, kept while it is asked).
     css_question_ui: crate::panels::css_rule_question::CssRuleQuestion,
     css_remove_ui: crate::panels::css_rule_question::CssRemoveConfirm,
+    form_props_published: Option<std::time::Instant>,
     /// The start-up release check and the window that offers what it found.
     /// Declining is NOT persisted: the question returns at the next start-up
     /// (operator, 2026-09-14). Drawn by the frame, never by a pane.
@@ -2366,6 +2367,7 @@ impl CoboltApp {
             indexed_engine_modal: None,
             css_question_ui: crate::panels::css_rule_question::CssRuleQuestion::new(),
             css_remove_ui: crate::panels::css_rule_question::CssRemoveConfirm::new(),
+            form_props_published: None,
             update_offer: Default::default(),
             announcement: Default::default(),
 
@@ -15608,6 +15610,35 @@ impl CoboltApp {
         }
     }
 
+    /// WASM-036 R22: while an agent workflow runs, tell `form.properties` which Web or Mobile form is
+    /// open, how large the canvas is and in which scheme (at most every 400 ms; the sheets are read
+    /// from disk when the tool is called).
+    fn publish_form_properties(&mut self, idx: usize, web_project: bool) {
+        let running = self.grace_session.as_ref().is_some_and(|s| s.is_running());
+        if !web_project || !running || self.form_props_published.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(400)) {
+            return;
+        }
+        let Some(project_dir) = self.project_dir() else { return };
+        let project_sheet = self.cobolt_project.as_ref().and_then(|p| match (&p.web, &p.mobile) {
+            (Some(w), _) => Some(w.stylesheet.clone()),
+            (None, Some(m)) => Some(m.stylesheet.clone()),
+            _ => None,
+        });
+        let Some((path, d)) = self.designers.get(idx) else { return };
+        let (width, height) = d.canvas_size();
+        crate::agent_form_properties::publish(Some(crate::agent_form_properties::Published {
+            form: d.form.clone(),
+            form_file: path.clone(),
+            project_dir,
+            project_sheet,
+            theme_id: cobolt_forms::theme::resolve_theme_id(d.form.theme.as_deref(), d.project_form_theme.as_deref()),
+            width,
+            height,
+            scheme: d.css_scheme,
+        }));
+        self.form_props_published = Some(std::time::Instant::now());
+    }
+
     /// WASM-036 R9, R13: once a frame, hand the designer what the app knows (the stylesheet window's
     /// unapplied text, whether a pointer button is down), let it finish a gesture, then say what it
     /// has to say and show what it wrote in the open Preview.
@@ -21032,6 +21063,7 @@ impl CoboltApp {
             d.css_scheme = if dark { cobolt_forms::css::Scheme::Dark } else { cobolt_forms::css::Scheme::Light };
         }
         self.refresh_css_sheets(idx, web_project);
+        self.publish_form_properties(idx, web_project);
         self.drive_css_writes(idx, panel_ui.ctx(), tr);
         let drawer = crate::panels::designer::show_props_drawer(
             panel_ui,
