@@ -510,6 +510,68 @@ fn a_gpu_built_from_a_shared_device_renders_the_reference_scene() {
     reference_scene_matches_golden(c);
 }
 
+/// The report (operator, 2026-11-09): opening the PowerGraphics 3D viewer killed the run with "wgpu error:
+/// Failed to wait for GPU to come idle before reconfiguring the Surface". A window reconfigures its surface
+/// only after waiting for the device to go idle, and `wgpu` calls it fatal when work was submitted while it
+/// waited ("another thread is submitting at the same time"); the program renders its 3D view on its own
+/// thread, on the window's device. This waits the same way on one thread while another renders without
+/// stopping: with the drawing left for the window's thread, no wait ever sees a submission from the other one.
+#[test]
+fn a_shared_device_sees_no_submission_from_the_drawing_thread_while_the_window_waits_for_it() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+        if std::env::var("GRAPHICS_REQUIRE_GPU").map(|v| v == "1").unwrap_or(false) {
+            panic!("GRAPHICS_REQUIRE_GPU=1 but there is no graphics adapter");
+        }
+        eprintln!("SKIPPED (no graphics adapter)");
+        return;
+    };
+    let info = adapter.get_info();
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let gpu = Gpu::from_shared(device.clone(), queue, &info).with_deferred_submits();
+    let mut c = Canvas3D::new(256, 192, Limits::default()).unwrap();
+    assert_ne!(c.connect_with(gpu.clone()), Backend::None, "{:?}", c.status());
+    let mut s = Scene3D::new(Limits::default());
+    let cam = camera(&mut s, [0.0, 0.0, 6.0], [0.0, 0.0, 0.0], 40.0);
+    c.set_camera(Some(cam));
+    let ball = s.add_sphere(1.5, 32).unwrap();
+    color(&mut s, ball, [0.9, 0.2, 0.2, 1.0], 0.0, 0.5);
+
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let t0 = std::time::Instant::now();
+    let drawer = {
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            let mut frames = 0u32;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                c.render(&mut s).unwrap();
+                frames += 1;
+            }
+            frames
+        })
+    };
+    // The window's thread: wait for idle as a surface configure does, and submit what was drawn between waits.
+    let (mut waits, mut busy, mut submitted) = (0u32, 0u32, 0usize);
+    while t0.elapsed() < std::time::Duration::from_millis(1500) {
+        match device.poll(wgpu::PollType::wait_indefinitely()) {
+            Ok(wgpu::PollStatus::QueueEmpty) => {}
+            _ => busy += 1,
+        }
+        waits += 1;
+        submitted += gpu.submit_deferred();
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let frames = drawer.join().unwrap();
+    submitted += gpu.submit_deferred();
+    println!(
+        "3D view drawn on its own thread: {frames} frames in {} ms, {waits} idle waits on the window's thread, {busy} saw a submission from the other thread, {submitted} drawings submitted by the window's thread",
+        t0.elapsed().as_millis()
+    );
+    assert!(frames > 10, "the drawing thread drew");
+    assert_eq!(submitted, frames as usize, "every drawing reaches the GPU, from the window's thread");
+    assert_eq!(busy, 0, "a wait saw work submitted by the drawing thread: the window's surface configure would panic");
+}
+
 /// A project may allow bigger textures than the machine creates: the canvas holds its limit to the
 /// device's, and a texture past the device's refuses with a message that names the device limit.
 #[test]

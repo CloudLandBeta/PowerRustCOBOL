@@ -30,6 +30,8 @@ fn render_state_key() -> egui::Id {
 /// interpreter connects its 3D views to it).
 pub(crate) fn share_window_device(ctx: &egui::Context, frame: &eframe::Frame) {
     let Some(rs) = frame.wgpu_render_state() else { return };
+    // What the 3D views drew is submitted here, on the window's thread, never while it reconfigures a surface.
+    gpu_share::submit_pending();
     let same = ctx.data(|d| d.get_temp::<eframe::egui_wgpu::RenderState>(render_state_key())).is_some_and(|old| old.device == rs.device);
     if same {
         return;
@@ -44,6 +46,8 @@ pub(crate) fn apply_canvas3d_frame(ctx: &egui::Context, u: &StateUpdate) -> bool
     if u.prop != gpu_share::FRAME_PROP {
         return false;
     }
+    // The picture's drawing goes to the GPU before the window draws the picture (both on this thread).
+    gpu_share::submit_pending();
     let Some(frame) = gpu_share::take_frame(&u.ctrl_id, &u.value) else { return true };
     let Some(rs) = ctx.data(|d| d.get_temp::<eframe::egui_wgpu::RenderState>(render_state_key())) else { return true };
     let mut renderer = rs.renderer.write();

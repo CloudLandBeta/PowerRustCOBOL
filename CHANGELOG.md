@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.337 — 2026-11-09
+
+**Fix: opening a form with a Canvas3D no longer ends the run with a GPU error.** In PowerGraphics, the 3D viewer button stopped the IDE's Run, `rcrun` and a compiled binary with "wgpu error: Validation Error … Surface::configure: Failed to wait for GPU to come idle before reconfiguring the Surface". The program draws its 3D view on its own thread but on the window's graphics device, and a window that opens or is resized waits for that device to go idle; drawing submitted by another thread during that wait is fatal. The 3D view's drawing is now handed to the window, which submits it on its own thread before it shows the picture (a `Screenshot` still submits at once, since it waits for the picture). Measured with one thread rendering for 1.5 s while another waits for idle as a window does: 3,736 waits saw the other thread's work before the fix, 0 after, all 2,570 frames submitted. Covered by `a_shared_device_sees_no_submission_from_the_drawing_thread_while_the_window_waits_for_it`. The web player is rebuilt (it was also stale after 2.0.335).
+
 ## 2.0.336 — 2026-11-09
 
 **Fix: the PowerGraphics chart gallery no longer draws the small copy of the chart.** The 150 x 100 picture beside the chart (`Render` then `DrawImage`) was cramped, its axes ran together, and the gallery needs nothing from it. The chart now stands alone on its canvas, in the opening draw and in Next kind.

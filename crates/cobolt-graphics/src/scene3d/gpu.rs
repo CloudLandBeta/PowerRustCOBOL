@@ -109,6 +109,8 @@ pub struct Gpu {
     errors: Arc<Mutex<Vec<String>>>,
     lost: Arc<Mutex<Option<String>>>,
     uniform_align: u64,
+    /// When the host owns the device and its window: the drawing waiting for the host's thread to submit it.
+    deferred: Option<Arc<Mutex<Vec<wgpu::CommandBuffer>>>>,
 }
 
 impl std::fmt::Debug for Gpu {
@@ -191,6 +193,48 @@ impl Gpu {
             errors,
             lost,
             uniform_align,
+            deferred: None,
+        }
+    }
+
+    /// Leave every drawing for the host to submit with [`Gpu::submit_deferred`] instead of submitting it here.
+    ///
+    /// A window reconfigures its surface (it opens, or is resized) only after the device has gone idle, and
+    /// `wgpu` treats a submission from another thread during that wait as a fatal error. A host whose
+    /// program draws on another thread turns this on and submits on the window's thread.
+    pub fn with_deferred_submits(mut self) -> Gpu {
+        self.deferred = Some(Arc::new(Mutex::new(Vec::new())));
+        self
+    }
+
+    /// Submit the drawing left by [`Gpu::with_deferred_submits`], in the order it was made. Answers how many.
+    pub fn submit_deferred(&self) -> usize {
+        let Some(d) = &self.deferred else { return 0 };
+        let pending: Vec<wgpu::CommandBuffer> = d.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default();
+        let n = pending.len();
+        if n > 0 {
+            self.queue.submit(pending);
+        }
+        n
+    }
+
+    /// Drawing made but not yet submitted (always 0 without [`Gpu::with_deferred_submits`]).
+    pub fn deferred_count(&self) -> usize {
+        self.deferred.as_ref().and_then(|d| d.lock().ok().map(|v| v.len())).unwrap_or(0)
+    }
+
+    /// Submit `commands` now, or leave them for the host.
+    fn submit(&self, commands: wgpu::CommandBuffer) {
+        match &self.deferred {
+            Some(d) => match d.lock() {
+                Ok(mut v) => v.push(commands),
+                Err(_) => {
+                    self.queue.submit(Some(commands));
+                }
+            },
+            None => {
+                self.queue.submit(Some(commands));
+            }
         }
     }
 
@@ -1168,7 +1212,7 @@ impl Renderer {
                 stats.triangles += p.tris;
             }
         }
-        self.gpu.queue.submit(Some(encoder.finish()));
+        self.gpu.submit(encoder.finish());
         self.evict();
         self.last_stats = stats;
         if let Some(e) = self.gpu.take_errors() {
@@ -1232,6 +1276,8 @@ impl Renderer {
             wgpu::TexelCopyBufferInfo { buffer: &buffer, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(bpr), rows_per_image: Some(h) } },
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
+        // A read-back waits for the picture here, so the drawing it reads is submitted first, then the copy.
+        self.gpu.submit_deferred();
         self.gpu.queue.submit(Some(enc.finish()));
         Ok((buffer, w, h, bpr))
     }

@@ -88,5 +88,11 @@ pub fn forget_frames(instance: u64) {
 
 /// Publish the window's device from the pieces eframe holds (`RenderState::{device, queue, adapter}`).
 pub fn publish_shared_device(device: wgpu::Device, queue: wgpu::Queue, adapter: &wgpu::AdapterInfo) {
-    publish_gpu(Gpu::from_shared(device, queue, adapter));
+    publish_gpu(Gpu::from_shared(device, queue, adapter).with_deferred_submits());
+}
+
+/// The window's thread submits what the 3D views drew since the last call (the program draws on its own
+/// thread, and a submission from there while the window reconfigures its surface is fatal). Answers how many.
+pub fn submit_pending() -> usize {
+    current_gpu().map_or(0, |(_, gpu)| gpu.submit_deferred())
 }
