@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.339 — 2026-11-09
+
+**Fix: Pitfall no longer stops with an "arithmetic size error" on the other side, and the moon is full.** The game worked out how far the explorer was from the swinging vine's tip by squaring the distance into a field that held at most 99,999.99, so any distance past about 316 pixels overflowed and raised the error on every frame. The field now holds nine digits. The moon above the tree line is now a full moon with craters, drawn clear of the trees.
+
 ## 2.0.338 — 2026-11-09
 
 **New: a graphics showcase in PowerGraphics: five games, one per graphics control.** The PowerGraphics project now opens on a launcher with a button for each: **Pitfall** (Canvas2D, 800 x 600: an Activision-style jungle drawn from an 8-bit shift-register screen generator, 100 screens a side; the first death turns the game into a noir ghost world with fog, blinking eyes, glowing vines that leave a fading trail, a half-moon and skeleton alligators; +1 per foe jumped, +2 per screen, a heaven cutscene at the end), **Bridge run** (Canvas3D + Scene3D: a metallic roadster jumping vehicles and gaps on an endless bridge, rising speed and traffic, explosion and restart, distance score), **Pool** (Canvas2D + Physics2D, top view), **Pool 3D** (Canvas3D + Scene3D + Physics3D, with a rotate-the-table mode and an aim mode, Space to hit) and **Street runner** (Scene3D: a bald runner built from a node hierarchy on an endless city street with lights, fog and shadows). Space, the arrows and gamepad button 0 are read; the desktop has no gamepad source yet, so the pad works in the web player only. Checked with `check` and headless runs; the 3D forms could not be drawn without a GPU in that run, so their look is not yet confirmed.

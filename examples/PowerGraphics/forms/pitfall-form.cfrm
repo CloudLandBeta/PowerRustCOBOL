@@ -62,7 +62,7 @@
        01 WS-Y1                                  GLOBAL    PIC S9(5)V99.
        01 WS-X2                                  GLOBAL    PIC S9(5)V99.
        01 WS-Y2                                  GLOBAL    PIC S9(5)V99.
-       01 WS-D                                   GLOBAL    PIC S9(5)V99.
+       01 WS-D                                   GLOBAL    PIC S9(9)V99.
        01 WS-SW                                  GLOBAL    PIC S9V999.
        01 WS-SIDE                                GLOBAL    PIC S9.
        01 WS-FH                                  GLOBAL    PIC 99.
@@ -558,17 +558,16 @@
                    COMPUTE WS-Y1 = FUNCTION MOD( WS-I * 53 , 120 ) + 8
                    CNV-PIT::DrawCircle( WS-X1 WS-Y1 1 1 )
                END-PERFORM
-               *> The half-moon above the tree line, with its pale halo.
-               CNV-PIT::SetRadialGradient( 0 640 78 6 640 78 130 "0 3722899536 1 3722899456" )
-               CNV-PIT::FillRect( 500 0 300 220 )
+               *> The full moon above the tree line, with its pale halo and a few craters.
+               CNV-PIT::SetRadialGradient( 0 640 66 6 640 66 140 "0 3722899536 1 3722899456" )
+               CNV-PIT::FillRect( 480 0 320 220 )
                CNV-PIT::SetFillColor( "#E8EDF2" )
-               CNV-PIT::BeginPath()
-               CNV-PIT::Arc( 640 78 40 4.712389 1.570796 0 )
-               CNV-PIT::ClosePath()
-               CNV-PIT::Fill( 0 )
+               CNV-PIT::DrawCircle( 640 66 40 1 )
                CNV-PIT::SetFillColor( "#C9D1DC" )
-               CNV-PIT::DrawCircle( 656 70 6 1 )
-               CNV-PIT::DrawCircle( 650 94 4 1 )
+               CNV-PIT::DrawCircle( 656 56 7 1 )
+               CNV-PIT::DrawCircle( 626 80 5 1 )
+               CNV-PIT::DrawCircle( 622 52 4 1 )
+               CNV-PIT::DrawCircle( 650 84 3 1 )
                CNV-PIT::SetFillColor( "#03050A" )
                CNV-PIT::FillRect( 0 118 800 40 )
                PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 9
