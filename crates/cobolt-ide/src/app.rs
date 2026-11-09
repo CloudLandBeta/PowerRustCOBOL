@@ -931,6 +931,7 @@ pub struct CoboltApp {
     indexed_engine_modal: Option<crate::panels::indexed_engine_modal::IndexedEngineModal>,
     /// WASM-036 R11 — the shared-rule question window (its size is its own, kept while it is asked).
     css_question_ui: crate::panels::css_rule_question::CssRuleQuestion,
+    css_remove_ui: crate::panels::css_rule_question::CssRemoveConfirm,
     /// The start-up release check and the window that offers what it found.
     /// Declining is NOT persisted: the question returns at the next start-up
     /// (operator, 2026-09-14). Drawn by the frame, never by a pane.
@@ -2364,6 +2365,7 @@ impl CoboltApp {
             theme_defaults_modal: None,
             indexed_engine_modal: None,
             css_question_ui: crate::panels::css_rule_question::CssRuleQuestion::new(),
+            css_remove_ui: crate::panels::css_rule_question::CssRemoveConfirm::new(),
             update_offer: Default::default(),
             announcement: Default::default(),
 
@@ -7017,6 +7019,45 @@ impl CoboltApp {
         }
     }
 
+    /// WASM-036 R10: the confirmation before a CSS declaration is removed. Its answer is applied at once.
+    fn show_css_remove(&mut self, ctx: &egui::Context) {
+        let Some(idx) = self.designers.iter().position(|(_, d)| d.css_remove_question.is_some()) else {
+            return;
+        };
+        let Some(info) = self.designers[idx].1.css_remove_question.as_ref().map(|q| q.info.clone()) else {
+            return;
+        };
+        let theme = self.current_theme().clone();
+        let tr = self.lang.tr();
+        if let Some(confirmed) = self.css_remove_ui.show(ctx, &theme, &tr, &info) {
+            self.designers[idx].1.css_remove_answer(confirmed);
+        }
+    }
+
+    /// WASM-036 R10: "Go to the rule" — the stylesheet window, on that sheet, at the rule's line.
+    fn open_stylesheet_at(&mut self, idx: usize, sheet: PathBuf, line: usize) {
+        if self.stylesheet_modal.as_ref().is_some_and(|(_, m)| m.sheet != sheet && m.changed()) {
+            let tr = self.lang.tr();
+            self.output.push_status(tr.css_write_refused_unapplied.to_owned());
+            return;
+        }
+        if self.stylesheet_modal.as_ref().is_none_or(|(_, m)| m.sheet != sheet) {
+            let is_form_sheet = self.designers.get(idx).and_then(|(p, _)| crate::project_fs::form_stylesheet(p)).as_deref() == Some(sheet.as_path());
+            if is_form_sheet {
+                self.open_stylesheet_modal(idx);
+            } else if let (Some((path, d)), Ok(b)) = (self.designers.get(idx), std::fs::read(&sheet)) {
+                // The project's own sheet: its text is both what the file holds and what Revert returns to.
+                let text = String::from_utf8_lossy(&b).into_owned();
+                let layers = d.form.layers.iter().map(|l| l.name.clone()).collect();
+                let modal = crate::panels::stylesheet_modal::StylesheetModal::new(sheet.clone(), &d.form.name, layers, Some(text.clone()), text);
+                self.stylesheet_modal = Some((path.clone(), modal));
+            }
+        }
+        if let Some((_, m)) = self.stylesheet_modal.as_mut() {
+            m.open_at(line);
+        }
+    }
+
     fn show_indexed_engine_modal(&mut self, ctx: &egui::Context) {
         let Some(mut m) = self.indexed_engine_modal.take() else {
             return;
@@ -11620,6 +11661,7 @@ impl CoboltApp {
         self.show_guardian_block_modal(ctx);
         self.show_indexed_engine_modal(ctx);
         self.show_css_question(ctx);
+        self.show_css_remove(ctx);
         // Models Manager modal (spec 031) — taken out of self to split borrows.
         if let Some(mut m) = self.models_modal.take() {
 
@@ -21239,6 +21281,15 @@ impl CoboltApp {
         }
         if inspector_action.open_stylesheet {
             self.open_stylesheet_modal(idx);
+        }
+        if let (Some(key), Some(id)) = (inspector_action.css_go_to.take(), sel_id.as_deref()) {
+            self.designers[idx].1.css_request_go_to(id, &key);
+        }
+        if let (Some(key), Some(id)) = (inspector_action.css_remove.take(), sel_id.as_deref()) {
+            self.designers[idx].1.css_request_remove(id, &key);
+        }
+        if let Some((sheet, line)) = self.designers[idx].1.css_go_to.take() {
+            self.open_stylesheet_at(idx, sheet, line);
         }
         // COBOL Structure (spec 005): open a block, add or delete a procedure.
         if let Some(t) = inspector_action.cs_open {

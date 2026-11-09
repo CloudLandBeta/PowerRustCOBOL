@@ -236,6 +236,11 @@ impl StylesheetModal {
         }
     }
 
+    /// Show the rule at `line` (1-based): the cursor goes there and the editor scrolls to it.
+    pub fn open_at(&mut self, line: usize) {
+        self.jump_to = Some(line);
+    }
+
     /// Has the editor's text left what the file holds?
     pub fn changed(&self) -> bool {
         self.saved.as_deref() != Some(self.buf.as_str())

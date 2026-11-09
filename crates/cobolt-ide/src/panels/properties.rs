@@ -682,6 +682,11 @@ pub struct InspectorAction {
     /// Spec 056 R65 — "reset to base" on an overridden row: the property whose
     /// override for the viewed breakpoint is removed.
     pub reset_override: Option<String>,
+    /// WASM-036 R10 — a CSS mark's "Go to the rule": the property whose winning declaration is shown.
+    pub css_go_to: Option<String>,
+    /// WASM-036 R10 — a CSS mark's "Remove the CSS declaration": the property whose winning
+    /// declaration is to be taken out (after the designer asks).
+    pub css_remove: Option<String>,
     /// `(ctrl_id, prop, secret)` — a credential the developer typed.
     ///
     /// Deliberately NOT `set_props`: a credential must never reach the control,
@@ -4748,6 +4753,15 @@ impl PropertiesPanel {
         marks
     }
 
+    /// WASM-036 R10 — per property a stylesheet rule or `CssStyle` decides: the sheet it is in (`None`
+    /// for `CssStyle`, which has no rule to go to).
+    pub(crate) fn css_sources_for(&mut self, form: &Form, c: &Control) -> std::collections::HashMap<String, Option<String>> {
+        let Some(e) = self.css_effective_of(form, c) else {
+            return Default::default();
+        };
+        e.entries.iter().filter(|x| x.layer >= cobolt_forms::css_effective::Layer::Project).map(|x| (x.property.to_ascii_lowercase(), x.sheet.clone())).collect()
+    }
+
     /// WASM-036 R5 — per property the page decides in a way the canvas cannot read (`calc()`, a
     /// `var()` with no value): the CSS as written, drawn read-only in place of the editor.
     pub(crate) fn css_unknown_of(&mut self, form: &Form, c: &Control, tr: &Tr) -> std::collections::HashMap<String, String> {
@@ -5009,6 +5023,12 @@ impl PropertiesPanel {
                 _ => Default::default(),
             },
         };
+        let sources = match ctrl.filter(|_| self.web_project && single) {
+            Some(c) => self.css_sources_for(form, c),
+            None => Default::default(),
+        };
+        CSS_SOURCES.with(|m| *m.borrow_mut() = sources);
+        CSS_ROW_LABELS.with(|l| *l.borrow_mut() = (tr.css_go_to_rule, tr.css_remove_declaration));
         CSS_MARKS.with(|m| *m.borrow_mut() = marks);
         let unknown = match ctrl.filter(|_| self.web_project && single) {
             Some(c) => self.css_unknown_of(form, c, tr),
@@ -5053,6 +5073,13 @@ impl PropertiesPanel {
                 }
             });
         action.reset_override = RESET_REQUEST.with(|r| r.borrow_mut().take());
+        if let Some((go, key)) = CSS_ROW_REQUEST.with(|r| r.borrow_mut().take()) {
+            if go {
+                action.css_go_to = Some(key);
+            } else {
+                action.css_remove = Some(key);
+            }
+        }
         // Read back whatever `property_row`'s grip wrote while the rows were
         // drawn, because the line above this block put `self.property_split`
         // into that same slot and will do it again next frame. Without this,
@@ -14386,7 +14413,25 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
                 }
                 // WASM-007 R12 — a stylesheet or the control's Style (CSS) wins over this value.
                 if let Some(tip) = CSS_MARKS.with(|m| m.borrow().get(&key.to_ascii_lowercase()).cloned()) {
-                    ui.label(RichText::new("CSS").small().strong().color(crate::theme::active().accent)).on_hover_text(tip);
+                    let lk = key.to_ascii_lowercase();
+                    let src = CSS_SOURCES.with(|m| m.borrow().get(&lk).cloned());
+                    let mark = ui
+                        .add(egui::Label::new(RichText::new("CSS").small().strong().color(crate::theme::active().accent)).sense(egui::Sense::click()))
+                        .on_hover_text(tip);
+                    // The two actions of a CSS row: only a mark that has a declaration of its own.
+                    if let Some(sheet) = src {
+                        mark.context_menu(|ui| {
+                            let (go, rm) = CSS_ROW_LABELS.with(|l| l.borrow().clone());
+                            if sheet.is_some() && ui.button(go).clicked() {
+                                CSS_ROW_REQUEST.with(|r| *r.borrow_mut() = Some((true, key.clone())));
+                                ui.close();
+                            }
+                            if ui.button(rm).clicked() {
+                                CSS_ROW_REQUEST.with(|r| *r.borrow_mut() = Some((false, key.clone())));
+                                ui.close();
+                            }
+                        });
+                    }
                 }
                 let r = ui.add(egui::Label::new(shown).wrap());
                 // A row may carry its own tooltip (the Definition for AI rows: it depends on what is selected).
@@ -14496,6 +14541,11 @@ thread_local! {
     static RESET_REQUEST: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
     /// WASM-007 R12 — per lower-case property key, the "overridden by CSS" text of its mark.
     static CSS_MARKS: std::cell::RefCell<std::collections::HashMap<String, String>> = std::cell::RefCell::new(Default::default());
+    /// Per CSS-marked row: where the winning declaration is (`None` sheet = the control's `CssStyle`).
+    static CSS_SOURCES: std::cell::RefCell<std::collections::HashMap<String, Option<String>>> = std::cell::RefCell::new(Default::default());
+    /// `(go_to, property)` asked from a CSS mark's menu this frame.
+    static CSS_ROW_LABELS: std::cell::RefCell<(&'static str, &'static str)> = const { std::cell::RefCell::new(("", "")) };
+    static CSS_ROW_REQUEST: std::cell::RefCell<Option<(bool, String)>> = const { std::cell::RefCell::new(None) };
     /// WASM-036 R5 — per lower-case property key, the CSS the page gives it that the canvas cannot read.
     static CSS_UNKNOWN: std::cell::RefCell<std::collections::HashMap<String, String>> = std::cell::RefCell::new(Default::default());
     /// WASM-004 R6 — while a web or mobile form is inspected, the start of an approximate property's tooltip;

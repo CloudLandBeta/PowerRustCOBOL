@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373); T13 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374); T14 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -297,7 +297,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - **AC7:** a `.pr-button` rule styles three buttons, and the question names 2 others. Change the rule changes all three. Only this control adds `#BTN-1 { … }` at the end of the form sheet, and only BTN-1 changes. Cancel leaves both files byte-identical.
     - **AC13:** the window's rectangle holds over 120 frames in each of the six languages, and keeps the dragged size after a drag of its grip.
 
-- [ ] **T13 — The row actions: Go to rule, Remove the CSS declaration** (R14, R16; AC10)
+- [x] **T13 — The row actions: Go to rule, Remove the CSS declaration** (R14, R16; AC10)
   - Files: `crates/cobolt-ide/src/panels/properties.rs` (the mark's context menu; `InspectorAction.css_go_to`, `css_remove`), `crates/cobolt-ide/src/panels/stylesheet_modal.rs` (`pub fn open_at(line)` over the existing `jump_to`), `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/src/i18n.rs`.
   - Do:
     - **Go to rule** opens the stylesheet modal at the line, or the Style editor for `CssStyle`.
@@ -308,6 +308,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - **AC10:** Remove asks first, removes only that declaration (byte diff), and undo puts it back.
     - **AC10:** Go to rule opens the modal with the caret on the rule's line.
     - A Visible row overridden by `display: none` is not written; it offers only the two actions.
+  - *Done (2.0.374).* The menu is on the CSS mark, so it exists only on a row a declaration decides; a `CssStyle` declaration offers Remove only (its text is its own row, there is no rule to go to). `css_remove_button` was added for the confirmation's button.
 
 - [ ] **T14 — Edits with several controls selected** (R15; AC11)
   - Files: `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/src/panels/designer.rs`.

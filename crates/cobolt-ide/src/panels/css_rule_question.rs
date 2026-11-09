@@ -69,25 +69,7 @@ impl CssRuleQuestion {
     }
 
     fn resize_grip(&mut self, ctx: &egui::Context, theme: &Theme, window: egui::Rect) {
-        let corner = window.max - egui::vec2(GRIP_INSET, GRIP_INSET);
-        let origin = corner - egui::vec2(GRIP, GRIP);
-        egui::Area::new(egui::Id::new("css_rule_question_grip")).order(egui::Order::Foreground).fixed_pos(origin).show(ctx, |ui| {
-            let (rect, response) = ui.allocate_exact_size(egui::vec2(GRIP, GRIP), egui::Sense::drag());
-            if response.dragged() {
-                self.size += response.drag_delta();
-                self.size.x = self.size.x.clamp(MIN_W, MAX_W);
-                self.size.y = self.size.y.clamp(MIN_H, MAX_H);
-            }
-            let col = if response.hovered() || response.dragged() { theme.accent } else { theme.text_dim };
-            let p = ui.painter();
-            for i in 0..3 {
-                let o = 4.0 * i as f32;
-                p.line_segment([egui::pos2(rect.right() - o, rect.bottom()), egui::pos2(rect.right(), rect.bottom() - o)], egui::Stroke::new(1.5, col));
-            }
-            if response.hovered() || response.dragged() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
-            }
-        });
+        grip(ctx, theme, window, "css_rule_question_grip", &mut self.size);
     }
 
     /// The count as the window says it: `3`, or `at least 3`.
@@ -139,6 +121,97 @@ impl CssRuleQuestion {
         }
         if !open && answer == Answer::Pending {
             answer = Answer::Cancel;
+        }
+        answer
+    }
+}
+
+/// The one grip of a window of this file: its only writer of `size`.
+fn grip(ctx: &egui::Context, theme: &Theme, window: egui::Rect, id: &str, size: &mut egui::Vec2) {
+    let corner = window.max - egui::vec2(GRIP_INSET, GRIP_INSET);
+    let origin = corner - egui::vec2(GRIP, GRIP);
+    egui::Area::new(egui::Id::new(id)).order(egui::Order::Foreground).fixed_pos(origin).show(ctx, |ui| {
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(GRIP, GRIP), egui::Sense::drag());
+        if response.dragged() {
+            *size += response.drag_delta();
+            size.x = size.x.clamp(MIN_W, MAX_W);
+            size.y = size.y.clamp(MIN_H, MAX_H);
+        }
+        let col = if response.hovered() || response.dragged() { theme.accent } else { theme.text_dim };
+        let p = ui.painter();
+        for i in 0..3 {
+            let o = 4.0 * i as f32;
+            p.line_segment([egui::pos2(rect.right() - o, rect.bottom()), egui::pos2(rect.right(), rect.bottom() - o)], egui::Stroke::new(1.5, col));
+        }
+        if response.hovered() || response.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
+        }
+    });
+}
+
+/// What the removal window says: the declaration (`color: red`) and where it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveInfo {
+    pub declaration: String,
+    pub file: Option<String>,
+    pub line: usize,
+}
+
+/// WASM-036 R10 — the confirmation before a declaration is taken out of a stylesheet (or out of the
+/// control's `CssStyle`). Same window rules as the question above: its own size, one grip.
+pub struct CssRemoveConfirm {
+    pub size: egui::Vec2,
+}
+
+impl Default for CssRemoveConfirm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CssRemoveConfirm {
+    pub fn new() -> Self {
+        Self { size: egui::vec2(DEFAULT_W, 190.0) }
+    }
+
+    pub fn id() -> egui::Id {
+        egui::Id::new("css_remove_confirm")
+    }
+
+    /// `true` once the developer confirmed, `false` when cancelled, `None` while it is open.
+    pub fn show(&mut self, ctx: &egui::Context, theme: &Theme, tr: &Tr, info: &RemoveInfo) -> Option<bool> {
+        let mut answer = None;
+        let mut open = true;
+        let at = info.file.as_deref().map_or_else(|| "CssStyle".to_owned(), |f| format!("{f}:{}", info.line));
+        let window = egui::Window::new(egui::RichText::new(tr.css_remove_declaration).size(18.0).strong())
+            .id(Self::id())
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .fixed_size(self.size)
+            .default_pos([120.0, 120.0])
+            .show(ctx, |ui| {
+                let margin = ui.style().spacing.window_margin.sum().x;
+                ui.set_width((self.size.x - margin).max(120.0));
+                let body = tr.css_remove_confirm.replacen("{}", &info.declaration, 1).replacen("{}", &at, 1);
+                ui.add(egui::Label::new(body).wrap());
+                ui.add_space(14.0);
+                ui.separator();
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.css_remove_button).clicked() {
+                        answer = Some(true);
+                    }
+                    if ui.button(tr.btn_cancel).clicked() {
+                        answer = Some(false);
+                    }
+                });
+            });
+        if let Some(r) = window {
+            grip(ctx, theme, r.response.rect, "css_remove_confirm_grip", &mut self.size);
+        }
+        if !open && answer.is_none() {
+            answer = Some(false);
         }
         answer
     }

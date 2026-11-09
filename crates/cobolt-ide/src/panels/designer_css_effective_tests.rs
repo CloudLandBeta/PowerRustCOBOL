@@ -10,7 +10,7 @@
 
 use super::*;
 use crate::llm::LlmConfig;
-use super::super::css_rule_question::{Answer, CssRuleQuestion, RuleInfo};
+use super::super::css_rule_question::{Answer, CssRemoveConfirm, CssRuleQuestion, RemoveInfo, RuleInfo};
 use cobolt_forms::css::Scheme;
 use cobolt_forms::{Form, PropValue};
 
@@ -462,4 +462,107 @@ fn the_question_window_never_resizes_itself_in_any_language_and_keeps_a_dragged_
     }
     let ms = t0.elapsed().as_secs_f64() * 1000.0;
     println!("┌─ css_rule_question: the window\n│ 6 languages x (120 frames held + a grip drag + 20 frames kept)\n│ time: {ms:.0} ms ({:.0} frames/sec for the held frames)\n└─ 6/6 languages passed, 0 failed", frames as f64 / (ms / 1000.0));
+}
+
+// ── T13: the row actions ─────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn remove_asks_first_takes_out_only_that_declaration_and_undo_puts_it_back() {
+    let t0 = std::time::Instant::now();
+    let original = "/* mine */\n#PNL-1 {\n  color: red;\n  background-color: #112233;\n  margin: 4px;\n}\n";
+    let mut f = Fixture::new("remove", &[("F.css", false, original)], form());
+    f.d.css_request_remove("PNL-1", "BackgroundColor");
+    let q = f.d.css_remove_question.clone().expect("it asks first");
+    assert_eq!(q.info.declaration, "background-color: #112233");
+    assert_eq!((q.info.file.as_deref(), q.info.line), (Some("F.css"), 2));
+    assert_eq!(f.read("F.css"), original, "nothing is written before the answer");
+    // Cancel: nothing changes.
+    f.d.css_remove_answer(false);
+    assert_eq!(f.read("F.css"), original);
+    // Confirm: only that declaration, its own line, byte for byte.
+    f.d.css_request_remove("PNL-1", "BackgroundColor");
+    f.d.css_remove_answer(true);
+    let removed = "/* mine */\n#PNL-1 {\n  color: red;\n  margin: 4px;\n}\n";
+    assert_eq!(f.read("F.css"), removed, "AC10: only the declaration left");
+    f.d.undo();
+    assert_eq!(f.read("F.css"), original, "undo restores it byte for byte");
+    f.d.redo();
+    assert_eq!(f.read("F.css"), removed);
+    // A window holding unapplied text for that sheet refuses (R18).
+    f.d.undo();
+    f.d.css_modal_unapplied = Some(f.dir.join("F.css"));
+    f.d.css_request_remove("PNL-1", "BackgroundColor");
+    f.d.css_remove_answer(true);
+    assert_eq!(f.read("F.css"), original);
+    assert_eq!(f.d.css_messages.last(), Some(&CssMessage::RefusedUnapplied));
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("┌─ designer_css_effective: remove the declaration\n│ ask first, cancel, confirm, undo, redo byte-exact; refused while the window holds unapplied text\n│ time: {ms:.1} ms\n└─ 7/7 passed, 0 failed");
+}
+
+#[test]
+fn a_css_style_declaration_is_removed_through_the_controls_own_text_and_go_to_names_the_rule() {
+    let t0 = std::time::Instant::now();
+    let sheet = "\n\n#PNL-1 { background-color: #112233 }\n";
+    let mut f = Fixture::new("goto", &[("F.css", false, sheet)], form());
+    f.d.css_request_go_to("PNL-1", "BackgroundColor");
+    assert_eq!(f.d.css_go_to.take(), Some((f.dir.join("F.css"), 3)), "the sheet and the rule's line");
+    // The properties panel offers the actions only where there is a declaration, and no rule to go to for CssStyle.
+    let c = f.d.form.find_control("PNL-1").unwrap().clone();
+    let src = f.d.properties.css_sources_for(&f.d.form.clone(), &c);
+    assert_eq!(src.get("backgroundcolor"), Some(&Some("F.css".to_owned())));
+    // The control's own CssStyle (which wins over the sheet) has no sheet.
+    f.d.form.find_control_mut("PNL-1").unwrap().properties.insert("CssStyle".into(), PropValue::String("color: blue; background-color: #abcdef".into()));
+    f.d.properties.css_sheets_checked = None;
+    let c = f.d.form.find_control("PNL-1").unwrap().clone();
+    let src = f.d.properties.css_sources_for(&f.d.form.clone(), &c);
+    assert_eq!(src.get("backgroundcolor"), Some(&None), "CssStyle has no rule to go to");
+    f.d.css_request_go_to("PNL-1", "BackgroundColor");
+    assert!(f.d.css_go_to.is_none(), "a CssStyle declaration offers no go-to");
+    f.d.css_request_remove("PNL-1", "BackgroundColor");
+    assert_eq!(f.d.css_remove_question.as_ref().map(|q| q.info.file.clone()), Some(None));
+    f.d.css_remove_answer(true);
+    assert_eq!(f.d.form.find_control("PNL-1").unwrap().get_prop("CssStyle").map(|v| v.as_str().to_owned()).as_deref(), Some("color: blue;"), "only that declaration left CssStyle");
+    assert_eq!(f.read("F.css"), sheet, "the sheet is untouched");
+    f.d.undo();
+    assert_eq!(f.d.form.find_control("PNL-1").unwrap().get_prop("CssStyle").map(|v| v.as_str().to_owned()).as_deref(), Some("color: blue; background-color: #abcdef"));
+    for lang in crate::i18n::Language::ALL {
+        let t = lang.tr();
+        for s in [t.css_go_to_rule, t.css_remove_declaration, t.css_remove_confirm, t.css_remove_button] {
+            assert!(!s.trim().is_empty(), "{lang:?}: an empty string");
+        }
+        assert_eq!(t.css_remove_confirm.matches("{}").count(), 2, "{lang:?}: two places");
+    }
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("┌─ designer_css_effective: go to the rule, CssStyle removal\n│ go-to names sheet and line; CssStyle has no rule to go to; its declaration removed alone, undone; 6 languages\n│ time: {ms:.1} ms\n└─ 8/8 passed, 0 failed");
+}
+
+#[test]
+fn the_removal_window_never_resizes_itself_in_any_language() {
+    let info = RemoveInfo { declaration: "background-color: #112233".into(), file: Some("webforms/application.css".into()), line: 12 };
+    let t0 = std::time::Instant::now();
+    let mut frames = 0;
+    for lang in crate::i18n::Language::ALL {
+        let tr = lang.tr();
+        let ctx = egui::Context::default();
+        let mut w = CssRemoveConfirm::new();
+        let run = |ctx: &egui::Context, w: &mut CssRemoveConfirm| {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, SCREEN));
+            let mut out = ctx.run_ui(input, |ui| {
+                let theme = crate::theme::active();
+                let _ = w.show(ui.ctx(), &theme, &tr, &info);
+            });
+            out.textures_delta.clear();
+        };
+        run(&ctx, &mut w);
+        run(&ctx, &mut w);
+        let first = ctx.memory(|m| m.area_rect(CssRemoveConfirm::id())).expect("shown");
+        for _ in 0..120 {
+            run(&ctx, &mut w);
+            frames += 1;
+            assert_eq!(ctx.memory(|m| m.area_rect(CssRemoveConfirm::id())), Some(first), "{lang:?}: the rectangle is kept");
+        }
+    }
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("┌─ css_remove_confirm: the window\n│ 6 languages x 120 frames held\n│ time: {ms:.0} ms ({:.0} frames/sec)\n└─ 6/6 languages passed, 0 failed", frames as f64 / (ms / 1000.0));
 }

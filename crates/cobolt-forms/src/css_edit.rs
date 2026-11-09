@@ -113,7 +113,9 @@ pub fn remove(text: &str, decl: &DeclSpan) -> String {
     if text[stop..].starts_with(' ') {
         stop += 1;
     }
-    format!("{}{}", &text[..start], &text[stop..])
+    // The last declaration of an inline text: the space that led to it goes with it.
+    let head = if stop >= text.len() { text[..start].trim_end_matches([' ', '\t']) } else { &text[..start] };
+    format!("{head}{}", &text[stop..])
 }
 
 /// Insert `css: value` as a new declaration right after `decl` (its `;` added when the last

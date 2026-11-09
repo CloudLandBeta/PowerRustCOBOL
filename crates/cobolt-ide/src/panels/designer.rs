@@ -1359,6 +1359,14 @@ pub struct CssQuestion {
     pub info: super::css_rule_question::RuleInfo,
 }
 
+/// A declaration waiting for the developer to confirm its removal (R10).
+#[derive(Debug, Clone)]
+pub struct CssRemoveQuestion {
+    pub ctrl_id: String,
+    pub key: String,
+    pub info: super::css_rule_question::RemoveInfo,
+}
+
 /// The stylesheets of a drag or a picker in progress: what each held when it began, so the whole
 /// gesture is one write and one undo step.
 #[derive(Debug, Clone, Default)]
@@ -2958,6 +2966,11 @@ pub struct DesignerPanel {
     /// would change (`css_answer`); and the answer being applied.
     pub css_question: Option<CssQuestion>,
     css_forced: Option<cobolt_forms::css_edit::Choice>,
+    /// WASM-036 R10 — a CSS row's "Remove the CSS declaration", waiting for its confirmation.
+    pub css_remove_question: Option<CssRemoveQuestion>,
+    /// WASM-036 R10 — a CSS row's "Go to the rule": the sheet's file and the rule's line, for the app
+    /// to open the stylesheet window there.
+    pub css_go_to: Option<(std::path::PathBuf, usize)>,
 
     pub dirty: bool,
     pub close_requested: bool,
@@ -3352,6 +3365,8 @@ impl DesignerPanel {
             css_gesture: None,
             css_question: None,
             css_forced: None,
+            css_remove_question: None,
+            css_go_to: None,
             dirty: false,
             close_requested: false,
             close_confirm: false,
@@ -9424,6 +9439,107 @@ impl DesignerPanel {
         if self.css_forced.is_some() {
             self.css_route(&q.ctrl_id, &q.key, &q.value);
             self.css_forced = None;
+        }
+    }
+
+    /// The winning declaration of `key` on `ctrl_id` from a developer's sheet or `CssStyle`, read from
+    /// the sheets as they are on disk now, with the sheets (label, text) and their files.
+    fn css_winner(&mut self, ctrl_id: &str, key: &str) -> Option<(cobolt_forms::css_effective::Entry, Vec<(String, String)>, Vec<std::path::PathBuf>)> {
+        use cobolt_forms::css_effective::{effective, Layer, Origin, SheetSet, SheetSource};
+        if !self.properties.web_project || self.form.find_control(ctrl_id).is_none() {
+            return None;
+        }
+        let files = self.properties.css_sheet_files.clone();
+        if files.len() != self.properties.css_sheets.len() {
+            return None;
+        }
+        for (i, f) in files.iter().enumerate() {
+            if let Ok(b) = std::fs::read(f) {
+                self.properties.css_sheets[i].1 = String::from_utf8_lossy(&b).into_owned();
+            }
+        }
+        let (w, h) = self.canvas_size();
+        let env = cobolt_forms::css::MediaEnv { width: w, height: h, scheme: self.css_scheme };
+        let project = self.properties.css_project_sheet.clone();
+        let sheets = self.properties.css_sheets.clone();
+        let sources: Vec<SheetSource<'_>> = sheets
+            .iter()
+            .map(|(label, text)| SheetSource { label, text, origin: if Some(label) == project.as_ref() { Origin::Project } else { Origin::Form } })
+            .collect();
+        let eff = effective(&self.form, Some(ctrl_id), &SheetSet::parse(&sources), &env);
+        let e = eff.get(key).filter(|e| e.layer >= Layer::Project)?.clone();
+        Some((e, sheets, files))
+    }
+
+    /// WASM-036 R10 — "Go to the rule": the sheet's file and the rule's line, for the app to show.
+    pub fn css_request_go_to(&mut self, ctrl_id: &str, key: &str) {
+        let Some((e, sheets, files)) = self.css_winner(ctrl_id, key) else {
+            return;
+        };
+        let Some(label) = e.sheet else { return };
+        if let Some(i) = sheets.iter().position(|(l, _)| *l == label) {
+            self.css_go_to = Some((files[i].clone(), e.line));
+        }
+    }
+
+    /// WASM-036 R10 — "Remove the CSS declaration": ask first; nothing is written until confirmed.
+    pub fn css_request_remove(&mut self, ctrl_id: &str, key: &str) {
+        let Some((e, _, _)) = self.css_winner(ctrl_id, key) else {
+            return;
+        };
+        let important = if e.important { " !important" } else { "" };
+        self.css_remove_question = Some(CssRemoveQuestion {
+            ctrl_id: ctrl_id.to_owned(),
+            key: key.to_owned(),
+            info: super::css_rule_question::RemoveInfo { declaration: format!("{}: {}{important}", e.css, e.declared), file: e.sheet, line: e.line },
+        });
+    }
+
+    /// The answer to the removal question. Confirmed: only that declaration leaves its sheet (or the
+    /// control's `CssStyle`), byte for byte, as one undo step.
+    pub fn css_remove_answer(&mut self, confirmed: bool) {
+        use cobolt_forms::css_effective::{DeclSource, Origin, SheetSet, SheetSource};
+        let Some(q) = self.css_remove_question.take() else {
+            return;
+        };
+        if !confirmed {
+            return;
+        }
+        // Looked up again: the sheet may have changed while the window was open.
+        let Some((e, sheets, files)) = self.css_winner(&q.ctrl_id, &q.key) else {
+            return;
+        };
+        match e.decl {
+            DeclSource::CssStyle { decl } => {
+                let old = self.form.find_control(&q.ctrl_id).and_then(|c| c.get_prop("CssStyle").cloned());
+                let text = old.as_ref().map(|v| v.as_str().to_owned()).unwrap_or_default();
+                let Some(span) = cobolt_forms::css::parse_declarations_spanned(&text, 0..text.len()).into_iter().nth(decl) else {
+                    self.css_messages.push(CssMessage::CannotEdit("the CssStyle declaration is gone"));
+                    return;
+                };
+                let after = cobolt_forms::css_edit::remove(&text, &span);
+                self.apply(Cmd::SetProperty { id: q.ctrl_id, key: "CssStyle".into(), old, new: PropValue::String(after) });
+            }
+            DeclSource::Rule { rule, decl } => {
+                let project = self.properties.css_project_sheet.clone();
+                let sources: Vec<SheetSource<'_>> = sheets
+                    .iter()
+                    .map(|(label, text)| SheetSource { label, text, origin: if Some(label) == project.as_ref() { Origin::Project } else { Origin::Form } })
+                    .collect();
+                let set = SheetSet::parse(&sources);
+                let Some(r) = set.rules.get(rule) else { return };
+                let Some(span) = r.decls.get(decl) else {
+                    self.css_messages.push(CssMessage::CannotEdit("the declaration is gone"));
+                    return;
+                };
+                let (i, before) = (r.source, sheets[r.source].1.clone());
+                if self.css_modal_unapplied.as_ref() == files.get(i) {
+                    self.css_messages.push(CssMessage::RefusedUnapplied);
+                    return;
+                }
+                let after = cobolt_forms::css_edit::remove(&before, span);
+                self.apply(Cmd::SetStylesheet { path: files[i].clone(), before, after });
+            }
         }
     }
 
