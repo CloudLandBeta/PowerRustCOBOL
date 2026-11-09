@@ -289,6 +289,13 @@ pub fn record_android(settings: &mut MobileSettings) {
     settings.native.android = mn::ANDROID_DIR.to_owned();
 }
 
+/// Whether New Project offers the native-project step for a project just made (WASM-001 R19):
+/// only a Mobile project for Android has one. A Web or Desktop project has no `[mobile]`
+/// settings; an iOS project's Xcode project is not made by this version.
+pub fn offers_step(mobile: Option<&MobileSettings>) -> bool {
+    mobile.is_some_and(|m| m.platform == cobolt_compiler::project_kind::MobilePlatform::Android)
+}
+
 /// What New Project's step asks the app to do.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct StepAction {

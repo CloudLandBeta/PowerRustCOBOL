@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.357 — 2026-11-09
+
+**Feature: WASM-001 T19 — the New Project native-project step now has its acceptance test (AC8), and the rule for when the step appears is one function.** A Mobile project made for Android is offered the Android Studio step; *Not now* leaves the manifest with no `[mobile.native]` record, *Create* writes `android = "android"` and it survives a reload; iOS, Web and Desktop templates show no step. The iOS project (Xcode) is still not made by this version, so T19 stays open for it and for its Finalize.
+
 ## 2.0.356 — 2026-11-09
 
 **Fix: the bands on the striped balls of the 3D pool game follow the surface of the ball.** The band was a ring that stood out of the ball like a collar. It is now a slightly larger sphere, squeezed along its vertical axis, that shows only around the equator of the white ball, so the colour lies flush on the curve and rolls with the ball.

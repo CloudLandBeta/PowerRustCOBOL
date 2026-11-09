@@ -2352,6 +2352,7 @@ dependencies = [
  "toml_edit 0.22.27",
  "tracing",
  "tracing-subscriber",
+ "tungstenite 0.28.0",
  "ureq",
  "zip 9.4.1",
 ]

@@ -345,7 +345,7 @@ search `"cfrm"|\.cfrm"` over `crates/` (plan §5) and either convert or justify 
     now leaves it out, and Project Settings, Mobile application makes it later (WASM-012 R17). A Web or Desktop template shows no step. The
     record is `MobileSettings.native`, written only when set, so `create::plan` writes the same bytes for the IDE and `create_project` (AC3);
     `create::plan` now also writes a valid application id (`com.example.<name>`). **Left:** an iOS project's Xcode step (this version makes no
-    Xcode project: Project Settings says so); AC8's test as the spec words it; this task's Finalize.
+    Xcode project: Project Settings says so); AC8's test as the spec words it (**done 2.0.357**, `new_project.rs` `ac8_the_native_step_and_what_the_manifest_says`: Android step offered, Not now records nothing, Create records `android` and survives a reload; iOS, Web, Desktop show no step); this task's Finalize, which waits for the Xcode half (WASM-012 T25c; Xcode 15.2 here has no iOS 18 simulator).
   - **Owed to WASM-012 (stays open, checked 2026-11-01):** the step's action is WASM-012 R16's generator of the Android
     Studio / Xcode project, and its re-creation from Project Settings is WASM-012 R17 — both WASM-012 **T25c**, unchecked;
     `specs/WASM-012-mobile-shell-tauri-2/tasks.md` says *"No shell code exists yet"* and every task T1–T26 is open. Where

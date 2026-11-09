@@ -1044,6 +1044,49 @@ mod tests {
         d.catalogue().iter().position(|t| t.id == id).unwrap()
     }
 
+    /// WASM-001 AC8, as the spec words it: a Mobile project made through New Project, the step
+    /// accepted, says in its manifest that the Android Studio project exists; the step cancelled,
+    /// the manifest says it is missing; a Web or Desktop template shows no such step. The iOS
+    /// half ("on a Mac, the Xcode project") is not made by this version, so an iOS project is
+    /// asserted to show no step rather than a fake one.
+    #[test]
+    fn ac8_the_native_step_and_what_the_manifest_says() {
+        use crate::panels::native_project::{offers_step, record_android};
+        use crate::project_model::{load_project, save_project};
+        let root = std::env::temp_dir().join(format!("prc-ac8-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut d = dialog();
+        let mut outcome = Vec::new();
+        for (template, expect_step) in [("android-tablet", true), ("ipad", false), ("web", false), ("desktop", false)] {
+            d.name = format!("Ac8{}", template.replace('-', ""));
+            d.location = root.display().to_string();
+            d.select(index_of(&d, template));
+            let ready = d.ready().unwrap();
+            let plan = create::plan(&ready.request, d.catalogue()).unwrap();
+            plan.write_into(&ready.dir, &plan.manifest_name).unwrap();
+            let manifest = ready.dir.join(&plan.manifest_name);
+            let mut project = load_project(&manifest).unwrap();
+            assert_eq!(offers_step(project.mobile.as_ref()), expect_step, "{template}");
+            if !expect_step {
+                assert!(!std::fs::read_to_string(&manifest).unwrap().contains("[mobile.native]"), "{template}");
+                outcome.push(format!("{template}: no step"));
+                continue;
+            }
+            // Cancelled: the project exists and the manifest records no native project.
+            assert!(project.mobile.as_ref().unwrap().native.is_default());
+            assert!(!std::fs::read_to_string(&manifest).unwrap().contains("[mobile.native]"));
+            // Accepted: the record is written and survives a reload.
+            record_android(project.mobile.as_mut().unwrap());
+            save_project(&project, &manifest).unwrap();
+            let text = std::fs::read_to_string(&manifest).unwrap();
+            assert!(text.contains("[mobile.native]") && text.contains("android = \"android\""), "{text}");
+            assert_eq!(load_project(&manifest).unwrap().mobile.unwrap().native.android, "android");
+            outcome.push(format!("{template}: step offered; Not now -> no record; Create -> android = \"android\""));
+        }
+        let _ = std::fs::remove_dir_all(&root);
+        eprintln!("AC8 native step: {} cases, all passed\n  {}", outcome.len(), outcome.join("\n  "));
+    }
+
     /// WASM-001 AC1: selecting each template changes the title and the options shown.
     #[test]
     fn each_template_changes_the_title_and_the_options() {

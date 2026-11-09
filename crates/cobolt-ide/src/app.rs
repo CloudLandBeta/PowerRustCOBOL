@@ -5132,12 +5132,7 @@ impl CoboltApp {
                 .push_status(tr.pk_status_created.replacen("{}", kind, 1).replacen("{}", &plan.stored_name, 1));
             // A Mobile project for Android: its Android Studio project is a step of its own,
             // which the developer may decline (WASM-001 R19, WASM-012 R16–R17).
-            let android = self
-                .cobolt_project
-                .as_ref()
-                .and_then(|p| p.mobile.as_ref())
-                .is_some_and(|m| m.platform == cobolt_compiler::project_kind::MobilePlatform::Android);
-            if android {
+            if crate::panels::native_project::offers_step(self.cobolt_project.as_ref().and_then(|p| p.mobile.as_ref())) {
                 self.native_step = Some(crate::panels::native_project::NativeStep::new(manifest, &plan.stored_name));
             }
         }
