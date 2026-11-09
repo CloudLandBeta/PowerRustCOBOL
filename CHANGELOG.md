@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.340 — 2026-11-09
+
+**Fix: the street runner's legs now bend when it runs.** The knees opened and closed on a phase that did not follow the stride, and the camera sat straight behind the runner, where a swinging leg moves toward and away from the lens and hardly shows. Each knee now bends most (about 85 degrees) as its leg swings forward under the body and almost straightens (about 5 degrees) when the leg reaches back, the thighs swing 44 degrees forward and 28 back, the elbows stay bent (70 to 95 degrees) and close as the hand comes forward, and the camera sits a little to the right so the stride shows from the side. Not yet seen drawn: the check and a headless run pass, but they have no GPU.
+
 ## 2.0.339 — 2026-11-09
 
 **Fix: Pitfall no longer stops with an "arithmetic size error" on the other side, and the moon is full.** The game worked out how far the explorer was from the swinging vine's tip by squaring the distance into a field that held at most 99,999.99, so any distance past about 316 pixels overflowed and raised the error on every frame. The field now holds nine digits. The moon above the tree line is now a full moon with craters, drawn clear of the trees.

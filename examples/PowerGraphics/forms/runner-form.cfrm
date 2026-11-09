@@ -422,10 +422,12 @@
            END-PERFORM
 ]]></Event>
     <Event name="RUN-ANIMATE" paragraph="RUN-ANIMATE"><![CDATA[       PROCEDURE DIVISION.
-           *> The gait: one phase angle WS-PH drives every joint. Legs and arms swing opposite to each other; the knees bend as the
-           *> leg comes through; the hips bob twice per stride. In the air the runner tucks.
+           *> The gait: one phase angle WS-PH drives every joint. Legs and arms swing opposite to each other. A knee bends most (about
+           *> 85 degrees) while its leg swings forward under the body and nearly straightens (about 5 degrees) when the leg reaches back,
+           *> the elbows bend about 70 to 95 degrees and open and close with the swing, and the hips bob twice per stride. In the air the
+           *> runner tucks.
            COMPUTE WS-S = FUNCTION SIN( WS-PH )
-           COMPUTE WS-S2 = FUNCTION SIN( WS-PH + 2.2 )
+           COMPUTE WS-S2 = FUNCTION COS( WS-PH - 0.4 )
            IF      WS-AIR = 1
                SCN-1::SetRotation( WS-LEGL 55 0 0 )
                SCN-1::SetRotation( WS-LEGR -25 0 0 )
@@ -434,23 +436,25 @@
                SCN-1::SetRotation( WS-ARML -60 0 0 )
                SCN-1::SetRotation( WS-ARMR 60 0 0 )
            ELSE
-               COMPUTE WS-A1 = 42 * WS-S
-               COMPUTE WS-A2 = 0 - WS-A1
+               *> Thighs: 44 degrees forward at the front of the stride, 28 back; WS-S is the sine of the phase.
+               COMPUTE WS-A1 = 8 + 36 * WS-S
+               COMPUTE WS-A2 = 8 - 36 * WS-S
                SCN-1::SetRotation( WS-LEGL WS-A1 0 0 )
                SCN-1::SetRotation( WS-LEGR WS-A2 0 0 )
-               COMPUTE WS-A3 = 0 - 45 * WS-S
-               COMPUTE WS-A4 = 45 * WS-S
-               SCN-1::SetRotation( WS-ARML WS-A3 0 0 )
-               SCN-1::SetRotation( WS-ARMR WS-A4 0 0 )
-               IF      WS-S2 < 0
-                   COMPUTE WS-A1 = -8
-                   COMPUTE WS-A2 = -8 - 55 * ( 0 - WS-S2 )
-               ELSE
-                   COMPUTE WS-A1 = -8 - 55 * WS-S2
-                   COMPUTE WS-A2 = -8
-               END-IF
+               *> Knees: WS-S2 is the cosine of the phase shifted 0.4 rad; each leg is half a stride behind the other.
+               COMPUTE WS-A1 = 0 - ( 45 + 40 * WS-S2 )
+               COMPUTE WS-A2 = 0 - ( 45 - 40 * WS-S2 )
                SCN-1::SetRotation( WS-KNL WS-A1 0 0 )
                SCN-1::SetRotation( WS-KNR WS-A2 0 0 )
+               *> Arms swing against the legs; the elbow closes as the hand comes forward.
+               COMPUTE WS-A3 = 0 - 40 * WS-S
+               COMPUTE WS-A4 = 40 * WS-S
+               SCN-1::SetRotation( WS-ARML WS-A3 0 0 )
+               SCN-1::SetRotation( WS-ARMR WS-A4 0 0 )
+               COMPUTE WS-A1 = 82 - 14 * WS-S
+               COMPUTE WS-A2 = 82 + 14 * WS-S
+               SCN-1::SetRotation( WS-ELL WS-A1 0 0 )
+               SCN-1::SetRotation( WS-ELR WS-A2 0 0 )
            END-IF
            COMPUTE WS-A1 = 1.2 + WS-RY + 0.05 * FUNCTION SIN( WS-PH * 2 )
            SCN-1::SetPosition( WS-HIP 0 WS-A1 0 )
@@ -543,8 +547,8 @@
                END-IF
            END-PERFORM
 
-           *> The camera sits behind and above the runner and looks down the street.
-           COMPUTE WS-X = WS-RX * 0.5
+           *> The camera sits behind, above and a little to the right of the runner, so the swing of the legs shows from the side.
+           COMPUTE WS-X = WS-RX * 0.5 + 2.6
            COMPUTE WS-Y = 3.4 + WS-RY * 0.4
            COMPUTE WS-Z = WS-RZ + 6.5
            SCN-1::SetPosition( WS-CAM WS-X WS-Y WS-Z )
