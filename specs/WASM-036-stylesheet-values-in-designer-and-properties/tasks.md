@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372); T12 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373); T13 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -285,7 +285,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - **Gesture:** 30 frames of picker changes make one file write and one undo step.
     - **`lost_focus`:** focusing and unfocusing every text row of an overridden control writes nothing.
 
-- [ ] **T12 — The shared-rule question window** (R11, R15 one question; AC7, AC13)
+- [x] **T12 — The shared-rule question window** (R11, R15 one question; AC7, AC13)
   - Files: new `crates/cobolt-ide/src/panels/css_rule_question.rs` (copied from `indexed_engine_modal.rs`), `crates/cobolt-ide/src/panels/designer.rs` (`pending_css_question`), `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/src/i18n.rs`.
   - Do:
     - **The window:** its own `size`, `.resizable(false).fixed_size(size)`, one grip in a foreground `Area`. Read the skills `egui-paint-regressions` and `rounded-corners` first.

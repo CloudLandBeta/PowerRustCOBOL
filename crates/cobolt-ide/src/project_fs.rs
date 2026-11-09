@@ -250,7 +250,7 @@ pub fn move_path(
 }
 
 /// Is `path` a form file (`.cfrm`, `.wcfrm`, `.mcfrm`)?
-fn is_form_file(path: &Path) -> bool {
+pub(crate) fn is_form_file(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| ["cfrm", "wcfrm", "mcfrm"].iter().any(|f| e.eq_ignore_ascii_case(f)))
 }
 

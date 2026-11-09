@@ -1350,6 +1350,15 @@ pub enum CssMessage {
     UndoChangedOnDisk(String),
 }
 
+/// An edit held for the shared-rule question.
+#[derive(Debug, Clone)]
+pub struct CssQuestion {
+    pub ctrl_id: String,
+    pub key: String,
+    pub value: PropValue,
+    pub info: super::css_rule_question::RuleInfo,
+}
+
 /// The stylesheets of a drag or a picker in progress: what each held when it began, so the whole
 /// gesture is one write and one undo step.
 #[derive(Debug, Clone, Default)]
@@ -2945,6 +2954,10 @@ pub struct DesignerPanel {
     /// Whether a pointer button is down (a picker or a drag in progress), set by the app every frame.
     pub css_pointer_down: bool,
     css_gesture: Option<CssGesture>,
+    /// WASM-036 R11 — an edit held until the developer says whether to change the shared rule it
+    /// would change (`css_answer`); and the answer being applied.
+    pub css_question: Option<CssQuestion>,
+    css_forced: Option<cobolt_forms::css_edit::Choice>,
 
     pub dirty: bool,
     pub close_requested: bool,
@@ -3337,6 +3350,8 @@ impl DesignerPanel {
             css_modal_unapplied: None,
             css_pointer_down: false,
             css_gesture: None,
+            css_question: None,
+            css_forced: None,
             dirty: false,
             close_requested: false,
             close_confirm: false,
@@ -9274,8 +9289,16 @@ impl DesignerPanel {
         }
         let layers: Vec<String> = self.form.layers.iter().map(|l| l.name.clone()).collect();
         let options = cobolt_forms::stylesheet_lint::Options { layers: &layers, ..Default::default() };
-        // A rule that styles other controls too is not changed behind the developer's back: only this control.
-        let choice = if entry.shared { Choice::OnlyThisControl } else { Choice::ChangeRule };
+        // A rule that styles other controls too is not changed until the developer has been asked (R11).
+        let choice = match self.css_forced.take() {
+            Some(c) => c,
+            None if entry.shared => {
+                let (sheet, line) = (entry.sheet.clone(), entry.line);
+                self.css_ask(ctrl_id, key, value, sheet, line, &sheets, project.as_deref());
+                return true;
+            }
+            None => Choice::ChangeRule,
+        };
         let planned = plan(&self.form, ctrl_id, key, &new, &sources, &env, choice, &options);
         let (edits, css_style) = match planned {
             Ok(Plan::StoreProperty) => return false,
@@ -9327,6 +9350,81 @@ impl DesignerPanel {
             self.apply(Cmd::Batch { cmds });
         }
         true
+    }
+
+    /// Hold the edit and work out what the question says: the rule's selector and place, and how many
+    /// other controls it styles — on this form, and, for a project sheet's rule, on the project's other
+    /// forms (loaded once, with a time limit: a count that was cut short is "at least").
+    #[allow(clippy::too_many_arguments)]
+    fn css_ask(&mut self, ctrl_id: &str, key: &str, value: &PropValue, sheet: Option<String>, line: usize, sheets: &[(String, String)], project: Option<&str>) {
+        use cobolt_forms::css_effective::{effective, Origin, SheetSet, SheetSource};
+        let text = sheet.as_deref().and_then(|l| sheets.iter().find(|(n, _)| n == l)).map(|(_, t)| t.as_str()).unwrap_or("");
+        let selector = text.lines().nth(line.saturating_sub(1)).map(|l| l.split('{').next().unwrap_or(l).trim().to_owned()).unwrap_or_default();
+        let (w, h) = self.canvas_size();
+        let env = cobolt_forms::css::MediaEnv { width: w, height: h, scheme: self.css_scheme };
+        let styles = |form: &Form, set: &SheetSet, id: &str| effective(form, Some(id), set, &env).entries.iter().any(|e| e.sheet == sheet && e.line == line);
+        let sources: Vec<SheetSource<'_>> = sheets.iter().map(|(l, t)| SheetSource { label: l, text: t, origin: if Some(l.as_str()) == project { Origin::Project } else { Origin::Form } }).collect();
+        let set = SheetSet::parse(&sources);
+        fn ids(cs: &[Control], out: &mut Vec<String>) {
+            for c in cs {
+                out.push(c.id.clone());
+                ids(&c.children, out);
+            }
+        }
+        let mut all = Vec::new();
+        ids(&self.form.controls, &mut all);
+        let mut others = all.iter().filter(|id| !id.eq_ignore_ascii_case(ctrl_id) && styles(&self.form, &set, id)).count();
+        let mut at_least = false;
+        // A project sheet's rule reaches every form of the project.
+        if sheet.as_deref().is_some() && sheet.as_deref() == project {
+            if let Some(dir) = self.cfrm_dir.clone() {
+                let started = std::time::Instant::now();
+                if let Ok(rd) = std::fs::read_dir(&dir) {
+                    for f in rd.flatten().map(|e| e.path()).filter(|p| crate::project_fs::is_form_file(p)) {
+                        if started.elapsed() > std::time::Duration::from_millis(400) {
+                            at_least = true;
+                            break;
+                        }
+                        let Ok(other) = cobolt_forms::load_form(&f) else { continue };
+                        if other.name.eq_ignore_ascii_case(&self.form.name) {
+                            continue;
+                        }
+                        let own = std::fs::read_to_string(cobolt_forms::web_themes::stylesheet_beside(&f)).ok();
+                        let mut srcs: Vec<SheetSource<'_>> = sheets.iter().filter(|(l, _)| Some(l.as_str()) == project).map(|(l, t)| SheetSource { label: l, text: t, origin: Origin::Project }).collect();
+                        if let Some(t) = &own {
+                            srcs.push(SheetSource { label: "(form)", text: t, origin: Origin::Form });
+                        }
+                        let oset = SheetSet::parse(&srcs);
+                        let mut oids = Vec::new();
+                        ids(&other.controls, &mut oids);
+                        others += oids.iter().filter(|id| styles(&other, &oset, id)).count();
+                    }
+                }
+            }
+        }
+        self.css_question = Some(CssQuestion {
+            ctrl_id: ctrl_id.to_owned(),
+            key: key.to_owned(),
+            value: value.clone(),
+            info: super::css_rule_question::RuleInfo { selector, file: sheet, line, others, at_least },
+        });
+    }
+
+    /// The developer's answer to the question: apply the held edit as chosen, or drop it (Cancel).
+    pub fn css_answer(&mut self, answer: super::css_rule_question::Answer) {
+        use super::css_rule_question::Answer;
+        let Some(q) = self.css_question.take() else {
+            return;
+        };
+        self.css_forced = match answer {
+            Answer::ChangeRule => Some(cobolt_forms::css_edit::Choice::ChangeRule),
+            Answer::OnlyThisControl => Some(cobolt_forms::css_edit::Choice::OnlyThisControl),
+            Answer::Cancel | Answer::Pending => None,
+        };
+        if self.css_forced.is_some() {
+            self.css_route(&q.ctrl_id, &q.key, &q.value);
+            self.css_forced = None;
+        }
     }
 
     /// Once a frame, with whether a pointer button is down: when a picker or a drag has ended, its

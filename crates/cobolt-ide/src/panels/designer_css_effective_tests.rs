@@ -10,6 +10,7 @@
 
 use super::*;
 use crate::llm::LlmConfig;
+use super::super::css_rule_question::{Answer, CssRuleQuestion, RuleInfo};
 use cobolt_forms::css::Scheme;
 use cobolt_forms::{Form, PropValue};
 
@@ -325,6 +326,7 @@ fn an_edit_that_could_not_show_writes_nothing_and_names_the_winner_and_an_open_w
     let own = "#BTN-1 { margin: 0 }\n";
     let mut f = Fixture::new("noeffect", &[("application.css", true, project), ("F.css", false, own)], form);
     set(&mut f, "BTN-1", "ForegroundColor", "#0000ffff");
+    f.d.css_answer(Answer::OnlyThisControl); // the rule is shared: the question comes first
     assert_eq!((f.read("application.css"), f.read("F.css")), (project.to_owned(), own.to_owned()), "AC8: both files byte-identical");
     assert_eq!(f.d.css_messages, vec![CssMessage::NoEffect { file: Some("application.css".into()), line: 1 }]);
 
@@ -355,4 +357,109 @@ fn thirty_frames_of_a_picker_make_one_write_and_one_undo_step() {
     assert_eq!(f.read("F.css"), original, "one undo step undoes the whole gesture");
     let ms = t0.elapsed().as_secs_f64() * 1000.0;
     println!("┌─ designer_css_effective: a gesture\n│ 30 picker changes: 1 file write, 1 undo step ({ms:.1} ms)\n└─ 4/4 passed, 0 failed");
+}
+
+// ── T12: the shared-rule question ────────────────────────────────────────────────────────────────
+
+
+fn three_buttons() -> Form {
+    let mut f = Form::new("F", "F", 400, 300);
+    for i in 1..=3 {
+        f.controls.push(Control::new(&format!("BTN-{i}"), ControlType::Button, 10, 10 + 40 * i));
+    }
+    f
+}
+
+fn colours(d: &mut DesignerPanel) -> Vec<Option<String>> {
+    let view = d.css_style_view().expect("a view");
+    ["BTN-1", "BTN-2", "BTN-3"].iter().map(|id| view.values.get(*id).and_then(|v| v.iter().find(|(p, _)| *p == "ForegroundColor")).map(|(_, t)| t.clone())).collect()
+}
+
+#[test]
+fn a_shared_rule_is_asked_about_and_each_answer_does_what_it_says() {
+    let sheet = ".pr-button { color: #112233 }\n";
+    // The question names the rule and the two others; nothing is written until it is answered.
+    let mut f = Fixture::new("q-ask", &[("F.css", false, sheet)], three_buttons());
+    set(&mut f, "BTN-1", "ForegroundColor", "#445566ff");
+    assert_eq!(f.read("F.css"), sheet, "nothing is written before the answer");
+    let q = f.d.css_question.as_ref().expect("the question is held");
+    assert_eq!(q.info, RuleInfo { selector: ".pr-button".into(), file: Some("F.css".into()), line: 1, others: 2, at_least: false });
+
+    // Change the rule: all three change.
+    f.d.css_answer(Answer::ChangeRule);
+    assert_eq!(f.read("F.css"), ".pr-button { color: #445566 }\n");
+    assert_eq!(colours(&mut f.d), vec![Some("#445566ff".into()); 3], "AC7: the rule changed all three");
+
+    // Only this control: the rule stays, BTN-1 gets its own rule at the end of the form sheet.
+    let mut f = Fixture::new("q-only", &[("F.css", false, sheet)], three_buttons());
+    set(&mut f, "BTN-1", "ForegroundColor", "#445566ff");
+    f.d.css_answer(Answer::OnlyThisControl);
+    let written = f.read("F.css");
+    assert!(written.starts_with(sheet) && written.contains("#BTN-1") && written.contains("#445566"), "{written}");
+    let c = colours(&mut f.d);
+    assert_eq!(c[0].as_deref(), Some("#445566ff"));
+    assert_eq!((c[1].as_deref(), c[2].as_deref()), (Some("#112233ff"), Some("#112233ff")), "the other two keep the rule's colour");
+
+    // Cancel: both files and the question are gone, nothing changed.
+    let mut f = Fixture::new("q-cancel", &[("F.css", false, sheet)], three_buttons());
+    set(&mut f, "BTN-1", "ForegroundColor", "#445566ff");
+    f.d.css_answer(Answer::Cancel);
+    assert_eq!(f.read("F.css"), sheet);
+    assert!(f.d.css_question.is_none() && !f.d.dirty);
+    println!("┌─ designer_css_effective: the shared-rule question\n│ .pr-button on 3 buttons: names 2 others; Change the rule -> 3 changed; Only this control -> 1 changed + own rule; Cancel -> nothing\n└─ 3/3 passed, 0 failed");
+}
+
+/// The window's rectangle, from egui's memory.
+fn rect(ctx: &egui::Context) -> Rect {
+    ctx.memory(|m| m.area_rect(CssRuleQuestion::id())).expect("the window is shown")
+}
+
+fn frame(ctx: &egui::Context, q: &mut CssRuleQuestion, tr: &crate::i18n::Tr, info: &RuleInfo, events: Vec<egui::Event>) {
+    let mut input = egui::RawInput::default();
+    input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, SCREEN));
+    input.events = events;
+    let mut out = ctx.run_ui(input, |ui| {
+        let theme = crate::theme::active();
+        let _ = q.show(ui.ctx(), &theme, tr, info);
+    });
+    out.textures_delta.clear();
+}
+
+#[test]
+fn the_question_window_never_resizes_itself_in_any_language_and_keeps_a_dragged_size() {
+    let info = RuleInfo { selector: ".pr-button".into(), file: Some("webforms/application.css".into()), line: 12, others: 7, at_least: true };
+    let t0 = std::time::Instant::now();
+    let mut frames = 0;
+    for lang in crate::i18n::Language::ALL {
+        let tr = lang.tr();
+        let ctx = egui::Context::default();
+        let mut q = CssRuleQuestion::new();
+        frame(&ctx, &mut q, &tr, &info, vec![]);
+        frame(&ctx, &mut q, &tr, &info, vec![]);
+        let first = rect(&ctx);
+        for _ in 0..120 {
+            frame(&ctx, &mut q, &tr, &info, vec![]);
+            frames += 1;
+            assert_eq!(rect(&ctx), first, "{lang:?}: the window keeps its rectangle");
+        }
+        // A drag of the grip: the one writer of the size.
+        let grip = first.max - Vec2::new(10.0, 10.0);
+        let before = q.size;
+        frame(&ctx, &mut q, &tr, &info, vec![egui::Event::PointerMoved(grip)]);
+        frame(&ctx, &mut q, &tr, &info, vec![egui::Event::PointerButton { pos: grip, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+        frame(&ctx, &mut q, &tr, &info, vec![egui::Event::PointerMoved(grip + Vec2::new(60.0, 40.0))]);
+        frame(&ctx, &mut q, &tr, &info, vec![egui::Event::PointerButton { pos: grip + Vec2::new(60.0, 40.0), button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
+        assert!(q.size.x > before.x && q.size.y > before.y, "{lang:?}: the grip grew the window: {before:?} -> {:?}", q.size);
+        frame(&ctx, &mut q, &tr, &info, vec![]);
+        let dragged = rect(&ctx);
+        for _ in 0..20 {
+            frame(&ctx, &mut q, &tr, &info, vec![]);
+            assert_eq!(rect(&ctx), dragged, "{lang:?}: the dragged size is kept");
+        }
+        for s in [tr.css_shared_title, tr.css_shared_body, tr.css_shared_change_rule, tr.css_shared_only_this, tr.css_shared_at_least] {
+            assert!(!s.trim().is_empty(), "{lang:?}: an empty string");
+        }
+    }
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("┌─ css_rule_question: the window\n│ 6 languages x (120 frames held + a grip drag + 20 frames kept)\n│ time: {ms:.0} ms ({:.0} frames/sec for the held frames)\n└─ 6/6 languages passed, 0 failed", frames as f64 / (ms / 1000.0));
 }

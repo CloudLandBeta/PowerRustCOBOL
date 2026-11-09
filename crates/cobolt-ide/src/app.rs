@@ -929,6 +929,8 @@ pub struct CoboltApp {
     /// (spec 016 Q2).
     theme_defaults_modal: Option<crate::panels::theme_defaults_modal::ThemeDefaultsModal>,
     indexed_engine_modal: Option<crate::panels::indexed_engine_modal::IndexedEngineModal>,
+    /// WASM-036 R11 — the shared-rule question window (its size is its own, kept while it is asked).
+    css_question_ui: crate::panels::css_rule_question::CssRuleQuestion,
     /// The start-up release check and the window that offers what it found.
     /// Declining is NOT persisted: the question returns at the next start-up
     /// (operator, 2026-09-14). Drawn by the frame, never by a pane.
@@ -2361,6 +2363,7 @@ impl CoboltApp {
             settings_form: None,
             theme_defaults_modal: None,
             indexed_engine_modal: None,
+            css_question_ui: crate::panels::css_rule_question::CssRuleQuestion::new(),
             update_offer: Default::default(),
             announcement: Default::default(),
 
@@ -6997,6 +7000,23 @@ impl CoboltApp {
         }
     }
 
+    /// WASM-036 R11: the question a property edit raises when the rule that decides it styles other
+    /// controls too. Its answer is applied or dropped at once.
+    fn show_css_question(&mut self, ctx: &egui::Context) {
+        let Some(idx) = self.designers.iter().position(|(_, d)| d.css_question.is_some()) else {
+            return;
+        };
+        let Some(info) = self.designers[idx].1.css_question.as_ref().map(|q| q.info.clone()) else {
+            return;
+        };
+        let theme = self.current_theme().clone();
+        let tr = self.lang.tr();
+        let answer = self.css_question_ui.show(ctx, &theme, &tr, &info);
+        if answer != crate::panels::css_rule_question::Answer::Pending {
+            self.designers[idx].1.css_answer(answer);
+        }
+    }
+
     fn show_indexed_engine_modal(&mut self, ctx: &egui::Context) {
         let Some(mut m) = self.indexed_engine_modal.take() else {
             return;
@@ -11599,6 +11619,7 @@ impl CoboltApp {
         self.show_import_keys_modal(ctx);
         self.show_guardian_block_modal(ctx);
         self.show_indexed_engine_modal(ctx);
+        self.show_css_question(ctx);
         // Models Manager modal (spec 031) — taken out of self to split borrows.
         if let Some(mut m) = self.models_modal.take() {
 
