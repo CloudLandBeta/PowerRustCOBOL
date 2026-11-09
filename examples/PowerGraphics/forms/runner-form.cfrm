@@ -61,6 +61,7 @@
        01 WS-SN                                  GLOBAL    PIC S9(7).
        01 WS-PTR                                 GLOBAL    PIC 9(5).
        01 WS-INST                                GLOBAL    PIC X(6000).
+       01 WS-ED2                                 GLOBAL    PIC -ZZZZ9.9.
        01 WS-ED                                  GLOBAL    PIC -ZZZ9.9.
        01 WS-E1                                  GLOBAL    PIC Z(6)9.
        01 WS-E2                                  GLOBAL    PIC ZZ9.
@@ -322,7 +323,8 @@
                        MOVE    1.5               TO    WS-ED
                    END-IF
                    COMPUTE WS-A1 = 24 - WS-K * 8
-                   STRING  "1 0 0 0 0 1 0 0 0 0 1 0 " WS-ED " 0 " WS-A1 " 1 "
+                   MOVE    WS-A1                 TO    WS-ED2
+                   STRING  "1 0 0 0 0 1 0 0 0 0 1 0 " WS-ED " 0 " WS-ED2 " 1 "
                            DELIMITED BY SIZE INTO WS-INST WITH POINTER WS-PTR
                END-PERFORM
            END-PERFORM

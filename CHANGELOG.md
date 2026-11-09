@@ -4,6 +4,10 @@
 
 **Fix: in the street runner the camera moves the opposite way, a hurdle makes him fall and ends the game, and there is no empty lane to hide in.** When the runner moves left the camera slides right, and the other way round. Every obstacle is now a hurdle across the whole street (road and both sidewalks), so each one has to be jumped; hitting one, or a parked car, makes him tip forward and ends the run with a banner showing the score (distance), and Space runs again from where he lies. The HUD shows the best distance of the session instead of a crash count.
 
+## 2.0.350 — 2026-11-09
+
+**Fix: the dashed road paint in the street runner now runs from the horizon to the bottom of the view without vanishing.** The paint is one box drawn forty times from a text of positions, and the distance of each copy was written without its decimal point and sign, so only some copies landed on the road and the rest were scrambled. Every copy now gets its real position, eight metres apart on both sides of the centre, so many dashes are in view at all times, coming out of the fog and passing under the camera.
+
 ## 2.0.349 — 2026-11-09
 
 **Fix: the Pitfall explorer's legs now bend when he runs.** Each leg is a thigh and a shin: the thigh swings from the hip and the knee bends backwards, most as the leg passes under the body and almost straight as it reaches back, like the street runner's stride. In the air the legs tuck, and standing they are straight.
