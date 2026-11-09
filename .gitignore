@@ -59,6 +59,9 @@ examples/*/data/cache/
 # part of the source.
 examples/*/models/
 examples/*/assets/models/
+# PowerCallOfDuty's Assets/models holds its own 3D models (the rule above matches it on a
+# case-insensitive disk): they are source.
+!examples/PowerCallOfDuty/Assets/models/
 
 # Editor backups of a form — the .cfrm beside them IS the source.
 examples/*/forms/**/*.bak-*

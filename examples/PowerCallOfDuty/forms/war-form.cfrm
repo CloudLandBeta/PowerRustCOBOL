@@ -1,0 +1,2025 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="WAR-FORM" title="PowerCallOfDuty" width="1280" height="760" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" definition="A mini first-person shooter drawn by a Canvas3D: a ruined city under a smoky dusk sky, an AR-15 and a Desert Eagle, doors that open and close, ammunition behind pillars and inside containers, bullet marks on the walls, and tanks, helicopters and drones that attack in growing waves." index-base="1">
+  <working-storage><![CDATA[      *> The city: one record per piece - kind, x, z (metres) and turn (degrees about the vertical axis).
+      *> H house, A apartment block, R and B red and blue containers, P pillar, W burnt-out car, J jersey barrier.
+      *> A door, or a container's open end, faces local +Z; a pillar's ammunition crate stands behind it, at local -Z.
+       01 WS-CITY-DATA                           GLOBAL.
+           05 FILLER    PIC X(12)    VALUE "A+018+021000".
+           05 FILLER    PIC X(12)    VALUE "H-020+020000".
+           05 FILLER    PIC X(12)    VALUE "H+020-020180".
+           05 FILLER    PIC X(12)    VALUE "A-018-021180".
+           05 FILLER    PIC X(12)    VALUE "H+054+018270".
+           05 FILLER    PIC X(12)    VALUE "A+054-018270".
+           05 FILLER    PIC X(12)    VALUE "H-054-018090".
+           05 FILLER    PIC X(12)    VALUE "A-054+018090".
+           05 FILLER    PIC X(12)    VALUE "H+018+054180".
+           05 FILLER    PIC X(12)    VALUE "H-018-054000".
+           05 FILLER    PIC X(12)    VALUE "A-018+054180".
+           05 FILLER    PIC X(12)    VALUE "A+018-054000".
+           05 FILLER    PIC X(12)    VALUE "R+011+010270".
+           05 FILLER    PIC X(12)    VALUE "B-011-010090".
+           05 FILLER    PIC X(12)    VALUE "R-011+010090".
+           05 FILLER    PIC X(12)    VALUE "B+010-011000".
+           05 FILLER    PIC X(12)    VALUE "R+050+050000".
+           05 FILLER    PIC X(12)    VALUE "B+058+050000".
+           05 FILLER    PIC X(12)    VALUE "B-050-050180".
+           05 FILLER    PIC X(12)    VALUE "R-046+048090".
+           05 FILLER    PIC X(12)    VALUE "P+022+010000".
+           05 FILLER    PIC X(12)    VALUE "P+027+010000".
+           05 FILLER    PIC X(12)    VALUE "P+048-046000".
+           05 FILLER    PIC X(12)    VALUE "P+054-046000".
+           05 FILLER    PIC X(12)    VALUE "P+060-046000".
+           05 FILLER    PIC X(12)    VALUE "P+048-056180".
+           05 FILLER    PIC X(12)    VALUE "P+054-056180".
+           05 FILLER    PIC X(12)    VALUE "P+060-056180".
+           05 FILLER    PIC X(12)    VALUE "P-052+056000".
+           05 FILLER    PIC X(12)    VALUE "P-058+056000".
+           05 FILLER    PIC X(12)    VALUE "P-058+050090".
+           05 FILLER    PIC X(12)    VALUE "P-026-010000".
+           05 FILLER    PIC X(12)    VALUE "P-021-010000".
+           05 FILLER    PIC X(12)    VALUE "P+030-030000".
+           05 FILLER    PIC X(12)    VALUE "W+005+020000".
+           05 FILLER    PIC X(12)    VALUE "W-005-024000".
+           05 FILLER    PIC X(12)    VALUE "W+024-005090".
+           05 FILLER    PIC X(12)    VALUE "W-028+005090".
+           05 FILLER    PIC X(12)    VALUE "W+041+030000".
+           05 FILLER    PIC X(12)    VALUE "W-031-045000".
+           05 FILLER    PIC X(12)    VALUE "J+006+013090".
+           05 FILLER    PIC X(12)    VALUE "J-006-015090".
+           05 FILLER    PIC X(12)    VALUE "J+015+006000".
+           05 FILLER    PIC X(12)    VALUE "J-014-006000".
+       01 WS-CITY REDEFINES WS-CITY-DATA         GLOBAL.
+           05 WS-PIECE                           OCCURS 44.
+               10 WS-PIECE-KIND                  PIC X.
+               10 WS-PIECE-X                     PIC S999 SIGN LEADING SEPARATE.
+               10 WS-PIECE-Z                     PIC S999 SIGN LEADING SEPARATE.
+               10 WS-PIECE-TURN                  PIC 999.
+       01 WS-PIECE-COUNT                         GLOBAL    PIC 99          VALUE 44.
+       01 WS-PIECE-INDEX                         GLOBAL    PIC 99.
+
+      *> What the city adds to the world: collision boxes (already grown by the player's radius), building footprints,
+      *> doors, ammunition crates and fires.
+       01 WS-BOXES                               GLOBAL.
+           05 WS-BOX                             OCCURS 120.
+               10 WS-BOX-MIN-X                   PIC S9(4)V9(4).
+               10 WS-BOX-MAX-X                   PIC S9(4)V9(4).
+               10 WS-BOX-MIN-Z                   PIC S9(4)V9(4).
+               10 WS-BOX-MAX-Z                   PIC S9(4)V9(4).
+       01 WS-BOX-COUNT                           GLOBAL    PIC 999         VALUE 0.
+       01 WS-BOX-INDEX                           GLOBAL    PIC 999.
+       01 WS-ROOMS                               GLOBAL.
+           05 WS-ROOM                            OCCURS 12.
+               10 WS-ROOM-MIN-X                  PIC S9(4)V9(4).
+               10 WS-ROOM-MAX-X                  PIC S9(4)V9(4).
+               10 WS-ROOM-MIN-Z                  PIC S9(4)V9(4).
+               10 WS-ROOM-MAX-Z                  PIC S9(4)V9(4).
+       01 WS-ROOM-COUNT                          GLOBAL    PIC 99          VALUE 0.
+       01 WS-DOORS                               GLOBAL.
+           05 WS-DOOR                            OCCURS 12.
+               10 WS-DOOR-NODE                   PIC 9(10).
+               10 WS-DOOR-X                      PIC S9(4)V9(4).
+               10 WS-DOOR-Z                      PIC S9(4)V9(4).
+               10 WS-DOOR-ANGLE                  PIC S999.
+               10 WS-DOOR-TARGET                 PIC S999.
+               10 WS-DOOR-MIN-X                  PIC S9(4)V9(4).
+               10 WS-DOOR-MAX-X                  PIC S9(4)V9(4).
+               10 WS-DOOR-MIN-Z                  PIC S9(4)V9(4).
+               10 WS-DOOR-MAX-Z                  PIC S9(4)V9(4).
+       01 WS-DOOR-COUNT                          GLOBAL    PIC 99          VALUE 0.
+       01 WS-DOOR-INDEX                          GLOBAL    PIC 99.
+       01 WS-NEAR-DOOR                           GLOBAL    PIC 99          VALUE 0.
+       01 WS-AMMO-CRATES                         GLOBAL.
+           05 WS-AMMO                            OCCURS 16.
+               10 WS-AMMO-NODE                   PIC 9(10).
+               10 WS-AMMO-X                      PIC S9(4)V9(4).
+               10 WS-AMMO-Z                      PIC S9(4)V9(4).
+               10 WS-AMMO-WAIT                   PIC S9(5).
+       01 WS-AMMO-COUNT                          GLOBAL    PIC 99          VALUE 0.
+       01 WS-AMMO-INDEX                          GLOBAL    PIC 99.
+       01 WS-FIRES                               GLOBAL.
+           05 WS-FIRE                            OCCURS 3.
+               10 WS-FIRE-FLAME                  PIC 9(10).
+               10 WS-FIRE-LIGHT                  PIC 9(10).
+               10 WS-FIRE-X                      PIC S9(4)V9(4).
+               10 WS-FIRE-Z                      PIC S9(4)V9(4).
+       01 WS-FIRE-COUNT                          GLOBAL    PIC 9           VALUE 0.
+       01 WS-FIRE-INDEX                          GLOBAL    PIC 9.
+       01 WS-SMOKE-PUFFS                         GLOBAL.
+           05 WS-PUFF                            OCCURS 12.
+               10 WS-PUFF-NODE                   PIC 9(10).
+               10 WS-PUFF-HEIGHT                 PIC S9(4)V9(4).
+       01 WS-PUFF-INDEX                          GLOBAL    PIC 99.
+
+      *> Placing a piece: its origin and turn, a box or point in its own frame, and that point in the world.
+       01 WS-ORIGIN-X                            GLOBAL    PIC S9(4)V9(4).
+       01 WS-ORIGIN-Z                            GLOBAL    PIC S9(4)V9(4).
+       01 WS-TURN                                GLOBAL    PIC 999.
+       01 WS-LOCAL-X                             GLOBAL    PIC S9(4)V9(4).
+       01 WS-LOCAL-Z                             GLOBAL    PIC S9(4)V9(4).
+       01 WS-LOCAL-HALF-X                        GLOBAL    PIC S9(4)V9(4).
+       01 WS-LOCAL-HALF-Z                        GLOBAL    PIC S9(4)V9(4).
+       01 WS-WORLD-X                             GLOBAL    PIC S9(4)V9(4).
+       01 WS-WORLD-Z                             GLOBAL    PIC S9(4)V9(4).
+       01 WS-HALF-WIDTH                          GLOBAL    PIC S9(4)V9(4).
+       01 WS-HALF-DEPTH                          GLOBAL    PIC S9(4)V9(4).
+       01 WS-NODE                                GLOBAL    PIC 9(10).
+       01 WS-PART                                GLOBAL    PIC 9(10).
+       01 WS-MATERIAL                            GLOBAL    PIC 9(10).
+
+      *> The player: position, view, health and the two weapons (1 AR-15, 2 Desert Eagle).
+       01 WS-CAMERA                              GLOBAL    PIC 9(10).
+       01 WS-SUN                                 GLOBAL    PIC 9(10).
+       01 WS-PLAYER-X                            GLOBAL    PIC S9(4)V9(4)  VALUE -3.
+       01 WS-PLAYER-Z                            GLOBAL    PIC S9(4)V9(4)  VALUE 12.
+       01 WS-TRY-X                               GLOBAL    PIC S9(4)V9(4).
+       01 WS-TRY-Z                               GLOBAL    PIC S9(4)V9(4).
+       01 WS-STEP-X                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-STEP-Z                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-BLOCKED                             GLOBAL    PIC 9.
+       01 WS-INDOORS                             GLOBAL    PIC 9           VALUE 0.
+       01 WS-FORWARD                             GLOBAL    PIC S9.
+       01 WS-SIDEWAYS                            GLOBAL    PIC S9.
+       01 WS-YAW                                 GLOBAL    PIC S9(5)V9(4)  VALUE 0.
+       01 WS-PITCH                               GLOBAL    PIC S9(3)V9(4)  VALUE 0.
+       01 WS-SINE                                GLOBAL    PIC S9V9(6).
+       01 WS-COSINE                              GLOBAL    PIC S9V9(6).
+       01 WS-BOB                                 GLOBAL    PIC S9(5)V9(4)  VALUE 0.
+       01 WS-SHAKE                               GLOBAL    PIC S9(3)V9(4)  VALUE 0.
+       01 WS-POINTER-X                           GLOBAL    PIC S9(5).
+       01 WS-POINTER-Y                           GLOBAL    PIC S9(5).
+       01 WS-LAST-POINTER-X                      GLOBAL    PIC S9(5).
+       01 WS-LAST-POINTER-Y                      GLOBAL    PIC S9(5).
+       01 WS-LOOK-READY                          GLOBAL    PIC 9           VALUE 0.
+       01 WS-HEALTH                              GLOBAL    PIC S9(3)V9(2)  VALUE 100.
+       01 WS-DEAD-FRAMES                         GLOBAL    PIC 9(5)        VALUE 0.
+       01 WS-DAMAGE                              GLOBAL    PIC S9(3)V9(2).
+       01 WS-DAMAGE-FRAMES                       GLOBAL    PIC 99          VALUE 0.
+       01 WS-WEAPON                              GLOBAL    PIC 9           VALUE 1.
+       01 WS-ARMOURY                             GLOBAL.
+           05 WS-WEAPON-STATE                    OCCURS 2.
+               10 WS-WEAPON-NODE                 PIC 9(10).
+               10 WS-WEAPON-FLASH                PIC 9(10).
+               10 WS-MAGAZINE                    PIC 99.
+               10 WS-MAGAZINE-SIZE               PIC 99.
+               10 WS-RESERVE                     PIC 999.
+               10 WS-HOLD-X                      PIC S9V999.
+               10 WS-HOLD-Y                      PIC S9V999.
+               10 WS-HOLD-Z                      PIC S9V999.
+               10 WS-HOLD-TURN                   PIC S99.
+       01 WS-MUZZLE-LIGHT                        GLOBAL    PIC 9(10).
+       01 WS-TRIGGER                             GLOBAL    PIC 9           VALUE 0.
+       01 WS-BURST                               GLOBAL    PIC 9           VALUE 0.
+       01 WS-COOLDOWN                            GLOBAL    PIC 99          VALUE 0.
+       01 WS-RELOAD-FRAMES                       GLOBAL    PIC 99          VALUE 0.
+       01 WS-RAISE-FRAMES                        GLOBAL    PIC 99          VALUE 0.
+       01 WS-FLASH-FRAMES                        GLOBAL    PIC 9           VALUE 0.
+       01 WS-RECOIL                              GLOBAL    PIC S9V9(4)     VALUE 0.
+       01 WS-SPACE-HELD                          GLOBAL    PIC 9           VALUE 0.
+       01 WS-SPACE-PRESSED                       GLOBAL    PIC 9           VALUE 0.
+       01 WS-SWITCH-HELD                         GLOBAL    PIC 9           VALUE 0.
+       01 WS-SWITCH-PRESSED                      GLOBAL    PIC 9           VALUE 0.
+       01 WS-RELOAD-HELD                         GLOBAL    PIC 9           VALUE 0.
+       01 WS-RELOAD-PRESSED                      GLOBAL    PIC 9           VALUE 0.
+       01 WS-HIT-FRAMES                          GLOBAL    PIC 9           VALUE 0.
+       01 WS-MESSAGE-FRAMES                      GLOBAL    PIC 999         VALUE 0.
+
+      *> A shot: where the bullet went, what Pick found there.
+       01 WS-AIM-X                               GLOBAL    PIC S9(5)V9(2).
+       01 WS-AIM-Y                               GLOBAL    PIC S9(5)V9(2).
+       01 WS-ANSWER                              GLOBAL    PIC X(400).
+       01 WS-FIELDS                              GLOBAL.
+           05 WS-FIELD                           PIC X(40)   OCCURS 9.
+       01 WS-HIT-NODE                            GLOBAL    PIC 9(10).
+       01 WS-HIT-DISTANCE                        GLOBAL    PIC S9(5)V9(4).
+       01 WS-HIT-X                               GLOBAL    PIC S9(4)V9(4).
+       01 WS-HIT-Y                               GLOBAL    PIC S9(4)V9(4).
+       01 WS-HIT-Z                               GLOBAL    PIC S9(4)V9(4).
+       01 WS-NORMAL-X                            GLOBAL    PIC S9V9(6).
+       01 WS-NORMAL-Y                            GLOBAL    PIC S9V9(6).
+       01 WS-NORMAL-Z                            GLOBAL    PIC S9V9(6).
+       01 WS-WALK-NODE                           GLOBAL    PIC 9(10).
+       01 WS-TARGET-KIND                         GLOBAL    PIC 9.
+       01 WS-TARGET-SLOT                         GLOBAL    PIC 9.
+       01 WS-FIND-INDEX                          GLOBAL    PIC 9.
+       01 WS-SPARK                               GLOBAL    PIC 9(10).
+       01 WS-SPARK-FRAMES                        GLOBAL    PIC 9           VALUE 0.
+
+      *> Bullet marks and scorch marks: one plane each, drawn once per matrix (SetInstances), recycled oldest first.
+       01 WS-DECAL-NODE                          GLOBAL    PIC 9(10).
+       01 WS-DECAL-SEGMENTS                      GLOBAL.
+           05 WS-DECAL-SEGMENT                   PIC X(180)  OCCURS 64.
+       01 WS-DECAL-COUNT                         GLOBAL    PIC 99          VALUE 0.
+       01 WS-DECAL-NEXT                          GLOBAL    PIC 99          VALUE 1.
+       01 WS-SCORCH-NODE                         GLOBAL    PIC 9(10).
+       01 WS-SCORCH-SEGMENTS                     GLOBAL.
+           05 WS-SCORCH-SEGMENT                  PIC X(180)  OCCURS 16.
+       01 WS-SCORCH-COUNT                        GLOBAL    PIC 99          VALUE 0.
+       01 WS-SCORCH-NEXT                         GLOBAL    PIC 99          VALUE 1.
+       01 WS-INSTANCE-LIST                       GLOBAL    PIC X(11600).
+       01 WS-POINTER                             GLOBAL    PIC 9(5).
+       01 WS-CELL-INDEX                          GLOBAL    PIC 99.
+       01 WS-MATRIX                              GLOBAL.
+           05 WS-MATRIX-CELL                     PIC ----9.9999 OCCURS 16.
+       01 WS-AXIS-X1                             GLOBAL    PIC S9V9(6).
+       01 WS-AXIS-Y1                             GLOBAL    PIC S9V9(6).
+       01 WS-AXIS-Z1                             GLOBAL    PIC S9V9(6).
+       01 WS-AXIS-X2                             GLOBAL    PIC S9V9(6).
+       01 WS-AXIS-Y2                             GLOBAL    PIC S9V9(6).
+       01 WS-AXIS-Z2                             GLOBAL    PIC S9V9(6).
+       01 WS-LENGTH                              GLOBAL    PIC S9(5)V9(6).
+       01 WS-DECAL-SIZE                          GLOBAL    PIC S9V9(4).
+
+      *> The attackers: two tanks, two helicopters, four drones.
+       01 WS-TANKS                               GLOBAL.
+           05 WS-TANK                            OCCURS 2.
+               10 WS-TANK-ROOT                   PIC 9(10).
+               10 WS-TANK-HULL                   PIC 9(10).
+               10 WS-TANK-TURRET                 PIC 9(10).
+               10 WS-TANK-ALIVE                  PIC 9.
+               10 WS-TANK-X                      PIC S9(4)V9(4).
+               10 WS-TANK-Z                      PIC S9(4)V9(4).
+               10 WS-TANK-DIRECTION-X            PIC S9.
+               10 WS-TANK-DIRECTION-Z            PIC S9.
+               10 WS-TANK-HEALTH                 PIC S99.
+               10 WS-TANK-RELOAD                 PIC S9(4).
+               10 WS-TANK-WAIT                   PIC S9(4).
+       01 WS-TANK-INDEX                          GLOBAL    PIC 9.
+       01 WS-HELICOPTERS                         GLOBAL.
+           05 WS-HELICOPTER                      OCCURS 2.
+               10 WS-HELI-ROOT                   PIC 9(10).
+               10 WS-HELI-BODY                   PIC 9(10).
+               10 WS-HELI-ROTOR                  PIC 9(10).
+               10 WS-HELI-ALIVE                  PIC 9.
+               10 WS-HELI-ANGLE                  PIC S9(3)V9(5).
+               10 WS-HELI-RADIUS                 PIC S9(4)V9(4).
+               10 WS-HELI-CENTRE-X               PIC S9(4)V9(4).
+               10 WS-HELI-CENTRE-Z               PIC S9(4)V9(4).
+               10 WS-HELI-X                      PIC S9(4)V9(4).
+               10 WS-HELI-Y                      PIC S9(4)V9(4).
+               10 WS-HELI-Z                      PIC S9(4)V9(4).
+               10 WS-HELI-HEALTH                 PIC S99.
+               10 WS-HELI-ROCKETS                PIC S9(4).
+               10 WS-HELI-GUN                    PIC S9(4).
+               10 WS-HELI-SPIN                   PIC S9(4).
+               10 WS-HELI-WAIT                   PIC S9(4).
+       01 WS-HELI-INDEX                          GLOBAL    PIC 9.
+       01 WS-DRONES                              GLOBAL.
+           05 WS-DRONE                           OCCURS 4.
+               10 WS-DRONE-ROOT                  PIC 9(10).
+               10 WS-DRONE-ALIVE                 PIC 9.
+               10 WS-DRONE-X                     PIC S9(4)V9(4).
+               10 WS-DRONE-Y                     PIC S9(4)V9(4).
+               10 WS-DRONE-Z                     PIC S9(4)V9(4).
+               10 WS-DRONE-HEALTH                PIC S99.
+               10 WS-DRONE-WAIT                  PIC S9(4).
+       01 WS-DRONE-INDEX                         GLOBAL    PIC 9.
+       01 WS-WAVE                                GLOBAL    PIC 99          VALUE 1.
+       01 WS-FRAME                               GLOBAL    PIC 9(7)        VALUE 0.
+       01 WS-SCORE                               GLOBAL    PIC 9(7)        VALUE 0.
+       01 WS-KILLS                               GLOBAL    PIC 9(5)        VALUE 0.
+       01 WS-DEATHS                              GLOBAL    PIC 9(4)        VALUE 0.
+       01 WS-DISTANCE-X                          GLOBAL    PIC S9(4)V9(4).
+       01 WS-DISTANCE-Y                          GLOBAL    PIC S9(4)V9(4).
+       01 WS-DISTANCE-Z                          GLOBAL    PIC S9(4)V9(4).
+       01 WS-DISTANCE                            GLOBAL    PIC S9(5)V9(4).
+       01 WS-SPEED                               GLOBAL    PIC S9(3)V9(4).
+
+      *> Shells, rockets and tracers in flight (kind 1, 2, 3), and the explosions they end in.
+       01 WS-SHOTS                               GLOBAL.
+           05 WS-SHOT                            OCCURS 12.
+               10 WS-SHOT-NODE                   PIC 9(10).
+               10 WS-SHOT-KIND                   PIC 9.
+               10 WS-SHOT-X                      PIC S9(4)V9(4).
+               10 WS-SHOT-Y                      PIC S9(4)V9(4).
+               10 WS-SHOT-Z                      PIC S9(4)V9(4).
+               10 WS-SHOT-SPEED-X                PIC S9(3)V9(4).
+               10 WS-SHOT-SPEED-Y                PIC S9(3)V9(4).
+               10 WS-SHOT-SPEED-Z                PIC S9(3)V9(4).
+               10 WS-SHOT-FRAMES                 PIC S9(4).
+       01 WS-SHOT-INDEX                          GLOBAL    PIC 99.
+       01 WS-FREE-INDEX                          GLOBAL    PIC 99.
+       01 WS-LAUNCH-KIND                         GLOBAL    PIC 9.
+       01 WS-FROM-X                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-FROM-Y                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-FROM-Z                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-TO-X                                GLOBAL    PIC S9(4)V9(4).
+       01 WS-TO-Y                                GLOBAL    PIC S9(4)V9(4).
+       01 WS-TO-Z                                GLOBAL    PIC S9(4)V9(4).
+       01 WS-SPREAD                              GLOBAL    PIC S9(3)V9(4).
+       01 WS-BLASTS                              GLOBAL.
+           05 WS-BLAST                           OCCURS 6.
+               10 WS-BLAST-FIREBALL              PIC 9(10).
+               10 WS-BLAST-SMOKE                 PIC 9(10).
+               10 WS-BLAST-LIGHT                 PIC 9(10).
+               10 WS-BLAST-AGE                   PIC S9(4).
+               10 WS-BLAST-SIZE                  PIC S9V9(4).
+               10 WS-BLAST-X                     PIC S9(4)V9(4).
+               10 WS-BLAST-Y                     PIC S9(4)V9(4).
+               10 WS-BLAST-Z                     PIC S9(4)V9(4).
+       01 WS-BLAST-INDEX                         GLOBAL    PIC 9.
+       01 WS-BLAST-NEXT                          GLOBAL    PIC 9           VALUE 1.
+       01 WS-BOOM-X                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-BOOM-Y                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-BOOM-Z                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-BOOM-SIZE                           GLOBAL    PIC S9V9(4).
+       01 WS-BOOM-DISTANCE                       GLOBAL    PIC S9(5)V9(4).
+       01 WS-SCALE                               GLOBAL    PIC S9(3)V9(4).
+       01 WS-HEIGHT                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-INTENSITY                           GLOBAL    PIC S9(3)V9(4).
+
+      *> What the HUD shows.
+       01 WS-SHOW-HEALTH                         GLOBAL    PIC ZZ9.
+       01 WS-SHOW-MAGAZINE                       GLOBAL    PIC Z9.
+       01 WS-SHOW-RESERVE                        GLOBAL    PIC ZZ9.
+       01 WS-SHOW-SCORE                          GLOBAL    PIC Z(6)9.
+       01 WS-SHOW-KILLS                          GLOBAL    PIC ZZZZ9.
+       01 WS-SHOW-WAVE                           GLOBAL    PIC Z9.
+       01 WS-WEAPON-NAME                         GLOBAL    PIC X(14).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="WAR-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           COMPUTE WS-SPEED = FUNCTION RANDOM( 1944 )
+
+           *> Builds the ruined city: sky, sun, ground, skyline, buildings with their doors and fires, containers, pillars, wrecks and
+           *> barriers, with the collision boxes and the ammunition crates.
+           *> Uses: SCN-1 and the layout table WS-CITY (WS-PIECE-COUNT records).
+           *> Result: every static node exists; WS-BOX-COUNT, WS-ROOM-COUNT, WS-DOOR-COUNT, WS-AMMO-COUNT and WS-FIRE-COUNT are set.
+           CALL "WAR-BUILD-CITY"
+
+           *> Builds the player's camera, the two weapons held in front of it and the muzzle light.
+           *> Uses: SCN-1.
+           *> Result: WS-CAMERA, WS-WEAPON-NODE and WS-WEAPON-FLASH of both weapons, WS-MUZZLE-LIGHT; full magazines and reserves.
+           CALL "WAR-BUILD-PLAYER"
+
+           *> Loads the two tanks, two helicopters and four drones, hidden until they spawn.
+           *> Uses: SCN-1.
+           *> Result: the node handles of every attacker, with the spawn timers WS-TANK-WAIT, WS-HELI-WAIT and WS-DRONE-WAIT.
+           CALL "WAR-BUILD-ENEMIES"
+
+           *> Builds the effects: shells in flight, explosions with their lights, bullet and scorch marks, smoke and the impact spark.
+           *> Uses: SCN-1 and IMG-DECAL (the decal pictures are loaded through it).
+           *> Result: WS-SHOT-NODE, WS-BLAST-*, WS-DECAL-NODE, WS-SCORCH-NODE, WS-PUFF-NODE and WS-SPARK exist, all hidden.
+           CALL "WAR-BUILD-EFFECTS"
+
+           CNV-3D::SetMsaa( 4 )
+           CNV-3D::SetShadowMapSize( 2048 )
+           CNV-3D::SetScene( SCN-1::GetHandle() )
+           CNV-3D::SetCamera( WS-CAMERA )
+
+           *> Plays the first frame: places the player, the camera and the weapon.
+           *> Uses: WS-PLAYER-X, WS-PLAYER-Z, WS-YAW, WS-PITCH.
+           *> Result: the scene is ready to draw.
+           CALL "WAR-STEP"
+           CNV-3D::Render()
+           MOVE    150                           TO    WS-MESSAGE-FRAMES
+]]></Event>
+    <Event name="onClose" paragraph="WAR-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <user-procedures>
+    <Event name="WAR-BUILD-CITY" paragraph="WAR-BUILD-CITY"><![CDATA[       PROCEDURE DIVISION.
+           *> A smoky dusk: a dark sky over a burning horizon, brown haze, a low orange sun that casts long shadows.
+           SCN-1::SetBackgroundGradient( "#232229" "#A2653F" )
+           SCN-1::SetFogExp( 0.37 0.3 0.26 0.0105 )
+           SCN-1::SetAmbient( 0.62 0.56 0.55 0.5 )
+           SET     WS-SUN                        TO    SCN-1::AddDirectionalLight( 1 0.74 0.52 2.4 1 )
+           SCN-1::SetRotation( WS-SUN, -32, 38, 0 )
+           SCN-1::LoadModel( "models/ground.glb" )
+           SCN-1::LoadModel( "models/skyline.glb" )
+
+           PERFORM VARYING WS-PIECE-INDEX FROM 1 BY 1 UNTIL WS-PIECE-INDEX > WS-PIECE-COUNT
+               EVALUATE WS-PIECE-KIND(WS-PIECE-INDEX)
+                   WHEN "H"
+                       SET     WS-NODE           TO    SCN-1::LoadModel( "models/house.glb" )
+                   WHEN "A"
+                       SET     WS-NODE           TO    SCN-1::LoadModel( "models/apartment.glb" )
+                   WHEN "R"
+                       SET     WS-NODE           TO    SCN-1::LoadModel( "models/container-red.glb" )
+                   WHEN "B"
+                       SET     WS-NODE           TO    SCN-1::LoadModel( "models/container-blue.glb" )
+                   WHEN "P"
+                       SET     WS-NODE           TO    SCN-1::LoadModel( "models/pillar.glb" )
+                   WHEN "W"
+                       SET     WS-NODE           TO    SCN-1::LoadModel( "models/wreck.glb" )
+                   WHEN "J"
+                       SET     WS-NODE           TO    SCN-1::LoadModel( "models/barrier.glb" )
+               END-EVALUATE
+               SCN-1::SetPosition( WS-NODE WS-PIECE-X(WS-PIECE-INDEX) 0 WS-PIECE-Z(WS-PIECE-INDEX) )
+               SCN-1::SetRotation( WS-NODE 0 WS-PIECE-TURN(WS-PIECE-INDEX) 0 )
+
+               MOVE    WS-PIECE-X(WS-PIECE-INDEX)        TO    WS-ORIGIN-X
+               MOVE    WS-PIECE-Z(WS-PIECE-INDEX)        TO    WS-ORIGIN-Z
+               MOVE    WS-PIECE-TURN(WS-PIECE-INDEX)     TO    WS-TURN
+
+               *> Adds what the piece means for play: its collision boxes, a building's room, door and fire, a crate of ammunition.
+               *> Uses: WS-PIECE-INDEX, WS-NODE (the piece's node), WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+               *> Result: WS-BOX, WS-ROOM, WS-DOOR, WS-AMMO and WS-FIRE gain the piece's entries.
+               CALL "WAR-FIT-PIECE"
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-FIT-PIECE" paragraph="WAR-FIT-PIECE"><![CDATA[       PROCEDURE DIVISION.
+           *> Every box is given in the piece's own frame: centre (WS-LOCAL-X, WS-LOCAL-Z) and half sizes.
+           EVALUATE WS-PIECE-KIND(WS-PIECE-INDEX)
+               WHEN "H"
+                   MOVE    5                     TO    WS-HALF-WIDTH
+                   MOVE    4                     TO    WS-HALF-DEPTH
+                   *> Adds the house's four walls (the front one split by the doorway), its room, its door and maybe a fire.
+                   *> Uses: WS-HALF-WIDTH 5, WS-HALF-DEPTH 4, WS-NODE, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN, WS-PIECE-INDEX.
+                   *> Result: five WS-BOX entries, one WS-ROOM, one WS-DOOR, and a WS-FIRE for the burning ones.
+                   CALL "WAR-FIT-BUILDING"
+               WHEN "A"
+                   MOVE    6                     TO    WS-HALF-WIDTH
+                   MOVE    5                     TO    WS-HALF-DEPTH
+                   *> Adds the apartment block's walls, room, door and maybe a fire.
+                   *> Uses: WS-HALF-WIDTH 6, WS-HALF-DEPTH 5, WS-NODE, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN, WS-PIECE-INDEX.
+                   *> Result: five WS-BOX entries, one WS-ROOM, one WS-DOOR, and a WS-FIRE for the burning ones.
+                   CALL "WAR-FIT-BUILDING"
+               WHEN "R"
+               WHEN "B"
+                   MOVE    -1.19                 TO    WS-LOCAL-X
+                   MOVE    0                     TO    WS-LOCAL-Z
+                   MOVE    0.06                  TO    WS-LOCAL-HALF-X
+                   MOVE    3                     TO    WS-LOCAL-HALF-Z
+                   *> Adds the container's left wall.
+                   *> Uses: WS-LOCAL-X -1.19, WS-LOCAL-Z 0, half sizes 0.06 by 3, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+                   *> Result: one more WS-BOX.
+                   CALL "WAR-ADD-BOX"
+                   MOVE    1.19                  TO    WS-LOCAL-X
+                   *> Adds the container's right wall.
+                   *> Uses: WS-LOCAL-X 1.19, WS-LOCAL-Z 0, half sizes 0.06 by 3, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+                   *> Result: one more WS-BOX.
+                   CALL "WAR-ADD-BOX"
+                   MOVE    0                     TO    WS-LOCAL-X
+                   MOVE    -2.97                 TO    WS-LOCAL-Z
+                   MOVE    1.22                  TO    WS-LOCAL-HALF-X
+                   MOVE    0.06                  TO    WS-LOCAL-HALF-Z
+                   *> Adds the container's closed end.
+                   *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z -2.97, half sizes 1.22 by 0.06, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+                   *> Result: one more WS-BOX.
+                   CALL "WAR-ADD-BOX"
+                   MOVE    -2.1                  TO    WS-LOCAL-Z
+                   *> Puts a crate of ammunition deep inside the container.
+                   *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z -2.1, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+                   *> Result: one more WS-AMMO crate, loaded and placed.
+                   CALL "WAR-ADD-AMMO"
+               WHEN "P"
+                   MOVE    0                     TO    WS-LOCAL-X
+                   MOVE    0                     TO    WS-LOCAL-Z
+                   MOVE    0.45                  TO    WS-LOCAL-HALF-X
+                   MOVE    0.45                  TO    WS-LOCAL-HALF-Z
+                   *> Adds the pillar.
+                   *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z 0, half sizes 0.45 by 0.45, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+                   *> Result: one more WS-BOX.
+                   CALL "WAR-ADD-BOX"
+                   IF      FUNCTION MOD( WS-PIECE-INDEX 2 ) = 1
+                       MOVE    -0.95             TO    WS-LOCAL-Z
+                       *> Hides a crate of ammunition behind every other pillar.
+                       *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z -0.95, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+                       *> Result: one more WS-AMMO crate, loaded and placed.
+                       CALL "WAR-ADD-AMMO"
+                   END-IF
+               WHEN "W"
+                   MOVE    0                     TO    WS-LOCAL-X
+                   MOVE    0                     TO    WS-LOCAL-Z
+                   MOVE    0.9                   TO    WS-LOCAL-HALF-X
+                   MOVE    2.15                  TO    WS-LOCAL-HALF-Z
+                   *> Adds the burnt-out car.
+                   *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z 0, half sizes 0.9 by 2.15, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+                   *> Result: one more WS-BOX.
+                   CALL "WAR-ADD-BOX"
+               WHEN "J"
+                   MOVE    0                     TO    WS-LOCAL-X
+                   MOVE    0                     TO    WS-LOCAL-Z
+                   MOVE    1.5                   TO    WS-LOCAL-HALF-X
+                   MOVE    0.31                  TO    WS-LOCAL-HALF-Z
+                   *> Adds the jersey barrier.
+                   *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z 0, half sizes 1.5 by 0.31, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+                   *> Result: one more WS-BOX.
+                   CALL "WAR-ADD-BOX"
+           END-EVALUATE
+]]></Event>
+    <Event name="WAR-FIT-BUILDING" paragraph="WAR-FIT-BUILDING"><![CDATA[       PROCEDURE DIVISION.
+           *> The walls are 0.3 m thick with their outer faces on the footprint; the doorway is 1.4 m wide in the middle of the front.
+           MOVE    0                             TO    WS-LOCAL-X
+           COMPUTE WS-LOCAL-Z = 0.15 - WS-HALF-DEPTH
+           MOVE    WS-HALF-WIDTH                 TO    WS-LOCAL-HALF-X
+           MOVE    0.15                          TO    WS-LOCAL-HALF-Z
+           *> Adds the back wall.
+           *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z just inside the back, half sizes WS-HALF-WIDTH by 0.15, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+           *> Result: one more WS-BOX.
+           CALL "WAR-ADD-BOX"
+
+           COMPUTE WS-LOCAL-X = 0.15 - WS-HALF-WIDTH
+           MOVE    0                             TO    WS-LOCAL-Z
+           MOVE    0.15                          TO    WS-LOCAL-HALF-X
+           MOVE    WS-HALF-DEPTH                 TO    WS-LOCAL-HALF-Z
+           *> Adds the left wall.
+           *> Uses: WS-LOCAL-X just inside the left side, WS-LOCAL-Z 0, half sizes 0.15 by WS-HALF-DEPTH, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+           *> Result: one more WS-BOX.
+           CALL "WAR-ADD-BOX"
+           COMPUTE WS-LOCAL-X = WS-HALF-WIDTH - 0.15
+           *> Adds the right wall.
+           *> Uses: WS-LOCAL-X just inside the right side, WS-LOCAL-Z 0, half sizes 0.15 by WS-HALF-DEPTH, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+           *> Result: one more WS-BOX.
+           CALL "WAR-ADD-BOX"
+
+           COMPUTE WS-LOCAL-X = 0 - ( WS-HALF-WIDTH + 0.7 ) / 2
+           COMPUTE WS-LOCAL-Z = WS-HALF-DEPTH - 0.15
+           COMPUTE WS-LOCAL-HALF-X = ( WS-HALF-WIDTH - 0.7 ) / 2
+           MOVE    0.15                          TO    WS-LOCAL-HALF-Z
+           *> Adds the front wall left of the doorway.
+           *> Uses: the centre of that stretch, half sizes (WS-HALF-WIDTH - 0.7) / 2 by 0.15, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+           *> Result: one more WS-BOX.
+           CALL "WAR-ADD-BOX"
+           COMPUTE WS-LOCAL-X = ( WS-HALF-WIDTH + 0.7 ) / 2
+           *> Adds the front wall right of the doorway.
+           *> Uses: the centre of that stretch, half sizes (WS-HALF-WIDTH - 0.7) / 2 by 0.15, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+           *> Result: one more WS-BOX.
+           CALL "WAR-ADD-BOX"
+
+           *> The room: the inside of the footprint, where explosions outside hurt less.
+           MOVE    0                             TO    WS-LOCAL-X
+           MOVE    0                             TO    WS-LOCAL-Z
+           MOVE    WS-HALF-WIDTH                 TO    WS-LOCAL-HALF-X
+           MOVE    WS-HALF-DEPTH                 TO    WS-LOCAL-HALF-Z
+           *> Turns the footprint into world coordinates.
+           *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z 0, WS-LOCAL-HALF-X, WS-LOCAL-HALF-Z, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+           *> Result: WS-WORLD-X and WS-WORLD-Z are the centre; WS-LOCAL-HALF-X and WS-LOCAL-HALF-Z are swapped for a quarter turn.
+           CALL "WAR-TURN-BOX"
+           ADD     1                             TO    WS-ROOM-COUNT
+           COMPUTE WS-ROOM-MIN-X(WS-ROOM-COUNT) = WS-WORLD-X - WS-LOCAL-HALF-X
+           COMPUTE WS-ROOM-MAX-X(WS-ROOM-COUNT) = WS-WORLD-X + WS-LOCAL-HALF-X
+           COMPUTE WS-ROOM-MIN-Z(WS-ROOM-COUNT) = WS-WORLD-Z - WS-LOCAL-HALF-Z
+           COMPUTE WS-ROOM-MAX-Z(WS-ROOM-COUNT) = WS-WORLD-Z + WS-LOCAL-HALF-Z
+
+           *> The door hangs in the doorway on its left hinge, inside the building's node, so it turns with it.
+           ADD     1                             TO    WS-DOOR-COUNT
+           SET     WS-DOOR-NODE(WS-DOOR-COUNT)   TO    SCN-1::LoadModel( "models/door.glb" )
+           SCN-1::SetParent( WS-DOOR-NODE(WS-DOOR-COUNT) WS-NODE )
+           COMPUTE WS-LOCAL-Z = WS-HALF-DEPTH - 0.15
+           SCN-1::SetPosition( WS-DOOR-NODE(WS-DOOR-COUNT), -0.7, 0, WS-LOCAL-Z )
+           MOVE    0                             TO    WS-DOOR-ANGLE(WS-DOOR-COUNT)
+           MOVE    0                             TO    WS-DOOR-TARGET(WS-DOOR-COUNT)
+           MOVE    0                             TO    WS-LOCAL-X
+           MOVE    0.7                           TO    WS-LOCAL-HALF-X
+           MOVE    0.15                          TO    WS-LOCAL-HALF-Z
+           *> Turns the closed door's box into world coordinates.
+           *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z in the doorway, half sizes 0.7 by 0.15, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+           *> Result: WS-WORLD-X and WS-WORLD-Z are the door's centre; the half sizes are swapped for a quarter turn.
+           CALL "WAR-TURN-BOX"
+           MOVE    WS-WORLD-X                    TO    WS-DOOR-X(WS-DOOR-COUNT)
+           MOVE    WS-WORLD-Z                    TO    WS-DOOR-Z(WS-DOOR-COUNT)
+           COMPUTE WS-DOOR-MIN-X(WS-DOOR-COUNT) = WS-WORLD-X - WS-LOCAL-HALF-X - 0.35
+           COMPUTE WS-DOOR-MAX-X(WS-DOOR-COUNT) = WS-WORLD-X + WS-LOCAL-HALF-X + 0.35
+           COMPUTE WS-DOOR-MIN-Z(WS-DOOR-COUNT) = WS-WORLD-Z - WS-LOCAL-HALF-Z - 0.35
+           COMPUTE WS-DOOR-MAX-Z(WS-DOOR-COUNT) = WS-WORLD-Z + WS-LOCAL-HALF-Z + 0.35
+
+           *> Three buildings burn: a flickering flame and its light over the embers in the collapsed corner.
+           IF      WS-PIECE-INDEX = 1 OR WS-PIECE-INDEX = 3 OR WS-PIECE-INDEX = 4
+               ADD     1                         TO    WS-FIRE-COUNT
+               COMPUTE WS-LOCAL-X = WS-HALF-WIDTH * 0.5
+               COMPUTE WS-LOCAL-Z = 0 - WS-HALF-DEPTH * 0.45
+               *> Turns the embers' place into world coordinates.
+               *> Uses: WS-LOCAL-X, WS-LOCAL-Z (the collapsed corner), WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+               *> Result: WS-WORLD-X and WS-WORLD-Z.
+               CALL "WAR-TURN-BOX"
+               MOVE    WS-WORLD-X                TO    WS-FIRE-X(WS-FIRE-COUNT)
+               MOVE    WS-WORLD-Z                TO    WS-FIRE-Z(WS-FIRE-COUNT)
+               SET     WS-FIRE-FLAME(WS-FIRE-COUNT)      TO    SCN-1::AddCone( 0.45 1.4 12 )
+               SET     WS-MATERIAL                       TO    SCN-1::GetMaterial( WS-FIRE-FLAME(WS-FIRE-COUNT) )
+               SCN-1::SetMaterialColor( WS-MATERIAL "#FF8A2AD0" )
+               SCN-1::SetEmissive( WS-MATERIAL 1 0.45 0.08 )
+               SCN-1::SetAlphaMode( WS-MATERIAL 2 )
+               SCN-1::SetPosition( WS-FIRE-FLAME(WS-FIRE-COUNT) WS-WORLD-X 0.7 WS-WORLD-Z )
+               SET     WS-FIRE-LIGHT(WS-FIRE-COUNT)      TO    SCN-1::AddPointLight( 1 0.5 0.15 3 14 )
+               SCN-1::SetPosition( WS-FIRE-LIGHT(WS-FIRE-COUNT) WS-WORLD-X 1.6 WS-WORLD-Z )
+           END-IF
+]]></Event>
+    <Event name="WAR-TURN-BOX" paragraph="WAR-TURN-BOX"><![CDATA[       PROCEDURE DIVISION.
+           *> A point of a piece turned by a quarter-turn multiple about the vertical axis (x' = x cos + z sin, z' = z cos - x sin),
+           *> plus the piece's origin. A quarter turn also swaps a box's half sizes.
+           EVALUATE WS-TURN
+               WHEN 90
+                   COMPUTE WS-WORLD-X = WS-ORIGIN-X + WS-LOCAL-Z
+                   COMPUTE WS-WORLD-Z = WS-ORIGIN-Z - WS-LOCAL-X
+               WHEN 180
+                   COMPUTE WS-WORLD-X = WS-ORIGIN-X - WS-LOCAL-X
+                   COMPUTE WS-WORLD-Z = WS-ORIGIN-Z - WS-LOCAL-Z
+               WHEN 270
+                   COMPUTE WS-WORLD-X = WS-ORIGIN-X - WS-LOCAL-Z
+                   COMPUTE WS-WORLD-Z = WS-ORIGIN-Z + WS-LOCAL-X
+               WHEN OTHER
+                   COMPUTE WS-WORLD-X = WS-ORIGIN-X + WS-LOCAL-X
+                   COMPUTE WS-WORLD-Z = WS-ORIGIN-Z + WS-LOCAL-Z
+           END-EVALUATE
+           IF      WS-TURN = 90 OR WS-TURN = 270
+               MOVE    WS-LOCAL-HALF-X           TO    WS-LENGTH
+               MOVE    WS-LOCAL-HALF-Z           TO    WS-LOCAL-HALF-X
+               MOVE    WS-LENGTH                 TO    WS-LOCAL-HALF-Z
+           END-IF
+]]></Event>
+    <Event name="WAR-ADD-BOX" paragraph="WAR-ADD-BOX"><![CDATA[       PROCEDURE DIVISION.
+           *> Turns the box into world coordinates.
+           *> Uses: WS-LOCAL-X, WS-LOCAL-Z, WS-LOCAL-HALF-X, WS-LOCAL-HALF-Z, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+           *> Result: WS-WORLD-X and WS-WORLD-Z are its centre; the half sizes are swapped for a quarter turn.
+           CALL "WAR-TURN-BOX"
+           *> Stored grown by the player's radius (0.35 m), so a test of the player's centre is enough.
+           ADD     1                             TO    WS-BOX-COUNT
+           COMPUTE WS-BOX-MIN-X(WS-BOX-COUNT) = WS-WORLD-X - WS-LOCAL-HALF-X - 0.35
+           COMPUTE WS-BOX-MAX-X(WS-BOX-COUNT) = WS-WORLD-X + WS-LOCAL-HALF-X + 0.35
+           COMPUTE WS-BOX-MIN-Z(WS-BOX-COUNT) = WS-WORLD-Z - WS-LOCAL-HALF-Z - 0.35
+           COMPUTE WS-BOX-MAX-Z(WS-BOX-COUNT) = WS-WORLD-Z + WS-LOCAL-HALF-Z + 0.35
+]]></Event>
+    <Event name="WAR-ADD-AMMO" paragraph="WAR-ADD-AMMO"><![CDATA[       PROCEDURE DIVISION.
+           MOVE    0.3                           TO    WS-LOCAL-HALF-X
+           MOVE    0.3                           TO    WS-LOCAL-HALF-Z
+           *> Turns the crate's place into world coordinates.
+           *> Uses: WS-LOCAL-X, WS-LOCAL-Z, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+           *> Result: WS-WORLD-X and WS-WORLD-Z.
+           CALL "WAR-TURN-BOX"
+           ADD     1                             TO    WS-AMMO-COUNT
+           SET     WS-AMMO-NODE(WS-AMMO-COUNT)   TO    SCN-1::LoadModel( "models/ammo.glb" )
+           SCN-1::SetPosition( WS-AMMO-NODE(WS-AMMO-COUNT) WS-WORLD-X 0.05 WS-WORLD-Z )
+           SCN-1::SetRotation( WS-AMMO-NODE(WS-AMMO-COUNT) 0 WS-TURN 0 )
+           MOVE    WS-WORLD-X                    TO    WS-AMMO-X(WS-AMMO-COUNT)
+           MOVE    WS-WORLD-Z                    TO    WS-AMMO-Z(WS-AMMO-COUNT)
+           MOVE    0                             TO    WS-AMMO-WAIT(WS-AMMO-COUNT)
+]]></Event>
+    <Event name="WAR-BUILD-PLAYER" paragraph="WAR-BUILD-PLAYER"><![CDATA[       PROCEDURE DIVISION.
+           *> A 70-degree camera at eye height; the weapons hang from it, so they move with the view.
+           SET     WS-CAMERA                     TO    SCN-1::AddCamera( 70 0.05 420 )
+
+           SET     WS-WEAPON-NODE(1)             TO    SCN-1::LoadModel( "models/ar15.glb" )
+           SET     WS-WEAPON-NODE(2)             TO    SCN-1::LoadModel( "models/eagle.glb" )
+           PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > 2
+               SCN-1::SetParent( WS-WEAPON-NODE(WS-CELL-INDEX) WS-CAMERA )
+               *> A weapon model holds two nodes: the gun with the hands, and its muzzle flash.
+               SET     WS-ANSWER                 TO    SCN-1::GetChildren( WS-WEAPON-NODE(WS-CELL-INDEX) )
+               UNSTRING WS-ANSWER DELIMITED BY ALL SPACE INTO WS-FIELD(1) WS-FIELD(2)
+               COMPUTE WS-WEAPON-FLASH(WS-CELL-INDEX) = FUNCTION NUMVAL( WS-FIELD(2) )
+               SCN-1::SetVisible( WS-WEAPON-FLASH(WS-CELL-INDEX) 0 )
+           END-PERFORM
+           SCN-1::SetVisible( WS-WEAPON-NODE(2) 0 )
+
+           SET     WS-MUZZLE-LIGHT               TO    SCN-1::AddPointLight( 1 0.72 0.35 4 12 )
+           SCN-1::SetParent( WS-MUZZLE-LIGHT WS-CAMERA )
+           SCN-1::SetPosition( WS-MUZZLE-LIGHT, 0.25, -0.1, -1 )
+           SCN-1::SetVisible( WS-MUZZLE-LIGHT 0 )
+
+           MOVE    30                            TO    WS-MAGAZINE-SIZE(1)
+           MOVE    7                             TO    WS-MAGAZINE-SIZE(2)
+
+           *> How each weapon is held in front of the eyes, and turned so its side shows: the rifle low and to the right,
+           *> the pistol out in both hands, nearer the middle.
+           MOVE    0.15                          TO    WS-HOLD-X(1)
+           MOVE    -0.17                         TO    WS-HOLD-Y(1)
+           MOVE    -0.6                          TO    WS-HOLD-Z(1)
+           MOVE    10                            TO    WS-HOLD-TURN(1)
+           MOVE    0.1                           TO    WS-HOLD-X(2)
+           MOVE    -0.15                         TO    WS-HOLD-Y(2)
+           MOVE    -0.46                         TO    WS-HOLD-Z(2)
+           MOVE    18                            TO    WS-HOLD-TURN(2)
+
+           *> Fills both weapons as at the start of a life.
+           *> Uses: WS-MAGAZINE-SIZE of both weapons.
+           *> Result: full magazines, 120 AR-15 and 35 Desert Eagle rounds in reserve, health 100, the player at the start.
+           CALL "WAR-REDEPLOY"
+]]></Event>
+    <Event name="WAR-REDEPLOY" paragraph="WAR-REDEPLOY"><![CDATA[       PROCEDURE DIVISION.
+           *> A new life at the edge of the central crossing, facing the city centre.
+           MOVE    100                           TO    WS-HEALTH
+           MOVE    0                             TO    WS-DEAD-FRAMES
+           MOVE    -3                            TO    WS-PLAYER-X
+           MOVE    12                            TO    WS-PLAYER-Z
+           MOVE    0                             TO    WS-YAW
+           MOVE    0                             TO    WS-PITCH
+           MOVE    WS-MAGAZINE-SIZE(1)           TO    WS-MAGAZINE(1)
+           MOVE    WS-MAGAZINE-SIZE(2)           TO    WS-MAGAZINE(2)
+           MOVE    120                           TO    WS-RESERVE(1)
+           MOVE    35                            TO    WS-RESERVE(2)
+           MOVE    0                             TO    WS-BURST
+           MOVE    0                             TO    WS-RELOAD-FRAMES
+           MOVE    10                            TO    WS-RAISE-FRAMES
+           LBL-MESSAGE::Hide()
+]]></Event>
+    <Event name="WAR-BUILD-ENEMIES" paragraph="WAR-BUILD-ENEMIES"><![CDATA[       PROCEDURE DIVISION.
+           *> A tank is a hull and a turret, a helicopter a body and a rotor: each model's two nodes are found among its children.
+           PERFORM VARYING WS-TANK-INDEX FROM 1 BY 1 UNTIL WS-TANK-INDEX > 2
+               SET     WS-TANK-ROOT(WS-TANK-INDEX)       TO    SCN-1::LoadModel( "models/tank.glb" )
+               SET     WS-ANSWER                         TO    SCN-1::GetChildren( WS-TANK-ROOT(WS-TANK-INDEX) )
+               UNSTRING WS-ANSWER DELIMITED BY ALL SPACE INTO WS-FIELD(1) WS-FIELD(2)
+               COMPUTE WS-TANK-HULL(WS-TANK-INDEX) = FUNCTION NUMVAL( WS-FIELD(1) )
+               COMPUTE WS-TANK-TURRET(WS-TANK-INDEX) = FUNCTION NUMVAL( WS-FIELD(2) )
+               SCN-1::SetVisible( WS-TANK-ROOT(WS-TANK-INDEX) 0 )
+               MOVE    0                         TO    WS-TANK-ALIVE(WS-TANK-INDEX)
+               COMPUTE WS-TANK-WAIT(WS-TANK-INDEX) = 150 + ( WS-TANK-INDEX - 1 ) * 900
+           END-PERFORM
+           PERFORM VARYING WS-HELI-INDEX FROM 1 BY 1 UNTIL WS-HELI-INDEX > 2
+               SET     WS-HELI-ROOT(WS-HELI-INDEX)       TO    SCN-1::LoadModel( "models/helicopter.glb" )
+               SET     WS-ANSWER                         TO    SCN-1::GetChildren( WS-HELI-ROOT(WS-HELI-INDEX) )
+               UNSTRING WS-ANSWER DELIMITED BY ALL SPACE INTO WS-FIELD(1) WS-FIELD(2)
+               COMPUTE WS-HELI-BODY(WS-HELI-INDEX) = FUNCTION NUMVAL( WS-FIELD(1) )
+               COMPUTE WS-HELI-ROTOR(WS-HELI-INDEX) = FUNCTION NUMVAL( WS-FIELD(2) )
+               SCN-1::SetVisible( WS-HELI-ROOT(WS-HELI-INDEX) 0 )
+               MOVE    0                         TO    WS-HELI-ALIVE(WS-HELI-INDEX)
+               COMPUTE WS-HELI-WAIT(WS-HELI-INDEX) = 420 + ( WS-HELI-INDEX - 1 ) * 1500
+           END-PERFORM
+           PERFORM VARYING WS-DRONE-INDEX FROM 1 BY 1 UNTIL WS-DRONE-INDEX > 4
+               SET     WS-DRONE-ROOT(WS-DRONE-INDEX)     TO    SCN-1::LoadModel( "models/drone.glb" )
+               SCN-1::SetVisible( WS-DRONE-ROOT(WS-DRONE-INDEX) 0 )
+               MOVE    0                         TO    WS-DRONE-ALIVE(WS-DRONE-INDEX)
+               COMPUTE WS-DRONE-WAIT(WS-DRONE-INDEX) = 60 + WS-DRONE-INDEX * 180
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-BUILD-EFFECTS" paragraph="WAR-BUILD-EFFECTS"><![CDATA[       PROCEDURE DIVISION.
+           *> Shells, rockets and tracers: one glowing slug each, stretched along its flight.
+           PERFORM VARYING WS-SHOT-INDEX FROM 1 BY 1 UNTIL WS-SHOT-INDEX > 12
+               SET     WS-SHOT-NODE(WS-SHOT-INDEX)       TO    SCN-1::AddBox( 0.14 0.14 1 )
+               SET     WS-MATERIAL                       TO    SCN-1::GetMaterial( WS-SHOT-NODE(WS-SHOT-INDEX) )
+               SCN-1::SetMaterialColor( WS-MATERIAL "#FFD27A" )
+               SCN-1::SetEmissive( WS-MATERIAL 1 0.75 0.3 )
+               SCN-1::SetVisible( WS-SHOT-NODE(WS-SHOT-INDEX) 0 )
+               MOVE    0                         TO    WS-SHOT-KIND(WS-SHOT-INDEX)
+           END-PERFORM
+
+           *> Explosions: a fireball, a column of smoke and, for the first three, a flash of light.
+           PERFORM VARYING WS-BLAST-INDEX FROM 1 BY 1 UNTIL WS-BLAST-INDEX > 6
+               SET     WS-BLAST-FIREBALL(WS-BLAST-INDEX) TO    SCN-1::AddSphere( 1 20 )
+               SET     WS-MATERIAL                       TO    SCN-1::GetMaterial( WS-BLAST-FIREBALL(WS-BLAST-INDEX) )
+               SCN-1::SetMaterialColor( WS-MATERIAL "#FF9A3CE0" )
+               SCN-1::SetEmissive( WS-MATERIAL 1 0.5 0.12 )
+               SCN-1::SetAlphaMode( WS-MATERIAL 2 )
+               SET     WS-BLAST-SMOKE(WS-BLAST-INDEX)    TO    SCN-1::AddSphere( 1 16 )
+               SET     WS-MATERIAL                       TO    SCN-1::GetMaterial( WS-BLAST-SMOKE(WS-BLAST-INDEX) )
+               SCN-1::SetMaterialColor( WS-MATERIAL "#1E1B19B0" )
+               SCN-1::SetRoughness( WS-MATERIAL 1 )
+               SCN-1::SetAlphaMode( WS-MATERIAL 2 )
+               SCN-1::SetVisible( WS-BLAST-FIREBALL(WS-BLAST-INDEX) 0 )
+               SCN-1::SetVisible( WS-BLAST-SMOKE(WS-BLAST-INDEX) 0 )
+               MOVE    0                         TO    WS-BLAST-LIGHT(WS-BLAST-INDEX)
+               IF      WS-BLAST-INDEX <= 3
+                   SET     WS-BLAST-LIGHT(WS-BLAST-INDEX)    TO    SCN-1::AddPointLight( 1 0.55 0.2 0 45 )
+                   SCN-1::SetVisible( WS-BLAST-LIGHT(WS-BLAST-INDEX) 0 )
+               END-IF
+               MOVE    -1                        TO    WS-BLAST-AGE(WS-BLAST-INDEX)
+           END-PERFORM
+
+           *> Bullet marks and scorch marks: a plane with a see-through picture, drawn once per mark.
+           IMG-DECAL::LoadAsset( "textures/bullet-hole.png" )
+           SET     WS-DECAL-NODE                 TO    SCN-1::AddPlane( 1 1 )
+           SET     WS-MATERIAL                   TO    SCN-1::GetMaterial( WS-DECAL-NODE )
+           SCN-1::SetTexture( WS-MATERIAL 0 IMG-DECAL::Clone() )
+           SCN-1::SetAlphaMode( WS-MATERIAL 2 )
+           SCN-1::SetRoughness( WS-MATERIAL 1 )
+           SCN-1::SetVisible( WS-DECAL-NODE 0 )
+           IMG-DECAL::LoadAsset( "textures/scorch.png" )
+           SET     WS-SCORCH-NODE                TO    SCN-1::AddPlane( 1 1 )
+           SET     WS-MATERIAL                   TO    SCN-1::GetMaterial( WS-SCORCH-NODE )
+           SCN-1::SetTexture( WS-MATERIAL 0 IMG-DECAL::GetHandle() )
+           SCN-1::SetAlphaMode( WS-MATERIAL 2 )
+           SCN-1::SetRoughness( WS-MATERIAL 1 )
+           SCN-1::SetVisible( WS-SCORCH-NODE 0 )
+
+           *> The spark where a bullet strikes.
+           SET     WS-SPARK                      TO    SCN-1::AddSphere( 0.06 8 )
+           SET     WS-MATERIAL                   TO    SCN-1::GetMaterial( WS-SPARK )
+           SCN-1::SetMaterialColor( WS-MATERIAL "#FFE7A0" )
+           SCN-1::SetEmissive( WS-MATERIAL 1 0.85 0.5 )
+           SCN-1::SetVisible( WS-SPARK 0 )
+
+           *> Smoke rising from the burning buildings: four puffs per fire, each at its own height.
+           PERFORM VARYING WS-PUFF-INDEX FROM 1 BY 1 UNTIL WS-PUFF-INDEX > 12
+               SET     WS-PUFF-NODE(WS-PUFF-INDEX)       TO    SCN-1::AddSphere( 1 12 )
+               SET     WS-MATERIAL                       TO    SCN-1::GetMaterial( WS-PUFF-NODE(WS-PUFF-INDEX) )
+               SCN-1::SetMaterialColor( WS-MATERIAL "#26221F80" )
+               SCN-1::SetRoughness( WS-MATERIAL 1 )
+               SCN-1::SetAlphaMode( WS-MATERIAL 2 )
+               COMPUTE WS-PUFF-HEIGHT(WS-PUFF-INDEX) = FUNCTION MOD( WS-PUFF-INDEX 4 ) * 4 + 1
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-STEP" paragraph="WAR-STEP"><![CDATA[       PROCEDURE DIVISION.
+           ADD     1                             TO    WS-FRAME
+           *> The war grows every 45 seconds (1350 frames): more machines are allowed at once.
+           COMPUTE WS-WAVE = 1 + WS-FRAME / 1350
+
+           *> Reads the keys and the mouse.
+           *> Uses: the keys held on CNV-3D, CNV-3D::PointerX and CNV-3D::PointerY.
+           *> Result: WS-SPACE-PRESSED, WS-SWITCH-PRESSED, WS-RELOAD-PRESSED for this frame; WS-YAW and WS-PITCH turned.
+           CALL "WAR-READ-INPUT"
+
+           *> Walks the player, sliding along walls, or waits for a redeploy after death.
+           *> Uses: the arrow keys, WS-YAW, the collision boxes, the doors, the tanks.
+           *> Result: WS-PLAYER-X, WS-PLAYER-Z, WS-INDOORS and WS-BOB.
+           CALL "WAR-MOVE-PLAYER"
+
+           *> Opens or closes the door the player stands at, and swings the doors.
+           *> Uses: WS-SPACE-PRESSED, WS-PLAYER-X, WS-PLAYER-Z, WS-DOOR.
+           *> Result: WS-DOOR-TARGET and WS-DOOR-ANGLE; LBL-PROMPT shown near a door.
+           CALL "WAR-DOORS"
+
+           *> Fires, reloads and switches the weapon, and poses it in the hands.
+           *> Uses: WS-TRIGGER (set by a right-click), WS-SWITCH-PRESSED, WS-RELOAD-PRESSED, WS-WEAPON, WS-MAGAZINE, WS-RESERVE.
+           *> Result: bullets fired with their marks, magazines and reserves updated, the weapon placed.
+           CALL "WAR-WEAPON"
+
+           *> Picks up the ammunition crates the player walks over, and brings emptied ones back after 30 seconds.
+           *> Uses: WS-PLAYER-X, WS-PLAYER-Z, WS-AMMO.
+           *> Result: WS-RESERVE of both weapons grows; the crate disappears and LBL-MESSAGE says what was found.
+           CALL "WAR-AMMO-PICKUP"
+
+           *> Spawns, moves and fires the tanks, helicopters and drones.
+           *> Uses: WS-WAVE, WS-PLAYER-X, WS-PLAYER-Z, WS-HEALTH.
+           *> Result: the attackers' positions and timers; shells, rockets and tracers launched; drones that arrive explode.
+           CALL "WAR-ENEMIES"
+
+           *> Flies the shells, rockets and tracers, and explodes them where they land.
+           *> Uses: WS-SHOT.
+           *> Result: projectiles moved; explosions started and the player hurt when close.
+           CALL "WAR-PROJECTILES"
+
+           *> Animates explosions, fires, smoke, the spark, the hit marker and the red damage flash.
+           *> Uses: WS-BLAST, WS-FIRE, WS-PUFF, WS-SPARK-FRAMES, WS-HIT-FRAMES, WS-DAMAGE-FRAMES.
+           *> Result: their nodes and the HUD labels are updated.
+           CALL "WAR-EFFECTS"
+
+           *> Places the camera at the player's eyes, with the explosion shake.
+           *> Uses: WS-PLAYER-X, WS-PLAYER-Z, WS-YAW, WS-PITCH, WS-SHAKE, WS-BOB, WS-HEALTH.
+           *> Result: WS-CAMERA is placed and turned.
+           CALL "WAR-CAMERA"
+
+           *> Writes the HUD: health, weapon and rounds, score, kills and wave.
+           *> Uses: WS-HEALTH, WS-WEAPON, WS-MAGAZINE, WS-RESERVE, WS-SCORE, WS-KILLS, WS-WAVE.
+           *> Result: LBL-HEALTH, LBL-AMMO and LBL-SCORE show them.
+           CALL "WAR-HUD"
+]]></Event>
+    <Event name="WAR-READ-INPUT" paragraph="WAR-READ-INPUT"><![CDATA[       PROCEDURE DIVISION.
+           *> Mouse look: the pointer's movement since the last frame turns the view; near the left or right edge it keeps turning.
+           COMPUTE WS-POINTER-X = CNV-3D::PointerX
+           COMPUTE WS-POINTER-Y = CNV-3D::PointerY
+           IF      WS-LOOK-READY = 1 AND WS-HEALTH > 0
+               COMPUTE WS-YAW = WS-YAW - ( WS-POINTER-X - WS-LAST-POINTER-X ) * 0.16
+               COMPUTE WS-PITCH = WS-PITCH - ( WS-POINTER-Y - WS-LAST-POINTER-Y ) * 0.13
+               IF      WS-POINTER-X > 0 AND WS-POINTER-X < 110
+                   COMPUTE WS-YAW = WS-YAW + ( 110 - WS-POINTER-X ) * 0.03
+               END-IF
+               IF      WS-POINTER-X > 1170
+                   COMPUTE WS-YAW = WS-YAW - ( WS-POINTER-X - 1170 ) * 0.03
+               END-IF
+           END-IF
+           MOVE    1                             TO    WS-LOOK-READY
+           MOVE    WS-POINTER-X                  TO    WS-LAST-POINTER-X
+           MOVE    WS-POINTER-Y                  TO    WS-LAST-POINTER-Y
+           IF      WS-PITCH > 65
+               MOVE    65                        TO    WS-PITCH
+           END-IF
+           IF      WS-PITCH < -65
+               MOVE    -65                       TO    WS-PITCH
+           END-IF
+           IF      WS-YAW > 360
+               SUBTRACT 360                      FROM  WS-YAW
+           END-IF
+           IF      WS-YAW < -360
+               ADD     360                       TO    WS-YAW
+           END-IF
+
+           *> Space, M and R act once per press, not once per frame.
+           MOVE    0                             TO    WS-SPACE-PRESSED
+           MOVE    0                             TO    WS-SWITCH-PRESSED
+           MOVE    0                             TO    WS-RELOAD-PRESSED
+           IF      CNV-3D::IsKeyDown( "Space" ) = 1
+               IF      WS-SPACE-HELD = 0
+                   MOVE    1                     TO    WS-SPACE-PRESSED
+               END-IF
+               MOVE    1                         TO    WS-SPACE-HELD
+           ELSE
+               MOVE    0                         TO    WS-SPACE-HELD
+           END-IF
+           IF      CNV-3D::IsKeyDown( "M" ) = 1
+               IF      WS-SWITCH-HELD = 0
+                   MOVE    1                     TO    WS-SWITCH-PRESSED
+               END-IF
+               MOVE    1                         TO    WS-SWITCH-HELD
+           ELSE
+               MOVE    0                         TO    WS-SWITCH-HELD
+           END-IF
+           IF      CNV-3D::IsKeyDown( "R" ) = 1
+               IF      WS-RELOAD-HELD = 0
+                   MOVE    1                     TO    WS-RELOAD-PRESSED
+               END-IF
+               MOVE    1                         TO    WS-RELOAD-HELD
+           ELSE
+               MOVE    0                         TO    WS-RELOAD-HELD
+           END-IF
+]]></Event>
+    <Event name="WAR-MOVE-PLAYER" paragraph="WAR-MOVE-PLAYER"><![CDATA[       PROCEDURE DIVISION.
+           IF      WS-HEALTH <= 0
+               *> Down: Space redeploys once the fall has played.
+               ADD     1                         TO    WS-DEAD-FRAMES
+               IF      WS-SPACE-PRESSED = 1 AND WS-DEAD-FRAMES > 30
+                   *> Gives the player a new life at the start.
+                   *> Uses: WS-MAGAZINE-SIZE of both weapons.
+                   *> Result: health 100, full magazines and reserves, the player at the start, LBL-MESSAGE hidden.
+                   CALL "WAR-REDEPLOY"
+               END-IF
+           ELSE
+               MOVE    0                         TO    WS-FORWARD
+               MOVE    0                         TO    WS-SIDEWAYS
+               IF      CNV-3D::IsKeyDown( "ArrowUp" ) = 1
+                   ADD     1                     TO    WS-FORWARD
+               END-IF
+               IF      CNV-3D::IsKeyDown( "ArrowDown" ) = 1
+                   SUBTRACT 1                    FROM  WS-FORWARD
+               END-IF
+               IF      CNV-3D::IsKeyDown( "ArrowRight" ) = 1
+                   ADD     1                     TO    WS-SIDEWAYS
+               END-IF
+               IF      CNV-3D::IsKeyDown( "ArrowLeft" ) = 1
+                   SUBTRACT 1                    FROM  WS-SIDEWAYS
+               END-IF
+               *> Forward is -Z turned by the yaw; right is +X turned by it. 5.1 m/s ahead, 4.2 m/s sideways, 30 frames a second.
+               COMPUTE WS-SINE = FUNCTION SIN( WS-YAW * 0.01745329 )
+               COMPUTE WS-COSINE = FUNCTION COS( WS-YAW * 0.01745329 )
+               COMPUTE WS-STEP-X = WS-COSINE * WS-SIDEWAYS * 0.14 - WS-SINE * WS-FORWARD * 0.17
+               COMPUTE WS-STEP-Z = 0 - WS-SINE * WS-SIDEWAYS * 0.14 - WS-COSINE * WS-FORWARD * 0.17
+               IF      WS-STEP-X NOT = 0 OR WS-STEP-Z NOT = 0
+                   ADD     0.3                   TO    WS-BOB
+                   *> One axis at a time, so the player slides along a wall instead of sticking to it.
+                   COMPUTE WS-TRY-X = WS-PLAYER-X + WS-STEP-X
+                   MOVE    WS-PLAYER-Z           TO    WS-TRY-Z
+                   *> Is the place the player would step to inside a wall, a closed door, a tank or out of the city?
+                   *> Uses: WS-TRY-X, WS-TRY-Z, WS-PLAYER-X, WS-PLAYER-Z, WS-BOX, WS-DOOR, WS-TANK.
+                   *> Result: WS-BLOCKED is 1 when the step is refused.
+                   CALL "WAR-BLOCKED"
+                   IF      WS-BLOCKED = 0
+                       MOVE    WS-TRY-X          TO    WS-PLAYER-X
+                   END-IF
+                   MOVE    WS-PLAYER-X           TO    WS-TRY-X
+                   COMPUTE WS-TRY-Z = WS-PLAYER-Z + WS-STEP-Z
+                   *> The same test for the step along Z.
+                   *> Uses: WS-TRY-X, WS-TRY-Z, WS-PLAYER-X, WS-PLAYER-Z, WS-BOX, WS-DOOR, WS-TANK.
+                   *> Result: WS-BLOCKED is 1 when the step is refused.
+                   CALL "WAR-BLOCKED"
+                   IF      WS-BLOCKED = 0
+                       MOVE    WS-TRY-Z          TO    WS-PLAYER-Z
+                   END-IF
+               END-IF
+           END-IF
+
+           *> Indoors (inside a building's footprint) the walls take most of a blast.
+           MOVE    0                             TO    WS-INDOORS
+           PERFORM VARYING WS-BOX-INDEX FROM 1 BY 1 UNTIL WS-BOX-INDEX > WS-ROOM-COUNT
+               IF      WS-PLAYER-X > WS-ROOM-MIN-X(WS-BOX-INDEX) AND WS-PLAYER-X < WS-ROOM-MAX-X(WS-BOX-INDEX)
+                   AND WS-PLAYER-Z > WS-ROOM-MIN-Z(WS-BOX-INDEX) AND WS-PLAYER-Z < WS-ROOM-MAX-Z(WS-BOX-INDEX)
+                   MOVE    1                     TO    WS-INDOORS
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-BLOCKED" paragraph="WAR-BLOCKED"><![CDATA[       PROCEDURE DIVISION.
+           *> A box blocks a step only into it, never out of it: a door closed on the player cannot trap him.
+           MOVE    0                             TO    WS-BLOCKED
+           IF      WS-TRY-X > 74 OR WS-TRY-X < -74 OR WS-TRY-Z > 74 OR WS-TRY-Z < -74
+               MOVE    1                         TO    WS-BLOCKED
+           END-IF
+           PERFORM VARYING WS-BOX-INDEX FROM 1 BY 1 UNTIL WS-BOX-INDEX > WS-BOX-COUNT OR WS-BLOCKED = 1
+               IF      WS-TRY-X > WS-BOX-MIN-X(WS-BOX-INDEX) AND WS-TRY-X < WS-BOX-MAX-X(WS-BOX-INDEX)
+                   AND WS-TRY-Z > WS-BOX-MIN-Z(WS-BOX-INDEX) AND WS-TRY-Z < WS-BOX-MAX-Z(WS-BOX-INDEX)
+                   IF      WS-PLAYER-X <= WS-BOX-MIN-X(WS-BOX-INDEX) OR WS-PLAYER-X >= WS-BOX-MAX-X(WS-BOX-INDEX)
+                       OR  WS-PLAYER-Z <= WS-BOX-MIN-Z(WS-BOX-INDEX) OR WS-PLAYER-Z >= WS-BOX-MAX-Z(WS-BOX-INDEX)
+                       MOVE    1                 TO    WS-BLOCKED
+                   END-IF
+               END-IF
+           END-PERFORM
+           *> A door blocks while it is less than half open.
+           PERFORM VARYING WS-BOX-INDEX FROM 1 BY 1 UNTIL WS-BOX-INDEX > WS-DOOR-COUNT OR WS-BLOCKED = 1
+               IF      WS-DOOR-ANGLE(WS-BOX-INDEX) < 45
+                   AND WS-TRY-X > WS-DOOR-MIN-X(WS-BOX-INDEX) AND WS-TRY-X < WS-DOOR-MAX-X(WS-BOX-INDEX)
+                   AND WS-TRY-Z > WS-DOOR-MIN-Z(WS-BOX-INDEX) AND WS-TRY-Z < WS-DOOR-MAX-Z(WS-BOX-INDEX)
+                   IF      WS-PLAYER-X <= WS-DOOR-MIN-X(WS-BOX-INDEX) OR WS-PLAYER-X >= WS-DOOR-MAX-X(WS-BOX-INDEX)
+                       OR  WS-PLAYER-Z <= WS-DOOR-MIN-Z(WS-BOX-INDEX) OR WS-PLAYER-Z >= WS-DOOR-MAX-Z(WS-BOX-INDEX)
+                       MOVE    1                 TO    WS-BLOCKED
+                   END-IF
+               END-IF
+           END-PERFORM
+           *> A tank is solid within 3 m of its centre.
+           PERFORM VARYING WS-BOX-INDEX FROM 1 BY 1 UNTIL WS-BOX-INDEX > 2
+               IF      WS-TANK-ALIVE(WS-BOX-INDEX) = 1
+                   COMPUTE WS-DISTANCE-X = WS-TRY-X - WS-TANK-X(WS-BOX-INDEX)
+                   COMPUTE WS-DISTANCE-Z = WS-TRY-Z - WS-TANK-Z(WS-BOX-INDEX)
+                   IF      WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z < 9
+                       MOVE    1                 TO    WS-BLOCKED
+                   END-IF
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-DOORS" paragraph="WAR-DOORS"><![CDATA[       PROCEDURE DIVISION.
+           *> The nearest door within 2.2 m answers Space; every door swings 9 degrees a frame toward open (90, inward) or shut (0).
+           MOVE    0                             TO    WS-NEAR-DOOR
+           PERFORM VARYING WS-DOOR-INDEX FROM 1 BY 1 UNTIL WS-DOOR-INDEX > WS-DOOR-COUNT
+               COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-DOOR-X(WS-DOOR-INDEX)
+               COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-DOOR-Z(WS-DOOR-INDEX)
+               IF      WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z < 4.84
+                   MOVE    WS-DOOR-INDEX         TO    WS-NEAR-DOOR
+               END-IF
+               IF      WS-DOOR-ANGLE(WS-DOOR-INDEX) NOT = WS-DOOR-TARGET(WS-DOOR-INDEX)
+                   IF      WS-DOOR-ANGLE(WS-DOOR-INDEX) < WS-DOOR-TARGET(WS-DOOR-INDEX)
+                       ADD     9                 TO    WS-DOOR-ANGLE(WS-DOOR-INDEX)
+                   ELSE
+                       SUBTRACT 9                FROM  WS-DOOR-ANGLE(WS-DOOR-INDEX)
+                   END-IF
+                   SCN-1::SetRotation( WS-DOOR-NODE(WS-DOOR-INDEX) 0 WS-DOOR-ANGLE(WS-DOOR-INDEX) 0 )
+               END-IF
+           END-PERFORM
+           IF      WS-NEAR-DOOR > 0 AND WS-HEALTH > 0
+               IF      WS-SPACE-PRESSED = 1
+                   IF      WS-DOOR-TARGET(WS-NEAR-DOOR) = 0
+                       MOVE    90                TO    WS-DOOR-TARGET(WS-NEAR-DOOR)
+                   ELSE
+                       MOVE    0                 TO    WS-DOOR-TARGET(WS-NEAR-DOOR)
+                   END-IF
+                   COBOL::"AUDIO-PLAY" ( "Assets/sounds/door.wav" )
+               END-IF
+               IF      WS-DOOR-TARGET(WS-NEAR-DOOR) = 0
+                   SET     LBL-PROMPT::Caption   TO    "SPACE  open the door"
+               ELSE
+                   SET     LBL-PROMPT::Caption   TO    "SPACE  close the door"
+               END-IF
+               LBL-PROMPT::Show()
+           ELSE
+               LBL-PROMPT::Hide()
+           END-IF
+]]></Event>
+    <Event name="WAR-WEAPON" paragraph="WAR-WEAPON"><![CDATA[       PROCEDURE DIVISION.
+           IF      WS-HEALTH <= 0
+               MOVE    0                         TO    WS-TRIGGER
+               MOVE    0                         TO    WS-BURST
+           END-IF
+
+           *> M swaps the AR-15 and the Desert Eagle; the new weapon is raised for a third of a second.
+           IF      WS-SWITCH-PRESSED = 1 AND WS-RELOAD-FRAMES = 0 AND WS-HEALTH > 0
+               SCN-1::SetVisible( WS-WEAPON-NODE(WS-WEAPON) 0 )
+               SCN-1::SetVisible( WS-WEAPON-FLASH(WS-WEAPON) 0 )
+               COMPUTE WS-WEAPON = 3 - WS-WEAPON
+               SCN-1::SetVisible( WS-WEAPON-NODE(WS-WEAPON) 1 )
+               MOVE    10                        TO    WS-RAISE-FRAMES
+               MOVE    0                         TO    WS-BURST
+               COBOL::"AUDIO-PLAY" ( "Assets/sounds/switch.wav" )
+           END-IF
+
+           *> R reloads a magazine that is not full, from the reserve.
+           IF      WS-RELOAD-PRESSED = 1 AND WS-RELOAD-FRAMES = 0 AND WS-HEALTH > 0
+               AND WS-MAGAZINE(WS-WEAPON) < WS-MAGAZINE-SIZE(WS-WEAPON) AND WS-RESERVE(WS-WEAPON) > 0
+               MOVE    45                        TO    WS-RELOAD-FRAMES
+               MOVE    0                         TO    WS-BURST
+               COBOL::"AUDIO-PLAY" ( "Assets/sounds/reload.wav" )
+           END-IF
+           IF      WS-RELOAD-FRAMES > 0
+               SUBTRACT 1                        FROM  WS-RELOAD-FRAMES
+               IF      WS-RELOAD-FRAMES = 0
+                   COMPUTE WS-LENGTH = WS-MAGAZINE-SIZE(WS-WEAPON) - WS-MAGAZINE(WS-WEAPON)
+                   IF      WS-LENGTH > WS-RESERVE(WS-WEAPON)
+                       MOVE    WS-RESERVE(WS-WEAPON)         TO    WS-LENGTH
+                   END-IF
+                   ADD     WS-LENGTH             TO    WS-MAGAZINE(WS-WEAPON)
+                   SUBTRACT WS-LENGTH            FROM  WS-RESERVE(WS-WEAPON)
+               END-IF
+           END-IF
+           IF      WS-RAISE-FRAMES > 0
+               SUBTRACT 1                        FROM  WS-RAISE-FRAMES
+           END-IF
+           IF      WS-COOLDOWN > 0
+               SUBTRACT 1                        FROM  WS-COOLDOWN
+           END-IF
+
+           *> The right mouse button pulls the trigger: the AR-15 fires a three-round burst, the Desert Eagle one heavy round.
+           IF      WS-TRIGGER = 1
+               MOVE    0                         TO    WS-TRIGGER
+               IF      WS-RELOAD-FRAMES = 0 AND WS-RAISE-FRAMES = 0 AND WS-BURST = 0 AND WS-COOLDOWN = 0
+                   IF      WS-MAGAZINE(WS-WEAPON) = 0
+                       COBOL::"AUDIO-PLAY" ( "Assets/sounds/empty.wav" )
+                       IF      WS-RESERVE(WS-WEAPON) > 0
+                           MOVE    45            TO    WS-RELOAD-FRAMES
+                       END-IF
+                   ELSE
+                       IF      WS-WEAPON = 1
+                           MOVE    3             TO    WS-BURST
+                           IF      WS-MAGAZINE(1) < 3
+                               MOVE    WS-MAGAZINE(1)    TO    WS-BURST
+                           END-IF
+                           COBOL::"AUDIO-PLAY" ( "Assets/sounds/ar15.wav" )
+                       ELSE
+                           MOVE    1             TO    WS-BURST
+                           MOVE    9             TO    WS-COOLDOWN
+                           COBOL::"AUDIO-PLAY" ( "Assets/sounds/eagle.wav" )
+                       END-IF
+                   END-IF
+               END-IF
+           END-IF
+           IF      WS-BURST > 0 AND FUNCTION MOD( WS-FRAME 2 ) = 0
+               SUBTRACT 1                        FROM  WS-BURST
+               *> Fires one round from the weapon in the hands: recoil, flash, and Pick finds what it hits.
+               *> Uses: WS-WEAPON, WS-MAGAZINE, the canvas's last picture through CNV-3D::Pick.
+               *> Result: one round fewer; an attacker damaged, or a bullet mark on what was hit.
+               CALL "WAR-FIRE-BULLET"
+               IF      WS-BURST = 0 AND WS-MAGAZINE(WS-WEAPON) = 0 AND WS-RESERVE(WS-WEAPON) > 0
+                   MOVE    45                    TO    WS-RELOAD-FRAMES
+                   COBOL::"AUDIO-PLAY" ( "Assets/sounds/reload.wav" )
+               END-IF
+           END-IF
+
+           *> The weapon in the hands: kicked back by the recoil, lowered while reloading or being raised, bobbing with each step.
+           COMPUTE WS-RECOIL = WS-RECOIL * 0.65
+           COMPUTE WS-STEP-X = WS-HOLD-X(WS-WEAPON) + FUNCTION SIN( WS-BOB * 0.5 ) * 0.008
+           COMPUTE WS-STEP-Z = WS-HOLD-Z(WS-WEAPON) + WS-RECOIL
+           COMPUTE WS-HEIGHT = WS-HOLD-Y(WS-WEAPON) + FUNCTION SIN( WS-BOB ) * 0.006 - WS-RELOAD-FRAMES * 0.006
+                             - WS-RAISE-FRAMES * 0.02
+           IF      WS-RELOAD-FRAMES > 22
+               COMPUTE WS-HEIGHT = WS-HEIGHT + ( WS-RELOAD-FRAMES - 22 ) * 0.012
+           END-IF
+           IF      WS-HEALTH <= 0
+               MOVE    -1                        TO    WS-HEIGHT
+           END-IF
+           SCN-1::SetPosition( WS-WEAPON-NODE(WS-WEAPON) WS-STEP-X WS-HEIGHT WS-STEP-Z )
+           COMPUTE WS-SCALE = WS-RECOIL * 60 + WS-RELOAD-FRAMES * 0.6
+           SCN-1::SetRotation( WS-WEAPON-NODE(WS-WEAPON) WS-SCALE WS-HOLD-TURN(WS-WEAPON) 0 )
+
+           *> The flash lives two frames, turned at random so no two look alike.
+           IF      WS-FLASH-FRAMES > 0
+               SUBTRACT 1                        FROM  WS-FLASH-FRAMES
+               COMPUTE WS-SCALE = FUNCTION RANDOM * 360
+               SCN-1::SetRotation( WS-WEAPON-FLASH(WS-WEAPON) 0 0 WS-SCALE )
+               SCN-1::SetVisible( WS-WEAPON-FLASH(WS-WEAPON) 1 )
+               SCN-1::SetVisible( WS-MUZZLE-LIGHT 1 )
+           ELSE
+               SCN-1::SetVisible( WS-WEAPON-FLASH(WS-WEAPON) 0 )
+               SCN-1::SetVisible( WS-MUZZLE-LIGHT 0 )
+           END-IF
+]]></Event>
+    <Event name="WAR-FIRE-BULLET" paragraph="WAR-FIRE-BULLET"><![CDATA[       PROCEDURE DIVISION.
+           IF      WS-MAGAZINE(WS-WEAPON) > 0
+               SUBTRACT 1                        FROM  WS-MAGAZINE(WS-WEAPON)
+           END-IF
+           MOVE    2                             TO    WS-FLASH-FRAMES
+
+           *> Recoil: the AR-15 climbs a little with every round, the Desert Eagle kicks hard. A round leaves the middle of the view
+           *> with a small spread (a few pixels for the rifle's burst, less for the pistol).
+           IF      WS-WEAPON = 1
+               ADD     0.05                      TO    WS-RECOIL
+               COMPUTE WS-PITCH = WS-PITCH + 0.6
+               COMPUTE WS-YAW = WS-YAW + ( FUNCTION RANDOM - 0.5 ) * 0.5
+               MOVE    16                        TO    WS-SPREAD
+           ELSE
+               ADD     0.1                       TO    WS-RECOIL
+               COMPUTE WS-PITCH = WS-PITCH + 2.2
+               MOVE    6                         TO    WS-SPREAD
+           END-IF
+           COMPUTE WS-AIM-X = CNV-3D::GetWidth() / 2 + ( FUNCTION RANDOM - 0.5 ) * WS-SPREAD
+           COMPUTE WS-AIM-Y = CNV-3D::GetHeight() / 2 + ( FUNCTION RANDOM - 0.5 ) * WS-SPREAD
+
+           *> Pick answers: node, instance, distance, point x y z, normal x y z.
+           SET     WS-ANSWER                     TO    CNV-3D::Pick( WS-AIM-X WS-AIM-Y )
+           MOVE    SPACES                        TO    WS-FIELDS
+           UNSTRING WS-ANSWER DELIMITED BY ALL SPACE
+               INTO WS-FIELD(1) WS-FIELD(2) WS-FIELD(3) WS-FIELD(4) WS-FIELD(5) WS-FIELD(6) WS-FIELD(7) WS-FIELD(8) WS-FIELD(9)
+           COMPUTE WS-HIT-NODE = FUNCTION NUMVAL( WS-FIELD(1) )
+           IF      WS-HIT-NODE > 0
+               COMPUTE WS-HIT-DISTANCE = FUNCTION NUMVAL( WS-FIELD(3) )
+               COMPUTE WS-HIT-X = FUNCTION NUMVAL( WS-FIELD(4) )
+               COMPUTE WS-HIT-Y = FUNCTION NUMVAL( WS-FIELD(5) )
+               COMPUTE WS-HIT-Z = FUNCTION NUMVAL( WS-FIELD(6) )
+               COMPUTE WS-NORMAL-X = FUNCTION NUMVAL( WS-FIELD(7) )
+               COMPUTE WS-NORMAL-Y = FUNCTION NUMVAL( WS-FIELD(8) )
+               COMPUTE WS-NORMAL-Z = FUNCTION NUMVAL( WS-FIELD(9) )
+               SCN-1::SetPosition( WS-SPARK WS-HIT-X WS-HIT-Y WS-HIT-Z )
+               SCN-1::SetVisible( WS-SPARK 1 )
+               MOVE    2                         TO    WS-SPARK-FRAMES
+
+               *> Which attacker, if any, owns the node that was hit.
+               *> Uses: WS-HIT-NODE and the root nodes of the tanks, helicopters and drones.
+               *> Result: WS-TARGET-KIND (0 nothing, 1 tank, 2 helicopter, 3 drone) and WS-TARGET-SLOT.
+               CALL "WAR-FIND-TARGET"
+               IF      WS-TARGET-KIND > 0
+                   MOVE    4                     TO    WS-HIT-FRAMES
+                   *> Takes a round's damage off the attacker hit: 1 for the AR-15, 3 for the Desert Eagle.
+                   *> Uses: WS-TARGET-KIND, WS-TARGET-SLOT, WS-WEAPON.
+                   *> Result: its health falls; at zero it explodes, scores, and waits to come back.
+                   CALL "WAR-DAMAGE-ENEMY"
+               ELSE
+                   IF      WS-HIT-DISTANCE < 150
+                       *> Leaves a bullet mark on the surface hit.
+                       *> Uses: WS-HIT-X, WS-HIT-Y, WS-HIT-Z and the normal WS-NORMAL-X, WS-NORMAL-Y, WS-NORMAL-Z.
+                       *> Result: one more mark in WS-DECAL-SEGMENT (the oldest of 64 recycled) and the marks redrawn.
+                       CALL "WAR-ADD-DECAL"
+                   END-IF
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="WAR-FIND-TARGET" paragraph="WAR-FIND-TARGET"><![CDATA[       PROCEDURE DIVISION.
+           *> Pick names the mesh hit; an attacker's root is up to three parents above it.
+           MOVE    0                             TO    WS-TARGET-KIND
+           MOVE    WS-HIT-NODE                   TO    WS-WALK-NODE
+           PERFORM 4 TIMES
+               IF      WS-TARGET-KIND = 0 AND WS-WALK-NODE > 0
+                   PERFORM VARYING WS-FIND-INDEX FROM 1 BY 1 UNTIL WS-FIND-INDEX > 2
+                       IF      WS-WALK-NODE = WS-TANK-ROOT(WS-FIND-INDEX) AND WS-TANK-ALIVE(WS-FIND-INDEX) = 1
+                           MOVE    1             TO    WS-TARGET-KIND
+                           MOVE    WS-FIND-INDEX TO    WS-TARGET-SLOT
+                       END-IF
+                       IF      WS-WALK-NODE = WS-HELI-ROOT(WS-FIND-INDEX) AND WS-HELI-ALIVE(WS-FIND-INDEX) = 1
+                           MOVE    2             TO    WS-TARGET-KIND
+                           MOVE    WS-FIND-INDEX TO    WS-TARGET-SLOT
+                       END-IF
+                   END-PERFORM
+                   PERFORM VARYING WS-FIND-INDEX FROM 1 BY 1 UNTIL WS-FIND-INDEX > 4
+                       IF      WS-WALK-NODE = WS-DRONE-ROOT(WS-FIND-INDEX) AND WS-DRONE-ALIVE(WS-FIND-INDEX) = 1
+                           MOVE    3             TO    WS-TARGET-KIND
+                           MOVE    WS-FIND-INDEX TO    WS-TARGET-SLOT
+                       END-IF
+                   END-PERFORM
+                   IF      WS-TARGET-KIND = 0
+                       SET     WS-WALK-NODE      TO    SCN-1::GetParent( WS-WALK-NODE )
+                   END-IF
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-DAMAGE-ENEMY" paragraph="WAR-DAMAGE-ENEMY"><![CDATA[       PROCEDURE DIVISION.
+           IF      WS-WEAPON = 1
+               MOVE    1                         TO    WS-DAMAGE
+           ELSE
+               MOVE    3                         TO    WS-DAMAGE
+           END-IF
+           EVALUATE WS-TARGET-KIND
+               WHEN 1
+                   SUBTRACT WS-DAMAGE            FROM  WS-TANK-HEALTH(WS-TARGET-SLOT)
+                   IF      WS-TANK-HEALTH(WS-TARGET-SLOT) <= 0
+                       MOVE    0                 TO    WS-TANK-ALIVE(WS-TARGET-SLOT)
+                       SCN-1::SetVisible( WS-TANK-ROOT(WS-TARGET-SLOT) 0 )
+                       COMPUTE WS-TANK-WAIT(WS-TARGET-SLOT) = 300 + FUNCTION RANDOM * 240
+                       MOVE    WS-TANK-X(WS-TARGET-SLOT)     TO    WS-BOOM-X
+                       MOVE    1.2                           TO    WS-BOOM-Y
+                       MOVE    WS-TANK-Z(WS-TARGET-SLOT)     TO    WS-BOOM-Z
+                       MOVE    2.2                           TO    WS-BOOM-SIZE
+                       ADD     100               TO    WS-SCORE
+                       ADD     1                 TO    WS-KILLS
+                       *> Blows the tank up.
+                       *> Uses: WS-BOOM-X, WS-BOOM-Y 1.2, WS-BOOM-Z (the tank), WS-BOOM-SIZE 2.2.
+                       *> Result: an explosion starts there; a scorch mark; the player hurt if within its reach.
+                       CALL "WAR-EXPLODE"
+                   END-IF
+               WHEN 2
+                   SUBTRACT WS-DAMAGE            FROM  WS-HELI-HEALTH(WS-TARGET-SLOT)
+                   IF      WS-HELI-HEALTH(WS-TARGET-SLOT) <= 0
+                       MOVE    0                 TO    WS-HELI-ALIVE(WS-TARGET-SLOT)
+                       SCN-1::SetVisible( WS-HELI-ROOT(WS-TARGET-SLOT) 0 )
+                       COMPUTE WS-HELI-WAIT(WS-TARGET-SLOT) = 450 + FUNCTION RANDOM * 300
+                       MOVE    WS-HELI-X(WS-TARGET-SLOT)     TO    WS-BOOM-X
+                       MOVE    WS-HELI-Y(WS-TARGET-SLOT)     TO    WS-BOOM-Y
+                       MOVE    WS-HELI-Z(WS-TARGET-SLOT)     TO    WS-BOOM-Z
+                       MOVE    2.6                           TO    WS-BOOM-SIZE
+                       ADD     150               TO    WS-SCORE
+                       ADD     1                 TO    WS-KILLS
+                       *> Blows the helicopter up in the air.
+                       *> Uses: WS-BOOM-X, WS-BOOM-Y, WS-BOOM-Z (the helicopter), WS-BOOM-SIZE 2.6.
+                       *> Result: an explosion starts there.
+                       CALL "WAR-EXPLODE"
+                   END-IF
+               WHEN 3
+                   SUBTRACT WS-DAMAGE            FROM  WS-DRONE-HEALTH(WS-TARGET-SLOT)
+                   IF      WS-DRONE-HEALTH(WS-TARGET-SLOT) <= 0
+                       MOVE    0                 TO    WS-DRONE-ALIVE(WS-TARGET-SLOT)
+                       SCN-1::SetVisible( WS-DRONE-ROOT(WS-TARGET-SLOT) 0 )
+                       COMPUTE WS-DRONE-WAIT(WS-TARGET-SLOT) = 90 + FUNCTION RANDOM * 150
+                       MOVE    WS-DRONE-X(WS-TARGET-SLOT)    TO    WS-BOOM-X
+                       MOVE    WS-DRONE-Y(WS-TARGET-SLOT)    TO    WS-BOOM-Y
+                       MOVE    WS-DRONE-Z(WS-TARGET-SLOT)    TO    WS-BOOM-Z
+                       MOVE    0.8                           TO    WS-BOOM-SIZE
+                       ADD     25                TO    WS-SCORE
+                       ADD     1                 TO    WS-KILLS
+                       *> The drone's grenade goes off where it was shot down.
+                       *> Uses: WS-BOOM-X, WS-BOOM-Y, WS-BOOM-Z (the drone), WS-BOOM-SIZE 0.8.
+                       *> Result: a small explosion starts there; the player hurt if within its reach.
+                       CALL "WAR-EXPLODE"
+                   END-IF
+           END-EVALUATE
+]]></Event>
+    <Event name="WAR-ADD-DECAL" paragraph="WAR-ADD-DECAL"><![CDATA[       PROCEDURE DIVISION.
+           *> The mark's matrix: the plane's up (+Y) along the surface normal, two directions along the surface, 12 to 18 cm wide,
+           *> a hair off the surface. First direction: up crossed with the normal (or X crossed with it on a floor or ceiling).
+           IF      FUNCTION ABS( WS-NORMAL-Y ) < 0.9
+               MOVE    WS-NORMAL-Z               TO    WS-AXIS-X1
+               MOVE    0                         TO    WS-AXIS-Y1
+               COMPUTE WS-AXIS-Z1 = 0 - WS-NORMAL-X
+           ELSE
+               MOVE    0                         TO    WS-AXIS-X1
+               COMPUTE WS-AXIS-Y1 = 0 - WS-NORMAL-Z
+               MOVE    WS-NORMAL-Y               TO    WS-AXIS-Z1
+           END-IF
+           COMPUTE WS-LENGTH = FUNCTION SQRT( WS-AXIS-X1 * WS-AXIS-X1 + WS-AXIS-Y1 * WS-AXIS-Y1 + WS-AXIS-Z1 * WS-AXIS-Z1 )
+           IF      WS-LENGTH > 0.001
+               COMPUTE WS-AXIS-X1 = WS-AXIS-X1 / WS-LENGTH
+               COMPUTE WS-AXIS-Y1 = WS-AXIS-Y1 / WS-LENGTH
+               COMPUTE WS-AXIS-Z1 = WS-AXIS-Z1 / WS-LENGTH
+               *> Second direction: the first crossed with the normal.
+               COMPUTE WS-AXIS-X2 = WS-AXIS-Y1 * WS-NORMAL-Z - WS-AXIS-Z1 * WS-NORMAL-Y
+               COMPUTE WS-AXIS-Y2 = WS-AXIS-Z1 * WS-NORMAL-X - WS-AXIS-X1 * WS-NORMAL-Z
+               COMPUTE WS-AXIS-Z2 = WS-AXIS-X1 * WS-NORMAL-Y - WS-AXIS-Y1 * WS-NORMAL-X
+               COMPUTE WS-DECAL-SIZE = 0.12 + FUNCTION RANDOM * 0.06
+               COMPUTE WS-MATRIX-CELL(1) = WS-AXIS-X1 * WS-DECAL-SIZE
+               COMPUTE WS-MATRIX-CELL(2) = WS-AXIS-Y1 * WS-DECAL-SIZE
+               COMPUTE WS-MATRIX-CELL(3) = WS-AXIS-Z1 * WS-DECAL-SIZE
+               MOVE    0                         TO    WS-MATRIX-CELL(4)
+               COMPUTE WS-MATRIX-CELL(5) = WS-NORMAL-X * WS-DECAL-SIZE
+               COMPUTE WS-MATRIX-CELL(6) = WS-NORMAL-Y * WS-DECAL-SIZE
+               COMPUTE WS-MATRIX-CELL(7) = WS-NORMAL-Z * WS-DECAL-SIZE
+               MOVE    0                         TO    WS-MATRIX-CELL(8)
+               COMPUTE WS-MATRIX-CELL(9) = WS-AXIS-X2 * WS-DECAL-SIZE
+               COMPUTE WS-MATRIX-CELL(10) = WS-AXIS-Y2 * WS-DECAL-SIZE
+               COMPUTE WS-MATRIX-CELL(11) = WS-AXIS-Z2 * WS-DECAL-SIZE
+               MOVE    0                         TO    WS-MATRIX-CELL(12)
+               COMPUTE WS-MATRIX-CELL(13) = WS-HIT-X + WS-NORMAL-X * 0.012
+               COMPUTE WS-MATRIX-CELL(14) = WS-HIT-Y + WS-NORMAL-Y * 0.012
+               COMPUTE WS-MATRIX-CELL(15) = WS-HIT-Z + WS-NORMAL-Z * 0.012
+               MOVE    1                         TO    WS-MATRIX-CELL(16)
+
+               MOVE    SPACES                    TO    WS-DECAL-SEGMENT(WS-DECAL-NEXT)
+               MOVE    1                         TO    WS-POINTER
+               PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > 16
+                   STRING  WS-MATRIX-CELL(WS-CELL-INDEX) " " INTO WS-DECAL-SEGMENT(WS-DECAL-NEXT) WITH POINTER WS-POINTER
+               END-PERFORM
+               IF      WS-DECAL-COUNT < 64
+                   ADD     1                     TO    WS-DECAL-COUNT
+               END-IF
+               ADD     1                         TO    WS-DECAL-NEXT
+               IF      WS-DECAL-NEXT > 64
+                   MOVE    1                     TO    WS-DECAL-NEXT
+               END-IF
+
+               MOVE    SPACES                    TO    WS-INSTANCE-LIST
+               MOVE    1                         TO    WS-POINTER
+               PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > WS-DECAL-COUNT
+                   STRING  WS-DECAL-SEGMENT(WS-CELL-INDEX) INTO WS-INSTANCE-LIST WITH POINTER WS-POINTER
+               END-PERFORM
+               SCN-1::SetInstances( WS-DECAL-NODE WS-INSTANCE-LIST )
+               SCN-1::SetVisible( WS-DECAL-NODE 1 )
+           END-IF
+]]></Event>
+    <Event name="WAR-ENEMIES" paragraph="WAR-ENEMIES"><![CDATA[       PROCEDURE DIVISION.
+           *> Drives the tanks along the avenues, turret on the player, a shell every five to seven seconds.
+           *> Uses: WS-WAVE (the second tank from wave 2), WS-PLAYER-X, WS-PLAYER-Z, WS-HEALTH.
+           *> Result: WS-TANK positions and timers; shells launched into WS-SHOT.
+           CALL "WAR-TANKS"
+
+           *> Circles the helicopters around the player, firing rockets and machine-gun bursts.
+           *> Uses: WS-WAVE (the second helicopter from wave 3), WS-PLAYER-X, WS-PLAYER-Z, WS-HEALTH.
+           *> Result: WS-HELICOPTER positions and timers; rockets and tracers launched into WS-SHOT.
+           CALL "WAR-HELICOPTERS"
+
+           *> Flies the suicide drones at the player; one that reaches him explodes.
+           *> Uses: WS-WAVE (one drone more per wave, up to four), WS-PLAYER-X, WS-PLAYER-Z.
+           *> Result: WS-DRONE positions; explosions where drones arrive.
+           CALL "WAR-DRONES"
+]]></Event>
+    <Event name="WAR-TANKS" paragraph="WAR-TANKS"><![CDATA[       PROCEDURE DIVISION.
+           PERFORM VARYING WS-TANK-INDEX FROM 1 BY 1 UNTIL WS-TANK-INDEX > 2
+               IF      WS-TANK-ALIVE(WS-TANK-INDEX) = 0
+                   IF      WS-TANK-WAIT(WS-TANK-INDEX) > 0
+                       SUBTRACT 1                FROM  WS-TANK-WAIT(WS-TANK-INDEX)
+                   ELSE
+                       IF      WS-TANK-INDEX = 1 OR WS-WAVE >= 2
+                           *> A tank rolls in from the edge of the city along one of the six avenues, in its right-hand lane.
+                           MOVE    1                     TO    WS-TANK-ALIVE(WS-TANK-INDEX)
+                           MOVE    14                    TO    WS-TANK-HEALTH(WS-TANK-INDEX)
+                           MOVE    120                   TO    WS-TANK-RELOAD(WS-TANK-INDEX)
+                           COMPUTE WS-LENGTH = ( FUNCTION INTEGER( FUNCTION RANDOM * 3 ) - 1 ) * 36
+                           IF      FUNCTION RANDOM < 0.5
+                               MOVE    1                 TO    WS-SIDEWAYS
+                           ELSE
+                               MOVE    -1                TO    WS-SIDEWAYS
+                           END-IF
+                           IF      FUNCTION RANDOM < 0.5
+                               MOVE    WS-SIDEWAYS       TO    WS-TANK-DIRECTION-X(WS-TANK-INDEX)
+                               MOVE    0                 TO    WS-TANK-DIRECTION-Z(WS-TANK-INDEX)
+                               COMPUTE WS-TANK-X(WS-TANK-INDEX) = -78 * WS-SIDEWAYS
+                               COMPUTE WS-TANK-Z(WS-TANK-INDEX) = WS-LENGTH + 2 * WS-SIDEWAYS
+                           ELSE
+                               MOVE    0                 TO    WS-TANK-DIRECTION-X(WS-TANK-INDEX)
+                               MOVE    WS-SIDEWAYS       TO    WS-TANK-DIRECTION-Z(WS-TANK-INDEX)
+                               COMPUTE WS-TANK-X(WS-TANK-INDEX) = WS-LENGTH - 2 * WS-SIDEWAYS
+                               COMPUTE WS-TANK-Z(WS-TANK-INDEX) = -78 * WS-SIDEWAYS
+                           END-IF
+                           SCN-1::LookAt( WS-TANK-HULL(WS-TANK-INDEX) WS-TANK-DIRECTION-X(WS-TANK-INDEX) 0
+                                          WS-TANK-DIRECTION-Z(WS-TANK-INDEX) )
+                           SCN-1::SetVisible( WS-TANK-ROOT(WS-TANK-INDEX) 1 )
+                       END-IF
+                   END-IF
+               ELSE
+                   *> 4.2 m/s; a tank that leaves the city comes back later on another avenue.
+                   COMPUTE WS-TANK-X(WS-TANK-INDEX) = WS-TANK-X(WS-TANK-INDEX) + WS-TANK-DIRECTION-X(WS-TANK-INDEX) * 0.14
+                   COMPUTE WS-TANK-Z(WS-TANK-INDEX) = WS-TANK-Z(WS-TANK-INDEX) + WS-TANK-DIRECTION-Z(WS-TANK-INDEX) * 0.14
+                   IF      WS-TANK-X(WS-TANK-INDEX) > 80 OR WS-TANK-X(WS-TANK-INDEX) < -80
+                       OR  WS-TANK-Z(WS-TANK-INDEX) > 80 OR WS-TANK-Z(WS-TANK-INDEX) < -80
+                       MOVE    0                 TO    WS-TANK-ALIVE(WS-TANK-INDEX)
+                       MOVE    60                TO    WS-TANK-WAIT(WS-TANK-INDEX)
+                       SCN-1::SetVisible( WS-TANK-ROOT(WS-TANK-INDEX) 0 )
+                   END-IF
+                   SCN-1::SetPosition( WS-TANK-ROOT(WS-TANK-INDEX) WS-TANK-X(WS-TANK-INDEX) 0 WS-TANK-Z(WS-TANK-INDEX) )
+                   COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-TANK-X(WS-TANK-INDEX)
+                   COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-TANK-Z(WS-TANK-INDEX)
+                   SCN-1::LookAt( WS-TANK-TURRET(WS-TANK-INDEX) WS-DISTANCE-X 1.43 WS-DISTANCE-Z )
+                   SUBTRACT 1                    FROM  WS-TANK-RELOAD(WS-TANK-INDEX)
+                   COMPUTE WS-DISTANCE = FUNCTION SQRT( WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z )
+                   IF      WS-TANK-RELOAD(WS-TANK-INDEX) <= 0 AND WS-DISTANCE < 95 AND WS-DISTANCE > 4 AND WS-HEALTH > 0
+                       COMPUTE WS-TANK-RELOAD(WS-TANK-INDEX) = 150 + FUNCTION RANDOM * 60
+                       *> The shell leaves the muzzle, 6 m out along the barrel, aimed at the player with a spread that grows with range.
+                       COMPUTE WS-FROM-X = WS-TANK-X(WS-TANK-INDEX) + WS-DISTANCE-X / WS-DISTANCE * 6
+                       MOVE    1.85                  TO    WS-FROM-Y
+                       COMPUTE WS-FROM-Z = WS-TANK-Z(WS-TANK-INDEX) + WS-DISTANCE-Z / WS-DISTANCE * 6
+                       COMPUTE WS-SPREAD = 1 + WS-DISTANCE / 25
+                       MOVE    1                     TO    WS-LAUNCH-KIND
+                       *> Fires a shell.
+                       *> Uses: WS-FROM-X, WS-FROM-Y, WS-FROM-Z (the muzzle), WS-SPREAD, WS-LAUNCH-KIND 1 (shell), WS-PLAYER-X, WS-PLAYER-Z.
+                       *> Result: a free WS-SHOT slot flies toward a point near the player.
+                       CALL "WAR-LAUNCH"
+                   END-IF
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-HELICOPTERS" paragraph="WAR-HELICOPTERS"><![CDATA[       PROCEDURE DIVISION.
+           PERFORM VARYING WS-HELI-INDEX FROM 1 BY 1 UNTIL WS-HELI-INDEX > 2
+               IF      WS-HELI-ALIVE(WS-HELI-INDEX) = 0
+                   IF      WS-HELI-WAIT(WS-HELI-INDEX) > 0
+                       SUBTRACT 1                FROM  WS-HELI-WAIT(WS-HELI-INDEX)
+                   ELSE
+                       IF      WS-HELI-INDEX = 1 OR WS-WAVE >= 3
+                           *> A helicopter comes in from far away and closes to a 38 m orbit around the player.
+                           MOVE    1                     TO    WS-HELI-ALIVE(WS-HELI-INDEX)
+                           MOVE    18                    TO    WS-HELI-HEALTH(WS-HELI-INDEX)
+                           COMPUTE WS-HELI-ANGLE(WS-HELI-INDEX) = FUNCTION RANDOM * 6.283
+                           MOVE    150                   TO    WS-HELI-RADIUS(WS-HELI-INDEX)
+                           MOVE    WS-PLAYER-X           TO    WS-HELI-CENTRE-X(WS-HELI-INDEX)
+                           MOVE    WS-PLAYER-Z           TO    WS-HELI-CENTRE-Z(WS-HELI-INDEX)
+                           MOVE    200                   TO    WS-HELI-ROCKETS(WS-HELI-INDEX)
+                           MOVE    120                   TO    WS-HELI-GUN(WS-HELI-INDEX)
+                           SCN-1::SetVisible( WS-HELI-ROOT(WS-HELI-INDEX) 1 )
+                       END-IF
+                   END-IF
+               ELSE
+                   *> The orbit's centre drifts after the player; the orbit tightens to 38 m and climbs and dips around 21 m.
+                   COMPUTE WS-HELI-CENTRE-X(WS-HELI-INDEX) = WS-HELI-CENTRE-X(WS-HELI-INDEX)
+                                                             + ( WS-PLAYER-X - WS-HELI-CENTRE-X(WS-HELI-INDEX) ) * 0.01
+                   COMPUTE WS-HELI-CENTRE-Z(WS-HELI-INDEX) = WS-HELI-CENTRE-Z(WS-HELI-INDEX)
+                                                             + ( WS-PLAYER-Z - WS-HELI-CENTRE-Z(WS-HELI-INDEX) ) * 0.01
+                   IF      WS-HELI-RADIUS(WS-HELI-INDEX) > 38
+                       SUBTRACT 0.5              FROM  WS-HELI-RADIUS(WS-HELI-INDEX)
+                   END-IF
+                   IF      WS-HELI-INDEX = 1
+                       ADD     0.006             TO    WS-HELI-ANGLE(WS-HELI-INDEX)
+                   ELSE
+                       SUBTRACT 0.007            FROM  WS-HELI-ANGLE(WS-HELI-INDEX)
+                   END-IF
+                   COMPUTE WS-HELI-X(WS-HELI-INDEX) = WS-HELI-CENTRE-X(WS-HELI-INDEX)
+                           + FUNCTION COS( WS-HELI-ANGLE(WS-HELI-INDEX) ) * WS-HELI-RADIUS(WS-HELI-INDEX)
+                   COMPUTE WS-HELI-Z(WS-HELI-INDEX) = WS-HELI-CENTRE-Z(WS-HELI-INDEX)
+                           + FUNCTION SIN( WS-HELI-ANGLE(WS-HELI-INDEX) ) * WS-HELI-RADIUS(WS-HELI-INDEX)
+                   COMPUTE WS-HELI-Y(WS-HELI-INDEX) = 21 + FUNCTION SIN( WS-FRAME * 0.02 + WS-HELI-INDEX ) * 3
+                   SCN-1::SetPosition( WS-HELI-ROOT(WS-HELI-INDEX) WS-HELI-X(WS-HELI-INDEX) WS-HELI-Y(WS-HELI-INDEX)
+                                       WS-HELI-Z(WS-HELI-INDEX) )
+                   *> Nose toward the player and a little down, the attitude of a gunship on a firing pass; the rotor spins.
+                   COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-HELI-X(WS-HELI-INDEX)
+                   COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-HELI-Z(WS-HELI-INDEX)
+                   SCN-1::LookAt( WS-HELI-BODY(WS-HELI-INDEX), WS-DISTANCE-X, -7, WS-DISTANCE-Z )
+                   ADD     47                    TO    WS-HELI-SPIN(WS-HELI-INDEX)
+                   IF      WS-HELI-SPIN(WS-HELI-INDEX) > 360
+                       SUBTRACT 360              FROM  WS-HELI-SPIN(WS-HELI-INDEX)
+                   END-IF
+                   SCN-1::SetRotation( WS-HELI-ROTOR(WS-HELI-INDEX) 0 WS-HELI-SPIN(WS-HELI-INDEX) 0 )
+
+                   MOVE    WS-HELI-X(WS-HELI-INDEX)      TO    WS-FROM-X
+                   COMPUTE WS-FROM-Y = WS-HELI-Y(WS-HELI-INDEX) - 0.6
+                   MOVE    WS-HELI-Z(WS-HELI-INDEX)      TO    WS-FROM-Z
+                   *> A pair of rockets every six seconds or so, once the helicopter is close.
+                   SUBTRACT 1                    FROM  WS-HELI-ROCKETS(WS-HELI-INDEX)
+                   IF      WS-HELI-ROCKETS(WS-HELI-INDEX) <= 0 AND WS-HELI-RADIUS(WS-HELI-INDEX) < 60 AND WS-HEALTH > 0
+                       COMPUTE WS-HELI-ROCKETS(WS-HELI-INDEX) = 170 + FUNCTION RANDOM * 60
+                       MOVE    3                     TO    WS-SPREAD
+                       MOVE    2                     TO    WS-LAUNCH-KIND
+                       *> Fires a rocket.
+                       *> Uses: WS-FROM-X, WS-FROM-Y, WS-FROM-Z (under the helicopter), WS-SPREAD 3, WS-LAUNCH-KIND 2 (rocket).
+                       *> Result: a free WS-SHOT slot flies toward a point near the player.
+                       CALL "WAR-LAUNCH"
+                   END-IF
+                   *> A machine-gun burst every four seconds: a tracer every third frame for a second and a half.
+                   SUBTRACT 1                    FROM  WS-HELI-GUN(WS-HELI-INDEX)
+                   IF      WS-HELI-GUN(WS-HELI-INDEX) <= 0
+                       MOVE    120                   TO    WS-HELI-GUN(WS-HELI-INDEX)
+                   END-IF
+                   IF      WS-HELI-GUN(WS-HELI-INDEX) < 45 AND FUNCTION MOD( WS-HELI-GUN(WS-HELI-INDEX) 3 ) = 0
+                       AND WS-HELI-RADIUS(WS-HELI-INDEX) < 60 AND WS-HEALTH > 0
+                       MOVE    2.5                   TO    WS-SPREAD
+                       MOVE    3                     TO    WS-LAUNCH-KIND
+                       *> Fires a tracer.
+                       *> Uses: WS-FROM-X, WS-FROM-Y, WS-FROM-Z (under the helicopter), WS-SPREAD 2.5, WS-LAUNCH-KIND 3 (tracer).
+                       *> Result: a free WS-SHOT slot flies toward a point near the player.
+                       CALL "WAR-LAUNCH"
+                   END-IF
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-DRONES" paragraph="WAR-DRONES"><![CDATA[       PROCEDURE DIVISION.
+           PERFORM VARYING WS-DRONE-INDEX FROM 1 BY 1 UNTIL WS-DRONE-INDEX > 4
+               IF      WS-DRONE-ALIVE(WS-DRONE-INDEX) = 0
+                   IF      WS-DRONE-WAIT(WS-DRONE-INDEX) > 0
+                       SUBTRACT 1                FROM  WS-DRONE-WAIT(WS-DRONE-INDEX)
+                   ELSE
+                       IF      WS-DRONE-INDEX <= WS-WAVE + 1 AND WS-HEALTH > 0
+                           *> A drone appears 75 m away, ten metres up.
+                           MOVE    1                     TO    WS-DRONE-ALIVE(WS-DRONE-INDEX)
+                           MOVE    2                     TO    WS-DRONE-HEALTH(WS-DRONE-INDEX)
+                           COMPUTE WS-LENGTH = FUNCTION RANDOM * 6.283
+                           COMPUTE WS-DRONE-X(WS-DRONE-INDEX) = WS-PLAYER-X + FUNCTION COS( WS-LENGTH ) * 75
+                           COMPUTE WS-DRONE-Z(WS-DRONE-INDEX) = WS-PLAYER-Z + FUNCTION SIN( WS-LENGTH ) * 75
+                           MOVE    10                    TO    WS-DRONE-Y(WS-DRONE-INDEX)
+                           SCN-1::SetVisible( WS-DRONE-ROOT(WS-DRONE-INDEX) 1 )
+                       END-IF
+                   END-IF
+               ELSE
+                   *> Straight at the player's chest, faster in later waves, wobbling; low once it is near.
+                   COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-DRONE-X(WS-DRONE-INDEX)
+                   COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-DRONE-Z(WS-DRONE-INDEX)
+                   COMPUTE WS-DISTANCE = FUNCTION SQRT( WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z )
+                   IF      WS-DISTANCE < 25
+                       COMPUTE WS-HEIGHT = 1.4 + WS-DISTANCE * 0.2
+                   ELSE
+                       MOVE    7                 TO    WS-HEIGHT
+                   END-IF
+                   COMPUTE WS-DISTANCE-Y = WS-HEIGHT - WS-DRONE-Y(WS-DRONE-INDEX)
+                   COMPUTE WS-SPEED = 0.2 + WS-WAVE * 0.02
+                   IF      WS-SPEED > 0.36
+                       MOVE    0.36              TO    WS-SPEED
+                   END-IF
+                   IF      WS-DISTANCE > 0.1
+                       COMPUTE WS-DRONE-X(WS-DRONE-INDEX) = WS-DRONE-X(WS-DRONE-INDEX) + WS-DISTANCE-X / WS-DISTANCE * WS-SPEED
+                       COMPUTE WS-DRONE-Z(WS-DRONE-INDEX) = WS-DRONE-Z(WS-DRONE-INDEX) + WS-DISTANCE-Z / WS-DISTANCE * WS-SPEED
+                   END-IF
+                   COMPUTE WS-DRONE-Y(WS-DRONE-INDEX) = WS-DRONE-Y(WS-DRONE-INDEX) + WS-DISTANCE-Y * 0.05
+                                                        + FUNCTION SIN( WS-FRAME * 0.3 + WS-DRONE-INDEX ) * 0.03
+                   SCN-1::SetPosition( WS-DRONE-ROOT(WS-DRONE-INDEX) WS-DRONE-X(WS-DRONE-INDEX) WS-DRONE-Y(WS-DRONE-INDEX)
+                                       WS-DRONE-Z(WS-DRONE-INDEX) )
+                   SCN-1::LookAt( WS-DRONE-ROOT(WS-DRONE-INDEX) WS-PLAYER-X WS-DRONE-Y(WS-DRONE-INDEX) WS-PLAYER-Z )
+                   IF      WS-DISTANCE < 1.6 AND WS-HEALTH > 0
+                       MOVE    0                 TO    WS-DRONE-ALIVE(WS-DRONE-INDEX)
+                       SCN-1::SetVisible( WS-DRONE-ROOT(WS-DRONE-INDEX) 0 )
+                       COMPUTE WS-DRONE-WAIT(WS-DRONE-INDEX) = 120 + FUNCTION RANDOM * 120
+                       MOVE    WS-DRONE-X(WS-DRONE-INDEX)    TO    WS-BOOM-X
+                       MOVE    WS-DRONE-Y(WS-DRONE-INDEX)    TO    WS-BOOM-Y
+                       MOVE    WS-DRONE-Z(WS-DRONE-INDEX)    TO    WS-BOOM-Z
+                       MOVE    0.8                           TO    WS-BOOM-SIZE
+                       *> The drone reached the player: its grenade goes off.
+                       *> Uses: WS-BOOM-X, WS-BOOM-Y, WS-BOOM-Z (the drone), WS-BOOM-SIZE 0.8.
+                       *> Result: a small explosion right at the player, who is hurt.
+                       CALL "WAR-EXPLODE"
+                   END-IF
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-LAUNCH" paragraph="WAR-LAUNCH"><![CDATA[       PROCEDURE DIVISION.
+           *> The first free slot flies from WS-FROM to a point WS-SPREAD metres around the player, in whole frames:
+           *> shells 72 m/s, rockets 45 m/s, tracers 120 m/s.
+           MOVE    0                             TO    WS-FREE-INDEX
+           PERFORM VARYING WS-SHOT-INDEX FROM 1 BY 1 UNTIL WS-SHOT-INDEX > 12 OR WS-FREE-INDEX > 0
+               IF      WS-SHOT-KIND(WS-SHOT-INDEX) = 0
+                   MOVE    WS-SHOT-INDEX         TO    WS-FREE-INDEX
+               END-IF
+           END-PERFORM
+           IF      WS-FREE-INDEX > 0
+               COMPUTE WS-TO-X = WS-PLAYER-X + ( FUNCTION RANDOM - 0.5 ) * 2 * WS-SPREAD
+               COMPUTE WS-TO-Y = 0.4 + FUNCTION RANDOM * 1.4
+               COMPUTE WS-TO-Z = WS-PLAYER-Z + ( FUNCTION RANDOM - 0.5 ) * 2 * WS-SPREAD
+               COMPUTE WS-DISTANCE-X = WS-TO-X - WS-FROM-X
+               COMPUTE WS-DISTANCE-Y = WS-TO-Y - WS-FROM-Y
+               COMPUTE WS-DISTANCE-Z = WS-TO-Z - WS-FROM-Z
+               COMPUTE WS-DISTANCE = FUNCTION SQRT( WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Y * WS-DISTANCE-Y
+                                                  + WS-DISTANCE-Z * WS-DISTANCE-Z )
+               EVALUATE WS-LAUNCH-KIND
+                   WHEN 1
+                       MOVE    2.4               TO    WS-SPEED
+                       SCN-1::SetScale( WS-SHOT-NODE(WS-FREE-INDEX) 1 1 1.2 )
+                   WHEN 2
+                       MOVE    1.5               TO    WS-SPEED
+                       SCN-1::SetScale( WS-SHOT-NODE(WS-FREE-INDEX) 1.3 1.3 1.6 )
+                   WHEN OTHER
+                       MOVE    4                 TO    WS-SPEED
+                       SCN-1::SetScale( WS-SHOT-NODE(WS-FREE-INDEX) 0.35 0.35 2.5 )
+               END-EVALUATE
+               COMPUTE WS-SHOT-FRAMES(WS-FREE-INDEX) = WS-DISTANCE / WS-SPEED + 1
+               COMPUTE WS-SHOT-SPEED-X(WS-FREE-INDEX) = WS-DISTANCE-X / WS-SHOT-FRAMES(WS-FREE-INDEX)
+               COMPUTE WS-SHOT-SPEED-Y(WS-FREE-INDEX) = WS-DISTANCE-Y / WS-SHOT-FRAMES(WS-FREE-INDEX)
+               COMPUTE WS-SHOT-SPEED-Z(WS-FREE-INDEX) = WS-DISTANCE-Z / WS-SHOT-FRAMES(WS-FREE-INDEX)
+               MOVE    WS-LAUNCH-KIND            TO    WS-SHOT-KIND(WS-FREE-INDEX)
+               MOVE    WS-FROM-X                 TO    WS-SHOT-X(WS-FREE-INDEX)
+               MOVE    WS-FROM-Y                 TO    WS-SHOT-Y(WS-FREE-INDEX)
+               MOVE    WS-FROM-Z                 TO    WS-SHOT-Z(WS-FREE-INDEX)
+               SCN-1::SetVisible( WS-SHOT-NODE(WS-FREE-INDEX) 1 )
+           END-IF
+]]></Event>
+    <Event name="WAR-PROJECTILES" paragraph="WAR-PROJECTILES"><![CDATA[       PROCEDURE DIVISION.
+           PERFORM VARYING WS-SHOT-INDEX FROM 1 BY 1 UNTIL WS-SHOT-INDEX > 12
+               IF      WS-SHOT-KIND(WS-SHOT-INDEX) > 0
+                   ADD     WS-SHOT-SPEED-X(WS-SHOT-INDEX)        TO    WS-SHOT-X(WS-SHOT-INDEX)
+                   ADD     WS-SHOT-SPEED-Y(WS-SHOT-INDEX)        TO    WS-SHOT-Y(WS-SHOT-INDEX)
+                   ADD     WS-SHOT-SPEED-Z(WS-SHOT-INDEX)        TO    WS-SHOT-Z(WS-SHOT-INDEX)
+                   SUBTRACT 1                    FROM  WS-SHOT-FRAMES(WS-SHOT-INDEX)
+                   SCN-1::SetPosition( WS-SHOT-NODE(WS-SHOT-INDEX) WS-SHOT-X(WS-SHOT-INDEX) WS-SHOT-Y(WS-SHOT-INDEX)
+                                       WS-SHOT-Z(WS-SHOT-INDEX) )
+                   COMPUTE WS-TO-X = WS-SHOT-X(WS-SHOT-INDEX) + WS-SHOT-SPEED-X(WS-SHOT-INDEX)
+                   COMPUTE WS-TO-Y = WS-SHOT-Y(WS-SHOT-INDEX) + WS-SHOT-SPEED-Y(WS-SHOT-INDEX)
+                   COMPUTE WS-TO-Z = WS-SHOT-Z(WS-SHOT-INDEX) + WS-SHOT-SPEED-Z(WS-SHOT-INDEX)
+                   SCN-1::LookAt( WS-SHOT-NODE(WS-SHOT-INDEX) WS-TO-X WS-TO-Y WS-TO-Z )
+                   IF      WS-SHOT-FRAMES(WS-SHOT-INDEX) <= 0
+                       SCN-1::SetVisible( WS-SHOT-NODE(WS-SHOT-INDEX) 0 )
+                       IF      WS-SHOT-KIND(WS-SHOT-INDEX) = 3
+                           *> A tracer wounds only a player within a metre of where it lands, and not through a roof and walls.
+                           COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-SHOT-X(WS-SHOT-INDEX)
+                           COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-SHOT-Z(WS-SHOT-INDEX)
+                           IF      WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z < 1.2
+                               AND WS-INDOORS = 0 AND WS-HEALTH > 0
+                               MOVE    6             TO    WS-DAMAGE
+                               *> Hurts the player.
+                               *> Uses: WS-DAMAGE 6.
+                               *> Result: WS-HEALTH falls, the screen flashes red; at zero the player is down.
+                               CALL "WAR-HURT"
+                           END-IF
+                       ELSE
+                           MOVE    WS-SHOT-X(WS-SHOT-INDEX)      TO    WS-BOOM-X
+                           MOVE    WS-SHOT-Y(WS-SHOT-INDEX)      TO    WS-BOOM-Y
+                           MOVE    WS-SHOT-Z(WS-SHOT-INDEX)      TO    WS-BOOM-Z
+                           MOVE    1                             TO    WS-BOOM-SIZE
+                           *> The shell or rocket explodes where it lands.
+                           *> Uses: WS-BOOM-X, WS-BOOM-Y, WS-BOOM-Z (the end of its flight), WS-BOOM-SIZE 1.
+                           *> Result: an explosion starts there; a scorch mark; the player hurt if within its reach.
+                           CALL "WAR-EXPLODE"
+                       END-IF
+                       MOVE    0                 TO    WS-SHOT-KIND(WS-SHOT-INDEX)
+                   END-IF
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-EXPLODE" paragraph="WAR-EXPLODE"><![CDATA[       PROCEDURE DIVISION.
+           *> The explosions take turns in six slots; the oldest gives way.
+           MOVE    WS-BLAST-NEXT                 TO    WS-BLAST-INDEX
+           ADD     1                             TO    WS-BLAST-NEXT
+           IF      WS-BLAST-NEXT > 6
+               MOVE    1                         TO    WS-BLAST-NEXT
+           END-IF
+           MOVE    0                             TO    WS-BLAST-AGE(WS-BLAST-INDEX)
+           MOVE    WS-BOOM-SIZE                  TO    WS-BLAST-SIZE(WS-BLAST-INDEX)
+           MOVE    WS-BOOM-X                     TO    WS-BLAST-X(WS-BLAST-INDEX)
+           MOVE    WS-BOOM-Y                     TO    WS-BLAST-Y(WS-BLAST-INDEX)
+           MOVE    WS-BOOM-Z                     TO    WS-BLAST-Z(WS-BLAST-INDEX)
+           SCN-1::SetPosition( WS-BLAST-FIREBALL(WS-BLAST-INDEX) WS-BOOM-X WS-BOOM-Y WS-BOOM-Z )
+           SCN-1::SetScale( WS-BLAST-FIREBALL(WS-BLAST-INDEX) 0.3 0.3 0.3 )
+           SCN-1::SetVisible( WS-BLAST-FIREBALL(WS-BLAST-INDEX) 1 )
+           SCN-1::SetPosition( WS-BLAST-SMOKE(WS-BLAST-INDEX) WS-BOOM-X WS-BOOM-Y WS-BOOM-Z )
+           SCN-1::SetScale( WS-BLAST-SMOKE(WS-BLAST-INDEX) 0.5 0.5 0.5 )
+           SCN-1::SetVisible( WS-BLAST-SMOKE(WS-BLAST-INDEX) 1 )
+           IF      WS-BLAST-LIGHT(WS-BLAST-INDEX) > 0
+               COMPUTE WS-HEIGHT = WS-BOOM-Y + 1.5
+               SCN-1::SetPosition( WS-BLAST-LIGHT(WS-BLAST-INDEX) WS-BOOM-X WS-HEIGHT WS-BOOM-Z )
+               SCN-1::SetVisible( WS-BLAST-LIGHT(WS-BLAST-INDEX) 1 )
+           END-IF
+
+           *> A scorch mark where it touches the ground (16 kept, oldest recycled).
+           IF      WS-BOOM-Y < 2.5
+               COMPUTE WS-SCALE = 2.2 + WS-BOOM-SIZE * 1.8
+               MOVE    WS-SCALE                  TO    WS-MATRIX-CELL(1)
+               MOVE    0                         TO    WS-MATRIX-CELL(2)
+               MOVE    0                         TO    WS-MATRIX-CELL(3)
+               MOVE    0                         TO    WS-MATRIX-CELL(4)
+               MOVE    0                         TO    WS-MATRIX-CELL(5)
+               MOVE    1                         TO    WS-MATRIX-CELL(6)
+               MOVE    0                         TO    WS-MATRIX-CELL(7)
+               MOVE    0                         TO    WS-MATRIX-CELL(8)
+               MOVE    0                         TO    WS-MATRIX-CELL(9)
+               MOVE    0                         TO    WS-MATRIX-CELL(10)
+               MOVE    WS-SCALE                  TO    WS-MATRIX-CELL(11)
+               MOVE    0                         TO    WS-MATRIX-CELL(12)
+               MOVE    WS-BOOM-X                 TO    WS-MATRIX-CELL(13)
+               COMPUTE WS-MATRIX-CELL(14) = 0.05 + WS-SCORCH-NEXT * 0.001
+               MOVE    WS-BOOM-Z                 TO    WS-MATRIX-CELL(15)
+               MOVE    1                         TO    WS-MATRIX-CELL(16)
+               MOVE    SPACES                    TO    WS-SCORCH-SEGMENT(WS-SCORCH-NEXT)
+               MOVE    1                         TO    WS-POINTER
+               PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > 16
+                   STRING  WS-MATRIX-CELL(WS-CELL-INDEX) " " INTO WS-SCORCH-SEGMENT(WS-SCORCH-NEXT) WITH POINTER WS-POINTER
+               END-PERFORM
+               IF      WS-SCORCH-COUNT < 16
+                   ADD     1                     TO    WS-SCORCH-COUNT
+               END-IF
+               ADD     1                         TO    WS-SCORCH-NEXT
+               IF      WS-SCORCH-NEXT > 16
+                   MOVE    1                     TO    WS-SCORCH-NEXT
+               END-IF
+               MOVE    SPACES                    TO    WS-INSTANCE-LIST
+               MOVE    1                         TO    WS-POINTER
+               PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > WS-SCORCH-COUNT
+                   STRING  WS-SCORCH-SEGMENT(WS-CELL-INDEX) INTO WS-INSTANCE-LIST WITH POINTER WS-POINTER
+               END-PERFORM
+               SCN-1::SetInstances( WS-SCORCH-NODE WS-INSTANCE-LIST )
+               SCN-1::SetVisible( WS-SCORCH-NODE 1 )
+           END-IF
+
+           *> The blast: within 7 m (times its size) it wounds, less with distance; indoors the walls take two thirds of it.
+           *> Near ones shake the view, and every one within 110 m is heard.
+           COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-BOOM-X
+           COMPUTE WS-DISTANCE-Y = 1.6 - WS-BOOM-Y
+           COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-BOOM-Z
+           COMPUTE WS-BOOM-DISTANCE = FUNCTION SQRT( WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Y * WS-DISTANCE-Y
+                                                   + WS-DISTANCE-Z * WS-DISTANCE-Z )
+           IF      WS-BOOM-DISTANCE < 60
+               COMPUTE WS-SHAKE = WS-SHAKE + ( 60 - WS-BOOM-DISTANCE ) / 60 * 2.5 * WS-BOOM-SIZE
+           END-IF
+           IF      WS-BOOM-DISTANCE < 110
+               IF      WS-BOOM-SIZE < 1
+                   COBOL::"AUDIO-PLAY" ( "Assets/sounds/blast.wav" )
+               ELSE
+                   COBOL::"AUDIO-PLAY" ( "Assets/sounds/explosion.wav" )
+               END-IF
+           END-IF
+           IF      WS-BOOM-DISTANCE < 7 * WS-BOOM-SIZE AND WS-HEALTH > 0
+               COMPUTE WS-DAMAGE = ( 7 * WS-BOOM-SIZE - WS-BOOM-DISTANCE ) * 10
+               IF      WS-INDOORS = 1
+                   COMPUTE WS-DAMAGE = WS-DAMAGE * 0.35
+               END-IF
+               *> Hurts the player.
+               *> Uses: WS-DAMAGE (by distance, less indoors).
+               *> Result: WS-HEALTH falls, the screen flashes red; at zero the player is down.
+               CALL "WAR-HURT"
+           END-IF
+]]></Event>
+    <Event name="WAR-HURT" paragraph="WAR-HURT"><![CDATA[       PROCEDURE DIVISION.
+           SUBTRACT WS-DAMAGE                    FROM  WS-HEALTH
+           MOVE    8                             TO    WS-DAMAGE-FRAMES
+           LBL-DAMAGE::Show()
+           IF      WS-HEALTH <= 0
+               MOVE    0                         TO    WS-HEALTH
+               MOVE    0                         TO    WS-DEAD-FRAMES
+               ADD     1                         TO    WS-DEATHS
+               SET     LBL-MESSAGE::Caption      TO    "KILLED IN ACTION  -  press SPACE to redeploy"
+               LBL-MESSAGE::Show()
+               MOVE    0                         TO    WS-MESSAGE-FRAMES
+           END-IF
+]]></Event>
+    <Event name="WAR-AMMO-PICKUP" paragraph="WAR-AMMO-PICKUP"><![CDATA[       PROCEDURE DIVISION.
+           PERFORM VARYING WS-AMMO-INDEX FROM 1 BY 1 UNTIL WS-AMMO-INDEX > WS-AMMO-COUNT
+               IF      WS-AMMO-WAIT(WS-AMMO-INDEX) > 0
+                   SUBTRACT 1                    FROM  WS-AMMO-WAIT(WS-AMMO-INDEX)
+                   IF      WS-AMMO-WAIT(WS-AMMO-INDEX) = 0
+                       SCN-1::SetVisible( WS-AMMO-NODE(WS-AMMO-INDEX) 1 )
+                   END-IF
+               ELSE
+                   COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-AMMO-X(WS-AMMO-INDEX)
+                   COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-AMMO-Z(WS-AMMO-INDEX)
+                   IF      WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z < 1.7 AND WS-HEALTH > 0
+                       *> A crate holds two AR-15 magazines and two Desert Eagle magazines; it comes back in 30 seconds.
+                       ADD     60                TO    WS-RESERVE(1)
+                       ADD     14                TO    WS-RESERVE(2)
+                       IF      WS-RESERVE(1) > 300
+                           MOVE    300           TO    WS-RESERVE(1)
+                       END-IF
+                       IF      WS-RESERVE(2) > 70
+                           MOVE    70            TO    WS-RESERVE(2)
+                       END-IF
+                       MOVE    900               TO    WS-AMMO-WAIT(WS-AMMO-INDEX)
+                       SCN-1::SetVisible( WS-AMMO-NODE(WS-AMMO-INDEX) 0 )
+                       SET     LBL-MESSAGE::Caption      TO    "AMMUNITION  +60 AR-15   +14 Desert Eagle"
+                       LBL-MESSAGE::Show()
+                       MOVE    60                TO    WS-MESSAGE-FRAMES
+                       COBOL::"AUDIO-PLAY" ( "Assets/sounds/reload.wav" )
+                   END-IF
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-EFFECTS" paragraph="WAR-EFFECTS"><![CDATA[       PROCEDURE DIVISION.
+           *> Explosions: the fireball swells for a third of a second and dies, its light with it; the smoke keeps growing and rising.
+           PERFORM VARYING WS-BLAST-INDEX FROM 1 BY 1 UNTIL WS-BLAST-INDEX > 6
+               IF      WS-BLAST-AGE(WS-BLAST-INDEX) >= 0
+                   ADD     1                     TO    WS-BLAST-AGE(WS-BLAST-INDEX)
+                   IF      WS-BLAST-AGE(WS-BLAST-INDEX) <= 14
+                       COMPUTE WS-SCALE = WS-BLAST-SIZE(WS-BLAST-INDEX)
+                               * ( 0.5 + WS-BLAST-AGE(WS-BLAST-INDEX) * 0.32 - WS-BLAST-AGE(WS-BLAST-INDEX)
+                               * WS-BLAST-AGE(WS-BLAST-INDEX) * 0.012 )
+                       SCN-1::SetScale( WS-BLAST-FIREBALL(WS-BLAST-INDEX) WS-SCALE WS-SCALE WS-SCALE )
+                   ELSE
+                       SCN-1::SetVisible( WS-BLAST-FIREBALL(WS-BLAST-INDEX) 0 )
+                   END-IF
+                   IF      WS-BLAST-LIGHT(WS-BLAST-INDEX) > 0
+                       IF      WS-BLAST-AGE(WS-BLAST-INDEX) < 12
+                           COMPUTE WS-INTENSITY = ( 12 - WS-BLAST-AGE(WS-BLAST-INDEX) ) * 2.2 * WS-BLAST-SIZE(WS-BLAST-INDEX)
+                           SCN-1::SetLight( WS-BLAST-LIGHT(WS-BLAST-INDEX) 1 0.55 0.2 WS-INTENSITY 45 )
+                       ELSE
+                           SCN-1::SetVisible( WS-BLAST-LIGHT(WS-BLAST-INDEX) 0 )
+                       END-IF
+                   END-IF
+                   COMPUTE WS-SCALE = WS-BLAST-SIZE(WS-BLAST-INDEX) * ( 0.8 + WS-BLAST-AGE(WS-BLAST-INDEX) * 0.09 )
+                   COMPUTE WS-HEIGHT = WS-BLAST-Y(WS-BLAST-INDEX) + WS-BLAST-AGE(WS-BLAST-INDEX) * 0.08
+                                       * WS-BLAST-SIZE(WS-BLAST-INDEX)
+                   SCN-1::SetScale( WS-BLAST-SMOKE(WS-BLAST-INDEX) WS-SCALE WS-SCALE WS-SCALE )
+                   SCN-1::SetPosition( WS-BLAST-SMOKE(WS-BLAST-INDEX) WS-BLAST-X(WS-BLAST-INDEX) WS-HEIGHT
+                                       WS-BLAST-Z(WS-BLAST-INDEX) )
+                   IF      WS-BLAST-AGE(WS-BLAST-INDEX) > 60
+                       SCN-1::SetVisible( WS-BLAST-SMOKE(WS-BLAST-INDEX) 0 )
+                       MOVE    -1                TO    WS-BLAST-AGE(WS-BLAST-INDEX)
+                   END-IF
+               END-IF
+           END-PERFORM
+
+           *> The fires flicker: the flame's height and the light's strength change every frame.
+           PERFORM VARYING WS-FIRE-INDEX FROM 1 BY 1 UNTIL WS-FIRE-INDEX > WS-FIRE-COUNT
+               COMPUTE WS-SCALE = 0.75 + FUNCTION RANDOM * 0.5
+               SCN-1::SetScale( WS-FIRE-FLAME(WS-FIRE-INDEX) 1 WS-SCALE 1 )
+               COMPUTE WS-INTENSITY = 2.2 + FUNCTION RANDOM * 1.6
+               SCN-1::SetLight( WS-FIRE-LIGHT(WS-FIRE-INDEX) 1 0.5 0.15 WS-INTENSITY 14 )
+           END-PERFORM
+
+           *> Smoke climbs from each fire, widening, and starts again at the flames when it reaches 17 m.
+           PERFORM VARYING WS-PUFF-INDEX FROM 1 BY 1 UNTIL WS-PUFF-INDEX > 12
+               COMPUTE WS-FIRE-INDEX = FUNCTION MOD( WS-PUFF-INDEX - 1 3 ) + 1
+               ADD     0.07                      TO    WS-PUFF-HEIGHT(WS-PUFF-INDEX)
+               IF      WS-PUFF-HEIGHT(WS-PUFF-INDEX) > 17
+                   MOVE    1.5                   TO    WS-PUFF-HEIGHT(WS-PUFF-INDEX)
+               END-IF
+               COMPUTE WS-SCALE = 0.6 + WS-PUFF-HEIGHT(WS-PUFF-INDEX) * 0.22
+               COMPUTE WS-TO-X = WS-FIRE-X(WS-FIRE-INDEX) + WS-PUFF-HEIGHT(WS-PUFF-INDEX) * 0.25
+                                 + FUNCTION SIN( WS-PUFF-HEIGHT(WS-PUFF-INDEX) + WS-PUFF-INDEX ) * 0.4
+               SCN-1::SetScale( WS-PUFF-NODE(WS-PUFF-INDEX) WS-SCALE WS-SCALE WS-SCALE )
+               SCN-1::SetPosition( WS-PUFF-NODE(WS-PUFF-INDEX) WS-TO-X WS-PUFF-HEIGHT(WS-PUFF-INDEX) WS-FIRE-Z(WS-FIRE-INDEX) )
+           END-PERFORM
+
+           IF      WS-SPARK-FRAMES > 0
+               SUBTRACT 1                        FROM  WS-SPARK-FRAMES
+               IF      WS-SPARK-FRAMES = 0
+                   SCN-1::SetVisible( WS-SPARK 0 )
+               END-IF
+           END-IF
+
+           *> The crosshair turns into a red X for a moment when a round hits an attacker.
+           IF      WS-HIT-FRAMES > 0
+               SUBTRACT 1                        FROM  WS-HIT-FRAMES
+               SET     LBL-CROSSHAIR::Caption    TO    "X"
+               SET     LBL-CROSSHAIR::ForegroundColor    TO    "#FF4030"
+           ELSE
+               SET     LBL-CROSSHAIR::Caption    TO    "+"
+               SET     LBL-CROSSHAIR::ForegroundColor    TO    "#F2F2F2"
+           END-IF
+           IF      WS-DAMAGE-FRAMES > 0
+               SUBTRACT 1                        FROM  WS-DAMAGE-FRAMES
+               IF      WS-DAMAGE-FRAMES = 0
+                   LBL-DAMAGE::Hide()
+               END-IF
+           END-IF
+           IF      WS-MESSAGE-FRAMES > 0
+               SUBTRACT 1                        FROM  WS-MESSAGE-FRAMES
+               IF      WS-MESSAGE-FRAMES = 0 AND WS-HEALTH > 0
+                   LBL-MESSAGE::Hide()
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="WAR-CAMERA" paragraph="WAR-CAMERA"><![CDATA[       PROCEDURE DIVISION.
+           *> Eyes at 1.65 m with a slight bob while walking; a fallen player sees the street from the ground, rolled over.
+           COMPUTE WS-SHAKE = WS-SHAKE * 0.88
+           IF      WS-HEALTH > 0
+               COMPUTE WS-HEIGHT = 1.65 + FUNCTION SIN( WS-BOB ) * 0.035
+               MOVE    0                         TO    WS-SCALE
+           ELSE
+               COMPUTE WS-HEIGHT = 1.65 - WS-DEAD-FRAMES * 0.06
+               IF      WS-HEIGHT < 0.35
+                   MOVE    0.35                  TO    WS-HEIGHT
+               END-IF
+               COMPUTE WS-SCALE = WS-DEAD-FRAMES * 3
+               IF      WS-SCALE > 75
+                   MOVE    75                    TO    WS-SCALE
+               END-IF
+           END-IF
+           SCN-1::SetPosition( WS-CAMERA WS-PLAYER-X WS-HEIGHT WS-PLAYER-Z )
+           COMPUTE WS-TO-X = WS-PITCH + ( FUNCTION RANDOM - 0.5 ) * WS-SHAKE
+           COMPUTE WS-TO-Y = WS-YAW + ( FUNCTION RANDOM - 0.5 ) * WS-SHAKE
+           SCN-1::SetRotation( WS-CAMERA WS-TO-X WS-TO-Y WS-SCALE )
+]]></Event>
+    <Event name="WAR-HUD" paragraph="WAR-HUD"><![CDATA[       PROCEDURE DIVISION.
+           MOVE    WS-HEALTH                     TO    WS-SHOW-HEALTH
+           MOVE    SPACES                        TO    LBL-HEALTH::Caption
+           STRING  "HEALTH " WS-SHOW-HEALTH INTO LBL-HEALTH::Caption
+           IF      WS-HEALTH < 30
+               SET     LBL-HEALTH::ForegroundColor       TO    "#FF5040"
+           ELSE
+               SET     LBL-HEALTH::ForegroundColor       TO    "#E8F0E0"
+           END-IF
+
+           IF      WS-WEAPON = 1
+               MOVE    "AR-15"                   TO    WS-WEAPON-NAME
+           ELSE
+               MOVE    "DESERT EAGLE"            TO    WS-WEAPON-NAME
+           END-IF
+           MOVE    WS-MAGAZINE(WS-WEAPON)        TO    WS-SHOW-MAGAZINE
+           MOVE    WS-RESERVE(WS-WEAPON)         TO    WS-SHOW-RESERVE
+           MOVE    SPACES                        TO    LBL-AMMO::Caption
+           IF      WS-RELOAD-FRAMES > 0
+               STRING  WS-WEAPON-NAME DELIMITED BY "  " "   RELOADING" INTO LBL-AMMO::Caption
+           ELSE
+               STRING  WS-WEAPON-NAME DELIMITED BY "  " "   " WS-SHOW-MAGAZINE " / " WS-SHOW-RESERVE INTO LBL-AMMO::Caption
+           END-IF
+
+           MOVE    WS-SCORE                      TO    WS-SHOW-SCORE
+           MOVE    WS-KILLS                      TO    WS-SHOW-KILLS
+           MOVE    WS-WAVE                       TO    WS-SHOW-WAVE
+           MOVE    SPACES                        TO    LBL-SCORE::Caption
+           STRING  "SCORE " WS-SHOW-SCORE "    KILLS " WS-SHOW-KILLS "    WAVE " WS-SHOW-WAVE INTO LBL-SCORE::Caption
+]]></Event>
+  </user-procedures>
+  <Control id="CNV-3D" type="Canvas3D" x="0" y="0" w="1280" h="720" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The battlefield: a 1280 by 720 3D view of the ruined city drawn thirty times a second. Click it to take the keyboard; the mouse looks, the arrows walk, the right button fires.</Property>
+    <Property name="Width">1280</Property>
+    <Property name="Height">720</Property>
+    <Property name="TargetFps">30</Property>
+    <Property name="Cursor">Crosshair</Property>
+    <Property name="AccessibleLabel">A first-person view of a ruined city at war: the mouse turns the view, the arrow keys walk, the right mouse button fires, M switches weapon, R reloads, Space opens and closes doors</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Event name="onFrame" paragraph="CNV-3D--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
+           *> Plays one frame of the battle.
+           *> Uses: the keys held on CNV-3D, the pointer, WS-TRIGGER.
+           *> Result: the player, the attackers and the effects are up to date, and the HUD shows them.
+           CALL "WAR-STEP"
+           CNV-3D::Render()
+]]></Event>
+    <Event name="onRightClick" paragraph="CNV-3D--ONRIGHTCLICK"><![CDATA[       PROCEDURE DIVISION.
+           *> The trigger: the next frame fires the weapon in the hands.
+           MOVE    1                             TO    WS-TRIGGER
+]]></Event>
+  </Control>
+  <Control id="SCN-1" type="Scene3D" x="1120" y="728" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 3D scene of the battle: the city, the player's camera and weapons, the attackers and the effects.</Property>
+  </Control>
+  <Control id="IMG-DECAL" type="ImageBuffer" x="1190" y="728" w="60" h="24" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Loads the bullet-mark and scorch-mark pictures that the decal materials are painted with.</Property>
+  </Control>
+  <Control id="LBL-CROSSHAIR" type="Label" x="620" y="340" w="40" h="40" tab-order="3" z-order="1" visible="true" enabled="true">
+    <Property name="Definition">The crosshair in the middle of the view, where the rounds go; it turns into a red X when a round hits an attacker.</Property>
+    <Property name="Caption">+</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="ForegroundColor">#F2F2F2</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="LBL-SCORE" type="Label" x="16" y="12" w="720" h="32" tab-order="4" z-order="1" visible="true" enabled="true">
+    <Property name="Definition">The score, the number of attackers destroyed and the current wave.</Property>
+    <Property name="Caption">SCORE 0</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="ForegroundColor">#F0D890</Property>
+  </Control>
+  <Control id="LBL-HEALTH" type="Label" x="16" y="668" w="300" h="40" tab-order="5" z-order="1" visible="true" enabled="true">
+    <Property name="Definition">The player's health, out of 100; red below 30.</Property>
+    <Property name="Caption">HEALTH 100</Property>
+    <Property name="FontSize">24</Property>
+    <Property name="ForegroundColor">#E8F0E0</Property>
+    <Property name="BackgroundColor">#00000066</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="LBL-AMMO" type="Label" x="824" y="668" w="440" h="40" tab-order="6" z-order="1" visible="true" enabled="true">
+    <Property name="Definition">The weapon in the hands, the rounds in its magazine and the rounds in reserve.</Property>
+    <Property name="Caption">AR-15   30 / 120</Property>
+    <Property name="FontSize">24</Property>
+    <Property name="ForegroundColor">#E8F0E0</Property>
+    <Property name="BackgroundColor">#00000066</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="LBL-PROMPT" type="Label" x="490" y="440" w="300" h="34" tab-order="7" z-order="1" visible="false" enabled="true">
+    <Property name="Definition">Shown near a door: Space opens or closes it.</Property>
+    <Property name="Caption">SPACE  open the door</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BackgroundColor">#00000080</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="LBL-MESSAGE" type="Label" x="290" y="220" w="700" h="60" tab-order="8" z-order="1" visible="true" enabled="true">
+    <Property name="Definition">A message across the view: how to start, the ammunition found, or the player killed in action.</Property>
+    <Property name="Caption">Click the battlefield with the left button to take control</Property>
+    <Property name="FontSize">22</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BackgroundColor">#000000A0</Property>
+    <Property name="CornerRadius">12</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="LBL-DAMAGE" type="Label" x="0" y="0" w="1280" h="720" tab-order="9" z-order="1" visible="false" enabled="true">
+    <Property name="Definition">The red flash over the whole view when the player is hurt.</Property>
+    <Property name="Caption"> </Property>
+    <Property name="BackgroundColor">#C0000050</Property>
+  </Control>
+  <Control id="LBL-HELP" type="Label" x="0" y="724" w="1100" h="32" tab-order="10" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The controls of the game.</Property>
+    <Property name="Caption">Mouse: look   Arrows: walk   Right button: fire   M: AR-15 / Desert Eagle   R: reload   Space: doors (and redeploy)</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="ForegroundColor">#C8D0DC</Property>
+  </Control>
+</Form>
