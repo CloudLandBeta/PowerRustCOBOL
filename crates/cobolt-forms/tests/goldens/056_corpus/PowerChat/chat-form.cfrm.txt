@@ -14,11 +14,11 @@ Flag-pt rect=[48 748 88 780] font=14
 KB-1 rect=[1200 208 1248 256] font=14
 Lbl-Status rect=[288 64 1176 88] font=14
 Lbl-Topic rect=[288 24 992 56] font=20
-SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1 rect=[0 0 264 594] font=14
 SideMenu-1-Footer rect=[0 720 264 792] font=14
 Txt-Input rect=[288 458 748 562] font=14
 Vwr-Chat rect=[288 96 876 442] font=14
-shapes=301 digest=06b166ba14f35da0
+shapes=301 digest=58a73f8125a7d272
 ## Run 0.75x 900x594
 AGENT-1 rect=[1200 16 1248 64] font=14
 AGENT-2 rect=[1200 80 1248 128] font=14
@@ -34,11 +34,11 @@ Flag-pt rect=[48 748 88 780] font=14
 KB-1 rect=[1200 208 1248 256] font=14
 Lbl-Status rect=[288 64 1176 88] font=14
 Lbl-Topic rect=[288 24 992 56] font=20
-SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1 rect=[0 0 264 594] font=14
 SideMenu-1-Footer rect=[0 720 264 792] font=14
 Txt-Input rect=[288 458 748 562] font=14
 Vwr-Chat rect=[288 96 876 442] font=14
-shapes=130 digest=e046b8c78fe2c7a8
+shapes=130 digest=60b5c9959377d395
 ## Preview 0.75x 900x594
 AGENT-1 rect=[1200 16 1248 64] font=14
 AGENT-2 rect=[1200 80 1248 128] font=14
@@ -54,11 +54,11 @@ Flag-pt rect=[48 748 88 780] font=14
 KB-1 rect=[1200 208 1248 256] font=14
 Lbl-Status rect=[288 64 1176 88] font=14
 Lbl-Topic rect=[288 24 992 56] font=20
-SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1 rect=[0 0 264 594] font=14
 SideMenu-1-Footer rect=[0 720 264 792] font=14
 Txt-Input rect=[288 458 748 562] font=14
 Vwr-Chat rect=[288 96 876 442] font=14
-shapes=130 digest=e046b8c78fe2c7a8
+shapes=130 digest=60b5c9959377d395
 ## Canvas 1x 1200x792
 AGENT-1 rect=[1200 16 1248 64] font=14
 AGENT-2 rect=[1200 80 1248 128] font=14
@@ -134,11 +134,11 @@ Flag-pt rect=[48 748 88 780] font=14
 KB-1 rect=[1200 208 1248 256] font=14
 Lbl-Status rect=[288 64 1176 88] font=14
 Lbl-Topic rect=[288 24 992 56] font=20
-SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1 rect=[0 0 264 1188] font=14
 SideMenu-1-Footer rect=[0 720 264 792] font=14
 Txt-Input rect=[288 1052 1648 1156] font=14
 Vwr-Chat rect=[288 96 1776 1036] font=14
-shapes=301 digest=7d854576313a86b0
+shapes=301 digest=07389958cef6b0e7
 ## Run 1.5x 1800x1188
 AGENT-1 rect=[1200 16 1248 64] font=14
 AGENT-2 rect=[1200 80 1248 128] font=14
@@ -154,11 +154,11 @@ Flag-pt rect=[48 748 88 780] font=14
 KB-1 rect=[1200 208 1248 256] font=14
 Lbl-Status rect=[288 64 1176 88] font=14
 Lbl-Topic rect=[288 24 992 56] font=20
-SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1 rect=[0 0 264 1188] font=14
 SideMenu-1-Footer rect=[0 720 264 792] font=14
 Txt-Input rect=[288 1052 1648 1156] font=14
 Vwr-Chat rect=[288 96 1776 1036] font=14
-shapes=130 digest=e9e6703a8bae4975
+shapes=130 digest=a79c18c63f7f4a47
 ## Preview 1.5x 1800x1188
 AGENT-1 rect=[1200 16 1248 64] font=14
 AGENT-2 rect=[1200 80 1248 128] font=14
@@ -174,8 +174,8 @@ Flag-pt rect=[48 748 88 780] font=14
 KB-1 rect=[1200 208 1248 256] font=14
 Lbl-Status rect=[288 64 1176 88] font=14
 Lbl-Topic rect=[288 24 992 56] font=20
-SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1 rect=[0 0 264 1188] font=14
 SideMenu-1-Footer rect=[0 720 264 792] font=14
 Txt-Input rect=[288 1052 1648 1156] font=14
 Vwr-Chat rect=[288 96 1776 1036] font=14
-shapes=130 digest=e9e6703a8bae4975
+shapes=130 digest=a79c18c63f7f4a47
