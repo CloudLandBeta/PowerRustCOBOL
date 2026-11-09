@@ -40,7 +40,7 @@
        01 WS-LJ                                  GLOBAL    PIC 9.
        01 WS-LPH                                 GLOBAL    PIC S9(3)V9(4).
        01 WS-LA                                  GLOBAL    PIC S9V9(4).
-       01 WS-LB                                  GLOBAL    PIC S9(3)V9(4).
+       01 WS-LG                                  GLOBAL    PIC S9(3)V9(4).
        01 WS-LK                                  GLOBAL    PIC S9V9(4).
        01 WS-LHY                                 GLOBAL    PIC S9(4)V99.
        01 WS-LKX                                 GLOBAL    PIC S9(4)V99.
@@ -1241,19 +1241,19 @@
                            MOVE    0.05          TO    WS-LA
                            MOVE    0.05          TO    WS-LK
                        ELSE
-                           MOVE    WS-LPH        TO    WS-LB
+                           MOVE    WS-LPH        TO    WS-LG
                            IF      WS-LJ = 2
-                               COMPUTE WS-LB = WS-LPH + 3.141593
+                               COMPUTE WS-LG = WS-LPH + 3.141593
                            END-IF
-                           COMPUTE WS-LA = 0.65 * FUNCTION SIN( WS-LB )
-                           COMPUTE WS-LK = 0.8 + 0.7 * FUNCTION COS( WS-LB - 0.4 )
+                           COMPUTE WS-LA = 0.65 * FUNCTION SIN( WS-LG )
+                           COMPUTE WS-LK = 0.8 + 0.7 * FUNCTION COS( WS-LG + 0.3 )
                        END-IF
                    END-IF
                    COMPUTE WS-LKX = WS-PX + WS-FACE * 12 * FUNCTION SIN( WS-LA )
                    COMPUTE WS-LKY = WS-LHY + 12 * FUNCTION COS( WS-LA )
-                   COMPUTE WS-LB = WS-LA - WS-LK
-                   COMPUTE WS-LFX = WS-LKX + WS-FACE * 12 * FUNCTION SIN( WS-LB )
-                   COMPUTE WS-LFY = WS-LKY + 12 * FUNCTION COS( WS-LB )
+                   COMPUTE WS-LG = WS-LA - WS-LK
+                   COMPUTE WS-LFX = WS-LKX + WS-FACE * 12 * FUNCTION SIN( WS-LG )
+                   COMPUTE WS-LFY = WS-LKY + 12 * FUNCTION COS( WS-LG )
                    CNV-PIT::DrawLine( WS-PX WS-LHY WS-LKX WS-LKY )
                    CNV-PIT::DrawLine( WS-LKX WS-LKY WS-LFX WS-LFY )
                END-PERFORM

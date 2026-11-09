@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.355 — 2026-11-09
+
+**Fix: the Pitfall explorer's knees bent the wrong way.** The leg angle was kept in an item that shared its name with an older unsigned whole-number item of the form, so negative angles lost their sign and fractions were cut off, and the shin pointed forward. The leg now uses its own signed item: the thigh swings from the hip and the shin trails backward, bending most as the leg passes under the body.
+
 ## 2.0.354 — 2026-11-09
 
 **Fix: in the 3D pool game the camera can go down almost to the height of the cue.** The lowest view was 2 m above the table; it now goes down to 0.75 m, just above the top of the tipped cue, with the arrows and with the mouse, so the table can be seen along the cloth.
