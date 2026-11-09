@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376); T16 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376), T16 done (2.0.377); T17 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -338,7 +338,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
 
 ## Phase F — Check and the agent
 
-- [ ] **T16 — `check` notes the overrides** (R21; AC17)
+- [x] **T16 — `check` notes the overrides** (R21; AC17)
   - Files: `crates/cobolt-project-tools/src/tools/check.rs` (`check_form`).
   - Do: for a Web or Mobile form, add `Severity::Info` notes:
     - one per certain override: the control, the property, the effective value, the winning file and line, and `[light]`, `[dark]` or `[light, dark]`;

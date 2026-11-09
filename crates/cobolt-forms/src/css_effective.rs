@@ -128,6 +128,13 @@ pub struct SelectorData {
     pub(crate) need_classes: Vec<String>,
 }
 
+impl SelectorData {
+    /// Can this subset test the selector at all? A selector it cannot read (`:has()`) never matches here.
+    pub fn readable(&self) -> bool {
+        self.parsed.is_some()
+    }
+}
+
 /// A style rule.
 #[derive(Debug, Clone)]
 pub struct Rule {

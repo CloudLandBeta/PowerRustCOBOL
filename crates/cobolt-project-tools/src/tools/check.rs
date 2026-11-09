@@ -273,6 +273,86 @@ fn check_form(
         finding.form = Some(form.name.clone());
         report.findings.push(finding);
     }
+    // WASM-036 R21: what the stylesheets decide, as notes. Nothing here changes the result.
+    if !view.kind.is_desktop() {
+        css_notes(root, view, rel, &abs, &form, report);
+    }
+}
+
+/// WASM-036 R21 — a Web or Mobile form's stylesheet overrides, as `Info` notes: one per certain
+/// override (control, property, effective value, the file and line that wins, and the scheme or
+/// schemes it holds in) and one per selector the designer's subset cannot evaluate. Both schemes are
+/// evaluated only when a sheet mentions `prefers-color-scheme`.
+fn css_notes(root: &ProjectRoot, view: &cobolt_compiler::ManifestView, rel: &str, abs: &Path, form: &cobolt_forms::Form, report: &mut Report) {
+    use cobolt_forms::css::{MediaEnv, Scheme};
+    use cobolt_forms::css_effective::{effective, Layer, Origin, SheetSet, SheetSource};
+    let project_rel = match (&view.web, &view.mobile) {
+        (Some(w), _) => Some(w.stylesheet.clone()),
+        (None, Some(m)) => Some(m.stylesheet.clone()),
+        _ => None,
+    };
+    let mut sheets: Vec<(String, String, Origin)> = Vec::new();
+    for (path, origin) in [
+        (project_rel.and_then(|r| root.resolve(&r).ok()), Origin::Project),
+        (Some(cobolt_forms::web_themes::stylesheet_beside(abs)), Origin::Form),
+    ] {
+        let Some(path) = path.filter(|p| p.is_file()) else { continue };
+        let Ok(bytes) = std::fs::read(&path) else { continue };
+        let label = root.relative(&path).unwrap_or_else(|| path.to_string_lossy().into_owned());
+        sheets.push((label, String::from_utf8_lossy(&bytes).into_owned(), origin));
+    }
+    if sheets.is_empty() {
+        return;
+    }
+    let sources: Vec<SheetSource<'_>> = sheets.iter().map(|(label, text, origin)| SheetSource { label, text, origin: *origin }).collect();
+    let set = SheetSet::parse(&sources);
+    let both = sheets.iter().any(|(_, t, _)| t.contains("prefers-color-scheme"));
+    let schemes: &[(Scheme, &str)] = if both { &[(Scheme::Light, "light"), (Scheme::Dark, "dark")] } else { &[(Scheme::Light, "light")] };
+    // (control, property, file:line, value) -> the schemes it holds in.
+    let mut notes: Vec<(String, String, String, String, Vec<&str>)> = Vec::new();
+    fn walk(cs: &[cobolt_forms::Control], out: &mut Vec<String>) {
+        for c in cs {
+            out.push(c.id.clone());
+            walk(&c.children, out);
+        }
+    }
+    let mut ids = Vec::new();
+    walk(&form.controls, &mut ids);
+    for (scheme, name) in schemes {
+        let env = MediaEnv { width: form.width as f32, height: form.height as f32, scheme: *scheme };
+        for id in &ids {
+            for e in effective(form, Some(id), &set, &env).entries.iter().filter(|e| e.layer >= Layer::Project) {
+                let at = match &e.sheet {
+                    Some(f) => format!("{f}:{}", e.line),
+                    None => "CssStyle".to_owned(),
+                };
+                let value = e.value.to_property_text();
+                match notes.iter_mut().find(|n| n.0 == *id && n.1 == e.property && n.2 == at && n.3 == value) {
+                    Some(n) => n.4.push(name),
+                    None => notes.push((id.clone(), e.property.to_owned(), at, value, vec![name])),
+                }
+            }
+        }
+    }
+    for (id, property, at, value, in_schemes) in notes {
+        report.findings.push(Finding::at(
+            rel,
+            Severity::Info,
+            format!("stylesheet: {id} {property} is {value} from {at} [{}] (the stored value is not used there)", in_schemes.join(", ")),
+        ));
+    }
+    for r in &set.rules {
+        // Unreadable, or simplified past a pseudo-class with arguments (`:has()`, `:is()`, `:not()`): the page
+        // may apply it where the designer cannot tell. A plain state (`:hover`) is "may" by design, not noted.
+        for sel in r.selectors.iter().filter(|s| !s.readable() || (s.simplified && s.text.contains('('))) {
+            let file = &sheets[r.source].0;
+            report.findings.push(Finding::at(
+                rel,
+                Severity::Info,
+                format!("stylesheet: {file}:{} the selector `{}` cannot be evaluated by the designer; the page may still apply it", r.line, sel.text),
+            ));
+        }
+    }
 }
 
 /// WASM-001 Q2, plan D-T15b/c: a form whose file name belongs to another kind
@@ -376,5 +456,59 @@ mod copybook_tests {
         assert!(report.findings.is_empty(), "{:?}", report.findings);
         assert_eq!(report.sources, 0, "it is not counted as a checked program");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod css_notes_tests {
+    use super::*;
+
+    /// WASM-036 R21 / AC17: a Web form's stylesheet overrides are `Info` notes — one per certain
+    /// override with file, line and scheme, one per selector the designer cannot evaluate — and they
+    /// change neither the errors nor the warnings of the report.
+    #[test]
+    fn the_overrides_are_notes_with_file_line_and_scheme_and_change_no_result() {
+        let t0 = std::time::Instant::now();
+        let dir = std::env::temp_dir().join(format!("prc-check-css-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        crate::create::create_project_with(&dir, &crate::create::CreateRequest::new("Shop").template("web")).unwrap();
+        let root = ProjectRoot::open(&dir).unwrap();
+        let view = cobolt_compiler::project_manifest_view(root.manifest()).unwrap();
+        let rel = view.forms[0].clone();
+        let abs = root.resolve(&rel).unwrap();
+        let form = cobolt_forms::load_form(&abs).unwrap();
+        let button = form.controls.iter().find(|c| c.control_type.as_str() == "Button").expect("the starter form has a button").id.clone();
+        let sheet = cobolt_forms::web_themes::stylesheet_beside(&abs);
+        let sheet_rel = root.relative(&sheet).unwrap();
+        let original = std::fs::read_to_string(&sheet).unwrap();
+        let notes = |extra: &str| {
+            std::fs::write(&sheet, format!("{original}{extra}")).unwrap();
+            let mut r = Report::default();
+            css_notes(&root, &view, &rel, &abs, &form, &mut r);
+            r
+        };
+        // Without anything of the developer's: whatever the generated theme sheet decides is listed, and nothing else.
+        let before = notes("").findings.len();
+        let extra = format!("\n#{button} {{ background-color: #112233 }}\n@media (prefers-color-scheme: dark) {{ #{button} {{ background-color: #111111 }} }}\n.pr-button:has(> .x) {{ color: red }}\n");
+        let r = notes(&extra);
+        for f in &r.findings {
+            println!("{:?} {}: {}", f.severity, f.file, f.message);
+            assert_eq!(f.severity, Severity::Info, "a note, never a warning or an error");
+        }
+        let line_of = |needle: &str| original.lines().count() + 1 + extra.lines().position(|l| l.contains(needle)).unwrap();
+        let bg: Vec<&Finding> = r.findings.iter().filter(|f| f.message.contains(&format!("{button} BackgroundColor"))).collect();
+        assert!(bg.iter().any(|f| f.message.contains(&format!("#112233ff from {sheet_rel}:{}", line_of("#112233")) ) && f.message.contains("[light]")), "{bg:?}");
+        assert!(bg.iter().any(|f| f.message.contains("#111111ff") && f.message.contains("[dark]")), "{bg:?}");
+        let has: Vec<&Finding> = r.findings.iter().filter(|f| f.message.contains(":has(")).collect();
+        assert_eq!(has.len(), 1, "one note for the :has() selector: {has:?}");
+        assert!(has[0].message.contains(&format!("{sheet_rel}:{}", line_of(":has("))));
+        assert!(r.findings.len() > before);
+        assert_eq!((r.errors(), r.findings.iter().filter(|f| f.severity == Severity::Warning).count()), (0, 0), "the result is unchanged");
+        // Only light is evaluated when no sheet says prefers-color-scheme.
+        let light_only = notes("\n#X { color: red }\n");
+        assert!(light_only.findings.iter().all(|f| !f.message.contains("[dark]") && !f.message.contains("light, dark")));
+        let _ = std::fs::remove_dir_all(&dir);
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        println!("┌─ check: stylesheet notes\n│ light and dark override notes with file:line, one :has() note, all Info, errors/warnings unchanged, light-only without a dark query\n│ time: {ms:.1} ms\n└─ 7/7 passed, 0 failed");
     }
 }
