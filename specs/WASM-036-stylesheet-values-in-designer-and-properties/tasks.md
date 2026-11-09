@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371); T11 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372); T12 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -264,7 +264,8 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
 
 ## Phase D — Writing it
 
-- [ ] **T11 — The executor: `Cmd::SetStylesheet`, `css_apply`, `css_route`** (R9, R10, R12, R13, R18, R8; AC6 through the IDE, AC8, AC9)
+- [x] **T11 — The executor: `Cmd::SetStylesheet`, `css_apply`, `css_route`** (R9, R10, R12, R13, R18, R8; AC6 through the IDE, AC8, AC9)
+  - *Done on 2.0.372.* The route is in `DesignerPanel::set_property` (so both `set_props` consumers and the agent's SetProperty take it). A shared rule goes to "only this control" until T12's question exists. Tests in `designer_css_effective_tests.rs`; the shorthand write is covered by the planner's own tests (T5).
   - Files: `crates/cobolt-ide/src/panels/designer.rs`, `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/src/panels/stylesheet_modal.rs`, `crates/cobolt-ide/src/i18n.rs`, `designer_css_effective_tests.rs`.
   - Do:
     - **`Cmd::SetStylesheet { path, before, after }`**, following `SetMenuDefinition`. Execute and redo write `after` only while the file holds `before`; reverse writes `before` only while it holds `after`. Otherwise it stops with `css_undo_changed_on_disk`.

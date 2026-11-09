@@ -15531,12 +15531,52 @@ impl CoboltApp {
             (Some(root), Some(rel)) if root.join(rel).is_file() => Some(label(&root.join(rel))),
             _ => None,
         };
-        let sheets: Vec<(String, String)> = files
+        let read: Vec<(PathBuf, String, String)> = files
             .iter()
-            .filter_map(|f| std::fs::read(f).ok().map(|b| (label(f), String::from_utf8_lossy(&b).into_owned())))
+            .filter_map(|f| std::fs::read(f).ok().map(|b| (f.clone(), label(f), String::from_utf8_lossy(&b).into_owned())))
             .collect();
-        if d.properties.css_sheets != sheets {
+        let sheets: Vec<(String, String)> = read.iter().map(|(_, l, t)| (l.clone(), t.clone())).collect();
+        // While a picker or a drag holds the sheets in memory, the disk is not what the designer shows.
+        if d.properties.css_sheets != sheets && !d.css_pointer_down {
             d.properties.css_sheets = sheets;
+            d.properties.css_sheet_files = read.into_iter().map(|(f, _, _)| f).collect();
+        } else if d.properties.css_sheet_files.len() != read.len() {
+            d.properties.css_sheet_files = read.into_iter().map(|(f, _, _)| f).collect();
+        }
+    }
+
+    /// WASM-036 R9, R13: once a frame, hand the designer what the app knows (the stylesheet window's
+    /// unapplied text, whether a pointer button is down), let it finish a gesture, then say what it
+    /// has to say and show what it wrote in the open Preview.
+    fn drive_css_writes(&mut self, idx: usize, ctx: &Context, tr: &Tr) {
+        let unapplied = self.stylesheet_modal.as_ref().filter(|(_, m)| m.changed()).map(|(_, m)| m.sheet.clone());
+        let down = ctx.input(|i| i.pointer.any_down());
+        let Some((path, d)) = self.designers.get_mut(idx) else {
+            return;
+        };
+        d.css_modal_unapplied = unapplied;
+        d.css_tick(down);
+        let messages = std::mem::take(&mut d.css_messages);
+        let written = std::mem::take(&mut d.css_written);
+        let form = d.form.name.clone();
+        let layers: Vec<String> = d.form.layers.iter().map(|l| l.name.clone()).collect();
+        let form_sheet = crate::project_fs::form_stylesheet(path);
+        for m in messages {
+            use crate::panels::designer::CssMessage as M;
+            let text = match m {
+                M::RefusedUnapplied => tr.css_write_refused_unapplied.to_owned(),
+                M::NoEffect { file, line } => tr.css_write_no_effect.replacen("{}", &file.map_or_else(|| "CssStyle".to_owned(), |f| format!("{f}:{line}")), 1),
+                M::NotWritable => tr.css_write_not_writable.to_owned(),
+                M::Lint { file, line, message } => tr.css_write_lint.replacen("{}", &format!("{}:{line}", file.unwrap_or_default()), 1).replacen("{}", &message, 1),
+                M::CannotEdit(why) => tr.css_write_cannot_edit.replacen("{}", why, 1),
+                M::UndoChangedOnDisk(file) => tr.css_undo_changed_on_disk.replacen("{}", &file, 1),
+            };
+            self.output.push_status(text);
+        }
+        for (sheet, text) in written {
+            if form_sheet.as_deref() == Some(sheet.as_path()) {
+                self.web_preview.apply_form_stylesheet(&form, &text, &layers);
+            }
         }
     }
 
@@ -20902,6 +20942,7 @@ impl CoboltApp {
         // WASM-017 R2 — `Instances` is offered only where a form is fixed memory.
         let web_project = self.is_web_project();
         self.refresh_css_sheets(idx, web_project);
+        self.drive_css_writes(idx, panel_ui.ctx(), tr);
         let drawer = crate::panels::designer::show_props_drawer(
             panel_ui,
             idx,

@@ -1325,6 +1325,36 @@ enum Cmd {
         old: Option<cobolt_forms::menu::MenuDefinition>,
         new: cobolt_forms::menu::MenuDefinition,
     },
+    /// WASM-036 R9 — a stylesheet file's text changed by a property edit the page's rules decide.
+    /// Execute and redo write `after` only while the file holds `before`; reverse writes `before`
+    /// only while it holds `after` (an outside change is kept, and said).
+    SetStylesheet {
+        path: std::path::PathBuf,
+        before: String,
+        after: String,
+    },
+}
+
+/// What the stylesheet write path has to tell the developer; the app words it in the IDE's language.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssMessage {
+    /// The stylesheet window holds unapplied text for the sheet the edit would write.
+    RefusedUnapplied,
+    /// A rule at `file:line` would still win: the edit would not show.
+    NoEffect { file: Option<String>, line: usize },
+    NotWritable,
+    /// The edit would give the sheet an error it does not have.
+    Lint { file: Option<String>, line: usize, message: String },
+    CannotEdit(&'static str),
+    /// An undo or redo left a sheet alone because another program had changed it.
+    UndoChangedOnDisk(String),
+}
+
+/// The stylesheets of a drag or a picker in progress: what each held when it began, so the whole
+/// gesture is one write and one undo step.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CssGesture {
+    originals: Vec<(usize, std::path::PathBuf, String)>,
 }
 
 /// Which direction of history navigation is waiting on the developer's
@@ -2906,6 +2936,15 @@ pub struct DesignerPanel {
     pub(crate) css_cache: cobolt_forms::css_effective::EffectiveCache,
     /// WASM-036 R24 — the colour scheme the canvas answers `prefers-color-scheme` with.
     pub css_scheme: cobolt_forms::css::Scheme,
+    /// WASM-036 R9 — what the write path has to say, and the sheets it wrote (for the preview); the
+    /// app drains both every frame.
+    pub css_messages: Vec<CssMessage>,
+    pub css_written: Vec<(std::path::PathBuf, String)>,
+    /// The sheet whose text the stylesheet window holds unapplied, set by the app every frame.
+    pub css_modal_unapplied: Option<std::path::PathBuf>,
+    /// Whether a pointer button is down (a picker or a drag in progress), set by the app every frame.
+    pub css_pointer_down: bool,
+    css_gesture: Option<CssGesture>,
 
     pub dirty: bool,
     pub close_requested: bool,
@@ -3293,6 +3332,11 @@ impl DesignerPanel {
             theme_switches: Vec::new(),
             css_cache: Default::default(),
             css_scheme: cobolt_forms::css::Scheme::Light,
+            css_messages: Vec::new(),
+            css_written: Vec::new(),
+            css_modal_unapplied: None,
+            css_pointer_down: false,
+            css_gesture: None,
             dirty: false,
             close_requested: false,
             close_confirm: false,
@@ -4831,6 +4875,9 @@ impl DesignerPanel {
             } => {
                 self.write_menu_yaml(control_id, Some(new));
             }
+            Cmd::SetStylesheet { path, before, after } => {
+                self.css_write_guarded(path, before, after);
+            }
         }
     }
 
@@ -4995,6 +5042,9 @@ impl DesignerPanel {
                 control_id, old, ..
             } => {
                 self.write_menu_yaml(control_id, old.as_ref());
+            }
+            Cmd::SetStylesheet { path, before, after } => {
+                self.css_write_guarded(path, after, before);
             }
             Cmd::SetFormProp { key, old, .. } => {
                 self.set_form_prop_direct(key, old.clone());
@@ -7569,6 +7619,11 @@ impl DesignerPanel {
             }
         }
 
+        // WASM-036 R9 — a property the page's stylesheet decides is written into the stylesheet.
+        if self.css_route(ctrl_id, key, &value) {
+            return;
+        }
+
         // ── Animation management meta-keys ────────────────────────────────────
         // Add / remove / field edits all become one undoable SetAnimations
         // command carrying the full before/after list (audit, 2026-07-29 —
@@ -9130,6 +9185,171 @@ impl DesignerPanel {
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
+
+    /// A stylesheet file written by a command: only while it holds `expect`. A sheet another program
+    /// changed is left alone and the developer told (R9). The in-memory copy follows the file.
+    fn css_write_guarded(&mut self, path: &std::path::Path, expect: &str, text: &str) {
+        let label = self
+            .properties
+            .css_sheet_files
+            .iter()
+            .position(|f| f == path)
+            .and_then(|i| self.properties.css_sheets.get(i).map(|(l, _)| l.clone()))
+            .unwrap_or_else(|| path.to_string_lossy().into_owned());
+        let current = std::fs::read(path).map(|b| String::from_utf8_lossy(&b).into_owned());
+        if current.as_deref().ok() != Some(expect) {
+            self.css_messages.push(CssMessage::UndoChangedOnDisk(label));
+            return;
+        }
+        // As bytes: the developer's line endings and spacing are kept.
+        if std::fs::write(path, text.as_bytes()).is_err() {
+            self.css_messages.push(CssMessage::UndoChangedOnDisk(label));
+            return;
+        }
+        if let Some(i) = self.properties.css_sheet_files.iter().position(|f| f == path) {
+            if let Some(slot) = self.properties.css_sheets.get_mut(i) {
+                slot.1 = text.to_owned();
+            }
+        }
+        self.css_written.push((path.to_path_buf(), text.to_owned()));
+        self.dirty = true;
+    }
+
+    /// The model value `text` is, of the same kind as `like` (what the winning rule gave).
+    fn css_value_of(like: &cobolt_forms::css_reverse::Value, text: &str) -> Option<cobolt_forms::css_reverse::Value> {
+        use cobolt_forms::css_reverse::Value;
+        let t = text.trim();
+        Some(match like {
+            Value::Color(_) => Value::Color(cobolt_forms::css::color(t)?),
+            Value::Num(_) => Value::Num(t.parse::<f32>().ok()?),
+            Value::Bool(_) => Value::Bool(matches!(t.to_ascii_lowercase().as_str(), "1" | "true")),
+            Value::Text(_) => Value::Text(t.to_owned()),
+        })
+    }
+
+    /// WASM-036 R9, R10, R12, R13 — a property edit on a Web or Mobile form whose value a rule of the
+    /// developer's stylesheets decides goes into that stylesheet, and the property is not stored.
+    /// Returns `true` when the edit was handled here (written, held for a gesture, dropped because it
+    /// is the value already in effect, or refused with a message).
+    fn css_route(&mut self, ctrl_id: &str, key: &str, value: &PropValue) -> bool {
+        use cobolt_forms::css_effective::{effective, Layer, Origin, SheetSet, SheetSource};
+        use cobolt_forms::css_edit::{plan, Choice, Plan, Refusal};
+        if !self.properties.web_project || key.starts_with('_') || self.is_form_id(ctrl_id) || self.form.find_control(ctrl_id).is_none() {
+            return false;
+        }
+        let files = self.properties.css_sheet_files.clone();
+        if files.is_empty() || files.len() != self.properties.css_sheets.len() {
+            return false;
+        }
+        let gesture = self.css_gesture.is_some() || self.css_pointer_down;
+        if !gesture {
+            // Read from disk: another program may have saved since the marks were computed.
+            for (i, f) in files.iter().enumerate() {
+                if let Ok(b) = std::fs::read(f) {
+                    let t = String::from_utf8_lossy(&b).into_owned();
+                    if self.properties.css_sheets[i].1 != t {
+                        self.properties.css_sheets[i].1 = t;
+                    }
+                }
+            }
+        }
+        let (w, h) = self.canvas_size();
+        let env = cobolt_forms::css::MediaEnv { width: w, height: h, scheme: self.css_scheme };
+        let project = self.properties.css_project_sheet.clone();
+        let sheets = self.properties.css_sheets.clone();
+        let sources: Vec<SheetSource<'_>> = sheets
+            .iter()
+            .map(|(label, text)| SheetSource { label, text, origin: if Some(label) == project.as_ref() { Origin::Project } else { Origin::Form } })
+            .collect();
+        let eff = effective(&self.form, Some(ctrl_id), &SheetSet::parse(&sources), &env);
+        let Some(entry) = eff.get(key).filter(|e| e.layer >= Layer::Project) else {
+            return false;
+        };
+        let Some(new) = Self::css_value_of(&entry.value, value.as_str()) else {
+            return false;
+        };
+        // The value already in effect: a text row that lost the focus untouched writes nothing.
+        if new == entry.value {
+            return true;
+        }
+        let layers: Vec<String> = self.form.layers.iter().map(|l| l.name.clone()).collect();
+        let options = cobolt_forms::stylesheet_lint::Options { layers: &layers, ..Default::default() };
+        // A rule that styles other controls too is not changed behind the developer's back: only this control.
+        let choice = if entry.shared { Choice::OnlyThisControl } else { Choice::ChangeRule };
+        let planned = plan(&self.form, ctrl_id, key, &new, &sources, &env, choice, &options);
+        let (edits, css_style) = match planned {
+            Ok(Plan::StoreProperty) => return false,
+            Ok(Plan::Edit { sheets, css_style }) => (sheets, css_style),
+            Err(r) => {
+                self.css_messages.push(match r {
+                    Refusal::NotWritable => CssMessage::NotWritable,
+                    Refusal::NoEffect { file, line } => CssMessage::NoEffect { file, line },
+                    Refusal::Lint { file, line, message } => CssMessage::Lint { file, line, message },
+                    Refusal::NoControl => return false,
+                    Refusal::CannotEdit(why) => CssMessage::CannotEdit(why),
+                });
+                return true;
+            }
+        };
+        let index_of = |label: &str| sheets.iter().position(|(l, _)| l == label);
+        // The window holds unapplied text for a sheet this edit would write: refused, nothing written (R18).
+        if let Some(open) = &self.css_modal_unapplied {
+            if edits.iter().any(|e| index_of(&e.label).and_then(|i| files.get(i)) == Some(open)) {
+                self.css_messages.push(CssMessage::RefusedUnapplied);
+                return true;
+            }
+        }
+        // While a picker or a drag changes the value, the sheet changes in memory only: one write and one
+        // undo step when it ends (`css_tick`).
+        if gesture && css_style.is_none() {
+            let g = self.css_gesture.get_or_insert_with(CssGesture::default);
+            for e in &edits {
+                if let Some(i) = index_of(&e.label) {
+                    if !g.originals.iter().any(|(j, _, _)| *j == i) {
+                        g.originals.push((i, files[i].clone(), e.before.clone()));
+                    }
+                    self.properties.css_sheets[i].1 = e.after.clone();
+                }
+            }
+            return true;
+        }
+        let mut cmds: Vec<Cmd> = Vec::new();
+        for e in &edits {
+            if let Some(i) = index_of(&e.label) {
+                cmds.push(Cmd::SetStylesheet { path: files[i].clone(), before: e.before.clone(), after: e.after.clone() });
+            }
+        }
+        if let Some(style) = css_style {
+            let old = self.form.find_control(ctrl_id).and_then(|c| c.get_prop("CssStyle").cloned());
+            cmds.push(Cmd::SetProperty { id: ctrl_id.to_owned(), key: "CssStyle".into(), old, new: PropValue::String(style) });
+        }
+        if !cmds.is_empty() {
+            self.apply(Cmd::Batch { cmds });
+        }
+        true
+    }
+
+    /// Once a frame, with whether a pointer button is down: when a picker or a drag has ended, its
+    /// sheets are written as one undo step (R13).
+    pub fn css_tick(&mut self, pointer_down: bool) {
+        self.css_pointer_down = pointer_down;
+        if pointer_down {
+            return;
+        }
+        let Some(g) = self.css_gesture.take() else {
+            return;
+        };
+        let mut cmds = Vec::new();
+        for (i, path, before) in g.originals {
+            let after = self.properties.css_sheets.get(i).map(|(_, t)| t.clone()).unwrap_or_default();
+            if after != before {
+                cmds.push(Cmd::SetStylesheet { path, before, after });
+            }
+        }
+        if !cmds.is_empty() {
+            self.apply(Cmd::Batch { cmds });
+        }
+    }
 
     /// WASM-036 R6 — what the project's and the form's stylesheets make of every control, at the
     /// size and in the scheme the canvas shows. `None` for a Desktop form (no sheet to read), so its

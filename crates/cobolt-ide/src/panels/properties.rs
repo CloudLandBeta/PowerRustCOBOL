@@ -4543,6 +4543,8 @@ pub struct PropertiesPanel {
     pub css_sheets: Vec<(String, String)>,
     /// The label of the project's own stylesheet among `css_sheets` (its rules sit in `@layer pr-app`, under the form's); `None` when the project has none.
     pub css_project_sheet: Option<String>,
+    /// The file of each of `css_sheets`, in the same order: where an edit is written.
+    pub css_sheet_files: Vec<std::path::PathBuf>,
     /// WASM-036 — what the canvas answers `@media` with (width, height, scheme) and the theme the
     /// form resolves to, set by the app each frame, so the rows show the values the canvas paints.
     pub css_env: Option<(f32, f32, cobolt_forms::css::Scheme)>,
@@ -4808,6 +4810,7 @@ impl PropertiesPanel {
             web_project: false,
             css_sheets: Vec::new(),
             css_project_sheet: None,
+            css_sheet_files: Vec::new(),
             css_env: None,
             css_theme_id: String::new(),
             css_cache: Default::default(),

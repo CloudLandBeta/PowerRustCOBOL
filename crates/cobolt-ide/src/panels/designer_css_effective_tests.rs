@@ -234,3 +234,125 @@ fn a_value_the_canvas_cannot_read_is_shown_as_written_and_a_mixed_selection_is_m
     assert!(!same.contains_key("backgroundcolor"), "two buttons with the same colour are not mixed: {same:?}");
     println!("┌─ designer_css_effective: unknown and mixed\n│ color-mix() shown read-only; 3 buttons / 2 colours marked mixed, 2 buttons / 1 colour not\n└─ 3/3 passed, 0 failed");
 }
+
+// ── T11: writing the value back ──────────────────────────────────────────────────────────────────
+
+use cobolt_forms::css_effective::Origin;
+
+struct Fixture {
+    dir: std::path::PathBuf,
+    d: DesignerPanel,
+}
+
+impl Fixture {
+    /// A Web designer on a temporary folder whose sheets are `(file name, project sheet?, text)`.
+    fn new(tag: &str, sheets: &[(&str, bool, &str)], form: Form) -> Self {
+        let dir = std::env::temp_dir().join(format!("prc-css-t11-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut d = DesignerPanel::new(form);
+        d.properties.web_project = true;
+        for (name, project, text) in sheets {
+            std::fs::write(dir.join(name), text).unwrap();
+            d.properties.css_sheets.push((name.to_string(), text.to_string()));
+            d.properties.css_sheet_files.push(dir.join(name));
+            if *project {
+                d.properties.css_project_sheet = Some(name.to_string());
+            }
+        }
+        Fixture { dir, d }
+    }
+    fn read(&self, name: &str) -> String {
+        std::fs::read_to_string(self.dir.join(name)).unwrap()
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn set(f: &mut Fixture, id: &str, key: &str, v: &str) {
+    f.d.set_property(id, key, PropValue::String(v.to_owned()));
+}
+
+#[test]
+fn a_property_a_rule_decides_is_written_into_the_sheet_and_undo_redo_are_byte_exact() {
+    let t0 = std::time::Instant::now();
+    let original = "/* mine */\n#PNL-1 {\n  background-color: #112233;\n  color: red;\n}\n";
+    let mut f = Fixture::new("write", &[("F.css", false, original)], form());
+    let stored = f.d.form.controls[0].get_prop("BackgroundColor").map(|v| v.as_str().to_owned());
+    set(&mut f, "PNL-1", "BackgroundColor", "#445566ff");
+    let written = f.read("F.css");
+    assert_eq!(written, "/* mine */\n#PNL-1 {\n  background-color: #445566;\n  color: red;\n}\n", "only the value's bytes changed (AC6, longhand)");
+    assert_eq!(f.d.form.controls[0].get_prop("BackgroundColor").map(|v| v.as_str().to_owned()), stored, "the property is not stored beside the rule");
+    assert!(f.d.css_written.iter().any(|(p, _)| p.ends_with("F.css")), "the open Preview is told");
+    f.d.undo();
+    assert_eq!(f.read("F.css"), original, "undo: byte for byte");
+    f.d.redo();
+    assert_eq!(f.read("F.css"), written, "redo: byte for byte");
+    // The sheet changes behind the IDE's back: undo leaves the other program's text and says so (AC9).
+    let outside = format!("{written}/* edited elsewhere */\n");
+    std::fs::write(f.dir.join("F.css"), &outside).unwrap();
+    f.d.undo();
+    assert_eq!(f.read("F.css"), outside, "an outside change is kept");
+    assert!(matches!(f.d.css_messages.last(), Some(CssMessage::UndoChangedOnDisk(l)) if l == "F.css"), "{:?}", f.d.css_messages);
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("┌─ designer_css_effective: writing back\n│ longhand write, undo, redo byte-exact; an outside change kept on undo and said\n│ time: {ms:.1} ms\n└─ 5/5 passed, 0 failed");
+}
+
+#[test]
+fn a_text_row_that_lost_the_focus_untouched_writes_nothing_and_a_desktop_form_stores_as_before() {
+    let original = "#PNL-1 { background-color: #112233 }\n";
+    let mut f = Fixture::new("focus", &[("F.css", false, original)], form());
+    set(&mut f, "PNL-1", "BackgroundColor", "#112233ff");
+    assert_eq!(f.read("F.css"), original);
+    assert!(!f.d.dirty, "nothing was recorded: the value is the one in effect");
+    // Desktop: the sheet is not read and the property is stored.
+    let mut f = Fixture::new("desktop", &[("F.css", false, original)], form());
+    f.d.properties.web_project = false;
+    set(&mut f, "PNL-1", "BackgroundColor", "#445566ff");
+    assert_eq!(f.read("F.css"), original);
+    assert!(f.d.form.controls[0].get_prop("BackgroundColor").is_some(), "stored as a property");
+}
+
+#[test]
+fn an_edit_that_could_not_show_writes_nothing_and_names_the_winner_and_an_open_window_refuses() {
+    let mut form = Form::new("F", "F", 400, 300);
+    form.controls.push(Control::new("BTN-1", ControlType::Button, 10, 10));
+    let project = ".pr-button { color: green !important }\n";
+    let own = "#BTN-1 { margin: 0 }\n";
+    let mut f = Fixture::new("noeffect", &[("application.css", true, project), ("F.css", false, own)], form);
+    set(&mut f, "BTN-1", "ForegroundColor", "#0000ffff");
+    assert_eq!((f.read("application.css"), f.read("F.css")), (project.to_owned(), own.to_owned()), "AC8: both files byte-identical");
+    assert_eq!(f.d.css_messages, vec![CssMessage::NoEffect { file: Some("application.css".into()), line: 1 }]);
+
+    let sheet = "#PNL-1 { background-color: #112233 }\n";
+    let mut f = Fixture::new("modal", &[("F.css", false, sheet)], self::form());
+    f.d.css_modal_unapplied = Some(f.dir.join("F.css"));
+    set(&mut f, "PNL-1", "BackgroundColor", "#445566ff");
+    assert_eq!(f.read("F.css"), sheet);
+    assert_eq!(f.d.css_messages, vec![CssMessage::RefusedUnapplied], "R18: refused while the window holds unapplied text");
+}
+
+#[test]
+fn thirty_frames_of_a_picker_make_one_write_and_one_undo_step() {
+    let original = "#PNL-1 { background-color: #112233 }\n";
+    let mut f = Fixture::new("gesture", &[("F.css", false, original)], form());
+    f.d.css_tick(true); // the pointer is down: a picker is dragging
+    let t0 = std::time::Instant::now();
+    for i in 0..30u8 {
+        set(&mut f, "PNL-1", "BackgroundColor", &format!("#{:02x}40{:02x}ff", i * 8, 255 - i * 8));
+    }
+    assert_eq!(f.read("F.css"), original, "nothing is written while the gesture lasts");
+    assert!(f.d.css_written.is_empty());
+    f.d.css_tick(false);
+    let after = f.read("F.css");
+    assert!(after.contains("#e84017"), "the last value was written: {after}");
+    assert_eq!(f.d.css_written.len(), 1, "one write");
+    f.d.undo();
+    assert_eq!(f.read("F.css"), original, "one undo step undoes the whole gesture");
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("┌─ designer_css_effective: a gesture\n│ 30 picker changes: 1 file write, 1 undo step ({ms:.1} ms)\n└─ 4/4 passed, 0 failed");
+}
