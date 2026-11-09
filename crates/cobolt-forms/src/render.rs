@@ -15894,7 +15894,10 @@ fn render_interactive(
         }
 
         _ => {
-            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            // A Canvas2D or Canvas3D shows the picture the host made from its last `Present` or `Render`
+            // (the same lookup both static painters make); every other control has no picture here.
+            let canvas_tex = if matches!(ct, CT::Canvas2D | CT::Canvas3D) { paint::canvas_texture(ui.ctx(), id) } else { None };
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, canvas_tex);
         }
     }
 }

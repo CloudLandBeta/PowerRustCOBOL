@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.333 — 2026-11-08
+
+**Fix: a running form shows what a Canvas2D or Canvas3D draws.** In the IDE's Run, `rcrun` and a compiled binary, every canvas showed its dashed placeholder (name, kind, size) and never its picture: the program drew it and the host made its texture from each `Present` or `Render`, but the interactive renderer painted a canvas through its catch-all arm, with no texture. It now looks the picture up as the other two painters do. The PowerGraphics game, chart gallery and 3D view show again.
+
 ## 2.0.332 — 2026-11-08
 
 **Fix: the PowerGraphics chart gallery opens on a chart.** The gallery drew nothing until Next kind was pressed, so the canvas looked empty. It now draws the line chart when it opens, and Next kind goes on with the bar chart.
