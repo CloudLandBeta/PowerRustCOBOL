@@ -566,3 +566,50 @@ fn the_removal_window_never_resizes_itself_in_any_language() {
     let ms = t0.elapsed().as_secs_f64() * 1000.0;
     println!("┌─ css_remove_confirm: the window\n│ 6 languages x 120 frames held\n│ time: {ms:.0} ms ({:.0} frames/sec)\n└─ 6/6 languages passed, 0 failed", frames as f64 / (ms / 1000.0));
 }
+
+// ── T14: several controls selected ───────────────────────────────────────────────────────────────
+
+#[test]
+fn an_edit_of_three_selected_buttons_asks_once_and_is_one_undo_step() {
+    let t0 = std::time::Instant::now();
+    let project = ".pr-button { color: #112233 }\n";
+    let own = "#BTN-2 { color: #aa0000 }\n";
+    let mk = |tag: &str| {
+        let mut f = Fixture::new(tag, &[("application.css", true, project), ("F.css", false, own)], three_buttons());
+        f.d.selected_ids = vec!["BTN-1".into(), "BTN-2".into(), "BTN-3".into()];
+        f
+    };
+    // Two different effective colours before the edit.
+    let mut f = mk("m-change");
+    assert_eq!(colours(&mut f.d), vec![Some("#112233ff".into()), Some("#aa0000ff".into()), Some("#112233ff".into())]);
+    f.d.set_property_from_pane("BTN-1", "ForegroundColor", PropValue::String("#445566ff".into()));
+    assert_eq!((f.read("application.css"), f.read("F.css")), (project.to_owned(), own.to_owned()), "nothing is written before the answer");
+    assert!(f.d.css_question.as_ref().is_some_and(|q| q.multi), "ONE question for the whole selection");
+    f.d.css_answer(Answer::ChangeRule);
+    assert_eq!(colours(&mut f.d), vec![Some("#445566ff".into()); 3], "AC11: all three have the typed value");
+    assert!(f.d.css_question.is_none(), "no second question");
+    f.d.undo();
+    assert_eq!((f.read("application.css"), f.read("F.css")), (project.to_owned(), own.to_owned()), "AC11: ONE undo restores every file byte for byte");
+    assert_eq!(colours(&mut f.d), vec![Some("#112233ff".into()), Some("#aa0000ff".into()), Some("#112233ff".into())]);
+    f.d.redo();
+    assert_eq!(colours(&mut f.d), vec![Some("#445566ff".into()); 3]);
+
+    // Only this control, for each of them: three own rules, still one step.
+    let mut f = mk("m-only");
+    f.d.set_property_from_pane("BTN-1", "ForegroundColor", PropValue::String("#445566ff".into()));
+    f.d.css_answer(Answer::OnlyThisControl);
+    assert_eq!(colours(&mut f.d), vec![Some("#445566ff".into()); 3]);
+    assert_eq!(f.read("application.css"), project, "the shared rule stays");
+    f.d.undo();
+    assert_eq!((f.read("application.css"), f.read("F.css")), (project.to_owned(), own.to_owned()));
+    assert!(f.d.css_question.is_none());
+
+    // Cancel: nothing changes anywhere.
+    let mut f = mk("m-cancel");
+    f.d.set_property_from_pane("BTN-1", "ForegroundColor", PropValue::String("#445566ff".into()));
+    f.d.css_answer(Answer::Cancel);
+    assert_eq!((f.read("application.css"), f.read("F.css")), (project.to_owned(), own.to_owned()));
+    assert_eq!(colours(&mut f.d), vec![Some("#112233ff".into()), Some("#aa0000ff".into()), Some("#112233ff".into())]);
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("┌─ designer_css_effective: several controls selected\n│ 3 buttons, 2 effective colours: one question; Change the rule -> 3 equal, one undo restores both files; Only this control; Cancel\n│ time: {ms:.1} ms\n└─ 3/3 passed, 0 failed");
+}

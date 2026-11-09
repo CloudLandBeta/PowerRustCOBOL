@@ -1356,6 +1356,8 @@ pub struct CssQuestion {
     pub ctrl_id: String,
     pub key: String,
     pub value: PropValue,
+    /// Raised by an edit of several selected controls: the answer applies to all of them (R15).
+    pub multi: bool,
     pub info: super::css_rule_question::RuleInfo,
 }
 
@@ -2966,6 +2968,8 @@ pub struct DesignerPanel {
     /// would change (`css_answer`); and the answer being applied.
     pub css_question: Option<CssQuestion>,
     css_forced: Option<cobolt_forms::css_edit::Choice>,
+    /// The question being raised is for an edit of several selected controls.
+    css_multi: bool,
     /// WASM-036 R10 — a CSS row's "Remove the CSS declaration", waiting for its confirmation.
     pub css_remove_question: Option<CssRemoveQuestion>,
     /// WASM-036 R10 — a CSS row's "Go to the rule": the sheet's file and the rule's line, for the app
@@ -3365,6 +3369,7 @@ impl DesignerPanel {
             css_gesture: None,
             css_question: None,
             css_forced: None,
+            css_multi: false,
             css_remove_question: None,
             css_go_to: None,
             dirty: false,
@@ -3698,6 +3703,22 @@ impl DesignerPanel {
                 self.set_property(&id, key, value);
             }
             return;
+        }
+        // WASM-036 R15 — one question for the whole selection, before anything is written: when the
+        // rule that decides the value for any of them styles other controls too, nothing is applied
+        // until the developer has answered; the answer then applies to all of them.
+        if self.properties.web_project && self.css_forced.is_none() && self.css_question.is_none() && !key.starts_with('_') {
+            for id in &targets {
+                let Some((e, sheets, _)) = self.css_winner(id, key) else { continue };
+                let differs = Self::css_value_of(&e.value, value.as_str()).is_some_and(|n| n != e.value);
+                if e.shared && differs {
+                    let project = self.properties.css_project_sheet.clone();
+                    self.css_multi = true;
+                    self.css_ask(id, key, &value, e.sheet.clone(), e.line, &sheets, project.as_deref());
+                    self.css_multi = false;
+                    return;
+                }
+            }
         }
         // Built by running the single-control setter and capturing the commands
         // it produced, so a multi-edit cannot drift from a single edit: the
@@ -9305,7 +9326,7 @@ impl DesignerPanel {
         let layers: Vec<String> = self.form.layers.iter().map(|l| l.name.clone()).collect();
         let options = cobolt_forms::stylesheet_lint::Options { layers: &layers, ..Default::default() };
         // A rule that styles other controls too is not changed until the developer has been asked (R11).
-        let choice = match self.css_forced.take() {
+        let choice = match self.css_forced {
             Some(c) => c,
             None if entry.shared => {
                 let (sheet, line) = (entry.sheet.clone(), entry.line);
@@ -9421,6 +9442,7 @@ impl DesignerPanel {
             ctrl_id: ctrl_id.to_owned(),
             key: key.to_owned(),
             value: value.clone(),
+            multi: self.css_multi,
             info: super::css_rule_question::RuleInfo { selector, file: sheet, line, others, at_least },
         });
     }
@@ -9437,7 +9459,12 @@ impl DesignerPanel {
             Answer::Cancel | Answer::Pending => None,
         };
         if self.css_forced.is_some() {
-            self.css_route(&q.ctrl_id, &q.key, &q.value);
+            // One answer covers every selected control; the whole edit is one undo step.
+            if q.multi && self.selected_ids.len() > 1 {
+                self.set_property_multi(&q.key, q.value.clone());
+            } else {
+                self.css_route(&q.ctrl_id, &q.key, &q.value);
+            }
             self.css_forced = None;
         }
     }
