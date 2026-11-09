@@ -65,6 +65,27 @@
   <form-events>
     <Event name="onLoad" paragraph="CHARTS-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
            SET     WS-CNV                        TO    CNV-CHART::GetHandle()
+
+           *> The gallery opens on the first chart (the line), drawn as Next kind draws it; the
+           *> next press of Next kind shows the bar chart.
+           MOVE    1                             TO    WS-KIND
+           MOVE    "LINE"                        TO    WS-NAME
+           PLT-1::SetTitle( WS-NAME::Trim() )
+           PLT-1::SetXLabel( "x" )
+           PLT-1::SetYLabel( "y" )
+           PLT-1::ShowGrid( 1 )
+           SET     WS-SER                        TO    PLT-1::AddSeries( WS-NAME::Trim() "data" )
+           PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 40
+               COMPUTE WS-X = WS-I / 4
+               COMPUTE WS-Y = FUNCTION SIN( WS-X )
+               PLT-1::AddPoint( WS-SER WS-X WS-Y )
+           END-PERFORM
+           CNV-CHART::Clear( "#101820" )
+           PLT-1::RenderToCanvas( WS-CNV 0 0 320 300 )
+           SET     WS-THUMB                      TO    PLT-1::Render( 150 100 )
+           CNV-CHART::DrawImage( WS-THUMB 330 10 )
+           CNV-CHART::Present()
+           SET     LBL-INFO::Caption             TO    WS-NAME::Trim()
 ]]></Event>
     <Event name="onClose" paragraph="CHARTS-FORM--ONCLOSE">
     </Event>
