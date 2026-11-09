@@ -6,8 +6,9 @@
 
 //! The Backend window of a Web or Mobile project: the counterpart of the
 //! desktop's Building window. It opens when the Backend starts, shows what the
-//! Backend prints, stays up while it runs, carries the **Stop Backend** button,
-//! and closing it while the Backend runs stops the Backend — after a warning.
+//! Backend prints and stays up while it runs. The window never stops the
+//! Backend, and closing it leaves the Backend running (operator, 2026-11-08):
+//! only the Backend button of the top bar stops it.
 //!
 //! Its size is its own: only the developer's drag on the grip changes it
 //! (the model is `leaderboard_modal`).
@@ -32,18 +33,9 @@ const CHROME_H: f32 = 118.0;
 /// The log keeps the newest lines only.
 const MAX_LINES: usize = 5000;
 
-/// What the developer asked for in a frame.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct BackendWindowAction {
-    /// Stop the Backend (the button, or "Stop Backend and close" in the warning).
-    pub stop: bool,
-}
-
 pub struct BackendWindow {
     /// Shown or hidden. Set when a Backend starts; cleared by a close.
     visible: bool,
-    /// The close was asked while the Backend runs: the warning is up.
-    confirm_close: bool,
     size: egui::Vec2,
     lines: Vec<String>,
     /// The address the Backend listens on, once it printed it.
@@ -52,7 +44,7 @@ pub struct BackendWindow {
 
 impl Default for BackendWindow {
     fn default() -> Self {
-        Self { visible: false, confirm_close: false, size: egui::vec2(DEFAULT_W, DEFAULT_H), lines: Vec::new(), url: None }
+        Self { visible: false, size: egui::vec2(DEFAULT_W, DEFAULT_H), lines: Vec::new(), url: None }
     }
 }
 
@@ -61,7 +53,6 @@ impl BackendWindow {
     pub fn begin(&mut self) {
         self.lines.clear();
         self.url = None;
-        self.confirm_close = false;
         self.visible = true;
     }
 
@@ -81,38 +72,14 @@ impl BackendWindow {
         self.visible
     }
 
-    /// The close button (or Esc) while `running`: a running Backend asks first;
-    /// a finished one just closes. Returns whether the window is now closed.
-    pub fn request_close(&mut self, running: bool) -> bool {
-        if running {
-            self.confirm_close = true;
-            false
-        } else {
-            self.visible = false;
-            self.confirm_close = false;
-            true
-        }
+    /// The close button (or Esc): the window goes, the Backend keeps running.
+    pub fn close(&mut self) {
+        self.visible = false;
     }
 
-    /// The warning was answered "Keep running".
-    pub fn keep(&mut self) {
-        self.confirm_close = false;
-    }
-
-    /// The Backend was stopped (by the button or by the close): the window goes
-    /// if the stop came from the close, stays with its log if it came from the
-    /// button.
-    pub fn stopped(&mut self, close: bool) {
-        self.confirm_close = false;
-        if close {
-            self.visible = false;
-        }
-    }
-
-    pub fn show(&mut self, ctx: &egui::Context, theme: &Theme, tr: &Tr, running: bool) -> BackendWindowAction {
-        let mut action = BackendWindowAction::default();
+    pub fn show(&mut self, ctx: &egui::Context, theme: &Theme, tr: &Tr, running: bool) {
         if !self.visible {
-            return action;
+            return;
         }
         let mut open = true;
         let window = egui::Window::new(RichText::new(tr.backend_window_title).size(18.0).strong())
@@ -139,9 +106,6 @@ impl BackendWindow {
                 });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(running, egui::Button::new(tr.backend_stop)).clicked() {
-                        action.stop = true;
-                    }
                     if ui.button(tr.clipboard_copy).clicked() {
                         ui.ctx().copy_text(self.lines.join("\n"));
                     }
@@ -159,37 +123,7 @@ impl BackendWindow {
             self.grip(ctx, theme, window.response.rect);
         }
         if !open {
-            self.request_close(running);
-        }
-        if self.confirm_close {
-            self.warning(ctx, tr, &mut action);
-        }
-        action
-    }
-
-    fn warning(&mut self, ctx: &egui::Context, tr: &Tr, action: &mut BackendWindowAction) {
-        let mut stop_and_close = false;
-        let mut keep = false;
-        egui::Modal::new(egui::Id::new("backend_window_close_warning")).backdrop_color(Color32::from_black_alpha(150)).show(ctx, |ui| {
-            ui.set_width(380.0);
-            ui.heading(tr.backend_window_title);
-            ui.add_space(8.0);
-            ui.label(tr.backend_window_close_warning);
-            ui.add_space(10.0);
-            ui.horizontal(|ui| {
-                if ui.button(tr.backend_window_stop_close).clicked() {
-                    stop_and_close = true;
-                }
-                if ui.button(tr.backend_window_keep).clicked() {
-                    keep = true;
-                }
-            });
-        });
-        if stop_and_close {
-            action.stop = true;
-            self.stopped(true);
-        } else if keep {
-            self.keep();
+            self.close();
         }
     }
 
@@ -220,19 +154,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn closing_a_running_backend_asks_first_and_a_finished_one_just_closes() {
+    fn closing_the_window_only_closes_it_and_a_new_run_opens_it_again() {
         let mut w = BackendWindow::default();
         w.begin();
         assert!(w.is_visible());
-        assert!(!w.request_close(true), "running: the warning, not a close");
-        assert!(w.confirm_close && w.is_visible());
-        w.keep();
-        assert!(!w.confirm_close && w.is_visible(), "Keep running leaves everything as it was");
-        w.request_close(true);
-        w.stopped(true);
-        assert!(!w.is_visible(), "Stop Backend and close closes");
+        w.close();
+        assert!(!w.is_visible(), "the window goes; there is no way to stop the Backend from it");
         w.begin();
-        assert!(w.request_close(false) && !w.is_visible(), "a Backend that ended closes without a warning");
+        assert!(w.is_visible());
     }
 
     #[test]

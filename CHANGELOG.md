@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.327 — 2026-11-08
+
+**Fix: only the Backend button of the top bar stops the Backend.** The Backend window lost its Stop button and its close warning: closing it only hides it, and the Backend keeps running. The Run menu lost Stop Backend, the toolbar's Stop no longer stops the Backend, and a Preview that ends (closed, failed build) leaves it running. Starting a Backend again, opening another project and the Backend button still stop the one that runs.
+
 ## 2.0.326 — 2026-11-08
 
 **Fix: the IDE's top toolbar is icon-only in the Aurora themes too, so it looks the same with a project open or not.** Open, Save, Check, Search, Build, Run, Debug, Stop and the Task Wizard switch kept their text labels on the Aurora pills (2.0.323 had changed only the other themes), so the buttons overlapped once a project was open. The pills now carry the same icons, and the label is the tooltip.

@@ -993,8 +993,6 @@ pub struct CoboltApp {
     backend_window_live: bool,
     /// The Backend ended with an error: the top-bar button stays red until it is clicked.
     backend_failed: bool,
-    /// `backend_run` was started by the web Preview: it stops with the Preview.
-    backend_by_preview: bool,
 
     // Cross-window pending actions
     /// A file path waiting to be opened in the code editor (set by a designer
@@ -2393,7 +2391,6 @@ impl CoboltApp {
             backend_window: Default::default(),
             backend_window_live: false,
             backend_failed: false,
-            backend_by_preview: false,
 
             pending_open_in_editor: None,
             pending_goto_paragraph: None,
@@ -2897,8 +2894,7 @@ impl CoboltApp {
         // IDE already runs for it) and builds the page for where it listens.
         match self.web_preview.start_with_backend(launch, intent, &mut self.backend_run, &crate::backend_run::rcrun()) {
             None => self.output.push_status(self.lang.tr().status_build_already_running.to_owned()),
-            Some(true) => self.backend_by_preview = true,
-            Some(false) => {}
+            Some(_) => {}
         }
     }
 
@@ -2942,10 +2938,6 @@ impl CoboltApp {
             }
         }
         self.show_run_on_device(ctx);
-        // The Backend the Preview started ends with it (Close, Stop, the web view closed, a failed start).
-        if self.backend_by_preview && !self.web_preview.active() {
-            self.stop_backend();
-        }
         if wants_frame {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
@@ -3034,7 +3026,6 @@ impl CoboltApp {
 
     /// Run menu → Stop Backend, and a project change.
     fn stop_backend(&mut self) {
-        self.backend_by_preview = false;
         self.backend_failed = false;
         if let Some(mut run) = self.backend_run.take() {
             let was_running = run.is_running();
@@ -3047,15 +3038,13 @@ impl CoboltApp {
     }
 
     /// The Backend window, every frame: it opens with a new run, stays while the
-    /// Backend runs, and its Stop button (or closing it, after the warning) stops
-    /// the Backend.
+    /// Backend runs; it never stops the Backend, only the Backend button of the
+    /// top bar does (operator, 2026-11-08).
     fn show_backend_window(&mut self, ctx: &Context) {
         let running = self.backend_run.as_ref().is_some_and(|r| r.is_running());
         let theme = self.current_theme();
         let tr = self.lang.tr();
-        if self.backend_window.show(ctx, theme, &tr, running).stop {
-            self.stop_backend();
-        }
+        self.backend_window.show(ctx, theme, &tr, running);
     }
 
     /// Once a frame: hand the backend's lines to the Output panel.
@@ -3096,7 +3085,6 @@ impl CoboltApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         } else {
             self.backend_run = None;
-            self.backend_by_preview = false;
         }
     }
 
@@ -3559,9 +3547,6 @@ impl CoboltApp {
     fn do_stop(&mut self) {
         self.web_preview.close();
         self.browser_confirm = None;
-        if self.backend_by_preview {
-            self.stop_backend();
-        }
         self.runner.stop();
         self.output.push_status(crate::ui_text::ide("── Stop requested ──"));
     }
@@ -17196,10 +17181,7 @@ impl eframe::App for CoboltApp {
                                         self.start_backend();
                                         ui.close();
                                     }
-                                    if ui.add_enabled(backend_up, egui::Button::new(tr.backend_stop)).clicked() {
-                                        self.stop_backend();
-                                        ui.close();
-                                    }
+                                    // No Stop here: only the Backend button of the top bar stops the Backend.
                                 }
                             });
                         }
