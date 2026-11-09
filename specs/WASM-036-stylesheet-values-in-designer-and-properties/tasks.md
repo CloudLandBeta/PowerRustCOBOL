@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** draft. No task started.
+- **Status:** in progress. T1 done (2.0.362); T2 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -50,7 +50,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
 
 ## Phase A — The engine (`cobolt-forms`, no egui)
 
-- [ ] **T1 — The CSS subset: attribute selectors, `:host`, decided media queries, declaration offsets** (R1, R4, R25 engine half)
+- [x] **T1 — The CSS subset: attribute selectors, `:host`, decided media queries, declaration offsets** (R1, R4, R25 engine half)
   - Files: `crates/cobolt-forms/src/css.rs`, `crates/cobolt-forms/src/viewer.rs`.
   - Do:
     - **Attribute selectors:** `[a]`, `[a=v]`, `~=`, `|=`, `^=`, `$=`, `*=`, and the `i` flag. They replace `'[' => return None` (css.rs:365-367).
@@ -72,6 +72,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - The Viewer's tests unchanged and green.
     - `media_matches` gives the same answers as before over its existing cases.
     - The forms build without `render` succeeds.
+  - *Done 2026-11-09 (2.0.362):* `css.rs` reads `[a]`, `[a=v]`, `~=`, `|=`, `^=`, `$=`, `*=` and the `i`/`s` flag (an attribute counts as a class in specificity; `ElementRef.attrs`, `&[]` at the Viewer's construction site and everywhere else, so such a rule matches nothing there); `:host` matches the first element of the path; `MediaEnv`, `Scheme`, `Tri` and `media_eval` decide `width`, `height`, their min/max, `orientation`, `aspect-ratio` and `prefers-color-scheme`, and answer `Unknown` for `hover`, `pointer` and the other `prefers-*`; `media_matches` keeps its signature and answers `media_core` at 1024 px with the old fixed readings; `parse_declarations_spanned` and `blank_comments` give each declaration's name, value and whole byte ranges (offset-preserving comment blanking); `Selector`, `parse_selector`, `specificity` and `matches` are `pub(crate)`. Evidence: `cargo test -p cobolt-forms --features render css` 14 passed, 0 failed (4 new: every attribute operator, 24 selector cases + 8 malformed/specificity/cascade checks; `:host`; `media_eval` 25 queries x 2 schemes at 412 x 915; `media_matches` against a verbatim copy of the replaced implementation over 367 queries, identical; spans on a CRLF sheet with comments and an in-place edit); `cargo build -p cobolt-forms --no-default-features` builds. The existing selector test now expects `[attr]` kept (it asserted dropped, which R1 reverses).
 
 - [ ] **T2 — `css_effective`: the sheet set, the element path and the cascade** (R1, R4, R20)
   - Files: new `crates/cobolt-forms/src/css_effective.rs` (`pub mod` in `lib.rs`, not behind `render`), `crates/cobolt-forms/src/css_overrides.rs`.

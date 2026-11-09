@@ -308,15 +308,15 @@ pub fn overrides(form: &Form, id: &str, sheets: &[(&str, &str)]) -> Overrides {
     let surface_classes = vec!["pr-surface".to_owned()];
     let layer_classes = vec!["pr-form-layer".to_owned()];
     let all_classes: Vec<Vec<String>> = chain.iter().map(|c| classes(c)).collect();
-    let mut path: Vec<ElementRef<'_>> = vec![ElementRef { name: "section", id: None, classes: &root_classes, index: 1, count: 1, siblings: &[] }];
+    let mut path: Vec<ElementRef<'_>> = vec![ElementRef { name: "section", id: None, classes: &root_classes, index: 1, count: 1, siblings: &[], attrs: &[] }];
     if ctl.layer.as_deref().is_some_and(|l| !l.is_empty()) {
-        path.push(ElementRef { name: "div", id: None, classes: &layer_classes, index: 1, count: 1, siblings: &[] });
+        path.push(ElementRef { name: "div", id: None, classes: &layer_classes, index: 1, count: 1, siblings: &[], attrs: &[] });
     } else {
-        path.push(ElementRef { name: "div", id: None, classes: &base_classes, index: 1, count: 1, siblings: &[] });
-        path.push(ElementRef { name: "div", id: None, classes: &surface_classes, index: 1, count: 1, siblings: &[] });
+        path.push(ElementRef { name: "div", id: None, classes: &base_classes, index: 1, count: 1, siblings: &[], attrs: &[] });
+        path.push(ElementRef { name: "div", id: None, classes: &surface_classes, index: 1, count: 1, siblings: &[], attrs: &[] });
     }
     for (c, cls) in chain.iter().zip(&all_classes) {
-        path.push(ElementRef { name: "div", id: Some(c.id.as_str()), classes: cls, index: 1, count: 1, siblings: &[] });
+        path.push(ElementRef { name: "div", id: Some(c.id.as_str()), classes: cls, index: 1, count: 1, siblings: &[], attrs: &[] });
     }
 
     let mut out = Overrides::default();

@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.362 — 2026-11-09
+
+**Feature: the style-sheet reader of the form engine understands attribute selectors, `:host`, and decides media queries for a given screen (WASM-036 T1).** A rule such as `[data-name="BTN-SAVE"] { … }` or `[lang|=en]` now matches (the seven operators and the `i` flag) instead of being dropped; `:host` matches the root of the form; `media_eval` answers `@media` for a given width, height and light or dark scheme, and says "unknown" for what it cannot know (`hover`, `pointer`, the other `prefers-*`); and each declaration can be read with the exact byte ranges of its name and value, so a later step can rewrite one value in place. `media_matches` gives every answer it always gave. Nothing in the IDE changes yet: this is the engine the next tasks build on. The Viewer passes no attributes, so a rule that tests one matches nothing there.
+
 ## 2.0.361 — 2026-11-09
 
 **Fix: Pitfall: the other side stopped with "arithmetic size error with no ON SIZE ERROR" after a few minutes of walking.** *(Written on fixes-2x-pitfall-size-error, numbered after 2.0.360.)*

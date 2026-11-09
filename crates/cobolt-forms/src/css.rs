@@ -49,6 +49,10 @@ pub struct ElementRef<'a> {
     /// The parent's element children, in order — what `+` and `~` look
     /// back through. Empty when unknown; a sibling selector then fails.
     pub siblings: &'a [Sibling],
+    /// The element's attributes as `(name, value)`, names lower-case — what an
+    /// attribute selector (`[data-name="X"]`) reads. The Viewer passes none, so
+    /// a rule using one matches nothing there.
+    pub attrs: &'a [(&'a str, &'a str)],
 }
 
 /// One element child of a parent, as a sibling combinator sees it.
@@ -69,6 +73,8 @@ enum Pseudo {
     LastChild,
     OnlyChild,
     Root,
+    /// `:host` — the root element of the path.
+    Host,
     /// `:nth-child(an+b)`
     Nth(i32, i32),
     /// `:nth-last-child(an+b)`
@@ -77,11 +83,65 @@ enum Pseudo {
     Not(Vec<Compound>),
 }
 
+/// How an attribute selector compares the attribute's value.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum AttrOp {
+    /// `[a]` — the attribute exists.
+    Exists,
+    /// `[a=v]`
+    Equals,
+    /// `[a~=v]` — one of the whitespace-separated words.
+    Word,
+    /// `[a|=v]` — `v`, or `v-` then anything.
+    Dash,
+    /// `[a^=v]`
+    Prefix,
+    /// `[a$=v]`
+    Suffix,
+    /// `[a*=v]`
+    Contains,
+}
+
+/// One attribute selector.
+#[derive(Debug, Clone, PartialEq)]
+struct AttrSel {
+    name: String,
+    op: AttrOp,
+    value: String,
+    /// The `i` flag: compare without regard to case.
+    insensitive: bool,
+}
+
+impl AttrSel {
+    fn matches(&self, attrs: &[(&str, &str)]) -> bool {
+        let Some((_, have)) = attrs.iter().find(|(n, _)| n.eq_ignore_ascii_case(&self.name)) else { return false };
+        if self.op == AttrOp::Exists {
+            return true;
+        }
+        let (have, want) = if self.insensitive {
+            (have.to_lowercase(), self.value.to_lowercase())
+        } else {
+            (have.to_string(), self.value.clone())
+        };
+        match self.op {
+            AttrOp::Exists => true,
+            AttrOp::Equals => have == want,
+            AttrOp::Word => have.split_whitespace().any(|w| w == want),
+            AttrOp::Dash => have == want || have.strip_prefix(&want).is_some_and(|r| r.starts_with('-')),
+            // An empty value matches nothing for the substring forms, as in a browser.
+            AttrOp::Prefix => !want.is_empty() && have.starts_with(&want),
+            AttrOp::Suffix => !want.is_empty() && have.ends_with(&want),
+            AttrOp::Contains => !want.is_empty() && have.contains(&want),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 struct Compound {
     tag: Option<String>,
     id: Option<String>,
     classes: Vec<String>,
+    attrs: Vec<AttrSel>,
     pseudos: Vec<Pseudo>,
 }
 
@@ -98,7 +158,7 @@ enum Combinator {
 /// A complex selector, left to right: each compound after the first says how
 /// it relates to the one before it.
 #[derive(Debug, Clone, PartialEq)]
-struct Selector {
+pub(crate) struct Selector {
     parts: Vec<(Combinator, Compound)>,
 }
 
@@ -242,6 +302,87 @@ pub fn parse_declarations(body: &str) -> Vec<Decl> {
     out
 }
 
+/// A declaration with where it sits in the text it was read from (WASM-036 R4), so
+/// an editor can rewrite its value in place without touching the rest.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeclSpan {
+    pub decl: Decl,
+    /// The property's name, as written (case kept).
+    pub name: std::ops::Range<usize>,
+    /// The value, without `!important` and without the spaces around it.
+    pub value: std::ops::Range<usize>,
+    /// The whole declaration, from the name to the end of the value or of
+    /// `!important`; the `;` after it is not part of it.
+    pub whole: std::ops::Range<usize>,
+}
+
+/// `css` with every comment overwritten by spaces (a newline stays a newline), so a
+/// byte offset in the result is the same offset in `css`.
+pub fn blank_comments(css: &str) -> String {
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(start) = rest.find("/*") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let (len, closed) = match after.find("*/") {
+            Some(end) => (end + 2, true),
+            None => (after.len(), false),
+        };
+        let comment = &rest[start..start + 2 + len];
+        for b in comment.bytes() {
+            // One output byte per input byte, so multi-byte characters keep their length.
+            out.push(if b == b'\n' || b == b'\r' { b as char } else { ' ' });
+        }
+        rest = &rest[start + 2 + len..];
+        if !closed {
+            return out;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The declarations of `text[body]` (the inside of a rule's braces) with their byte
+/// ranges in `text`. Comments are skipped; the declarations are the ones
+/// [`parse_declarations`] reads from the same body.
+pub fn parse_declarations_spanned(text: &str, body: std::ops::Range<usize>) -> Vec<DeclSpan> {
+    let blanked = blank_comments(text);
+    let base = blanked.as_ptr() as usize;
+    let Some(inner) = blanked.get(body) else { return Vec::new() };
+    let mut out = Vec::new();
+    for part in split_top(inner, ';') {
+        let at = part.as_ptr() as usize - base;
+        let Some(colon) = part.find(':') else { continue };
+        let name_text = &part[..colon];
+        let lead = name_text.len() - name_text.trim_start().len();
+        let name_str = name_text.trim();
+        if name_str.is_empty() || name_str.contains(char::is_whitespace) {
+            continue;
+        }
+        let name = at + lead..at + lead + name_str.len();
+        let after = &part[colon + 1..];
+        let vlead = after.len() - after.trim_start().len();
+        let mut value_str = after.trim();
+        let whole_end = at + colon + 1 + vlead + value_str.len();
+        let mut important = false;
+        if let Some(pos) = value_str.to_ascii_lowercase().rfind("!important") {
+            value_str = value_str[..pos].trim_end();
+            important = true;
+        }
+        if value_str.is_empty() {
+            continue;
+        }
+        let vstart = at + colon + 1 + vlead;
+        out.push(DeclSpan {
+            decl: Decl { name: name_str.to_ascii_lowercase(), value: value_str.to_string(), important },
+            name: name.clone(),
+            value: vstart..vstart + value_str.len(),
+            whole: name.start..whole_end,
+        });
+    }
+    out
+}
+
 fn strip_comments(css: &str) -> String {
     let mut out = String::with_capacity(css.len());
     let mut rest = css;
@@ -316,7 +457,55 @@ pub fn tokens(s: &str) -> Vec<&str> {
     split_top(s, ' ').into_iter().flat_map(|t| split_top(t, '\t')).map(str::trim).filter(|t| !t.is_empty()).collect()
 }
 
-fn parse_selector(s: &str) -> Option<Selector> {
+/// The inside of `[...]`: `name`, `name=value`, `name~=value` … with an optional
+/// quoted value and an optional trailing `i` (or `s`) flag.
+fn parse_attr(inner: &str) -> Option<AttrSel> {
+    let inner = inner.trim();
+    let name_end = inner.find(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_' || c == ':')).unwrap_or(inner.len());
+    let name = inner[..name_end].to_ascii_lowercase();
+    if name.is_empty() {
+        return None;
+    }
+    let rest = inner[name_end..].trim_start();
+    if rest.is_empty() {
+        return Some(AttrSel { name, op: AttrOp::Exists, value: String::new(), insensitive: false });
+    }
+    let (op, rest) = if let Some(r) = rest.strip_prefix("~=") {
+        (AttrOp::Word, r)
+    } else if let Some(r) = rest.strip_prefix("|=") {
+        (AttrOp::Dash, r)
+    } else if let Some(r) = rest.strip_prefix("^=") {
+        (AttrOp::Prefix, r)
+    } else if let Some(r) = rest.strip_prefix("$=") {
+        (AttrOp::Suffix, r)
+    } else if let Some(r) = rest.strip_prefix("*=") {
+        (AttrOp::Contains, r)
+    } else if let Some(r) = rest.strip_prefix('=') {
+        (AttrOp::Equals, r)
+    } else {
+        return None;
+    };
+    let rest = rest.trim_start();
+    let (value, tail) = match rest.chars().next()? {
+        q @ ('"' | '\'') => {
+            let body = &rest[1..];
+            let close = body.find(q)?;
+            (body[..close].to_string(), &body[close + 1..])
+        }
+        _ => {
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            (rest[..end].to_string(), &rest[end..])
+        }
+    };
+    let insensitive = match tail.trim().to_ascii_lowercase().as_str() {
+        "" | "s" => false,
+        "i" => true,
+        _ => return None,
+    };
+    Some(AttrSel { name, op, value, insensitive })
+}
+
+pub(crate) fn parse_selector(s: &str) -> Option<Selector> {
     if s.is_empty() {
         return None;
     }
@@ -362,9 +551,27 @@ fn parse_selector(s: &str) -> Option<Selector> {
                 pending = if c == '+' { Combinator::Adjacent } else { Combinator::General };
                 i += 1;
             }
-            // Attribute selectors are not in the subset: a selector using
-            // one is dropped rather than matched wrongly.
-            '[' => return None,
+            '[' => {
+                let start = i + 1;
+                let mut quote: Option<char> = None;
+                let mut end = None;
+                for (k, ch) in chars.iter().enumerate().skip(start) {
+                    match quote {
+                        Some(q) if *ch == q => quote = None,
+                        Some(_) => {}
+                        None if *ch == '"' || *ch == '\'' => quote = Some(*ch),
+                        None if *ch == ']' => {
+                            end = Some(k);
+                            break;
+                        }
+                        None => {}
+                    }
+                }
+                let end = end?;
+                let inner: String = chars[start..end].iter().collect();
+                current.get_or_insert_with(Compound::default).attrs.push(parse_attr(&inner)?);
+                i = end + 1;
+            }
             '*' => {
                 current.get_or_insert_with(Compound::default);
                 i += 1;
@@ -419,6 +626,7 @@ fn parse_selector(s: &str) -> Option<Selector> {
                     "last-child" => Pseudo::LastChild,
                     "only-child" => Pseudo::OnlyChild,
                     "root" => Pseudo::Root,
+                    "host" => Pseudo::Host,
                     "nth-child" => {
                         let (a, b) = parse_nth(&arg)?;
                         Pseudo::Nth(a, b)
@@ -497,7 +705,8 @@ fn nth_matches(a: i32, b: i32, pos: i32) -> bool {
 }
 
 impl Compound {
-    fn matches(&self, e: &ElementRef<'_>) -> bool {
+    /// `root`: `e` is the first element of the path (what `:host` tests).
+    fn matches(&self, e: &ElementRef<'_>, root: bool) -> bool {
         if let Some(t) = &self.tag {
             if t != e.name {
                 return false;
@@ -511,21 +720,25 @@ impl Compound {
         if !self.classes.iter().all(|c| e.classes.iter().any(|ec| ec == c)) {
             return false;
         }
+        if !self.attrs.iter().all(|a| a.matches(e.attrs)) {
+            return false;
+        }
         self.pseudos.iter().all(|p| match p {
             Pseudo::FirstChild => e.index == 1,
             Pseudo::LastChild => e.index == e.count,
             Pseudo::OnlyChild => e.count == 1,
             Pseudo::Root => e.name == "html",
+            Pseudo::Host => root,
             Pseudo::Nth(a, b) => nth_matches(*a, *b, e.index as i32),
             Pseudo::NthLast(a, b) => nth_matches(*a, *b, (e.count + 1 - e.index) as i32),
-            Pseudo::Not(list) => !list.iter().any(|c| c.matches(e)),
+            Pseudo::Not(list) => !list.iter().any(|c| c.matches(e, root)),
         })
     }
 
     /// (ids, classes and pseudo-classes, tags) — `:not()` counts as its
     /// most specific argument.
     fn specificity(&self) -> (u32, u32, u32) {
-        let mut s = (self.id.is_some() as u32, self.classes.len() as u32, self.tag.is_some() as u32);
+        let mut s = (self.id.is_some() as u32, (self.classes.len() + self.attrs.len()) as u32, self.tag.is_some() as u32);
         for p in &self.pseudos {
             match p {
                 Pseudo::Not(list) => {
@@ -540,7 +753,7 @@ impl Compound {
 }
 
 impl Selector {
-    fn specificity(&self) -> (u32, u32, u32) {
+    pub(crate) fn specificity(&self) -> (u32, u32, u32) {
         let mut s = (0, 0, 0);
         for (_, c) in &self.parts {
             let t = c.specificity();
@@ -550,11 +763,11 @@ impl Selector {
     }
 
     /// Right to left, backtracking over descendant combinators.
-    fn matches(&self, path: &[ElementRef<'_>]) -> bool {
+    pub(crate) fn matches(&self, path: &[ElementRef<'_>]) -> bool {
         fn at(parts: &[(Combinator, Compound)], path: &[ElementRef<'_>]) -> bool {
             let Some(((comb, last), rest_parts)) = parts.split_last() else { return true };
             let Some((elem, ancestors)) = path.split_last() else { return false };
-            if !last.matches(elem) {
+            if !last.matches(elem, ancestors.is_empty()) {
                 return false;
             }
             if rest_parts.is_empty() {
@@ -571,6 +784,7 @@ impl Selector {
                     index: j,
                     count: elem.count,
                     siblings: elem.siblings,
+                    attrs: &[],
                 });
                 at(rest_parts, &p)
             };
@@ -591,35 +805,131 @@ impl Selector {
 /// `print` and the rest do not; `min-width` / `max-width` are compared, and
 /// a feature this subset does not know makes its query fail.
 pub fn media_matches(list: &str) -> bool {
-    split_top(list, ',').iter().any(|q| {
+    // The fixed desktop answers of old: the features `media_eval` cannot decide are
+    // read as they always were, and the ones it decides beyond them (`height`,
+    // `aspect-ratio`) stay unknown names, which fail.
+    let env = MediaEnv { width: MEDIA_WIDTH_PX, height: 768.0, scheme: Scheme::Light };
+    media_core(list, &env, true) != Tri::Fails
+}
+
+/// The colour scheme `prefers-color-scheme` is answered for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scheme {
+    Light,
+    Dark,
+}
+
+/// What `@media` is answered against: the viewport's size in CSS pixels and the
+/// colour scheme.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MediaEnv {
+    pub width: f32,
+    pub height: f32,
+    pub scheme: Scheme,
+}
+
+/// A media query's answer: decided, or a feature this tool does not know the
+/// answer to (`hover`, `pointer`, the other `prefers-*`) — the editor shows such a
+/// rule as conditional rather than guessing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tri {
+    Holds,
+    Fails,
+    Unknown,
+}
+
+impl Tri {
+    fn and(self, o: Tri) -> Tri {
+        match (self, o) {
+            (Tri::Fails, _) | (_, Tri::Fails) => Tri::Fails,
+            (Tri::Unknown, _) | (_, Tri::Unknown) => Tri::Unknown,
+            _ => Tri::Holds,
+        }
+    }
+    fn or(self, o: Tri) -> Tri {
+        match (self, o) {
+            (Tri::Holds, _) | (_, Tri::Holds) => Tri::Holds,
+            (Tri::Unknown, _) | (_, Tri::Unknown) => Tri::Unknown,
+            _ => Tri::Fails,
+        }
+    }
+    fn not(self) -> Tri {
+        match self {
+            Tri::Holds => Tri::Fails,
+            Tri::Fails => Tri::Holds,
+            Tri::Unknown => Tri::Unknown,
+        }
+    }
+}
+
+fn tri(b: bool) -> Tri {
+    if b {
+        Tri::Holds
+    } else {
+        Tri::Fails
+    }
+}
+
+/// Whether an `@media` query list holds in `env`: `Holds`, `Fails`, or `Unknown`
+/// when the answer rests on a feature that is not decided here.
+pub fn media_eval(list: &str, env: &MediaEnv) -> Tri {
+    media_core(list, env, false)
+}
+
+/// `legacy`: `media_matches`' own reading (see there).
+fn media_core(list: &str, env: &MediaEnv, legacy: bool) -> Tri {
+    let mut any = Tri::Fails;
+    for q in split_top(list, ',') {
         let q = q.trim().to_ascii_lowercase();
         let (negated, q) = match q.strip_prefix("not ") {
             Some(r) => (true, r.trim().to_string()),
             None => (false, q.strip_prefix("only ").map(|r| r.trim().to_string()).unwrap_or(q)),
         };
-        let mut ok = true;
+        let mut ok = Tri::Holds;
         for part in q.split(" and ") {
             let part = part.trim();
             let holds = if let Some(f) = part.strip_prefix('(').and_then(|f| f.strip_suffix(')')) {
                 let (name, value) = f.split_once(':').map(|(n, v)| (n.trim(), v.trim())).unwrap_or((f.trim(), ""));
-                let px = || length(value, 16.0, None);
-                match name {
-                    "min-width" => px().is_some_and(|w| MEDIA_WIDTH_PX >= w),
-                    "max-width" => px().is_some_and(|w| MEDIA_WIDTH_PX <= w),
-                    "orientation" => value == "landscape",
-                    "hover" | "any-hover" => value == "hover",
-                    "pointer" | "any-pointer" => value == "fine",
-                    "prefers-color-scheme" => value == "light",
-                    "color" => true,
-                    _ => false,
-                }
+                media_feature(name, value, env, legacy)
             } else {
-                matches!(part, "all" | "screen" | "")
+                tri(matches!(part, "all" | "screen" | ""))
             };
-            ok &= holds;
+            ok = ok.and(holds);
         }
-        ok != negated
-    })
+        any = any.or(if negated { ok.not() } else { ok });
+    }
+    any
+}
+
+fn media_feature(name: &str, value: &str, env: &MediaEnv, legacy: bool) -> Tri {
+    let px = || length(value, 16.0, None);
+    let ratio = || {
+        let (a, b) = value.split_once('/').map(|(a, b)| (a.trim(), b.trim())).unwrap_or((value, "1"));
+        let (a, b): (f32, f32) = (a.parse().ok()?, b.parse().ok()?);
+        (b != 0.0).then_some(a / b)
+    };
+    let aspect = env.width / env.height;
+    match name {
+        "min-width" => tri(px().is_some_and(|w| env.width >= w)),
+        "max-width" => tri(px().is_some_and(|w| env.width <= w)),
+        "orientation" => tri(value == if env.width >= env.height { "landscape" } else { "portrait" }),
+        "color" => Tri::Holds,
+        "prefers-color-scheme" => tri(value == if env.scheme == Scheme::Light { "light" } else { "dark" }),
+        // Decided only by `media_eval`: `media_matches` always treated them as unknown names.
+        "width" if !legacy => tri(px().is_some_and(|w| env.width == w)),
+        "height" if !legacy => tri(px().is_some_and(|h| env.height == h)),
+        "min-height" if !legacy => tri(px().is_some_and(|h| env.height >= h)),
+        "max-height" if !legacy => tri(px().is_some_and(|h| env.height <= h)),
+        "aspect-ratio" if !legacy => tri(ratio().is_some_and(|r| (aspect - r).abs() < 0.005)),
+        "min-aspect-ratio" if !legacy => tri(ratio().is_some_and(|r| aspect >= r)),
+        "max-aspect-ratio" if !legacy => tri(ratio().is_some_and(|r| aspect <= r)),
+        // What a document cannot know, `media_matches` answers as a desktop does.
+        "hover" | "any-hover" if legacy => tri(value == "hover"),
+        "pointer" | "any-pointer" if legacy => tri(value == "fine"),
+        "hover" | "any-hover" | "pointer" | "any-pointer" => Tri::Unknown,
+        n if n.starts_with("prefers-") && !legacy => Tri::Unknown,
+        _ => Tri::Fails,
+    }
 }
 
 /// `calc(…)`: `+ - * /` over lengths and numbers, with parentheses and
@@ -885,7 +1195,7 @@ mod tests {
     use super::*;
 
     fn el<'a>(name: &'a str, id: Option<&'a str>, classes: &'a [String], index: usize, count: usize) -> ElementRef<'a> {
-        ElementRef { name, id, classes, index, count, siblings: &[] }
+        ElementRef { name, id, classes, index, count, siblings: &[], attrs: &[] }
     }
 
     #[test]
@@ -935,7 +1245,13 @@ mod tests {
         assert_eq!(decl(&li, "color").as_deref(), Some("gray"));
         let a = [el("a", None, &none, 1, 1)];
         assert_eq!(decl(&a, "color"), None, ":hover never matches a document");
-        assert_eq!(sheet.rules.len(), 4, "::before and [attr] are dropped, not guessed at");
+        assert_eq!(sheet.rules.len(), 5, "::before is dropped, not guessed at; [attr] is kept since WASM-036 T1");
+        let input = [el("input", None, &none, 1, 1)];
+        assert_eq!(decl(&input, "color"), None, "an attribute rule matches nothing where no attributes are passed");
+        let mut typed = el("input", None, &none, 1, 1);
+        let attrs = [("type", "text")];
+        typed.attrs = &attrs;
+        assert_eq!(decl(&[typed], "color").as_deref(), Some("teal"));
     }
 
     /// What a framework such as Bulma leans on: `@media` answered for a
@@ -973,16 +1289,16 @@ mod tests {
             sheet.cascade(path, &[]).into_iter().rev().find(|d| d.name == name).map(|d| d.value)
         };
         let body = el("body", None, &none, 1, 1);
-        let h1 = ElementRef { name: "h1", id: None, classes: &title, index: 1, count: 3, siblings: &kids };
-        let sub = ElementRef { name: "p", id: None, classes: &subtitle, index: 2, count: 3, siblings: &kids };
-        let plain = ElementRef { name: "p", id: None, classes: &none, index: 3, count: 3, siblings: &kids };
+        let h1 = ElementRef { name: "h1", id: None, classes: &title, index: 1, count: 3, siblings: &kids, attrs: &[] };
+        let sub = ElementRef { name: "p", id: None, classes: &subtitle, index: 2, count: 3, siblings: &kids, attrs: &[] };
+        let plain = ElementRef { name: "p", id: None, classes: &none, index: 3, count: 3, siblings: &kids, attrs: &[] };
         assert_eq!(decls(&[body, h1], "margin-bottom").as_deref(), Some("24px"), ":not(:last-child)");
         assert_eq!(decls(&[body, sub], "margin-top").as_deref(), Some("-20px"), "title + subtitle");
         assert_eq!(decls(&[body, plain], "margin-top"), None, "+ is the element straight before only");
         assert_eq!(decls(&[body, plain], "color").as_deref(), Some("gray"), "h1 ~ p, two apart");
         assert_eq!(decls(&[body, sub], "color").as_deref(), Some("gray"));
         assert_eq!(decls(&[body, h1], "color"), None, "~ looks back, never forward");
-        let lone = ElementRef { name: "p", id: None, classes: &subtitle, index: 2, count: 3, siblings: &[] };
+        let lone = ElementRef { name: "p", id: None, classes: &subtitle, index: 2, count: 3, siblings: &[], attrs: &[] };
         assert_eq!(decls(&[body, lone], "margin-top"), None, "siblings unknown: no match, no panic");
         assert_eq!(decls(&[body, el("div", None, &columns, 1, 1)], "display").as_deref(), Some("flex"));
         assert_eq!(decls(&[body, el("div", None, &desktop, 1, 1)], "display"), None, ":not(.is-desktop)");
@@ -1026,5 +1342,210 @@ mod tests {
         assert_eq!(substitute_vars("var(--missing)", &vars), None);
         assert_eq!(parse_nth("-n+3"), Some((-1, 3)));
         assert!(nth_matches(-1, 3, 2) && !nth_matches(-1, 3, 4));
+    }
+
+    // ── WASM-036 T1: attribute selectors, :host, decided media queries, byte ranges ──
+
+    fn matches_attrs(selector: &str, attrs: &[(&str, &str)]) -> bool {
+        let sel = parse_selector(selector).unwrap_or_else(|| panic!("selector {selector:?} did not parse"));
+        let none: Vec<String> = Vec::new();
+        let mut e = el("div", None, &none, 1, 1);
+        e.attrs = attrs;
+        sel.matches(&[e])
+    }
+
+    /// Every attribute operator, the `i` flag, the quoting forms, and what a missing attribute does.
+    #[test]
+    fn attribute_selectors_every_operator() {
+        let a = [("data-name", "Btn-Save"), ("class", "one two three"), ("lang", "en-GB"), ("title", "")];
+        let cases: &[(&str, bool)] = &[
+            ("[data-name]", true),
+            ("[nope]", false),
+            ("[data-name=\"Btn-Save\"]", true),
+            ("[data-name='Btn-Save']", true),
+            ("[data-name=Btn-Save]", true),
+            ("[data-name=\"btn-save\"]", false),
+            ("[data-name=\"btn-save\" i]", true),
+            ("[data-name=\"btn-save\" s]", false),
+            ("[class~=two]", true),
+            ("[class~=tw]", false),
+            ("[lang|=en]", true),
+            ("[lang|=\"en-GB\"]", true),
+            ("[lang|=e]", false),
+            ("[data-name^=Btn]", true),
+            ("[data-name^=Save]", false),
+            ("[data-name$=Save]", true),
+            ("[data-name*=\"n-S\"]", true),
+            ("[data-name*=zzz]", false),
+            ("[title^=\"\"]", false),
+            ("div[data-name=\"Btn-Save\"]", true),
+            ("span[data-name=\"Btn-Save\"]", false),
+            ("[data-name=\"Btn-Save\"][lang|=en]", true),
+            ("[data-name=\"Btn-Save\"][lang|=fr]", false),
+            ("[data-name=\"a]b\"]", false),
+        ];
+        for (sel, want) in cases {
+            assert_eq!(matches_attrs(sel, &a), *want, "{sel}");
+        }
+        // No attributes known (the Viewer): such a rule matches nothing, it is not dropped wrongly.
+        assert!(!matches_attrs("[data-name]", &[]));
+        // Malformed ones are refused, not matched wrongly.
+        for bad in ["[", "[=x]", "[a=]x", "[a?=b]", "[a=b j]"] {
+            assert!(parse_selector(bad).is_none() || bad == "[a=]x", "{bad}");
+        }
+        // Specificity: an attribute counts as a class.
+        assert_eq!(parse_selector("div[a][b]").unwrap().specificity(), (0, 2, 1));
+        // And it cascades: the attribute rule beats the tag rule, and loses to an id.
+        let sheet = Stylesheet::parse("div { color: red } [data-name=\"X\"] { color: blue } #x { color: green }");
+        let none: Vec<String> = Vec::new();
+        let mut e = el("div", None, &none, 1, 1);
+        let attrs = [("data-name", "X")];
+        e.attrs = &attrs;
+        let got = sheet.cascade(&[e], &[]);
+        assert_eq!(got.last().map(|d| d.value.as_str()), Some("blue"), "{got:?}");
+        eprintln!("attribute selectors: {} cases, specificity and cascade checked", cases.len() + 5 + 3);
+    }
+
+    #[test]
+    fn host_matches_only_the_root_of_the_path() {
+        let none: Vec<String> = Vec::new();
+        let path = [el("section", None, &none, 1, 1), el("div", None, &none, 1, 1)];
+        let host = parse_selector(":host").unwrap();
+        assert!(host.matches(&path[..1]), "the root element");
+        assert!(!host.matches(&path), "a descendant is not the host");
+        let desc = parse_selector(":host div").unwrap();
+        assert!(desc.matches(&path));
+        assert!(!parse_selector(":host section").unwrap().matches(&path), "the host is not its own descendant");
+        assert_eq!(host.specificity(), (0, 1, 0));
+        let sheet = Stylesheet::parse(":host { --a: 1 } div { --b: 2 }");
+        let got = sheet.cascade(&path[..1], &[]);
+        assert!(got.iter().any(|d| d.name == "--a") && !got.iter().any(|d| d.name == "--b"), "{got:?}");
+    }
+
+    /// 412 × 915 (a phone), Light and Dark: what decides and what stays unknown.
+    #[test]
+    fn media_eval_decides_what_it_can_and_says_unknown_otherwise() {
+        let phone = |scheme| MediaEnv { width: 412.0, height: 915.0, scheme };
+        let (light, dark) = (phone(Scheme::Light), phone(Scheme::Dark));
+        let cases: &[(&str, Tri, Tri)] = &[
+            ("(max-width: 600px)", Tri::Holds, Tri::Holds),
+            ("(min-width: 600px)", Tri::Fails, Tri::Fails),
+            ("screen and (max-width: 768px)", Tri::Holds, Tri::Holds),
+            ("(width: 412px)", Tri::Holds, Tri::Holds),
+            ("(height: 915px)", Tri::Holds, Tri::Holds),
+            ("(min-height: 900px) and (max-height: 1000px)", Tri::Holds, Tri::Holds),
+            ("(orientation: portrait)", Tri::Holds, Tri::Holds),
+            ("(orientation: landscape)", Tri::Fails, Tri::Fails),
+            ("(aspect-ratio: 412/915)", Tri::Holds, Tri::Holds),
+            ("(min-aspect-ratio: 1/1)", Tri::Fails, Tri::Fails),
+            ("(max-aspect-ratio: 1/1)", Tri::Holds, Tri::Holds),
+            ("(prefers-color-scheme: dark)", Tri::Fails, Tri::Holds),
+            ("(prefers-color-scheme: light)", Tri::Holds, Tri::Fails),
+            ("(hover: hover)", Tri::Unknown, Tri::Unknown),
+            ("(pointer: fine)", Tri::Unknown, Tri::Unknown),
+            ("(prefers-reduced-motion: reduce)", Tri::Unknown, Tri::Unknown),
+            ("(prefers-contrast: more)", Tri::Unknown, Tri::Unknown),
+            ("print", Tri::Fails, Tri::Fails),
+            ("not print", Tri::Holds, Tri::Holds),
+            ("not (hover: hover)", Tri::Unknown, Tri::Unknown),
+            ("(max-width: 600px) and (hover: hover)", Tri::Unknown, Tri::Unknown),
+            ("(min-width: 600px) and (hover: hover)", Tri::Fails, Tri::Fails),
+            ("print, (max-width: 600px)", Tri::Holds, Tri::Holds),
+            ("(min-width: 600px), (hover: hover)", Tri::Unknown, Tri::Unknown),
+            ("(frobnicate: 3)", Tri::Fails, Tri::Fails),
+        ];
+        for (q, l, d) in cases {
+            assert_eq!(media_eval(q, &light), *l, "light: {q}");
+            assert_eq!(media_eval(q, &dark), *d, "dark: {q}");
+        }
+        eprintln!("media_eval: {} queries x 2 schemes at 412 x 915", cases.len());
+    }
+
+    /// `media_matches` keeps its signature and every old answer: compared with a verbatim copy of the
+    /// implementation it replaced, over a grid of queries.
+    #[test]
+    fn media_matches_gives_the_answers_it_always_gave() {
+        fn old(list: &str) -> bool {
+            split_top(list, ',').iter().any(|q| {
+                let q = q.trim().to_ascii_lowercase();
+                let (negated, q) = match q.strip_prefix("not ") {
+                    Some(r) => (true, r.trim().to_string()),
+                    None => (false, q.strip_prefix("only ").map(|r| r.trim().to_string()).unwrap_or(q)),
+                };
+                let mut ok = true;
+                for part in q.split(" and ") {
+                    let part = part.trim();
+                    let holds = if let Some(f) = part.strip_prefix('(').and_then(|f| f.strip_suffix(')')) {
+                        let (name, value) = f.split_once(':').map(|(n, v)| (n.trim(), v.trim())).unwrap_or((f.trim(), ""));
+                        let px = || length(value, 16.0, None);
+                        match name {
+                            "min-width" => px().is_some_and(|w| MEDIA_WIDTH_PX >= w),
+                            "max-width" => px().is_some_and(|w| MEDIA_WIDTH_PX <= w),
+                            "orientation" => value == "landscape",
+                            "hover" | "any-hover" => value == "hover",
+                            "pointer" | "any-pointer" => value == "fine",
+                            "prefers-color-scheme" => value == "light",
+                            "color" => true,
+                            _ => false,
+                        }
+                    } else {
+                        matches!(part, "all" | "screen" | "")
+                    };
+                    ok &= holds;
+                }
+                ok != negated
+            })
+        }
+        let types = ["", "screen and ", "print and ", "all and ", "only screen and ", "not "];
+        let feats = [
+            "(min-width: 769px)", "(min-width:1024px)", "(max-width: 768px)", "(min-width: 1216px)", "(max-width: 1024px)",
+            "(orientation: landscape)", "(orientation: portrait)", "(hover: hover)", "(hover: none)", "(pointer: fine)",
+            "(pointer: coarse)", "(any-hover: hover)", "(prefers-color-scheme: light)", "(prefers-color-scheme: dark)",
+            "(prefers-reduced-motion: reduce)", "(color)", "(height: 768px)", "(min-height: 100px)", "(aspect-ratio: 4/3)",
+            "(frobnicate: 1)",
+        ];
+        let mut n = 0;
+        for t in types {
+            for f in feats {
+                for g in ["", " and (min-width: 600px)", " and (hover: hover)"] {
+                    let q = format!("{t}{f}{g}");
+                    assert_eq!(media_matches(&q), old(&q), "{q}");
+                    n += 1;
+                }
+            }
+        }
+        for q in ["print", "screen", "all", "not print", "screen and (min-width: 769px), print", "print, screen", ""] {
+            assert_eq!(media_matches(q), old(q), "{q:?}");
+            n += 1;
+        }
+        eprintln!("media_matches: {n} queries identical to the implementation it replaced");
+    }
+
+    #[test]
+    fn declarations_carry_their_byte_ranges() {
+        // Comments, CRLF line endings, odd spacing, !important, a multi-byte character in a comment.
+        let css = "a { /* ação */ color :  red ;\r\n  margin:0 AUTO !IMPORTANT;;\r\n\tfoo: bar }\n";
+        let open = css.find('{').unwrap() + 1;
+        let close = css.rfind('}').unwrap();
+        let got = parse_declarations_spanned(css, open..close);
+        assert_eq!(got.len(), 3, "{got:#?}");
+        let text = |r: &std::ops::Range<usize>| &css[r.clone()];
+        assert_eq!((text(&got[0].name), text(&got[0].value), text(&got[0].whole)), ("color", "red", "color :  red"));
+        assert_eq!((text(&got[1].name), text(&got[1].value), text(&got[1].whole)), ("margin", "0 AUTO", "margin:0 AUTO !IMPORTANT"));
+        assert!(got[1].decl.important && !got[0].decl.important);
+        assert_eq!((text(&got[2].name), text(&got[2].value)), ("foo", "bar"));
+        // They are the declarations parse_declarations reads from the same body.
+        let plain = parse_declarations(&strip_comments(&css[open..close]));
+        assert_eq!(got.iter().map(|d| d.decl.clone()).collect::<Vec<_>>(), plain);
+        // Replacing a value by its range changes that value and nothing else.
+        let mut edited = css.to_string();
+        edited.replace_range(got[0].value.clone(), "blue");
+        assert_eq!(edited, css.replacen("red", "blue", 1));
+        // The blanked text has the length of the original, so offsets agree.
+        assert_eq!(blank_comments(css).len(), css.len());
+        assert_eq!(blank_comments("a /* x\ny */ b").len(), "a /* x\ny */ b".len());
+        assert_eq!(blank_comments("a /* open").trim_end(), "a");
+        assert!(parse_declarations_spanned("a{b:c}", 90..99).is_empty(), "a bad range is empty, not a panic");
+        eprintln!("declaration spans: 3 declarations on a CRLF sheet with comments, ranges and in-place edit verified");
     }
 }

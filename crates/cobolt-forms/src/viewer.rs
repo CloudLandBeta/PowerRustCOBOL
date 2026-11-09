@@ -3031,6 +3031,7 @@ impl HtmlWalker<'_, '_> {
                     index: e.index,
                     count: e.count,
                     siblings: if i == 0 { &self.root_kids } else { &self.path[i - 1].kids },
+                    attrs: &[],
                 })
                 .collect();
             let decls = self.sheet.cascade(&refs, &inline_decls);
