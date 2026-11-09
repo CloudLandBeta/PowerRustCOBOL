@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.354 — 2026-11-09
+
+**Fix: in the 3D pool game the camera can go down almost to the height of the cue.** The lowest view was 2 m above the table; it now goes down to 0.75 m, just above the top of the tipped cue, with the arrows and with the mouse, so the table can be seen along the cloth.
+
 ## 2.0.353 — 2026-11-09
 
 **Fix: the cue of the 3D pool game is tipped 10 degrees so it passes over the cushion, and its shot is 1.5 times stronger.** The stick lay flat at ball height and appeared to cross the table border when aimed from near a cushion; its butt now rises, while the white aiming guide stays level. The cue ball leaves at 3 plus 15 times the power (it was 2 plus 10 times).

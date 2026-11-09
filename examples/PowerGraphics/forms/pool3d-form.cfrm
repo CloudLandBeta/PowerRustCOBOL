@@ -413,7 +413,7 @@
                IF      WS-UP = 1 AND WS-CAMH < 9
                    ADD     0.05                  TO    WS-CAMH
                END-IF
-               IF      WS-DOWN = 1 AND WS-CAMH > 2
+               IF      WS-DOWN = 1 AND WS-CAMH > 0.75
                    SUBTRACT 0.05                 FROM  WS-CAMH
                END-IF
            ELSE
@@ -503,8 +503,8 @@
                    IF      WS-CAMH > 9
                        MOVE    9                 TO    WS-CAMH
                    END-IF
-                   IF      WS-CAMH < 2
-                       MOVE    2                 TO    WS-CAMH
+                   IF      WS-CAMH < 0.75
+                       MOVE    0.75              TO    WS-CAMH
                    END-IF
                ELSE
                    IF      WS-STATE = 0
