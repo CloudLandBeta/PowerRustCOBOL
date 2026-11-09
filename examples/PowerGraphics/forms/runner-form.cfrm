@@ -80,6 +80,10 @@
        01 WS-CRASH                               GLOBAL    PIC 9(4)        VALUE 0.
        01 WS-FL                                  GLOBAL    PIC 99          VALUE 0.
        01 WS-E3                                  GLOBAL    PIC ZZZ9.
+       01 WS-DEAD                                GLOBAL    PIC 9           VALUE 0.
+       01 WS-FT                                  GLOBAL    PIC 999         VALUE 0.
+       01 WS-BASE                                GLOBAL    PIC S9(7)V9(3)  VALUE 0.
+       01 WS-BEST                                GLOBAL    PIC S9(7)V9(3)  VALUE 0.
        01 WS-HUD                                 GLOBAL    PIC X(80).
 ]]></working-storage>
   <form-events>
@@ -447,68 +451,41 @@
                SCN-1::SetMaterial( WS-H WS-MATR )
            END-PERFORM
 
-           *> Six obstacles in the three lanes (x = -3.2, 0, 3.2), 30 m apart: cars in slots 1, 3, 5 and orange barriers in slots 2, 4, 6.
+           *> Six hurdles across the WHOLE street (road and both sidewalks), 30 m apart: there is no empty lane to hide in, so every one has
+           *> to be jumped. Each is a long board on posts with a stripe and a warning lamp at each end; the colours alternate.
            PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
                COMPUTE WS-OZ(WS-J) = 0 - 30 - WS-J * 30
-               COMPUTE WS-N = FUNCTION MOD( WS-J * 7 3 )
-               COMPUTE WS-OX(WS-J) = ( WS-N - 1 ) * 3.2
+               MOVE    0                         TO    WS-OX(WS-J)
                SET     WS-OG(WS-J)               TO    SCN-1::AddGroup()
-               SCN-1::SetPosition( WS-OG(WS-J) WS-OX(WS-J) 0 WS-OZ(WS-J) )
+               SCN-1::SetPosition( WS-OG(WS-J) 0 0 WS-OZ(WS-J) )
+               SET     WS-H                      TO    SCN-1::AddBox( 18 0.4 0.3 )
+               SCN-1::SetParent( WS-H WS-OG(WS-J) )
+               SCN-1::SetPosition( WS-H 0 0.5 0 )
                IF      FUNCTION MOD( WS-J 2 ) = 1
-                   *> A car seen from behind: body, glass cabin, wheels and two glowing tail lights.
-                   SET     WS-H                  TO    SCN-1::AddBox( 1.9 0.6 4.2 )
-                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
-                   SCN-1::SetPosition( WS-H 0 0.55 0 )
-                   EVALUATE WS-J
-                       WHEN 1  SCN-1::SetColor( WS-H "#F2B31B" )
-                       WHEN 3  SCN-1::SetColor( WS-H "#E23B7A" )
-                       WHEN 5  SCN-1::SetColor( WS-H "#35C4A0" )
-                   END-EVALUATE
-                   SET     WS-MAT                TO    SCN-1::GetMaterial( WS-H )
-                   SCN-1::SetMetallic( WS-MAT 0.7 )
-                   SCN-1::SetRoughness( WS-MAT 0.2 )
-                   SET     WS-H                  TO    SCN-1::AddBox( 1.6 0.5 2.2 )
-                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
-                   SCN-1::SetPosition( WS-H 0 1.1 0.3 )
-                   SCN-1::SetColor( WS-H "#1B2530" )
-                   SET     WS-H                  TO    SCN-1::AddBox( 0.4 0.16 0.06 )
-                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
-                   MOVE    -0.65                 TO    WS-N1
-                   SCN-1::SetPosition( WS-H WS-N1 0.7 2.12 )
-                   SCN-1::SetMaterial( WS-H WS-MATR )
-                   SET     WS-H                  TO    SCN-1::AddBox( 0.4 0.16 0.06 )
-                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
-                   SCN-1::SetPosition( WS-H 0.65 0.7 2.12 )
-                   SCN-1::SetMaterial( WS-H WS-MATR )
-                   SET     WS-H                  TO    SCN-1::AddBox( 2 0.36 0.7 )
-                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
-                   MOVE    -1.4                  TO    WS-N1
-                   SCN-1::SetPosition( WS-H 0 0.18 WS-N1 )
-                   SCN-1::SetColor( WS-H "#0E0E10" )
-                   SET     WS-H                  TO    SCN-1::AddBox( 2 0.36 0.7 )
-                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
-                   SCN-1::SetPosition( WS-H 0 0.18 1.4 )
-                   SCN-1::SetColor( WS-H "#0E0E10" )
-               ELSE
-                   *> A low barrier: an orange bar on two legs with a white stripe.
-                   SET     WS-H                  TO    SCN-1::AddBox( 3 0.4 0.3 )
-                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
-                   SCN-1::SetPosition( WS-H 0 0.5 0 )
                    SCN-1::SetColor( WS-H "#FF6A13" )
-                   SET     WS-H                  TO    SCN-1::AddBox( 3.02 0.1 0.32 )
-                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
-                   SCN-1::SetPosition( WS-H 0 0.5 0 )
-                   SCN-1::SetColor( WS-H "#FFFFFF" )
-                   SET     WS-H                  TO    SCN-1::AddBox( 0.18 0.4 0.3 )
-                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
-                   MOVE    -1.2                  TO    WS-N1
-                   SCN-1::SetPosition( WS-H WS-N1 0.2 0 )
-                   SCN-1::SetColor( WS-H "#444444" )
-                   SET     WS-H                  TO    SCN-1::AddBox( 0.18 0.4 0.3 )
-                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
-                   SCN-1::SetPosition( WS-H 1.2 0.2 0 )
-                   SCN-1::SetColor( WS-H "#444444" )
+               ELSE
+                   SCN-1::SetColor( WS-H "#F2C200" )
                END-IF
+               SET     WS-H                      TO    SCN-1::AddBox( 18.02 0.1 0.32 )
+               SCN-1::SetParent( WS-H WS-OG(WS-J) )
+               SCN-1::SetPosition( WS-H 0 0.5 0 )
+               SCN-1::SetColor( WS-H "#FFFFFF" )
+               PERFORM VARYING WS-K FROM 0 BY 1 UNTIL WS-K > 6
+                   COMPUTE WS-X = (WS-K - 3) * 2.8
+                   SET     WS-H                  TO    SCN-1::AddBox( 0.18 0.4 0.3 )
+                   SCN-1::SetParent( WS-H WS-OG(WS-J) )
+                   SCN-1::SetPosition( WS-H WS-X 0.2 0 )
+                   SCN-1::SetColor( WS-H "#444444" )
+               END-PERFORM
+               SET     WS-H                      TO    SCN-1::AddSphere( 0.16 )
+               SCN-1::SetParent( WS-H WS-OG(WS-J) )
+               MOVE    -8.8                      TO    WS-N1
+               SCN-1::SetPosition( WS-H WS-N1 0.8 0 )
+               SCN-1::SetMaterial( WS-H WS-MATR )
+               SET     WS-H                      TO    SCN-1::AddSphere( 0.16 )
+               SCN-1::SetParent( WS-H WS-OG(WS-J) )
+               SCN-1::SetPosition( WS-H 8.8 0.8 0 )
+               SCN-1::SetMaterial( WS-H WS-MATR )
            END-PERFORM
 ]]></Event>
     <Event name="RUN-SET-BUILDING" paragraph="RUN-SET-BUILDING"><![CDATA[       PROCEDURE DIVISION.
@@ -541,6 +518,24 @@
            *> runner tucks.
            COMPUTE WS-S = FUNCTION SIN( WS-PH )
            COMPUTE WS-S2 = FUNCTION COS( WS-PH - 0.4 )
+           IF      WS-DEAD > 0
+               *> Fallen: he tips forward about his feet (up to 90 degrees), arms thrown ahead, legs limp.
+               COMPUTE WS-A1 = 0 - WS-FT * 4
+               IF      WS-A1 < -90
+                   MOVE    -90                   TO    WS-A1
+               END-IF
+               SCN-1::SetRotation( WS-RUN WS-A1 0 0 )
+               SCN-1::SetRotation( WS-LEGL 10 0 0 )
+               SCN-1::SetRotation( WS-LEGR 25 0 0 )
+               SCN-1::SetRotation( WS-KNL 20 0 0 )
+               SCN-1::SetRotation( WS-KNR 40 0 0 )
+               MOVE    -160                      TO    WS-N1
+               SCN-1::SetRotation( WS-ARML WS-N1 0 0 )
+               SCN-1::SetRotation( WS-ARMR WS-N1 0 0 )
+               SCN-1::SetRotation( WS-ELL 10 0 0 )
+               SCN-1::SetRotation( WS-ELR 10 0 0 )
+           ELSE
+           SCN-1::SetRotation( WS-RUN 0 0 0 )
            IF      WS-AIR = 1
                SCN-1::SetRotation( WS-LEGL 55 0 0 )
                MOVE    -25  TO    WS-N1
@@ -573,11 +568,29 @@
                SCN-1::SetRotation( WS-ELL WS-A1 0 0 )
                SCN-1::SetRotation( WS-ELR WS-A2 0 0 )
            END-IF
+           END-IF
            COMPUTE WS-A1 = 1.2 + WS-RY + 0.05 * FUNCTION SIN( WS-PH * 2 )
            SCN-1::SetPosition( WS-HIP 0 WS-A1 0 )
 ]]></Event>
+    <Event name="RUN-RESTART" paragraph="RUN-RESTART"><![CDATA[       PROCEDURE DIVISION.
+           *> A new run from where the fallen runner lies: the score counts from here, he stands in the middle of the road at a walking
+           *> pace, the hurdles stand 60 m ahead again, and the game-over label goes away.
+           MOVE    WS-DIST                       TO    WS-BASE
+           MOVE    0                             TO    WS-DEAD
+           MOVE    0                             TO    WS-FT
+           MOVE    0                             TO    WS-RX
+           MOVE    0                             TO    WS-RY
+           MOVE    0                             TO    WS-AIR
+           MOVE    16                            TO    WS-SPEED
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
+               COMPUTE WS-OZ(WS-J) = WS-RZ - 30 - WS-J * 30
+               SCN-1::SetPosition( WS-OG(WS-J) 0 0 WS-OZ(WS-J) )
+           END-PERFORM
+           LBL-OVER::Hide()
+]]></Event>
     <Event name="RUN-STEP" paragraph="RUN-STEP"><![CDATA[       PROCEDURE DIVISION.
-           *> Input: left and right change lane (clamped to the three lanes), up and down change the speed, Space jumps.
+           *> Input: left and right move across the street and its sidewalks, up and down change the speed, Space jumps. Ignored once he has fallen.
+           IF      WS-DEAD = 0
            IF      CNV-3D::IsKeyDown( "ArrowLeft" ) = 1 AND WS-RX > -7.4
                SUBTRACT 0.22                     FROM  WS-RX
            END-IF
@@ -599,6 +612,25 @@
            ELSE
                MOVE    0                         TO    WS-SPACE
            END-IF
+           END-IF
+           IF      WS-DEAD = 2
+               *> Game over: Space runs again.
+               IF      CNV-3D::IsKeyDown( "Space" ) = 1
+                   IF      WS-SPACE = 0
+                       *> Starts a new run from where the fallen runner lies: score back to zero, hurdles ahead, label hidden.
+                       *> Uses: WS-DIST, WS-RZ.
+                       *> Result: WS-DEAD is 0 and the hurdles stand 60 m ahead of the runner.
+                       CALL "RUN-RESTART"
+                   END-IF
+                   MOVE    1                     TO    WS-SPACE
+               ELSE
+                   MOVE    0                     TO    WS-SPACE
+               END-IF
+           END-IF
+           IF      WS-DEAD > 0
+               ADD     1                         TO    WS-FT
+               COMPUTE WS-SPEED = WS-SPEED * 0.92
+           END-IF
 
            *> Motion: a frame is 1/30 s; gravity pulls the jump down.
            *> The sidewalks are a 14 cm curb: standing on one lifts the runner.
@@ -617,6 +649,9 @@
                    MOVE    WS-GH                 TO    WS-RY
                    MOVE    0                     TO    WS-AIR
                END-IF
+           END-IF
+           IF      WS-DEAD > 0 AND WS-FT > 10
+               MOVE    0.3                       TO    WS-RY
            END-IF
            COMPUTE WS-DIST = WS-DIST + WS-SPEED / 30
            COMPUTE WS-RZ = 0 - WS-DIST
@@ -679,34 +714,23 @@
                IF      WS-OZ(WS-J) > WS-RZ + 12
                    SUBTRACT 180                  FROM  WS-OZ(WS-J)
                    ADD     1                     TO    WS-OR
-                   COMPUTE WS-N = FUNCTION MOD( WS-OR * 5 + WS-J 3 )
-                   COMPUTE WS-OX(WS-J) = ( WS-N - 1 ) * 3.2
-                   SCN-1::SetPosition( WS-OG(WS-J) WS-OX(WS-J) 0 WS-OZ(WS-J) )
+                   SCN-1::SetPosition( WS-OG(WS-J) 0 0 WS-OZ(WS-J) )
                END-IF
            END-PERFORM
 
-           *> Collisions. Slots 1, 3, 5 are cars (long, 1 m tall: dodge them or jump at the right moment); slots 2, 4, 6 are low barriers
-           *> (jump them). A hit slows the runner and pushes the obstacle out of the way.
+           *> Collisions. A hurdle spans the whole street and is 0.55 m tall: it has to be jumped. A hit (or a parked car) ends the run.
            PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
-               IF      FUNCTION MOD( WS-J 2 ) = 1
-                   MOVE    1.2                   TO    WS-HX
-                   MOVE    2.4                   TO    WS-HZ
-                   MOVE    1.0                   TO    WS-HH
-               ELSE
-                   MOVE    1.6                   TO    WS-HX
-                   MOVE    0.8                   TO    WS-HZ
-                   MOVE    0.55                  TO    WS-HH
-               END-IF
+               MOVE    9.5                       TO    WS-HX
+               MOVE    0.8                       TO    WS-HZ
+               MOVE    0.55                      TO    WS-HH
                COMPUTE WS-A1 = WS-RX - WS-OX(WS-J)
                COMPUTE WS-A2 = WS-RZ - WS-OZ(WS-J)
                COMPUTE WS-A3 = 0 - WS-HX
                COMPUTE WS-A4 = 0 - WS-HZ
-               IF      WS-A1 < WS-HX AND WS-A1 > WS-A3 AND WS-A2 < WS-HZ AND WS-A2 > WS-A4 AND WS-RY < WS-HH
-                   MOVE    10                    TO    WS-SPEED
-                   ADD     1                     TO    WS-CRASH
-                   MOVE    30                    TO    WS-FL
-                   SUBTRACT 180                  FROM  WS-OZ(WS-J)
-                   SCN-1::SetPosition( WS-OG(WS-J) WS-OX(WS-J) 0 WS-OZ(WS-J) )
+               IF      WS-DEAD = 0 AND WS-A1 < WS-HX AND WS-A1 > WS-A3 AND WS-A2 < WS-HZ AND WS-A2 > WS-A4 AND WS-RY < WS-HH
+                   *> He trips over the hurdle: he falls, the world slows down, and the game ends.
+                   MOVE    1                     TO    WS-DEAD
+                   MOVE    0                     TO    WS-FT
                END-IF
            END-PERFORM
            *> The parked cars at the kerbs are solid too.
@@ -718,19 +742,28 @@
                END-IF
                COMPUTE WS-A1 = WS-RX - WS-X
                COMPUTE WS-A2 = WS-RZ - WS-CZ(WS-J)
-               IF      WS-A1 < 1.3 AND WS-A1 > -1.3 AND WS-A2 < 2.4 AND WS-A2 > -2.4 AND WS-RY < 1.0
-                   MOVE    10                    TO    WS-SPEED
-                   ADD     1                     TO    WS-CRASH
-                   MOVE    30                    TO    WS-FL
-                   MOVE    0                     TO    WS-RX
+               IF      WS-DEAD = 0 AND WS-A1 < 1.3 AND WS-A1 > -1.3 AND WS-A2 < 2.4 AND WS-A2 > -2.4 AND WS-RY < 1.0
+                   MOVE    1                     TO    WS-DEAD
+                   MOVE    0                     TO    WS-FT
                END-IF
            END-PERFORM
-           IF      WS-FL > 0
-               SUBTRACT 1                        FROM  WS-FL
+           IF      WS-DEAD = 1 AND WS-FT >= 45
+               MOVE    2                         TO    WS-DEAD
+               MOVE    0                         TO    WS-SPEED
+               COMPUTE WS-A1 = WS-DIST - WS-BASE
+               IF      WS-A1 > WS-BEST
+                   MOVE    WS-A1                 TO    WS-BEST
+               END-IF
+               MOVE    WS-A1                     TO    WS-E1
+               MOVE    SPACES                    TO    WS-HUD
+               STRING  "GAME OVER   Score " WS-E1 " m   -   Space runs again" DELIMITED BY SIZE INTO WS-HUD
+               SET     LBL-OVER::Caption         TO    WS-HUD
+               LBL-OVER::Show()
            END-IF
 
            *> The camera sits behind, above and a little to the right of the runner, so the swing of the legs shows from the side.
-           COMPUTE WS-X = WS-RX * 0.5 + 2.6
+           *> The camera slides the OPPOSITE way to the runner: he goes left, it goes right (and the other way round).
+           COMPUTE WS-X = 2.6 - WS-RX * 0.8
            COMPUTE WS-Y = 3.4 + WS-RY * 0.4
            COMPUTE WS-Z = WS-RZ + 6.5
            SCN-1::SetPosition( WS-CAM WS-X WS-Y WS-Z )
@@ -738,18 +771,14 @@
            COMPUTE WS-Z = WS-RZ - 8
            SCN-1::LookAt( WS-CAM WS-X 1.3 WS-Z )
 
-           MOVE    WS-DIST                       TO    WS-E1
+           COMPUTE WS-A1 = WS-DIST - WS-BASE
+           MOVE    WS-A1                         TO    WS-E1
            COMPUTE WS-A1 = WS-SPEED * 3.6
            MOVE    WS-A1                         TO    WS-E2
            MOVE    SPACES                        TO    WS-HUD
-           MOVE    WS-CRASH                      TO    WS-E3
-           IF      WS-FL > 0
-               STRING  "CRASH!   Distance " WS-E1 " m   Speed " WS-E2 " km/h   Crashes " WS-E3
-                       DELIMITED BY SIZE INTO WS-HUD
-           ELSE
-               STRING  "Distance " WS-E1 " m   Speed " WS-E2 " km/h   Crashes " WS-E3
-                       DELIMITED BY SIZE INTO WS-HUD
-           END-IF
+           MOVE    WS-BEST                       TO    WS-E3
+           STRING  "Distance " WS-E1 " m   Speed " WS-E2 " km/h   Best " WS-E3 " m"
+                   DELIMITED BY SIZE INTO WS-HUD
            SET     LBL-DIST::Caption             TO    WS-HUD
 ]]></Event>
   </user-procedures>
@@ -777,9 +806,17 @@
     <Property name="Caption">Distance 0 m</Property>
     <Property name="ForegroundColor">#FFD9A0</Property>
   </Control>
+  <Control id="LBL-OVER" type="Label" x="150" y="170" w="520" h="70" tab-order="5" z-order="1" visible="false" enabled="true">
+    <Property name="Definition">The game-over banner: shown over the street when the runner trips on a hurdle, with the distance he reached.</Property>
+    <Property name="Caption">GAME OVER</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BackgroundColor">#000000B4</Property>
+    <Property name="TextAlignment">Center</Property>
+    <Property name="CornerRadius">12</Property>
+  </Control>
   <Control id="LBL-HELP" type="Label" x="10" y="528" w="640" h="24" tab-order="3" z-order="0" visible="true" enabled="true">
     <Property name="Definition">The keys of the showcase: click the street, then left and right to change lane, up and down for speed, Space to jump.</Property>
-    <Property name="Caption">Click the street, then: left/right change lane, up/down speed, Space jumps.</Property>
+    <Property name="Caption">Click the street, then: left/right move (even onto the sidewalks), up/down speed, Space jumps the hurdles.</Property>
     <Property name="ForegroundColor">#C8D0DC</Property>
   </Control>
   <Control id="BTN-BACK" type="Button" x="690" y="500" w="120" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
