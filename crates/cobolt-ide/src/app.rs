@@ -991,6 +991,8 @@ pub struct CoboltApp {
     /// The Backend window (the counterpart of the desktop Building window) and whether it has seen the current run.
     backend_window: crate::panels::backend_window::BackendWindow,
     backend_window_live: bool,
+    /// What the Backend inspector records between the page and the Backend (operator, 2026-11-08).
+    backend_inspector: std::sync::Arc<cobolt_project_tools::web::inspector::Inspector>,
     /// The Backend ended with an error: the top-bar button stays red until it is clicked.
     backend_failed: bool,
 
@@ -2390,6 +2392,7 @@ impl CoboltApp {
             backend_run: None,
             backend_window: Default::default(),
             backend_window_live: false,
+            backend_inspector: cobolt_project_tools::web::inspector::Inspector::new(),
             backend_failed: false,
 
             pending_open_in_editor: None,
@@ -3037,14 +3040,21 @@ impl CoboltApp {
         }
     }
 
-    /// The Backend window, every frame: it opens with a new run, stays while the
-    /// Backend runs; it never stops the Backend, only the Backend button of the
-    /// top bar does (operator, 2026-11-08).
+    /// The Backend window, every frame: it opens with a new run and with the Backend button, stays while
+    /// the Backend runs, and carries the Stop Backend button, the processes and the traffic inspector.
     fn show_backend_window(&mut self, ctx: &Context) {
-        let running = self.backend_run.as_ref().is_some_and(|r| r.is_running());
+        self.web_preview.set_inspector(self.backend_inspector.clone());
+        let facts = crate::panels::backend_window::Facts {
+            running: self.backend_run.as_ref().is_some_and(|r| r.is_running()),
+            backend_pid: self.backend_run.as_ref().map(|r| r.pid()),
+            page_port: self.web_preview.page_port(),
+            proxy_url: self.web_preview.proxy_url(),
+        };
         let theme = self.current_theme();
         let tr = self.lang.tr();
-        self.backend_window.show(ctx, theme, &tr, running);
+        if self.backend_window.show(ctx, theme, &tr, &self.backend_inspector, &facts).stop {
+            self.stop_backend();
+        }
     }
 
     /// Once a frame: hand the backend's lines to the Output panel.
@@ -17210,7 +17220,8 @@ impl eframe::App for CoboltApp {
             });
         });
         if stop_backend_clicked {
-            self.stop_backend();
+            self.backend_failed = false;
+            self.backend_window.toggle();
         }
 
         // ── Toolbar ───────────────────────────────────────────────────────────

@@ -38,6 +38,7 @@ use cobolt_compiler::mobile_devices::DeviceTarget;
 use cobolt_compiler::project_kind::{DeviceClass, Isolation, MobilePlatform, Orientation, ProjectKind};
 use cobolt_project_tools::web::devbackend::{self, DevBackendPlan};
 use cobolt_project_tools::web::devserver::{self, DevBackend, PageEvent, PageStrings, PhoneFrame, ServeOptions, ServerHandle};
+use cobolt_project_tools::web::inspector::{Inspector, Proxy};
 use cobolt_project_tools::web::presets;
 use cobolt_project_tools::web::preview::{self, BrowserChoice};
 use cobolt_project_tools::web::{BuildReport, PartSize, PlayerPinError, WebBuildBackend, WebBuildError, WebBuildRequest, WebDiagnostic, WebDiagnosticKind};
@@ -686,9 +687,27 @@ pub struct WebPreview {
     chosen_devices: HashMap<PathBuf, String>,
     /// The targets a Run could not choose among, for the Run on device window.
     device_choice: Option<Vec<DeviceTarget>>,
+    /// The Backend inspector (operator, 2026-11-08): when set, the page calls the Backend through its proxy.
+    inspector: Option<Arc<Inspector>>,
+    proxy: Option<Proxy>,
 }
 
 impl WebPreview {
+    /// The Backend inspector the page's calls go through (set once by the IDE).
+    pub fn set_inspector(&mut self, inspector: Arc<Inspector>) {
+        self.inspector = Some(inspector);
+    }
+
+    /// The address the page is to call for the Backend at `real`: the inspector's proxy when there is one,
+    /// else `real` itself.
+    fn page_backend_url(&mut self, real: &str) -> String {
+        let Some(inspector) = self.inspector.clone() else { return real.to_owned() };
+        if self.proxy.as_ref().is_none_or(|p| p.target() != real) {
+            self.proxy = Proxy::start(inspector, real);
+        }
+        self.proxy.as_ref().map_or_else(|| real.to_owned(), |p| p.url())
+    }
+
     /// Is a build running?
     pub fn building(&self) -> bool {
         self.job.is_some()
@@ -702,6 +721,11 @@ impl WebPreview {
     /// Is there anything running, building, serving or waiting for the Backend?
     pub fn active(&self) -> bool {
         self.job.is_some() || self.live.is_some() || self.backend_wait.is_some()
+    }
+
+    /// What the page calls for the Backend while the inspector's proxy is between them.
+    pub fn proxy_url(&self) -> Option<String> {
+        self.proxy.as_ref().map(|p| p.url())
     }
 
     /// The port the Preview serves the page on, while it serves.
@@ -926,7 +950,7 @@ impl WebPreview {
     /// manifest's address, which is then compared with it).
     fn listening(&mut self, mut launch: Launch, wait: AwaitBackend, url: &str) {
         if wait.bake {
-            launch.backend_url = Some(url.to_owned());
+            launch.backend_url = Some(self.page_backend_url(url));
         }
         self.backend_for = Some(url.to_owned());
         self.say(Note::BackendReady { url: url.to_owned() });
@@ -946,10 +970,11 @@ impl WebPreview {
             self.on_backend_event(event);
         }
         // The token is printed after the address, maybe in a later poll.
-        let dev = match (&self.backend_for, run.is_running(), run.url(), run.token()) {
-            (Some(ours), true, Some(url), Some(token)) if ours == url => Some(DevBackend { url: url.to_owned(), token: token.to_owned() }),
+        let wanted = match (&self.backend_for, run.is_running(), run.url(), run.token()) {
+            (Some(ours), true, Some(url), Some(token)) if ours == url => Some((url.to_owned(), token.to_owned())),
             _ => None,
         };
+        let dev = wanted.map(|(url, token)| DevBackend { url: self.page_backend_url(&url), token });
         if dev != self.dev_backend {
             self.dev_backend = dev;
             if let Some(live) = &self.live {
@@ -2654,6 +2679,30 @@ mod tests {
         let mut raw = String::new();
         let _ = s.read_to_string(&mut raw);
         raw
+    }
+
+    /// With the inspector set, the page is built for the proxy's address, not the Backend's, and a call to
+    /// the proxy reaches the real Backend and is recorded.
+    #[test]
+    fn with_the_inspector_the_page_calls_the_proxy_and_the_proxy_calls_the_backend() {
+        quiet();
+        let rcrun = built_rcrun();
+        let manifest = backend_project("be-inspect", "127.0.0.1:0", "");
+        let backend = Fake::new();
+        let inspector = Inspector::new();
+        let (mut p, mut ide) = (WebPreview::default(), None);
+        p.set_inspector(inspector.clone());
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(true));
+        pump_until(&mut p, &mut ide, "the page to be served", 90, |p| p.serving());
+        let real = ide.as_ref().and_then(|r| r.url()).unwrap().to_owned();
+        let proxy = p.proxy_url().expect("a proxy");
+        assert_ne!(proxy, real);
+        assert_eq!(*backend.urls.lock().unwrap(), [proxy.clone()], "the page is built for the proxy");
+        assert!(get_health(&proxy).starts_with("HTTP/1.1 200"), "the proxy reaches the Backend");
+        let seen = inspector.entries();
+        assert!(seen.iter().any(|e| e.line.starts_with("GET /health")) && seen.iter().any(|e| e.line.starts_with("HTTP/1.1 200")), "{seen:?}");
+        println!("page -> {proxy} -> Backend {real}: {} entries recorded", seen.len());
+        ide.take().unwrap().stop();
     }
 
     /// The manifest names no Backend address: Run starts the Backend on the

@@ -136,6 +136,11 @@ impl BackendRun {
         Ok(BackendRun { project_dir: project_dir.to_path_buf(), page_origin: page_origin.map(str::to_owned), child, lines, reading: Reading::default(), exit_status: None })
     }
 
+    /// The operating-system process id of the child.
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
     /// The address, once the child has printed it.
     pub fn url(&self) -> Option<&str> {
         self.reading.url.as_deref()

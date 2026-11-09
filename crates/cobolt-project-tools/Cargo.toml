@@ -38,6 +38,9 @@ cobolt-ast        = { path = "../cobolt-ast" }
 cobolt-runtime  = { path = "../cobolt-runtime" }
 # kb_search reads the System KB store through its shared reader (spec 084 T5).
 cobolt-kb       = { path = "../cobolt-kb" }
+# The Backend inspector's proxy (a loopback WebSocket in the middle of the Preview): the synchronous library,
+# already in the lock file for the server.
+tungstenite     = { version = "0.28", default-features = false, features = ["handshake"] }
 # The IDE's machine configuration, for the tool server's port (spec 084 R20a).
 dirs            = "5.0"
 

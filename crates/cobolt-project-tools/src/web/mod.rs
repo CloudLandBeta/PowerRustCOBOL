@@ -29,6 +29,7 @@ pub mod classes;
 pub mod devbackend;
 pub mod devserver;
 pub mod generator;
+pub mod inspector;
 pub mod presets;
 pub mod preview;
 /// The browser runner (WASM-015 R2): a form in the headless web view, driven by `script::Step`s.
