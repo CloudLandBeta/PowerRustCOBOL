@@ -212,6 +212,98 @@ pub fn pie_legend_pitch(font_px: f32) -> f32 {
     crate::textmetrics::row_height(font_px as f64) as f32 + PIE_LEGEND_ROW_GAP
 }
 
+// ── The interactive legend ──────────────────────────────────────────────────
+//
+// `LegendInteractive` makes the legend's entries clickable. A click MARKS an entry (a series, or a slice on a
+// pie or donut): the chart then shows only the marked ones; a second click unmarks it; with none marked every
+// series or slice shows. The marks live in the runtime property `MarkedSeries` (comma-separated names or 1-based
+// indexes), which a program may read or set. The data, the totals and the bound values are never changed: the
+// painters are handed a copy of the chart without the unmarked series (`paint::chart_with_marks`).
+
+/// Which of `names` the spec `MarkedSeries` marks: an entry is marked when its name (any case) or its 1-based
+/// index appears in the comma-separated list.
+pub fn parse_marked(spec: &str, names: &[String]) -> Vec<bool> {
+    let items: Vec<String> = spec.split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect();
+    names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let name = n.trim().to_lowercase();
+            items.iter().any(|it| *it == name || it.parse::<usize>().map(|k| k == i + 1).unwrap_or(false))
+        })
+        .collect()
+}
+
+/// The `MarkedSeries` value after a click on entry `idx`: that entry's mark flips; the result names the marked
+/// entries, in legend order, comma-separated (empty when none is marked).
+pub fn toggle_marked(spec: &str, names: &[String], idx: usize) -> String {
+    let mut marked = parse_marked(spec, names);
+    if let Some(m) = marked.get_mut(idx) {
+        *m = !*m;
+    }
+    names.iter().zip(&marked).filter(|(_, m)| **m).map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(",")
+}
+
+/// Whether entry `i` is drawn dimmed: something is marked and this is not.
+pub fn legend_dimmed(marked: &[bool], i: usize) -> bool {
+    marked.iter().any(|m| *m) && !marked.get(i).copied().unwrap_or(false)
+}
+
+/// The rows left once the unmarked entries are out. `by_row`: the entries are the rows (a pie's slices);
+/// otherwise they are the columns (a category chart's series). With nothing marked every entry stays.
+pub fn keep_marked(rows: &[Row], marked: &[bool], by_row: bool) -> Vec<Row> {
+    if !marked.iter().any(|m| *m) {
+        return rows.to_vec();
+    }
+    if by_row {
+        return rows.iter().enumerate().filter(|(i, _)| marked.get(*i).copied().unwrap_or(false)).map(|(_, r)| r.clone()).collect();
+    }
+    rows.iter()
+        .map(|(l, vs)| {
+            let kept = vs.iter().enumerate().filter(|(j, _)| marked.get(*j).copied().unwrap_or(false)).map(|(_, v)| *v).collect();
+            (l.clone(), kept)
+        })
+        .collect()
+}
+
+/// What a painter is handed instead of the chart's whole data while its legend has marked entries
+/// (`LegendInteractive` / `MarkedSeries`). The desktop painter and the web player's both build it with [`marks`],
+/// so they keep the same entries, the same colours and the same scale.
+pub struct Marks {
+    /// `__ChartData` with only the marked series (or slices) in it.
+    pub data: String,
+    /// `SeriesLabels` naming the kept series, in order (category charts, when something is marked).
+    pub series_labels: Option<String>,
+    /// `__SeriesOrder`: each kept entry's place in the full legend, which is the palette slot it keeps.
+    pub order: String,
+    /// `__LegendNames`: every entry, one per line.
+    pub names: String,
+    /// `__LegendMarked`: `1` or `0` per entry, comma-separated.
+    pub marked: String,
+    /// `__ScaleRange` (`lo,hi`): the whole data's scale, when `AutoScaleVisible` is off and something is marked.
+    pub scale: Option<String>,
+}
+
+/// The [`Marks`] for `rows` whose legend entries are `names`, under the `MarkedSeries` text `spec`. `is_pie`: the
+/// entries are the rows (slices). `scale_whole`: keep the scale of the whole data (`AutoScaleVisible` off) with
+/// `stacked` telling how it is summed; not for a pie or a radar.
+pub fn marks(rows: &[Row], names: &[String], spec: &str, is_pie: bool, scale_whole: Option<bool>) -> Marks {
+    let marked = parse_marked(spec, names);
+    let any = marked.iter().any(|m| *m);
+    let kept: Vec<usize> = (0..names.len()).filter(|i| !any || marked[*i]).collect();
+    Marks {
+        data: format_chart_rows(&keep_marked(rows, &marked, is_pie)),
+        series_labels: (any && !is_pie).then(|| kept.iter().map(|&i| names[i].as_str()).collect::<Vec<_>>().join(",")),
+        order: kept.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(","),
+        names: names.join("\n"),
+        marked: marked.iter().map(|m| if *m { "1" } else { "0" }).collect::<Vec<_>>().join(","),
+        scale: scale_whole.filter(|_| any && !is_pie).map(|stacked| {
+            let (lo, hi) = value_range(rows, stacked);
+            format!("{lo},{hi}")
+        }),
+    }
+}
+
 // ── BarChart: the category labels ───────────────────────────────────────────
 //
 // A BarChart writes each row's label under its bars, or beside them on the left when it is horizontal. Both
@@ -706,6 +798,46 @@ pub fn radar_nearest(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn names(n: &[&str]) -> Vec<String> {
+        n.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// A click marks an entry, a second click unmarks it, and with none marked every entry shows.
+    #[test]
+    fn a_legend_click_marks_then_unmarks() {
+        let n = names(&["Sales", "Costs", "Profit"]);
+        let one = toggle_marked("", &n, 1);
+        assert_eq!(one, "Costs");
+        let two = toggle_marked(&one, &n, 0);
+        assert_eq!(two, "Sales,Costs", "several marked entries show together, in legend order");
+        assert_eq!(toggle_marked(&two, &n, 1), "Sales");
+        assert_eq!(toggle_marked("Sales", &n, 0), "", "the last mark undone: nothing marked");
+        assert_eq!(parse_marked("2, profit", &n), vec![false, true, true], "1-based indexes and names, any case");
+        let rows = vec![("Jan".to_string(), vec![1.0, 2.0, 3.0]), ("Feb".to_string(), vec![4.0, 5.0, 6.0])];
+        assert_eq!(keep_marked(&rows, &parse_marked("", &n), false), rows, "nothing marked: all of it");
+        assert_eq!(keep_marked(&rows, &parse_marked("Profit,Sales", &n), false)[1].1, vec![4.0, 6.0]);
+        assert_eq!(keep_marked(&rows, &[false, true], true), vec![rows[1].clone()], "a pie keeps whole rows");
+        assert!(legend_dimmed(&[false, true], 0) && !legend_dimmed(&[false, true], 1));
+        assert!(!legend_dimmed(&[false, false], 0), "nothing marked: nothing dimmed");
+    }
+
+    /// The marks hand the painters the kept series with the palette slot each one had in the full legend.
+    #[test]
+    fn marks_keep_each_series_colour_and_the_whole_scale_on_request() {
+        let rows = vec![("A".to_string(), vec![10.0, 200.0]), ("B".to_string(), vec![20.0, 100.0])];
+        let n = names(&["One", "Two"]);
+        let m = marks(&rows, &n, "Two", false, None);
+        assert_eq!(m.data, "A\t200\nB\t100");
+        assert_eq!((m.order.as_str(), m.series_labels.as_deref(), m.marked.as_str()), ("1", Some("Two"), "0,1"));
+        assert_eq!(m.names, "One\nTwo");
+        assert!(m.scale.is_none(), "the scale follows what is shown");
+        assert_eq!(marks(&rows, &n, "Two", false, Some(false)).scale.as_deref(), Some("0,200"));
+        let none = marks(&rows, &n, "", false, Some(false));
+        assert_eq!((none.order.as_str(), none.scale), ("0,1", None));
+        let pie = marks(&[("X".into(), vec![1.0]), ("Y".into(), vec![2.0]), ("Z".into(), vec![3.0])], &names(&["X", "Y", "Z"]), "Z,X", true, None);
+        assert_eq!((pie.data.as_str(), pie.order.as_str(), pie.series_labels), ("X\t1\nZ\t3", "0,2", None));
+    }
 
     /// Several series travel on one line: the first alone is what a
     /// single-series reader sees, a bad later value is 0, and a one-series

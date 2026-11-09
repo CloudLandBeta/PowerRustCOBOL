@@ -15266,6 +15266,11 @@ fn render_interactive(
             // receives is an ordinary control whose `__ChartData` happens to
             // hold this frame's interpolated series, so it needs no knowledge of
             // any of this.
+            // `LegendInteractive` / `MarkedSeries`: the chart as the marked entries leave it
+            // (`paint::chart_with_marks`) -- tweened and painted in place of the whole data.
+            let marked_owner = paint::chart_with_marks(ctrl);
+            let whole = ctrl;
+            let ctrl = marked_owner.as_ref().unwrap_or(ctrl);
             let tweened_owner;
             let grown_owner;
             let mut chart_ctrl = ctrl;
@@ -15373,6 +15378,35 @@ fn render_interactive(
             paint::draw_control(
                 &painter, screen.min, chart_ctrl, false, glass, alpha, 1.0, None,
             );
+            // `LegendInteractive`: a click on a legend entry marks it, a second click unmarks it. The new
+            // `MarkedSeries` goes back through `prop_updates`; `onLegendClick` carries "name<TAB>1|0".
+            if prop_bool(ctrl, "LegendInteractive", false) && prop_bool(ctrl, "ShowLegend", false) {
+                let rects: Vec<(Rect, usize)> =
+                    ui.ctx().memory(|m| m.data.get_temp(paint::legend_rects_id(&ctrl.id))).unwrap_or_default();
+                if let Some(pos) = ui.ctx().pointer_hover_pos().filter(|p| clip.contains(*p)) {
+                    if rects.iter().any(|(r, _)| r.contains(pos)) {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if ui.input(|i| i.pointer.primary_clicked()) {
+                        if let Some((_, idx)) = rects.iter().find(|(r, _)| r.contains(pos)) {
+                            let names: Vec<String> =
+                                sv(ctrl, "__LegendNames").lines().map(str::to_owned).collect();
+                            let spec = sv(whole, "MarkedSeries");
+                            let next = crate::chart::toggle_marked(&spec, &names, *idx);
+                            let now_marked = crate::chart::parse_marked(&next, &names).get(*idx).copied().unwrap_or(false);
+                            out.prop_updates.push((id.to_owned(), "MarkedSeries".to_owned(), next));
+                            if bound.contains(&"onLegendClick") {
+                                out.events.push(UiEvent {
+                                    ctrl_id: id.to_owned(),
+                                    event: "onLegendClick".to_owned(),
+                                    value: Some(format!("{}\t{}", names.get(*idx).cloned().unwrap_or_default(), u8::from(now_marked))),
+                                });
+                            }
+                            ui.ctx().request_repaint();
+                        }
+                    }
+                }
+            }
             // `ShowTooltips`: the point, bar or slice under the pointer, as
             // "label: value". Only the control's own Tooltip ever showed.
             if prop_bool(ctrl, "ShowTooltips", true) {

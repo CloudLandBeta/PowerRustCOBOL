@@ -1691,6 +1691,8 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         ControlType::Snackbar => SNACKBAR,
         ControlType::ToolBar => TOOLBAR,
         ControlType::FileDropZone => FILE_DROP_ZONE,
+        // The legend entries a click (or a program) has marked: the chart shows only those (`LegendInteractive`).
+        ControlType::BarChart | ControlType::LineChart | ControlType::AreaChart | ControlType::PieChart | ControlType::DonutChart | ControlType::RadarChart => &["MarkedSeries"],
         // WASM-006 R6 — a handler sets `Cancel` during `onClick` or `onBeforeNavigate` to stop the
         // navigation; reset to false before each click.
         ControlType::Hyperlink => &["Cancel"],
@@ -4159,6 +4161,7 @@ impl ControlType {
             | ControlType::DonutChart
             | ControlType::RadarChart => &[
                 "onDataChanged",
+                "onLegendClick",
                 "onClick",
                 "onDblClick",
                 "onDoubleClick",
@@ -6855,6 +6858,11 @@ impl Control {
                 // Monochrome face and near-invisible on a white one.
                 props.insert("TitleColor".into(), PropValue::String("".into()));
                 props.insert("ShowLegend".into(), PropValue::Bool(true));
+                // Interactive legend: a click on an entry marks it (the chart then shows only the marked
+                // entries); a second click unmarks it. Off by default. The marks are the runtime property
+                // `MarkedSeries`. `AutoScaleVisible` (default on): the scale follows what is shown.
+                props.insert("LegendInteractive".into(), PropValue::Bool(false));
+                props.insert("AutoScaleVisible".into(), PropValue::Bool(true));
                 props.insert("ShowGridLines".into(), PropValue::Bool(true));
                 // Independent X/Y axis-line visibility (default on). A pie, a
                 // donut or a radar has no X/Y axes, so it carries neither.

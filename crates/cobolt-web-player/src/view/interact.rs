@@ -414,6 +414,7 @@ fn behaviour(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
         ControlType::Maps => maps(cx, i, p),
         ControlType::FileDropZone => drop_zone(cx, i, p),
         ControlType::Viewer => viewer(cx, i, p),
+        ControlType::BarChart | ControlType::LineChart | ControlType::AreaChart | ControlType::PieChart | ControlType::DonutChart | ControlType::RadarChart => chart_legend(cx, i, p),
         _ => Vec::new(),
     }
 }
@@ -709,6 +710,20 @@ fn tab_control(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
         v.push(ev1("onTabChanged", page.to_string()));
     }
     v
+}
+
+/// A click on an entry of a chart's legend (`LegendInteractive`): the entry's mark flips in `MarkedSeries`, and
+/// `onLegendClick` carries its name and its new state (1 marked, 0 not), as the desktop's running form does.
+fn chart_legend(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
+    let on = crate::value::truthy(&cx.tree.get(i, "LegendInteractive"));
+    if p.kind != "click" || p.part.as_deref() != Some("legend") || !on {
+        return Vec::new();
+    }
+    let names = super::chart_paint::legend_names(cx, i);
+    let Some(idx) = p.index.and_then(|k| usize::try_from(k - 1).ok()).filter(|k| *k < names.len()) else { return Vec::new() };
+    let next = cobolt_forms::chart::toggle_marked(&cx.tree.get(i, "MarkedSeries"), &names, idx);
+    let now = cobolt_forms::chart::parse_marked(&next, &names).get(idx).copied().unwrap_or(false);
+    vec![quiet("MarkedSeries", next), Act::Event { name: "onLegendClick", args: vec![names[idx].clone(), b01(now).to_owned()] }]
 }
 
 // ── TreeView ────────────────────────────────────────────────────────────────
@@ -1610,6 +1625,30 @@ mod tests {
         // A click on the card anywhere else is a click on the card, and on the grid that holds it.
         assert_eq!(names(&run(&t, one, &e, Payload::new("click", "root"))), ["onClick"]);
         assert_eq!(names(&run(&t, grid, &e, Payload::new("click", "root"))), ["onClick"]);
+    }
+
+
+    /// A click on an entry of an interactive legend marks it, a second click on the marked entry unmarks it, and the
+    /// `onLegendClick` handler hears the entry's name; a chart whose legend is not interactive hears nothing.
+    #[test]
+    fn a_legend_click_marks_and_unmarks_an_entry() {
+        let data = "Jan\t5\t3\nFeb\t6\t4";
+        let props = |interactive: &'static str| [("LegendInteractive", interactive), ("ShowLegend", "1"), ("SeriesLabels", "One,Two"), ("__ChartData", data)];
+        let (mut t, i) = tree_with("BarChart", "CH", &props("1"));
+        let e = Empty::default();
+        let legend = |k: i64| {
+            let mut p = Payload::new("click", "root");
+            p.part = Some("legend".into());
+            p.index = Some(k);
+            p
+        };
+        assert_eq!(names(&run(&t, i, &e, legend(2))), ["MarkedSeries=Two", "onLegendClick(Two|1)", "onClick"]);
+        t.set(i, "MarkedSeries", "Two");
+        assert_eq!(names(&run(&t, i, &e, legend(1))), ["MarkedSeries=One,Two", "onLegendClick(One|1)", "onClick"]);
+        assert_eq!(names(&run(&t, i, &e, legend(2))), ["MarkedSeries=", "onLegendClick(Two|0)", "onClick"], "the last mark undone: every series shows again");
+        assert_eq!(names(&run(&t, i, &e, legend(3))), ["onClick"], "there is no third entry: a plain click only");
+        let (off, j) = tree_with("BarChart", "CH", &props("0"));
+        assert_eq!(names(&run(&off, j, &e, legend(1))), ["onClick"], "not interactive: a plain click only");
     }
 
     #[test]

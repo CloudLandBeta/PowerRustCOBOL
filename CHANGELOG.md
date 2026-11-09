@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.359 — 2026-11-09
+
+**Feature: a chart's legend can be interactive.** With `ShowLegend` on, setting `LegendInteractive` makes the legend's entries clickable on the desktop and on the web. A click marks a series (or a slice, on a pie or donut chart): the chart then shows only the marked ones, a second click unmarks it, and with none marked everything shows. The marks live in the runtime property `MarkedSeries` (comma-separated names or 1-based indexes), which a program may read or set; the event `onLegendClick` fires with the entry's name and its new state (1 marked, 0 not). The chart's data, its totals and its bound values never change. The marks keep the palette colour of their place in the full legend. *(Landed from the `features-2x-chart-legend` worktree's unfinished work, rebased onto 2.0.358. Checked: `cobolt-forms --features render` all green, 1502 in the main suite; the web player compiles for `wasm32` and its 20 chart tests pass. Not measured: the look in a browser, the System KB tables and `chunked.data`, the Developer's Guide.)*
+
 ## 2.0.358 — 2026-11-09
 
 **Docs: the WASM ledger says what was measured for NIST IF and IC on generated modules.** IF runs 45 of 45 programs clean (841 PASS, 0 FAIL) and IC 25 of 25 (309 PASS, 0 FAIL, 4 DELETED), equal to the interpreter; two ledger lines still said "not started".

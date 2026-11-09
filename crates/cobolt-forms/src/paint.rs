@@ -13970,6 +13970,71 @@ pub fn chart_series_names(ctrl: &Control, count: usize) -> Vec<String> {
         .collect()
 }
 
+/// Where the memory of a chart's drawn legend entries lives (`LegendInteractive`): the painter stores
+/// `Vec<(Rect, usize)>` there, the running form reads the click back from it.
+pub fn legend_rects_id(chart_id: &str) -> egui::Id {
+    egui::Id::new(("prc-chart-legend-rects", chart_id))
+}
+
+/// A chart with an interactive legend (`LegendInteractive`) or marked entries (`MarkedSeries`), as the painters
+/// draw it: a COPY of `ctrl` whose `__ChartData` keeps only the marked series (or slices) and whose
+/// `__SeriesOrder` says which palette colour each kept one keeps, so a series never changes colour while the
+/// others are out. The legend is fed by `__LegendNames` (every entry, one per line) and `__LegendMarked`
+/// (`1`/`0` per entry). `None` when the chart has nothing to filter or show (no live data, no interactive
+/// legend, a scatter) or when `ctrl` is already such a copy. The data of `ctrl` itself is never changed.
+pub fn chart_with_marks(ctrl: &Control) -> Option<Control> {
+    use crate::model::ControlType as CT;
+    if ctrl.get_prop("__LegendNames").is_some() || ctrl.control_type == CT::ScatterChart {
+        return None;
+    }
+    let flag = |k: &str, d: bool| ctrl.get_prop(k).map(|v| v.as_bool()).unwrap_or(d);
+    let spec = ctrl.get_prop("MarkedSeries").map(|v| v.as_str().to_owned()).unwrap_or_default();
+    if !flag("LegendInteractive", false) && spec.trim().is_empty() {
+        return None;
+    }
+    let raw = ctrl.get_prop("__ChartData").map(|v| v.as_str().to_owned()).unwrap_or_default();
+    let rows = crate::chart::parse_chart_rows(&raw);
+    if rows.is_empty() {
+        return None;
+    }
+    let is_pie = matches!(ctrl.control_type, CT::PieChart | CT::DonutChart);
+    let names: Vec<String> = if is_pie {
+        rows.iter().map(|(l, _)| l.clone()).collect()
+    } else {
+        chart_series_names(ctrl, rows.iter().map(|(_, v)| v.len()).max().unwrap_or(1).max(1))
+    };
+    // `AutoScaleVisible` (default on): the scale follows what is shown. Off: it stays the whole data's.
+    let scale_whole = (ctrl.control_type != CT::RadarChart && !flag("AutoScaleVisible", true))
+        .then(|| matches!(ctrl.control_type, CT::BarChart | CT::AreaChart) && flag("Stacked", false));
+    let m = crate::chart::marks(&rows, &names, &spec, is_pie, scale_whole);
+    let mut c = ctrl.clone();
+    let text = |s: String| PropValue::String(s);
+    c.set_prop("__ChartData", text(m.data));
+    if let Some(l) = m.series_labels {
+        c.set_prop("SeriesLabels", text(l));
+    }
+    c.set_prop("__SeriesOrder", text(m.order));
+    c.set_prop("__LegendNames", text(m.names));
+    c.set_prop("__LegendMarked", text(m.marked));
+    if let Some(s) = m.scale {
+        c.set_prop("__ScaleRange", text(s));
+    }
+    Some(c)
+}
+
+/// The palette index of the `i`-th series (or slice) drawn: its place in the full legend, which
+/// `chart_with_marks` records in `__SeriesOrder`, so a series keeps its colour while others are out.
+fn series_slot(order: &[usize], i: usize) -> usize {
+    order.get(i).copied().unwrap_or(i)
+}
+
+/// `__SeriesOrder` as a list; empty when the chart is not filtered.
+fn series_order(ctrl: &Control) -> Vec<usize> {
+    ctrl.get_prop("__SeriesOrder")
+        .map(|v| v.as_str().split(',').filter_map(|s| s.trim().parse().ok()).collect())
+        .unwrap_or_default()
+}
+
 pub(crate) fn chart_geometry(ctrl: &Control) -> ChartGeometry {
     use crate::model::ControlType as CT;
     // Live data pushed from COBOL via the `COBOL-CHART-*` runtime calls arrives
@@ -14024,7 +14089,12 @@ pub(crate) fn chart_geometry(ctrl: &Control) -> ChartGeometry {
     // largest and smallest value of ANY series, or, stacked, the largest
     // total on each side of zero — so the tallest stack reaches the edge.
     let (lo, hi) = if category_chart && !live.is_empty() {
-        crate::chart::value_range(&live_rows, stacked)
+        // `AutoScaleVisible` off keeps the whole data's range while series are out (`chart_with_marks`).
+        ctrl.get_prop("__ScaleRange")
+            .and_then(|v| v.as_str().split(',').map(|s| s.trim().parse::<f32>().ok()).collect::<Option<Vec<f32>>>())
+            .filter(|r| r.len() == 2)
+            .map(|r| (r[0], r[1]))
+            .unwrap_or_else(|| crate::chart::value_range(&live_rows, stacked))
     } else {
         (0.0, 0.0)
     };
@@ -14209,6 +14279,8 @@ pub struct ChartHit {
 /// mark is, below zero included.
 pub fn chart_hit_at(ctrl: &Control, rect: egui::Rect, pos: Pos2) -> Option<ChartHit> {
     use crate::model::ControlType as CT;
+    let marked_owner = chart_with_marks(ctrl);
+    let ctrl = marked_owner.as_ref().unwrap_or(ctrl);
     let geo = chart_geometry(ctrl);
     if geo.live.is_empty() || !rect.contains(pos) {
         return None;
@@ -14342,6 +14414,11 @@ pub fn draw_chart_preview(
     rounding: egui::CornerRadius, // per-corner: own radius, lifted to a container border
 ) {
     use crate::model::ControlType as CT;
+
+    // An interactive legend or marked series: paint the filtered copy (`chart_with_marks`).
+    let marked_owner = chart_with_marks(ctrl);
+    let ctrl = marked_owner.as_ref().unwrap_or(ctrl);
+    let slots = series_order(ctrl);
 
     let chart_diag = frame_diagnostics_enabled();
 
@@ -14791,7 +14868,7 @@ pub fn draw_chart_preview(
                             r,
                         )));
                     } else {
-                        painter.rect_filled(br, r, pal[si % pal.len()]);
+                        painter.rect_filled(br, r, pal[series_slot(&slots, si) % pal.len()]);
                     }
                 }
             }
@@ -14809,7 +14886,7 @@ pub fn draw_chart_preview(
                 } else {
                     raw.clone()
                 };
-                let c = pal[si % pal.len()];
+                let c = pal[series_slot(&slots, si) % pal.len()];
                 if gradient {
                     // Vertical gradient fill under the line: brightest at the line,
                     // fading to transparent at the baseline (spec 013, mockup look).
@@ -14863,7 +14940,7 @@ pub fn draw_chart_preview(
                         shade(mono_base, 0.10),
                     )
                 } else {
-                    let c = pal[si % pal.len()];
+                    let c = pal[series_slot(&slots, si) % pal.len()];
                     let f = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), fill_alpha);
                     (f, f, c)
                 };
@@ -15028,7 +15105,7 @@ pub fn draw_chart_preview(
             order.sort_by(|&x, &y| area(&vertices[y]).total_cmp(&area(&vertices[x])));
             for &si in &order {
                 let polygon = &vertices[si];
-                let c = pal[si % pal.len()];
+                let c = pal[series_slot(&slots, si) % pal.len()];
                 let ring: Vec<Pos2> = polygon.iter().map(|&p| at(p)).collect();
                 let line_c = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a);
                 if ring.len() >= 3 {
@@ -15078,7 +15155,7 @@ pub fn draw_chart_preview(
             if show_points {
                 let halo = Color32::from_rgba_unmultiplied(255, 255, 255, (a as f32 * 0.85) as u8);
                 for &si in &order {
-                    let c = pal[si % pal.len()];
+                    let c = pal[series_slot(&slots, si) % pal.len()];
                     let line_c = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a);
                     for (ai, &p) in vertices[si].iter().enumerate() {
                         if radar_marker_shown(fractions[si][ai], (at(p) - centre_pos).length(), marker_r, axes) {
@@ -15204,7 +15281,7 @@ pub fn draw_chart_preview(
                 // fill, or the middle of its own gradient. The label's contrast
                 // is judged against THIS, not against a palette entry the
                 // gradient path never used.
-                let base_c = pal[i % pal.len()];
+                let base_c = pal[series_slot(&slots, i) % pal.len()];
                 let painted: Color32;
                 if gradient {
                     // Each slice gets its own radial gradient (light inner →
@@ -15364,7 +15441,16 @@ pub fn draw_chart_preview(
     if show_legend {
         // A pie's legend names its SLICES, a category chart's its SERIES --
         // which is what there is to tell apart in each.
-        let entries: Vec<(String, Color32)> = if is_pie {
+        // An interactive legend lists EVERY entry (`__LegendNames`), the unmarked ones dimmed, each in the
+        // colour of its place in the full list; the plot itself is drawn from the marked ones only.
+        let legend_all: Option<Vec<String>> = ctrl.get_prop("__LegendNames").map(|v| v.as_str().lines().map(str::to_owned).collect());
+        let marked: Vec<bool> = ctrl
+            .get_prop("__LegendMarked")
+            .map(|v| v.as_str().split(',').map(|s| s.trim() == "1").collect())
+            .unwrap_or_default();
+        let entries: Vec<(String, Color32)> = if let Some(all) = legend_all {
+            all.into_iter().enumerate().map(|(i, l)| (l, pal[i % pal.len()])).collect()
+        } else if is_pie {
             let names: Vec<String> = if live.is_empty() {
                 (1..=4).map(|i| format!("Item {i}")).collect()
             } else {
@@ -15386,6 +15472,17 @@ pub fn draw_chart_preview(
                 .collect()
         };
         let swatch = 7.0_f32;
+        let any_marked = marked.iter().any(|m| *m);
+        // Where each entry was drawn, for the click on it (`LegendInteractive`): read back by the running form.
+        let mut hit_rects: Vec<(egui::Rect, usize)> = Vec::new();
+        // An entry's colours: dimmed when something else is marked, a ring round the swatch when it is.
+        let entry_look = |i: usize, colour: Color32| {
+            if crate::chart::legend_dimmed(&marked, i) {
+                (colour.gamma_multiply(0.30), chrome_c.gamma_multiply(0.40))
+            } else {
+                (colour, chrome_c)
+            }
+        };
         if is_pie {
             // Beside the chart, one entry per line, a row of the legend's
             // type apart (`chart::pie_legend_pitch`; the web player steps by it too).
@@ -15393,25 +15490,29 @@ pub fn draw_chart_preview(
             let line_h = crate::chart::pie_legend_pitch(legend_font.size);
             let total = entries.len() as f32 * line_h;
             let mut y = (plot.center().y - total * 0.5).max(rect.min.y + 4.0);
-            for (name, colour) in &entries {
+            for (idx, (name, colour)) in entries.iter().enumerate() {
                 if y + line_h > rect.max.y - 2.0 {
                     break;
                 }
-                chrome.rect_filled(
-                    egui::Rect::from_min_size(
-                        Pos2::new(x, y + (line_h - swatch) * 0.5),
-                        Vec2::new(swatch, swatch),
-                    ),
-                    1.0,
-                    *colour,
-                );
+                let (swatch_c, text_c) = entry_look(idx, *colour);
+                let sw = egui::Rect::from_min_size(Pos2::new(x, y + (line_h - swatch) * 0.5), Vec2::new(swatch, swatch));
+                chrome.rect_filled(sw, 1.0, swatch_c);
+                if any_marked && marked.get(idx).copied().unwrap_or(false) {
+                    chrome.rect_stroke(sw.expand(2.0), 2.0, egui::Stroke::new(1.0, chrome_c), egui::StrokeKind::Outside);
+                }
+                let galley = chrome.layout_no_wrap(name.clone(), legend_font.clone(), text_c);
+                let text_w = galley.size().x;
                 chrome.text(
                     Pos2::new(x + swatch + 4.0, y + line_h * 0.5),
                     egui::Align2::LEFT_CENTER,
                     name,
                     legend_font.clone(),
-                    chrome_c,
+                    text_c,
                 );
+                hit_rects.push((
+                    egui::Rect::from_min_max(Pos2::new(x - 2.0, y), Pos2::new((x + swatch + 4.0 + text_w + 2.0).min(rect.max.x), y + line_h)),
+                    idx,
+                ));
                 y += line_h;
             }
         } else {
@@ -15431,24 +15532,29 @@ pub fn draw_chart_preview(
             let total: f32 = widths.iter().sum::<f32>() + gap * (entries.len() as f32 - 1.0).max(0.0);
             let mut x = plot.center().x - total * 0.5;
             let y = rect.max.y - legend_h * 0.5;
-            for ((name, colour), w) in entries.iter().zip(widths) {
-                chrome.rect_filled(
-                    egui::Rect::from_min_size(
-                        Pos2::new(x, y - swatch * 0.5),
-                        Vec2::new(swatch, swatch),
-                    ),
-                    1.0,
-                    *colour,
-                );
+            for (idx, ((name, colour), w)) in entries.iter().zip(widths).enumerate() {
+                let (swatch_c, text_c) = entry_look(idx, *colour);
+                let sw = egui::Rect::from_min_size(Pos2::new(x, y - swatch * 0.5), Vec2::new(swatch, swatch));
+                chrome.rect_filled(sw, 1.0, swatch_c);
+                if any_marked && marked.get(idx).copied().unwrap_or(false) {
+                    chrome.rect_stroke(sw.expand(2.0), 2.0, egui::Stroke::new(1.0, chrome_c), egui::StrokeKind::Outside);
+                }
                 chrome.text(
                     Pos2::new(x + swatch + 4.0, y),
                     egui::Align2::LEFT_CENTER,
                     name,
                     legend_font.clone(),
-                    chrome_c,
+                    text_c,
                 );
+                hit_rects.push((
+                    egui::Rect::from_min_max(Pos2::new(x - 2.0, y - legend_h * 0.5), Pos2::new(x + w + 2.0, y + legend_h * 0.5)),
+                    idx,
+                ));
                 x += w + gap;
             }
+        }
+        if ctrl.get_prop("LegendInteractive").map(|v| v.as_bool()).unwrap_or(false) {
+            painter.ctx().memory_mut(|m| m.data.insert_temp(legend_rects_id(&ctrl.id), hit_rects));
         }
     }
 
@@ -24918,6 +25024,38 @@ slice = [4, 4, 4, 4]
             })
             .collect();
         (texts, bars)
+    }
+    /// A BarChart writes its categories under its bars (PowerOficina's
+
+    /// The interactive legend (`LegendInteractive`, `MarkedSeries`) on the desktop, as the web player draws it
+    /// (`chart_paint::tests::a_marked_series_is_drawn_alone_in_its_own_colour_and_the_legend_lists_both`): marking
+    /// the second series leaves out the first one's bars, the second keeps its green, the legend still lists both
+    /// entries, and the data of the control is untouched.
+    #[test]
+    fn a_marked_series_is_drawn_alone_in_its_own_colour_and_the_legend_lists_both() {
+        let base = [("__ChartData", MONTHS), ("ShowLegend", "true"), ("SeriesLabels", "One,Two"), ("LegendInteractive", "1")];
+        let (_, none) = texts_and_bars(&bar_chart(&base));
+        assert_eq!((none[0].len(), none[1].len()), (12, 12), "nothing marked: every series shows");
+        let mut with: Vec<(&str, &str)> = base.to_vec();
+        with.push(("MarkedSeries", "Two"));
+        let c = bar_chart(&with);
+        let (texts, bars) = texts_and_bars(&c);
+        assert_eq!((bars[0].len(), bars[1].len()), (0, 12), "series One is out, series Two keeps its green");
+        let words: Vec<&str> = texts.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(words.contains(&"One") && words.contains(&"Two"), "the legend names every series: {words:?}");
+        assert_eq!(c.get_prop("__ChartData").unwrap().as_str(), MONTHS, "the control's own data is never changed");
+        // The painters get a copy; a copy is not filtered twice.
+        let copy = chart_with_marks(&c).expect("a marked series makes a copy");
+        assert!(chart_with_marks(&copy).is_none());
+        assert_eq!(copy.get_prop("__SeriesOrder").unwrap().as_str(), "1");
+        // A pie keeps a slice's colour, too: marking the second leaves only it.
+        let mut pie = Control::new("P", CT::DonutChart, 0, 0);
+        pie.set_prop("__ChartData", PropValue::String("A\t3\nB\t5\nC\t2".into()));
+        pie.set_prop("LegendInteractive", PropValue::Bool(true));
+        pie.set_prop("MarkedSeries", PropValue::String("B".into()));
+        let copy = chart_with_marks(&pie).unwrap();
+        assert_eq!((copy.get_prop("__ChartData").unwrap().as_str(), copy.get_prop("__SeriesOrder").unwrap().as_str()), ("B\t5", "1"));
+        assert_eq!(copy.get_prop("__LegendNames").unwrap().as_str(), "A\nB\nC");
     }
 
     /// A BarChart writes its categories under its bars (PowerOficina's

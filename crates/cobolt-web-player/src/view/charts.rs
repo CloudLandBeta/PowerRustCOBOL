@@ -126,7 +126,8 @@ fn plot_rect(cx: &ViewCtx, i: usize, w: f64, h: f64, legend_rows: usize, axes: b
     (left, top, w - 10.0, bottom.max(top + 10.0))
 }
 
-fn title_and_legend(cx: &ViewCtx, i: usize, root: &mut VNode, w: f64, h: f64, labels: &[String], colors: &[String]) {
+#[allow(clippy::too_many_arguments)]
+fn title_and_legend(cx: &ViewCtx, i: usize, root: &mut VNode, w: f64, h: f64, labels: &[String], colors: &[String], marked: &[bool], interactive: bool) {
     let title = cx.tree.get(i, "Title");
     if !title.is_empty() {
         let tfs = parse_f64(&cx.tree.get(i, "TitleFontSize")).filter(|v| *v > 0.0).unwrap_or(14.0);
@@ -139,9 +140,25 @@ fn title_and_legend(cx: &ViewCtx, i: usize, root: &mut VNode, w: f64, h: f64, la
     if truthy(&cx.tree.get(i, "ShowLegend")) && !labels.is_empty() {
         let mut x = 12.0;
         let y = h - 6.0;
+        let any_marked = marked.iter().any(|m| *m);
         for (k, l) in labels.iter().enumerate() {
-            push_svg(root, sv("rect").attr("x", f(x)).attr("y", f(y - 9.0)).attr("width", "10").attr("height", "10").attr("rx", "2").attr("fill", colors[k % colors.len()].clone()));
-            push_svg(root, text_node(x + 14.0, y, "start", 11.0, l).class("pr-legend"));
+            // The same legend the desktop and `chart_paint` draw: every entry, the unmarked dimmed once something is marked,
+            // the marked ringed; clickable when `LegendInteractive` is on (`interact::chart_legend`).
+            let is_marked = marked.get(k).copied().unwrap_or(false);
+            let mut g = sv("g");
+            if interactive {
+                g = g.attr("data-i", (k + 1).to_string()).attr("data-part", "legend").attr("style", "cursor:pointer").attr("role", "button").attr("aria-pressed", if is_marked { "true" } else { "false" }).attr("aria-label", l.clone());
+                g = g.child(sv("rect").attr("x", f(x - 2.0)).attr("y", f(y - 11.0)).attr("width", f(18.0 + l.chars().count() as f64 * 6.2)).attr("height", "14").attr("fill", "transparent"));
+            }
+            if any_marked && !is_marked {
+                g = g.attr("opacity", "0.35");
+            }
+            g = g.child(sv("rect").attr("x", f(x)).attr("y", f(y - 9.0)).attr("width", "10").attr("height", "10").attr("rx", "2").attr("fill", colors[k % colors.len()].clone()));
+            if any_marked && is_marked {
+                g = g.child(sv("rect").attr("x", f(x - 2.0)).attr("y", f(y - 11.0)).attr("width", "14").attr("height", "14").attr("rx", "3").attr("fill", "none").attr("stroke", "currentColor").attr("stroke-width", "1"));
+            }
+            g = g.child(text_node(x + 14.0, y, "start", 11.0, l).class("pr-legend"));
+            push_svg(root, g);
             x += 14.0 + l.chars().count() as f64 * 6.2 + 14.0;
             if x > w {
                 break;
@@ -203,11 +220,35 @@ pub fn chart(cx: &ViewCtx, i: usize) -> VNode {
     // ticks are the data's own; only the marks are drawn at that fraction of their distance from zero (a slice at that
     // fraction of its sweep, a radar vertex at that fraction of its reach), as `paint::chart_geometry` draws them.
     let frame = cx.ui.chart_frames.get(&i);
-    let rows = parse_chart_rows(&frame.and_then(|f| f.data.clone()).unwrap_or_else(|| cx.tree.get(i, "__ChartData")));
+    let all_rows = parse_chart_rows(&frame.and_then(|f| f.data.clone()).unwrap_or_else(|| cx.tree.get(i, "__ChartData")));
     let g = frame.and_then(|f| f.grow).unwrap_or(1.0).clamp(0.0, 1.0);
-    let series = rows.iter().map(|(_, v)| v.len()).max().unwrap_or(1).max(1);
+    let series = all_rows.iter().map(|(_, v)| v.len()).max().unwrap_or(1).max(1);
     let labels = series_labels(cx, i, series);
     let colors: Vec<String> = (0..series).map(|k| series_color(cx, i, k, series)).collect();
+    // `LegendInteractive` / `MarkedSeries` (the charts `chart_paint` does not draw: Area, Scatter, Monochrome): draw the marked
+    // series only, in the colours they have in the full legend; the legend lists every entry.
+    let pie_like = matches!(t, ControlType::PieChart | ControlType::DonutChart);
+    let spec = cx.tree.get(i, "MarkedSeries");
+    let interactive = truthy(&cx.tree.get(i, "LegendInteractive")) && truthy(&cx.tree.get(i, "ShowLegend")) && *t != ControlType::ScatterChart;
+    let (mut labels, mut colors) = (labels, colors);
+    let (mut shown_all_labels, mut shown_all_colors): (Option<Vec<String>>, Option<Vec<String>>) = (None, None);
+    let mut marked: Vec<bool> = Vec::new();
+    let rows = if (interactive || !spec.trim().is_empty()) && *t != ControlType::ScatterChart && !all_rows.is_empty() {
+        let names: Vec<String> = if pie_like { all_rows.iter().map(|(l, _)| l.clone()).collect() } else { labels.clone() };
+        let full_colors: Vec<String> = if pie_like { (0..all_rows.len()).map(|k| series_color(cx, i, k, all_rows.len().max(1))).collect() } else { colors.clone() };
+        let m = cobolt_forms::chart::marks(&all_rows, &names, &spec, pie_like, None);
+        marked = m.marked.split(',').map(|s| s.trim() == "1").collect();
+        if !pie_like {
+            let kept: Vec<usize> = m.order.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+            labels = kept.iter().map(|&k| names[k].clone()).collect();
+            colors = kept.iter().map(|&k| full_colors[k].clone()).collect();
+        }
+        shown_all_labels = Some(names);
+        shown_all_colors = Some(full_colors);
+        parse_chart_rows(&m.data)
+    } else {
+        all_rows
+    };
     let (mut root, w, h) = svg_root(cx, i, "pr-chart");
     let sum: f64 = rows.iter().map(|(_, v)| v.iter().map(|x| *x as f64).sum::<f64>()).sum();
     root = root.attr("aria-label", format!("{}: {} rows", cx.tree.get(i, "Title"), rows.len())).attr("data-rows", rows.len().to_string()).attr("data-sum", f(sum));
@@ -221,17 +262,18 @@ pub fn chart(cx: &ViewCtx, i: usize) -> VNode {
         ControlType::RadarChart => radar(cx, i, &mut root, &rows, w, h, &colors, g),
         _ => {}
     }
-    let pie_like = matches!(t, ControlType::PieChart | ControlType::DonutChart);
-    let shown_labels: Vec<String> = if pie_like { rows.iter().map(|(l, _)| l.clone()).collect() } else { labels };
-    let shown_colors: Vec<String> = if pie_like { (0..rows.len()).map(|k| series_color(cx, i, k, rows.len().max(1))).collect() } else { colors.clone() };
+    let shown_labels: Vec<String> = shown_all_labels.unwrap_or_else(|| if pie_like { rows.iter().map(|(l, _)| l.clone()).collect() } else { labels });
+    let shown_colors: Vec<String> = shown_all_colors.unwrap_or_else(|| if pie_like { (0..rows.len()).map(|k| series_color(cx, i, k, rows.len().max(1))).collect() } else { colors.clone() });
     if !shown_colors.is_empty() {
-        title_and_legend(cx, i, &mut root, w, h, &shown_labels, &shown_colors);
+        title_and_legend(cx, i, &mut root, w, h, &shown_labels, &shown_colors, &marked, interactive);
     } else {
-        title_and_legend(cx, i, &mut root, w, h, &[], &["#888".to_owned()]);
+        title_and_legend(cx, i, &mut root, w, h, &[], &["#888".to_owned()], &[], false);
+    }
+    if interactive && !super::controls::bound_dom_events(cx.tree.ctl(i)).contains(&"click") {
+        root = root.on("click");
     }
     root
 }
-
 /// The geometry of one bar: `(x, y, width, height)` for a value in a plot whose zero line is at `zero_y`.
 pub fn bar_rect(x: f64, bar_w: f64, value: f32, scale: &dyn Fn(f32) -> f64, zero_y: f64) -> (f64, f64, f64, f64) {
     let y = scale(value);

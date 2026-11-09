@@ -95,12 +95,18 @@ struct Ctx<'a> {
     ty: ControlType,
     w: f64,
     h: f64,
+    /// Properties a chart with marked legend entries is read with instead of its own (`chart::marks`): the kept series'
+    /// `__ChartData`, their `SeriesLabels` and so on, as `paint::chart_with_marks` hands the desktop painter.
+    over: Vec<(&'static str, String)>,
 }
 
 impl Ctx<'_> {
     /// What the control STATES (or a program wrote): the painter reads a property a loaded control does not carry as absent and
     /// takes its own default, not the seeded one a program reads back (`FormTree::get`).
     fn s(&self, k: &str) -> String {
+        if let Some((_, v)) = self.over.iter().find(|(name, _)| name.eq_ignore_ascii_case(k)) {
+            return v.clone();
+        }
         // While the chart moves, the frame of its motion stands in for the two properties the desktop's run-time loop
         // hands its painter (`render.rs` CT::*Chart: a tweened `__ChartData`, a `__ChartGrow` below 1).
         if let Some(fr) = self.cx.ui.chart_frames.get(&self.i) {
@@ -165,6 +171,29 @@ fn series_names(c: &Ctx, count: usize) -> Vec<String> {
                 .unwrap_or_else(|| format!("Series {}", i + 1))
         })
         .collect()
+}
+
+/// The rows a chart is drawing and its legend's entries (a pie's slices, a category chart's series) before any is
+/// left out; `None` without live data. What `chart::marks` is given, and what a click on an entry is matched against.
+fn legend_entries(c: &Ctx) -> Option<(Vec<Row>, Vec<String>)> {
+    let raw = c.s("__ChartData");
+    if raw.trim().is_empty() {
+        return None;
+    }
+    let rows = parse_chart_rows(&raw);
+    if rows.is_empty() {
+        return None;
+    }
+    let names = if c.is_pie() { rows.iter().map(|(l, _)| l.clone()).collect() } else { series_names(c, rows.iter().map(|(_, v)| v.len()).max().unwrap_or(1).max(1)) };
+    Some((rows, names))
+}
+
+/// The legend's entries of chart `i`, in order: what `MarkedSeries` names and a click on the legend marks.
+pub fn legend_names(cx: &ViewCtx, i: usize) -> Vec<String> {
+    let Some(ty) = cx.tree.ctl(i).control_type().cloned() else { return Vec::new() };
+    let (w, h) = cx.box_size(i);
+    let c = Ctx { cx, i, ty, w, h, over: Vec::new() };
+    legend_entries(&c).map(|(_, n)| n).unwrap_or_default()
 }
 
 // ── the frame (`paint::chart_frame`) ─────────────────────────────────────────
@@ -283,7 +312,8 @@ fn geometry(c: &Ctx) -> Geometry {
     let series_count = if category { rows.iter().map(|(_, v)| v.len()).max().unwrap_or(0) } else { rows.len().min(1) };
     let stacked = matches!(c.ty, ControlType::BarChart | ControlType::AreaChart) && c.flag("Stacked", false);
     let grow = c.s("__ChartGrow").trim().parse::<f32>().unwrap_or(1.0).clamp(0.0, 1.0);
-    let (lo, hi) = if category && !live.is_empty() { value_range(&rows, stacked) } else { (0.0, 0.0) };
+    let whole_scale = c.s("__ScaleRange").split(',').map(|s| s.trim().parse::<f32>().ok()).collect::<Option<Vec<f32>>>().filter(|r| r.len() == 2).map(|r| (r[0], r[1]));
+    let (lo, hi) = if category && !live.is_empty() { whole_scale.unwrap_or_else(|| value_range(&rows, stacked)) } else { (0.0, 0.0) };
     let span = (hi - lo).max(f32::EPSILON);
     let zero = if category && !live.is_empty() { (0.0 - lo) / span } else { 0.0 };
     let plotted: Vec<Vec<f32>> = if live.is_empty() {
@@ -440,11 +470,34 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
     }
     let (w, h) = cx.box_size(i);
     let (w, h) = (w.max(16.0), h.max(16.0));
-    let c = Ctx { cx, i, ty: ty.clone(), w, h };
+    let mut c = Ctx { cx, i, ty: ty.clone(), w, h, over: Vec::new() };
+    // `LegendInteractive` / `MarkedSeries`: draw the marked series only, each in the colour it has in the full legend.
+    let interactive = c.flag("LegendInteractive", false) && c.flag("ShowLegend", false);
+    if let Some((rows, names)) = legend_entries(&c) {
+        let spec = c.trimmed("MarkedSeries");
+        if interactive || !spec.is_empty() {
+            let scale_whole = (ty != ControlType::RadarChart && !c.flag("AutoScaleVisible", true)).then(|| matches!(ty, ControlType::BarChart | ControlType::AreaChart) && c.flag("Stacked", false));
+            let m = chart::marks(&rows, &names, &spec, c.is_pie(), scale_whole);
+            c.over.push(("__ChartData", m.data));
+            if let Some(l) = m.series_labels {
+                c.over.push(("SeriesLabels", l));
+            }
+            c.over.push(("__SeriesOrder", m.order));
+            c.over.push(("__LegendNames", m.names));
+            c.over.push(("__LegendMarked", m.marked));
+            if let Some(s) = m.scale {
+                c.over.push(("__ScaleRange", s));
+            }
+        }
+    }
+    let c = c;
     let fr = frame(&c);
     let geo = geometry(&c);
     let names = series_names(&c, geo.series_count.max(geo.plotted.len()).max(1));
-    let pal = palette(&c);
+    let pal_full = palette(&c);
+    // The marks drawn take the palette slot they have in the full legend: the k-th kept entry the colour of its place.
+    let slots: Vec<usize> = c.s("__SeriesOrder").split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    let pal: Vec<Rgba> = if slots.is_empty() { pal_full.clone() } else { slots.iter().map(|&k| pal_full[k % pal_full.len()]).collect() };
     let ctl = cx.tree.ctl(i);
     let name = ctl.name.clone();
 
@@ -464,6 +517,10 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
     };
     // The element every control starts from (its tooltip, layer, availability), drawn as a picture (WASM-004 T32).
     let mut root = super::controls::root(cx, i, "div").attr("role", "img");
+    // A legend whose entries can be clicked listens for the click, bound to a handler or not (`interact::chart_legend`).
+    if interactive && !super::controls::bound_dom_events(cx.tree.ctl(i)).contains(&"click") {
+        root = root.on("click");
+    }
 
     let (pl, pt, pr, pb) = fr.plot;
     let clip_plot = format!("pr-plot-{name}");
@@ -669,26 +726,51 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
         }
     }
     if c.flag("ShowLegend", false) {
-        let entries: Vec<(String, Rgba)> = if c.is_pie() {
+        // An interactive legend lists EVERY entry (`__LegendNames`), the unmarked dimmed, each in the colour of its place
+        // in the full list (`paint::draw_chart_preview`); the marks above were drawn from the marked ones only.
+        let all: Option<Vec<String>> = Some(c.s("__LegendNames")).filter(|s| !s.is_empty()).map(|s| s.lines().map(str::to_owned).collect());
+        let marked: Vec<bool> = c.s("__LegendMarked").split(',').map(|s| s.trim() == "1").collect();
+        let any_marked = marked.iter().any(|m| *m);
+        let entries: Vec<(String, Rgba)> = if let Some(all) = all {
+            all.into_iter().enumerate().map(|(i, l)| (l, pal_full[i % pal_full.len()])).collect()
+        } else if c.is_pie() {
             let names: Vec<String> = if geo.live.is_empty() { (1..=4).map(|i| format!("Item {i}")).collect() } else { geo.live.iter().map(|(l, _)| l.clone()).collect() };
-            names.into_iter().enumerate().map(|(i, l)| (l, pal[i % pal.len()])).collect()
+            names.into_iter().enumerate().map(|(i, l)| (l, pal_full[i % pal_full.len()])).collect()
         } else {
             let count = if geo.live.is_empty() { geo.plotted.len().max(1) } else { geo.series_count.max(1) };
-            series_names(&c, count).into_iter().enumerate().map(|(i, n)| (n, pal[i % pal.len()])).collect()
+            series_names(&c, count).into_iter().enumerate().map(|(i, n)| (n, pal_full[i % pal_full.len()])).collect()
         };
         let swatch = 7.0;
+        // One entry: its swatch and name, dimmed when something else is marked, ringed when it is; clickable when the legend is.
+        let entry = |idx: usize, x: f64, y_top: f64, row_h: f64, name: &str, colour: Rgba| -> VNode {
+            let sy = y_top + (row_h - swatch) * 0.5;
+            let mut g = sv("g");
+            if interactive {
+                g = g.attr("data-i", (idx + 1).to_string()).attr("data-part", "legend").attr("style", "cursor:pointer").attr("role", "button").attr("aria-pressed", if marked.get(idx).copied().unwrap_or(false) { "true" } else { "false" }).attr("aria-label", name.to_owned());
+            }
+            if any_marked && !marked.get(idx).copied().unwrap_or(false) {
+                g = g.attr("opacity", "0.35");
+            }
+            if interactive {
+                g = g.child(sv("rect").attr("x", f(x - 2.0)).attr("y", f(y_top)).attr("width", f(swatch + 8.0 + metrics::text_width(name, size9))).attr("height", f(row_h)).attr("fill", "transparent"));
+            }
+            g = g.child(sv("rect").attr("x", f(x)).attr("y", f(sy)).attr("width", f(swatch)).attr("height", f(swatch)).attr("rx", "1").attr("fill", rgb(colour)));
+            if any_marked && marked.get(idx).copied().unwrap_or(false) {
+                g = g.child(sv("rect").attr("x", f(x - 2.0)).attr("y", f(sy - 2.0)).attr("width", f(swatch + 4.0)).attr("height", f(swatch + 4.0)).attr("rx", "2").attr("fill", "none").attr("stroke", rgb(chrome_c)).attr("stroke-width", "1"));
+            }
+            g.child(text(x + swatch + 4.0, baseline_centred(y_top + row_h * 0.5, size9), "start", size9, name, chrome_c))
+        };
         if c.is_pie() {
             let x = w - fr.legend_w + 4.0;
             // A row of the legend's type apart, as the desktop steps (`chart::pie_legend_pitch`).
             let line_h = chart::pie_legend_pitch(size9 as f32) as f64;
             let total = entries.len() as f64 * line_h;
             let mut y = (fr.centre().1 - total * 0.5).max(4.0);
-            for (name, colour) in &entries {
+            for (idx, (name, colour)) in entries.iter().enumerate() {
                 if y + line_h > h - 2.0 {
                     break;
                 }
-                chrome = chrome.child(sv("rect").attr("x", f(x)).attr("y", f(y + (line_h - swatch) * 0.5)).attr("width", f(swatch)).attr("height", f(swatch)).attr("rx", "1").attr("fill", rgb(*colour)));
-                chrome = chrome.child(text(x + swatch + 4.0, baseline_centred(y + line_h * 0.5, size9), "start", size9, name, chrome_c));
+                chrome = chrome.child(entry(idx, x, y, line_h, name, *colour));
                 y += line_h;
             }
         } else {
@@ -696,10 +778,10 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
             let widths: Vec<f64> = entries.iter().map(|(n, _)| swatch + 4.0 + metrics::text_width(n, size9)).collect();
             let total: f64 = widths.iter().sum::<f64>() + gap * (entries.len() as f64 - 1.0).max(0.0);
             let mut x = fr.centre().0 - total * 0.5;
-            let y = h - fr.legend_h * 0.5;
-            for ((name, colour), wd) in entries.iter().zip(widths) {
-                chrome = chrome.child(sv("rect").attr("x", f(x)).attr("y", f(y - swatch * 0.5)).attr("width", f(swatch)).attr("height", f(swatch)).attr("rx", "1").attr("fill", rgb(*colour)));
-                chrome = chrome.child(text(x + swatch + 4.0, baseline_centred(y, size9), "start", size9, name, chrome_c));
+            let row_h = fr.legend_h.max(swatch);
+            let y_top = h - fr.legend_h * 0.5 - row_h * 0.5;
+            for (idx, ((name, colour), wd)) in entries.iter().zip(widths).enumerate() {
+                chrome = chrome.child(entry(idx, x, y_top, row_h, name, *colour));
                 x += wd + gap;
             }
         }
@@ -1120,6 +1202,29 @@ mod tests {
             })
             .collect();
         (texts, bars)
+    }
+
+    /// The interactive legend on the web (`LegendInteractive`, `MarkedSeries`): marking the second series draws only its
+    /// bars, in the colour it has in the full legend, and the legend still lists both entries, the first dimmed.
+    #[test]
+    fn a_marked_series_is_drawn_alone_in_its_own_colour_and_the_legend_lists_both() {
+        let (_, all) = texts_and_bars(&[("__ChartData", MONTHS), ("ShowLegend", "true"), ("SeriesLabels", "One,Two")]);
+        assert_eq!((all[0].len(), all[1].len()), (12, 12));
+        let marked = [("__ChartData", MONTHS), ("ShowLegend", "true"), ("SeriesLabels", "One,Two"), ("LegendInteractive", "1"), ("MarkedSeries", "Two")];
+        let (texts, bars) = texts_and_bars(&marked);
+        assert_eq!((bars[0].len(), bars[1].len()), (0, 12), "series One is out, series Two keeps its green");
+        let words: Vec<&str> = texts.iter().map(|(t, ..)| t.as_str()).collect();
+        assert!(words.contains(&"One") && words.contains(&"Two"), "the legend names every series: {words:?}");
+        // Nothing marked: the legend is clickable and every series shows.
+        let (_, none) = texts_and_bars(&[("__ChartData", MONTHS), ("ShowLegend", "true"), ("SeriesLabels", "One,Two"), ("LegendInteractive", "1")]);
+        assert_eq!((none[0].len(), none[1].len()), (12, 12));
+        let (t, i) = crate::tree::testing::tree_with("BarChart", "CH", &[("Width", "420"), ("Height", "260"), ("ShowLegend", "true"), ("SeriesLabels", "One,Two"), ("__ChartData", MONTHS), ("LegendInteractive", "1"), ("MarkedSeries", "Two")]);
+        let e = super::super::Empty::default();
+        let n = chart(&e.cx(&t), i).unwrap();
+        let mut items = Vec::new();
+        n.find_all(&|v| v.attr_of("data-part") == Some("legend"), &mut items);
+        let dim: Vec<Option<&str>> = items.iter().map(|v| v.attr_of("opacity")).collect();
+        assert_eq!(dim, [Some("0.35"), None], "two clickable entries, the unmarked one dimmed");
     }
 
     /// Parity with the desktop (`paint::elegance_tests::bar_category_labels_stand_under_their_bars_and_clear_the_caption_and_legend`):
