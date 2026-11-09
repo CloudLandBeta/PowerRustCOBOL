@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.330 — 2026-11-08
+
+**Fix: the Backend window and its button speak Brazilian Portuguese.** "Registo" is "Registro", "Ligações" is "Conexões", "registadas" is "registradas", and "está a funcionar" is "está em execução".
+
 ## 2.0.329 — 2026-11-08
 
 **Feature (test): the Backend inspector's proxy is proved against the real Backend.** A WebSocket client with the page's Origin connects through the proxy to `rcrun backend run`, sends the protocol's `hello` and gets the Backend's `hello` back, and the inspector records the handshake with the Origin and both packets.
