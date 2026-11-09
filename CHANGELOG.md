@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.363 — 2026-11-09
+
+**Feature: the form engine computes the cascade the web player builds on one element (WASM-036 T2).** A new `css_effective` module reads the project, theme and form stylesheets once (selectors, declarations with their byte ranges, line, layer, `@media`/`@container`/`@supports` conditions) and answers which declaration wins each CSS property of a control or of the form itself: layers base < theme < props < project < unlayered, `!important` reversing them, specificity, source order, `var()` through the element path and `:host`, and the control's `CssStyle` as the last (1,1,0) rule. What the IDE cannot know for sure (a pseudo-class, an element type, an undecided condition) is kept as "may" and never wins. The override marks of the Properties panel now read from it. A selector with a space inside an attribute value (`[data-name^="btn-" i]`) is no longer cut in the middle. *(Check, the Properties panel's value column and the editors follow in T3–T24.)*
+
 ## 2.0.362 — 2026-11-09
 
 **Feature: the style-sheet reader of the form engine understands attribute selectors, `:host`, and decides media queries for a given screen (WASM-036 T1).** A rule such as `[data-name="BTN-SAVE"] { … }` or `[lang|=en]` now matches (the seven operators and the `i` flag) instead of being dropped; `:host` matches the root of the form; `media_eval` answers `@media` for a given width, height and light or dark scheme, and says "unknown" for what it cannot know (`hover`, `pointer`, the other `prefers-*`); and each declaration can be read with the exact byte ranges of its name and value, so a later step can rewrite one value in place. `media_matches` gives every answer it always gave. Nothing in the IDE changes yet: this is the engine the next tasks build on. The Viewer passes no attributes, so a rule that tests one matches nothing there.

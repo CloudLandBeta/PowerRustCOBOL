@@ -97,6 +97,7 @@ pub mod viewer;
 /// layout, and nothing fetched.
 pub mod css;
 /// Which properties a control's stylesheets override (WASM-007 R12).
+pub mod css_effective;
 pub mod css_overrides;
 /// The check of a web form's stylesheet (WASM-007 R5, R13, R16): diagnostics with lines, the safety
 /// check the player runs, and the origins the Content-Security-Policy must allow. No egui.
