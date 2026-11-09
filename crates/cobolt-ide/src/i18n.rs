@@ -3027,6 +3027,20 @@ pub struct Tr {
     pub examples_poweranalytics_about: &'static str,
     /// Help → Examples → PowerCloud: what the example shows.
     pub examples_powercloud_about: &'static str,
+    /// Help → Examples: cat desktop.
+    pub examples_cat_desktop: &'static str,
+    /// Help → Examples: cat web.
+    pub examples_cat_web: &'static str,
+    /// Help → Examples: cat mobile.
+    pub examples_cat_mobile: &'static str,
+    /// Help → Examples: powergraphics about.
+    pub examples_powergraphics_about: &'static str,
+    /// Help → Examples: powerwebhello about.
+    pub examples_powerwebhello_about: &'static str,
+    /// Help → Examples: poweranalyticsweb about.
+    pub examples_poweranalyticsweb_about: &'static str,
+    /// Help → Examples: powermobilehello about.
+    pub examples_powermobilehello_about: &'static str,
     /// Help → Examples: hover of an example this build does not ship.
     pub examples_not_installed: &'static str,
 }
@@ -5364,6 +5378,13 @@ const EN: Tr = Tr {
     examples_powerspatial_about: "A smart-home dashboard in the Spatial theme: frameless glass windows, a toolbar, a rail and a room bar docked around the dashboard that move with it as one, a thermostat dial, a music player and six languages. Built 100% in RustCOBOL.",
     examples_poweranalytics_about: "A fund-analytics dashboard in the Spatial theme: 43,750 investment funds read from an ANBIMA spreadsheet, glass panels that zoom in one after another, charts that grow from zero (bar, line, donut and the new radar, up to three series each), search fields with a type-ahead list of ticks, range filters, a Dashboard / Data menu with a data grid and a strip of KPIs, and a layout that adapts down to a phone's width.",
     examples_powercloud_about: "One AWS service on every tab, written in RustCOBOL: DynamoDB (pets with photos), S3, Lambda (a temporary link), Polly (text to speech with a player), EC2 (servers with an on / off switch) and Rekognition (faces framed on the photo). Type the keys of an AWS user in the Settings tab (they stay in memory), deploy the CloudFormation template the demo needs, or save it and run it yourself.",
+    examples_cat_desktop: "Desktop",
+    examples_cat_web: "Web",
+    examples_cat_mobile: "Mobile",
+    examples_powergraphics_about: "A showcase of the graphics controls: Pitfall reinterpreted on a Canvas2D (a jungle that turns into a noir ghost world after your first death, 100 screens each), an endless bridge run in a Tesla-style roadster on a Canvas3D, a top-view pool game on Physics2D, a traditional-view 3D pool game on Physics3D, and a bald runner's street view on a Scene3D; plus a chart gallery, an image lab and a 3D viewer. Built 100% in RustCOBOL.",
+    examples_powerwebhello_about: "The smallest Web application: a form served from a WebAssembly bundle that greets you by name, with a Backend written in RustCOBOL that answers the greeting. The place to start before building a bigger web application.",
+    examples_poweranalyticsweb_about: "The fund-analytics dashboard of PowerAnalytics rebuilt as a Web application: the same charts, filters and data grid in the browser, with the data held by a RustCOBOL Backend.",
+    examples_powermobilehello_about: "The smallest Mobile application: one screen for a phone that greets you by name and can forget you, built as a WebAssembly bundle. The place to start before building a bigger mobile application.",
     examples_not_installed: "No example project is installed with this build.",
 };
 
@@ -7681,6 +7702,13 @@ const ES: Tr = Tr {
     examples_powerspatial_about: "Un panel de hogar inteligente con el tema Spatial: ventanas de vidrio sin marco, una barra de herramientas, un riel y una barra de habitaciones acoplados al panel que se mueven con él como uno solo, un dial de termostato, un reproductor de música y seis idiomas. Hecho 100 % en RustCOBOL.",
     examples_poweranalytics_about: "Un panel de análisis de fondos de inversión con el tema Spatial: 43.750 fondos leídos de una hoja de cálculo de ANBIMA, paneles de cristal que aparecen uno tras otro, gráficos que crecen desde cero (barras, líneas, anillo y el nuevo radar, con hasta tres series cada uno), campos de búsqueda con una lista de casillas que se filtra al escribir, filtros por rango, un menú Dashboard / Datos con tabla y una franja de KPIs, y un diseño que se adapta hasta el ancho de un teléfono.",
     examples_powercloud_about: "Un servicio de AWS en cada pestaña, escrito en RustCOBOL: DynamoDB (mascotas con fotos), S3, Lambda (un enlace temporal), Polly (texto a voz con reproductor), EC2 (servidores con interruptor de encendido) y Rekognition (rostros enmarcados sobre la foto). Escriba las claves de un usuario de AWS en la pestaña Ajustes (se quedan en memoria), despliegue la plantilla de CloudFormation que necesita la demo, o guárdela y ejecútela usted mismo.",
+    examples_cat_desktop: "Escritorio",
+    examples_cat_web: "Web",
+    examples_cat_mobile: "Móvil",
+    examples_powergraphics_about: "Una muestra de los controles gráficos: Pitfall reinterpretado en un Canvas2D (una selva que se vuelve un mundo fantasma en blanco y negro tras su primera muerte, 100 pantallas en cada uno), una carrera sin fin por un puente en un deportivo al estilo Tesla en un Canvas3D, un billar visto desde arriba con Physics2D, un billar 3D en vista tradicional con Physics3D y la vista de la calle de un corredor calvo en un Scene3D; además de una galería de gráficos, un laboratorio de imágenes y un visor 3D. Hecho 100% en RustCOBOL.",
+    examples_powerwebhello_about: "La aplicación Web más pequeña: un formulario servido desde un paquete WebAssembly que le saluda por su nombre, con un Backend escrito en RustCOBOL que responde al saludo. El punto de partida antes de construir una aplicación web mayor.",
+    examples_poweranalyticsweb_about: "El panel de análisis de fondos de PowerAnalytics reconstruido como aplicación Web: los mismos gráficos, filtros y cuadrícula de datos en el navegador, con los datos en un Backend RustCOBOL.",
+    examples_powermobilehello_about: "La aplicación Móvil más pequeña: una pantalla para teléfono que le saluda por su nombre y puede olvidarle, construida como paquete WebAssembly. El punto de partida antes de construir una aplicación móvil mayor.",
     examples_not_installed: "No hay ningún proyecto de ejemplo instalado con esta versión.",
 };
 
@@ -9998,6 +10026,13 @@ const PT: Tr = Tr {
     examples_powerspatial_about: "Um painel de casa inteligente no tema Spatial: janelas de vidro sem moldura, uma barra de ferramentas, um trilho e uma barra de cômodos acoplados ao painel que se movem com ele como um só, um mostrador de termostato, um player de música e seis idiomas. Feito 100% em RustCOBOL.",
     examples_poweranalytics_about: "Um painel de análise de fundos de investimento no tema Spatial: 43.750 fundos lidos de uma planilha da ANBIMA, painéis de vidro que entram um após o outro, gráficos que crescem do zero (barras, linhas, rosca e o novo radar, com até três séries cada), campos de busca com uma lista de caixas de seleção que filtra enquanto se digita, filtros por faixa, um menu Dashboard / Dados com tabela e uma faixa de KPIs, e um layout que se adapta até a largura de um celular.",
     examples_powercloud_about: "Um serviço da AWS em cada aba, escrito em RustCOBOL: DynamoDB (bichinhos com fotos), S3, Lambda (um link temporário), Polly (texto em voz com player), EC2 (servidores com interruptor de ligar e desligar) e Rekognition (rostos enquadrados sobre a foto). Digite as chaves de um usuário da AWS na aba Configurações (ficam só na memória), implante o modelo do CloudFormation de que a demonstração precisa, ou salve-o e execute você mesmo.",
+    examples_cat_desktop: "Desktop",
+    examples_cat_web: "Web",
+    examples_cat_mobile: "Mobile",
+    examples_powergraphics_about: "Uma vitrine dos controles gráficos: Pitfall reinterpretado em um Canvas2D (uma selva que vira um mundo fantasma em preto e branco depois da primeira morte, 100 telas em cada), uma corrida sem fim numa ponte com um esportivo estilo Tesla em um Canvas3D, uma sinuca vista de cima com Physics2D, uma sinuca 3D em vista tradicional com Physics3D e a visão da rua de um corredor careca em um Scene3D; além de uma galeria de gráficos, um laboratório de imagens e um visualizador 3D. Feito 100% em RustCOBOL.",
+    examples_powerwebhello_about: "A menor aplicação Web: um formulário servido de um pacote WebAssembly que cumprimenta você pelo nome, com um Backend escrito em RustCOBOL que responde ao cumprimento. O ponto de partida antes de construir uma aplicação web maior.",
+    examples_poweranalyticsweb_about: "O painel de análise de fundos do PowerAnalytics reconstruído como aplicação Web: os mesmos gráficos, filtros e grade de dados no navegador, com os dados em um Backend RustCOBOL.",
+    examples_powermobilehello_about: "A menor aplicação Mobile: uma tela de celular que cumprimenta você pelo nome e pode esquecer você, construída como pacote WebAssembly. O ponto de partida antes de construir uma aplicação mobile maior.",
     examples_not_installed: "Nenhum projeto de exemplo foi instalado com esta versão.",
 };
 
@@ -12314,6 +12349,13 @@ const JA: Tr = Tr {
     examples_powerspatial_about: "Spatial テーマのスマートホーム用ダッシュボード。枠のないガラスのウィンドウ、ダッシュボードの周りにドッキングして一体で動くツールバー・レール・部屋バー、サーモスタットのダイヤル、音楽プレーヤー、6 言語に対応。100% RustCOBOL で作られています。",
     examples_poweranalytics_about: "Spatial テーマの投資ファンド分析ダッシュボード。ANBIMA のスプレッドシートから読み込んだ 43,750 本のファンド、順に拡大して現れるガラスのパネル、ゼロから伸びるグラフ（棒・折れ線・ドーナツ・新しいレーダー。それぞれ最大 3 系列）、入力に合わせて絞り込まれるチェック付きリストの検索フィールド、範囲フィルター、データグリッドと KPI 帯を備えた Dashboard / データ メニュー、スマートフォンの幅まで適応するレイアウト。",
     examples_powercloud_about: "各タブに AWS のサービスを 1 つずつ、RustCOBOL で記述：DynamoDB（写真付きのペット）、S3、Lambda（一時リンク）、Polly（プレーヤー付きの音声合成）、EC2（オン・オフのスイッチ付きサーバー）、Rekognition（写真上に枠で示す顔）。設定タブで AWS ユーザーのキーを入力し（メモリ内にのみ保持）、デモに必要な CloudFormation テンプレートをデプロイするか、保存して自分で実行します。",
+    examples_cat_desktop: "デスクトップ",
+    examples_cat_web: "Web",
+    examples_cat_mobile: "モバイル",
+    examples_powergraphics_about: "グラフィックスコントロールのショーケース：Canvas2D で再解釈した Pitfall（最初に死ぬとジャングルがモノクロの幽霊の世界に変わり、各 100 画面）、Canvas3D でテスラ風ロードスターが走る終わりのない橋、Physics2D の真上視点ビリヤード、Physics3D の通常視点 3D ビリヤード、Scene3D のスキンヘッドのランナーの街並み。さらにグラフギャラリー、画像ラボ、3D ビューアーも収録。100% RustCOBOL で記述。",
+    examples_powerwebhello_about: "最小の Web アプリケーション：WebAssembly バンドルから配信されるフォームが名前であいさつし、RustCOBOL で書かれた Backend がそのあいさつに応答します。大きな Web アプリケーションを作る前の出発点です。",
+    examples_poweranalyticsweb_about: "PowerAnalytics のファンド分析ダッシュボードを Web アプリケーションとして再構築：同じグラフ、フィルター、データグリッドをブラウザーで動かし、データは RustCOBOL の Backend が保持します。",
+    examples_powermobilehello_about: "最小のモバイルアプリケーション：名前であいさつし、忘れることもできる携帯電話向けの 1 画面を WebAssembly バンドルとして構築。大きなモバイルアプリケーションを作る前の出発点です。",
     examples_not_installed: "このビルドにはサンプルプロジェクトがインストールされていません。",
 };
 
@@ -14637,6 +14679,13 @@ const ZH: Tr = Tr {
     examples_powerspatial_about: "采用 Spatial 主题的智能家居仪表板：无边框的玻璃窗口，停靠在仪表板周围并随其一起移动的工具栏、导航栏和房间栏，恒温器旋钮，音乐播放器，支持六种语言。100% 使用 RustCOBOL 构建。",
     examples_poweranalytics_about: "采用 Spatial 主题的投资基金分析仪表板：从 ANBIMA 电子表格读取 43,750 只基金，玻璃面板依次放大出现，图表从零开始生长（柱状、折线、环形和新的雷达图，每种最多三个系列），带勾选列表且随输入即时筛选的搜索字段，区间筛选，含数据表格和 KPI 栏的 Dashboard / 数据菜单，以及可缩小到手机宽度的自适应布局。",
     examples_powercloud_about: "每个标签页一项 AWS 服务，全部用 RustCOBOL 编写：DynamoDB（带照片的宠物）、S3、Lambda（临时链接）、Polly（带播放器的文字转语音）、EC2（带开关的服务器）和 Rekognition（在照片上框出人脸）。在“设置”标签页输入 AWS 用户的密钥（只保存在内存中），部署演示所需的 CloudFormation 模板，或保存后自行运行。",
+    examples_cat_desktop: "桌面",
+    examples_cat_web: "Web",
+    examples_cat_mobile: "移动",
+    examples_powergraphics_about: "图形控件展示：在 Canvas2D 上重新演绎的 Pitfall（第一次死亡后丛林变成黑白幽灵世界，各 100 屏）、在 Canvas3D 上驾驶特斯拉风格跑车的无尽大桥、基于 Physics2D 的俯视台球、基于 Physics3D 的传统视角 3D 台球，以及基于 Scene3D 的光头跑者街景；另有图表库、图像实验室和 3D 查看器。全部用 RustCOBOL 编写。",
+    examples_powerwebhello_about: "最小的 Web 应用：由 WebAssembly 包提供的窗体按姓名问候您，并由用 RustCOBOL 编写的 Backend 回应问候。构建更大的 Web 应用之前的起点。",
+    examples_poweranalyticsweb_about: "将 PowerAnalytics 的基金分析仪表板重建为 Web 应用：相同的图表、筛选器和数据网格在浏览器中运行，数据由 RustCOBOL Backend 保存。",
+    examples_powermobilehello_about: "最小的移动应用：一个按姓名问候、也能忘记您的手机屏幕，构建为 WebAssembly 包。构建更大的移动应用之前的起点。",
     examples_not_installed: "此版本未安装示例项目。",
 };
 
@@ -16954,6 +17003,13 @@ const FR: Tr = Tr {
     examples_powerspatial_about: "Un tableau de bord de maison connectée dans le thème Spatial : des fenêtres de verre sans cadre, une barre d'outils, un rail et une barre des pièces ancrés au tableau de bord qui se déplacent avec lui d'un seul bloc, un cadran de thermostat, un lecteur de musique et six langues. Réalisé à 100 % en RustCOBOL.",
     examples_poweranalytics_about: "Un tableau de bord d'analyse de fonds d'investissement dans le thème Spatial : 43 750 fonds lus dans un tableur ANBIMA, des panneaux de verre qui apparaissent l'un après l'autre, des graphiques qui partent de zéro (barres, lignes, anneau et le nouveau radar, jusqu'à trois séries chacun), des champs de recherche avec une liste à cocher qui se filtre à la frappe, des filtres par plage, un menu Dashboard / Données avec grille et bandeau d'indicateurs, et une mise en page qui s'adapte jusqu'à la largeur d'un téléphone.",
     examples_powercloud_about: "Un service AWS par onglet, écrit en RustCOBOL : DynamoDB (des animaux avec photos), S3, Lambda (un lien temporaire), Polly (synthèse vocale avec lecteur), EC2 (des serveurs avec un interrupteur marche / arrêt) et Rekognition (des visages encadrés sur la photo). Saisissez les clés d'un utilisateur AWS dans l'onglet Réglages (elles restent en mémoire), déployez le modèle CloudFormation dont la démo a besoin, ou enregistrez-le et lancez-le vous-même.",
+    examples_cat_desktop: "Bureau",
+    examples_cat_web: "Web",
+    examples_cat_mobile: "Mobile",
+    examples_powergraphics_about: "Une vitrine des contrôles graphiques : Pitfall réinterprété sur un Canvas2D (une jungle qui devient un monde fantôme en noir et blanc après votre première mort, 100 écrans chacun), une course sans fin sur un pont au volant d'un roadster façon Tesla sur un Canvas3D, un billard vu de dessus avec Physics2D, un billard 3D en vue traditionnelle avec Physics3D et la vue de la rue d'un coureur chauve sur un Scene3D ; plus une galerie de graphiques, un labo d'images et une visionneuse 3D. Écrit à 100 % en RustCOBOL.",
+    examples_powerwebhello_about: "La plus petite application Web : un formulaire servi par un paquet WebAssembly qui vous salue par votre nom, avec un Backend écrit en RustCOBOL qui répond à la salutation. Le point de départ avant de construire une application web plus grande.",
+    examples_poweranalyticsweb_about: "Le tableau de bord d'analyse de fonds de PowerAnalytics reconstruit en application Web : les mêmes graphiques, filtres et grille de données dans le navigateur, avec les données tenues par un Backend RustCOBOL.",
+    examples_powermobilehello_about: "La plus petite application Mobile : un écran de téléphone qui vous salue par votre nom et peut vous oublier, construit en paquet WebAssembly. Le point de départ avant de construire une application mobile plus grande.",
     examples_not_installed: "Aucun projet d'exemple n'est installé avec cette version.",
 };
 

@@ -1946,6 +1946,16 @@ fn data_binding_action_label<'a>(tr: &'a Tr, action: BindingActionGate) -> &'a s
 pub struct Example {
     pub project: &'static str,
     pub manifest: &'static str,
+    /// The Help → Examples submenu it sits under.
+    pub kind: ExampleKind,
+}
+
+/// The kind of application an example is: Help → Examples groups by it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExampleKind {
+    Desktop,
+    Web,
+    Mobile,
 }
 
 impl Example {
@@ -1957,15 +1967,21 @@ impl Example {
 
 /// The examples Help → Examples offers, in menu order (operator, 2026-09-25:
 /// one entry per example instead of a single one).
-pub const EXAMPLES: [Example; 5] = [
-    Example { project: "PowerChat", manifest: "PowerChat.project.toml" },
-    Example { project: "PowerDemo3", manifest: "PowerDemo3.project.toml" },
+pub const EXAMPLES: [Example; 9] = [
+    Example { project: "PowerChat", manifest: "PowerChat.project.toml", kind: ExampleKind::Desktop },
+    Example { project: "PowerDemo3", manifest: "PowerDemo3.project.toml", kind: ExampleKind::Desktop },
     // The Spatial theme, and a group of docked windows (operator, 2026-10-04).
-    Example { project: "PowerSpatial", manifest: "PowerSpatial.project.toml" },
+    Example { project: "PowerSpatial", manifest: "PowerSpatial.project.toml", kind: ExampleKind::Desktop },
     // Fund analytics on the Spatial theme: glass panels, multi-series charts, filters (operator, 2026-10-08).
-    Example { project: "PowerAnalytics", manifest: "PowerAnalytics.project.toml" },
+    Example { project: "PowerAnalytics", manifest: "PowerAnalytics.project.toml", kind: ExampleKind::Desktop },
     // One AWS control of each kind in a Spatial-theme desktop application (spec 092).
-    Example { project: "PowerCloud", manifest: "PowerCloud.project.toml" },
+    Example { project: "PowerCloud", manifest: "PowerCloud.project.toml", kind: ExampleKind::Desktop },
+    // Canvas2D/3D, Physics2D/3D and Scene3D showcase: Pitfall, bridge run, two pool games, street runner.
+    Example { project: "PowerGraphics", manifest: "PowerGraphics.project.toml", kind: ExampleKind::Desktop },
+    // The Web and Mobile examples, under their own submenus (operator, 2026-11-09).
+    Example { project: "PowerWebHello", manifest: "PowerWebHello.project.toml", kind: ExampleKind::Web },
+    Example { project: "PowerAnalyticsWeb", manifest: "PowerAnalyticsWeb.project.toml", kind: ExampleKind::Web },
+    Example { project: "PowerMobileHello", manifest: "PowerMobileHello.project.toml", kind: ExampleKind::Mobile },
 ];
 
 /// The folder the developer's own copies of the shipped examples live in.
@@ -13350,27 +13366,43 @@ impl CoboltApp {
                 // One entry per example (operator, 2026-09-25).
                 let mut open: Option<Example> = None;
                 ui.menu_button(tr.examples_menu_label, |ui| {
-                    for ex in &EXAMPLES {
-                        let found = example_project_manifest(ex);
-                        let entry = ui.add_enabled(found.is_some(), egui::Button::new(ex.project));
-                        let about = match ex.project {
-                            "PowerChat" => Some(tr.examples_powerchat_about),
-                            "PowerSpatial" => Some(tr.examples_powerspatial_about),
-                            "PowerAnalytics" => Some(tr.examples_poweranalytics_about),
-                            "PowerCloud" => Some(tr.examples_powercloud_about),
-                            _ => None,
-                        };
-                        let entry = match (&found, about) {
-                            (Some(path), Some(about)) => {
-                                entry.on_hover_text(format!("{about}\n\n{}", path.display()))
+                    // One submenu per kind of application (operator, 2026-11-09).
+                    for (kind, label) in [
+                        (ExampleKind::Desktop, tr.examples_cat_desktop),
+                        (ExampleKind::Web, tr.examples_cat_web),
+                        (ExampleKind::Mobile, tr.examples_cat_mobile),
+                    ] {
+                        ui.menu_button(label, |ui| {
+                            for ex in EXAMPLES.iter().filter(|e| e.kind == kind) {
+                                let found = example_project_manifest(ex);
+                                let entry =
+                                    ui.add_enabled(found.is_some(), egui::Button::new(ex.project));
+                                let about = match ex.project {
+                                    "PowerChat" => Some(tr.examples_powerchat_about),
+                                    "PowerSpatial" => Some(tr.examples_powerspatial_about),
+                                    "PowerAnalytics" => Some(tr.examples_poweranalytics_about),
+                                    "PowerCloud" => Some(tr.examples_powercloud_about),
+                                    "PowerGraphics" => Some(tr.examples_powergraphics_about),
+                                    "PowerWebHello" => Some(tr.examples_powerwebhello_about),
+                                    "PowerAnalyticsWeb" => Some(tr.examples_poweranalyticsweb_about),
+                                    "PowerMobileHello" => Some(tr.examples_powermobilehello_about),
+                                    _ => None,
+                                };
+                                let entry = match (&found, about) {
+                                    (Some(path), Some(about)) => {
+                                        entry.on_hover_text(format!("{about}\n\n{}", path.display()))
+                                    }
+                                    (Some(path), None) => {
+                                        entry.on_hover_text(path.display().to_string())
+                                    }
+                                    (None, _) => entry.on_disabled_hover_text(tr.examples_not_installed),
+                                };
+                                if entry.clicked() {
+                                    open = Some(*ex);
+                                    ui.close();
+                                }
                             }
-                            (Some(path), None) => entry.on_hover_text(path.display().to_string()),
-                            (None, _) => entry.on_disabled_hover_text(tr.examples_not_installed),
-                        };
-                        if entry.clicked() {
-                            open = Some(*ex);
-                            ui.close();
-                        }
+                        });
                     }
                 });
                 if let Some(ex) = open {
@@ -24972,6 +25004,25 @@ mod examples_menu_tests {
             "found the wrong manifest: {}",
             found.display()
         );
+    }
+
+    /// Every example sits under the submenu of its own kind: the Web and Mobile
+    /// projects are not offered as desktop ones (operator, 2026-11-09).
+    #[test]
+    fn every_example_is_listed_under_the_kind_its_manifest_declares() {
+        use super::ExampleKind;
+        for ex in &EXAMPLES {
+            let manifest = example_project_manifest(ex).expect("reachable from the repo");
+            let text = std::fs::read_to_string(&manifest).expect("manifest");
+            let declared = if text.lines().any(|l| l.trim() == "kind = \"web\"") {
+                ExampleKind::Web
+            } else if text.lines().any(|l| l.trim() == "kind = \"mobile\"") {
+                ExampleKind::Mobile
+            } else {
+                ExampleKind::Desktop
+            };
+            assert_eq!(ex.kind, declared, "{} is under the wrong submenu", ex.project);
+        }
     }
 
     /// The resolver still answers on this machine, whichever copy it picks.

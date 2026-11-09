@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.345 — 2026-11-09
+
+**Feature: Help ▸ Examples is grouped by kind of application, and lists the new demos.** Under Help ▸ Examples there are now three submenus: Desktop (PowerChat, PowerDemo3, PowerSpatial, PowerAnalytics, PowerCloud and the new PowerGraphics showcase of Canvas2D, Canvas3D, Physics2D, Physics3D and Scene3D), Web (PowerWebHello, PowerAnalyticsWeb) and Mobile (PowerMobileHello). Every new entry has its hover description in the six interface languages.
+
 ## 2.0.344 — 2026-11-09
 
 **Fix: the street runner shows both arms and both legs, has traffic in its lanes, and can reach the sidewalks.** A negative number written after a comma as the first argument of a call (`SetPosition( WS-ARML, -0.37 0.68 0 )`) placed the left arm and left leg at the centre of the body, hiding the arm and stacking the legs on one side; the negatives now go through named items. Six obstacles stand in the three lanes (cars to dodge or jump, orange barriers to jump); a hit slows the runner, pushes the obstacle away and counts a crash, and the parked cars are solid too. The street is wider, the runner can move across the road onto either sidewalk (the curb lifts it 14 cm), and the HUD shows the crash count.
