@@ -2699,6 +2699,26 @@ mod tests {
         assert_ne!(proxy, real);
         assert_eq!(*backend.urls.lock().unwrap(), [proxy.clone()], "the page is built for the proxy");
         assert!(get_health(&proxy).starts_with("HTTP/1.1 200"), "the proxy reaches the Backend");
+        // The page's own way in: a WebSocket with the page's Origin, speaking the Backend's protocol, through the proxy.
+        {
+            use tungstenite::client::IntoClientRequest;
+            let origin = p.url().unwrap().trim_end_matches('/').to_owned();
+            let port: u16 = proxy.trim_start_matches("ws://127.0.0.1:").split('/').next().unwrap().parse().unwrap();
+            let mut request = proxy.as_str().into_client_request().unwrap();
+            request.headers_mut().insert("Origin", origin.parse().unwrap());
+            let stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            let (mut ws, _) = tungstenite::client::client(request, stream).expect("the Backend accepts the page's origin through the proxy");
+            ws.send(tungstenite::Message::text("{\"t\":\"hello\",\"protocol\":1,\"contract\":\"\",\"client\":\"test\"}")).unwrap();
+            let reply = ws.read().expect("the Backend's hello");
+            let tungstenite::Message::Text(reply) = reply else { panic!("a text hello, got {reply:?}") };
+            assert!(reply.as_str().contains("\"t\":\"hello\""), "{}", reply.as_str());
+            let seen = inspector.entries();
+            let texts: Vec<_> = seen.iter().filter(|e| e.kind == cobolt_project_tools::web::inspector::Kind::Text).collect();
+            assert_eq!(texts.len(), 2, "the call and the reply were recorded: {seen:?}");
+            assert!(seen.iter().any(|e| e.kind == cobolt_project_tools::web::inspector::Kind::Handshake && e.headers.iter().any(|(k, v)| k.eq_ignore_ascii_case("origin") && *v == origin)));
+            println!("WebSocket through the proxy with the page's Origin: hello answered ({} bytes), {} entries recorded", reply.as_str().len(), seen.len());
+        }
         let seen = inspector.entries();
         assert!(seen.iter().any(|e| e.line.starts_with("GET /health")) && seen.iter().any(|e| e.line.starts_with("HTTP/1.1 200")), "{seen:?}");
         println!("page -> {proxy} -> Backend {real}: {} entries recorded", seen.len());

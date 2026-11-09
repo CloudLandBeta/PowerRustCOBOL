@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.329 — 2026-11-08
+
+**Feature (test): the Backend inspector's proxy is proved against the real Backend.** A WebSocket client with the page's Origin connects through the proxy to `rcrun backend run`, sends the protocol's `hello` and gets the Backend's `hello` back, and the inspector records the handshake with the Origin and both packets.
+
 ## 2.0.328 — 2026-11-08
 
 **Feature: the Backend button opens a Backend inspector window.** The button of the top bar no longer stops the Backend: it opens (and closes) the Backend window, which now has three tabs and a **Stop Backend** button of its own. **Traffic** shows the HTTP exchanges (`/auth/*`, `/health`) and the WebSocket packets between the page and the Backend, with the headers of each exchange and the pretty-printed JSON of each packet (call, program, id), the connections that are open and a Clear button; ticking **Hold requests to the Backend** or **Hold replies to the page** stops each packet of that direction in the window, where the developer can **Forward** it, **Forward it edited** (the JSON is editable) or **Drop** it, and the list shows each packet as passed, held, edited or dropped, with the original of an edited one. **Processes** lists the Backend (`rcrun`) with its process id, memory and address, the IDE process that serves the page, and the inspector's proxy. **Log** is what the Backend prints. To record and hold packets the Preview builds the page for a loopback proxy (`cobolt_project_tools::web::inspector`) that forwards to the Backend with the page's own Origin; HTTP exchanges are recorded but not held. Development only: the proxy listens on `127.0.0.1` and never stands in front of a deployed Backend. Tests: `frames_are_recorded_held_edited_and_dropped`, `an_http_exchange_is_forwarded_and_recorded`, `with_the_inspector_the_page_calls_the_proxy_and_the_proxy_calls_the_backend`.
