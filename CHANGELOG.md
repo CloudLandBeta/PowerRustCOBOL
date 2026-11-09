@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.358 — 2026-11-09
+
+**Docs: the WASM ledger says what was measured for NIST IF and IC on generated modules.** IF runs 45 of 45 programs clean (841 PASS, 0 FAIL) and IC 25 of 25 (309 PASS, 0 FAIL, 4 DELETED), equal to the interpreter; two ledger lines still said "not started".
+
 ## 2.0.357 — 2026-11-09
 
 **Feature: WASM-001 T19 — the New Project native-project step now has its acceptance test (AC8), and the rule for when the step appears is one function.** A Mobile project made for Android is offered the Android Studio step; *Not now* leaves the manifest with no `[mobile.native]` record, *Create* writes `android = "android"` and it survives a reload; iOS, Web and Desktop templates show no step. The iOS project (Xcode) is still not made by this version, so T19 stays open for it and for its Finalize.

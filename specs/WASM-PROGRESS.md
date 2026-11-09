@@ -126,7 +126,7 @@ What the last stretch changed in the generator and the routines (each is a diffe
 
 Divergences from the interpreter found on the way are in `WASM-PARITY.md`.
 
-Next under GOLDEN RULE #9: **IF (Intrinsic Functions)**, then IC — IF needs `FUNCTION` calls in the generator (the module currently refuses them), IC needs nested programs and `CALL`/`LINKAGE`.
+*(Superseded 2026-11-09: IF and IC are done on generated modules, see the row "NIST IF, IC" below.)*
 
 ## The player, loader, host page and bundle — merged (2026-10-20, version 2.0.24)
 
@@ -174,7 +174,7 @@ Measured, not hoped. Commits on `features-2x`: `44371f53` … `42eac962` (2.0.11
 | `cobolt-wasm-rt` (routines) | I | 15 native tests; codecs, MOVE, arithmetic, conditions, DISPLAY, edited pictures, INSPECT/STRING/UNSTRING, INITIALIZE, conformance files |
 | `cobolt-wasm` (generator), WASM-010 phases A and B | I | programs match the interpreter byte for byte in both memory variants; modules validate; "hello" 15.8 KB |
 | NIST **NC** on generated modules | I | **69 of 95 programs run clean; 81 of 95 compile; 3 811 PASS / 39 FAIL** (interpreter: 95/95, 4 614/0). Open: `ACCEPT`, `RENAMES`, user `CLASS`, `EVALUATE` over conditions, X-card/undeclared names, failures in NC104A/105A/107A/108M/114M/124A/203A/215A/216A/219A/222A/247A/254A |
-| NIST IF, IC | not started (GOLDEN RULE #9: NC first) | |
+| NIST IF, IC on generated modules | **done, measured 2026-11-09 (2.0.358, `nist_wasm_run`)** | **IF 45/45 run clean, 841 PASS / 0 FAIL; IC 25/25 run clean, 309 PASS / 0 FAIL, 4 DELETED** (the interpreter: IF 841/0, IC 309/0). The earlier "not started" was stale; phase B above already said done. |
 | WASM-010 phase C (suspension, remote CALL), JSON mapping in the module | not started | |
 
 Work running in other worktrees when the session's usage limit was reached (each commits on its own branch, **none merged into `features-2x`**): `cobolt-graphics` (WASM-018 part 1); backend + `CALL … WITH WEBSOCKET LINKAGE` + JSON mapping + `cobolt-server` + identity backend (WASM-005/003/014/009); player + loader + host page + bundle (WASM-016/002/004/006/007/011); IDE project kinds, selector, tree entries, preview, tooling (WASM-001/008/015). Their reports have not been read. Not started: Tauri shell (WASM-012), security gates (WASM-013), the Canvas control integration (WASM-018 part 2), CLAUDE.md/memory refresh.
