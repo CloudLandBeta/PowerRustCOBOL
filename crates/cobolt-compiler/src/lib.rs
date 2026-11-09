@@ -6938,10 +6938,28 @@ neither the bundle's nor `data:`, and a layer-guard rule are errors that stop th
 (`file:line: message`); an unknown property, a value that does not parse and a
 vendor prefix outside the project's browsers are warnings. The bundle copies the
 sheets byte for byte and its Content-Security-Policy allows exactly the origins
-they load from. The Properties panel marks a property a sheet overrides
-("overridden by CSS", with file and line, or "may be overridden" for a rule under
-`@media`, `@container`, `@supports` or with a pseudo-class); the designer does not
-paint the CSS. With the Preview open, **Apply** puts the form's sheet straight
+they load from. **The designer shows the page's values.** On a Web or Mobile form the canvas
+paints the colours, borders and shadows the stylesheets decide, at the canvas's
+size and in the colour scheme chosen by the toolbar's Light / Dark button (a
+view only: it is remembered per project on the machine and never written to a
+form or a stylesheet). The Properties panel shows each property's value in
+effect, with a **CSS** mark that names the sheet and line (or `CssStyle`) that
+decides it and, in its tooltip, the value the form file stores, which the page
+does not use; a rule that may apply (under `@media`, `@container`, `@supports`
+or with a pseudo-class) is marked "may be overridden" and never replaces a
+certain value; a value the designer cannot compute (`calc()`, an unresolved
+`var()`) is shown as written, read-only. A control whose geometry or other
+declarations the canvas cannot paint carries a `#` badge listing them with
+their lines. Changing a value a rule decides writes the new value into that
+declaration (project sheet, form sheet or `CssStyle`), keeping the developer's
+notation, as one undo step; a rule that styles other controls too first asks
+whether to change the rule or give only this control its own value, once for a
+whole selection; an edit that could not show (another rule wins) writes nothing
+and names the winner. Right-click the CSS mark for **Go to the rule** and
+**Remove the CSS declaration**. `check` adds an `Info` note per override (file,
+line, scheme) and per selector the designer cannot evaluate. The Web Form
+Designer agent reads the same values with its `form.properties` tool, and its
+`set_property` operations take the Properties panel's path. With the Preview open, **Apply** puts the form's sheet straight
 into the served bundle and the page takes it in place — no Build, no restart of
 the application; a sheet with an error is not put in place, and the Build that
 follows reports it.
@@ -7368,7 +7386,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Underline" => (BOOL_DOMAIN, "Underlined text."),
         "Strikethrough" => (BOOL_DOMAIN, "Struck-through text."),
         // ── Web and Mobile only (WASM-007 R2) ──
-        "CssClass" => ("space-separated CSS class names, or empty", "Web and Mobile forms only. Classes added to the control's element after `pr-control` and its type class (`pr-button`, `pr-label`, …), so the project's and the form's stylesheets can select it (`.card { … }`); a name that is not a valid class name is dropped. The designer does not paint the CSS: a control a sheet styles carries a small `#` badge on the canvas."),
+        "CssClass" => ("space-separated CSS class names, or empty", "Web and Mobile forms only. Classes added to the control's element after `pr-control` and its type class (`pr-button`, `pr-label`, …), so the project's and the form's stylesheets can select it (`.card { … }`); a name that is not a valid class name is dropped. The designer paints the colours a rule decides; a control a sheet styles in ways the canvas cannot paint carries a small `#` badge, whose tooltip lists them with their lines."),
         "CssStyle" => ("a CSS declaration list, or empty", "Web and Mobile forms only (shown as \"Style (CSS)\"). Declarations for this control alone — `border-radius: 12px; letter-spacing: 1px` — applied after every stylesheet, as one rule `[data-pr-inst=\"n\"] #<control>` in no layer: it beats the properties, and a sheet rule of the same or lower specificity, but, unlike a real inline `style` attribute (which the page never uses), a more specific sheet rule or a sheet's `!important` rule still beats it. A declaration that does not parse, opens a rule, or loads from outside the bundle is dropped and reported (in the Properties panel under the field, and in the browser console). Nothing is written to the form while it is empty."),
         "Tooltip" => ("free text","Text shown in a small pop-up while the pointer rests on the control in the running form, after its HoverDelayMs (empty = no tooltip). Every visual control shows it."),
         "AccessibleLabel" => ("free text, or empty", "The name a screen reader announces for the control, on the desktop (its accessibility node) and in a browser (`aria-label`). Empty: the control's own caption (a Button, CheckBox, RadioButton, Hyperlink, Label or GroupBox), else the Label just before it in tab order (in a browser, `aria-labelledby` to that Label), else its `Tooltip`. A control the keyboard reaches with none of these is named by a Web or Mobile Check as a warning, form and control."),
@@ -14199,7 +14217,7 @@ generated = ["generated/inner-form1.cbl"]
         let controls = fs::read_to_string(kb.join("form_designer_controls.md")).unwrap();
         assert!(controls.contains("- `CssClass` (String, default (empty);") && controls.contains("- `CssStyle` (String, default (empty);"));
         let project = fs::read_to_string(kb.join("project_model_and_settings.md")).unwrap();
-        for needle in ["**Stylesheets (Web and Mobile).**", "`webforms/application.css`", "`@layer pr-app`", "not a real inline `style` attribute", "**The layer guard:**", "no Build, no restart"] {
+        for needle in ["**The designer shows the page's values.**", "**Go to the rule**", "`form.properties`", "Light / Dark", "**Stylesheets (Web and Mobile).**", "`webforms/application.css`", "`@layer pr-app`", "not a real inline `style` attribute", "**The layer guard:**", "no Build, no restart"] {
             assert!(project.contains(needle), "project_model_and_settings.md lacks {needle}");
         }
         let _ = fs::remove_dir_all(&dir);

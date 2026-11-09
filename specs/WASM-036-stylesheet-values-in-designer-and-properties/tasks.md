@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376), T16 done (2.0.377), T17 done (2.0.378), T18 done (2.0.379); T19 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376), T16 done (2.0.377), T17 done (2.0.378), T18 done (2.0.379), T19 and T20 done (2.0.380: `chunked.data` regeneration owed to the operator, the semantic model is not on this machine); T21 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -375,7 +375,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
 
 ## Phase G — Closing
 
-- [ ] **T19 — i18n audit** (R24 texts; AC13 last bullet, AC20 texts)
+- [x] **T19 — i18n audit** (R24 texts; AC13 last bullet, AC20 texts)
   - Files: `crates/cobolt-ide/src/i18n.rs`.
   - Do:
     - Confirm the 20 keys of plan §3 exist, each in EN ES PT JA ZH FR (added by T9–T15).
@@ -383,7 +383,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - Confirm no user-facing text says "cobolt".
   - Verify: IDE `no_empty_ui_translations` and `non_english_is_actually_translated` green, and a `grep` of the 20 key names finds each one.
 
-- [ ] **T20 — The System KB** (plan §1.7)
+- [x] **T20 — The System KB** (plan §1.7)
   - Files: `crates/cobolt-compiler/src/lib.rs` (the WASM-007 CSS paragraph and the Properties panel's behaviour on Web and Mobile forms), `assets/knowledge/chunked.data` (regenerated).
   - Verify:
     - The KB regeneration runs.
