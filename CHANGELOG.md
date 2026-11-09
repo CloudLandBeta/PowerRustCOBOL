@@ -1,5 +1,14 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.361 — 2026-11-09
+
+**Fix: Pitfall: the other side stopped with "arithmetic size error with no ON SIZE ERROR" after a few minutes of walking.** *(Written on fixes-2x-pitfall-size-error, numbered after 2.0.360.)*
+
+- **Symptom:** after the explorer had walked for a while, every frame raised "A critical exception has occurred: unhandled exception: arithmetic size error with no ON SIZE ERROR phrase", and the toasts piled up over the game.
+- **Cause:** the leg phase of the explorer's stride (added with the knee fix of 2.0.355) is `WS-LPH`, set every frame to `WS-ANIM * 0.35`, and `WS-ANIM` grows with every step. `WS-LPH` was `PIC S9(3)V9(4)`, which holds at most 999.9999, so from about 2,857 steps on the product no longer fitted. `WS-LG`, which receives it, had the same width.
+- **Fix:** `examples/PowerGraphics/forms/pitfall-form.cfrm` declares `WS-LPH` and `WS-LG` as `PIC S9(6)V9(4)`, enough for the largest `WS-ANIM` (999,999 × 0.35). Reproduced with a program of the same two statements at `WS-ANIM` = 2,900: the narrow item holds 015.0000 (the high digits lost), the wide one 1015.0000.
+- **Not changed:** `WS-ANIM` itself is `PIC 9(6)` and would overflow after 999,999 steps (hours of continuous walking at 60 frames a second).
+
 ## 2.0.360 — 2026-11-09
 
 **Fix: the example-corpus golden follows the SideMenu fix of 2.0.311.** `every_example_form_renders_as_its_golden` had been failing since 2.0.311, when a full-height SideMenu began to follow the form's laid-out height instead of its designed one. The only change in the golden is that: `PowerChat/chat-form.cfrm`'s rail is now 594 high at 0.75x (the form's height) and 1188 at 1.5x, where it stood at the designed 792 at every size; its shape digests follow. Every other form of the corpus is unchanged. *(Found by the WASM-036 T1 sweep; checked by reverting that task's changes, which left the same failure.)*
