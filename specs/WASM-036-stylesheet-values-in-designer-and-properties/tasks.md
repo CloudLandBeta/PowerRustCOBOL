@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376), T16 done (2.0.377), T17 done (2.0.378), T18 done (2.0.379), T19 and T20 done (2.0.380: `chunked.data` regeneration owed to the operator, the semantic model is not on this machine); T21 done (2.0.381); T22 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376), T16 done (2.0.377), T17 done (2.0.378), T18 done (2.0.379), T19 and T20 done (2.0.380: `chunked.data` regeneration owed to the operator, the semantic model is not on this machine); T21 done (2.0.381); T22 done (2.0.382); T23 next.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -397,7 +397,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - For each case, compare `getComputedStyle` of the element the player writes to with `effective()`'s value and source.
   - Verify: the Chrome command prints "N of N" and the engine version. Where Chrome is absent the test says "not run" and claims nothing. **AC2.**
 
-- [ ] **T22 — A Desktop project is unchanged** (R19; AC14)
+- [x] **T22 — A Desktop project is unchanged** (R19; AC14)
   - Files: `designer_css_effective_tests.rs`.
   - Verify: IDE `designer_css_effective` green.
     - **AC14:** with a stylesheet placed beside a Desktop form, no mark shows and the canvas paints the stored properties.

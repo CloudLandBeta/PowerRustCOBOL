@@ -2,6 +2,11 @@
 
 
 
+## 2.0.382 — 2026-11-09
+
+**Test: a Desktop project is unchanged by a stylesheet beside its form (WASM-036 T22, AC14).** The checks already live in `designer_css_effective_tests.rs` and were confirmed as covering AC14: the canvas paints a Desktop form's stored properties (no restyle), the Properties panel shows no effective value and no mark, a property edit is stored as before, and an agent's change-set keeps its old ledger. The `designer` and `properties` suites run green: 566 passed, 0 failed (1 ignored, pre-existing).
+
+
 ## 2.0.381 — 2026-11-09
 
 **Test: the designer's cascade equals Chrome's computed style at nine levels (WASM-036 T21, AC2).** New `crates/cobolt-web-bundle/tests/css_effective_chrome.rs` builds a 412 × 915 Web form with one Panel per level of the cascade — a stored property, the project sheet, the form sheet, a class rule, an id rule beating the class, `CssStyle`, an `!important` rule against a later normal one, an `@media (max-width: 500px)` rule and a `:hover` rule — opens it in headless Chrome and compares `getComputedStyle(...).backgroundColor` with the value and the source the designer's engine reports. Result: 9 of 9 agree. The theme layer is not compared (it is the player's own sheet, not a sheet of the fixture). With no Chrome the test prints that it was skipped.
