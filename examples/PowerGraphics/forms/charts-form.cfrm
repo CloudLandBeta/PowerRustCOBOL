@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="CHARTS-FORM" title="PowerGraphics - Chart gallery" width="640" height="400" background="#1B1F27FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" definition="The chart gallery of the PowerGraphics example: each press of Next kind draws one more kind of chart, as an HTML canvas picture, as a small rendered picture and as SVG text; Big table draws a hundred thousand values passed from a COBOL table in one call." index-base="1">
+<Form name="CHARTS-FORM" title="PowerGraphics - Chart gallery" width="640" height="400" background="#1B1F27FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" definition="The chart gallery of the PowerGraphics example: each press of Next kind draws one more kind of chart, as an HTML canvas picture and as SVG text; Big table draws a hundred thousand values passed from a COBOL table in one call." index-base="1">
   <working-storage><![CDATA[       01 WS-KIND                                GLOBAL    PIC 99    VALUE 0.
        01 WS-NAME                                GLOBAL    PIC X(12).
        01 WS-SER                                 GLOBAL    PIC 9(10).
        01 WS-CNV                                 GLOBAL    PIC 9(10).
-       01 WS-THUMB                               GLOBAL    PIC 9(10).
        01 WS-I                                   GLOBAL    PIC 9(6).
        01 WS-X                                   GLOBAL    PIC S9(5)V99.
        01 WS-Y                                   GLOBAL    PIC S9(5)V99.
@@ -82,8 +81,6 @@
            END-PERFORM
            CNV-CHART::Clear( "#101820" )
            PLT-1::RenderToCanvas( WS-CNV 0 0 320 300 )
-           SET     WS-THUMB                      TO    PLT-1::Render( 150 100 )
-           CNV-CHART::DrawImage( WS-THUMB 330 10 )
            CNV-CHART::Present()
            SET     LBL-INFO::Caption             TO    WS-NAME::Trim()
 ]]></Event>
@@ -91,7 +88,7 @@
     </Event>
   </form-events>
   <Control id="CNV-CHART" type="Canvas2D" x="10" y="10" w="480" h="300" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="Definition">The drawing surface of the gallery. The chart is drawn on its left part and a small rendered copy of the same chart on its right.</Property>
+    <Property name="Definition">The drawing surface of the gallery. The chart is drawn on it.</Property>
     <Property name="AccessibleLabel">The chart of the selected kind</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
@@ -238,8 +235,6 @@
            *> Three pictures of the one chart: on the canvas, as a rendered image, as SVG text.
            CNV-CHART::Clear( "#101820" )
            PLT-1::RenderToCanvas( WS-CNV 0 0 320 300 )
-           SET     WS-THUMB                      TO    PLT-1::Render( 150 100 )
-           CNV-CHART::DrawImage( WS-THUMB 330 10 )
            CNV-CHART::Present()
            SET     WS-SVG                        TO    PLT-1::ToSvg( 480 300 )
            SET     LBL-INFO::Caption             TO    WS-NAME::Trim()

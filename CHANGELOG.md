@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.336 — 2026-11-09
+
+**Fix: the PowerGraphics chart gallery no longer draws the small copy of the chart.** The 150 x 100 picture beside the chart (`Render` then `DrawImage`) was cramped, its axes ran together, and the gallery needs nothing from it. The chart now stands alone on its canvas, in the opening draw and in Next kind.
+
 ## 2.0.335 — 2026-11-09
 
 **Fix: a big COBOL table handed to a chart is read as data, not as a number.** `PLT-1::SetSeriesFromTable( series table 100000 12 "…" )` in the PowerGraphics gallery (Big table) drew an empty chart: the interpreter turns an argument that looks like a number into one, and a hundred thousand rows of digits looks like one (too large a number, so infinity), so the library refused the call with "needs a block of bytes, not a number" in `LastError`. An argument longer than 40 characters is now always text, the block the call takes. Measured: 100,000 rows through the interpreter in 34 ms, none skipped. Covered by `a_table_of_digits_reaches_set_series_from_table_as_a_block_not_a_number`.
