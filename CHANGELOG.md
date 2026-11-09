@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.347 — 2026-11-09
+
+**Feature: the bridge roadster jumps with cold-gas thrusters, and a crazy chicken crosses the road.** The jump is now a blast of compressed air from four nozzles under the tail, with white plumes and puffs of air. The tank holds three jumps (one per press of Space or the pad trigger, also in mid-air); the engine refills one jump in about 1.5 s, and an air meter with a light-blue bar sits at the bottom of the window. The car also gets a rear wing and nozzles. After every 15 to 25 enemy vehicles a chicken runs across the road between them, zig-zagging and hopping (touching it blows the car up; jump over it or change lane); every tenth chicken instead runs behind the roadster without touching it, then stumbles, tumbles and disappears.
+
 ## 2.0.346 — 2026-11-09
 
 **Fix: the roadster of the PowerGraphics bridge run now looks like a silver supercar seen from behind.** The red box with a spoiler is replaced by a low silver wedge with wide rear haunches, a dark roof and rear-deck panel with two vents, a red light bar across the whole tail, a dark bumper with a diffuser, fins and a number plate, silver rims inside wider rear tyres, thin headlights, a front splitter and side skirts. Hit areas and the blue glow underneath are unchanged.

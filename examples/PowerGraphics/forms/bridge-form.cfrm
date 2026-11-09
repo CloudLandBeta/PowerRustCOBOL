@@ -18,6 +18,12 @@
            05 WS-M-SKIN                          PIC 9(10).
            05 WS-M-FIRE                          PIC 9(10).
            05 WS-M-DEBRIS                        PIC 9(10).
+           05 WS-M-JET                           PIC 9(10).
+           05 WS-M-SMOKE                         PIC 9(10).
+           05 WS-M-CHW                           PIC 9(10).
+           05 WS-M-CHR                           PIC 9(10).
+           05 WS-M-CHY                           PIC 9(10).
+           05 WS-M-CHK                           PIC 9(10).
        01 WS-HANDLES                             GLOBAL.
            05 WS-N                               PIC 9(10).
            05 WS-GRP                             PIC 9(10).
@@ -25,6 +31,22 @@
            05 WS-CAM                             PIC 9(10).
            05 WS-SUN                             PIC 9(10).
            05 WS-FLASH                           PIC 9(10).
+           05 WS-CH                              PIC 9(10).
+           05 WS-CHLL                            PIC 9(10).
+           05 WS-CHLR                            PIC 9(10).
+           05 WS-CHWL                            PIC 9(10).
+           05 WS-CHWR                            PIC 9(10).
+       01 WS-JETS                                GLOBAL.
+           05 JT-N                               PIC 9(10)         OCCURS 4.
+       01 WS-PUFFS                               GLOBAL.
+           05 SM-N                               PIC 9(10)         OCCURS 10.
+           05 SM-X                               PIC S9(3)V9(3)    OCCURS 10.
+           05 SM-Y                               PIC S9(3)V9(3)    OCCURS 10.
+           05 SM-Z                               PIC S9(3)V9(3)    OCCURS 10.
+           05 SM-VX                              PIC S9(3)V9(3)    OCCURS 10.
+           05 SM-VY                              PIC S9(3)V9(3)    OCCURS 10.
+           05 SM-VZ                              PIC S9(3)V9(3)    OCCURS 10.
+           05 SM-L                               PIC 99            OCCURS 10.
        01 WS-SEGS                                GLOBAL.
            05 SEG-G                              PIC 9(10)         OCCURS 24.
            05 SEG-R                              PIC 9(10)         OCCURS 24.
@@ -100,6 +122,25 @@
        01 WS-E3                                  GLOBAL    PIC ZZZZZ9.
        01 WS-MSG                                 GLOBAL    PIC X(24).
        01 WS-HUD                                 GLOBAL    PIC X(120).
+       01 WS-AIR                                 GLOBAL    PIC 9(3)V99     VALUE 300.
+       01 WS-AIRI                                GLOBAL    PIC 999         VALUE 300.
+       01 WS-NJ                                  GLOBAL    PIC 9           VALUE 3.
+       01 WS-SPC                                 GLOBAL    PIC 9           VALUE 0.
+       01 WS-JET                                 GLOBAL    PIC 99          VALUE 0.
+       01 WS-JSC                                 GLOBAL    PIC S9V99.
+       01 WS-VCNT                                GLOBAL    PIC 99          VALUE 0.
+       01 WS-CHNEXT                              GLOBAL    PIC 99          VALUE 20.
+       01 WS-CHN                                 GLOBAL    PIC 9(4)        VALUE 0.
+       01 WS-CHS                                 GLOBAL    PIC 9           VALUE 0.
+       01 WS-CHT                                 GLOBAL    PIC 9(4)        VALUE 0.
+       01 WS-CHX                                 GLOBAL    PIC S9(3)V9(3).
+       01 WS-CHXD                                GLOBAL    PIC S9(3)V9(3).
+       01 WS-CHY                                 GLOBAL    PIC S9(3)V9(3).
+       01 WS-CHZ                                 GLOBAL    PIC S9(3)V9(3).
+       01 WS-CHSC                                GLOBAL    PIC S9V999.
+       01 WS-S1                                  GLOBAL    PIC S9V9(4).
+       01 WS-CA                                  GLOBAL    PIC S9(3)V9(3).
+       01 WS-CB                                  GLOBAL    PIC S9(3)V9(3).
 ]]></working-storage>
   <form-events>
     <Event name="onLoad" paragraph="BRIDGE-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
@@ -207,6 +248,23 @@
            SCN-1::SetMaterialColor( WS-M-DEBRIS "#4A1212" )
            SCN-1::SetMetallic( WS-M-DEBRIS 0.6 )
            SCN-1::SetRoughness( WS-M-DEBRIS 0.4 )
+           SET     WS-M-JET                      TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-JET "#DDF4FF" )
+           SCN-1::SetEmissive( WS-M-JET 0.8 0.95 1 )
+           SCN-1::SetUnlit( WS-M-JET 1 )
+           SET     WS-M-SMOKE                    TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-SMOKE "#EEF3F8" )
+           SCN-1::SetEmissive( WS-M-SMOKE 0.6 0.65 0.7 )
+           SCN-1::SetRoughness( WS-M-SMOKE 1 )
+           SET     WS-M-CHW                      TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-CHW "#F7F2E6" )
+           SCN-1::SetRoughness( WS-M-CHW 0.9 )
+           SET     WS-M-CHR                      TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-CHR "#D32F2F" )
+           SET     WS-M-CHY                      TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-CHY "#FFA726" )
+           SET     WS-M-CHK                      TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-M-CHK "#101010" )
 
            *> ---- The sea, far below the bridge.
            SET     WS-N                          TO    SCN-1::AddPlane( 700 700 )
@@ -534,6 +592,171 @@
            SCN-1::SetPosition( WS-N, 0, 0.1, 0 )
            SCN-1::SetParent( WS-N WS-CAR )
 
+           *> ---- The cold-gas jump rig: a rear wing on two struts, four nozzles under the tail and four white plumes (hidden until a jump).
+           *> Wing.
+           SET     WS-N                          TO    SCN-1::AddBox( 2.0, 0.05, 0.55 )
+           SCN-1::SetPosition( WS-N, 0, 1.33, 1.95 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Left wing strut.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.05, 0.3, 0.12 )
+           SCN-1::SetPosition( WS-N, -0.55, 1.16, 1.95 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Right wing strut.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.05, 0.3, 0.12 )
+           SCN-1::SetPosition( WS-N, 0.55, 1.16, 1.95 )
+           SCN-1::SetMaterial( WS-N WS-M-DARK )
+           SCN-1::SetParent( WS-N WS-CAR )
+           *> Nozzle and plume 1.
+           SET     WS-N                          TO    SCN-1::AddCylinder( 0.09, 0.12 )
+           SCN-1::SetPosition( WS-N, -0.6, 0.33, 1.95 )
+           SCN-1::SetMaterial( WS-N WS-M-RIM )
+           SCN-1::SetParent( WS-N WS-CAR )
+           SET     JT-N(1)                     TO    SCN-1::AddCylinder( 0.07, 0.7 )
+           SCN-1::SetPosition( JT-N(1), -0.6, -0.05, 1.95 )
+           SCN-1::SetMaterial( JT-N(1) WS-M-JET )
+           SCN-1::SetParent( JT-N(1) WS-CAR )
+           SCN-1::SetVisible( JT-N(1) 0 )
+           *> Nozzle and plume 2.
+           SET     WS-N                          TO    SCN-1::AddCylinder( 0.09, 0.12 )
+           SCN-1::SetPosition( WS-N, -0.2, 0.33, 1.95 )
+           SCN-1::SetMaterial( WS-N WS-M-RIM )
+           SCN-1::SetParent( WS-N WS-CAR )
+           SET     JT-N(2)                     TO    SCN-1::AddCylinder( 0.07, 0.7 )
+           SCN-1::SetPosition( JT-N(2), -0.2, -0.05, 1.95 )
+           SCN-1::SetMaterial( JT-N(2) WS-M-JET )
+           SCN-1::SetParent( JT-N(2) WS-CAR )
+           SCN-1::SetVisible( JT-N(2) 0 )
+           *> Nozzle and plume 3.
+           SET     WS-N                          TO    SCN-1::AddCylinder( 0.09, 0.12 )
+           SCN-1::SetPosition( WS-N, 0.2, 0.33, 1.95 )
+           SCN-1::SetMaterial( WS-N WS-M-RIM )
+           SCN-1::SetParent( WS-N WS-CAR )
+           SET     JT-N(3)                     TO    SCN-1::AddCylinder( 0.07, 0.7 )
+           SCN-1::SetPosition( JT-N(3), 0.2, -0.05, 1.95 )
+           SCN-1::SetMaterial( JT-N(3) WS-M-JET )
+           SCN-1::SetParent( JT-N(3) WS-CAR )
+           SCN-1::SetVisible( JT-N(3) 0 )
+           *> Nozzle and plume 4.
+           SET     WS-N                          TO    SCN-1::AddCylinder( 0.09, 0.12 )
+           SCN-1::SetPosition( WS-N, 0.6, 0.33, 1.95 )
+           SCN-1::SetMaterial( WS-N WS-M-RIM )
+           SCN-1::SetParent( WS-N WS-CAR )
+           SET     JT-N(4)                     TO    SCN-1::AddCylinder( 0.07, 0.7 )
+           SCN-1::SetPosition( JT-N(4), 0.6, -0.05, 1.95 )
+           SCN-1::SetMaterial( JT-N(4) WS-M-JET )
+           SCN-1::SetParent( JT-N(4) WS-CAR )
+           SCN-1::SetVisible( JT-N(4) 0 )
+
+           *> ---- Ten puffs of white air that the jets blow out under the tail; hidden until a jump.
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 10
+               SET     SM-N(WS-K)                TO    SCN-1::AddSphere( 0.3 )
+               SCN-1::SetMaterial( SM-N(WS-K) WS-M-SMOKE )
+               SCN-1::SetVisible( SM-N(WS-K) 0 )
+               MOVE    0                         TO    SM-L(WS-K)
+           END-PERFORM
+
+           *> ---- The crazy chicken: a white body, a neck and head with a red comb, an orange beak, big eyes, a tail, two flapping wings and two running legs.
+           *> It faces -z like the car; the group is turned to face +x when it crosses the road.
+           SET     WS-CH                         TO    SCN-1::AddGroup()
+           *> Body.
+           SET     WS-N                          TO    SCN-1::AddSphere( 0.34 )
+           SCN-1::SetPosition( WS-N, 0, 0.55, 0 )
+           SCN-1::SetScale( WS-N, 1, 0.9, 1.35 )
+           SCN-1::SetMaterial( WS-N WS-M-CHW )
+           SCN-1::SetParent( WS-N WS-CH )
+           *> Neck.
+           SET     WS-N                          TO    SCN-1::AddSphere( 0.2 )
+           SCN-1::SetPosition( WS-N, 0, 0.88, -0.28 )
+           SCN-1::SetMaterial( WS-N WS-M-CHW )
+           SCN-1::SetParent( WS-N WS-CH )
+           *> Head.
+           SET     WS-N                          TO    SCN-1::AddSphere( 0.17 )
+           SCN-1::SetPosition( WS-N, 0, 1.07, -0.4 )
+           SCN-1::SetMaterial( WS-N WS-M-CHW )
+           SCN-1::SetParent( WS-N WS-CH )
+           *> Comb.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.05, 0.13, 0.18 )
+           SCN-1::SetPosition( WS-N, 0, 1.24, -0.4 )
+           SCN-1::SetMaterial( WS-N WS-M-CHR )
+           SCN-1::SetParent( WS-N WS-CH )
+           *> Beak.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.07, 0.05, 0.15 )
+           SCN-1::SetPosition( WS-N, 0, 1.04, -0.58 )
+           SCN-1::SetMaterial( WS-N WS-M-CHY )
+           SCN-1::SetParent( WS-N WS-CH )
+           *> Wattle.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.04, 0.1, 0.04 )
+           SCN-1::SetPosition( WS-N, 0, 0.93, -0.55 )
+           SCN-1::SetMaterial( WS-N WS-M-CHR )
+           SCN-1::SetParent( WS-N WS-CH )
+           *> Left eye.
+           SET     WS-N                          TO    SCN-1::AddSphere( 0.065 )
+           SCN-1::SetPosition( WS-N, -0.11, 1.1, -0.5 )
+           SCN-1::SetMaterial( WS-N WS-M-CHW )
+           SCN-1::SetParent( WS-N WS-CH )
+           *> Right eye.
+           SET     WS-N                          TO    SCN-1::AddSphere( 0.065 )
+           SCN-1::SetPosition( WS-N, 0.11, 1.1, -0.5 )
+           SCN-1::SetMaterial( WS-N WS-M-CHW )
+           SCN-1::SetParent( WS-N WS-CH )
+           *> Left pupil.
+           SET     WS-N                          TO    SCN-1::AddSphere( 0.032 )
+           SCN-1::SetPosition( WS-N, -0.12, 1.1, -0.55 )
+           SCN-1::SetMaterial( WS-N WS-M-CHK )
+           SCN-1::SetParent( WS-N WS-CH )
+           *> Right pupil.
+           SET     WS-N                          TO    SCN-1::AddSphere( 0.032 )
+           SCN-1::SetPosition( WS-N, 0.12, 1.1, -0.55 )
+           SCN-1::SetMaterial( WS-N WS-M-CHK )
+           SCN-1::SetParent( WS-N WS-CH )
+           *> Tail.
+           SET     WS-N                          TO    SCN-1::AddBox( 0.07, 0.42, 0.28 )
+           SCN-1::SetPosition( WS-N, 0, 0.85, 0.42 )
+           SCN-1::SetMaterial( WS-N WS-M-CHW )
+           SCN-1::SetParent( WS-N WS-CH )
+           *> Wings: a shoulder group each, with a thin flat feather box; the flap turns the group.
+           SET     WS-CHWL                       TO    SCN-1::AddGroup()
+           SCN-1::SetPosition( WS-CHWL, -0.3, 0.7, 0 )
+           SCN-1::SetParent( WS-CHWL WS-CH )
+           SET     WS-N                          TO    SCN-1::AddBox( 0.05, 0.32, 0.42 )
+           SCN-1::SetPosition( WS-N, -0.04, -0.14, 0 )
+           SCN-1::SetMaterial( WS-N WS-M-CHW )
+           SCN-1::SetParent( WS-N WS-CHWL )
+           SET     WS-CHWR                       TO    SCN-1::AddGroup()
+           SCN-1::SetPosition( WS-CHWR, 0.3, 0.7, 0 )
+           SCN-1::SetParent( WS-CHWR WS-CH )
+           SET     WS-N                          TO    SCN-1::AddBox( 0.05, 0.32, 0.42 )
+           SCN-1::SetPosition( WS-N, 0.04, -0.14, 0 )
+           SCN-1::SetMaterial( WS-N WS-M-CHW )
+           SCN-1::SetParent( WS-N WS-CHWR )
+           *> Legs: a hip group each, a thin orange shaft and a flat foot.
+           SET     WS-CHLL                       TO    SCN-1::AddGroup()
+           SCN-1::SetPosition( WS-CHLL, -0.12, 0.3, 0 )
+           SCN-1::SetParent( WS-CHLL WS-CH )
+           SET     WS-N                          TO    SCN-1::AddCylinder( 0.025, 0.3 )
+           SCN-1::SetPosition( WS-N, 0, -0.15, 0 )
+           SCN-1::SetMaterial( WS-N WS-M-CHY )
+           SCN-1::SetParent( WS-N WS-CHLL )
+           SET     WS-N                          TO    SCN-1::AddBox( 0.1, 0.03, 0.16 )
+           SCN-1::SetPosition( WS-N, 0, -0.3, -0.04 )
+           SCN-1::SetMaterial( WS-N WS-M-CHY )
+           SCN-1::SetParent( WS-N WS-CHLL )
+           SET     WS-CHLR                       TO    SCN-1::AddGroup()
+           SCN-1::SetPosition( WS-CHLR, 0.12, 0.3, 0 )
+           SCN-1::SetParent( WS-CHLR WS-CH )
+           SET     WS-N                          TO    SCN-1::AddCylinder( 0.025, 0.3 )
+           SCN-1::SetPosition( WS-N, 0, -0.15, 0 )
+           SCN-1::SetMaterial( WS-N WS-M-CHY )
+           SCN-1::SetParent( WS-N WS-CHLR )
+           SET     WS-N                          TO    SCN-1::AddBox( 0.1, 0.03, 0.16 )
+           SCN-1::SetPosition( WS-N, 0, -0.3, -0.04 )
+           SCN-1::SetMaterial( WS-N WS-M-CHY )
+           SCN-1::SetParent( WS-N WS-CHLR )
+           SCN-1::SetScale( WS-CH, 1.2, 1.2, 1.2 )
+           SCN-1::SetVisible( WS-CH 0 )
+
            *> ---- Twenty-eight sparks and pieces for the explosion: spheres of fire and boxes of debris, hidden until a crash.
            PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 28
                IF      FUNCTION MOD( WS-K, 2 ) = 1
@@ -559,6 +782,23 @@
            MOVE    0                             TO    WS-SEGCNT
            SCN-1::SetVisible( WS-CAR 1 )
            SCN-1::SetPosition( WS-CAR, 0, 0, 0 )
+           *> A full air tank, no jets, no puffs, no chicken, and the count to the first chicken (15 to 25 vehicles).
+           MOVE    300                           TO    WS-AIR
+           MOVE    0                             TO    WS-JET
+           MOVE    0                             TO    WS-SPC
+           MOVE    0                             TO    WS-VCNT
+           MOVE    0                             TO    WS-CHN
+           MOVE    0                             TO    WS-CHS
+           SCN-1::SetVisible( WS-CH 0 )
+           COMPUTE WS-RND = FUNCTION RANDOM
+           COMPUTE WS-CHNEXT = FUNCTION INTEGER( WS-RND * 10.99 ) + 15
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 4
+               SCN-1::SetVisible( JT-N(WS-K) 0 )
+           END-PERFORM
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 10
+               MOVE    0                         TO    SM-L(WS-K)
+               SCN-1::SetVisible( SM-N(WS-K) 0 )
+           END-PERFORM
            SCN-1::SetLight( WS-FLASH 1 0.6 0.2 0 40 )
            PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 28
                SCN-1::SetVisible( PT-N(WS-K) 0 )
@@ -640,6 +880,7 @@
                END-IF
            END-PERFORM
            IF      WS-OI > 0
+               ADD     1                         TO    WS-VCNT
                COMPUTE WS-RND = FUNCTION RANDOM
                COMPUTE WS-LANESEL = FUNCTION INTEGER( WS-RND * 2.99 ) + 1
                COMPUTE WS-RND = FUNCTION RANDOM
@@ -673,6 +914,150 @@
                END-EVALUATE
                SCN-1::SetPosition( OB-G(WS-OI) OB-X(WS-OI) 0 OB-Z(WS-OI) )
                SCN-1::SetVisible( OB-G(WS-OI) 1 )
+               IF      WS-VCNT >= WS-CHNEXT AND WS-CHS = 0
+                   *> Sends the next chicken: across the road between the vehicles, or (every tenth) running after the roadster.
+                   *> Uses: WS-CHN, WS-CARX.
+                   *> Result: WS-CHS is 1 or 2, the chicken is visible, the vehicle count restarts at a new 15 to 25.
+                   CALL "BRG-CHSPAWN"
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="BRG-CHSPAWN" paragraph="BRG-CHSPAWN"><![CDATA[       PROCEDURE DIVISION.
+           *> The chicken number WS-CHN: every tenth one comes from behind and chases the roadster; the others run across the far end of the bridge.
+           ADD     1                             TO    WS-CHN
+           MOVE    0                             TO    WS-VCNT
+           MOVE    0                             TO    WS-CHT
+           COMPUTE WS-RND = FUNCTION RANDOM
+           COMPUTE WS-CHNEXT = FUNCTION INTEGER( WS-RND * 10.99 ) + 15
+           SCN-1::SetScale( WS-CH, 1.2, 1.2, 1.2 )
+           IF      FUNCTION MOD( WS-CHN, 10 ) = 0
+               MOVE    2                         TO    WS-CHS
+               MOVE    WS-CARX                   TO    WS-CHX
+               MOVE    9                         TO    WS-CHZ
+           ELSE
+               MOVE    1                         TO    WS-CHS
+               MOVE    -8                        TO    WS-CHX
+               MOVE    -130                      TO    WS-CHZ
+           END-IF
+           SCN-1::SetVisible( WS-CH 1 )
+]]></Event>
+    <Event name="BRG-JET" paragraph="BRG-JET"><![CDATA[       PROCEDURE DIVISION.
+           *> A burst of cold gas: the four plumes show for 26 frames and ten puffs of white air spread out under the tail.
+           MOVE    26                            TO    WS-JET
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 4
+               SCN-1::SetVisible( JT-N(WS-K) 1 )
+           END-PERFORM
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 10
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE SM-X(WS-K) = WS-CARX + (WS-RND - 0.5) * 1.6
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE SM-Y(WS-K) = WS-CARY + 0.1 + WS-RND * 0.2
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE SM-Z(WS-K) = 1.8 + WS-RND * 0.6
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE SM-VX(WS-K) = (WS-RND - 0.5) * 7
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE SM-VY(WS-K) = WS-RND * 1.2
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE SM-VZ(WS-K) = WS-RND * 3
+               MOVE    50                        TO    SM-L(WS-K)
+               SCN-1::SetPosition( SM-N(WS-K) SM-X(WS-K) SM-Y(WS-K) SM-Z(WS-K) )
+               SCN-1::SetScale( SM-N(WS-K), 0.3, 0.3, 0.3 )
+               SCN-1::SetVisible( SM-N(WS-K) 1 )
+           END-PERFORM
+]]></Event>
+    <Event name="BRG-FX" paragraph="BRG-FX"><![CDATA[       PROCEDURE DIVISION.
+           *> The plumes flicker and shrink as the burst ends; the puffs slide back with the bridge, drift and swell, then vanish.
+           IF      WS-JET > 0
+               SUBTRACT 1                        FROM  WS-JET
+               COMPUTE WS-RND = FUNCTION RANDOM
+               COMPUTE WS-JSC = WS-JET / 26 * 0.8 + WS-RND * 0.3 + 0.1
+               PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 4
+                   SCN-1::SetScale( JT-N(WS-K), 1, WS-JSC, 1 )
+                   IF      WS-JET = 0
+                       SCN-1::SetVisible( JT-N(WS-K) 0 )
+                   END-IF
+               END-PERFORM
+           END-IF
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 10
+               IF      SM-L(WS-K) > 0
+                   SUBTRACT 1                    FROM  SM-L(WS-K)
+                   COMPUTE SM-X(WS-K) = SM-X(WS-K) + SM-VX(WS-K) * 0.016667
+                   COMPUTE SM-Y(WS-K) = SM-Y(WS-K) + SM-VY(WS-K) * 0.016667
+                   COMPUTE SM-Z(WS-K) = SM-Z(WS-K) + WS-MOVE + SM-VZ(WS-K) * 0.016667
+                   COMPUTE WS-JSC = 0.3 + (50 - SM-L(WS-K)) * 0.03
+                   SCN-1::SetPosition( SM-N(WS-K) SM-X(WS-K) SM-Y(WS-K) SM-Z(WS-K) )
+                   SCN-1::SetScale( SM-N(WS-K) WS-JSC WS-JSC WS-JSC )
+                   IF      SM-L(WS-K) = 0
+                       SCN-1::SetVisible( SM-N(WS-K) 0 )
+                   END-IF
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="BRG-CHICKEN" paragraph="BRG-CHICKEN"><![CDATA[       PROCEDURE DIVISION.
+           *> The chicken, one frame. State 1 runs across the bridge from left to right, zig-zagging and hopping; state 2 runs
+           *> behind the roadster, never touching it; state 3 stumbles, tumbles, shrinks and disappears.
+           IF      WS-CHS > 0
+               ADD     1                         TO    WS-CHT
+               COMPUTE WS-S1 = FUNCTION SIN( WS-CHT * 0.55 )
+               COMPUTE WS-CA = 55 * WS-S1
+               COMPUTE WS-CB = 0 - WS-CA
+               SCN-1::SetRotation( WS-CHLL WS-CA 0 0 )
+               SCN-1::SetRotation( WS-CHLR WS-CB 0 0 )
+               COMPUTE WS-CA = 50 * FUNCTION SIN( WS-CHT * 0.9 )
+               COMPUTE WS-CB = 0 - WS-CA
+               SCN-1::SetRotation( WS-CHWL, 0, 0, WS-CA )
+               SCN-1::SetRotation( WS-CHWR, 0, 0, WS-CB )
+               EVALUATE WS-CHS
+                   WHEN 1
+                       ADD     WS-MOVE           TO    WS-CHZ
+                       COMPUTE WS-CHX = WS-CHX + 0.07
+                       COMPUTE WS-CHXD = WS-CHX + 0.9 * FUNCTION SIN( WS-CHT * 0.09 )
+                       COMPUTE WS-CHY = 0.35 * WS-S1
+                       IF      WS-CHY < 0
+                           COMPUTE WS-CHY = 0 - WS-CHY
+                       END-IF
+                       MOVE    -90               TO    WS-CB
+                       SCN-1::SetRotation( WS-CH, 0, WS-CB, 0 )
+                       SCN-1::SetPosition( WS-CH WS-CHXD WS-CHY WS-CHZ )
+                       IF      WS-CHX > 8.5 OR WS-CHZ > 14
+                           MOVE    0             TO    WS-CHS
+                           SCN-1::SetVisible( WS-CH 0 )
+                       END-IF
+                   WHEN 2
+                       COMPUTE WS-CHX = WS-CHX + (WS-CARX - WS-CHX) * 0.15
+                       COMPUTE WS-CHZ = WS-CHZ + (4.7 - WS-CHZ) * 0.08
+                       COMPUTE WS-CHXD = WS-CHX + 0.25 * FUNCTION SIN( WS-CHT * 0.2 )
+                       COMPUTE WS-CHY = 0.2 * WS-S1
+                       IF      WS-CHY < 0
+                           COMPUTE WS-CHY = 0 - WS-CHY
+                       END-IF
+                       SCN-1::SetRotation( WS-CH, 0, 0, 0 )
+                       SCN-1::SetPosition( WS-CH WS-CHXD WS-CHY WS-CHZ )
+                       IF      WS-CHT >= 240
+                           MOVE    3             TO    WS-CHS
+                           MOVE    0             TO    WS-CHT
+                       END-IF
+                   WHEN OTHER
+                       ADD     WS-MOVE           TO    WS-CHZ
+                       COMPUTE WS-CHY = 0.7 * FUNCTION SIN( WS-CHT * 0.1 )
+                       IF      WS-CHY < 0
+                           MOVE    0             TO    WS-CHY
+                       END-IF
+                       COMPUTE WS-CA = WS-CHT * 3
+                       COMPUTE WS-CB = WS-CHT * 6
+                       SCN-1::SetRotation( WS-CH WS-CB 0 WS-CA )
+                       COMPUTE WS-CHSC = 1.2 - WS-CHT * 0.02
+                       IF      WS-CHSC < 0.05
+                           MOVE    0.05          TO    WS-CHSC
+                       END-IF
+                       SCN-1::SetScale( WS-CH WS-CHSC WS-CHSC WS-CHSC )
+                       SCN-1::SetPosition( WS-CH WS-CHXD WS-CHY WS-CHZ )
+                       IF      WS-CHT >= 58 OR WS-CHZ > 14
+                           MOVE    0             TO    WS-CHS
+                           SCN-1::SetVisible( WS-CH 0 )
+                       END-IF
+               END-EVALUATE
            END-IF
 ]]></Event>
     <Event name="BRG-INPUT" paragraph="BRG-INPUT"><![CDATA[       PROCEDURE DIVISION.
@@ -704,10 +1089,21 @@
            IF      CNV-3D::IsKeyDown( "Space" ) = 1
                OR  CNV-3D::GamepadButton( 0 ) = 1
                OR  CNV-3D::GamepadButton( 7 ) = 1
-               IF      WS-CARY = 0
+               *> One press, one blast of air: each costs a third of the tank (three jumps), also in the air.
+               IF      WS-SPC = 0 AND WS-AIR >= 100
+                   SUBTRACT 100                  FROM  WS-AIR
                    MOVE    14.5                  TO    WS-CARVY
-                   MOVE    0.01                  TO    WS-CARY
+                   IF      WS-CARY = 0
+                       MOVE    0.01              TO    WS-CARY
+                   END-IF
+                   *> Lights the four jets and blows the puffs of air out under the tail.
+                   *> Uses: WS-CARX, WS-CARY.
+                   *> Result: WS-JET is 26 and the plumes and puffs are visible.
+                   CALL "BRG-JET"
                END-IF
+               MOVE    1                         TO    WS-SPC
+           ELSE
+               MOVE    0                         TO    WS-SPC
            END-IF
 ]]></Event>
     <Event name="BRG-CRASH" paragraph="BRG-CRASH"><![CDATA[       PROCEDURE DIVISION.
@@ -743,6 +1139,13 @@
                *> Uses: the held keys and the pad on CNV-3D, WS-CARY.
                *> Result: WS-LANE changes on a press; WS-CARVY is set when the car jumps from the ground.
                CALL "BRG-INPUT"
+               *> The engine refills the tank: a third of it (one jump) in about 1.5 s.
+               IF      WS-AIR < 300
+                   ADD     1.12                  TO    WS-AIR
+                   IF      WS-AIR > 300
+                       MOVE    300               TO    WS-AIR
+                   END-IF
+               END-IF
                COMPUTE WS-SPEED = 30 + WS-DIST * 0.018
                IF      WS-SPEED > 78
                    MOVE    78                    TO    WS-SPEED
@@ -801,6 +1204,14 @@
                END-IF
                SCN-1::SetPosition( WS-CAR WS-CARX WS-CARY 0 )
                SCN-1::SetRotation( WS-CAR WS-PITCH 0 WS-TILT )
+               *> Animates the jets and the puffs of air.
+               *> Uses: WS-JET, WS-MOVE, the puff tables.
+               *> Result: the plumes flicker, the puffs drift and fade.
+               CALL "BRG-FX"
+               *> Moves the chicken one frame (crossing, chasing or stumbling).
+               *> Uses: WS-CHS, WS-CHT, WS-CARX, WS-MOVE.
+               *> Result: the chicken node is placed and posed; WS-CHXD is where it is drawn.
+               CALL "BRG-CHICKEN"
 
                *> Collisions: a vehicle in the car's lane and length that is taller than the car's height, or a fall into a gap.
                MOVE    0                         TO    WS-HIT
@@ -823,6 +1234,19 @@
                        END-IF
                    END-IF
                END-PERFORM
+               IF      WS-CHS = 1
+                   MOVE    WS-CHZ                TO    WS-DZ
+                   IF      WS-DZ < 0
+                       COMPUTE WS-DZ = 0 - WS-DZ
+                   END-IF
+                   COMPUTE WS-DX = WS-CHXD - WS-CARX
+                   IF      WS-DX < 0
+                       COMPUTE WS-DX = 0 - WS-DX
+                   END-IF
+                   IF      WS-DZ < 2.6 AND WS-DX < 1.2 AND WS-CARY < 0.9
+                       MOVE    1                 TO    WS-HIT
+                   END-IF
+               END-IF
                IF      WS-HIT = 1
                    *> Blows the car up and stops the world.
                    *> Uses: WS-CARX, WS-CARY, WS-DIST, WS-BEST.
@@ -874,7 +1298,10 @@
                MOVE    "BOOM! Restarting..."     TO    WS-MSG
            END-IF
            MOVE    SPACES                        TO    WS-HUD
-           STRING  "Distance " WS-E1 " m    Speed " WS-E2 " km/h    Best " WS-E3 " m    " WS-MSG
+           COMPUTE WS-AIRI = WS-AIR
+           SET     PB-AIR::Value                 TO    WS-AIRI
+           COMPUTE WS-NJ = FUNCTION INTEGER( WS-AIR / 100 )
+           STRING  "Distance " WS-E1 " m   Speed " WS-E2 " km/h   Best " WS-E3 " m   Jumps " WS-NJ "   " WS-MSG
                    DELIMITED BY SIZE INTO WS-HUD
            SET     LBL-SCORE::Caption            TO    WS-HUD
 ]]></Event>
@@ -896,7 +1323,7 @@
            CNV-3D::Render()
 ]]></Event>
   </Control>
-  <Control id="SCN-1" type="Scene3D" x="10" y="590" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+  <Control id="SCN-1" type="Scene3D" x="740" y="590" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
     <Property name="Definition">The 3D scene of the bridge game: sea, recycled bridge segments with rails and pylons, twelve vehicle slots, the red roadster, the lights, the fog and the pieces of the explosion.</Property>
   </Control>
   <Control id="LBL-SCORE" type="Label" x="10" y="538" w="560" h="28" tab-order="2" z-order="0" visible="true" enabled="true">
@@ -906,8 +1333,24 @@
   </Control>
   <Control id="LBL-HELP" type="Label" x="10" y="568" w="560" h="28" tab-order="3" z-order="0" visible="true" enabled="true">
     <Property name="Definition">The controls of the game: click the view first, then left and right arrows change lane, Space or the gamepad trigger jumps.</Property>
-    <Property name="Caption">Click the view, then: left/right = lane, Space or pad trigger = jump.</Property>
+    <Property name="Caption">Click the view, then: left/right = lane, Space or pad trigger = air-jet jump (3 in the tank). Watch for the chicken!</Property>
     <Property name="ForegroundColor">#C8D0DC</Property>
+  </Control>
+  <Control id="LBL-AIR" type="Label" x="10" y="594" w="78" h="20" tab-order="5" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The name of the air meter under the view.</Property>
+    <Property name="Caption">AIR TANK</Property>
+    <Property name="ForegroundColor">#8FD8FF</Property>
+  </Control>
+  <Control id="PB-AIR" type="ProgressBar" x="92" y="594" w="478" h="20" tab-order="6" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The compressed-air tank of the roadster's cold-gas jets: each jump spends a third of it, three jumps when full; the engine refills a third in about a second and a half.</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">300</Property>
+    <Property name="Value">300</Property>
+    <Property name="BarColor">#7FD8FF</Property>
+    <Property name="BackgroundColor">#0E1A24</Property>
+    <Property name="BorderColor">#3F7FA6</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="ShowValue">0</Property>
   </Control>
   <Control id="BTN-BACK" type="Button" x="690" y="540" w="120" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
     <Property name="Definition">Closes the bridge game and returns to the previous window.</Property>
