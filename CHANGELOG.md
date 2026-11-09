@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.341 — 2026-11-09
+
+**Fix: in the 2D pool game a ball now falls into a pocket instead of bouncing off it.** The cushions were four unbroken walls, so a ball met a wall before it reached a pocket, and a pocket only caught a ball that stopped almost exactly on its centre. The cushions now stop short of every pocket (the long sides leave a 76 pixel gap in the middle and both ends open at the corners), and a ball whose centre crosses the cushion line, or comes within 30 pixels of a pocket, is potted.
+
 ## 2.0.340 — 2026-11-09
 
 **Fix: the street runner's legs now bend when it runs.** The knees opened and closed on a phase that did not follow the stride, and the camera sat straight behind the runner, where a swinging leg moves toward and away from the lens and hardly shows. Each knee now bends most (about 85 degrees) as its leg swings forward under the body and almost straightens (about 5 degrees) when the leg reaches back, the thighs swing 44 degrees forward and 28 back, the elbows stay bent (70 to 95 degrees) and close as the hand comes forward, and the camera sits a little to the right so the stride shows from the side. Not yet seen drawn: the check and a headless run pass, but they have no GPU.

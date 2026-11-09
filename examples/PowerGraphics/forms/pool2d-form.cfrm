@@ -61,15 +61,21 @@
            SET     WS-WORLD                      TO    PHY-1::CreateWorld( 0 0 )
            PHY-1::SetFixedStep( WS-WORLD 0.0055556 8 )
 
-           *> Four static cushions around the felt: the inner faces sit at x 50 and 750, y 50 and 430.
-           SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 400 30 )
-           PHY-1::AddBox( WS-WORLD WS-WALL 400 20 1 0 0.9 )
-           SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 400 450 )
-           PHY-1::AddBox( WS-WORLD WS-WALL 400 20 1 0 0.9 )
+           *> Static cushions with a gap at every pocket: the inner faces sit at x 50 and 750, y 50 and 430. The long sides are
+           *> split into two pieces each (a 76 pixel gap in the middle); each short side has one piece. The corners stay open
+           *> (38 pixels), so a ball that rolls into a pocket meets no wall and drops.
+           SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 225 30 )
+           PHY-1::AddBox( WS-WORLD WS-WALL 137 20 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 575 30 )
+           PHY-1::AddBox( WS-WORLD WS-WALL 137 20 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 225 450 )
+           PHY-1::AddBox( WS-WORLD WS-WALL 137 20 1 0 0.9 )
+           SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 575 450 )
+           PHY-1::AddBox( WS-WORLD WS-WALL 137 20 1 0 0.9 )
            SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 30 240 )
-           PHY-1::AddBox( WS-WORLD WS-WALL 20 260 1 0 0.9 )
+           PHY-1::AddBox( WS-WORLD WS-WALL 20 152 1 0 0.9 )
            SET     WS-WALL                       TO    PHY-1::AddBody( WS-WORLD 0 770 240 )
-           PHY-1::AddBox( WS-WORLD WS-WALL 20 260 1 0 0.9 )
+           PHY-1::AddBox( WS-WORLD WS-WALL 20 152 1 0 0.9 )
 
            *> The six pockets: four corners and the middle of the long sides.
            MOVE    46                            TO    WS-PKX(1)
@@ -160,10 +166,14 @@
                    PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 6
                        COMPUTE WS-DX = WS-BX - WS-PKX(WS-J)
                        COMPUTE WS-DY = WS-BY - WS-PKY(WS-J)
-                       IF      WS-DX * WS-DX + WS-DY * WS-DY < 484
+                       IF      WS-DX * WS-DX + WS-DY * WS-DY < 900
                            MOVE    1             TO    WS-POT
                        END-IF
                    END-PERFORM
+                   *> A ball whose centre has crossed the cushion line went through a gap: it is in a pocket.
+                   IF      WS-BX < 48 OR WS-BX > 752 OR WS-BY < 48 OR WS-BY > 432
+                       MOVE    1                 TO    WS-POT
+                   END-IF
                    IF      WS-POT = 1
                        PHY-1::RemoveBody( WS-WORLD WS-BALL(WS-I) )
                        MOVE    0                 TO    WS-ALIVE(WS-I)
