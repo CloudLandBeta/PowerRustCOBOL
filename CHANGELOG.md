@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.334 — 2026-11-09
+
+**Fix: a Canvas2D or Canvas3D picture shows on a web page served with the isolation headers.** Behind `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` (what the IDE's Preview and the hosting files send) the page runs the threaded player, whose memory is shared, and the browser refuses an `ImageData` made over shared memory: every canvas, 2D and 3D, stayed empty and said nothing. The player now copies the pixels into an array of its own first, and the console names the refusal if it still comes. The player is rebuilt, plain and threaded.
+
 ## 2.0.333 — 2026-11-08
 
 **Fix: a running form shows what a Canvas2D or Canvas3D draws.** In the IDE's Run, `rcrun` and a compiled binary, every canvas showed its dashed placeholder (name, kind, size) and never its picture: the program drew it and the host made its texture from each `Present` or `Render`, but the interactive renderer painted a canvas through its catch-all arm, with no texture. It now looks the picture up as the other two painters do. The PowerGraphics game, chart gallery and 3D view show again.

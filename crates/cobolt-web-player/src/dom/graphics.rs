@@ -25,7 +25,7 @@ use std::rc::Rc;
 
 use js_sys::{Array, Function, Reflect};
 use wasm_bindgen::prelude::*;
-use wasm_bindgen::{Clamped, JsCast};
+use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 
 use super::Shared;
@@ -403,7 +403,17 @@ impl Shared {
             return;
         };
         let Ok(canvas) = el.dyn_into::<HtmlCanvasElement>() else { return };
-        let Ok(image) = ImageData::new_with_u8_clamped_array_and_sh(Clamped(bytes), w, h) else { return };
+        // The pixels go into an array the page owns: in the threaded player the module's memory is a SharedArrayBuffer, and
+        // `ImageData` refuses a view over shared memory (so a canvas stayed empty with no word said).
+        let own = js_sys::Uint8ClampedArray::new_with_length(bytes.len() as u32);
+        own.copy_from(bytes);
+        let image = match ImageData::new_with_js_u8_clamped_array_and_sh(&own, w, h) {
+            Ok(image) => image,
+            Err(e) => {
+                web_sys::console::warn_1(&format!("[pr] a picture of {w} x {h} could not be made: {}", message(&e)).into());
+                return;
+            }
+        };
         let ctx = canvas.get_context("2d").ok().flatten().and_then(|c| c.dyn_into::<CanvasRenderingContext2d>().ok());
         if let Some(ctx) = ctx {
             let _ = ctx.put_image_data(&image, 0.0, 0.0);
