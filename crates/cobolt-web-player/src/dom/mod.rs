@@ -641,30 +641,59 @@ impl Shared {
         });
         let rec = nodes::create(&self.doc, &v, None, &dispatch);
         h::append(&self.root, &rec.el);
-        let placement = self.place_net_modal(&rec.el);
+        // Open it first: a closed dialog (`display: none`) has no box to measure where it landed.
         call_method(&rec.el, "showModal");
+        let placement = self.place_net_modal(&rec.el);
         animate_net_modal(&rec, !failed);
         focus_net_modal(&rec, failed);
         st.net_modal = Some(NetModalRec { rec, _placement: placement, focus_back, selection });
     }
 
-    /// Put the modal over the application's element, now and whenever the window is resized or scrolled.
+    /// Put the modal over the application's element, now and whenever the window is resized or scrolled, or the page is
+    /// zoomed or panned (the visual viewport: a pinch, or a text box taking the focus on a phone).
+    ///
+    /// The dialog is a fixed box set from the element's client rectangle. Mobile Safari, zoomed in or scrolled sideways,
+    /// places a fixed box against the layout viewport while client coordinates follow the visual one, so the box lands
+    /// off by the scroll (a red panel shifted left and clipped on an iPhone): the box's own rectangle is measured after it
+    /// is set and the difference taken out ([`shell::net_modal_shift`]).
     fn place_net_modal(&self, el: &Element) -> Vec<h::Listener> {
         let place: Rc<dyn Fn()> = {
             let (root, el) = (self.root.clone(), el.clone());
             Rc::new(move || {
                 let r = root.get_bounding_client_rect();
-                for (k, v) in [("left", r.left()), ("top", r.top()), ("width", r.width()), ("height", r.height())] {
-                    h::css(&el, k, &format!("{v}px"));
-                }
+                let set = |left: f64, top: f64| {
+                    for (k, v) in [("left", left), ("top", top), ("width", r.width()), ("height", r.height())] {
+                        h::css(&el, k, &format!("{v}px"));
+                    }
+                };
+                set(r.left(), r.top());
                 h::css(&el, "right", "auto");
                 h::css(&el, "bottom", "auto");
+                // Only an open dialog has a box to measure; a closed one answers (0, 0) wherever it was put.
+                if el.has_attribute("open") {
+                    let landed = el.get_bounding_client_rect();
+                    if let Some((left, top)) = shell::net_modal_shift((r.left(), r.top()), (landed.left(), landed.top()), (r.left(), r.top())) {
+                        set(left, top);
+                    }
+                }
             })
         };
         place();
         let Some(w) = web_sys::window() else { return Vec::new() };
-        let (on_resize, on_scroll) = (place.clone(), place);
-        vec![h::Listener::new(&w, "resize", move |_| on_resize()), h::Listener::new_capture(&w, "scroll", move |_| on_scroll())]
+        let mut listeners = vec![{
+            let on_resize = place.clone();
+            h::Listener::new(&w, "resize", move |_| on_resize())
+        }];
+        let on_scroll = place.clone();
+        listeners.push(h::Listener::new_capture(&w, "scroll", move |_| on_scroll()));
+        // The visual viewport has its own resize and scroll: the window hears neither a pinch nor a focus zoom.
+        if let Some(vv) = js_sys::Reflect::get(&w, &"visualViewport".into()).ok().and_then(|v| v.dyn_into::<web_sys::EventTarget>().ok()) {
+            for kind in ["resize", "scroll"] {
+                let on_change = place.clone();
+                listeners.push(h::Listener::new(&vv, kind, move |_| on_change()));
+            }
+        }
+        listeners
     }
 
     // ── the page's own furniture ────────────────────────────────────────────

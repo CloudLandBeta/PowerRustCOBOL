@@ -709,6 +709,21 @@ pub fn net_modal_texts(locale: &str, page: &BTreeMap<String, String>, unreachabl
     (caption, pick("retry", t.retry))
 }
 
+/// Where the "connecting" modal's CSS `left` and `top` must be so that it lands over the application's box
+/// (WASM-016 R20). The page sets them from the box's client rectangle (`wanted`), then measures where the dialog
+/// really landed (`landed`, from its own client rectangle, with `set` the CSS values it was given). The two differ on
+/// Mobile Safari when the page is zoomed in (a text box took the focus) or scrolled sideways: a fixed box is placed
+/// against the layout viewport while client coordinates follow the visual one, so the dialog lands off by that scroll
+/// (the red panel shifted left and clipped on an iPhone). The answer moves it by the difference; `None` when it landed
+/// within half a pixel of where it was wanted, which is every browser that does not split the two.
+pub fn net_modal_shift(wanted: (f64, f64), landed: (f64, f64), set: (f64, f64)) -> Option<(f64, f64)> {
+    let (dx, dy) = (wanted.0 - landed.0, wanted.1 - landed.1);
+    if dx.abs() <= 0.5 && dy.abs() <= 0.5 {
+        return None;
+    }
+    Some((set.0 + dx, set.1 + dy))
+}
+
 /// The modal's status line (WASM-016 R20–R21), one `(label, value)` cell each: the server, the attempt out of the
 /// cycle's, how the previous attempt ended, and what is happening now. Always in the page's language among the six.
 pub fn net_modal_status(locale: &str, p: &crate::net::Progress) -> Vec<(String, String)> {
@@ -971,6 +986,29 @@ mod tests {
         assert_eq!(retry.text.as_deref(), Some("Try again"));
         assert_eq!(f.find(&|n| n.key == "caption").and_then(|n| n.text.as_deref()), Some("The server could not be reached."));
         println!("{} colour attributes, all white; links 2; Try again only when unreachable", colours.len());
+    }
+
+    /// WASM-016 R20 on an iPhone: Mobile Safari zoomed in on the text box that took the focus (scale 1.14, scrolled 50 px),
+    /// the application's box was at client x = -50 and the dialog, given `left: -50px`, landed at -100 — the red panel
+    /// clipped on the left with the right of the screen uncovered. The modal moves by the difference, and stays put where
+    /// the browser puts it where it was wanted.
+    #[test]
+    fn the_connecting_modal_is_moved_by_what_a_zoomed_page_shifted_it_by_016() {
+        // The numbers the iPhone 18 Pro simulator (iOS 27.2, Mobile Safari) reported: the box at -50, the dialog at -100.
+        let wanted = (-50.0, 0.0);
+        let landed = (-100.0, 0.0);
+        let set = (-50.0, 0.0);
+        let moved = net_modal_shift(wanted, landed, set).expect("the dialog landed 50 px away");
+        assert_eq!(moved, (0.0, 0.0), "left = -50 + 50: where a second measurement puts it at -50");
+        // Landing there, the second measurement agrees with the wanted place: nothing more to do.
+        assert_eq!(net_modal_shift(wanted, (-50.0, 0.0), moved), None);
+        // The vertical axis too (the keyboard up, the visual viewport scrolled down 120 px).
+        assert_eq!(net_modal_shift((0.0, -120.0), (0.0, -240.0), (0.0, -120.0)), Some((0.0, 0.0)));
+        // Every browser that does not split the two: it landed where it was set, and half a pixel is not worth a move.
+        assert_eq!(net_modal_shift((0.0, 0.0), (0.0, 0.0), (0.0, 0.0)), None);
+        assert_eq!(net_modal_shift((12.5, 40.0), (12.0, 40.5), (12.5, 40.0)), None);
+        assert_eq!(net_modal_shift((12.5, 40.0), (12.0, 41.0), (12.5, 40.0)), Some((13.0, 39.0)));
+        println!("net modal placement: 5 cases, a 50 px iPhone zoom shift corrected to 0 in one move, no move inside half a pixel");
     }
 
     /// WASM-012 R15: inside the mobile shell the modal draws the phone or the tablet the application runs on in the
