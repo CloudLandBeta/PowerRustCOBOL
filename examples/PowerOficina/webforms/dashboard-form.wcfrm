@@ -27,6 +27,8 @@
 
            IF    DSS-STATUS = "CALL"
                SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+               SET     LBL-MON-EMPTY::Caption    TO    "Sem resposta do Backend."
+               SET     LBL-PAY-EMPTY::Caption    TO    "Sem resposta do Backend."
            ELSE
                IF    DSS-STATUS = "OK"
                    *> SHOW-DASH: puts the indicators on the screen.
@@ -35,6 +37,8 @@
                    CALL    "SHOW-DASH"
                ELSE
                    SET     LBL-STATUS::Caption   TO    DSS-MESSAGE
+                   SET     LBL-MON-EMPTY::Caption TO   "Sem dados."
+                   SET     LBL-PAY-EMPTY::Caption TO   "Sem dados."
                END-IF
            END-IF
 ]]></Event>
@@ -92,6 +96,8 @@
        PROCEDURE DIVISION.
            CH-MONTHS::Clear()
            CH-PAYS::Clear()
+           SET     LBL-MON-EMPTY::Caption        TO    "Sem orçamentos enviados ainda."
+           SET     LBL-PAY-EMPTY::Caption        TO    "Sem pagamentos ainda."
            SET     LBL-MON-EMPTY::Visible        TO    1
            SET     LBL-PAY-EMPTY::Visible        TO    1
 
@@ -239,7 +245,7 @@
     <Property name="Definition">Screen title. It belongs to a screen of the PowerOficina workshop application.</Property>
   </Control>
 <Control id="LBL-STATUS" type="Label" x="32" y="56" w="620" h="24" tab-order="2" z-order="2" visible="true" enabled="true">
-    <Property name="Caption">-</Property>
+    <Property name="Caption">Carregando…</Property>
     <Property name="ForegroundColor">#6B7280FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
@@ -560,16 +566,17 @@
     <Property name="ShowGridLines">0</Property>
     <Property name="ShowYAxis">0</Property>
   </Control>
-<Control id="LBL-MON-EMPTY" type="Label" x="56" y="418" w="510" h="28" tab-order="29" z-order="29" visible="true" enabled="true" parent="CARD-MON">
-    <Property name="Caption">Sem orçamentos enviados ainda.</Property>
+<Control id="LBL-MON-EMPTY" type="Label" x="48" y="332" w="528" h="228" tab-order="29" z-order="29" visible="true" enabled="true" parent="CARD-MON">
+    <Property name="Caption">Carregando…</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="ForegroundColor">#6B7280FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">16</Property>
     <Property name="Bold">true</Property>
-    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
-    <Property name="Definition">Shown instead of the chart when no quote was sent.</Property>
+    <Property name="Definition">Covers the chart's sample while the answer is awaited and while there is nothing to draw; says "Carregando…" first, then that no data exists.</Property>
   </Control>
 <Control id="CARD-PAYS" type="Panel" x="608" y="278" w="552" h="300" tab-order="30" z-order="30" visible="true" enabled="true">
     <Property name="BackgroundColor">#FFFFFFFF</Property>
@@ -596,16 +603,17 @@
     <Property name="FontSize">9</Property>
     <Property name="ShowGridLines">0</Property>
   </Control>
-<Control id="LBL-PAY-EMPTY" type="Label" x="632" y="418" w="500" h="28" tab-order="32" z-order="32" visible="true" enabled="true" parent="CARD-PAYS">
-    <Property name="Caption">Sem pagamentos ainda.</Property>
+<Control id="LBL-PAY-EMPTY" type="Label" x="624" y="332" w="516" h="228" tab-order="32" z-order="32" visible="true" enabled="true" parent="CARD-PAYS">
+    <Property name="Caption">Carregando…</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="ForegroundColor">#6B7280FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">16</Property>
     <Property name="Bold">true</Property>
-    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
-    <Property name="Definition">Shown instead of the chart when no payment exists.</Property>
+    <Property name="Definition">Covers the chart's sample while the answer is awaited and while there is nothing to draw; says "Carregando…" first, then that no data exists.</Property>
   </Control>
 <Control id="CARD-TOP" type="Panel" x="32" y="592" w="370" h="248" tab-order="33" z-order="33" visible="true" enabled="true">
     <Property name="BackgroundColor">#FFFFFFFF</Property>

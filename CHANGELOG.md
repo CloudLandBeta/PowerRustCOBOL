@@ -2,6 +2,10 @@
 
 
 
+## 2.0.394 — 2026-11-10
+
+**PowerOficina's dashboard: no more chart sample over "no data", and a loading state.** A chart with no points paints its design-time sample, and the empty-state label sat on top of it, so the screen looked half drawn. The two empty-state labels now cover the chart's plot area with an opaque face (the chart's title stays), say *Carregando…* until the Backend answers, then the real sentence (*Sem orçamentos enviados ainda.*, *Sem pagamentos ainda.*) or, when the call fails, *Sem resposta do Backend.* The status line also starts at *Carregando…*. The zeros on a fresh copy are real answers: the example ships without data (the seed loads only the catalog), so the dashboard counts what the developer registers. Not checked in a browser here.
+
 ## 2.0.393 — 2026-11-10
 
 **Firefox is out of the WebAssembly browser matrix (operator's ruling).** Its market share is below 3 % globally (about 1.9 % in the U.S.), so the Firefox cell of WASM-002 T24 is no longer measured or owed. `specs/WASM-OPEN-ACS.md` and the T24 task say so; Safari, the iOS web view and the Android WebView stay open. No code changed.
