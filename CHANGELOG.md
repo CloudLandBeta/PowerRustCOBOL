@@ -2,6 +2,11 @@
 
 
 
+## 2.0.392 — 2026-11-10
+
+**Measured: WASM-002 T23, the Android half of the Mobile build (AC7).** `build` of a copy of `examples/PowerMobileHello` writes the web bundle (168 ms, 4.31 MB first download against the 5 MB budget, no secret findings) and a 42 MB debug APK in 12 s; installed on the running emulator it shows the form (*Welcome to PowerMobileHello*, the text box, Greet) once the player has loaded. The iOS package and Safari / the iOS web view are not measured (no `xcodegen`, Xcode 15.2 without an iOS 18 SDK; the build warns that there is no single-memory module): AC7 stays open for iOS in `specs/WASM-OPEN-ACS.md`. Evidence is kept outside the repository. No code changed.
+
+
 ## 2.0.391 — 2026-11-09
 
 **Specs: the open WASM acceptance criteria are listed, and the tasks that depended on them are closed.** New `specs/WASM-OPEN-ACS.md` lists the 184 acceptance criteria of 18 WASM specs whose boxes are not ticked, each with its class (`unaudited`, `blocked-operator`, `blocked-hardware`, `blocked-tool`) and the task or test meant to verify it, plus how to use the list when a problem appears. By the operator's ruling, the 33 open tasks that depended on those criteria (WASM-001 T19; WASM-002 T23–T24; WASM-006 T18–T21; WASM-008 T11; WASM-009 T5, T6, T24, T26; WASM-011 T25; WASM-012 T8–T26; WASM-016 T22, T30; WASM-036 T23) are marked closed in their `tasks.md`, each with a note that it was closed unverified and where its criteria are tracked. `WASM-PROGRESS.md` carries the same notice. No code changed.

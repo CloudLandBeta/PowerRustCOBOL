@@ -72,7 +72,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 |---|---|---|---|
 | AC4 | `blocked-hardware` | A program in the subset, run on the desktop runtime and as the generated module (headless), prints identical output for a fixed set of programs; the conformance list and its numbers are WASM-010 R16 and AC7–AC8, which is what R4's "behave as" is measured against. | WASM-010 parity gate (not here) |
 | AC6 | `blocked-hardware` | Missing-tool messages for each tool of R6 appear when that tool is absent (tested by hiding it from `PATH`). | T18 (Web half); Mobile half WASM-012 |
-| AC7 | `blocked-hardware` | The Mobile build produces an Android package and (on macOS) an iOS package from the same project; both start and show the form. | T23 → WASM-012 |
+| AC7 | `blocked-hardware` | The Mobile build produces an Android package and (on macOS) an iOS package from the same project; both start and show the form. **Android half measured 2026-11-10:** the APK builds (42 MB, 12 s) and shows the form on the emulator; **iOS half open** (no `xcodegen`, no iOS 18 SDK; and no single-memory module for Safari / the iOS web view, WASM-017 R9). | T23 → WASM-012 |
 
 ## WASM-003-backend-project-and-secure-channel
 
