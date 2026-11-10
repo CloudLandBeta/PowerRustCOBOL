@@ -38,9 +38,9 @@
        01 WS-NF                                  GLOBAL    PIC 9.
        01 WS-FSPD                                GLOBAL    PIC 9V99.
        01 WS-LJ                                  GLOBAL    PIC 9.
-       01 WS-LPH                                 GLOBAL    PIC S9(6)V9(4).
+       01 WS-LPH                                 GLOBAL    PIC S9(9)V9(4).
        01 WS-LA                                  GLOBAL    PIC S9V9(4).
-       01 WS-LG                                  GLOBAL    PIC S9(6)V9(4).
+       01 WS-LG                                  GLOBAL    PIC S9(9)V9(4).
        01 WS-LK                                  GLOBAL    PIC S9V9(4).
        01 WS-LHY                                 GLOBAL    PIC S9(4)V99.
        01 WS-LKX                                 GLOBAL    PIC S9(4)V99.
@@ -53,7 +53,7 @@
        01 WS-PVY                                 GLOBAL    PIC S9(2)V99 VALUE 0.
        01 WS-ONGR                                GLOBAL    PIC 9        VALUE 1.
        01 WS-FACE                                GLOBAL    PIC S9       VALUE 1.
-       01 WS-ANIM                                GLOBAL    PIC 9(6)     VALUE 0.
+       01 WS-ANIM                                GLOBAL    PIC 9(9)     VALUE 0.
        01 WS-VGRAB                               GLOBAL    PIC 9        VALUE 0.
        01 WS-VCD                                 GLOBAL    PIC 99       VALUE 0.
        01 WS-VANG                                GLOBAL    PIC S9V9(4).

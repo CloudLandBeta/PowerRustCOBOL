@@ -2,6 +2,10 @@
 
 
 
+## 2.0.401 — 2026-11-10
+
+**PowerGraphics `pitfall-form`: the animation counter no longer overflows.** `WS-ANIM` was `PIC 9(6)` and wrapped after 999,999 steps (hours of continuous walking at 60 frames a second); it is `PIC 9(9)`, and `WS-LPH` and `WS-LG`, which hold `WS-ANIM × 0.35`, are `PIC S9(9)V9(4)`.
+
 ## 2.0.400 — 2026-11-10
 
 **Opening a project shows "Loading..." for one second.** The open itself blocks the window, so nothing told the developer it had happened. A small modal with a spinner and the message, in the IDE's six languages, now covers the window for one second after every project open (File ▸ Open, recent projects, examples, `--open`).
