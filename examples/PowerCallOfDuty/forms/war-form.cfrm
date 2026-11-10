@@ -870,7 +870,9 @@
     <Event name="WAR-STEP" paragraph="WAR-STEP"><![CDATA[       PROCEDURE DIVISION.
            ADD     1                             TO    WS-FRAME
            *> The war grows every 45 seconds (1350 frames): more machines are allowed at once.
-           COMPUTE WS-WAVE = 1 + WS-FRAME / 1350
+           IF      WS-FRAME < 132300
+               COMPUTE WS-WAVE = 1 + WS-FRAME / 1350
+           END-IF
 
            *> Reads the keys and the mouse.
            *> Uses: the keys held on CNV-3D, CNV-3D::PointerX and CNV-3D::PointerY.
@@ -990,7 +992,9 @@
     <Event name="WAR-MOVE-PLAYER" paragraph="WAR-MOVE-PLAYER"><![CDATA[       PROCEDURE DIVISION.
            IF      WS-HEALTH <= 0
                *> Down: Space redeploys once the fall has played.
-               ADD     1                         TO    WS-DEAD-FRAMES
+               IF      WS-DEAD-FRAMES < 9000
+                   ADD     1                     TO    WS-DEAD-FRAMES
+               END-IF
                IF      WS-SPACE-PRESSED = 1 AND WS-DEAD-FRAMES > 30
                    *> Gives the player a new life at the start.
                    *> Uses: WS-MAGAZINE-SIZE of both weapons.
@@ -1019,6 +1023,10 @@
                COMPUTE WS-STEP-Z = 0 - WS-SINE * WS-SIDEWAYS * 0.14 - WS-COSINE * WS-FORWARD * 0.17
                IF      WS-STEP-X NOT = 0 OR WS-STEP-Z NOT = 0
                    ADD     0.3                   TO    WS-BOB
+                   *> A hundred whole turns less leaves the same sway and keeps the counter small.
+                   IF      WS-BOB > 700
+                       SUBTRACT 628.3185         FROM  WS-BOB
+                   END-IF
                    *> One axis at a time, so the player slides along a wall instead of sticking to it.
                    COMPUTE WS-TRY-X = WS-PLAYER-X + WS-STEP-X
                    MOVE    WS-PLAYER-Z           TO    WS-TRY-Z
@@ -1582,7 +1590,9 @@
                    COMPUTE WS-DISTANCE-X = WS-MARK-X - WS-TANK-X(WS-TANK-INDEX)
                    COMPUTE WS-DISTANCE-Z = WS-MARK-Z - WS-TANK-Z(WS-TANK-INDEX)
                    SCN-1::LookAt( WS-TANK-TURRET(WS-TANK-INDEX) WS-DISTANCE-X 1.43 WS-DISTANCE-Z )
-                   SUBTRACT 1                    FROM  WS-TANK-RELOAD(WS-TANK-INDEX)
+                   IF      WS-TANK-RELOAD(WS-TANK-INDEX) > 0
+                       SUBTRACT 1                FROM  WS-TANK-RELOAD(WS-TANK-INDEX)
+                   END-IF
                    COMPUTE WS-DISTANCE = FUNCTION SQRT( WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z )
                    IF      WS-TANK-RELOAD(WS-TANK-INDEX) <= 0 AND WS-SPOTTED = 1 AND WS-DISTANCE < 95 AND WS-DISTANCE > 4
                        AND WS-HEALTH > 0
@@ -1655,7 +1665,9 @@
                    COMPUTE WS-FROM-Y = WS-HELI-Y(WS-HELI-INDEX) - 0.6
                    MOVE    WS-HELI-Z(WS-HELI-INDEX)      TO    WS-FROM-Z
                    *> A pair of rockets every six seconds or so, once the helicopter is close and the player spotted.
-                   SUBTRACT 1                    FROM  WS-HELI-ROCKETS(WS-HELI-INDEX)
+                   IF      WS-HELI-ROCKETS(WS-HELI-INDEX) > 0
+                       SUBTRACT 1                FROM  WS-HELI-ROCKETS(WS-HELI-INDEX)
+                   END-IF
                    IF      WS-HELI-ROCKETS(WS-HELI-INDEX) <= 0 AND WS-HELI-RADIUS(WS-HELI-INDEX) < 60 AND WS-SPOTTED = 1
                        AND WS-HEALTH > 0
                        COMPUTE WS-HELI-ROCKETS(WS-HELI-INDEX) = 170 + FUNCTION RANDOM * 60
@@ -2049,12 +2061,12 @@
                COMPUTE WS-HEIGHT = 1.65 + FUNCTION SIN( WS-BOB ) * 0.035
                MOVE    0                         TO    WS-SCALE
            ELSE
-               COMPUTE WS-HEIGHT = 1.65 - WS-DEAD-FRAMES * 0.06
-               IF      WS-HEIGHT < 0.35
+               *> The fall takes 25 frames: down to 0.35 m, rolled 75 degrees. After that the player lies still.
+               IF      WS-DEAD-FRAMES < 25
+                   COMPUTE WS-HEIGHT = 1.65 - WS-DEAD-FRAMES * 0.052
+                   COMPUTE WS-SCALE = WS-DEAD-FRAMES * 3
+               ELSE
                    MOVE    0.35                  TO    WS-HEIGHT
-               END-IF
-               COMPUTE WS-SCALE = WS-DEAD-FRAMES * 3
-               IF      WS-SCALE > 75
                    MOVE    75                    TO    WS-SCALE
                END-IF
            END-IF
