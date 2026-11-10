@@ -66,7 +66,47 @@ pub fn candidate_dirs(home: Option<&Path>) -> Vec<PathBuf> {
     }
     dirs.push(PathBuf::from("/opt/homebrew/bin"));
     dirs.push(PathBuf::from("/usr/local/bin"));
+    if cfg!(windows) {
+        dirs.extend(windows_dirs(
+            std::env::var_os("APPDATA").map(PathBuf::from).as_deref(),
+            std::env::var_os("LOCALAPPDATA").map(PathBuf::from).as_deref(),
+        ));
+    }
     dirs
+}
+
+/// The folders a Windows install of Claude Code can be in beyond `PATH` and
+/// `~/.local/bin`: the npm global folder (`%APPDATA%\npm`, where `claude.cmd`
+/// lands) and every folder, down to three levels, under the Claude desktop
+/// app's own `claude-code` folders (they carry the version in their name, so
+/// no fixed path names one). A folder that does not exist adds nothing.
+pub fn windows_dirs(appdata: Option<&Path>, local_appdata: Option<&Path>) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(a) = appdata {
+        dirs.push(a.join("npm"));
+        dirs.extend(folders_below(&a.join("Claude").join("claude-code"), 3));
+    }
+    if let Some(l) = local_appdata {
+        dirs.extend(folders_below(&l.join("Claude").join("claude-code"), 3));
+        dirs.extend(folders_below(&l.join("AnthropicClaude"), 3));
+    }
+    dirs
+}
+
+/// `root` and every folder below it, at most `depth` levels down.
+fn folders_below(root: &Path, depth: usize) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    if root.is_dir() {
+        found.push(root.to_path_buf());
+        if depth > 0 {
+            if let Ok(entries) = std::fs::read_dir(root) {
+                for e in entries.flatten() {
+                    found.extend(folders_below(&e.path(), depth - 1));
+                }
+            }
+        }
+    }
+    found
 }
 
 /// The `claude` executable, if one is installed.
@@ -276,5 +316,22 @@ mod tests {
         std::fs::write(&exe, b"").unwrap();
         assert_eq!(find_claude(&[PathBuf::from("/nowhere"), dir.clone()]), Some(exe));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn windows_finds_claude_under_the_desktop_apps_versioned_folders_and_npm() {
+        let base = std::env::temp_dir().join(format!("prc-claude-win-{}", std::process::id()));
+        let deep = base.join("Roaming/Claude/claude-code/2.1.317/abc123");
+        let npm = base.join("Roaming/npm");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::create_dir_all(&npm).unwrap();
+        let dirs = windows_dirs(Some(&base.join("Roaming")), Some(&base.join("Local")));
+        assert!(dirs.contains(&deep) && dirs.contains(&npm), "{dirs:?}");
+        let exe = deep.join(if cfg!(windows) { "claude.exe" } else { "claude" });
+        std::fs::write(&exe, b"").unwrap();
+        assert_eq!(find_claude(&dirs), Some(exe));
+        assert!(windows_dirs(None, None).is_empty());
+        println!("windows_dirs: npm and a three-level versioned folder found; absent roots add nothing");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

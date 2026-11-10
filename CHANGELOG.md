@@ -2,6 +2,10 @@
 
 
 
+## 2.0.396 — 2026-11-10
+
+**Windows: Configure finds a Claude Code that is not on `PATH`.** The IDE looked for `claude` only on `PATH` and in `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin` and two Unix folders, so a Windows install elsewhere (a user's complaint: the plugin would not install until Claude's folder was added to `PATH`) was never found. On Windows the search now also covers `%APPDATA%\npm` and every folder, down to three levels, under `Claude\claude-code` in `%APPDATA%` and `%LOCALAPPDATA%` and under `%LOCALAPPDATA%\AnthropicClaude`. A new test builds such a tree and finds `claude` in it. Not run on Windows: if an install still is not found, `where claude` names its folder.
+
 ## 2.0.395 — 2026-11-10
 
 **PowerOficina's dashboard shows a loading state when the currency changes.** Choosing BRL or EUR now runs `SHOW-LOADING` before the Backend call: the status line, the six cards and the two chart areas read *Carregando…* (the cards show an ellipsis) until the answer replaces them. The 15-second refresh does not blank the screen. Whether the form repaints while a `WEBSOCKET` call is pending is WASM-005 AC6, still unaudited in `specs/WASM-OPEN-ACS.md`: if the state is not seen, that criterion is the place to look. No code outside the example changed.
