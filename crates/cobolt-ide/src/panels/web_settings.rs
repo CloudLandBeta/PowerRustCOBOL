@@ -413,6 +413,75 @@ pub fn write_contract_settings(project_dir: &Path, d: &ContractDraft) -> Result<
     Ok(true)
 }
 
+/// The port of the Backend's development run, as text: the port of `[server] listen` in the project's
+/// `backend.toml`; empty when the file or the key is missing or has no usable port.
+pub fn read_backend_port(project_dir: &Path) -> String {
+    let Ok(doc) = std::fs::read_to_string(backend_config_path(project_dir)).unwrap_or_default().parse::<toml_edit::DocumentMut>() else {
+        return String::new();
+    };
+    doc.get("server")
+        .and_then(|s| s.as_table_like())
+        .and_then(|s| s.get("listen"))
+        .and_then(|v| v.as_str())
+        .and_then(|l| l.trim().rsplit_once(':'))
+        .and_then(|(_, p)| p.trim().parse::<u16>().ok())
+        .filter(|p| *p != 0)
+        .map(|p| p.to_string())
+        .unwrap_or_default()
+}
+
+/// Is `text` a port a Backend can listen on (a whole number from 1 to 65535)?
+pub fn backend_port_ok(text: &str) -> bool {
+    text.trim().parse::<u16>().is_ok_and(|p| p != 0)
+}
+
+/// Write the port into `[server] listen`. Only that value changes: the host part stays as it is (`127.0.0.1` when the
+/// file had none), every other section, key and comment stays byte for byte, and a file without `[server]` gains only
+/// that section. Returns whether the file changed. An unusable port is refused and nothing is written.
+pub fn write_backend_port(project_dir: &Path, text: &str) -> Result<bool, String> {
+    if !backend_port_ok(text) {
+        return Err(format!("`{}` is not a port from 1 to 65535", text.trim()));
+    }
+    let port: u16 = text.trim().parse().map_err(|_| "not a port".to_owned())?;
+    let path = backend_config_path(project_dir);
+    let before = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let mut doc: toml_edit::DocumentMut = before.parse().map_err(|e| format!("{}: {e}", path.display()))?;
+    if doc.get("server").is_none() {
+        doc.insert("server", toml_edit::Item::Table(toml_edit::Table::new()));
+    }
+    let server = doc["server"].as_table_mut().ok_or("[server] is not a table")?;
+    let host = server
+        .get("listen")
+        .and_then(|v| v.as_str())
+        .and_then(|l| l.trim().rsplit_once(':'))
+        .map(|(h, _)| h.to_owned())
+        .filter(|h| !h.is_empty())
+        .unwrap_or_else(|| "127.0.0.1".to_owned());
+    let listen = format!("{host}:{port}");
+    if server.get("listen").and_then(|v| v.as_str()) != Some(listen.as_str()) {
+        // The value is replaced, its spacing and trailing comment kept.
+        let decor = server.get("listen").and_then(|i| i.as_value()).map(|v| v.decor().clone());
+        let mut item = toml_edit::value(listen);
+        if let (Some(d), Some(v)) = (decor, item.as_value_mut()) {
+            *v.decor_mut() = d;
+        }
+        server.insert("listen", item);
+    }
+    let after = doc.to_string();
+    if after == before {
+        return Ok(false);
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    std::fs::write(&path, after).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(true)
+}
+
 /// What is wrong with a draft, said by the setting's name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IdentityProblem {
@@ -1185,6 +1254,15 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
             });
         });
         note(ui, lay, tr.pk_set_state_hint, dim);
+        row(ui, lay, tr.pk_set_backend_port, |ui| {
+            let w = ui.available_width();
+            ui.add(egui::TextEdit::singleline(&mut draft.backend_port).hint_text("8443").desired_width(w));
+        });
+        if backend_port_ok(&draft.backend_port) {
+            note(ui, lay, tr.pk_set_backend_port_hint, dim);
+        } else {
+            note(ui, lay, tr.pk_set_backend_port_bad, theme.error);
+        }
         row(ui, lay, tr.pk_set_store, |ui| {
             egui::ComboBox::from_id_salt("kind_contract_store")
                 .selected_text(if draft.contract.store == STORE_SERVER { tr.pk_set_store_server } else { tr.pk_set_store_memory })
@@ -1735,5 +1813,31 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), after, "a refused draft writes nothing");
         let _ = std::fs::remove_dir_all(&dir);
     }
-}
 
+    /// The Backend's development port is the project's own setting: read from `[server] listen`, written back with
+    /// everything else in the file untouched, and an unusable one is refused.
+    #[test]
+    fn the_backend_port_is_read_and_written_in_server_listen_leaving_the_rest_alone() {
+        let dir = std::env::temp_dir().join(format!("prc-be-port-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(BACKEND_FOLDER)).unwrap();
+        let path = backend_config_path(&dir);
+        assert_eq!(read_backend_port(&dir), "", "no file");
+        std::fs::write(&path, "# where it runs\n[server]\nlisten = \"127.0.0.1:8443\"  # dev\n\n[contract]\nsession_idle_seconds = 60\n").unwrap();
+        assert_eq!(read_backend_port(&dir), "8443");
+        assert_eq!(write_backend_port(&dir, "9100"), Ok(true));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text, "# where it runs\n[server]\nlisten = \"127.0.0.1:9100\"  # dev\n\n[contract]\nsession_idle_seconds = 60\n", "only the port changed");
+        assert_eq!(write_backend_port(&dir, " 9100 "), Ok(false), "the same port changes nothing");
+        for bad in ["", "0", "65536", "80a", "-1"] {
+            assert!(write_backend_port(&dir, bad).is_err() && !backend_port_ok(bad), "{bad:?}");
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "a refused port writes nothing");
+        // No file, or no [server]: the section is created, on loopback.
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(write_backend_port(&dir, "8450"), Ok(true));
+        assert_eq!(read_backend_port(&dir), "8450");
+        assert!(std::fs::read_to_string(&path).unwrap().contains("listen = \"127.0.0.1:8450\""));
+        println!("backend port: read 8443, wrote 9100 (comments and [contract] kept), refused 5 bad values, created [server] for 8450");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

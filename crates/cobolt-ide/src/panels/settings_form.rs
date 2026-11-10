@@ -62,6 +62,9 @@ pub struct SettingsDraft {
     pub contract: crate::panels::web_settings::ContractDraft,
     /// `[backend] state`: `per-call` or `per-connection` (WASM-003 Q2).
     pub backend_state: String,
+    /// The port of the Backend's development run: `[server] listen` of `backend/backend.toml`, as text. The IDE starts
+    /// the Backend there and nowhere else.
+    pub backend_port: String,
     // ── License ──
     pub license_model: String,
     pub license_text: String,
@@ -172,6 +175,7 @@ impl SettingsDraft {
             identity: Default::default(),
             contract: Default::default(),
             backend_state: p.backend.clone().unwrap_or_default().state,
+            backend_port: String::new(),
             license_model: p.project.license_model.clone(),
             // A project that names a license but carries no text (older projects,
             // or one whose text was never filled in) gets the canonical text, so
@@ -618,6 +622,9 @@ impl SettingsForm {
         let contract = crate::panels::web_settings::read_contract_settings(project_dir);
         self.draft.contract = contract.clone();
         self.baseline.contract = contract;
+        let port = crate::panels::web_settings::read_backend_port(project_dir);
+        self.draft.backend_port = port.clone();
+        self.baseline.backend_port = port;
         self.project_dir = Some(project_dir.to_path_buf());
     }
 
@@ -630,6 +637,21 @@ impl SettingsForm {
     /// The contract settings were edited since the last load or save.
     pub fn contract_edited(&self) -> bool {
         self.draft.contract != self.baseline.contract
+    }
+
+    /// The Backend's port was edited since the last load or save.
+    pub fn backend_port_edited(&self) -> bool {
+        self.draft.backend_port != self.baseline.backend_port
+    }
+
+    /// The Backend's port as last saved.
+    pub fn baseline_backend_port(&self) -> &str {
+        &self.baseline.backend_port
+    }
+
+    /// Put back the saved port after a save that did not write it, so the page stays dirty.
+    pub fn restore_backend_port_baseline(&mut self, port: String) {
+        self.baseline.backend_port = port;
     }
 
     /// The identity provider as last saved.

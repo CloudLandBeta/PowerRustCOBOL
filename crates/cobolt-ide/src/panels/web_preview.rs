@@ -98,8 +98,10 @@ pub enum Note {
     BackendStarting { listen: String, secs: u64 },
     /// The Backend listens on `url`; the page is built for it.
     BackendReady { url: String },
-    /// The port of `backend/backend.toml` is taken: the Backend starts on a free one.
+    /// The port the project defines is taken by another process: the Backend is not started (no random port is tried).
     BackendPortBusy { port: u16 },
+    /// The project defines no port for the Backend: it is not started.
+    BackendNoPort,
     /// The manifest's loopback address is taken: no Backend is started.
     BackendTaken { url: String },
     /// The manifest names another machine: no local Backend is started.
@@ -269,6 +271,8 @@ impl Note {
             | Note::PageError { .. }
             | Note::CobolError { .. }
             | Note::BackendFailed { .. }
+            | Note::BackendPortBusy { .. }
+            | Note::BackendNoPort
             | Note::BackendTimeout { .. } => {
                 Severity::Error
             }
@@ -279,7 +283,6 @@ impl Note {
             | Note::BrowserFailed { .. }
             | Note::BrowserNotConfirmed { .. }
             | Note::BackendOff
-            | Note::BackendPortBusy { .. }
             | Note::BackendTaken { .. }
             | Note::BackendMismatch { .. }
             | Note::TokenUnused { .. }
@@ -346,6 +349,7 @@ impl Note {
             Note::BackendStarting { listen, secs } => vec![fill(tr.pk_prev_backend_starting, &[listen, &secs.to_string()])],
             Note::BackendReady { url } => vec![fill(tr.pk_prev_backend_ready, &[url])],
             Note::BackendPortBusy { port } => vec![fill(tr.pk_prev_backend_port_busy, &[&port.to_string()])],
+            Note::BackendNoPort => vec![tr.pk_prev_backend_no_port.to_owned()],
             Note::BackendTaken { url } => vec![fill(tr.pk_prev_backend_taken, &[url])],
             Note::BackendRemote { url } => vec![fill(tr.pk_prev_backend_remote, &[url])],
             Note::BackendMismatch { running, page } => vec![fill(tr.pk_prev_backend_mismatch, &[running, page])],
@@ -889,7 +893,18 @@ impl WebPreview {
         let plan = devbackend::plan(&manifest_url, devbackend::configured_listen(&project_dir).as_deref(), devbackend::loopback_port_is_free);
         launch.backend_url = None;
         self.begin(intent);
-        let (listen, bake, busy_port) = match plan {
+        let mut refusal = None;
+        let (listen, bake) = match plan {
+            // The project's port is the Backend's address: busy or missing, the Backend is not started, and nothing
+            // random is tried in its place (the page's address must not change between runs).
+            DevBackendPlan::PortBusy { port } => {
+                refusal = Some(Note::BackendPortBusy { port });
+                (String::new(), true)
+            }
+            DevBackendPlan::NoPort => {
+                refusal = Some(Note::BackendNoPort);
+                (String::new(), true)
+            }
             DevBackendPlan::Remote { url } => {
                 self.say(Note::BackendRemote { url });
                 self.build(launch, intent);
@@ -900,7 +915,7 @@ impl WebPreview {
                 self.build(launch, intent);
                 return Some(false);
             }
-            DevBackendPlan::Start { listen, bake_reported, busy_port } => (listen, bake_reported, busy_port),
+            DevBackendPlan::Start { listen, bake_reported } => (listen, bake_reported),
         };
         let wait = |intent| AwaitBackend { intent, deadline: Instant::now() + BACKEND_WAIT, bake, manifest_url: manifest_url.clone(), tail: Vec::new() };
         // The Backend the IDE already runs for this project is used as it is.
@@ -923,8 +938,11 @@ impl WebPreview {
             }
             return Some(false);
         }
-        if let Some(port) = busy_port {
-            self.say(Note::BackendPortBusy { port });
+        // The project's port is the Backend's address: busy (by another process) or missing, the Backend is not started
+        // and nothing random is tried in its place. The Backend this IDE already runs for the project was used above.
+        if let Some(note) = refusal {
+            self.say(note);
+            return Some(false);
         }
         // The page's port is chosen now so the Backend accepts that origin and no other port of this machine.
         self.page_port = devbackend::free_loopback_port();
@@ -1869,6 +1887,7 @@ mod tests {
             Note::DeviceLog("I/chromium: hello".into()),
             Note::PackageStarted,
             Note::ChooseDevice,
+            Note::BackendNoPort,
         ];
         let mut shown = 0;
         for &lang in Language::ALL {
@@ -1905,7 +1924,7 @@ mod tests {
         // The Backend's start: its facts in the sentence, its own words under it.
         assert!(notes[26].text(&en).contains("127.0.0.1:8443") && notes[26].text(&en).contains("60 s"));
         assert!(notes[27].text(&en).contains("ws://127.0.0.1:8443/ws"));
-        assert!(notes[28].text(&en).contains("8443") && notes[28].severity() == Severity::Warn);
+        assert!(notes[28].text(&en).contains("8443") && notes[28].text(&en).contains("no other port") && notes[28].severity() == Severity::Error, "a busy project port refuses the run");
         let failed = notes[32].lines(&en);
         assert!(failed[0].contains("exit 1") && failed[1] == "  rcrun backend: no exports.toml", "{failed:?}");
         assert_eq!(notes[32].severity(), Severity::Error);
@@ -2621,6 +2640,11 @@ mod tests {
 
     // ── the Backend during a Preview (WASM-008 R6) ──
 
+    /// `127.0.0.1:PORT` for a free port: the port a test project defines for its Backend.
+    fn free_listen() -> String {
+        format!("127.0.0.1:{}", devbackend::free_loopback_port().expect("a free port"))
+    }
+
     /// A Web project with a Backend, made by the IDE's own scaffold; its
     /// `backend.toml` listens on `listen`, its manifest names `backend_url`.
     fn backend_project(tag: &str, listen: &str, backend_url: &str) -> PathBuf {
@@ -2687,7 +2711,7 @@ mod tests {
     fn with_the_inspector_the_page_calls_the_proxy_and_the_proxy_calls_the_backend() {
         quiet();
         let rcrun = built_rcrun();
-        let manifest = backend_project("be-inspect", "127.0.0.1:0", "");
+        let manifest = backend_project("be-inspect", &free_listen(), "");
         let backend = Fake::new();
         let inspector = Inspector::new();
         let (mut p, mut ide) = (WebPreview::default(), None);
@@ -2800,10 +2824,10 @@ mod tests {
         assert!(devbackend::loopback_port_is_free(port), "port {port} is free again");
     }
 
-    /// The port of `backend.toml` is taken: the Backend starts on a free one
-    /// instead — before the build, so the page still calls where it listens.
+    /// The port of `backend.toml` is taken by another process: the Backend is **not** started and no random port is
+    /// tried in its place, so the address a page was built for never changes between runs.
     #[test]
-    fn a_configured_port_in_use_moves_the_backend_and_the_page_with_it() {
+    fn a_configured_port_in_use_is_refused_and_no_random_port_is_tried() {
         quiet();
         let rcrun = built_rcrun();
         let held = std::net::TcpListener::bind(("127.0.0.1", free_test_port(8455..8460))).unwrap();
@@ -2811,15 +2835,16 @@ mod tests {
         let manifest = backend_project("be-busy", &format!("127.0.0.1:{busy}"), "");
         let backend = Fake::new();
         let (mut p, mut ide) = (WebPreview::default(), None);
-        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(true));
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(false));
         assert!(p.notes().contains(&Note::BackendPortBusy { port: busy }), "{:?}", p.notes());
-        pump_until(&mut p, &mut ide, "the page to be served", 90, |p| p.serving());
-        let url = backend.urls.lock().unwrap()[0].clone();
-        assert!(url.starts_with("ws://127.0.0.1:") && !url.contains(&format!(":{busy}/")), "{url}");
-        assert_eq!(ide.as_ref().and_then(|r| r.url()), Some(url.as_str()));
-        assert!(get_health(&url).starts_with("HTTP/1.1 200"));
-        println!("port {busy} held by another program: the Backend listens on {url} and the page is built for it");
-        ide.take().unwrap().stop();
+        assert!(ide.is_none() && backend.urls.lock().unwrap().is_empty(), "no Backend, no build");
+        assert_eq!(Note::BackendPortBusy { port: busy }.severity(), Severity::Error);
+        // A project with no port at all is refused the same way.
+        let none = backend_project("be-noport", "127.0.0.1:0", "");
+        let mut p = WebPreview::default();
+        assert_eq!(p.start_with_backend(launch(&none, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(false));
+        assert!(p.notes().contains(&Note::BackendNoPort) && ide.is_none(), "{:?}", p.notes());
+        println!("port {busy} held by another program: the Backend is not started and nothing random is tried; no port at all: refused too");
         drop(held);
     }
 
@@ -2829,7 +2854,7 @@ mod tests {
     fn a_backend_already_running_for_the_project_is_used_not_restarted() {
         quiet();
         let rcrun = built_rcrun();
-        let manifest = backend_project("be-reuse", "127.0.0.1:0", "");
+        let manifest = backend_project("be-reuse", &free_listen(), "");
         let mut ide = Some(BackendRun::spawn(&rcrun, manifest.parent().unwrap()).unwrap());
         let deadline = Instant::now() + Duration::from_secs(60);
         while ide.as_ref().unwrap().url().is_none() {
@@ -2853,7 +2878,7 @@ mod tests {
     fn a_run_after_the_backend_was_stopped_starts_it_again() {
         quiet();
         let rcrun = built_rcrun();
-        let manifest = backend_project("be-rerun", "127.0.0.1:0", "");
+        let manifest = backend_project("be-rerun", &free_listen(), "");
         let backend = Fake::new();
         let (mut p, mut ide) = (WebPreview::default(), None);
         assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(true));
@@ -2909,7 +2934,7 @@ mod tests {
     fn a_backend_that_fails_or_never_listens_is_said_and_stops_the_preview() {
         use std::os::unix::fs::PermissionsExt;
         quiet();
-        let manifest = backend_project("be-fail", "127.0.0.1:0", "");
+        let manifest = backend_project("be-fail", &free_listen(), "");
         let dir = manifest.parent().unwrap().to_path_buf();
         let script = |name: &str, body: &str| {
             let path = dir.join(name);

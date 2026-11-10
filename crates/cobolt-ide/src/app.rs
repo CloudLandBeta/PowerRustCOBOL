@@ -11575,7 +11575,19 @@ impl CoboltApp {
                 self.output.push_status(tr.pk_set_contract_write_failed.replacen("{}", &e, 1));
             }
         }
+        // The Backend's development port is `[server] listen` of backend/backend.toml; an unusable one is not written.
+        let mut port_unsaved = None;
+        if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()).map(|d| d.to_path_buf()).filter(|_| form.backend_port_edited() && form.draft.has_backend && form.draft.kind.has_backend()) {
+            if let Err(e) = crate::panels::web_settings::write_backend_port(&dir, &form.draft.backend_port) {
+                let tr = self.lang.tr();
+                self.output.push_status(tr.pk_set_backend_port_write_failed.replacen("{}", &e, 1));
+                port_unsaved = Some(form.baseline_backend_port().to_owned());
+            }
+        }
         form.mark_saved();
+        if let Some(previous) = port_unsaved {
+            form.restore_backend_port_baseline(previous);
+        }
         if let Some(previous) = identity_unsaved {
             form.restore_identity_baseline(previous);
         }

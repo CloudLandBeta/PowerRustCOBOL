@@ -20,17 +20,14 @@
 //!   page calls whatever listens there, and the developer is told); when it
 //!   names another machine, no local Backend is started.
 //! * `[web] backend_url` **empty**: the Backend is started on the port of
-//!   `backend/backend.toml` `[server] listen`, on loopback; when that port is
-//!   taken — or none is set — on a free loopback port. Either way the page is
-//!   built for the address the Backend reports once it listens, so a port
-//!   fallback can never leave the page calling the wrong place.
+//!   `backend/backend.toml` `[server] listen` (the developer sets it in the
+//!   project's properties), on loopback. There is **no fallback**: when that
+//!   port is taken, or none is set, the Backend is not started and the
+//!   Preview says why, so the address a page was built for stays the address
+//!   the Backend has after a restart.
 
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::path::Path;
-
-/// The address a development run listens on when it is told nothing: a free
-/// loopback port (the same default as `rcrun backend run`).
-pub const ANY_LOOPBACK_PORT: &str = "127.0.0.1:0";
 
 /// What a Preview does about the project's Backend before it builds.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,9 +39,12 @@ pub enum DevBackendPlan {
         /// Build the page for the address the Backend reports (the manifest
         /// names none); `false` keeps the manifest's.
         bake_reported: bool,
-        /// The configured port that was in use, when the Backend falls back to a free one.
-        busy_port: Option<u16>,
     },
+    /// The port the project defines is in use by another process: the Backend is **not** started, and no other
+    /// port is tried — the page's address must not change between runs.
+    PortBusy { port: u16 },
+    /// The project defines no usable port (`[server] listen` absent, `0` or unreadable): the Backend is not started.
+    NoPort,
     /// The manifest's loopback address is already in use: no Backend is
     /// started; the page is built for that address.
     Taken { url: String },
@@ -126,7 +126,7 @@ pub fn plan(manifest_url: &str, configured: Option<&str>, port_is_free: impl Fn(
         return match host_and_port(manifest_url) {
             Some((host, port)) if is_loopback_host(&host) => {
                 if port_is_free(port) {
-                    DevBackendPlan::Start { listen: format!("127.0.0.1:{port}"), bake_reported: false, busy_port: None }
+                    DevBackendPlan::Start { listen: format!("127.0.0.1:{port}"), bake_reported: false }
                 } else {
                     DevBackendPlan::Taken { url: manifest_url.to_owned() }
                 }
@@ -134,13 +134,13 @@ pub fn plan(manifest_url: &str, configured: Option<&str>, port_is_free: impl Fn(
             _ => DevBackendPlan::Remote { url: manifest_url.to_owned() },
         };
     }
-    // A development run listens on this machine only: the configured port, on loopback.
+    // A development run listens on this machine only, on the port the project defines — never on a random one.
     match configured.and_then(listen_port).filter(|p| *p != 0) {
         Some(port) if port_is_free(port) => {
-            DevBackendPlan::Start { listen: format!("127.0.0.1:{port}"), bake_reported: true, busy_port: None }
+            DevBackendPlan::Start { listen: format!("127.0.0.1:{port}"), bake_reported: true }
         }
-        Some(port) => DevBackendPlan::Start { listen: ANY_LOOPBACK_PORT.to_owned(), bake_reported: true, busy_port: Some(port) },
-        None => DevBackendPlan::Start { listen: ANY_LOOPBACK_PORT.to_owned(), bake_reported: true, busy_port: None },
+        Some(port) => DevBackendPlan::PortBusy { port },
+        None => DevBackendPlan::NoPort,
     }
 }
 
@@ -163,36 +163,28 @@ mod tests {
     fn an_empty_manifest_address_starts_the_backend_on_its_configured_port_and_bakes_what_it_reports() {
         assert_eq!(
             plan("", Some("127.0.0.1:8443"), FREE),
-            DevBackendPlan::Start { listen: "127.0.0.1:8443".into(), bake_reported: true, busy_port: None }
+            DevBackendPlan::Start { listen: "127.0.0.1:8443".into(), bake_reported: true }
         );
         // A network address in backend.toml: a development run still listens on loopback.
         assert_eq!(
             plan("  ", Some("0.0.0.0:9000"), FREE),
-            DevBackendPlan::Start { listen: "127.0.0.1:9000".into(), bake_reported: true, busy_port: None }
+            DevBackendPlan::Start { listen: "127.0.0.1:9000".into(), bake_reported: true }
         );
     }
 
     #[test]
-    fn a_configured_port_in_use_falls_back_to_a_free_one_before_the_build() {
-        assert_eq!(
-            plan("", Some("127.0.0.1:8443"), TAKEN),
-            DevBackendPlan::Start { listen: ANY_LOOPBACK_PORT.into(), bake_reported: true, busy_port: Some(8443) }
-        );
+    fn a_configured_port_in_use_is_refused_never_replaced_by_a_random_one() {
+        assert_eq!(plan("", Some("127.0.0.1:8443"), TAKEN), DevBackendPlan::PortBusy { port: 8443 });
         // Only the configured port is asked about.
-        assert_eq!(
-            plan("", Some("127.0.0.1:8443"), |p| p != 8443),
-            DevBackendPlan::Start { listen: ANY_LOOPBACK_PORT.into(), bake_reported: true, busy_port: Some(8443) }
-        );
+        assert_eq!(plan("", Some("127.0.0.1:8443"), |p| p != 8443), DevBackendPlan::PortBusy { port: 8443 });
+        assert!(matches!(plan("", Some("127.0.0.1:8443"), |p| p == 8443), DevBackendPlan::Start { .. }));
     }
 
     #[test]
-    fn no_configured_port_takes_a_free_one() {
+    fn no_configured_port_is_refused() {
         for configured in [None, Some("127.0.0.1:0"), Some("not an address")] {
-            assert_eq!(
-                plan("", configured, TAKEN),
-                DevBackendPlan::Start { listen: ANY_LOOPBACK_PORT.into(), bake_reported: true, busy_port: None },
-                "{configured:?}"
-            );
+            assert_eq!(plan("", configured, FREE), DevBackendPlan::NoPort, "{configured:?}");
+            assert_eq!(plan("", configured, TAKEN), DevBackendPlan::NoPort, "{configured:?}");
         }
     }
 
@@ -201,13 +193,13 @@ mod tests {
         for url in ["ws://127.0.0.1:8750/ws", "ws://localhost:8750", "ws://[::1]:8750/ws", "ws://app.localhost:8750"] {
             assert_eq!(
                 plan(url, Some("127.0.0.1:8443"), FREE),
-                DevBackendPlan::Start { listen: "127.0.0.1:8750".into(), bake_reported: false, busy_port: None },
+                DevBackendPlan::Start { listen: "127.0.0.1:8750".into(), bake_reported: false },
                 "{url}"
             );
         }
         assert_eq!(
             plan("ws://127.0.0.1", None, FREE),
-            DevBackendPlan::Start { listen: "127.0.0.1:80".into(), bake_reported: false, busy_port: None },
+            DevBackendPlan::Start { listen: "127.0.0.1:80".into(), bake_reported: false },
             "the scheme's port"
         );
     }
