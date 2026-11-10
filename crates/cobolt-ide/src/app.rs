@@ -1086,6 +1086,8 @@ pub struct CoboltApp {
     /// Shown once after opening a project that has no usable AI model or no
     /// configured agent, inviting the user to set them up.
     ai_setup_modal: bool,
+    /// The "Loading..." feedback shown for a second after a project is opened.
+    loading_until: Option<std::time::Instant>,
     /// While the AI-setup invite is up: whether every enabled agent now has a
     /// model. Cached — it reads the agents from disk — and cleared whenever a
     /// manager opened from the invite, so it is asked again when it closes.
@@ -2443,6 +2445,7 @@ impl CoboltApp {
             build_folder_modal_open: false,
             build_folder_problem: None,
             ai_setup_modal: false,
+            loading_until: None,
             ai_setup_ready: None,
             walkthrough: Default::default(),
             task_wizard: crate::panels::task_wizard::Wizard::load(),
@@ -5250,6 +5253,7 @@ impl CoboltApp {
     }
 
     fn open_project_at(&mut self, path: PathBuf) {
+        self.loading_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
         // A Preview belongs to the project it was started for; so does a backend, and so does the
         // Run on device window.
         self.web_preview.close();
@@ -13831,6 +13835,28 @@ impl CoboltApp {
         }
     }
 
+    /// "Loading..." for one second after a project is opened: the open itself blocks the
+    /// frame, so the message is the developer's cue that it happened.
+    fn show_loading_modal(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(until) = self.loading_until else { return };
+        let now = std::time::Instant::now();
+        if now >= until {
+            self.loading_until = None;
+            return;
+        }
+        egui::Modal::new(egui::Id::new("project_loading_modal")).show(ctx, |ui| {
+            ui.set_width(220.0);
+            ui.vertical_centered(|ui| {
+                ui.add_space(8.0);
+                ui.add(egui::Spinner::new().size(28.0));
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new(tr.loading_project).size(16.0));
+                ui.add_space(8.0);
+            });
+        });
+        ctx.request_repaint_after(until - now);
+    }
+
     fn show_ai_setup_modal(&mut self, ctx: &Context, tr: &Tr) {
         if !self.ai_setup_modal {
             return;
@@ -17172,6 +17198,7 @@ impl eframe::App for CoboltApp {
         self.show_toolchain_prompt(ctx, &tr);
         self.show_ollama_prompt(ctx, &tr);
         self.show_ai_setup_modal(ctx, &tr);
+        self.show_loading_modal(ctx, &tr);
         self.show_announcement(ctx, &tr);
         // The frame's, not a pane's: a developer who never opens Project
         // Settings must still be told a newer release exists.

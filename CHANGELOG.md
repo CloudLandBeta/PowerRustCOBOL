@@ -2,6 +2,10 @@
 
 
 
+## 2.0.400 — 2026-11-10
+
+**Opening a project shows "Loading..." for one second.** The open itself blocks the window, so nothing told the developer it had happened. A small modal with a spinner and the message, in the IDE's six languages, now covers the window for one second after every project open (File ▸ Open, recent projects, examples, `--open`).
+
 ## 2.0.399 — 2026-11-10
 
 **Web Build: the complete build writes a deployment kit.** `dist/web/hosting/deploy/` now holds an nginx site (TLS on 443, the build's security headers, a `/ws` and `/auth/` proxy to the Backend on loopback), `Dockerfile.backend` and `Dockerfile.web`, `1-push-images.sh` (creates the ECR repositories, builds and pushes both images), `2-ecs-task-definition.json` (the web and backend containers in one Fargate task), `3-create-service.sh` (registers the task and creates or updates the service behind a load balancer), `4-api-gateway-websocket.sh` (an optional API Gateway WebSocket API through a VPC link) and `README-en|es|pt|fr|jp|cn.md`. No file holds a credential: account, region, domain, tag and secrets are placeholders or environment variables. The READMEs say that an API Gateway WebSocket API takes text frames only, so the load balancer route is the supported one. (`cobolt-web-bundle/src/deploy.rs`.)
