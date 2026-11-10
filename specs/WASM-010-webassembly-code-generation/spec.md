@@ -144,7 +144,7 @@ What it costs: a compiler back end and the routines above, and **two engines to 
 - [ ] **AC2** — A golden table of data layouts (a group with `REDEFINES`, `OCCURS … DEPENDING ON`, `COMP-3`, signed display numerics, `SEPARATE` signs) shows the memory image after initialisation and after `MOVE`s equal, byte for byte, to the expected image.
 - [ ] **AC3** — A table of arithmetic cases (rounding modes, `SIZE ERROR`, 18- and 38-digit operands, division with remainder) gives the interpreter's results on the module.
 - [ ] **AC4** — A program using `GO TO … DEPENDING`, `ALTER` and `PERFORM … THRU` with `EXIT PERFORM` runs identically on both engines.
-- [ ] **AC5** — A handler that makes a call that waits stops at it, the host resumes it later with an answer, and the final data equals the expected; two events raised meanwhile are queued and leave the data consistent.
+- [x] **AC5** — A handler that makes a call that waits stops at it, the host resumes it later with an answer, and the final data equals the expected; two events raised meanwhile are queued and leave the data consistent.
 - [ ] **AC6** — A program with a file verb, an `EXEC RUST` block or an `EXEC SQL` statement fails to compile with the line and the alternative; a test fails if any `Stmt` variant or built-in lacks a table entry.
 - [ ] **AC7** — The NIST numbers for NC, IF and IC are recorded (compiled, passed, excluded with reasons), with 0 failures among those run.
 - [ ] **AC8** — The `tests/cobol/` corpus inside the subset prints the same output on both engines; any difference is an open bug entry.

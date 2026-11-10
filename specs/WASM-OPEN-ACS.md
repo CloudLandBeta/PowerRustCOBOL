@@ -39,7 +39,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | [WASM-006-weblink-control](#wasm-006-weblink-control) | 10 | `unaudited` |
 | [WASM-008-webview-preview](#wasm-008-webview-preview) | 15 | `unaudited` |
 | [WASM-009-authentication-control-and-identity-providers](#wasm-009-authentication-control-and-identity-providers) | 9 | `unaudited` |
-| [WASM-010-webassembly-code-generation](#wasm-010-webassembly-code-generation) | 11 | `unaudited` |
+| [WASM-010-webassembly-code-generation](#wasm-010-webassembly-code-generation) | 10 | `unaudited` |
 | [WASM-011-navigation-and-application-styles](#wasm-011-navigation-and-application-styles) | 1 | `unaudited` |
 | [WASM-012-mobile-shell-tauri-2](#wasm-012-mobile-shell-tauri-2) | 12 | `blocked-hardware` |
 | [WASM-013-security-architecture](#wasm-013-security-architecture) | 12 | `unaudited` |
@@ -49,7 +49,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | [WASM-017-module-architecture-and-js-boundary](#wasm-017-module-architecture-and-js-boundary) | 15 | `unaudited` |
 | [WASM-018-canvas-and-graphics-objects](#wasm-018-canvas-and-graphics-objects) | 14 | `unaudited` |
 | [WASM-036-stylesheet-values-in-designer-and-properties](#wasm-036-stylesheet-values-in-designer-and-properties) | 1 | `blocked-operator` |
-| **Total** | **169** | |
+| **Total** | **168** | |
 
 ## WASM-001-project-types-and-ide-entries
 
@@ -71,7 +71,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## WASM-003-backend-project-and-secure-channel
 
-**11 open.** The implementing tasks are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
+**10 open.** AC5 (phase C: the call that waits, the resume, the queued events) was audited against the code on 2026-11-10 (2.0.406) and ticked in `spec.md`; its row is gone. The implementing tasks of the other ten are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|
@@ -109,7 +109,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## WASM-005-websocket-call-and-remote-data
 
-**11 open.** The implementing tasks are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
+**10 open.** AC5 (phase C: the call that waits, the resume, the queued events) was audited against the code on 2026-11-10 (2.0.406) and ticked in `spec.md`; its row is gone. The implementing tasks of the other ten are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|
@@ -182,7 +182,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## WASM-010-webassembly-code-generation
 
-**11 open.** The implementing tasks are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
+**10 open.** AC5 (phase C: the call that waits, the resume, the queued events) was audited against the code on 2026-11-10 (2.0.406) and ticked in `spec.md`; its row is gone. The implementing tasks of the other ten are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|
@@ -190,7 +190,6 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | AC2 | `unaudited` | A golden table of data layouts (a group with `REDEFINES`, `OCCURS … DEPENDING ON`, `COMP-3`, signed display numerics, `SEPARATE` signs) shows the memory image after initialisation and after `MOVE`s equal, byte for byte, to the expected image. | not mapped in its tasks.md |
 | AC3 | `unaudited` | A table of arithmetic cases (rounding modes, `SIZE ERROR`, 18- and 38-digit operands, division with remainder) gives the interpreter's results on the module. | not mapped in its tasks.md |
 | AC4 | `unaudited` | A program using `GO TO … DEPENDING`, `ALTER` and `PERFORM … THRU` with `EXIT PERFORM` runs identically on both engines. | not mapped in its tasks.md |
-| AC5 | `unaudited` | A handler that makes a call that waits stops at it, the host resumes it later with an answer, and the final data equals the expected; two events raised meanwhile are queued and leave the data consistent. | not mapped in its tasks.md |
 | AC6 | `unaudited` | A program with a file verb, an `EXEC RUST` block or an `EXEC SQL` statement fails to compile with the line and the alternative; a test fails if any `Stmt` variant or built-in lacks a table entry. | not mapped in its tasks.md |
 | AC7 | `unaudited` | The NIST numbers for NC, IF and IC are recorded (compiled, passed, excluded with reasons), with 0 failures among those run. | not mapped in its tasks.md |
 | AC8 | `unaudited` | The `tests/cobol/` corpus inside the subset prints the same output on both engines; any difference is an open bug entry. | not mapped in its tasks.md |
@@ -246,7 +245,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## WASM-014-backend-contract-and-evolution
 
-**11 open.** The implementing tasks are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
+**10 open.** AC5 (phase C: the call that waits, the resume, the queued events) was audited against the code on 2026-11-10 (2.0.406) and ticked in `spec.md`; its row is gone. The implementing tasks of the other ten are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|
