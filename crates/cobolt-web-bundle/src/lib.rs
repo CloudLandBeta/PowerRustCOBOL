@@ -19,6 +19,7 @@
 //! owns the folder), which is what makes it testable and makes the build reproducible.
 
 pub mod csp;
+pub mod deploy;
 pub mod devserver;
 pub mod hash;
 pub mod hostpage;
@@ -1050,6 +1051,10 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     let headers = csp::security_headers(&policy, o.isolation);
     let hashed_globs: Vec<&str> = vec!["/*.js", "/*.css", "/forms/*", "/assets/*", "/player/*", "/*.wasm", "/fonts/Ubuntu-Light.*"];
     for (path, content) in csp::host_files(&headers, &hashed_globs) {
+        b.add(path, content.into_bytes());
+    }
+    // the deployment kit: nginx, Docker, ECR, Fargate, API Gateway and the six READMEs
+    for (path, content) in deploy::files(&deploy::Kit { project: &input.project, headers: &headers }) {
         b.add(path, content.into_bytes());
     }
 
