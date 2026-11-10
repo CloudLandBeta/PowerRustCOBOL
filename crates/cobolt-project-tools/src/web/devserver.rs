@@ -21,12 +21,16 @@
 //! - a **`Host` check**, so a page on another site cannot reach the server by
 //!   pointing its own name at 127.0.0.1 (DNS rebinding);
 //! - **live reload**: the server watches the bundle folder, counts the changes
-//!   (`/__prc/version`) and serves the few lines of script that poll the count
+//!   (`/__prc/version`) and serves the few lines of script that ask for the count
 //!   and reload the page. The script is added to `index.html` as it is sent;
 //!   the file on disk is never touched. While a build writes the folder
 //!   ([`ServerHandle::build_started`]) the watcher counts nothing: the build's
 //!   end ([`ServerHandle::notify_changed`]) is the one change the page sees, so
-//!   the page never reads a bundle half written (WASM-008 T47).
+//!   the page never reads a bundle half written (WASM-008 T47). The page asks
+//!   by **long poll** (`/__prc/version?since=<rev>&wait=<ms>`): the server holds
+//!   the request until something the page must hear of changes (the count, or a
+//!   failed build's errors) or `wait` runs out, so an idle page makes one request
+//!   in 25 s and hears a change at once; without `since` the answer is immediate.
 //!
 //! - **page events** (WASM-008 R13, D13): `POST /__prc/log` is the one route
 //!   that is not `GET`/`HEAD`. The served page reports its console lines,
@@ -46,7 +50,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -74,6 +78,9 @@ pub const MAX_EVENTS_PER_SECOND: u32 = 200;
 const MAX_QUEUED_EVENTS: usize = 1000;
 /// How often the watcher looks at the bundle folder.
 pub const WATCH_INTERVAL: Duration = Duration::from_millis(150);
+/// The longest `GET /__prc/version?since=…&wait=…` is held: a larger `wait` is cut to this. The page asks for 25 s,
+/// which every browser and every proxy on this machine's loopback holds without giving up.
+pub const LONG_POLL_MAX: Duration = Duration::from_secs(30);
 
 /// How a server is started.
 #[derive(Debug, Clone)]
@@ -120,6 +127,13 @@ struct State {
     live_reload: bool,
     /// Counts the changes the watcher has seen.
     version: AtomicU64,
+    /// The revision of everything `/__prc/version` tells the page: it moves with `version` and with the build
+    /// errors, so a held request wakes for either. Starts at 1; a page that has not asked yet asks `since=0`.
+    rev: Mutex<u64>,
+    /// Woken at every change of `rev` and at the stop, for the held requests.
+    rev_changed: Condvar,
+    /// The requests for `/__prc/version` that have arrived, held ones too (the others are counted when answered).
+    version_requests: AtomicU64,
     /// The folder's fingerprint as last counted; the watcher and a build's end
     /// both compare against it, under its lock.
     watched: Mutex<u64>,
@@ -146,6 +160,74 @@ struct State {
     dev_backend: Mutex<Option<DevBackend>>,
     /// The size `/__prc/phone` frames the application at; `None`: no such page.
     phone: Mutex<Option<PhoneFrame>>,
+}
+
+impl State {
+    /// Something `/__prc/version` tells the page has changed: move the revision and wake the held requests. Called
+    /// after the state they read has been written, so a request that wakes reads the new state.
+    fn bump(&self) {
+        if let Ok(mut rev) = self.rev.lock() {
+            *rev += 1;
+        }
+        self.rev_changed.notify_all();
+    }
+
+    /// Count one change of the bundle, for the page to see.
+    fn count_change(&self) {
+        self.version.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut t) = self.last_change.lock() {
+            *t = Some(Instant::now());
+        }
+        self.bump();
+    }
+
+    /// Hold a long poll that has seen revision `since` until the revision moves, the server stops or `wait` (cut to
+    /// [`LONG_POLL_MAX`]) is over; answers the revision it ends on. A page that is behind, or ahead (a server
+    /// started again), is answered at once.
+    fn hold_for_change(&self, since: u64, wait: Duration) -> u64 {
+        let deadline = Instant::now() + wait.min(LONG_POLL_MAX);
+        let Ok(mut rev) = self.rev.lock() else { return since };
+        while *rev == since && !self.stop.load(Ordering::SeqCst) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            rev = match self.rev_changed.wait_timeout(rev, left) {
+                Ok((guard, _)) => guard,
+                Err(_) => return since,
+            };
+        }
+        *rev
+    }
+
+    /// The body of `/__prc/version`: the change count, the failed build's errors while there are any and, for a long
+    /// poll, the revision the answer is for (read before the rest, so what follows is at least that new).
+    fn version_body(&self, rev: Option<u64>) -> String {
+        let version = self.version.load(Ordering::SeqCst);
+        let errors = self.build_errors.lock().map(|e| e.clone()).unwrap_or_default();
+        match (rev, errors.is_empty()) {
+            (None, true) => format!("{{\"version\":{version}}}"),
+            (None, false) => serde_json::json!({ "version": version, "errors": errors }).to_string(),
+            (Some(rev), true) => serde_json::json!({ "version": version, "rev": rev }).to_string(),
+            (Some(rev), false) => serde_json::json!({ "version": version, "errors": errors, "rev": rev }).to_string(),
+        }
+    }
+}
+
+/// The long-poll parameters of a request for `/__prc/version`: `since` (the revision the page has seen) and `wait`
+/// (how long it may be held, in milliseconds; none is none). `Ok(None)` when the request has no `since`: the plain,
+/// immediate answer. `Err` names the parameter that is not a whole number.
+fn long_poll_query(path: &str) -> Result<Option<(u64, Duration)>, &'static str> {
+    let query = path.split('#').next().unwrap_or("").split_once('?').map_or("", |(_, q)| q);
+    let (mut since, mut wait) = (None, 0u64);
+    for pair in query.split('&') {
+        match pair.split_once('=') {
+            Some(("since", v)) => since = Some(v.parse::<u64>().map_err(|_| "bad since")?),
+            Some(("wait", v)) => wait = v.parse::<u64>().map_err(|_| "bad wait")?,
+            _ => {}
+        }
+    }
+    Ok(since.map(|s| (s, Duration::from_millis(wait).min(LONG_POLL_MAX))))
 }
 
 /// The CSS size of the phone `/__prc/phone` shows the application in (a
@@ -345,10 +427,7 @@ impl ServerHandle {
     /// the folder as the build left it.
     pub fn notify_changed(&self) {
         self.settle_watch();
-        self.state.version.fetch_add(1, Ordering::SeqCst);
-        if let Ok(mut t) = self.state.last_change.lock() {
-            *t = Some(Instant::now());
-        }
+        self.state.count_change();
     }
 
     /// A build ended without a new bundle (it failed, or wrote nothing): no
@@ -406,6 +485,12 @@ impl ServerHandle {
         self.state.served.load(Ordering::SeqCst)
     }
 
+    /// How many requests for `/__prc/version` have arrived, the one being held now included (an idle page makes one
+    /// in 25 s; [`Self::requests_served`] counts a request only when its answer is sent).
+    pub fn version_requests(&self) -> u64 {
+        self.state.version_requests.load(Ordering::SeqCst)
+    }
+
     /// The page events posted since the last call, oldest first.
     pub fn take_page_events(&self) -> Vec<PageEvent> {
         self.state.page_events.lock().map(|mut q| q.drain(..).collect()).unwrap_or_default()
@@ -421,8 +506,10 @@ impl ServerHandle {
     /// empty list (the next good build) removes them. The bundle on disk is
     /// whatever the last good build left.
     pub fn set_build_errors(&self, errors: Vec<String>) {
-        if let Ok(mut e) = self.state.build_errors.lock() {
-            *e = errors;
+        let changed = self.state.build_errors.lock().map(|mut e| std::mem::replace(&mut *e, errors.clone()) != errors).unwrap_or(false);
+        // The page holds a long poll for the errors too: wake it, but only for errors that are not the ones it has.
+        if changed {
+            self.state.bump();
         }
     }
 
@@ -456,7 +543,11 @@ impl ServerHandle {
 
     /// Stop the server and wait for its threads.
     pub fn stop(&mut self) {
+        // Set under the lock a held request waits on, so none misses the wake-up and sleeps out its 25 s.
+        let held = self.state.rev.lock();
         self.state.stop.store(true, Ordering::SeqCst);
+        drop(held);
+        self.state.rev_changed.notify_all();
         // Wake the accept that is waiting for a connection.
         let _ = TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], self.state.port)), Duration::from_millis(500));
         for t in self.threads.drain(..) {
@@ -486,6 +577,9 @@ pub fn start(dir: &Path, options: &ServeOptions) -> Result<ServerHandle, ServeEr
         isolation: options.isolation,
         live_reload: options.live_reload,
         version: AtomicU64::new(1),
+        rev: Mutex::new(1),
+        rev_changed: Condvar::new(),
+        version_requests: AtomicU64::new(0),
         watched: Mutex::new(fingerprint(&root)),
         building: AtomicBool::new(false),
         last_change: Mutex::new(None),
@@ -579,10 +673,7 @@ fn watch_loop(state: Arc<State>) {
         let now = fingerprint(&state.root);
         if now != *last {
             *last = now;
-            state.version.fetch_add(1, Ordering::SeqCst);
-            if let Ok(mut t) = state.last_change.lock() {
-                *t = Some(Instant::now());
-            }
+            state.count_change();
         }
     }
 }
@@ -885,12 +976,17 @@ fn text_response(stream: &mut TcpStream, status: u16, reason: &str, body: &str, 
 
 /// The **Preview script** added to `index.html` (WASM-008 R3, R5, R7, R13, D6):
 ///
-/// - polls the change count every 150 ms; on a change, hands the application its new configuration so it
+/// - asks for the change count by long poll (`/__prc/version?since=<rev>&wait=25000`: the server holds the request
+///   until the count or the build errors change, or 25 s pass, so an idle page makes one request in 25 s and a
+///   change reaches it at once; an answer that comes back at once with nothing new is asked again after 150 ms,
+///   as is a failed one); on a change, hands the application its new configuration so it
 ///   takes the new module, descriptions and stylesheet in place, without reloading the page or the player
 ///   (`app.update`, WASM-016 R16), and reloads only when it answers that it cannot (or the page holds no
 ///   application); each update is timed with `performance.now()` and reported as `updated {how, ms}`;
 /// - wraps `console.*`, `window.onerror` and `unhandledrejection` and reports them as `console` / `error`;
-/// - after each settled run, reports the player's new run-time errors (`errors()`) as `cobol-error`;
+/// - reports the player's new run-time errors (`errors()`) as `cobol-error`, once the player has settled, from a
+///   timer of its own (250 ms; 1 s while the page is hidden) that makes no request: a run-time error is the
+///   page's, not the server's, and does not wait for a change;
 /// - tags every event with its `form` (the route `#/form` of an SPA, `pr-form` of a standalone window) and
 ///   sends it over `window.ipc` inside the headless helper, else `POST /__prc/log`;
 /// - draws a failed build's errors (`/__prc/version`'s `errors`) over the page in a dismissable overlay,
@@ -899,7 +995,7 @@ fn text_response(stream: &mut TcpStream, status: u16, reason: &str, body: &str, 
 /// Every text the page shows comes from [`PageStrings`] and goes in with `textContent`; nothing is parsed
 /// as markup and nothing is evaluated.
 const PREVIEW_SCRIPT: &str = r#"var ipc=window.ipc&&typeof window.ipc.postMessage==='function'?window.ipc:null;
-var queue=[],timer=null,v=null,fails=0,banner=null,overlay=null,shown='',sent=0;
+var queue=[],timer=null,v=null,rev=0,pause=0,fails=0,banner=null,overlay=null,shown='',sent=0;
 function form(){var m=/^#\/([^\/?#]+)/.exec(location.hash||'');if(m){try{return decodeURIComponent(m[1]);}catch(x){return m[1];}}
 try{return new URLSearchParams(location.search).get('pr-form')||'';}catch(x){return '';}}
 function flush(){timer=null;var batch=queue.splice(0,40);if(!batch.length){return;}
@@ -940,11 +1036,14 @@ return fetch(host.getAttribute('data-pr-config')||'config.json',{cache:'no-store
 .then(function(c){var t0=performance.now();return Promise.resolve(app.update(c)).then(function(a){
 send({event:'updated',how:String(a),ms:Math.round((performance.now()-t0)*10)/10});return a;});});});}
 function reload(){flush();location.reload();}
-function poll(){fetch('/__prc/version',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){fails=0;hideBanner();showErrors(j.errors);
+function poll(){var t0=Date.now(),asked=rev;
+fetch('/__prc/version?since='+rev+'&wait=25000',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){fails=0;hideBanner();showErrors(j.errors);
+rev=typeof j.rev==='number'?j.rev:0;pause=Date.now()-t0<100&&rev===asked?150:0;
 if(v===null){v=j.version;return;}if(j.version===v){return;}v=j.version;
 return inPlace().then(function(a){if(a==='reload'||a==='unmounted'){reload();}},reload);},
-function(){fails+=1;if(fails>=3){showBanner();}}).then(cobolErrors).catch(function(){}).finally(function(){setTimeout(poll,150);});}
-poll();"#;
+function(){fails+=1;pause=150;if(fails>=3){showBanner();}}).catch(function(){}).finally(function(){setTimeout(poll,pause);});}
+function watchCobol(){cobolErrors().finally(function(){setTimeout(watchCobol,document.hidden?1000:250);});}
+poll();watchCobol();"#;
 
 /// The Preview script with the page's texts: `(function(S){…})({…});`.
 fn reload_script(strings: &PageStrings) -> String {
@@ -1001,13 +1100,17 @@ fn handle(mut stream: TcpStream, state: &State) -> std::io::Result<()> {
         return finish(stream, state);
     }
     if state.live_reload && bare == VERSION_PATH {
-        let version = state.version.load(Ordering::SeqCst);
-        let errors = state.build_errors.lock().map(|e| e.clone()).unwrap_or_default();
-        let body = if errors.is_empty() {
-            format!("{{\"version\":{version}}}")
-        } else {
-            serde_json::json!({ "version": version, "errors": errors }).to_string()
+        state.version_requests.fetch_add(1, Ordering::SeqCst);
+        let query = match long_poll_query(&request.path) {
+            Ok(q) => q,
+            Err(why) => {
+                text_response(&mut stream, 400, "Bad Request", why, head_only, state)?;
+                return finish(stream, state);
+            }
         };
+        // A long poll is held here, on this request's own thread, until the page has something to hear of.
+        let rev = query.map(|(since, wait)| state.hold_for_change(since, wait));
+        let body = state.version_body(rev);
         respond(&mut stream, 200, "OK", "application/json; charset=utf-8", &[], body.as_bytes(), head_only, state)?;
         return finish(stream, state);
     }
@@ -1530,7 +1633,7 @@ mod tests {
 
     /// WASM-008 T33 (R13, R5, R3, D6): the Preview script relays the console,
     /// errors, COBOL errors and update times over `window.ipc` or `/__prc/log`,
-    /// polls at 150 ms, and inserts no markup and evaluates nothing; the page's
+    /// asks for changes by long poll, and inserts no markup and evaluates nothing; the page's
     /// texts are the ones the IDE handed over.
     #[test]
     fn the_preview_script_relays_and_never_parses_markup_008() {
@@ -1542,7 +1645,9 @@ mod tests {
             "/__prc/log",
             "window.ipc",
             "performance.now",
-            "setTimeout(poll,150)",
+            "/__prc/version?since='+rev+'&wait=25000",
+            "setTimeout(poll,pause)",
+            "setTimeout(watchCobol,",
             "unhandledrejection",
             "'cobol-error'",
             "'updated'",
@@ -1556,7 +1661,9 @@ mod tests {
         for banned in ["innerHTML", "outerHTML", "insertAdjacentHTML", "eval(", "new Function", "document.write", "setAttribute('style'"] {
             assert!(!script.contains(banned), "{banned}");
         }
-        assert!(!script.contains("setTimeout(poll,400)"), "the poll is 150 ms now (D6)");
+        // The 150 ms poll of D6 is gone: the page asks by long poll, and waits 150 ms only after a failed or empty answer.
+        assert!(!script.contains("setTimeout(poll,150)") && !script.contains("setTimeout(poll,400)"), "no fixed-interval poll");
+        assert!(!script.contains("fetch('/__prc/version',"), "every ask carries its `since`");
 
         let (outer, root) = bundle("strings");
         let server = start(&root, &ServeOptions::default()).unwrap();
@@ -1571,7 +1678,7 @@ mod tests {
         let served = String::from_utf8(get(p, RELOAD_SCRIPT_PATH).body).unwrap();
         let data = served.rsplit_once("})(").unwrap().1.trim_end().trim_end_matches(");");
         assert_eq!(serde_json::from_str::<PageStrings>(data).unwrap(), pt, "the texts arrive as data, in the IDE's language");
-        println!("preview script: {} bytes, polls every 150 ms, no markup sink, texts as data ({} bytes)", served.len(), data.len());
+        println!("preview script: {} bytes, long poll (25 s hold), no markup sink, texts as data ({} bytes)", served.len(), data.len());
         drop(server);
         let _ = std::fs::remove_dir_all(outer);
     }
@@ -1600,6 +1707,158 @@ mod tests {
         assert!(!overlay.contains("innerHTML") && !overlay.contains("insertAdjacentHTML"));
         println!("build errors: {} lines carried by /__prc/version, removed by the next good build", lines.len());
         drop(server);
+        let _ = std::fs::remove_dir_all(outer);
+    }
+
+    /// One long poll on its own thread: the answer, and the instant it arrived.
+    fn long_poll(port: u16, since: u64, wait_ms: u64) -> thread::JoinHandle<(serde_json::Value, Instant)> {
+        thread::spawn(move || {
+            let r = get(port, &format!("{VERSION_PATH}?since={since}&wait={wait_ms}"));
+            assert_eq!(r.status, 200);
+            (serde_json::from_slice(&r.body).unwrap(), Instant::now())
+        })
+    }
+
+    /// A long poll, asked and answered here: the answer and how long it took.
+    fn ask(port: u16, since: u64, wait_ms: u64) -> (serde_json::Value, Duration) {
+        let t = Instant::now();
+        let r = get(port, &format!("{VERSION_PATH}?since={since}&wait={wait_ms}"));
+        assert_eq!(r.status, 200);
+        (serde_json::from_slice(&r.body).unwrap(), t.elapsed())
+    }
+
+    /// The Preview's page no longer asks every 150 ms: `/__prc/version?since=<rev>&wait=<ms>` is held until the
+    /// count or the build errors change, or `wait` runs out, and answers a change at once. Without `since` the
+    /// answer is the immediate one it always was.
+    #[test]
+    fn a_long_poll_is_held_until_there_is_something_to_hear_of_and_a_change_is_answered_at_once() {
+        let (outer, root) = bundle("longpoll");
+        let server = start(&root, &ServeOptions::default()).unwrap();
+        let p = server.port();
+
+        // The first ask of a page (`since=0`) is answered at once, with the revision it is to hold on.
+        let (a, took) = ask(p, 0, 0);
+        let rev = a["rev"].as_u64().expect("a long poll's answer names its revision");
+        assert!(rev >= 1 && a["version"] == server.version() && took < Duration::from_millis(500), "{a} in {took:?}");
+        // The plain request keeps its shape: no revision.
+        assert_eq!(String::from_utf8_lossy(&get(p, VERSION_PATH).body), format!("{{\"version\":{}}}", server.version()));
+        // Nothing changes: it is held for its `wait`, and the answer is the same revision and count.
+        let (same, held) = ask(p, rev, 300);
+        assert_eq!((&same["rev"], &same["version"]), (&a["rev"], &a["version"]));
+        assert!(held >= Duration::from_millis(250) && held < Duration::from_secs(2), "held {held:?}");
+
+        // A change while it is held ends the hold at once.
+        let version = server.version();
+        let waiting = long_poll(p, rev, 5000);
+        thread::sleep(Duration::from_millis(200));
+        let changed_at = Instant::now();
+        server.notify_changed();
+        let (b, answered_at) = waiting.join().unwrap();
+        let by_notify = answered_at.duration_since(changed_at);
+        assert_eq!((b["version"].as_u64(), b["rev"].as_u64()), (Some(version + 1), Some(rev + 1)), "{b}");
+        assert!(by_notify < Duration::from_millis(250), "answered {by_notify:?} after the change");
+
+        // A page that is behind (it holds an older revision) is answered at once, not held.
+        let (c, took) = ask(p, rev, 5000);
+        assert_eq!(c["rev"].as_u64(), Some(rev + 1));
+        assert!(took < Duration::from_millis(500), "behind: {took:?}");
+        // So is one that is ahead (a server started again counts from 1).
+        let (d, took) = ask(p, rev + 100, 5000);
+        assert_eq!(d["rev"].as_u64(), Some(rev + 1));
+        assert!(took < Duration::from_millis(500), "ahead: {took:?}");
+
+        // A failed build's errors wake it too, with the count unmoved ...
+        let rev = rev + 1;
+        let waiting = long_poll(p, rev, 5000);
+        thread::sleep(Duration::from_millis(200));
+        let errored_at = Instant::now();
+        server.set_build_errors(vec!["webforms/main-form.wcfrm:3: broken".to_owned()]);
+        let (e, answered_at) = waiting.join().unwrap();
+        let by_errors = answered_at.duration_since(errored_at);
+        assert_eq!(e["errors"], serde_json::json!(["webforms/main-form.wcfrm:3: broken"]));
+        assert_eq!((e["version"].as_u64(), e["rev"].as_u64()), (Some(version + 1), Some(rev + 1)), "{e}");
+        assert!(by_errors < Duration::from_millis(250), "answered {by_errors:?} after the errors");
+        // ... but the same errors again are nothing new: the request is held to its wait.
+        let rev = rev + 1;
+        server.set_build_errors(vec!["webforms/main-form.wcfrm:3: broken".to_owned()]);
+        let (same, held) = ask(p, rev, 300);
+        assert_eq!(same["rev"].as_u64(), Some(rev));
+        assert!(held >= Duration::from_millis(250), "the same errors woke it: {held:?}");
+        // The next good build takes them away, and that is heard.
+        let waiting = long_poll(p, rev, 5000);
+        thread::sleep(Duration::from_millis(100));
+        server.set_build_errors(Vec::new());
+        let (f, _) = waiting.join().unwrap();
+        assert_eq!((f.get("errors"), f["rev"].as_u64()), (None, Some(rev + 1)), "{f}");
+
+        // A hand edit, seen by the watcher, is heard.
+        let rev = rev + 1;
+        let waiting = long_poll(p, rev, 5000);
+        thread::sleep(Duration::from_millis(100));
+        let edited_at = Instant::now();
+        std::fs::write(root.join("app.css"), "body{margin:9px}").unwrap();
+        let (g, answered_at) = waiting.join().unwrap();
+        let by_watch = answered_at.duration_since(edited_at);
+        assert_eq!((g["version"].as_u64(), g["rev"].as_u64()), (Some(version + 2), Some(rev + 1)), "{g}");
+        assert!(by_watch < WATCH_INTERVAL * 6 + Duration::from_millis(500), "the watcher took {by_watch:?}");
+
+        // Every ask is counted when it arrives (9 long polls above and 1 plain one), the held ones too.
+        assert_eq!(server.version_requests(), 10, "asks counted on arrival");
+        println!(
+            "long poll: held {:.0} ms for nothing; a change answered {:.0} ms after it, build errors {:.0} ms, a hand edit {:.0} ms (watch interval {} ms); behind or ahead answered at once; same errors again woke nothing",
+            held.as_secs_f64() * 1000.0,
+            by_notify.as_secs_f64() * 1000.0,
+            by_errors.as_secs_f64() * 1000.0,
+            by_watch.as_secs_f64() * 1000.0,
+            WATCH_INTERVAL.as_millis()
+        );
+        drop(server);
+        let _ = std::fs::remove_dir_all(outer);
+    }
+
+    /// What the page may put on the long poll is whole numbers; anything else is refused, and a `wait` beyond what the
+    /// server holds is cut.
+    #[test]
+    fn the_long_poll_parameters_are_whole_numbers_and_the_wait_is_cut() {
+        assert_eq!(long_poll_query("/__prc/version"), Ok(None));
+        assert_eq!(long_poll_query("/__prc/version?wait=500"), Ok(None), "no `since`: the plain, immediate answer");
+        assert_eq!(long_poll_query("/__prc/version?since=7"), Ok(Some((7, Duration::ZERO))));
+        assert_eq!(long_poll_query("/__prc/version?since=7&wait=25000"), Ok(Some((7, Duration::from_secs(25)))));
+        assert_eq!(long_poll_query("/__prc/version?wait=25000&since=7&x=y#frag"), Ok(Some((7, Duration::from_secs(25)))));
+        assert_eq!(long_poll_query("/__prc/version?since=7&wait=99999999"), Ok(Some((7, LONG_POLL_MAX))), "cut");
+        for bad in ["?since=", "?since=-1", "?since=abc", "?since=1.5", "?since=7&wait=", "?since=7&wait=-5", "?since=7&wait=soon", "?since=18446744073709551616"] {
+            assert!(long_poll_query(&format!("/__prc/version{bad}")).is_err(), "{bad}");
+        }
+        let (outer, root) = bundle("longpoll-bad");
+        let server = start(&root, &ServeOptions::default()).unwrap();
+        let p = server.port();
+        for bad in ["?since=abc", "?since=1&wait=x"] {
+            assert_eq!(get(p, &format!("{VERSION_PATH}{bad}")).status, 400, "{bad}");
+        }
+        println!("long poll parameters: 6 forms read, 8 refused as numbers, 2 refused by the server with 400, a wait beyond {} s cut", LONG_POLL_MAX.as_secs());
+        drop(server);
+        let _ = std::fs::remove_dir_all(outer);
+    }
+
+    /// Stopping the server does not leave a page's held request to sleep out its wait: it is answered at once, so the
+    /// page sees the connection end and says the Preview has stopped.
+    #[test]
+    fn stopping_the_server_answers_a_held_long_poll_at_once() {
+        let (outer, root) = bundle("longpoll-stop");
+        let mut server = start(&root, &ServeOptions::default()).unwrap();
+        let p = server.port();
+        let (a, _) = ask(p, 0, 0);
+        let rev = a["rev"].as_u64().unwrap();
+        let waiting = long_poll(p, rev, 20_000);
+        thread::sleep(Duration::from_millis(200));
+        let stopped_at = Instant::now();
+        server.stop();
+        let stop_took = stopped_at.elapsed();
+        let (answer, answered_at) = waiting.join().unwrap();
+        let after = answered_at.duration_since(stopped_at);
+        assert_eq!(answer["rev"].as_u64(), Some(rev), "nothing changed: the same revision");
+        assert!(after < Duration::from_secs(1), "the held request slept on for {after:?}");
+        println!("stop with a request held for 20 s: stop() took {} ms, the request was answered {} ms after the stop call", stop_took.as_millis(), after.as_millis());
         let _ = std::fs::remove_dir_all(outer);
     }
 

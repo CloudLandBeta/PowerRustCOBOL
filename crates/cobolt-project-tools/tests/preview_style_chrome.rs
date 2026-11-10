@@ -25,6 +25,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const BUDGET_MS: f64 = 500.0;
 const ROUNDS: usize = 5;
+const IDLE_SECS: u64 = 10;
 
 const MANIFEST: &str = "[project]\nname = \"Styled.project\"\nversion = \"1.0.0\"\nmain = \"\"\nkind = \"web\"\n\n\
     [files]\nforms = [\"webforms/main-form.cfrm\"]\n\n[web]\nmulti_memory = true\n";
@@ -67,6 +68,16 @@ fn an_applied_stylesheet_changes_the_open_preview_within_the_budget_in_chrome() 
         panic!("the built sheet: {e}; the page shows {seen:?}; console {:?}; exceptions {:?}", page.console, page.exceptions);
     }
     page.eval("(async () => { window.__same = 1; const a = await PowerRustCOBOL.mount(document.getElementById('pr-app')); a.player.__same = 1; return true; })()").unwrap();
+
+    // Idle: nothing changes for IDLE_SECS, and the page is left alone. Every request it makes is the Preview script's:
+    // a long poll held for 25 s, so none arrives in the window (the one outstanding arrived before it opened).
+    let (served_before, asked_before) = (server.requests_served(), server.version_requests());
+    std::thread::sleep(Duration::from_secs(IDLE_SECS));
+    let (idle_answered, idle_asked) = (server.requests_served() - served_before, server.version_requests() - asked_before);
+    println!(
+        "IDLE ({IDLE_SECS} s, nothing changing, the page open): {idle_asked} requests for /__prc/version arrived, {idle_answered} requests answered (before the long poll: 65 answered in 10 s, measured 2026-11-10)"
+    );
+    assert!(idle_asked <= 1 && idle_answered <= 1, "an idle page asks once in 25 s: {idle_asked} asked, {idle_answered} answered in {IDLE_SECS} s");
 
     let mut times = Vec::new();
     for round in 0..ROUNDS {
