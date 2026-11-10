@@ -120,7 +120,9 @@
        01 WS-LOCAL-HALF-Z                        GLOBAL    PIC S9(4)V9(4).
        01 WS-WORLD-X                             GLOBAL    PIC S9(4)V9(4).
        01 WS-WORLD-Z                             GLOBAL    PIC S9(4)V9(4).
-       01 WS-HALF-WIDTH                          GLOBAL    PIC S9(4)V9(4).
+       01 WS-WORLD-HALF-X                        GLOBAL    PIC S9(4)V9(4).
+       01 WS-WORLD-HALF-Z                        GLOBAL    PIC S9(4)V9(4).
+       01 WS-HALF-WIDTH                         GLOBAL    PIC S9(4)V9(4).
        01 WS-HALF-DEPTH                          GLOBAL    PIC S9(4)V9(4).
        01 WS-NODE                                GLOBAL    PIC 9(10).
        01 WS-PART                                GLOBAL    PIC 9(10).
@@ -591,14 +593,14 @@
            MOVE    0.15                          TO    WS-LOCAL-HALF-Z
            *> Turns the closed door's box into world coordinates.
            *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z in the doorway, half sizes 0.7 by 0.15, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
-           *> Result: WS-WORLD-X and WS-WORLD-Z are the door's centre; the half sizes are swapped for a quarter turn.
+           *> Result: WS-WORLD-X and WS-WORLD-Z are the door's centre; WS-WORLD-HALF-X and WS-WORLD-HALF-Z its half sizes there.
            CALL "WAR-TURN-BOX"
            MOVE    WS-WORLD-X                    TO    WS-DOOR-X(WS-DOOR-COUNT)
            MOVE    WS-WORLD-Z                    TO    WS-DOOR-Z(WS-DOOR-COUNT)
-           COMPUTE WS-DOOR-MIN-X(WS-DOOR-COUNT) = WS-WORLD-X - WS-LOCAL-HALF-X - 0.35
-           COMPUTE WS-DOOR-MAX-X(WS-DOOR-COUNT) = WS-WORLD-X + WS-LOCAL-HALF-X + 0.35
-           COMPUTE WS-DOOR-MIN-Z(WS-DOOR-COUNT) = WS-WORLD-Z - WS-LOCAL-HALF-Z - 0.35
-           COMPUTE WS-DOOR-MAX-Z(WS-DOOR-COUNT) = WS-WORLD-Z + WS-LOCAL-HALF-Z + 0.35
+           COMPUTE WS-DOOR-MIN-X(WS-DOOR-COUNT) = WS-WORLD-X - WS-WORLD-HALF-X - 0.35
+           COMPUTE WS-DOOR-MAX-X(WS-DOOR-COUNT) = WS-WORLD-X + WS-WORLD-HALF-X + 0.35
+           COMPUTE WS-DOOR-MIN-Z(WS-DOOR-COUNT) = WS-WORLD-Z - WS-WORLD-HALF-Z - 0.35
+           COMPUTE WS-DOOR-MAX-Z(WS-DOOR-COUNT) = WS-WORLD-Z + WS-WORLD-HALF-Z + 0.35
 
            *> Three buildings burn: a flickering flame and its light over the embers in the collapsed corner.
            IF      WS-PIECE-INDEX = 1 OR WS-PIECE-INDEX = 3 OR WS-PIECE-INDEX = 4
@@ -623,7 +625,8 @@
 ]]></Event>
     <Event name="WAR-TURN-BOX" paragraph="WAR-TURN-BOX"><![CDATA[       PROCEDURE DIVISION.
            *> A point of a piece turned by a quarter-turn multiple about the vertical axis (x' = x cos + z sin, z' = z cos - x sin),
-           *> plus the piece's origin. A quarter turn also swaps a box's half sizes.
+           *> plus the piece's origin. A box's half sizes in the world are its own, swapped for a quarter turn; the piece's
+           *> own (WS-LOCAL-HALF-X, WS-LOCAL-HALF-Z) are left as they were, because the next box of the piece reuses them.
            EVALUATE WS-TURN
                WHEN 90
                    COMPUTE WS-WORLD-X = WS-ORIGIN-X + WS-LOCAL-Z
@@ -639,22 +642,24 @@
                    COMPUTE WS-WORLD-Z = WS-ORIGIN-Z + WS-LOCAL-Z
            END-EVALUATE
            IF      WS-TURN = 90 OR WS-TURN = 270
-               MOVE    WS-LOCAL-HALF-X           TO    WS-LENGTH
-               MOVE    WS-LOCAL-HALF-Z           TO    WS-LOCAL-HALF-X
-               MOVE    WS-LENGTH                 TO    WS-LOCAL-HALF-Z
+               MOVE    WS-LOCAL-HALF-Z           TO    WS-WORLD-HALF-X
+               MOVE    WS-LOCAL-HALF-X           TO    WS-WORLD-HALF-Z
+           ELSE
+               MOVE    WS-LOCAL-HALF-X           TO    WS-WORLD-HALF-X
+               MOVE    WS-LOCAL-HALF-Z           TO    WS-WORLD-HALF-Z
            END-IF
 ]]></Event>
     <Event name="WAR-ADD-BOX" paragraph="WAR-ADD-BOX"><![CDATA[       PROCEDURE DIVISION.
            *> Turns the box into world coordinates.
            *> Uses: WS-LOCAL-X, WS-LOCAL-Z, WS-LOCAL-HALF-X, WS-LOCAL-HALF-Z, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
-           *> Result: WS-WORLD-X and WS-WORLD-Z are its centre; the half sizes are swapped for a quarter turn.
+           *> Result: WS-WORLD-X and WS-WORLD-Z are its centre; WS-WORLD-HALF-X and WS-WORLD-HALF-Z its half sizes there.
            CALL "WAR-TURN-BOX"
            *> Stored grown by the player's radius (0.35 m), so a test of the player's centre is enough.
            ADD     1                             TO    WS-BOX-COUNT
-           COMPUTE WS-BOX-MIN-X(WS-BOX-COUNT) = WS-WORLD-X - WS-LOCAL-HALF-X - 0.35
-           COMPUTE WS-BOX-MAX-X(WS-BOX-COUNT) = WS-WORLD-X + WS-LOCAL-HALF-X + 0.35
-           COMPUTE WS-BOX-MIN-Z(WS-BOX-COUNT) = WS-WORLD-Z - WS-LOCAL-HALF-Z - 0.35
-           COMPUTE WS-BOX-MAX-Z(WS-BOX-COUNT) = WS-WORLD-Z + WS-LOCAL-HALF-Z + 0.35
+           COMPUTE WS-BOX-MIN-X(WS-BOX-COUNT) = WS-WORLD-X - WS-WORLD-HALF-X - 0.35
+           COMPUTE WS-BOX-MAX-X(WS-BOX-COUNT) = WS-WORLD-X + WS-WORLD-HALF-X + 0.35
+           COMPUTE WS-BOX-MIN-Z(WS-BOX-COUNT) = WS-WORLD-Z - WS-WORLD-HALF-Z - 0.35
+           COMPUTE WS-BOX-MAX-Z(WS-BOX-COUNT) = WS-WORLD-Z + WS-WORLD-HALF-Z + 0.35
 ]]></Event>
     <Event name="WAR-ADD-AMMO" paragraph="WAR-ADD-AMMO"><![CDATA[       PROCEDURE DIVISION.
            MOVE    0.3                           TO    WS-LOCAL-HALF-X
@@ -674,13 +679,13 @@
     <Event name="WAR-ADD-ROOM" paragraph="WAR-ADD-ROOM"><![CDATA[       PROCEDURE DIVISION.
            *> Turns the room into world coordinates.
            *> Uses: WS-LOCAL-X, WS-LOCAL-Z, WS-LOCAL-HALF-X, WS-LOCAL-HALF-Z, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
-           *> Result: WS-WORLD-X and WS-WORLD-Z are its centre; the half sizes are swapped for a quarter turn.
+           *> Result: WS-WORLD-X and WS-WORLD-Z are its centre; WS-WORLD-HALF-X and WS-WORLD-HALF-Z its half sizes there.
            CALL "WAR-TURN-BOX"
            ADD     1                             TO    WS-ROOM-COUNT
-           COMPUTE WS-ROOM-MIN-X(WS-ROOM-COUNT) = WS-WORLD-X - WS-LOCAL-HALF-X
-           COMPUTE WS-ROOM-MAX-X(WS-ROOM-COUNT) = WS-WORLD-X + WS-LOCAL-HALF-X
-           COMPUTE WS-ROOM-MIN-Z(WS-ROOM-COUNT) = WS-WORLD-Z - WS-LOCAL-HALF-Z
-           COMPUTE WS-ROOM-MAX-Z(WS-ROOM-COUNT) = WS-WORLD-Z + WS-LOCAL-HALF-Z
+           COMPUTE WS-ROOM-MIN-X(WS-ROOM-COUNT) = WS-WORLD-X - WS-WORLD-HALF-X
+           COMPUTE WS-ROOM-MAX-X(WS-ROOM-COUNT) = WS-WORLD-X + WS-WORLD-HALF-X
+           COMPUTE WS-ROOM-MIN-Z(WS-ROOM-COUNT) = WS-WORLD-Z - WS-WORLD-HALF-Z
+           COMPUTE WS-ROOM-MAX-Z(WS-ROOM-COUNT) = WS-WORLD-Z + WS-WORLD-HALF-Z
 ]]></Event>
     <Event name="WAR-BUILD-PLAYER" paragraph="WAR-BUILD-PLAYER"><![CDATA[       PROCEDURE DIVISION.
            *> A 70-degree camera at eye height; the weapons hang from it, so they move with the view.
@@ -876,11 +881,12 @@
 
            *> Reads the keys and the mouse.
            *> Uses: the keys held on CNV-3D, CNV-3D::PointerX and CNV-3D::PointerY.
-           *> Result: WS-SPACE-PRESSED, WS-SWITCH-PRESSED, WS-RELOAD-PRESSED for this frame; WS-YAW and WS-PITCH turned.
+           *> Result: WS-SPACE-PRESSED, WS-SWITCH-PRESSED, WS-RELOAD-PRESSED for this frame; WS-TRIGGER while X is held; WS-YAW and
+           *> WS-PITCH turned.
            CALL "WAR-READ-INPUT"
 
            *> Walks the player, sliding along walls, or waits for a redeploy after death.
-           *> Uses: the arrow keys, WS-YAW, the collision boxes, the doors, the tanks.
+           *> Uses: the arrow keys and W A S D, WS-YAW, the collision boxes, the doors, the tanks.
            *> Result: WS-PLAYER-X, WS-PLAYER-Z, WS-INDOORS and WS-BOB.
            CALL "WAR-MOVE-PLAYER"
 
@@ -890,7 +896,7 @@
            CALL "WAR-DOORS"
 
            *> Fires, reloads and switches the weapon, and poses it in the hands.
-           *> Uses: WS-TRIGGER (set by a right-click), WS-SWITCH-PRESSED, WS-RELOAD-PRESSED, WS-WEAPON, WS-MAGAZINE, WS-RESERVE.
+           *> Uses: WS-TRIGGER (set by a right-click or by X), WS-SWITCH-PRESSED, WS-RELOAD-PRESSED, WS-WEAPON, WS-MAGAZINE, WS-RESERVE.
            *> Result: bullets fired with their marks, magazines and reserves updated, the weapon placed.
            CALL "WAR-WEAPON"
 
@@ -988,6 +994,11 @@
            ELSE
                MOVE    0                         TO    WS-RELOAD-HELD
            END-IF
+
+           *> X pulls the trigger like the right mouse button, and keeps firing while it is held.
+           IF      CNV-3D::IsKeyDown( "X" ) = 1
+               MOVE    1                         TO    WS-TRIGGER
+           END-IF
 ]]></Event>
     <Event name="WAR-MOVE-PLAYER" paragraph="WAR-MOVE-PLAYER"><![CDATA[       PROCEDURE DIVISION.
            IF      WS-HEALTH <= 0
@@ -1004,16 +1015,16 @@
            ELSE
                MOVE    0                         TO    WS-FORWARD
                MOVE    0                         TO    WS-SIDEWAYS
-               IF      CNV-3D::IsKeyDown( "ArrowUp" ) = 1
+               IF      CNV-3D::IsKeyDown( "ArrowUp" ) = 1 OR CNV-3D::IsKeyDown( "W" ) = 1
                    ADD     1                     TO    WS-FORWARD
                END-IF
-               IF      CNV-3D::IsKeyDown( "ArrowDown" ) = 1
+               IF      CNV-3D::IsKeyDown( "ArrowDown" ) = 1 OR CNV-3D::IsKeyDown( "S" ) = 1
                    SUBTRACT 1                    FROM  WS-FORWARD
                END-IF
-               IF      CNV-3D::IsKeyDown( "ArrowRight" ) = 1
+               IF      CNV-3D::IsKeyDown( "ArrowRight" ) = 1 OR CNV-3D::IsKeyDown( "D" ) = 1
                    ADD     1                     TO    WS-SIDEWAYS
                END-IF
-               IF      CNV-3D::IsKeyDown( "ArrowLeft" ) = 1
+               IF      CNV-3D::IsKeyDown( "ArrowLeft" ) = 1 OR CNV-3D::IsKeyDown( "A" ) = 1
                    SUBTRACT 1                    FROM  WS-SIDEWAYS
                END-IF
                *> Forward is -Z turned by the yaw; right is +X turned by it. 5.1 m/s ahead, 4.2 m/s sideways, 30 frames a second.
@@ -1174,7 +1185,7 @@
                SUBTRACT 1                        FROM  WS-COOLDOWN
            END-IF
 
-           *> The right mouse button pulls the trigger: the AR-15 fires a three-round burst, the Desert Eagle one heavy round.
+           *> The right mouse button or X pulls the trigger: the AR-15 fires a three-round burst, the Desert Eagle one heavy round.
            IF      WS-TRIGGER = 1
                MOVE    0                         TO    WS-TRIGGER
                IF      WS-RELOAD-FRAMES = 0 AND WS-RAISE-FRAMES = 0 AND WS-BURST = 0 AND WS-COOLDOWN = 0
@@ -2131,12 +2142,12 @@
 ]]></Event>
   </user-procedures>
   <Control id="CNV-3D" type="Canvas3D" x="0" y="0" w="1280" h="720" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="Definition">The battlefield: a 1280 by 720 3D view of the ruined city drawn thirty times a second. Click it to take the keyboard; the mouse looks, the arrows walk, the right button fires.</Property>
+    <Property name="Definition">The battlefield: a 1280 by 720 3D view of the ruined city drawn thirty times a second. Click it to take the keyboard; the mouse looks, the arrows or W A S D walk, the right button or X fires.</Property>
     <Property name="Width">1280</Property>
     <Property name="Height">720</Property>
     <Property name="TargetFps">30</Property>
     <Property name="Cursor">Crosshair</Property>
-    <Property name="AccessibleLabel">A first-person view of a ruined city at war: the mouse turns the view, the arrow keys walk, the right mouse button fires, M switches weapon, R reloads, Space opens and closes doors</Property>
+    <Property name="AccessibleLabel">A first-person view of a ruined city at war: the mouse turns the view, the arrow keys or W A S D walk, the right mouse button or X fires, M switches weapon, R reloads, Space opens and closes doors</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Event name="onFrame" paragraph="CNV-3D--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
@@ -2222,7 +2233,7 @@
   </Control>
   <Control id="LBL-HELP" type="Label" x="0" y="724" w="1100" h="32" tab-order="10" z-order="0" visible="true" enabled="true">
     <Property name="Definition">The controls of the game.</Property>
-    <Property name="Caption">Mouse: look   Arrows: walk   Right button: fire   M: AR-15 / Desert Eagle   R: reload   Space: doors (and redeploy)</Property>
+    <Property name="Caption">Mouse: look   Arrows or W A S D: walk   Right button or X: fire   M: AR-15 / Desert Eagle   R: reload   Space: doors (and redeploy)</Property>
     <Property name="FontSize">15</Property>
     <Property name="ForegroundColor">#C8D0DC</Property>
   </Control>
