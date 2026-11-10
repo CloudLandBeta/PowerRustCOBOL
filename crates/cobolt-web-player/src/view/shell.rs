@@ -559,30 +559,181 @@ pub fn net_badge(text: &str) -> VNode {
 pub struct NetModalText {
     /// A BCP 47 tag; its first subtag is the language.
     pub lang: &'static str,
+    /// The message while the player retries, and after it gave up.
     pub connecting: &'static str,
     pub unreachable: &'static str,
-    pub reload: &'static str,
+    /// The label of the button that starts the whole cycle again.
+    pub retry: &'static str,
+    /// The labels of the status line: the server, the attempt, how the last one ended, what is happening now.
+    pub server: &'static str,
+    pub attempt: &'static str,
+    pub last: &'static str,
+    pub now: &'static str,
+    /// How an attempt ended: the socket never opened, the handshake broke, the window ran out.
+    pub no_connection: &'static str,
+    pub handshake_dropped: &'static str,
+    pub no_answer: &'static str,
+    /// What the attempt in progress is doing: opening the socket, the handshake, waiting for the next attempt, given up.
+    pub connecting_now: &'static str,
+    pub handshaking: &'static str,
+    pub waiting: &'static str,
+    pub gave_up: &'static str,
+    /// The value of the *last* cell before any attempt has ended.
+    pub none_yet: &'static str,
 }
 
 /// The six languages of the IDE, as [`ENDED_TEXTS`]. The host page's own texts (`texts.connecting`,
-/// `texts.unreachable`, `texts.reload`; WASM-002 R15) replace them when the developer gives them.
+/// `texts.unreachable`, `texts.retry`; WASM-002 R15) replace the message and the button when the developer gives them.
 pub const NET_MODAL_TEXTS: [NetModalText; 6] = [
-    NetModalText { lang: "en", connecting: "Connecting to the server\u{2026}", unreachable: "The server could not be reached.", reload: "Reload" },
-    NetModalText { lang: "pt-BR", connecting: "Conectando ao servidor\u{2026}", unreachable: "Não foi possível alcançar o servidor.", reload: "Recarregar" },
-    NetModalText { lang: "es", connecting: "Conectando con el servidor\u{2026}", unreachable: "No se pudo conectar con el servidor.", reload: "Recargar" },
-    NetModalText { lang: "fr", connecting: "Connexion au serveur\u{2026}", unreachable: "Le serveur est injoignable.", reload: "Recharger" },
-    NetModalText { lang: "ja", connecting: "サーバーに接続しています\u{2026}", unreachable: "サーバーに接続できませんでした。", reload: "再読み込み" },
-    NetModalText { lang: "zh", connecting: "正在连接服务器\u{2026}", unreachable: "无法连接到服务器。", reload: "重新加载" },
+    NetModalText {
+        lang: "en",
+        connecting: "Connecting to the server\u{2026} The application is paused until it answers.",
+        unreachable: "The server could not be reached. Check that the Backend is running and the network is up, then try again.",
+        retry: "Try again",
+        server: "Server",
+        attempt: "Attempt",
+        last: "Last",
+        now: "Now",
+        no_connection: "no connection",
+        handshake_dropped: "dropped during the handshake",
+        no_answer: "no answer in time",
+        connecting_now: "connecting",
+        handshaking: "handshake",
+        waiting: "failed, waiting to try again",
+        gave_up: "gave up",
+        none_yet: "\u{2014}",
+    },
+    NetModalText {
+        lang: "pt-BR",
+        connecting: "Conectando ao servidor\u{2026} O aplicativo fica em pausa até ele responder.",
+        unreachable: "Não foi possível alcançar o servidor. Confira se o Backend está em execução e se a rede está ativa; depois tente de novo.",
+        retry: "Tentar de novo",
+        server: "Servidor",
+        attempt: "Tentativa",
+        last: "Última",
+        now: "Agora",
+        no_connection: "sem conexão",
+        handshake_dropped: "caiu durante o handshake",
+        no_answer: "sem resposta a tempo",
+        connecting_now: "conectando",
+        handshaking: "handshake",
+        waiting: "falhou, aguardando para tentar",
+        gave_up: "desistiu",
+        none_yet: "\u{2014}",
+    },
+    NetModalText {
+        lang: "es",
+        connecting: "Conectando con el servidor\u{2026} La aplicación queda en pausa hasta que responda.",
+        unreachable: "No se pudo conectar con el servidor. Compruebe que el Backend está en ejecución y que hay red; después inténtelo de nuevo.",
+        retry: "Intentar de nuevo",
+        server: "Servidor",
+        attempt: "Intento",
+        last: "Último",
+        now: "Ahora",
+        no_connection: "sin conexión",
+        handshake_dropped: "se cortó en el handshake",
+        no_answer: "sin respuesta a tiempo",
+        connecting_now: "conectando",
+        handshaking: "handshake",
+        waiting: "falló, esperando para reintentar",
+        gave_up: "se rindió",
+        none_yet: "\u{2014}",
+    },
+    NetModalText {
+        lang: "fr",
+        connecting: "Connexion au serveur\u{2026} L\u{2019}application est en pause jusqu\u{2019}à sa réponse.",
+        unreachable: "Le serveur est injoignable. Vérifiez que le Backend est en cours d\u{2019}exécution et que le réseau fonctionne, puis réessayez.",
+        retry: "Réessayer",
+        server: "Serveur",
+        attempt: "Tentative",
+        last: "Dernière",
+        now: "Maintenant",
+        no_connection: "pas de connexion",
+        handshake_dropped: "coupée pendant le handshake",
+        no_answer: "pas de réponse à temps",
+        connecting_now: "connexion",
+        handshaking: "handshake",
+        waiting: "échec, attente avant de réessayer",
+        gave_up: "abandon",
+        none_yet: "\u{2014}",
+    },
+    NetModalText {
+        lang: "ja",
+        connecting: "サーバーに接続しています\u{2026} 応答があるまでアプリケーションは一時停止します。",
+        unreachable: "サーバーに接続できませんでした。バックエンドが動作しているか、ネットワークが使えるかを確認して、もう一度お試しください。",
+        retry: "再試行",
+        server: "サーバー",
+        attempt: "試行",
+        last: "前回",
+        now: "現在",
+        no_connection: "接続できず",
+        handshake_dropped: "ハンドシェイク中に切断",
+        no_answer: "時間内に応答なし",
+        connecting_now: "接続中",
+        handshaking: "ハンドシェイク",
+        waiting: "失敗、次の試行を待機中",
+        gave_up: "中止",
+        none_yet: "\u{2014}",
+    },
+    NetModalText {
+        lang: "zh",
+        connecting: "正在连接服务器\u{2026} 在服务器响应之前，应用程序将暂停。",
+        unreachable: "无法连接到服务器。请检查后端是否在运行、网络是否可用，然后重试。",
+        retry: "重试",
+        server: "服务器",
+        attempt: "尝试",
+        last: "上次",
+        now: "当前",
+        no_connection: "无法连接",
+        handshake_dropped: "握手时中断",
+        no_answer: "未在时限内响应",
+        connecting_now: "连接中",
+        handshaking: "握手中",
+        waiting: "失败，等待再次尝试",
+        gave_up: "已放弃",
+        none_yet: "\u{2014}",
+    },
 ];
 
-/// The modal's caption and its Reload button's label: the host page's text when it has one, otherwise the page's
+fn net_text_for(locale: &str) -> &'static NetModalText {
+    let first = locale.split(['-', '_']).next().unwrap_or("").to_ascii_lowercase();
+    NET_MODAL_TEXTS.iter().find(|t| t.lang.split('-').next() == Some(first.as_str())).unwrap_or(&NET_MODAL_TEXTS[0])
+}
+
+/// The modal's message and its button's label: the host page's text when it has one, otherwise the page's
 /// language (its first subtag) among the six, English otherwise.
 pub fn net_modal_texts(locale: &str, page: &BTreeMap<String, String>, unreachable: bool) -> (String, String) {
-    let first = locale.split(['-', '_']).next().unwrap_or("").to_ascii_lowercase();
-    let t = NET_MODAL_TEXTS.iter().find(|t| t.lang.split('-').next() == Some(first.as_str())).unwrap_or(&NET_MODAL_TEXTS[0]);
+    let t = net_text_for(locale);
     let pick = |key: &str, fallback: &str| page.get(key).map(|s| s.trim()).filter(|s| !s.is_empty()).unwrap_or(fallback).to_owned();
     let caption = if unreachable { pick("unreachable", t.unreachable) } else { pick("connecting", t.connecting) };
-    (caption, pick("reload", t.reload))
+    (caption, pick("retry", t.retry))
+}
+
+/// The modal's status line (WASM-016 R20–R21), one `(label, value)` cell each: the server, the attempt out of the
+/// cycle's, how the previous attempt ended, and what is happening now. Always in the page's language among the six.
+pub fn net_modal_status(locale: &str, p: &crate::net::Progress) -> Vec<(String, String)> {
+    use crate::net::{Failure, Phase};
+    let t = net_text_for(locale);
+    let failure = |f: Failure| match f {
+        Failure::NoConnection => t.no_connection,
+        Failure::Handshake => t.handshake_dropped,
+        Failure::NoAnswer => t.no_answer,
+    };
+    let last = p.last.map(failure).unwrap_or(t.none_yet);
+    let now = match (p.phase, p.failed) {
+        (Phase::Connecting, _) => t.connecting_now.to_owned(),
+        (Phase::Handshake, _) => t.handshaking.to_owned(),
+        (Phase::Waiting, Some(f)) => format!("{}: {}", t.waiting, failure(f)),
+        (Phase::Waiting, None) => t.waiting.to_owned(),
+        (Phase::GaveUp, Some(f)) => format!("{}: {}", t.gave_up, failure(f)),
+        (Phase::GaveUp, None) => t.gave_up.to_owned(),
+    };
+    vec![
+        (t.server.to_owned(), p.server.clone()),
+        (t.attempt.to_owned(), format!("{}/{}", p.attempt, p.of)),
+        (t.last.to_owned(), last.to_owned()),
+        (t.now.to_owned(), now),
+    ]
 }
 
 /// The modal's background (WASM-016 R20): left to right, red → dark red → crimson → black.
@@ -651,7 +802,7 @@ fn net_device_view(device: NetDevice, stroke: &dyn Fn(VNode) -> VNode) -> VNode 
 /// reached, and the host page's own recovery — Reload — is offered. The colours are the element's own declarations, so no
 /// stylesheet of the application can change them. Inside the mobile shell the screen is the phone or the tablet the
 /// application runs on (`device`, WASM-012 R15); the rest — the motion, the gradient, the captions — is the same.
-pub fn net_modal_view(unreachable: bool, caption: &str, reload: &str, device: NetDevice) -> VNode {
+pub fn net_modal_view(unreachable: bool, caption: &str, retry: &str, status: &[(String, String)], device: NetDevice) -> VNode {
     const WHITE: &str = "#ffffff";
     let stroke = |n: VNode| n.attr("fill", "none").attr("stroke", WHITE).attr("stroke-width", "3").attr("stroke-linecap", "round").attr("stroke-linejoin", "round");
     let link = |key: &str, x1: &str, x2: &str| {
@@ -688,10 +839,23 @@ pub fn net_modal_view(unreachable: bool, caption: &str, reload: &str, device: Ne
         .style("background", NET_MODAL_GRADIENT)
         .style("color", WHITE)
         .on_all(["cancel", "close", "click", "keydown", "keyup", "keypress", "pointerdown", "pointerup"])
-        .child(drawing)
-        .child(VNode::new("p").key("caption").class("pr-netmodal-caption").attr("role", "status").attr("aria-live", "assertive").text(caption.to_owned()));
+        .child(drawing);
+    if !status.is_empty() {
+        let mut line = VNode::new("dl").key("status").class("pr-netmodal-status");
+        for (i, (label, value)) in status.iter().enumerate() {
+            line = line.child(
+                VNode::new("div")
+                    .key(format!("cell{i}"))
+                    .class("pr-netmodal-cell")
+                    .child(VNode::new("dt").key("l").text(label.clone()))
+                    .child(VNode::new("dd").key("v").text(value.clone())),
+            );
+        }
+        n = n.child(line);
+    }
+    n = n.child(VNode::new("p").key("caption").class("pr-netmodal-caption").attr("role", "status").attr("aria-live", "assertive").text(caption.to_owned()));
     if unreachable {
-        n = n.class("pr-netmodal-failed").child(VNode::new("button").key("reload").attr("type", "button").attr("data-part", "reload").flag("autofocus", true).text(reload.to_owned()));
+        n = n.class("pr-netmodal-failed").child(VNode::new("button").key("retry").attr("type", "button").attr("data-part", "retry").flag("autofocus", true).text(retry.to_owned()));
     }
     n
 }
@@ -748,17 +912,17 @@ mod tests {
         let mut seen = Vec::new();
         for (locale, lang) in [("en-US", "en"), ("pt-BR", "pt-BR"), ("es-419", "es"), ("fr-CA", "fr"), ("ja-JP", "ja"), ("zh_CN", "zh"), ("de", "en")] {
             let t = NET_MODAL_TEXTS.iter().find(|t| t.lang == lang).unwrap();
-            assert_eq!(net_modal_texts(locale, &none, false), (t.connecting.to_owned(), t.reload.to_owned()), "{locale}");
-            assert_eq!(net_modal_texts(locale, &none, true), (t.unreachable.to_owned(), t.reload.to_owned()), "{locale}");
+            assert_eq!(net_modal_texts(locale, &none, false), (t.connecting.to_owned(), t.retry.to_owned()), "{locale}");
+            assert_eq!(net_modal_texts(locale, &none, true), (t.unreachable.to_owned(), t.retry.to_owned()), "{locale}");
             seen.push(format!("{locale}: {:?} / {:?}", t.connecting, t.unreachable));
         }
-        for field in [|t: &NetModalText| t.connecting, |t: &NetModalText| t.unreachable, |t: &NetModalText| t.reload] {
+        for field in [|t: &NetModalText| t.connecting, |t: &NetModalText| t.unreachable, |t: &NetModalText| t.retry, |t: &NetModalText| t.attempt, |t: &NetModalText| t.last, |t: &NetModalText| t.now, |t: &NetModalText| t.waiting, |t: &NetModalText| t.gave_up] {
             let distinct: std::collections::BTreeSet<&str> = NET_MODAL_TEXTS.iter().map(field).collect();
             assert!(distinct.len() >= 5, "a text is not translated: {distinct:?}");
             assert!(distinct.iter().all(|s| !s.trim().is_empty()));
         }
-        let page: BTreeMap<String, String> = [("connecting", "Ligando…"), ("unreachable", "Sem servidor."), ("reload", "  ")].into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
-        assert_eq!(net_modal_texts("en", &page, false), ("Ligando…".to_owned(), "Reload".to_owned()), "a blank text of the page keeps the default");
+        let page: BTreeMap<String, String> = [("connecting", "Ligando…"), ("unreachable", "Sem servidor."), ("retry", "  ")].into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
+        assert_eq!(net_modal_texts("en", &page, false), ("Ligando…".to_owned(), "Try again".to_owned()), "a blank text of the page keeps the default");
         assert_eq!(net_modal_texts("en", &page, true).0, "Sem servidor.");
         println!("{} languages: {}", NET_MODAL_TEXTS.len(), seen.join("; "));
     }
@@ -768,7 +932,7 @@ mod tests {
     /// exhausted it says so and offers Reload, and nothing in it is a markup string.
     #[test]
     fn the_connecting_modal_draws_the_screen_the_cloud_and_the_server_white_on_the_gradient() {
-        let v = net_modal_view(false, "Connecting to the server\u{2026}", "Reload", NetDevice::Screen);
+        let v = net_modal_view(false, "Connecting to the server\u{2026}", "Try again", &[], NetDevice::Screen);
         assert_eq!(v.tag, "dialog");
         assert_eq!(v.attr_of("aria-modal"), Some("true"));
         assert_eq!(v.attr_of("data-state"), Some("connecting"));
@@ -797,16 +961,16 @@ mod tests {
         let mut colours = Vec::new();
         paints(&v, &mut colours);
         assert!(!colours.is_empty() && colours.iter().all(|c| c == "#ffffff" || c == "none"), "{colours:?}");
-        assert!(v.find(&|n| n.attr_of("data-part") == Some("reload")).is_none(), "no Reload while it retries");
+        assert!(v.find(&|n| n.attr_of("data-part") == Some("retry")).is_none(), "no Try again while it retries");
         assert!(v.on.contains(&"keydown") && v.on.contains(&"pointerdown") && v.on.contains(&"cancel"), "keys, pointers and Escape are taken by the modal");
 
-        let f = net_modal_view(true, "The server could not be reached.", "Reload", NetDevice::Screen);
+        let f = net_modal_view(true, "The server could not be reached.", "Try again", &[], NetDevice::Screen);
         assert_eq!(f.attr_of("data-state"), Some("unreachable"));
         assert!(f.classes.iter().any(|c| c == "pr-netmodal-failed"), "the drawing stands still");
-        let reload = f.find(&|n| n.attr_of("data-part") == Some("reload")).expect("Reload once the retries are exhausted");
-        assert_eq!(reload.text.as_deref(), Some("Reload"));
+        let retry = f.find(&|n| n.attr_of("data-part") == Some("retry")).expect("Try again once the retries are exhausted");
+        assert_eq!(retry.text.as_deref(), Some("Try again"));
         assert_eq!(f.find(&|n| n.key == "caption").and_then(|n| n.text.as_deref()), Some("The server could not be reached."));
-        println!("{} colour attributes, all white; links 2; Reload only when unreachable", colours.len());
+        println!("{} colour attributes, all white; links 2; Try again only when unreachable", colours.len());
     }
 
     /// WASM-012 R15: inside the mobile shell the modal draws the phone or the tablet the application runs on in the
@@ -837,8 +1001,8 @@ mod tests {
         let mut drawn = Vec::new();
         for device in [NetDevice::Screen, NetDevice::Phone, NetDevice::Tablet] {
             for failed in [false, true] {
-                let v = net_modal_view(failed, "c", "Reload", device);
-                let screen = net_modal_view(failed, "c", "Reload", NetDevice::Screen);
+                let v = net_modal_view(failed, "c", "Try again", &[], device);
+                let screen = net_modal_view(failed, "c", "Try again", &[], NetDevice::Screen);
                 let left = v.find(&|n| n.svg && n.classes.iter().any(|c| c == "pr-netmodal-device")).expect("a device is drawn");
                 assert_eq!(left.attr_of("data-device"), Some(device.name()));
                 assert!(left.classes.iter().any(|c| *c == format!("pr-netmodal-{}", device.name())));
@@ -851,7 +1015,7 @@ mod tests {
                 for part in ["pr-netmodal-cloud", "pr-netmodal-server", "pr-netmodal-link"] {
                     assert!(v.find(&|n| n.svg && n.classes.iter().any(|c| c == part)).is_some(), "{device:?}: {part}");
                 }
-                assert_eq!(v.find(&|n| n.attr_of("data-part") == Some("reload")).is_some(), failed);
+                assert_eq!(v.find(&|n| n.attr_of("data-part") == Some("retry")).is_some(), failed);
                 let mut colours = Vec::new();
                 paints(&v, &mut colours);
                 assert!(colours.iter().all(|c| c == "#ffffff" || c == "none"), "{device:?}: {colours:?}");

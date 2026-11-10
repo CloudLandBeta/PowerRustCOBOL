@@ -2,6 +2,10 @@
 
 
 
+## 2.0.397 — 2026-11-10
+
+**The red "connecting" screen says what is going on.** Under the drawing it now shows one status line of four cells — the server's address, the attempt out of three, how the previous attempt ended (*no connection*, *dropped during the handshake*, *no answer in time*) and what is happening now (*connecting*, *handshake*, *failed, waiting to try again*, *gave up*) — and one message explaining it: the application is paused until the server answers, or, after the last failed attempt, to check that the Backend is running and the network is up. At that point the *Reload* button is replaced by **Try again**, which starts the whole cycle over from attempt 1 behind the same modal, without reloading the page. The texts are in the six languages and a host page can still replace the message and the button (`texts.connecting`, `texts.unreachable`, `texts.retry`). The player in `assets/web-player/` is rebuilt. Measured in Chrome (window and div hosts): backend down for good, the status line read server 127.0.0.1:port, attempt 3/3, last *no connection*, now *gave up: no connection*, and Try again reconnected with the backend back and no reload; 56 of 56 player `net` and `shell` unit tests; the freshness test is green. The countdown to the next attempt is not shown on purpose (it would repaint every second).
+
 ## 2.0.396 — 2026-11-10
 
 **Windows: Configure finds a Claude Code that is not on `PATH`.** The IDE looked for `claude` only on `PATH` and in `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin` and two Unix folders, so a Windows install elsewhere (a user's complaint: the plugin would not install until Claude's folder was added to `PATH`) was never found. On Windows the search now also covers `%APPDATA%\npm` and every folder, down to three levels, under `Claude\claude-code` in `%APPDATA%` and `%LOCALAPPDATA%` and under `%LOCALAPPDATA%\AnthropicClaude`. A new test builds such a tree and finds `claude` in it. Not run on Windows: if an install still is not found, `where claude` names its folder.

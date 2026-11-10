@@ -581,9 +581,10 @@ impl Shared {
             }
             "click" => {
                 let target = ev.target().and_then(|t| t.dyn_into::<Element>().ok());
-                if target.and_then(|t| t.closest("[data-part=reload]").ok().flatten()).is_some() {
-                    if let Some(w) = web_sys::window() {
-                        let _ = w.location().reload();
+                // Retry starts the whole cycle again: attempt 1 of the policy, behind the same modal (WASM-016 R21).
+                if target.and_then(|t| t.closest("[data-part=retry]").ok().flatten()).is_some() {
+                    if let Some(inner) = self.inner.upgrade() {
+                        inner.push(crate::api::Inbox::Net(crate::api::NetEvent::Retry));
                     }
                 }
             }
@@ -619,8 +620,9 @@ impl Shared {
         }
         // Retrying wins: after a give-up, the application's next call starts a new cycle (WASM-003 R25).
         let failed = unreachable && !blocked;
-        let (caption, reload) = shell::net_modal_texts(&inner.cfg.locale, &inner.cfg.texts, failed);
-        let v = shell::net_modal_view(failed, &caption, &reload, net_device_here());
+        let (caption, retry) = shell::net_modal_texts(&inner.cfg.locale, &inner.cfg.texts, failed);
+        let status = inner.net_progress.borrow().as_ref().map(|p| shell::net_modal_status(&inner.cfg.locale, p)).unwrap_or_default();
+        let v = shell::net_modal_view(failed, &caption, &retry, &status, net_device_here());
         let dispatch = self.dispatch(Route::NetModal);
         if let Some(m) = st.net_modal.as_mut() {
             nodes::patch(&self.doc, &mut m.rec, &v, None, &dispatch);

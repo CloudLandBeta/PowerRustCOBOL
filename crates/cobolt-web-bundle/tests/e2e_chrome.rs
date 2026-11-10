@@ -280,8 +280,8 @@ fn click(p: &mut Page, form: &str, name: &str) -> Result<(), String> {
 const MODAL: &str = "__pr.root().querySelector('dialog.pr-netmodal[open]')";
 
 /// The captions of the modal in the page's language — the headless browser's, English (WASM-016 R20–R21).
-const CONNECTING: &str = "Connecting to the server\u{2026}";
-const UNREACHABLE: &str = "The server could not be reached.";
+const CONNECTING: &str = "Connecting to the server\u{2026} The application is paused until it answers.";
+const UNREACHABLE: &str = "The server could not be reached. Check that the Backend is running and the network is up, then try again.";
 
 /// Within `tolerance` on every channel.
 fn near_colour(c: [u8; 3], want: [u8; 3], tolerance: u8) -> bool {
@@ -582,7 +582,7 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut
         },
     );
 
-    run.with_backend("backend down for good: three attempts at 10, 20 and 30 s, then the modal says so, the main form's onBackendUnreachable runs, and Reload starts again (AC14, WASM-016 R21)", |p, slot| {
+    run.with_backend("backend down for good: three attempts at 10, 20 and 30 s, then the modal says so, the main form's onBackendUnreachable runs, the status line counts the attempts, and Try again starts the whole cycle over (AC14, WASM-016 R21)", |p, slot| {
         let b = slot.as_ref().ok_or("no backend")?;
         p.wait_for("!__pr.root().querySelector('dialog.pr-netmodal')", 10)?;
         p.eval("window.__beforeReload = 1")?;
@@ -590,27 +590,37 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut
         let first = p.wait_for(&format!("(() => {{ const d = {MODAL}; return d && d.querySelector('.pr-netmodal-caption').textContent; }})()"), 10)?;
         p.wait_for("(__pr.root().querySelector('dialog.pr-netmodal') || { getAttribute: () => '' }).getAttribute('data-state') === 'unreachable'", 90)?;
         let gave_up = t0.elapsed().as_secs_f64();
+        let status = p.eval(&format!(
+            "(() => {{ const d = {MODAL}; return [...d.querySelectorAll('.pr-netmodal-cell')].map((c) => [c.querySelector('dt').textContent, c.querySelector('dd').textContent]); }})()"
+        ))?;
         wait_text(p, main, LBL_OUT, BACKEND_UNREACHABLE)?;
         let shown = p.eval(&format!(
             "(() => {{ const d = {MODAL}; return {{ caption: d.querySelector('.pr-netmodal-caption').textContent, buttons: [...d.querySelectorAll('button')].map((b) => b.textContent), running: d.getAnimations({{ subtree: true }}).filter((a) => a.playState === 'running').length }}; }})()"
         ))?;
         std::thread::sleep(Duration::from_secs(2));
         let attempts = b.attempts(t0);
-        if first != CONNECTING || shown["caption"] != UNREACHABLE || shown["buttons"] != serde_json::json!(["Reload"]) || shown["running"] != 0 {
+        if first != CONNECTING || shown["caption"] != UNREACHABLE || shown["buttons"] != serde_json::json!(["Try again"]) || shown["running"] != 0 {
             return Err(format!("the modal said {first} then {shown}"));
         }
         let windows_ok = attempts.len() == 3 && attempts.iter().zip([0.0, 10.0, 30.0]).all(|(a, w)| (a - w).abs() <= 1.5);
         if !windows_ok || (gave_up - 60.0).abs() > 2.5 {
             return Err(format!("attempts at {attempts:.2?} s, given up at {gave_up:.2} s; the policy is 0, 10, 30 and 60"));
         }
-        // The host page's recovery: Reload, with the backend back.
+        // The status line: the server, attempt 3 of 3, how the one before ended, and that it gave up.
+        let cells: Vec<(String, String)> = status.as_array().map(|a| a.iter().map(|c| (c[0].as_str().unwrap_or("").to_owned(), c[1].as_str().unwrap_or("").to_owned())).collect()).unwrap_or_default();
+        let get = |k: &str| cells.iter().find(|(l, _)| l == k).map(|(_, v)| v.clone()).unwrap_or_default();
+        if !get("Server").starts_with("127.0.0.1:") || get("Attempt") != "3/3" || get("Last").is_empty() || get("Last") == "\u{2014}" || !get("Now").starts_with("gave up") {
+            return Err(format!("the status line said {cells:?}"));
+        }
+        // Try again with the backend back: the whole cycle restarts behind the same modal and the page is not reloaded.
         b.refuse(false);
         p.click_at(&format!("__pr.rect({MODAL}.querySelector('button'))"))?;
-        p.wait_for("window.__beforeReload === undefined && document.readyState === 'complete'", 20)?;
-        p.eval(HELPERS)?;
-        wait_text(p, main, LBL_OUT, "loaded")?;
+        p.wait_for("!__pr.root().querySelector('dialog.pr-netmodal')", 30)?;
+        if p.eval("window.__beforeReload")? != serde_json::json!(1) {
+            return Err("Try again reloaded the page".into());
+        }
         Ok(format!(
-            "captions {:?} then {:?} with [Reload], the drawing still; attempts at {} s, given up at {gave_up:.2} s; LBL-OUT {BACKEND_UNREACHABLE:?} from onBackendUnreachable; Reload started the application again",
+            "captions {:?} then {:?} with [Try again], the drawing still; status {cells:?}; attempts at {} s, given up at {gave_up:.2} s; LBL-OUT {BACKEND_UNREACHABLE:?} from onBackendUnreachable; Try again reconnected without reloading",
             first.as_str().unwrap_or(""),
             shown["caption"].as_str().unwrap_or(""),
             attempts.iter().map(|a| format!("{a:.2}")).collect::<Vec<_>>().join(" / ")

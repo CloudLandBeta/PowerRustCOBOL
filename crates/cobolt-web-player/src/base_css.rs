@@ -325,7 +325,12 @@ body[data-pr-busy] .pr-loadfx::after { opacity: 1; animation: pr-barber 0.8s lin
 .pr-netmodal:not([open]) { display: none; }
 .pr-netmodal::backdrop { background: transparent; }
 .pr-netmodal-drawing { width: min(360px, 80%); height: auto; overflow: visible; }
-.pr-netmodal-caption { margin: 0; font-size: 17px; font-weight: 600; }
+.pr-netmodal-caption { margin: 0; max-width: 560px; font-size: 15px; font-weight: 500; line-height: 1.4; }
+/* The status line: the server, the attempt, the last result and what is happening now, as four labelled cells that wrap on a narrow screen. */
+.pr-netmodal-status { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 12px; margin: 0; padding: 0; max-width: 640px; }
+.pr-netmodal-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 96px; padding: 6px 12px; border: 1px solid rgba(255, 255, 255, 0.45); border-radius: 6px; background: rgba(0, 0, 0, 0.25); }
+.pr-netmodal-cell dt { margin: 0; font-size: 11px; font-weight: 400; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; }
+.pr-netmodal-cell dd { margin: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .pr-netmodal-failed .pr-netmodal-link { stroke-dasharray: 2 10; }
 .pr-netmodal button { padding: 6px 20px; cursor: pointer; font: inherit; color: #ffffff; background: transparent; border: 2px solid #ffffff; border-radius: 4px; }
 "#;

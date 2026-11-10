@@ -109,6 +109,8 @@ pub enum Out {
     /// The policy gave up: the backend could not be reached (`true`, WASM-016 R21); `false` once a
     /// later connection works.
     Unreachable(bool),
+    /// Where the retry cycle stands changed: what the "connecting" modal shows.
+    Net(Progress),
     /// The backend's `hello` was not ok (WASM-014 R2): `onBackendVersion` on the main form. `state` is `warn` or `refused`.
     BackendVersion { state: String, message: String, update_to: String },
     /// A call's reply carried a warning (WASM-014 R6): `onBackendWarning` on the main form, with the program's name.
@@ -127,6 +129,48 @@ pub enum Out {
     FileUrl { id: u32, path: String, expires_in: u64, size: u64, sha256: String },
     /// An upload or a download failed, or was refused before any frame left.
     TransferFailed { id: u32, class: String, code: u32, message: String },
+}
+
+/// How an attempt of the retry policy ended badly (what the "connecting" modal calls the *last status*).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Failure {
+    /// The socket closed before the server answered: nothing is listening, or the network is down.
+    NoConnection,
+    /// The socket opened, but closed during the handshake (the server's `hello`, the token).
+    Handshake,
+    /// The attempt did not finish inside its window.
+    NoAnswer,
+}
+
+/// What the current attempt is doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    /// Opening the socket.
+    Connecting,
+    /// Socket open; the handshake is running.
+    Handshake,
+    /// The attempt failed; its window is waited out before the next one.
+    Waiting,
+    /// Every attempt failed; nothing more is tried until the user retries.
+    GaveUp,
+}
+
+/// What the "connecting" modal shows (WASM-016 R20–R21): where the retry cycle stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Progress {
+    /// The server being reached (`host:port` of the address in use).
+    pub server: String,
+    /// The attempt in progress, or the last one made, counted from 1.
+    pub attempt: u32,
+    /// How many attempts a cycle makes.
+    pub of: u32,
+    /// How the previous attempt ended; `None` for the first attempt.
+    pub last: Option<Failure>,
+    pub phase: Phase,
+    /// How this attempt ended, once it has (while waiting for the next, and after giving up).
+    pub failed: Option<Failure>,
+    /// The window of this attempt, in seconds.
+    pub window_s: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -258,6 +302,12 @@ pub struct Client<S: Socket> {
     blocked_since: Option<u64>,
     /// The last cycle gave up and no connection has worked since.
     unreachable: bool,
+    /// How the attempt before the one shown ended, and how the one shown did (once it has).
+    prior_failure: Option<Failure>,
+    last_failure: Option<Failure>,
+    shown_attempt: u32,
+    /// The progress last handed out, so [`Out::Net`] is sent only when it changes.
+    sent_progress: Option<Progress>,
     /// The latest time an event carried (a message carries none: its time is the open's or later).
     clock: u64,
     wanted: bool,
@@ -339,6 +389,10 @@ impl<S: Socket> Client<S> {
             attempt: None,
             blocked_since: None,
             unreachable: false,
+            prior_failure: None,
+            last_failure: None,
+            shown_attempt: 0,
+            sent_progress: None,
             clock: 0,
             wanted: false,
             had_link: false,
@@ -387,8 +441,53 @@ impl<S: Socket> Client<S> {
         self.unreachable
     }
 
+    /// Where the retry cycle stands, or `None` while no cycle runs (the link is ready or was never asked for).
+    pub fn progress(&self) -> Option<Progress> {
+        if !self.blocked() && !self.unreachable {
+            return None;
+        }
+        let phase = if self.unreachable && !self.blocked() {
+            Phase::GaveUp
+        } else {
+            match self.state {
+                LinkState::Greeting | LinkState::Authenticating => Phase::Handshake,
+                LinkState::Retrying { .. } => Phase::Waiting,
+                _ => Phase::Connecting,
+            }
+        };
+        let server = self.url.as_deref().unwrap_or("").split("://").last().unwrap_or("").split('/').next().unwrap_or("").to_owned();
+        Some(Progress {
+            server,
+            attempt: self.shown_attempt.max(1),
+            of: self.cfg.retry.attempts,
+            last: self.prior_failure,
+            phase,
+            failed: if matches!(phase, Phase::Waiting | Phase::GaveUp) { self.last_failure } else { None },
+            window_s: self.cfg.retry.window(self.shown_attempt.max(1)).unwrap_or(0) / 1000,
+        })
+    }
+
     pub fn take_out(&mut self) -> Vec<Out> {
+        let now = self.progress();
+        if now != self.sent_progress {
+            if let Some(p) = now.clone() {
+                self.out.push(Out::Net(p));
+            }
+            self.sent_progress = now;
+        }
         std::mem::take(&mut self.out)
+    }
+
+    /// The user asked to try again after the cycle gave up: the whole cycle starts over, from attempt 1 (WASM-016 R21).
+    pub fn retry(&mut self, now: u64) {
+        self.clock = self.clock.max(now);
+        if !(self.unreachable && self.wanted && self.url.is_some() && self.state == LinkState::Closed) {
+            return;
+        }
+        self.unreachable = false;
+        self.out.push(Out::Unreachable(false));
+        self.block(now);
+        self.start_attempt(1, now);
     }
 
     fn set_state(&mut self, s: LinkState) {
@@ -443,6 +542,9 @@ impl<S: Socket> Client<S> {
         };
         let Some(url) = self.url.clone() else { return };
         self.attempt = Some(Attempt { n, window_ends: now.saturating_add(window) });
+        self.shown_attempt = n;
+        self.prior_failure = if n == 1 { None } else { self.last_failure };
+        self.last_failure = None;
         self.set_state(LinkState::Connecting);
         self.sock.open(&url);
     }
@@ -467,7 +569,8 @@ impl<S: Socket> Client<S> {
     /// An attempt failed (refused, broken during the handshake, or out of its window). Nothing to
     /// wait for and nothing broken: stop — a page whose backend is down does not knock on its door
     /// forever. Otherwise the application is blocked and the attempt's window is waited out.
-    fn attempt_failed(&mut self, now: u64) {
+    fn attempt_failed(&mut self, now: u64, why: Failure) {
+        self.last_failure = Some(why);
         let Some(a) = self.attempt else {
             self.set_state(LinkState::Closed);
             return;
@@ -847,7 +950,8 @@ impl<S: Socket> Client<S> {
                 self.block(now);
                 self.start_attempt(1, now);
             }
-            LinkState::Connecting | LinkState::Greeting | LinkState::Authenticating => self.attempt_failed(now),
+            LinkState::Connecting => self.attempt_failed(now, Failure::NoConnection),
+            LinkState::Greeting | LinkState::Authenticating => self.attempt_failed(now, Failure::Handshake),
         }
     }
 
@@ -884,7 +988,7 @@ impl<S: Socket> Client<S> {
             LinkState::Connecting | LinkState::Greeting | LinkState::Authenticating => {
                 // The attempt did not complete in its window: it failed.
                 self.sock.close();
-                self.attempt_failed(now);
+                self.attempt_failed(now, Failure::NoAnswer);
             }
             LinkState::Ready | LinkState::Closed => self.attempt = None,
         }
@@ -2121,5 +2225,47 @@ mod tests {
         assert_eq!(drain_sent(&mut c), vec![json!({"t": "unsub", "id": sub})]);
         c.on_message(&format!(r#"{{"t":"unsubscribed","id":{sub}}}"#));
         assert_eq!(c.take_out(), vec![Out::StreamEnd { sub, reason: "unsubscribed".into() }]);
+    }
+
+    /// The modal's status line follows the cycle: attempt n of 3, how the one before ended, what is happening now; after the
+    /// give-up the user's Retry starts the whole cycle again from attempt 1.
+    #[test]
+    fn the_progress_follows_the_cycle_and_retry_starts_it_over() {
+        let mut c = ready_client();
+        assert_eq!(c.progress(), None, "nothing to show while the link works");
+        c.request(br#"{"program":"FUND-TOTALS"}"#, 0);
+        let t0 = 1_000;
+        c.on_close(t0);
+        let p = c.progress().expect("blocked");
+        assert_eq!((p.attempt, p.of, p.last, p.phase, p.failed, p.window_s), (1, 3, None, Phase::Connecting, None, 10));
+        c.on_error(t0);
+        let p = c.progress().unwrap();
+        assert_eq!((p.attempt, p.last, p.phase, p.failed), (1, None, Phase::Waiting, Some(Failure::NoConnection)));
+        c.tick(t0 + 10_000);
+        let p = c.progress().unwrap();
+        assert_eq!((p.attempt, p.last, p.phase, p.failed, p.window_s), (2, Some(Failure::NoConnection), Phase::Connecting, None, 20));
+        c.on_open(t0 + 10_001);
+        let p = c.progress().unwrap();
+        assert_eq!((p.attempt, p.phase), (2, Phase::Handshake));
+        c.on_close(t0 + 10_002);
+        let p = c.progress().unwrap();
+        assert_eq!((p.phase, p.failed), (Phase::Waiting, Some(Failure::Handshake)));
+        refuse_every_attempt(&mut c, u64::MAX);
+        let p = c.progress().unwrap();
+        assert_eq!((p.attempt, p.of, p.phase), (3, 3, Phase::GaveUp));
+        assert!(p.failed.is_some() && p.last.is_some(), "the last two attempts both have an outcome: {p:?}");
+        // Retry: the whole cycle again, behind the same modal.
+        c.take_out();
+        let opened = c.sock.opened.len();
+        c.retry(t0 + 700_000);
+        let p = c.progress().unwrap();
+        assert_eq!((p.attempt, p.last, p.phase, p.failed), (1, None, Phase::Connecting, None));
+        assert_eq!(c.sock.opened.len(), opened + 1, "attempt 1 opens a socket");
+        let out = c.take_out();
+        assert!(out.iter().any(|o| matches!(o, Out::Net(n) if n.attempt == 1)), "the modal hears of the new cycle");
+        assert_eq!(flags(&out), ["unreachable=false", "blocked=true"], "Retry takes the failed state away and blocks the application again");
+        c.retry(t0 + 700_001); // a second press while trying does nothing
+        assert_eq!(c.sock.opened.len(), opened + 1);
+        println!("progress: 1/3 connecting -> failed no-connection -> 2/3 (last no-connection) -> handshake dropped -> 3/3 gave up -> Retry restarts at 1/3");
     }
 }

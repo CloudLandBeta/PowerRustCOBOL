@@ -133,6 +133,8 @@ pub(crate) enum NetEvent {
     Tick,
     /// The application came back from the background inside the mobile shell (WASM-012 R11, R15).
     Resumed,
+    /// The user pressed Retry on the "connecting" modal after the cycle gave up: the whole cycle starts over.
+    Retry,
 }
 
 /// How the player calls into the module: the loader's `perform` function.
@@ -504,6 +506,8 @@ pub(crate) struct Inner {
     /// "connecting" modal (WASM-016 R20) is drawn from; `stats()` reports them.
     net_blocked: Cell<bool>,
     net_unreachable: Cell<bool>,
+    /// Where the retry cycle stands (what the modal's status line shows), from the connection's latest [`Out::Net`].
+    pub(crate) net_progress: RefCell<Option<crate::net::Progress>>,
     timers: RefCell<Vec<(u32, Timeout)>>,
     pub(crate) display_log: RefCell<Vec<String>>,
     pub(crate) errors: RefCell<Vec<crate::host::RunError>>,
@@ -689,6 +693,7 @@ impl Inner {
                 NetEvent::Error => c.on_error(now),
                 NetEvent::Tick => c.tick(now),
                 NetEvent::Resumed => c.resumed(now),
+                NetEvent::Retry => c.retry(now),
             }
         }
         self.drain_net();
@@ -749,6 +754,10 @@ impl Inner {
                 Out::PutReady { .. } | Out::PutDone { .. } => {}
                 Out::TransferFailed { id, class, code, message } => {
                     web_sys::console::warn_1(&format!("transfer {id} failed: {class} {code}: {message}").into());
+                }
+                Out::Net(p) => {
+                    modal_changed = true;
+                    *self.net_progress.borrow_mut() = Some(p);
                 }
                 Out::Blocked(b) => {
                     modal_changed |= self.net_blocked.replace(b) != b;
@@ -1413,6 +1422,7 @@ impl Player {
             net_timer: RefCell::new(None),
             net_blocked: Cell::new(false),
             net_unreachable: Cell::new(false),
+            net_progress: RefCell::new(None),
             timers: RefCell::new(Vec::new()),
             display_log: RefCell::new(Vec::new()),
             errors: RefCell::new(Vec::new()),
