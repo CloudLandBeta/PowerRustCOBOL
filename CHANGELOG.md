@@ -2,6 +2,10 @@
 
 
 
+## 2.0.393 — 2026-11-10
+
+**Firefox is out of the WebAssembly browser matrix (operator's ruling).** Its market share is below 3 % globally (about 1.9 % in the U.S.), so the Firefox cell of WASM-002 T24 is no longer measured or owed. `specs/WASM-OPEN-ACS.md` and the T24 task say so; Safari, the iOS web view and the Android WebView stay open. No code changed.
+
 ## 2.0.392 — 2026-11-10
 
 **Measured: WASM-002 T23, the Android half of the Mobile build (AC7).** `build` of a copy of `examples/PowerMobileHello` writes the web bundle (168 ms, 4.31 MB first download against the 5 MB budget, no secret findings) and a 42 MB debug APK in 12 s; installed on the running emulator it shows the form (*Welcome to PowerMobileHello*, the text box, Greet) once the player has loaded. The iOS package and Safari / the iOS web view are not measured (no `xcodegen`, Xcode 15.2 without an iOS 18 SDK; the build warns that there is no single-memory module): AC7 stays open for iOS in `specs/WASM-OPEN-ACS.md`. Evidence is kept outside the repository. No code changed.

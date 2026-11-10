@@ -330,10 +330,11 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
 ## Not this spec's, or not measurable here
 
 - [x] **T23 — Mobile build** (R2, AC7): WASM-012. This Build writes the bundle a Mobile shell wraps (`from_manifest`, `Isolation::Off`
+  - **Firefox dropped 2026-11-10 (operator):** its market share is below 3 % globally (about 1.9 % in the U.S.), so its cell is not measured and not owed. Safari, iOS and Android WebView cells stay as below.
   - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC7 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-002-wasm-build-target-and-host-page). Reopen the task from there if a problem points at it.
   - **Android half measured 2026-11-10 (2.0.392):** `build` (MCP) of a copy of `examples/PowerMobileHello` wrote `dist/web` (168 ms, 4.31 MB first download, under the 5 MB budget, 0 secret findings) and `dist/mobile/android/PowerMobileHello-debug.apk` (42,009,160 bytes, 12 s warm; `classes.dex`, `lib/arm64-v8a/libpowermobilehello_lib.so`, `AndroidManifest.xml`); `adb install -r` on the running emulator `Medium_Phone_API_37.0` succeeded and the app showed *Welcome to PowerMobileHello*, the text box and the Greet button after the player loaded (screenshot kept outside the repository: `PowerRustCOBOL-local-settings/evidence/WASM-002/PowerMobileHello-android-2026-11-10.png`). **Not measured:** the iOS package (no `xcodegen`, Xcode 15.2 without an iOS 18 SDK) and Safari / the iOS web view, which the build itself warns about (*no single-memory program module*, WASM-017 R9): AC7 stays open for iOS.
   for Mobile, `web/mod.rs:95`); isolation inside the Mobile web views is WASM-017 Q5, **not answered**.
-- [x] **T24 — Firefox, Safari, iOS, Android WebView cells of the matrix** (R18): **cannot be measured here** — none of those browsers is
+- [x] **T24 — Firefox (dropped), Safari, iOS, Android WebView cells of the matrix** (R18): **cannot be measured here** — none of those browsers is
   - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-002-wasm-build-target-and-host-page). Reopen the task from there if a problem points at it.
   installed on this machine. Run them where they are, with the same node and page scenarios; never claimed until run.
 - AC4 (same output as the desktop runtime) is WASM-010's parity gate (R16, AC7–AC8); this spec adds nothing of its own.

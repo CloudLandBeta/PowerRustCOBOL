@@ -22,7 +22,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 |---|---|
 | `unaudited` | The implementing tasks are done and their tests exist and pass; the box was never ticked against the code. An audit (read the AC, find the test that proves it, run it) closes it. No hardware needed. |
 | `blocked-operator` | Needs the operator's eyes or accounts (a look at a window, a real identity provider, an emulator comparison). |
-| `blocked-hardware` | Needs a browser, device or simulator this Mac does not have (Firefox, Safari, iOS, Android WebView, a physical phone). |
+| `blocked-hardware` | Needs a browser, device or simulator this Mac does not have (Safari, iOS, Android WebView, a physical phone; Firefox was removed from the targets on 2026-11-10). |
 | `blocked-tool` | Needs a tool that is not installed here (`xcodegen`, an iOS 18 simulator). |
 
 ## Index
@@ -66,7 +66,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## WASM-002-wasm-build-target-and-host-page
 
-**3 open**, all `blocked-hardware`: Firefox, Safari, iOS and Android WebView cells of the matrix cannot be measured here; the Mobile build is WASM-012.
+**3 open**, all `blocked-hardware`: Safari, iOS and Android WebView cells of the matrix cannot be measured here (Firefox is out of scope by the operator's ruling of 2026-11-10: global share below 3 %, about 1.9 % in the U.S.); the Mobile build is WASM-012.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|
