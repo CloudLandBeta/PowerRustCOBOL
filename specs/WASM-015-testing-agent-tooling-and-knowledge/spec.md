@@ -90,16 +90,16 @@ exists on the web and what does not. This spec specifies that equipment; without
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — One command runs the NC subset on the generated module through the module runner and prints two numbers per module with the excluded programs and their reasons.
-- [ ] **AC2** — The browser runner builds, serves and drives a hello-world bundle on a headless engine, reads the DOM and a computed style and returns a picture, on a machine with no separately installed browser (or with the requirement stated and checked).
-- [ ] **AC3** — The backend runner starts a backend, signs a test user in against the local issuer, makes a call and a version-skew call, and tears down cleanly.
+- [x] **AC1** — One command runs the NC subset on the generated module through the module runner and prints two numbers per module with the excluded programs and their reasons.
+- [x] **AC2** — The browser runner builds, serves and drives a hello-world bundle on a headless engine, reads the DOM and a computed style and returns a picture, on a machine with no separately installed browser (or with the requirement stated and checked).
+- [x] **AC3** — The backend runner starts a backend, signs a test user in against the local issuer, makes a call and a version-skew call, and tears down cleanly.
 - [ ] **AC4** — The web property round-trip tests pass for every class A and B control; the list of uncovered controls with a decision each exists.
-- [ ] **AC5** — The reference form's desktop and browser renderings agree within the plan's tolerance, with only the documented differences.
-- [ ] **AC6** — The ledger shows the generated module's NC, IF and IC rows; a regression run is one command.
+- [x] **AC5** — The reference form's desktop and browser renderings agree within the plan's tolerance, with only the documented differences.
+- [x] **AC6** — The ledger shows the generated module's NC, IF and IC rows; a regression run is one command.
 - [ ] **AC7** — The golden files for a web form's artefacts exist and regenerate with the golden switch.
-- [ ] **AC8** — Through the MCP tools on a web form: `create_project` with a kind, `check` (an error for a class D control and for a file verb), `build` (a bundle), `render_form` (a picture) and `run_form` (a click and a property read) all work and report the engine used.
-- [ ] **AC9** — The IDE-served and the stdio server give the same answers for the same web project.
-- [ ] **AC10** — The plugin's rules include the web rules; the reviewer flags a web form containing a `SqlDatabase`; the new skills exist.
+- [x] **AC8** — Through the MCP tools on a web form: `create_project` with a kind, `check` (an error for a class D control and for a file verb), `build` (a bundle), `render_form` (a picture) and `run_form` (a click and a property read) all work and report the engine used.
+- [x] **AC9** — The IDE-served and the stdio server give the same answers for the same web project.
+- [x] **AC10** — The plugin's rules include the web rules; the reviewer flags a web form containing a `SqlDatabase`; the new skills exist.
 - [ ] **AC11** — `prebuilt_chunked_kb_matches_the_published_documentation` is green with the web knowledge; a Grace run asked for a `SqlDatabase` on a web form refuses or reroutes it through the backend.
 - [ ] **AC12** — The example Web application and Backend build and run in the test suite and contain no secret.
 - [ ] **AC13** — The reference form with layers gives the same stacking, visibility, hit testing and tab order on the desktop and in the browser, except the differences WASM-004 R17 and R20 record (R17).
