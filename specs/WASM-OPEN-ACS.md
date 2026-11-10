@@ -22,17 +22,17 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 |---|---|
 | `unaudited` | The implementing tasks are done and their tests exist and pass; the box was never ticked against the code. An audit (read the AC, find the test that proves it, run it) closes it. No hardware needed. |
 | `blocked-operator` | Needs the operator's eyes or accounts (a look at a window, a real identity provider, an emulator comparison). |
-| `blocked-hardware` | Needs a browser, device or simulator this Mac does not have (Safari, iOS, Android WebView, a physical phone; Firefox was removed from the targets on 2026-11-10). |
-| `blocked-tool` | Needs a tool that is not installed here (`xcodegen`, an iOS 18 simulator). |
+| `blocked-hardware` | Needs a browser, device or simulator this Mac does not have (a physical phone or tablet, Android WebView on a device; Firefox was removed from the targets on 2026-11-10). The iOS simulator is here since 2026-11-10 (Xcode 27.2, iOS 17.2 and 27.2 runtimes). |
+| `blocked-tool` | Needs a tool that is not installed here. None today: `xcodegen` 2.46.0 was installed and Xcode 27.2 was in place on 2026-11-10. |
 | `red` | Audited, and a test of the criterion's own suite fails for a reason found in the audit. Fix the cause (or document the difference where the test has a table for it), then tick. |
-| `gap` | Audited, and the criterion is not wholly proven: a test it needs does not exist, or the tests that exist check less than it says. The row names the missing test; write it, then tick. |
+| `gap` | Audited, and the criterion is not wholly proven: a test it needs does not exist, or the tests that exist check less than it says, or the code it needs is not written. The row names what is missing; write it, then tick. |
 
 ## Index
 
 | Spec | Open ACs | Class |
 |---|---|---|
-| [WASM-001-project-types-and-ide-entries](#wasm-001-project-types-and-ide-entries) | 1 | `blocked-tool` |
-| [WASM-002-wasm-build-target-and-host-page](#wasm-002-wasm-build-target-and-host-page) | 3 | `blocked-hardware` |
+| [WASM-001-project-types-and-ide-entries](#wasm-001-project-types-and-ide-entries) | 1 | `gap` |
+| [WASM-002-wasm-build-target-and-host-page](#wasm-002-wasm-build-target-and-host-page) | 3 | `blocked-hardware`, `gap` |
 | [WASM-003-backend-project-and-secure-channel](#wasm-003-backend-project-and-secure-channel) | 11 | `unaudited` |
 | [WASM-004-control-reuse-on-the-web](#wasm-004-control-reuse-on-the-web) | 13 | `unaudited` |
 | [WASM-005-websocket-call-and-remote-data](#wasm-005-websocket-call-and-remote-data) | 11 | `unaudited` |
@@ -53,21 +53,21 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## WASM-001-project-types-and-ide-entries
 
-**1 open.** AC1–AC6 were audited against the code on 2026-11-10 (2.0.402) and ticked in `spec.md`; their rows are gone. AC7 was audited the same day and found one red, `desktop_comparison_chrome::the_reference_form_on_the_desktop_and_in_chrome` (a web chart drawn into the control's box less its border, 2.0.404 fixes it); it is ticked and its row is gone. AC8 is the Xcode half of the native-project step (iOS), which needs WASM-012's iOS generator, which needs `xcodegen` and an iOS simulator; this Mac has Xcode 15.2 without iOS 18.
+**1 open.** AC1–AC6 were audited against the code on 2026-11-10 (2.0.402) and ticked in `spec.md`; their rows are gone. AC7 was audited the same day and found one red, `desktop_comparison_chrome::the_reference_form_on_the_desktop_and_in_chrome` (a web chart drawn into the control's box less its border, 2.0.404 fixes it); it is ticked and its row is gone. AC8 is the Xcode half of the native-project step (iOS), which needs WASM-012's iOS generator. The generator is not written: Build on an iPhone project builds the web bundle and answers `package.built: false`, *the iOS package step … is not finished yet* (checked 2026-11-10, 2.0.407). The tools it needs are in place since that day: Xcode 27.2, the iOS 17.2 and 27.2 simulators, `xcodegen` 2.46.0, the Rust iOS targets and `tauri-cli` 2.12.4.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|
-| AC8 | `blocked-tool` | Creating a Mobile project with the native-project step accepted yields the Android Studio project (and, on a Mac, the Xcode project) named after the project, and the manifest says so; cancelling the step yields the Mobile project alone and a manifest that says the native project is missing; a Web or Desktop template shows no… | not mapped in its tasks.md |
+| AC8 | `gap` | Creating a Mobile project with the native-project step accepted yields the Android Studio project (and, on a Mac, the Xcode project) named after the project, and the manifest says so; cancelling the step yields the Mobile project alone and a manifest that says the native project is missing; a Web or Desktop template shows no… | not mapped in its tasks.md |
 
 ## WASM-002-wasm-build-target-and-host-page
 
-**3 open**, all `blocked-hardware`: Safari, iOS and Android WebView cells of the matrix cannot be measured here (Firefox is out of scope by the operator's ruling of 2026-11-10: global share below 3 %, about 1.9 % in the U.S.); the Mobile build is WASM-012.
+**3 open**: AC4 and AC6 are `blocked-hardware`, AC7 is a `gap`. The iOS web view cell of the matrix was measured on 2026-11-10 (2.0.407; see AC7); the Safari-on-a-Mac and Android WebView-on-a-device cells still cannot be measured here (Firefox is out of scope by the operator's ruling of 2026-11-10: global share below 3 %, about 1.9 % in the U.S.); the Mobile build is WASM-012.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|
 | AC4 | `blocked-hardware` | A program in the subset, run on the desktop runtime and as the generated module (headless), prints identical output for a fixed set of programs; the conformance list and its numbers are WASM-010 R16 and AC7–AC8, which is what R4's "behave as" is measured against. | WASM-010 parity gate (not here) |
 | AC6 | `blocked-hardware` | Missing-tool messages for each tool of R6 appear when that tool is absent (tested by hiding it from `PATH`). | T18 (Web half); Mobile half WASM-012 |
-| AC7 | `blocked-hardware` | The Mobile build produces an Android package and (on macOS) an iOS package from the same project; both start and show the form. **Android half measured 2026-11-10:** the APK builds (42 MB, 12 s) and shows the form on the emulator; **iOS half open** (no `xcodegen`, no iOS 18 SDK; and no single-memory module for Safari / the iOS web view, WASM-017 R9). | T23 → WASM-012 |
+| AC7 | `gap` | The Mobile build produces an Android package and (on macOS) an iOS package from the same project; both start and show the form. **Android half measured 2026-11-10:** the APK builds (42 MB, 12 s) and shows the form on the emulator. **iOS half open, and not for want of a tool:** the iOS package step is not written (Build answers `package.built: false`); Xcode 27.2, `xcodegen` and the simulators are in place. **What the iOS simulator did measure on 2026-11-10 (2.0.407, iPhone 18 Pro, iOS 27.2, Mobile Safari):** an iPhone project's bundle carries the single-memory program module only, and the Web kind carries both; on the Web bundle the loader chose the threaded player and `program.single`, the form drew, typing reached the text box, a tap ran `onClick`, and the Backend call answered "Hello, Ada" in 45.4 ms (without a Backend: run-time error 1110 at the handler's line, the application kept running). So the old claim "no single-memory module for Safari / the iOS web view" no longer holds. | T23 → WASM-012 |
 
 ## WASM-003-backend-project-and-secure-channel
 
@@ -207,7 +207,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## WASM-012-mobile-shell-tauri-2
 
-**12 open**, all `blocked-hardware`: Mobile shell: the iOS half, the device measurements and the pinning rows need a device or simulator and the operator.
+**12 open**, all `blocked-hardware`: Mobile shell: the iOS half, the device measurements and the pinning rows need a device or simulator and the operator. Since 2026-11-10 the iOS simulator is here (Xcode 27.2, iOS 17.2 and 27.2, `xcodegen` 2.46.0), but the iOS package step is not written (Build on an iPhone project answers `package.built: false`), so the iOS half of AC1, AC2 and AC12 waits for that code, not for a tool; the rows keep their class until it exists and is run.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|

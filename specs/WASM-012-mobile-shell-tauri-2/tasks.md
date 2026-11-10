@@ -21,8 +21,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   Mobile project for Android gets its Android Studio project in `android/` from New Project's step or from Project Settings, every package
   build keeps it on the same bundle, and a new Mobile project starts with an application id that Project Settings edits (2.0.294). The
   example is `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1–T7, T12, T17, T18, T23. Partly done
-  (what is left is named under each): T8, T9, T11, T13–T16, T19, T20, T22, T24, T25b, T25c. Not started: T10 (O9), T21, T25 (O1), T26. iOS is not run here:
-  Xcode 15.2's simulators are iOS 17.2, below the iOS 18 floor.
+  (what is left is named under each): T8, T9, T11, T13–T16, T19, T20, T22, T24, T25b, T25c. Not started: T10 (O9), T21, T25 (O1), T26. iOS: until 2026-11-10 it was not run
+  here (Xcode 15.2's simulators were iOS 17.2, below the iOS 18 floor). Xcode 27.2, the iOS 17.2 and 27.2 simulators and `xcodegen` 2.46.0 are in place now, and the iOS web view runs a built bundle (WASM-002 T24); the iOS package step itself is not written (Build answers `package.built: false`).
   The "no task commits" rule below is overridden by the operator (2026-11-06: every task is committed, merged into `2.x.x` and pushed outside the
   window).
 
