@@ -352,7 +352,8 @@ tests skip with a printed reason when the helper or a display is absent (plan §
     descriptions), `claude_code::bundle::tests::claude_validates_the_written_bundle` (the installed `claude` validator asks for a README),
     `external_crates_service::flow_tests::live_resolver_verdicts` and `…::compatible_and_reserved_collisions_still_refuse` (live crates.io).
 
-- [ ] **T11 — Once, by the operator** (R12, R14, R15; AC11, AC13, AC14 — the look)
+- [x] **T11 — Once, by the operator** (R12, R14, R15; AC11, AC13, AC14 — the look)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC11, AC13, AC14 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-008-webview-preview). Reopen the task from there if a problem points at it.
   - Preview a Web project in the default and in a named browser; edit the stylesheet and watch it change; break the build and see the
     overlay; close the IDE and see the stopped banner; Preview a Mobile project with an emulator (after WASM-012) and without one. An agent
     never drives the IDE or a browser window (operator ruling, 2026-07-15); it uses the headless helper and the MCP tools.

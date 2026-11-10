@@ -338,7 +338,8 @@ search `"cfrm"|\.cfrm"` over `crates/` (plan §5) and either convert or justify 
     SDK does not ship"* — since 2.0.16) and three `resolve_main_tests` that fail the same way (`cobolt-decimal` missing
     from the staged SDK). They are reported, not fixed here.
 
-- [ ] **T19 — D22: the native-project step in New Project and its manifest record** (R19; AC8; WASM-012 R16–R17) — added 2026-10-24 by the operator's ruling, after T18 had finalized the spec; a Finalize of its own closes it.
+- [x] **T19 — D22: the native-project step in New Project and its manifest record** (R19; AC8; WASM-012 R16–R17) — added 2026-10-24 by the operator's ruling, after T18 had finalized the spec; a Finalize of its own closes it.
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC8 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-001-project-types-and-ide-entries). Reopen the task from there if a problem points at it.
   - **Built (2.0.294, 2026-11-07, with WASM-012 T25c; Q7 decided: `android/` in the project folder):** after New Project creates and opens a
     Mobile project for Android, a step of its own (`panels/native_project.rs` `NativeStep`, `Tr` ×6) offers **Create** or **Not now**; Create
     makes the Android Studio project on a thread and, when made, records `[mobile.native] android = "android"` in the project still open; Not

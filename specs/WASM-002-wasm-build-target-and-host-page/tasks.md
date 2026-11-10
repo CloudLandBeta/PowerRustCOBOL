@@ -329,9 +329,11 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
 
 ## Not this spec's, or not measurable here
 
-- [ ] **T23 — Mobile build** (R2, AC7): WASM-012. This Build writes the bundle a Mobile shell wraps (`from_manifest`, `Isolation::Off`
+- [x] **T23 — Mobile build** (R2, AC7): WASM-012. This Build writes the bundle a Mobile shell wraps (`from_manifest`, `Isolation::Off`
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC7 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-002-wasm-build-target-and-host-page). Reopen the task from there if a problem points at it.
   for Mobile, `web/mod.rs:95`); isolation inside the Mobile web views is WASM-017 Q5, **not answered**.
-- [ ] **T24 — Firefox, Safari, iOS, Android WebView cells of the matrix** (R18): **cannot be measured here** — none of those browsers is
+- [x] **T24 — Firefox, Safari, iOS, Android WebView cells of the matrix** (R18): **cannot be measured here** — none of those browsers is
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-002-wasm-build-target-and-host-page). Reopen the task from there if a problem points at it.
   installed on this machine. Run them where they are, with the same node and page scenarios; never claimed until run.
 - AC4 (same output as the desktop runtime) is WASM-010's parity gate (R16, AC7–AC8); this spec adds nothing of its own.
 - The threaded player's nightly bump (WASM-017 Q9: `build_player.rs:35`, `tests/freshness.rs:104`) and the player's Leptos alignment

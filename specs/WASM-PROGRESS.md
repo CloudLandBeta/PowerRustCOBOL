@@ -8,6 +8,10 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 > The single source of truth for **where the 2.x.x work stands**. Read it first after any interruption; update it after every verified change. It says what is *measured*, not what is hoped. A row is **done** only when its acceptance criteria were run and passed, and the evidence is named.
 > Modelled on `NIST/progress.json` (GOLDEN RULE #9: finish one thing end to end before the next; report two numbers, never a weaker claim as a stronger one).
 
+## Open acceptance criteria and closed tasks (operator's ruling, 2026-11-09)
+
+**184 acceptance criteria in 18 specs are still open; their list, with the task or test meant to verify each, is `specs/WASM-OPEN-ACS.md`.** The operator ruled that every task depending on one of them is closed (33 tasks in 9 specs: WASM-001 T19; WASM-002 T23, T24; WASM-006 T18–T21; WASM-008 T11; WASM-009 T5, T6, T24, T26; WASM-011 T25; WASM-012 T8–T11, T13–T16, T19–T22, T24–T26 with T25b and T25c; WASM-016 T22, T30; WASM-036 T23), so the work could go on. **A closed task is not a verified criterion:** the rows below that say *Open: T…* describe work that was closed unverified. When a problem turns up, start from the open-AC document, reproduce with the test it names, fix, tick the box and remove its row there.
+
 ## Operating rules (so that anyone can resume)
 
 - **Where:** since 2026-10-30 the worktree `/Users/emersonlopes/Documents/PowerRustCOBOL-wasm018`, branch `features-2x-wasm-pending` (GOLDEN RULE #5 for 2.x.x: classify, work on `features-2x`/`fixes-2x` or a branch cut from `2.x.x`, merge into `2.x.x` only when asked; commit with `git -C <worktree> commit`, then `git -C <main checkout> merge --ff-only <branch>`). `2.x.x` is a fast-forward away; `main` is the 1.x.x line.

@@ -135,7 +135,8 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
     Leptos 0.8); the guard allows that path only and still refuses it through the Mermaid renderer. `cargo +1.92 build --target
     wasm32-unknown-unknown` finished. Rebuilt player (Leptos not yet used): plain s 2,726,137 / gzip 886,069, threaded 2,552,223 / 870,020.
 
-- [ ] **T22 — The Leptos `Surface`, beside `dom/`** — automated part **done (2.0.42)**; the box stays open for the operator's manual
+- [x] **T22 — The Leptos `Surface`, beside `dom/`** — automated part **done (2.0.42)**; the box stays open for the operator's manual
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-016-prebuilt-player). Reopen the task from there if a problem points at it.
   Chrome check (decision of 2026-10-23, below). Stopped on 2026-10-23 (2.0.41) for the reason that follows; resumed once decided.
   - Why: `e2e_node` runs the player **headless** (`crates/cobolt-web-bundle/tests/support/harness.rs:131`, `headless: true`), and
     `Player::mount` returns before any surface is created in a headless run (`src/api.rs:841-845`). Building the player "once with each
@@ -485,7 +486,8 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
     - **Not run here:** Firefox and Safari; Windows and Linux. The device's modal is WASM-012 T25b's.
     - WASM-003 T15a-5 (the blocked state reaches the page) depended on this task. Its box is in another spec and is left for that
       spec's run.
-- [ ] **T30 — Finalize** (all)
+- [x] **T30 — Finalize** (all)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-016-prebuilt-player). Reopen the task from there if a problem points at it.
   - Do: bump `z` **once** in `crates/cobolt-ide/src/version.rs` (`VERSION`, line 22; `2.0.29` at the time of writing — bump whatever it is then);
     add **one** `CHANGELOG.md` entry above the previous `## [PowerRustCOBOL …]` heading, dated, marked *Written on features-2x*. No
     documentation task: `README.md` and `docs/` are never touched on 2.x.x.

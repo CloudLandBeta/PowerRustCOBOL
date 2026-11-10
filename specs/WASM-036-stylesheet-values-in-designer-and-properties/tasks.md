@@ -403,7 +403,8 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - **AC14:** with a stylesheet placed beside a Desktop form, no mark shows and the canvas paints the stored properties.
     - The existing `designer` and `properties` tests stay green.
 
-- [ ] **T23 — The operator's report, by eye** (AC16)
+- [x] **T23 — The operator's report, by eye** (AC16)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC16 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-036-stylesheet-values-in-designer-and-properties). Reopen the task from there if a problem points at it.
   - Files: none in the repository.
   - Do:
     - In a copy of `examples/PowerMobileHello` (never the example itself), give a form sheet button colours and a label font.

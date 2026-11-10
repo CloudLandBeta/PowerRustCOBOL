@@ -2,6 +2,11 @@
 
 
 
+## 2.0.391 — 2026-11-09
+
+**Specs: the open WASM acceptance criteria are listed, and the tasks that depended on them are closed.** New `specs/WASM-OPEN-ACS.md` lists the 184 acceptance criteria of 18 WASM specs whose boxes are not ticked, each with its class (`unaudited`, `blocked-operator`, `blocked-hardware`, `blocked-tool`) and the task or test meant to verify it, plus how to use the list when a problem appears. By the operator's ruling, the 33 open tasks that depended on those criteria (WASM-001 T19; WASM-002 T23–T24; WASM-006 T18–T21; WASM-008 T11; WASM-009 T5, T6, T24, T26; WASM-011 T25; WASM-012 T8–T26; WASM-016 T22, T30; WASM-036 T23) are marked closed in their `tasks.md`, each with a note that it was closed unverified and where its criteria are tracked. `WASM-PROGRESS.md` carries the same notice. No code changed.
+
+
 ## 2.0.390 — 2026-11-09
 
 **Feature: a new example, PowerOficina, under Examples (Web).** A car-workshop management application built as a Web project with a Backend (Portuguese, pt-BR): customers and vehicles, service orders, diagnosis, quotes, customer approval, instalment payments, the execution queue, a dashboard and reports; nine web forms, 21 backend programs, indexed-file definitions and tests. The source only ships: the build output (`dist/`, `generated/`), working folders, the agents' run history and the data files (the backend seeds them with `seed-load`) are left out. New `examples_poweroficina_about` text in all six languages.

@@ -161,7 +161,8 @@ pushes or switches branches.
     `language_index` reads `pt-BR`, `es_ES`, `zh-Hans`, `FR`, unknown → English; `text_or_default` lets a non-blank developer value win. 2 tests,
     green.
 
-- [ ] **T5 — The Designer draws the control** (R1; D12) — automated part done; unchecked until the operator's `render_form` look
+- [x] **T5 — The Designer draws the control** (R1; D12) — automated part done; unchecked until the operator's `render_form` look
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-009-authentication-control-and-identity-providers). Reopen the task from there if a problem points at it.
   - Files: `crates/cobolt-forms/src/paint.rs`.
   - Do: draw the Sign in screen from T4's table, in the form's locale, inside the common control frame. When `Mode = Hosted`, draw the single
     hosted button. The developer's property values win.
@@ -180,7 +181,8 @@ pushes or switches branches.
     Designer cannot know; the developer's IDE language is the best stand-in and needs no new format field.
   - **Owed (operator):** `render_form` of a form holding the control, once the MCP is connected.
 
-- [ ] **T6 — Toolbox (Web and Mobile only), properties, help and `Tr` ×6** (R1, R11; i18n) — automated part done; unchecked until the operator's toolbox look
+- [x] **T6 — Toolbox (Web and Mobile only), properties, help and `Tr` ×6** (R1, R11; i18n) — automated part done; unchecked until the operator's toolbox look
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-009-authentication-control-and-identity-providers). Reopen the task from there if a problem points at it.
   - Files: `crates/cobolt-ide/src/panels/toolbox.rs`, `panels/properties.rs`, `prop_help_data.rs`, `i18n.rs`.
   - Do:
     - Add a toolbox entry for `ControlType::Authentication`. Give `ToolEntry` a project-kind filter, which does not exist today: the
@@ -948,7 +950,8 @@ pushes or switches branches.
     Options: (a) the list (a new dependency and a data file to keep current); (b) the approximation. Chosen (b) because the finding is a
     warning, never a refusal: a wrong guess costs a line of output, not a build. Revisit if it ever becomes an error.
 
-- [ ] **T24 — Mobile: the shell's identity command and the OS secure store** (R5 mobile; Q7; D6) — **BLOCKED on WASM-012 (O9)**
+- [x] **T24 — Mobile: the shell's identity command and the OS secure store** (R5 mobile; Q7; D6) — **BLOCKED on WASM-012 (O9)**
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-009-authentication-control-and-identity-providers). Reopen the task from there if a problem points at it.
   - Files: the WASM-012 shell (does not exist); `crates/cobolt-web-player/src/host.rs` (on mobile, use the shell command instead of `fetch`).
   - Do: when WASM-012 provides the command, the store and the deep link, the player invokes the command. Its Rust side calls `/auth/*` with
     `X-PR-Client: native` (served by T17), stores the refresh token in the OS store and returns only the access token and claims. The hosted
@@ -988,7 +991,8 @@ pushes or switches branches.
       hits each. The capture is proven by the test's own canary line, so an empty result means a clean console, not a deaf capture.
     - `cargo test -p cobolt-web-bundle --test auth_browser -- --nocapture`: 1 passed, 0 failed (11 s).
 
-- [ ] **T26 — AC2 against a real Keycloak** (R12; AC2; O2, O7)
+- [x] **T26 — AC2 against a real Keycloak** (R12; AC2; O2, O7)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC2 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-009-authentication-control-and-identity-providers). Reopen the task from there if a problem points at it.
   - Files: `crates/cobolt-server/tests/identity_keycloak.rs` (new).
   - Do: the steps are create account, confirm, sign in, call an exported program with the token (accepted), sign out; forgot and reset; MFA when
     the realm requires it. The test runs only with `PR_KEYCLOAK_URL` set and otherwise skips with a printed reason. The "call an exported program"

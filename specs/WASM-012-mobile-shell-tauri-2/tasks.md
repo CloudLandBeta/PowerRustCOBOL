@@ -246,7 +246,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 ## M3 — the shell and its generation
 
-- [ ] **T8 — `crates/cobolt-mobile-shell/`: the Rust shell crate and its dependency guard** (R9 secure storage, R10, R11, R12; D-Shape, D-Native, D-Pin;
+- [x] **T8 — `crates/cobolt-mobile-shell/`: the Rust shell crate and its dependency guard** (R9 secure storage, R10, R11, R12; D-Shape, D-Native, D-Pin;
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   Risks 2–4)
   - **Partly done:** the crate (own workspace, excluded from the root), the version set of V0, the navigation guard (own origins stay, the rest goes
     to the opener), the lifecycle as `pr-shell` events, deep links, the three secure-storage commands over keyring-core, and
@@ -270,7 +271,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     - `git ls-files crates/cobolt-mobile-shell` (after the pipeline stages it) or `ls -R` lists `.rs`, `Cargo.toml` and `Cargo.lock` only.
     - `cargo check --workspace` is unaffected.
 
-- [ ] **T9 — The bundle for a Mobile build: `viewport-fit=cover`, `--pr-safe-*`, CSP for the shell origin** (R10, R12; AC7 static, AC9 static; D-Insets)
+- [x] **T9 — The bundle for a Mobile build: `viewport-fit=cover`, `--pr-safe-*`, CSP for the shell origin** (R10, R12; AC7 static, AC9 static; D-Insets)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC7, AC9 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - **Partly done (2.0.289):** the insets live in the player's base CSS (`crates/cobolt-web-player/src/base_css.rs`), not in a Mobile-only
     writer: `.pr-root` and a full-screen dialog stand inside `--pr-inset-*` = `max(env(safe-area-inset-*), var(--pr-safe-*))`, and a strip of
     `--pr-statusbar` (light `#f4f5f7` when the phone is in light mode, transparent in dark) is painted under the status bar. **Deviation, on
@@ -293,7 +295,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
   - Verify: `cargo test -p cobolt-web-bundle --no-fail-fast`. New tests: a Mobile bundle's page has `viewport-fit=cover`, the four `--pr-safe-*` names
     and `--pr-keyboard`; the shell-origin CSP equals `strict()` plus T1's origin; a Web bundle is byte-identical to before (AC10).
 
-- [ ] **T10 — Strict secret-store calls for signing** (R4; AC4; D-Store) — **after the operator's review of O9**
+- [x] **T10 — Strict secret-store calls for signing** (R4; AC4; D-Store) — **after the operator's review of O9**
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC4 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - Files: `crates/cobolt-ide/src/secrets/mod.rs`.
   - Do:
     - `store_required`/`retrieve_required`/`delete_required`: only accounts under `mobile-signing/`; ignore `NATIVE_STORE_DISABLED` `:46`; return
@@ -303,7 +306,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide secrets --no-fail-fast`. New tests: a strict call on an unavailable store is `Err`; an account
     outside `mobile-signing/` is refused; `llm.rs`'s path (`:608`/`:986`/`:999`) still falls back exactly as before (Risk 8).
 
-- [ ] **T11 — `mobile_build::generate`: the shell project, configuration, capabilities and platform declarations** (R1, R6, R7, R10, R12, R13 data;
+- [x] **T11 — `mobile_build::generate`: the shell project, configuration, capabilities and platform declarations** (R1, R6, R7, R10, R12, R13 data;
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   AC4 scan, AC5, AC7 static, AC9 static; D-Shape, D-Tablet)
   - **Partly done (Android):** `mobile_build::{check, stage, patch_android_project}` write into `build_staging_dir(None, "<crate>-android")`:
     `frontend/` (the bundle), `shell/` (embedded with `include_str!`, so an installed IDE needs no source tree), `app/` (Cargo.toml, build.rs,
@@ -337,7 +341,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
   - Verify: `cargo test -p cobolt-compiler --test mobile_shell icon`. A non-square and a 512 px image are refused with their reasons; the generated
     set's file list is printed (the CLI half `#[ignore]` when the CLI is absent).
 
-- [ ] **T13 — `build_mobile` and `run_dev`: Web build → generate → Tauri CLI; release-signing checks; store checklist** (R1, R3, R3a, R4, R5, R13;
+- [x] **T13 — `build_mobile` and `run_dev`: Web build → generate → Tauri CLI; release-signing checks; store checklist** (R1, R3, R3a, R4, R5, R13;
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   AC1 driver, AC4 refusal; D-Sign, D-Dev)
   - **Partly done:** `mobile_build::build_android` (check → stage → `cargo tauri android init --ci` → patch → `cargo tauri icon` →
     `cargo tauri android build --ci [--debug] --apk --target <abi>` → `dist/mobile/android/<Name>-<debug|release>.apk`), every tool line in
@@ -363,7 +368,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 ## M4 — toolchain, player bridge and devices
 
-- [ ] **T14 — `mobile_toolchain.rs`: detection, next steps, safe installs** (R2, R3a input; AC2)
+- [x] **T14 — `mobile_toolchain.rs`: detection, next steps, safe installs** (R2, R3a input; AC2)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC2 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - **Partly done, in `mobile_build.rs`:** `Toolchain::detect(abi)` names every missing piece with how to get it (`Missing { what, how }`): the
     Tauri CLI at `TAURI_CLI_VERSION` (and the `cargo install` line), the Rust target, the SDK, the NDK, Java 17–21 (`JAVA_HOME`, `java_home -v`,
     Android Studio's runtime). The parsers are tested from recorded output. **Left:** `install` with consent (O3), the iOS rows, the tool × state
@@ -379,7 +385,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     executables written by the test in Rust): each tool hidden in turn is named with its purpose and next step; `install` refuses Xcode/SDK/NDK/JDK;
     iOS unavailable off macOS with the reason (`cfg`-driven); a tool × state table printed (AC2).
 
-- [ ] **T15 — The player's shell bridge** (R8, R10, R11, R12; AC6 logic, AC7 logic, AC8 logic, AC9 logic)
+- [x] **T15 — The player's shell bridge** (R8, R10, R11, R12; AC6 logic, AC7 logic, AC8 logic, AC9 logic)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC6, AC7, AC8, AC9 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - **Partly done:** `crates/cobolt-web-player/src/shell.rs` (detects the shell, calls its commands, reads the answers) and the three `SECURE*` arms
     of `host.rs` (A26); a refused call answers `-6`; outside the shell `-6` at once with a console line. Tests in `src/host/shell_tests.rs` (2); the
     player rebuilt into `assets/web-player/`. Run on the emulator through the page's own bridge. **Left:** Back is the web view's history (no
@@ -403,7 +410,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     - Rebuild: `cargo run --manifest-path crates/cobolt-web-player/Cargo.toml --example build_player -- --out assets/web-player`; then
       `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --test freshness` green.
 
-- [ ] **T16 — `mobile_devices.rs`: list, start, install and launch, log, stop** (R3, R3a input; AC3 logic; D-Dev)
+- [x] **T16 — `mobile_devices.rs`: list, start, install and launch, log, stop** (R3, R3a input; AC3 logic; D-Dev)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC3 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - **Partly done (Android):** `Adb::{find, devices, abi, install, launch, stop, logcat}`, `parse_devices`, `is_application_log` (the page's
     console, the shell's own lines, a crash; the web view's `[INFO:…]` noise left out). Tested from the emulator's recorded output. **2.0.289:**
     `launch_args` starts the application with the launcher's intent (`MAIN`/`LAUNCHER`), so a Run starts the task a tap on the icon would;
@@ -461,7 +469,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
   - Verify: `cargo test -p cobolt-project-tools --no-fail-fast`. A release request answers the reason; a Mobile project without the tools answers the
     T14 rows; the Web and Desktop answers are unchanged.
 
-- [ ] **T19 — The Run on device window** (R3; AC3)
+- [x] **T19 — The Run on device window** (R3; AC3)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC3 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - **Partly done (2.0.292, 2026-11-07):** `crates/cobolt-ide/src/panels/mobile_devices.rs` (`RunOnDevice`): the phones and emulators
     running and the emulators set up that Start starts first (`cobolt_compiler::mobile_devices::DeviceTarget` — id, label, running, the
     emulator's own name — built by `targets` from `adb devices -l`, `adb emu avd name` and `emulator -list-avds`; a phone that is not ready
@@ -484,7 +493,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide mobile_devices`. The list model is filled from a fake `DeviceTarget` list; Stop sends the stop;
     the choice is remembered for the session and not saved. Manual (the operator's): the window in six languages at its size.
 
-- [ ] **T20 — R3a: Preview and Run of a Mobile project go to the device; `MobileDeviceRunner`** (R3a, R3, R14; AC3, AC10; WASM-008 AC13/AC14,
+- [x] **T20 — R3a: Preview and Run of a Mobile project go to the device; `MobileDeviceRunner`** (R3a, R3, R14; AC3, AC10; WASM-008 AC13/AC14,
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC3, AC10, AC13, AC14 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   the WASM-012 half; D-Preview, O6)
   - **Partly done:** WASM-008's `DeviceRunner` seam had landed; `MobileDeviceRunner` (`crates/cobolt-ide/src/panels/mobile_runner.rs`) implements
     it for Android — `detect` (adb), `list` (the ready devices), `run` (build for the device's ABI, install, stop, start, follow the log), `log`,
@@ -538,7 +548,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     asked to open, no fallback; (c) a tool missing → "none" with that tool's next step reaching `NotTheDevice`; (d) tools, no target → "none" with
     "create one"; (e) a start failure → Output error, no fallback; (f) a Web project never calls the runner.
 
-- [ ] **T21 — The Signing window** (R4, R5; AC4; D-Store)
+- [x] **T21 — The Signing window** (R4, R5; AC4; D-Store)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC4 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - Files: `crates/cobolt-ide/src/panels/mobile_signing.rs` (new); `panels/mod.rs`.
   - Do: names go into `cobolt.toml` `[mobile.signing]` — the only project write (user code is sacred); passwords go into T10's strict store as
     `mobile-signing/<project-id>/<name>`, with Replace and Delete; a keystore inside the project folder is refused; "secret store unavailable — cannot
@@ -546,7 +557,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide mobile_signing`: the save function writes the names and never a password (the saved
     `cobolt.toml` read back and scanned for the fake password); an unavailable store blocks the save.
 
-- [ ] **T22 — i18n ×6 and the System KB** (all R; i18n; System KB rule)
+- [x] **T22 — i18n ×6 and the System KB** (all R; i18n; System KB rule)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - **Partly done:** seven new `Tr` keys in the six languages (`pk_pkg_started`, `pk_pkg_built`, `pk_pkg_failed`, `pk_dev_installing`,
     `pk_dev_started`, `pk_dev_failed`, `pk_dev_busy`); `pk_prev_on_device` and `pk_build_package_note` rewritten (the note now speaks of iOS
     only). The System KB ("Project kinds", `crates/cobolt-compiler/src/lib.rs`): the Mobile row no longer says the shell is missing; the new
@@ -587,7 +599,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
   - Verify: the T2 commands give the same counts (plus the new tests), all green; T7's, T9's and T17's identity tests green; T20 (f) green. Compare the
     counts here.
 
-- [ ] **T24 — Device runs, recorded, never claimed** (AC1, AC3, AC4 live, AC6, AC7, AC8, AC9; R3a)
+- [x] **T24 — Device runs, recorded, never claimed** (AC1, AC3, AC4 live, AC6, AC7, AC8, AC9; R3a)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC1, AC3, AC4, AC6, AC7, AC8, AC9 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - **Run so far (2026-11-06, emulator `Medium_Phone_API_37.0`, API 37, arm64):** AC1 Android debug: `rcrun mcp build` on
     `examples/PowerMobileHello` → `dist/mobile/android/PowerMobileHello-debug.apk`, `adb install -r` → Success, the main form shown; the page at
     `http://tauri.localhost/` with the shell's bridge. The secure verbs: Greet stored the name (`SecureStatus 0`), the application stopped and
@@ -637,7 +650,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     - **AC9:** an omitted command is rejected; an external link opens the system browser.
   - Verify: each item has a recorded result or a "not run here: <reason>, command: <cmd>" line. Nothing is claimed that was not run.
 
-- [ ] **T25 — Q1 features, one at a time — GATED on the operator's confirmation (O1)** (R8, R9; AC6 device)
+- [x] **T25 — Q1 features, one at a time — GATED on the operator's confirmation (O1)** (R8, R9; AC6 device)
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC6 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - Files: per feature: one `mobile_features.rs` row; one plugin in `crates/cobolt-mobile-shell/Cargo.toml` (passing the guard); its verbs on the
     T7/T15 pattern (`APP_VERBS`, `host.rs`), with T5's desktop answer; one A14-style row; `Tr` keys ×6; one KB entry; regenerated `chunked.data`.
     Clipboard, if confirmed, only routes the existing `COBOL::CopyToClipboard` through the shell (plan C5).
@@ -647,7 +661,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 ## M7 — finalize
 
-- [ ] **T25b — D21: the "connecting" modal on the device** (R15; AC11) — added 2026-10-24 by the operator's ruling.
+- [x] **T25b — D21: the "connecting" modal on the device** (R15; AC11) — added 2026-10-24 by the operator's ruling.
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC11 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - **Done in the player (2.0.293):** `view::shell::NetDevice` (`Screen`, `Phone`, `Tablet`) and `net_device(in_shell, w, h)`: outside the shell
     the desktop screen, inside it a tablet from a shortest side of 600 CSS px (`TABLET_SHORT_SIDE`, Android's `sw600dp`, below every iPad), a
     phone otherwise; `net_modal_view` draws that device in the screen's place, its right edge at x = 82 so the link to the cloud starts where it
@@ -664,7 +679,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     project has a reachable backend: run it, `adb shell cmd connectivity airplane-mode enable`, look, `… disable` within 60 s, and again for
     longer than the three windows. The lifecycle events of spec 037 for paused/resumed: spec 037 has no folder in `specs/`; nothing maps them
     yet (T15).
-- [ ] **T25c — D22: the native Android Studio / Xcode project created with the Mobile project, and its re-creation from Project Settings** (R16–R18; AC12; WASM-001 R19; Q7) — added 2026-10-24 by the operator's ruling.
+- [x] **T25c — D22: the native Android Studio / Xcode project created with the Mobile project, and its re-creation from Project Settings** (R16–R18; AC12; WASM-001 R19; Q7) — added 2026-10-24 by the operator's ruling.
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** its acceptance criteria AC12 stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - **Q7, decided as the spec recommends (agent, under the operator's delegation of 2026-11-06):** the native project lives in the project
     folder, `android/` (and `ios/` when it exists) beside `mobileforms/` and `backend/`; the IDE's package builds keep their own staging in the
     build folder, so a Build never waits on Android Studio's caches nor Android Studio on the IDE's.
@@ -726,7 +742,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
       file the same run failed at the link.
   - **Left:** AC12 inside Android Studio's own window (its Run button: the operator's window, not driven here); the Xcode project (iOS is not
     run here); WASM-001 T19's own Finalize.
-- [ ] **T26 — Finalize: version, CHANGELOG, tests of the touched crates**
+- [x] **T26 — Finalize: version, CHANGELOG, tests of the touched crates**
+  - **Closed 2026-11-09 by the operator's ruling, not verified:** the acceptance criteria it was to settle stay open, tracked in `specs/WASM-OPEN-ACS.md` (section WASM-012-mobile-shell-tauri-2). Reopen the task from there if a problem points at it.
   - Files: `crates/cobolt-ide/src/version.rs` (`z` +1 **once**: from the value at that time, `2.0.49` today, to the next `2.0.z`; never `x` or `y`);
     `CHANGELOG.md` (one entry above the previous heading, dated, "Written on features-2x", listing what landed and what stays open: O1–O10 and the T24
     lines not run).
