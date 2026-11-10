@@ -57,8 +57,8 @@
        01 WS-PIECE-COUNT                         GLOBAL    PIC 99          VALUE 44.
        01 WS-PIECE-INDEX                         GLOBAL    PIC 99.
 
-      *> What the city adds to the world: collision boxes (already grown by the player's radius), building footprints,
-      *> doors, ammunition crates and fires.
+      *> What the city adds to the world: collision boxes (already grown by the player's radius), rooms (the inside of every
+      *> building and container: the places to hide), doors, ammunition crates and fires.
        01 WS-BOXES                               GLOBAL.
            05 WS-BOX                             OCCURS 120.
                10 WS-BOX-MIN-X                   PIC S9(4)V9(4).
@@ -68,7 +68,7 @@
        01 WS-BOX-COUNT                           GLOBAL    PIC 999         VALUE 0.
        01 WS-BOX-INDEX                           GLOBAL    PIC 999.
        01 WS-ROOMS                               GLOBAL.
-           05 WS-ROOM                            OCCURS 12.
+           05 WS-ROOM                            OCCURS 24.
                10 WS-ROOM-MIN-X                  PIC S9(4)V9(4).
                10 WS-ROOM-MAX-X                  PIC S9(4)V9(4).
                10 WS-ROOM-MIN-Z                  PIC S9(4)V9(4).
@@ -203,6 +203,28 @@
        01 WS-FIND-INDEX                          GLOBAL    PIC 9.
        01 WS-SPARK                               GLOBAL    PIC 9(10).
        01 WS-SPARK-FRAMES                        GLOBAL    PIC 9           VALUE 0.
+      *> What a round flies through: smoke, flames, flashes, the spark, the marks, the projectiles and the player's own weapon.
+      *> They are hidden while Pick looks for the first solid surface, then shown again as they were.
+       01 WS-SEE-THROUGH                         GLOBAL.
+           05 WS-CLEAR                           OCCURS 48.
+               10 WS-CLEAR-NODE                  PIC 9(10).
+               10 WS-CLEAR-SHOWN                 PIC 9.
+       01 WS-CLEAR-COUNT                         GLOBAL    PIC 99          VALUE 0.
+       01 WS-CLEAR-INDEX                         GLOBAL    PIC 99.
+
+      *> Being found. The attackers search for five seconds (150 frames) before they spot a player in the open; a player
+      *> inside a building or a container is found only by chance; one who stays hidden five seconds after being spotted is
+      *> lost again. They aim at WS-MARK: the player once spotted, the last place the player was seen while hiding, and a
+      *> place nearby that changes every four seconds while they search.
+       01 WS-SPOTTED                             GLOBAL    PIC 9           VALUE 0.
+       01 WS-SEARCH-FRAMES                       GLOBAL    PIC 999         VALUE 0.
+       01 WS-LOST-FRAMES                         GLOBAL    PIC 999         VALUE 0.
+       01 WS-SEARCH-WAIT                         GLOBAL    PIC S999        VALUE 0.
+       01 WS-MARK-X                              GLOBAL    PIC S9(4)V9(4)  VALUE 0.
+       01 WS-MARK-Z                              GLOBAL    PIC S9(4)V9(4)  VALUE 0.
+       01 WS-ATTACKERS                           GLOBAL    PIC 9           VALUE 0.
+       01 WS-CLOSE-DRONE                         GLOBAL    PIC 9           VALUE 0.
+       01 WS-SHOW-SECONDS                        GLOBAL    PIC 9.9.
 
       *> Bullet marks and scorch marks: one plane each, drawn once per matrix (SetInstances), recycled oldest first.
        01 WS-DECAL-NODE                          GLOBAL    PIC 9(10).
@@ -358,7 +380,8 @@
 
            *> Builds the effects: shells in flight, explosions with their lights, bullet and scorch marks, smoke and the impact spark.
            *> Uses: SCN-1 and IMG-DECAL (the decal pictures are loaded through it).
-           *> Result: WS-SHOT-NODE, WS-BLAST-*, WS-DECAL-NODE, WS-SCORCH-NODE, WS-PUFF-NODE and WS-SPARK exist, all hidden.
+           *> Result: WS-SHOT-NODE, WS-BLAST-*, WS-DECAL-NODE, WS-SCORCH-NODE, WS-PUFF-NODE and WS-SPARK exist, all hidden;
+           *> WS-CLEAR lists them with the fire flames and the weapons, the nodes a round flies through.
            CALL "WAR-BUILD-EFFECTS"
 
            CNV-3D::SetMsaa( 4 )
@@ -462,6 +485,14 @@
                    *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z -2.1, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
                    *> Result: one more WS-AMMO crate, loaded and placed.
                    CALL "WAR-ADD-AMMO"
+                   MOVE    0                     TO    WS-LOCAL-X
+                   MOVE    -0.25                 TO    WS-LOCAL-Z
+                   MOVE    1.13                  TO    WS-LOCAL-HALF-X
+                   MOVE    2.65                  TO    WS-LOCAL-HALF-Z
+                   *> Adds the container's inside, from the closed end to 0.6 m short of the open one, as a room to hide in.
+                   *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z -0.25, half sizes 1.13 by 2.65, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+                   *> Result: one more WS-ROOM.
+                   CALL "WAR-ADD-ROOM"
                WHEN "P"
                    MOVE    0                     TO    WS-LOCAL-X
                    MOVE    0                     TO    WS-LOCAL-Z
@@ -537,20 +568,15 @@
            *> Result: one more WS-BOX.
            CALL "WAR-ADD-BOX"
 
-           *> The room: the inside of the footprint, where explosions outside hurt less.
+           *> The room: the inside of the footprint, where explosions outside hurt less and the attackers cannot see in.
            MOVE    0                             TO    WS-LOCAL-X
            MOVE    0                             TO    WS-LOCAL-Z
            MOVE    WS-HALF-WIDTH                 TO    WS-LOCAL-HALF-X
            MOVE    WS-HALF-DEPTH                 TO    WS-LOCAL-HALF-Z
-           *> Turns the footprint into world coordinates.
+           *> Adds the footprint as a room.
            *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z 0, WS-LOCAL-HALF-X, WS-LOCAL-HALF-Z, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
-           *> Result: WS-WORLD-X and WS-WORLD-Z are the centre; WS-LOCAL-HALF-X and WS-LOCAL-HALF-Z are swapped for a quarter turn.
-           CALL "WAR-TURN-BOX"
-           ADD     1                             TO    WS-ROOM-COUNT
-           COMPUTE WS-ROOM-MIN-X(WS-ROOM-COUNT) = WS-WORLD-X - WS-LOCAL-HALF-X
-           COMPUTE WS-ROOM-MAX-X(WS-ROOM-COUNT) = WS-WORLD-X + WS-LOCAL-HALF-X
-           COMPUTE WS-ROOM-MIN-Z(WS-ROOM-COUNT) = WS-WORLD-Z - WS-LOCAL-HALF-Z
-           COMPUTE WS-ROOM-MAX-Z(WS-ROOM-COUNT) = WS-WORLD-Z + WS-LOCAL-HALF-Z
+           *> Result: one more WS-ROOM.
+           CALL "WAR-ADD-ROOM"
 
            *> The door hangs in the doorway on its left hinge, inside the building's node, so it turns with it.
            ADD     1                             TO    WS-DOOR-COUNT
@@ -645,6 +671,17 @@
            MOVE    WS-WORLD-Z                    TO    WS-AMMO-Z(WS-AMMO-COUNT)
            MOVE    0                             TO    WS-AMMO-WAIT(WS-AMMO-COUNT)
 ]]></Event>
+    <Event name="WAR-ADD-ROOM" paragraph="WAR-ADD-ROOM"><![CDATA[       PROCEDURE DIVISION.
+           *> Turns the room into world coordinates.
+           *> Uses: WS-LOCAL-X, WS-LOCAL-Z, WS-LOCAL-HALF-X, WS-LOCAL-HALF-Z, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+           *> Result: WS-WORLD-X and WS-WORLD-Z are its centre; the half sizes are swapped for a quarter turn.
+           CALL "WAR-TURN-BOX"
+           ADD     1                             TO    WS-ROOM-COUNT
+           COMPUTE WS-ROOM-MIN-X(WS-ROOM-COUNT) = WS-WORLD-X - WS-LOCAL-HALF-X
+           COMPUTE WS-ROOM-MAX-X(WS-ROOM-COUNT) = WS-WORLD-X + WS-LOCAL-HALF-X
+           COMPUTE WS-ROOM-MIN-Z(WS-ROOM-COUNT) = WS-WORLD-Z - WS-LOCAL-HALF-Z
+           COMPUTE WS-ROOM-MAX-Z(WS-ROOM-COUNT) = WS-WORLD-Z + WS-LOCAL-HALF-Z
+]]></Event>
     <Event name="WAR-BUILD-PLAYER" paragraph="WAR-BUILD-PLAYER"><![CDATA[       PROCEDURE DIVISION.
            *> A 70-degree camera at eye height; the weapons hang from it, so they move with the view.
            SET     WS-CAMERA                     TO    SCN-1::AddCamera( 70 0.05 420 )
@@ -700,6 +737,11 @@
            MOVE    0                             TO    WS-BURST
            MOVE    0                             TO    WS-RELOAD-FRAMES
            MOVE    10                            TO    WS-RAISE-FRAMES
+           *> Nobody knows where the new life is: the attackers search from scratch.
+           MOVE    0                             TO    WS-SPOTTED
+           MOVE    0                             TO    WS-SEARCH-FRAMES
+           MOVE    0                             TO    WS-LOST-FRAMES
+           MOVE    0                             TO    WS-SEARCH-WAIT
            LBL-MESSAGE::Hide()
 ]]></Event>
     <Event name="WAR-BUILD-ENEMIES" paragraph="WAR-BUILD-ENEMIES"><![CDATA[       PROCEDURE DIVISION.
@@ -796,6 +838,34 @@
                SCN-1::SetAlphaMode( WS-MATERIAL 2 )
                COMPUTE WS-PUFF-HEIGHT(WS-PUFF-INDEX) = FUNCTION MOD( WS-PUFF-INDEX 4 ) * 4 + 1
            END-PERFORM
+
+           *> What a round flies through: every node above, the flames of the fires, and the two weapons with their flashes.
+           PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > 12
+               ADD     1                         TO    WS-CLEAR-COUNT
+               MOVE    WS-SHOT-NODE(WS-CELL-INDEX)       TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
+               ADD     1                         TO    WS-CLEAR-COUNT
+               MOVE    WS-PUFF-NODE(WS-CELL-INDEX)       TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
+           END-PERFORM
+           PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > 6
+               ADD     1                         TO    WS-CLEAR-COUNT
+               MOVE    WS-BLAST-FIREBALL(WS-CELL-INDEX)  TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
+               ADD     1                         TO    WS-CLEAR-COUNT
+               MOVE    WS-BLAST-SMOKE(WS-CELL-INDEX)     TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
+           END-PERFORM
+           PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > WS-FIRE-COUNT
+               ADD     1                         TO    WS-CLEAR-COUNT
+               MOVE    WS-FIRE-FLAME(WS-CELL-INDEX)      TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
+           END-PERFORM
+           PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > 2
+               ADD     1                         TO    WS-CLEAR-COUNT
+               MOVE    WS-WEAPON-NODE(WS-CELL-INDEX)     TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
+           END-PERFORM
+           ADD     1                             TO    WS-CLEAR-COUNT
+           MOVE    WS-SPARK                      TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
+           ADD     1                             TO    WS-CLEAR-COUNT
+           MOVE    WS-DECAL-NODE                 TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
+           ADD     1                             TO    WS-CLEAR-COUNT
+           MOVE    WS-SCORCH-NODE                TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
 ]]></Event>
     <Event name="WAR-STEP" paragraph="WAR-STEP"><![CDATA[       PROCEDURE DIVISION.
            ADD     1                             TO    WS-FRAME
@@ -827,8 +897,13 @@
            *> Result: WS-RESERVE of both weapons grows; the crate disappears and LBL-MESSAGE says what was found.
            CALL "WAR-AMMO-PICKUP"
 
-           *> Spawns, moves and fires the tanks, helicopters and drones.
-           *> Uses: WS-WAVE, WS-PLAYER-X, WS-PLAYER-Z, WS-HEALTH.
+           *> Decides whether the attackers have found the player: five seconds in the open, or by chance in a hiding place.
+           *> Uses: WS-INDOORS (in a building or a container), WS-PLAYER-X, WS-PLAYER-Z, the attackers alive, WS-HEALTH.
+           *> Result: WS-SPOTTED, WS-SEARCH-FRAMES, WS-LOST-FRAMES, WS-ATTACKERS, and WS-MARK, the point the attackers go for.
+           CALL "WAR-SPOTTING"
+
+           *> Spawns, moves and fires the tanks, helicopters and drones; they open fire only once the player is spotted.
+           *> Uses: WS-WAVE, WS-MARK-X, WS-MARK-Z, WS-SPOTTED, WS-HEALTH.
            *> Result: the attackers' positions and timers; shells, rockets and tracers launched; drones that arrive explode.
            CALL "WAR-ENEMIES"
 
@@ -847,9 +922,10 @@
            *> Result: WS-CAMERA is placed and turned.
            CALL "WAR-CAMERA"
 
-           *> Writes the HUD: health, weapon and rounds, score, kills and wave.
-           *> Uses: WS-HEALTH, WS-WEAPON, WS-MAGAZINE, WS-RESERVE, WS-SCORE, WS-KILLS, WS-WAVE.
-           *> Result: LBL-HEALTH, LBL-AMMO and LBL-SCORE show them.
+           *> Writes the HUD: health, weapon and rounds, score, kills and wave, and whether the attackers have found the player.
+           *> Uses: WS-HEALTH, WS-WEAPON, WS-MAGAZINE, WS-RESERVE, WS-SCORE, WS-KILLS, WS-WAVE, WS-ATTACKERS, WS-SPOTTED,
+           *> WS-INDOORS, WS-SEARCH-FRAMES.
+           *> Result: LBL-HEALTH, LBL-AMMO, LBL-SCORE and LBL-STATUS show them.
            CALL "WAR-HUD"
 ]]></Event>
     <Event name="WAR-READ-INPUT" paragraph="WAR-READ-INPUT"><![CDATA[       PROCEDURE DIVISION.
@@ -965,7 +1041,7 @@
                END-IF
            END-IF
 
-           *> Indoors (inside a building's footprint) the walls take most of a blast.
+           *> Indoors (inside a building or a container) the walls take most of a blast, and the attackers cannot see the player.
            MOVE    0                             TO    WS-INDOORS
            PERFORM VARYING WS-BOX-INDEX FROM 1 BY 1 UNTIL WS-BOX-INDEX > WS-ROOM-COUNT
                IF      WS-PLAYER-X > WS-ROOM-MIN-X(WS-BOX-INDEX) AND WS-PLAYER-X < WS-ROOM-MAX-X(WS-BOX-INDEX)
@@ -1175,8 +1251,19 @@
            COMPUTE WS-AIM-X = CNV-3D::GetWidth() / 2 + ( FUNCTION RANDOM - 0.5 ) * WS-SPREAD
            COMPUTE WS-AIM-Y = CNV-3D::GetHeight() / 2 + ( FUNCTION RANDOM - 0.5 ) * WS-SPREAD
 
+           *> The round flies through smoke, flames, flashes, sparks and the player's own weapon: they are hidden while Pick looks
+           *> for the first solid surface, so the mark lands on the wall, the car or the crate, not in mid-air in front of it.
+           PERFORM VARYING WS-CLEAR-INDEX FROM 1 BY 1 UNTIL WS-CLEAR-INDEX > WS-CLEAR-COUNT
+               SET     WS-CLEAR-SHOWN(WS-CLEAR-INDEX)    TO    SCN-1::IsVisible( WS-CLEAR-NODE(WS-CLEAR-INDEX) )
+               SCN-1::SetVisible( WS-CLEAR-NODE(WS-CLEAR-INDEX) 0 )
+           END-PERFORM
+
            *> Pick answers: node, instance, distance, point x y z, normal x y z.
            SET     WS-ANSWER                     TO    CNV-3D::Pick( WS-AIM-X WS-AIM-Y )
+
+           PERFORM VARYING WS-CLEAR-INDEX FROM 1 BY 1 UNTIL WS-CLEAR-INDEX > WS-CLEAR-COUNT
+               SCN-1::SetVisible( WS-CLEAR-NODE(WS-CLEAR-INDEX) WS-CLEAR-SHOWN(WS-CLEAR-INDEX) )
+           END-PERFORM
            MOVE    SPACES                        TO    WS-FIELDS
            UNSTRING WS-ANSWER DELIMITED BY ALL SPACE
                INTO WS-FIELD(1) WS-FIELD(2) WS-FIELD(3) WS-FIELD(4) WS-FIELD(5) WS-FIELD(6) WS-FIELD(7) WS-FIELD(8) WS-FIELD(9)
@@ -1362,19 +1449,88 @@
                SCN-1::SetVisible( WS-DECAL-NODE 1 )
            END-IF
 ]]></Event>
+    <Event name="WAR-SPOTTING" paragraph="WAR-SPOTTING"><![CDATA[       PROCEDURE DIVISION.
+           *> Who is in the city, and is a drone close enough (6 m) to see the player with its own camera?
+           MOVE    0                             TO    WS-ATTACKERS
+           MOVE    0                             TO    WS-CLOSE-DRONE
+           PERFORM VARYING WS-FIND-INDEX FROM 1 BY 1 UNTIL WS-FIND-INDEX > 4
+               IF      WS-DRONE-ALIVE(WS-FIND-INDEX) = 1
+                   ADD     1                     TO    WS-ATTACKERS
+                   COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-DRONE-X(WS-FIND-INDEX)
+                   COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-DRONE-Z(WS-FIND-INDEX)
+                   IF      WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z < 36
+                       MOVE    1                 TO    WS-CLOSE-DRONE
+                   END-IF
+               END-IF
+               IF      WS-FIND-INDEX <= 2
+                   ADD     WS-TANK-ALIVE(WS-FIND-INDEX) WS-HELI-ALIVE(WS-FIND-INDEX) TO WS-ATTACKERS
+               END-IF
+           END-PERFORM
+
+           EVALUATE TRUE
+               WHEN WS-ATTACKERS = 0 OR WS-HEALTH <= 0
+                   *> Nobody is searching: the next attackers start from scratch.
+                   MOVE    0                     TO    WS-SPOTTED
+                   MOVE    0                     TO    WS-SEARCH-FRAMES
+               WHEN WS-SPOTTED = 0
+                   IF      WS-INDOORS = 1
+                       *> Hidden in a building or a container: the search clock stops, and only luck finds the player,
+                       *> about once in fifteen seconds on average.
+                       IF      FUNCTION RANDOM < 0.0022
+                           MOVE    1             TO    WS-SPOTTED
+                       END-IF
+                   ELSE
+                       *> In the open: found after five seconds, or at once by a drone close by.
+                       ADD     1                 TO    WS-SEARCH-FRAMES
+                       IF      WS-SEARCH-FRAMES >= 150 OR WS-CLOSE-DRONE = 1
+                           MOVE    1             TO    WS-SPOTTED
+                       END-IF
+                   END-IF
+                   IF      WS-SPOTTED = 1
+                       MOVE    0                 TO    WS-LOST-FRAMES
+                       MOVE    WS-PLAYER-X       TO    WS-MARK-X
+                       MOVE    WS-PLAYER-Z       TO    WS-MARK-Z
+                   END-IF
+               WHEN OTHER
+                   IF      WS-INDOORS = 1
+                       *> Spotted, then hidden: they keep firing at the last place they saw the player; five seconds out of
+                       *> sight and they have lost the trail, and the search starts again.
+                       ADD     1                 TO    WS-LOST-FRAMES
+                       IF      WS-LOST-FRAMES >= 150
+                           MOVE    0             TO    WS-SPOTTED
+                           MOVE    0             TO    WS-SEARCH-FRAMES
+                           MOVE    0             TO    WS-SEARCH-WAIT
+                       END-IF
+                   ELSE
+                       MOVE    0                 TO    WS-LOST-FRAMES
+                       MOVE    WS-PLAYER-X       TO    WS-MARK-X
+                       MOVE    WS-PLAYER-Z       TO    WS-MARK-Z
+                   END-IF
+           END-EVALUATE
+
+           *> While they search, they sweep a place up to 30 m from the player, a new one every four seconds.
+           IF      WS-SPOTTED = 0
+               SUBTRACT 1                        FROM  WS-SEARCH-WAIT
+               IF      WS-SEARCH-WAIT <= 0
+                   MOVE    120                   TO    WS-SEARCH-WAIT
+                   COMPUTE WS-MARK-X = WS-PLAYER-X + ( FUNCTION RANDOM - 0.5 ) * 60
+                   COMPUTE WS-MARK-Z = WS-PLAYER-Z + ( FUNCTION RANDOM - 0.5 ) * 60
+               END-IF
+           END-IF
+]]></Event>
     <Event name="WAR-ENEMIES" paragraph="WAR-ENEMIES"><![CDATA[       PROCEDURE DIVISION.
-           *> Drives the tanks along the avenues, turret on the player, a shell every five to seven seconds.
-           *> Uses: WS-WAVE (the second tank from wave 2), WS-PLAYER-X, WS-PLAYER-Z, WS-HEALTH.
+           *> Drives the tanks along the avenues, turret on the mark, a shell every five to seven seconds once the player is spotted.
+           *> Uses: WS-WAVE (the second tank from wave 2), WS-MARK-X, WS-MARK-Z, WS-SPOTTED, WS-HEALTH.
            *> Result: WS-TANK positions and timers; shells launched into WS-SHOT.
            CALL "WAR-TANKS"
 
-           *> Circles the helicopters around the player, firing rockets and machine-gun bursts.
-           *> Uses: WS-WAVE (the second helicopter from wave 3), WS-PLAYER-X, WS-PLAYER-Z, WS-HEALTH.
+           *> Circles the helicopters around the mark, firing rockets and machine-gun bursts once the player is spotted.
+           *> Uses: WS-WAVE (the second helicopter from wave 3), WS-MARK-X, WS-MARK-Z, WS-SPOTTED, WS-HEALTH.
            *> Result: WS-HELICOPTER positions and timers; rockets and tracers launched into WS-SHOT.
            CALL "WAR-HELICOPTERS"
 
-           *> Flies the suicide drones at the player; one that reaches him explodes.
-           *> Uses: WS-WAVE (one drone more per wave, up to four), WS-PLAYER-X, WS-PLAYER-Z.
+           *> Flies the suicide drones to the mark; one that reaches it once the player is spotted explodes.
+           *> Uses: WS-WAVE (one drone more per wave, up to four), WS-MARK-X, WS-MARK-Z, WS-SPOTTED.
            *> Result: WS-DRONE positions; explosions where drones arrive.
            CALL "WAR-DRONES"
 ]]></Event>
@@ -1422,12 +1578,14 @@
                        SCN-1::SetVisible( WS-TANK-ROOT(WS-TANK-INDEX) 0 )
                    END-IF
                    SCN-1::SetPosition( WS-TANK-ROOT(WS-TANK-INDEX) WS-TANK-X(WS-TANK-INDEX) 0 WS-TANK-Z(WS-TANK-INDEX) )
-                   COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-TANK-X(WS-TANK-INDEX)
-                   COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-TANK-Z(WS-TANK-INDEX)
+                   *> The turret follows the mark: it sweeps the places searched, then holds on the player once spotted.
+                   COMPUTE WS-DISTANCE-X = WS-MARK-X - WS-TANK-X(WS-TANK-INDEX)
+                   COMPUTE WS-DISTANCE-Z = WS-MARK-Z - WS-TANK-Z(WS-TANK-INDEX)
                    SCN-1::LookAt( WS-TANK-TURRET(WS-TANK-INDEX) WS-DISTANCE-X 1.43 WS-DISTANCE-Z )
                    SUBTRACT 1                    FROM  WS-TANK-RELOAD(WS-TANK-INDEX)
                    COMPUTE WS-DISTANCE = FUNCTION SQRT( WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z )
-                   IF      WS-TANK-RELOAD(WS-TANK-INDEX) <= 0 AND WS-DISTANCE < 95 AND WS-DISTANCE > 4 AND WS-HEALTH > 0
+                   IF      WS-TANK-RELOAD(WS-TANK-INDEX) <= 0 AND WS-SPOTTED = 1 AND WS-DISTANCE < 95 AND WS-DISTANCE > 4
+                       AND WS-HEALTH > 0
                        COMPUTE WS-TANK-RELOAD(WS-TANK-INDEX) = 150 + FUNCTION RANDOM * 60
                        *> The shell leaves the muzzle, 6 m out along the barrel, aimed at the player with a spread that grows with range.
                        COMPUTE WS-FROM-X = WS-TANK-X(WS-TANK-INDEX) + WS-DISTANCE-X / WS-DISTANCE * 6
@@ -1436,8 +1594,8 @@
                        COMPUTE WS-SPREAD = 1 + WS-DISTANCE / 25
                        MOVE    1                     TO    WS-LAUNCH-KIND
                        *> Fires a shell.
-                       *> Uses: WS-FROM-X, WS-FROM-Y, WS-FROM-Z (the muzzle), WS-SPREAD, WS-LAUNCH-KIND 1 (shell), WS-PLAYER-X, WS-PLAYER-Z.
-                       *> Result: a free WS-SHOT slot flies toward a point near the player.
+                       *> Uses: WS-FROM-X, WS-FROM-Y, WS-FROM-Z (the muzzle), WS-SPREAD, WS-LAUNCH-KIND 1 (shell), WS-MARK-X, WS-MARK-Z.
+                       *> Result: a free WS-SHOT slot flies toward a point near the mark.
                        CALL "WAR-LAUNCH"
                    END-IF
                END-IF
@@ -1450,24 +1608,24 @@
                        SUBTRACT 1                FROM  WS-HELI-WAIT(WS-HELI-INDEX)
                    ELSE
                        IF      WS-HELI-INDEX = 1 OR WS-WAVE >= 3
-                           *> A helicopter comes in from far away and closes to a 38 m orbit around the player.
+                           *> A helicopter comes in from far away and closes to a 38 m orbit around the mark.
                            MOVE    1                     TO    WS-HELI-ALIVE(WS-HELI-INDEX)
                            MOVE    18                    TO    WS-HELI-HEALTH(WS-HELI-INDEX)
                            COMPUTE WS-HELI-ANGLE(WS-HELI-INDEX) = FUNCTION RANDOM * 6.283
                            MOVE    150                   TO    WS-HELI-RADIUS(WS-HELI-INDEX)
-                           MOVE    WS-PLAYER-X           TO    WS-HELI-CENTRE-X(WS-HELI-INDEX)
-                           MOVE    WS-PLAYER-Z           TO    WS-HELI-CENTRE-Z(WS-HELI-INDEX)
+                           MOVE    WS-MARK-X             TO    WS-HELI-CENTRE-X(WS-HELI-INDEX)
+                           MOVE    WS-MARK-Z             TO    WS-HELI-CENTRE-Z(WS-HELI-INDEX)
                            MOVE    200                   TO    WS-HELI-ROCKETS(WS-HELI-INDEX)
                            MOVE    120                   TO    WS-HELI-GUN(WS-HELI-INDEX)
                            SCN-1::SetVisible( WS-HELI-ROOT(WS-HELI-INDEX) 1 )
                        END-IF
                    END-IF
                ELSE
-                   *> The orbit's centre drifts after the player; the orbit tightens to 38 m and climbs and dips around 21 m.
+                   *> The orbit's centre drifts after the mark; the orbit tightens to 38 m and climbs and dips around 21 m.
                    COMPUTE WS-HELI-CENTRE-X(WS-HELI-INDEX) = WS-HELI-CENTRE-X(WS-HELI-INDEX)
-                                                             + ( WS-PLAYER-X - WS-HELI-CENTRE-X(WS-HELI-INDEX) ) * 0.01
+                                                             + ( WS-MARK-X - WS-HELI-CENTRE-X(WS-HELI-INDEX) ) * 0.01
                    COMPUTE WS-HELI-CENTRE-Z(WS-HELI-INDEX) = WS-HELI-CENTRE-Z(WS-HELI-INDEX)
-                                                             + ( WS-PLAYER-Z - WS-HELI-CENTRE-Z(WS-HELI-INDEX) ) * 0.01
+                                                             + ( WS-MARK-Z - WS-HELI-CENTRE-Z(WS-HELI-INDEX) ) * 0.01
                    IF      WS-HELI-RADIUS(WS-HELI-INDEX) > 38
                        SUBTRACT 0.5              FROM  WS-HELI-RADIUS(WS-HELI-INDEX)
                    END-IF
@@ -1483,9 +1641,9 @@
                    COMPUTE WS-HELI-Y(WS-HELI-INDEX) = 21 + FUNCTION SIN( WS-FRAME * 0.02 + WS-HELI-INDEX ) * 3
                    SCN-1::SetPosition( WS-HELI-ROOT(WS-HELI-INDEX) WS-HELI-X(WS-HELI-INDEX) WS-HELI-Y(WS-HELI-INDEX)
                                        WS-HELI-Z(WS-HELI-INDEX) )
-                   *> Nose toward the player and a little down, the attitude of a gunship on a firing pass; the rotor spins.
-                   COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-HELI-X(WS-HELI-INDEX)
-                   COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-HELI-Z(WS-HELI-INDEX)
+                   *> Nose toward the mark and a little down, the attitude of a gunship on a firing pass; the rotor spins.
+                   COMPUTE WS-DISTANCE-X = WS-MARK-X - WS-HELI-X(WS-HELI-INDEX)
+                   COMPUTE WS-DISTANCE-Z = WS-MARK-Z - WS-HELI-Z(WS-HELI-INDEX)
                    SCN-1::LookAt( WS-HELI-BODY(WS-HELI-INDEX), WS-DISTANCE-X, -7, WS-DISTANCE-Z )
                    ADD     47                    TO    WS-HELI-SPIN(WS-HELI-INDEX)
                    IF      WS-HELI-SPIN(WS-HELI-INDEX) > 360
@@ -1496,15 +1654,16 @@
                    MOVE    WS-HELI-X(WS-HELI-INDEX)      TO    WS-FROM-X
                    COMPUTE WS-FROM-Y = WS-HELI-Y(WS-HELI-INDEX) - 0.6
                    MOVE    WS-HELI-Z(WS-HELI-INDEX)      TO    WS-FROM-Z
-                   *> A pair of rockets every six seconds or so, once the helicopter is close.
+                   *> A pair of rockets every six seconds or so, once the helicopter is close and the player spotted.
                    SUBTRACT 1                    FROM  WS-HELI-ROCKETS(WS-HELI-INDEX)
-                   IF      WS-HELI-ROCKETS(WS-HELI-INDEX) <= 0 AND WS-HELI-RADIUS(WS-HELI-INDEX) < 60 AND WS-HEALTH > 0
+                   IF      WS-HELI-ROCKETS(WS-HELI-INDEX) <= 0 AND WS-HELI-RADIUS(WS-HELI-INDEX) < 60 AND WS-SPOTTED = 1
+                       AND WS-HEALTH > 0
                        COMPUTE WS-HELI-ROCKETS(WS-HELI-INDEX) = 170 + FUNCTION RANDOM * 60
                        MOVE    3                     TO    WS-SPREAD
                        MOVE    2                     TO    WS-LAUNCH-KIND
                        *> Fires a rocket.
                        *> Uses: WS-FROM-X, WS-FROM-Y, WS-FROM-Z (under the helicopter), WS-SPREAD 3, WS-LAUNCH-KIND 2 (rocket).
-                       *> Result: a free WS-SHOT slot flies toward a point near the player.
+                       *> Result: a free WS-SHOT slot flies toward a point near the mark.
                        CALL "WAR-LAUNCH"
                    END-IF
                    *> A machine-gun burst every four seconds: a tracer every third frame for a second and a half.
@@ -1513,12 +1672,12 @@
                        MOVE    120                   TO    WS-HELI-GUN(WS-HELI-INDEX)
                    END-IF
                    IF      WS-HELI-GUN(WS-HELI-INDEX) < 45 AND FUNCTION MOD( WS-HELI-GUN(WS-HELI-INDEX) 3 ) = 0
-                       AND WS-HELI-RADIUS(WS-HELI-INDEX) < 60 AND WS-HEALTH > 0
+                       AND WS-HELI-RADIUS(WS-HELI-INDEX) < 60 AND WS-SPOTTED = 1 AND WS-HEALTH > 0
                        MOVE    2.5                   TO    WS-SPREAD
                        MOVE    3                     TO    WS-LAUNCH-KIND
                        *> Fires a tracer.
                        *> Uses: WS-FROM-X, WS-FROM-Y, WS-FROM-Z (under the helicopter), WS-SPREAD 2.5, WS-LAUNCH-KIND 3 (tracer).
-                       *> Result: a free WS-SHOT slot flies toward a point near the player.
+                       *> Result: a free WS-SHOT slot flies toward a point near the mark.
                        CALL "WAR-LAUNCH"
                    END-IF
                END-IF
@@ -1542,11 +1701,11 @@
                        END-IF
                    END-IF
                ELSE
-                   *> Straight at the player's chest, faster in later waves, wobbling; low once it is near.
-                   COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-DRONE-X(WS-DRONE-INDEX)
-                   COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-DRONE-Z(WS-DRONE-INDEX)
+                   *> Straight at the mark, faster in later waves, wobbling; it dives once near a player it has spotted.
+                   COMPUTE WS-DISTANCE-X = WS-MARK-X - WS-DRONE-X(WS-DRONE-INDEX)
+                   COMPUTE WS-DISTANCE-Z = WS-MARK-Z - WS-DRONE-Z(WS-DRONE-INDEX)
                    COMPUTE WS-DISTANCE = FUNCTION SQRT( WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z )
-                   IF      WS-DISTANCE < 25
+                   IF      WS-DISTANCE < 25 AND WS-SPOTTED = 1
                        COMPUTE WS-HEIGHT = 1.4 + WS-DISTANCE * 0.2
                    ELSE
                        MOVE    7                 TO    WS-HEIGHT
@@ -1564,8 +1723,8 @@
                                                         + FUNCTION SIN( WS-FRAME * 0.3 + WS-DRONE-INDEX ) * 0.03
                    SCN-1::SetPosition( WS-DRONE-ROOT(WS-DRONE-INDEX) WS-DRONE-X(WS-DRONE-INDEX) WS-DRONE-Y(WS-DRONE-INDEX)
                                        WS-DRONE-Z(WS-DRONE-INDEX) )
-                   SCN-1::LookAt( WS-DRONE-ROOT(WS-DRONE-INDEX) WS-PLAYER-X WS-DRONE-Y(WS-DRONE-INDEX) WS-PLAYER-Z )
-                   IF      WS-DISTANCE < 1.6 AND WS-HEALTH > 0
+                   SCN-1::LookAt( WS-DRONE-ROOT(WS-DRONE-INDEX) WS-MARK-X WS-DRONE-Y(WS-DRONE-INDEX) WS-MARK-Z )
+                   IF      WS-DISTANCE < 1.6 AND WS-SPOTTED = 1 AND WS-HEALTH > 0
                        MOVE    0                 TO    WS-DRONE-ALIVE(WS-DRONE-INDEX)
                        SCN-1::SetVisible( WS-DRONE-ROOT(WS-DRONE-INDEX) 0 )
                        COMPUTE WS-DRONE-WAIT(WS-DRONE-INDEX) = 120 + FUNCTION RANDOM * 120
@@ -1573,16 +1732,16 @@
                        MOVE    WS-DRONE-Y(WS-DRONE-INDEX)    TO    WS-BOOM-Y
                        MOVE    WS-DRONE-Z(WS-DRONE-INDEX)    TO    WS-BOOM-Z
                        MOVE    0.8                           TO    WS-BOOM-SIZE
-                       *> The drone reached the player: its grenade goes off.
+                       *> The drone reached the player, or the place the player was last seen: its grenade goes off.
                        *> Uses: WS-BOOM-X, WS-BOOM-Y, WS-BOOM-Z (the drone), WS-BOOM-SIZE 0.8.
-                       *> Result: a small explosion right at the player, who is hurt.
+                       *> Result: a small explosion there; the player hurt if within its reach.
                        CALL "WAR-EXPLODE"
                    END-IF
                END-IF
            END-PERFORM
 ]]></Event>
     <Event name="WAR-LAUNCH" paragraph="WAR-LAUNCH"><![CDATA[       PROCEDURE DIVISION.
-           *> The first free slot flies from WS-FROM to a point WS-SPREAD metres around the player, in whole frames:
+           *> The first free slot flies from WS-FROM to a point WS-SPREAD metres around the mark, in whole frames:
            *> shells 72 m/s, rockets 45 m/s, tracers 120 m/s.
            MOVE    0                             TO    WS-FREE-INDEX
            PERFORM VARYING WS-SHOT-INDEX FROM 1 BY 1 UNTIL WS-SHOT-INDEX > 12 OR WS-FREE-INDEX > 0
@@ -1591,9 +1750,9 @@
                END-IF
            END-PERFORM
            IF      WS-FREE-INDEX > 0
-               COMPUTE WS-TO-X = WS-PLAYER-X + ( FUNCTION RANDOM - 0.5 ) * 2 * WS-SPREAD
+               COMPUTE WS-TO-X = WS-MARK-X + ( FUNCTION RANDOM - 0.5 ) * 2 * WS-SPREAD
                COMPUTE WS-TO-Y = 0.4 + FUNCTION RANDOM * 1.4
-               COMPUTE WS-TO-Z = WS-PLAYER-Z + ( FUNCTION RANDOM - 0.5 ) * 2 * WS-SPREAD
+               COMPUTE WS-TO-Z = WS-MARK-Z + ( FUNCTION RANDOM - 0.5 ) * 2 * WS-SPREAD
                COMPUTE WS-DISTANCE-X = WS-TO-X - WS-FROM-X
                COMPUTE WS-DISTANCE-Y = WS-TO-Y - WS-FROM-Y
                COMPUTE WS-DISTANCE-Z = WS-TO-Z - WS-FROM-Z
@@ -1933,6 +2092,30 @@
            MOVE    WS-WAVE                       TO    WS-SHOW-WAVE
            MOVE    SPACES                        TO    LBL-SCORE::Caption
            STRING  "SCORE " WS-SHOW-SCORE "    KILLS " WS-SHOW-KILLS "    WAVE " WS-SHOW-WAVE INTO LBL-SCORE::Caption
+
+           *> Whether the attackers know where the player is.
+           MOVE    SPACES                        TO    LBL-STATUS::Caption
+           EVALUATE TRUE
+               WHEN WS-ATTACKERS = 0 OR WS-HEALTH <= 0
+                   LBL-STATUS::Hide()
+               WHEN WS-SPOTTED = 1 AND WS-INDOORS = 0
+                   SET     LBL-STATUS::Caption           TO    "SPOTTED"
+                   SET     LBL-STATUS::ForegroundColor   TO    "#FF5040"
+                   LBL-STATUS::Show()
+               WHEN WS-SPOTTED = 1
+                   SET     LBL-STATUS::Caption           TO    "SPOTTED - stay hidden to lose them"
+                   SET     LBL-STATUS::ForegroundColor   TO    "#FFA040"
+                   LBL-STATUS::Show()
+               WHEN WS-INDOORS = 1
+                   SET     LBL-STATUS::Caption           TO    "HIDDEN"
+                   SET     LBL-STATUS::ForegroundColor   TO    "#9FE0A0"
+                   LBL-STATUS::Show()
+               WHEN OTHER
+                   COMPUTE WS-SHOW-SECONDS = ( 150 - WS-SEARCH-FRAMES ) / 30
+                   STRING  "SEARCHING FOR YOU  " WS-SHOW-SECONDS " s" INTO LBL-STATUS::Caption
+                   SET     LBL-STATUS::ForegroundColor   TO    "#F0D890"
+                   LBL-STATUS::Show()
+           END-EVALUATE
 ]]></Event>
   </user-procedures>
   <Control id="CNV-3D" type="Canvas3D" x="0" y="0" w="1280" h="720" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1989,6 +2172,15 @@
     <Property name="Caption">AR-15   30 / 120</Property>
     <Property name="FontSize">24</Property>
     <Property name="ForegroundColor">#E8F0E0</Property>
+    <Property name="BackgroundColor">#00000066</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="LBL-STATUS" type="Label" x="864" y="12" w="400" h="32" tab-order="11" z-order="1" visible="false" enabled="true">
+    <Property name="Definition">Whether the attackers have found the player: searching (with the seconds left in the open), hidden, or spotted.</Property>
+    <Property name="Caption">SEARCHING FOR YOU  5.0 s</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="ForegroundColor">#F0D890</Property>
     <Property name="BackgroundColor">#00000066</Property>
     <Property name="CornerRadius">8</Property>
     <Property name="TextAlignment">Center</Property>
