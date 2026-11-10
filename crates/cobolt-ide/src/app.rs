@@ -1971,7 +1971,7 @@ impl Example {
 
 /// The examples Help → Examples offers, in menu order (operator, 2026-09-25:
 /// one entry per example instead of a single one).
-pub const EXAMPLES: [Example; 9] = [
+pub const EXAMPLES: [Example; 10] = [
     Example { project: "PowerChat", manifest: "PowerChat.project.toml", kind: ExampleKind::Desktop },
     Example { project: "PowerDemo3", manifest: "PowerDemo3.project.toml", kind: ExampleKind::Desktop },
     // The Spatial theme, and a group of docked windows (operator, 2026-10-04).
@@ -1982,6 +1982,8 @@ pub const EXAMPLES: [Example; 9] = [
     Example { project: "PowerCloud", manifest: "PowerCloud.project.toml", kind: ExampleKind::Desktop },
     // Canvas2D/3D, Physics2D/3D and Scene3D showcase: Pitfall, bridge run, two pool games, street runner.
     Example { project: "PowerGraphics", manifest: "PowerGraphics.project.toml", kind: ExampleKind::Desktop },
+    // A mini first-person shooter on a Canvas3D: a ruined city, two weapons, tanks, helicopters and drones (operator, 2026-11-09).
+    Example { project: "PowerCallOfDuty", manifest: "PowerCallOfDuty.project.toml", kind: ExampleKind::Desktop },
     // The Web and Mobile examples, under their own submenus (operator, 2026-11-09).
     Example { project: "PowerWebHello", manifest: "PowerWebHello.project.toml", kind: ExampleKind::Web },
     Example { project: "PowerAnalyticsWeb", manifest: "PowerAnalyticsWeb.project.toml", kind: ExampleKind::Web },
@@ -13443,6 +13445,7 @@ impl CoboltApp {
                                     "PowerAnalytics" => Some(tr.examples_poweranalytics_about),
                                     "PowerCloud" => Some(tr.examples_powercloud_about),
                                     "PowerGraphics" => Some(tr.examples_powergraphics_about),
+                                    "PowerCallOfDuty" => Some(tr.examples_powercallofduty_about),
                                     "PowerWebHello" => Some(tr.examples_powerwebhello_about),
                                     "PowerAnalyticsWeb" => Some(tr.examples_poweranalyticsweb_about),
                                     "PowerMobileHello" => Some(tr.examples_powermobilehello_about),

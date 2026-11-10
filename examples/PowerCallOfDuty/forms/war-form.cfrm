@@ -73,6 +73,7 @@
                10 WS-ROOM-MAX-X                  PIC S9(4)V9(4).
                10 WS-ROOM-MIN-Z                  PIC S9(4)V9(4).
                10 WS-ROOM-MAX-Z                  PIC S9(4)V9(4).
+               10 WS-ROOM-TOP                    PIC S9(2)V9(2).
        01 WS-ROOM-COUNT                          GLOBAL    PIC 99          VALUE 0.
        01 WS-DOORS                               GLOBAL.
            05 WS-DOOR                            OCCURS 12.
@@ -122,6 +123,9 @@
        01 WS-WORLD-Z                             GLOBAL    PIC S9(4)V9(4).
        01 WS-WORLD-HALF-X                        GLOBAL    PIC S9(4)V9(4).
        01 WS-WORLD-HALF-Z                        GLOBAL    PIC S9(4)V9(4).
+      *> How high the piece being placed stands: a drone that flies into it below that height is wrecked.
+       01 WS-PIECE-TOP                           GLOBAL    PIC S9(2)V9(2).
+       01 WS-CRASHED                             GLOBAL    PIC 9.
        01 WS-HALF-WIDTH                         GLOBAL    PIC S9(4)V9(4).
        01 WS-HALF-DEPTH                          GLOBAL    PIC S9(4)V9(4).
        01 WS-NODE                                GLOBAL    PIC 9(10).
@@ -223,13 +227,29 @@
        01 WS-CLEAR-INDEX                         GLOBAL    PIC 99.
 
       *> Being found. The attackers search for thirty seconds (900 frames) before they spot a player in the open; a player
-      *> inside a building or a container is found only by chance; one who stays hidden five seconds after being spotted is
-      *> lost again. They aim at WS-MARK: the player once spotted, the last place the player was seen while hiding, and a
+      *> inside a building or a container is found only by a tank or a drone with a clear line of sight (no wall and no
+      *> closed door in between, within 60 m; a helicopter cannot see under a roof); one who stays out of sight for five
+      *> seconds after being spotted is lost again. They aim at WS-MARK: the player once spotted, the last place the player was seen while hiding, and a
       *> place nearby that changes every four seconds while they search.
        01 WS-SPOTTED                             GLOBAL    PIC 9           VALUE 0.
        01 WS-SEARCH-FRAMES                       GLOBAL    PIC 999         VALUE 0.
        01 WS-LOST-FRAMES                         GLOBAL    PIC 999         VALUE 0.
        01 WS-SEARCH-WAIT                         GLOBAL    PIC S999        VALUE 0.
+      *> Line of sight: from an attacker's place (WS-FROM-X, WS-FROM-Z) to the player, tested against one wall at a time.
+       01 WS-SEEN                                GLOBAL    PIC 9           VALUE 0.
+       01 WS-SIGHT                               GLOBAL    PIC 9.
+       01 WS-SIGHT-X                             GLOBAL    PIC S9(4)V9(4).
+       01 WS-SIGHT-Z                             GLOBAL    PIC S9(4)V9(4).
+       01 WS-WALL-MIN-X                          GLOBAL    PIC S9(4)V9(4).
+       01 WS-WALL-MAX-X                          GLOBAL    PIC S9(4)V9(4).
+       01 WS-WALL-MIN-Z                          GLOBAL    PIC S9(4)V9(4).
+       01 WS-WALL-MAX-Z                          GLOBAL    PIC S9(4)V9(4).
+       01 WS-ENTERS                              GLOBAL    PIC S9(5)V9(6).
+       01 WS-LEAVES                              GLOBAL    PIC S9(5)V9(6).
+       01 WS-CROSS-FIRST                         GLOBAL    PIC S9(5)V9(6).
+       01 WS-CROSS-LAST                          GLOBAL    PIC S9(5)V9(6).
+       01 WS-CROSS-SWAP                          GLOBAL    PIC S9(5)V9(6).
+       01 WS-MISSES                              GLOBAL    PIC 9.
        01 WS-MARK-X                              GLOBAL    PIC S9(4)V9(4)  VALUE 0.
        01 WS-MARK-Z                              GLOBAL    PIC S9(4)V9(4)  VALUE 0.
        01 WS-ATTACKERS                           GLOBAL    PIC 9           VALUE 0.
@@ -455,6 +475,7 @@
                WHEN "H"
                    MOVE    5                     TO    WS-HALF-WIDTH
                    MOVE    4                     TO    WS-HALF-DEPTH
+                   MOVE    6.7                   TO    WS-PIECE-TOP
                    *> Adds the house's four walls (the front one split by the doorway), its room, its door and maybe a fire.
                    *> Uses: WS-HALF-WIDTH 5, WS-HALF-DEPTH 4, WS-NODE, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN, WS-PIECE-INDEX.
                    *> Result: five WS-BOX entries, one WS-ROOM, one WS-DOOR, and a WS-FIRE for the burning ones.
@@ -462,6 +483,7 @@
                WHEN "A"
                    MOVE    6                     TO    WS-HALF-WIDTH
                    MOVE    5                     TO    WS-HALF-DEPTH
+                   MOVE    9.9                   TO    WS-PIECE-TOP
                    *> Adds the apartment block's walls, room, door and maybe a fire.
                    *> Uses: WS-HALF-WIDTH 6, WS-HALF-DEPTH 5, WS-NODE, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN, WS-PIECE-INDEX.
                    *> Result: five WS-BOX entries, one WS-ROOM, one WS-DOOR, and a WS-FIRE for the burning ones.
@@ -498,8 +520,9 @@
                    MOVE    -0.25                 TO    WS-LOCAL-Z
                    MOVE    1.13                  TO    WS-LOCAL-HALF-X
                    MOVE    2.65                  TO    WS-LOCAL-HALF-Z
+                   MOVE    2.6                   TO    WS-PIECE-TOP
                    *> Adds the container's inside, from the closed end to 0.6 m short of the open one, as a room to hide in.
-                   *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z -0.25, half sizes 1.13 by 2.65, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+                   *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z -0.25, half sizes 1.13 by 2.65, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN, WS-PIECE-TOP 2.6.
                    *> Result: one more WS-ROOM.
                    CALL "WAR-ADD-ROOM"
                WHEN "P"
@@ -583,7 +606,7 @@
            MOVE    WS-HALF-WIDTH                 TO    WS-LOCAL-HALF-X
            MOVE    WS-HALF-DEPTH                 TO    WS-LOCAL-HALF-Z
            *> Adds the footprint as a room.
-           *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z 0, WS-LOCAL-HALF-X, WS-LOCAL-HALF-Z, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN.
+           *> Uses: WS-LOCAL-X 0, WS-LOCAL-Z 0, WS-LOCAL-HALF-X, WS-LOCAL-HALF-Z, WS-ORIGIN-X, WS-ORIGIN-Z, WS-TURN, WS-PIECE-TOP.
            *> Result: one more WS-ROOM.
            CALL "WAR-ADD-ROOM"
 
@@ -689,6 +712,7 @@
            *> Result: WS-WORLD-X and WS-WORLD-Z are its centre; WS-WORLD-HALF-X and WS-WORLD-HALF-Z its half sizes there.
            CALL "WAR-TURN-BOX"
            ADD     1                             TO    WS-ROOM-COUNT
+           MOVE    WS-PIECE-TOP                  TO    WS-ROOM-TOP(WS-ROOM-COUNT)
            COMPUTE WS-ROOM-MIN-X(WS-ROOM-COUNT) = WS-WORLD-X - WS-WORLD-HALF-X
            COMPUTE WS-ROOM-MAX-X(WS-ROOM-COUNT) = WS-WORLD-X + WS-WORLD-HALF-X
            COMPUTE WS-ROOM-MIN-Z(WS-ROOM-COUNT) = WS-WORLD-Z - WS-WORLD-HALF-Z
@@ -933,9 +957,10 @@
            *> Result: WS-RESERVE of both weapons grows; the crate disappears and LBL-MESSAGE says what was found.
            CALL "WAR-AMMO-PICKUP"
 
-           *> Decides whether the attackers have found the player: thirty seconds in the open, or by chance in a hiding place.
-           *> Uses: WS-INDOORS (in a building or a container), WS-PLAYER-X, WS-PLAYER-Z, the attackers alive, WS-HEALTH.
-           *> Result: WS-SPOTTED, WS-SEARCH-FRAMES, WS-LOST-FRAMES, WS-ATTACKERS, and WS-MARK, the point the attackers go for.
+           *> Decides whether the attackers have found the player: thirty seconds in the open, or a clear line of sight into a hiding place.
+           *> Uses: WS-INDOORS (in a building or a container), WS-PLAYER-X, WS-PLAYER-Z, the attackers alive with their places,
+           *> the walls (WS-BOX) and the doors, WS-HEALTH.
+           *> Result: WS-SPOTTED, WS-SEEN, WS-SEARCH-FRAMES, WS-LOST-FRAMES, WS-ATTACKERS, and WS-MARK, the point the attackers go for.
            CALL "WAR-SPOTTING"
 
            *> Spawns, moves and fires the tanks, helicopters and drones; they open fire only once the player is spotted.
@@ -1506,6 +1531,41 @@
                END-IF
            END-PERFORM
 
+           *> Can a tank or a drone see into the player's hiding place? Looked at twice a second, and only while hiding.
+           IF      WS-INDOORS = 0
+               MOVE    0                         TO    WS-SEEN
+           ELSE
+               IF      FUNCTION MOD( WS-FRAME 15 ) = 0
+                   MOVE    0                     TO    WS-SEEN
+                   PERFORM VARYING WS-FIND-INDEX FROM 1 BY 1 UNTIL WS-FIND-INDEX > 4 OR WS-SEEN = 1
+                       IF      WS-DRONE-ALIVE(WS-FIND-INDEX) = 1
+                           MOVE    WS-DRONE-X(WS-FIND-INDEX)     TO    WS-FROM-X
+                           MOVE    WS-DRONE-Z(WS-FIND-INDEX)     TO    WS-FROM-Z
+                           *> Is there a clear line from this drone to the player?
+                           *> Uses: WS-FROM-X, WS-FROM-Z (the drone), WS-PLAYER-X, WS-PLAYER-Z, WS-BOX, WS-DOOR, WS-ROOM.
+                           *> Result: WS-SIGHT is 1 when nothing stands between them within 60 m.
+                           CALL "WAR-CLEAR-SIGHT"
+                           IF      WS-SIGHT = 1
+                               MOVE    1         TO    WS-SEEN
+                           END-IF
+                       END-IF
+                       IF      WS-FIND-INDEX <= 2 AND WS-SEEN = 0
+                           IF      WS-TANK-ALIVE(WS-FIND-INDEX) = 1
+                               MOVE    WS-TANK-X(WS-FIND-INDEX)  TO    WS-FROM-X
+                               MOVE    WS-TANK-Z(WS-FIND-INDEX)  TO    WS-FROM-Z
+                               *> Is there a clear line from this tank to the player?
+                               *> Uses: WS-FROM-X, WS-FROM-Z (the tank), WS-PLAYER-X, WS-PLAYER-Z, WS-BOX, WS-DOOR.
+                               *> Result: WS-SIGHT is 1 when nothing stands between them within 60 m.
+                               CALL "WAR-CLEAR-SIGHT"
+                               IF      WS-SIGHT = 1
+                                   MOVE    1     TO    WS-SEEN
+                               END-IF
+                           END-IF
+                       END-IF
+                   END-PERFORM
+               END-IF
+           END-IF
+
            EVALUATE TRUE
                WHEN WS-ATTACKERS = 0 OR WS-HEALTH <= 0
                    *> Nobody is searching: the next attackers start from scratch.
@@ -1513,9 +1573,9 @@
                    MOVE    0                     TO    WS-SEARCH-FRAMES
                WHEN WS-SPOTTED = 0
                    IF      WS-INDOORS = 1
-                       *> Hidden in a building or a container: the search clock stops, and only luck finds the player,
-                       *> about once in fifteen seconds on average.
-                       IF      FUNCTION RANDOM < 0.0022
+                       *> Hidden in a building or a container: the search clock stops, and the player is found only when a
+                       *> tank or a drone sees in, through an open door, a container's open end or a gap it is in line with.
+                       IF      WS-SEEN = 1
                            MOVE    1             TO    WS-SPOTTED
                        END-IF
                    ELSE
@@ -1532,13 +1592,20 @@
                    END-IF
                WHEN OTHER
                    IF      WS-INDOORS = 1
-                       *> Spotted, then hidden: they keep firing at the last place they saw the player; five seconds out of
-                       *> sight and they have lost the trail, and the search starts again.
-                       ADD     1                 TO    WS-LOST-FRAMES
-                       IF      WS-LOST-FRAMES >= 150
-                           MOVE    0             TO    WS-SPOTTED
-                           MOVE    0             TO    WS-SEARCH-FRAMES
-                           MOVE    0             TO    WS-SEARCH-WAIT
+                       *> Spotted, then hidden. While one of them still sees in, they follow the player. Out of their sight
+                       *> they keep firing at the last place they saw the player; after five seconds they have lost the
+                       *> trail, and the search starts again.
+                       IF      WS-SEEN = 1
+                           MOVE    0             TO    WS-LOST-FRAMES
+                           MOVE    WS-PLAYER-X   TO    WS-MARK-X
+                           MOVE    WS-PLAYER-Z   TO    WS-MARK-Z
+                       ELSE
+                           ADD     1             TO    WS-LOST-FRAMES
+                           IF      WS-LOST-FRAMES >= 150
+                               MOVE    0         TO    WS-SPOTTED
+                               MOVE    0         TO    WS-SEARCH-FRAMES
+                               MOVE    0         TO    WS-SEARCH-WAIT
+                           END-IF
                        END-IF
                    ELSE
                        MOVE    0                 TO    WS-LOST-FRAMES
@@ -1555,6 +1622,95 @@
                    COMPUTE WS-MARK-X = WS-PLAYER-X + ( FUNCTION RANDOM - 0.5 ) * 60
                    COMPUTE WS-MARK-Z = WS-PLAYER-Z + ( FUNCTION RANDOM - 0.5 ) * 60
                END-IF
+           END-IF
+]]></Event>
+    <Event name="WAR-CLEAR-SIGHT" paragraph="WAR-CLEAR-SIGHT"><![CDATA[       PROCEDURE DIVISION.
+           *> The line from WS-FROM to the player, seen from above. Farther than 60 m nobody sees anything in the smoke.
+           MOVE    1                             TO    WS-SIGHT
+           COMPUTE WS-SIGHT-X = WS-PLAYER-X - WS-FROM-X
+           COMPUTE WS-SIGHT-Z = WS-PLAYER-Z - WS-FROM-Z
+           IF      WS-SIGHT-X * WS-SIGHT-X + WS-SIGHT-Z * WS-SIGHT-Z > 3600
+               MOVE    0                         TO    WS-SIGHT
+           END-IF
+           *> A drone over a building or a container looks down on its roof, and sees nothing under it.
+           PERFORM VARYING WS-BOX-INDEX FROM 1 BY 1 UNTIL WS-BOX-INDEX > WS-ROOM-COUNT OR WS-SIGHT = 0
+               IF      WS-FROM-X > WS-ROOM-MIN-X(WS-BOX-INDEX) AND WS-FROM-X < WS-ROOM-MAX-X(WS-BOX-INDEX)
+                   AND WS-FROM-Z > WS-ROOM-MIN-Z(WS-BOX-INDEX) AND WS-FROM-Z < WS-ROOM-MAX-Z(WS-BOX-INDEX)
+                   MOVE    0                     TO    WS-SIGHT
+               END-IF
+           END-PERFORM
+           *> Every wall, pillar, wreck and barrier: its box without the margin kept for the player's body.
+           PERFORM VARYING WS-BOX-INDEX FROM 1 BY 1 UNTIL WS-BOX-INDEX > WS-BOX-COUNT OR WS-SIGHT = 0
+               COMPUTE WS-WALL-MIN-X = WS-BOX-MIN-X(WS-BOX-INDEX) + 0.3
+               COMPUTE WS-WALL-MAX-X = WS-BOX-MAX-X(WS-BOX-INDEX) - 0.3
+               COMPUTE WS-WALL-MIN-Z = WS-BOX-MIN-Z(WS-BOX-INDEX) + 0.3
+               COMPUTE WS-WALL-MAX-Z = WS-BOX-MAX-Z(WS-BOX-INDEX) - 0.3
+               *> Does the line cross this wall?
+               *> Uses: WS-FROM-X, WS-FROM-Z, WS-SIGHT-X, WS-SIGHT-Z, WS-WALL-MIN-X, WS-WALL-MAX-X, WS-WALL-MIN-Z, WS-WALL-MAX-Z.
+               *> Result: WS-SIGHT becomes 0 when it does.
+               CALL "WAR-SIGHT-WALL"
+           END-PERFORM
+           *> A door hides the player while it is less than half open.
+           PERFORM VARYING WS-BOX-INDEX FROM 1 BY 1 UNTIL WS-BOX-INDEX > WS-DOOR-COUNT OR WS-SIGHT = 0
+               IF      WS-DOOR-ANGLE(WS-BOX-INDEX) < 45
+                   COMPUTE WS-WALL-MIN-X = WS-DOOR-MIN-X(WS-BOX-INDEX) + 0.3
+                   COMPUTE WS-WALL-MAX-X = WS-DOOR-MAX-X(WS-BOX-INDEX) - 0.3
+                   COMPUTE WS-WALL-MIN-Z = WS-DOOR-MIN-Z(WS-BOX-INDEX) + 0.3
+                   COMPUTE WS-WALL-MAX-Z = WS-DOOR-MAX-Z(WS-BOX-INDEX) - 0.3
+                   *> Does the line cross this closed door?
+                   *> Uses: WS-FROM-X, WS-FROM-Z, WS-SIGHT-X, WS-SIGHT-Z and the door's box in WS-WALL-MIN-X to WS-WALL-MAX-Z.
+                   *> Result: WS-SIGHT becomes 0 when it does.
+                   CALL "WAR-SIGHT-WALL"
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="WAR-SIGHT-WALL" paragraph="WAR-SIGHT-WALL"><![CDATA[       PROCEDURE DIVISION.
+           *> The line runs from 0 (the attacker) to 1 (the player). Along each axis it is inside the wall's span between two
+           *> points of that run; it crosses the wall when the two spans overlap. A line that runs along an axis is inside that
+           *> span all the way or not at all.
+           MOVE    0                             TO    WS-ENTERS
+           MOVE    1                             TO    WS-LEAVES
+           MOVE    0                             TO    WS-MISSES
+           IF      FUNCTION ABS( WS-SIGHT-X ) < 0.01
+               IF      WS-FROM-X < WS-WALL-MIN-X OR WS-FROM-X > WS-WALL-MAX-X
+                   MOVE    1                     TO    WS-MISSES
+               END-IF
+           ELSE
+               COMPUTE WS-CROSS-FIRST = ( WS-WALL-MIN-X - WS-FROM-X ) / WS-SIGHT-X
+               COMPUTE WS-CROSS-LAST = ( WS-WALL-MAX-X - WS-FROM-X ) / WS-SIGHT-X
+               IF      WS-CROSS-FIRST > WS-CROSS-LAST
+                   MOVE    WS-CROSS-FIRST        TO    WS-CROSS-SWAP
+                   MOVE    WS-CROSS-LAST         TO    WS-CROSS-FIRST
+                   MOVE    WS-CROSS-SWAP         TO    WS-CROSS-LAST
+               END-IF
+               IF      WS-CROSS-FIRST > WS-ENTERS
+                   MOVE    WS-CROSS-FIRST        TO    WS-ENTERS
+               END-IF
+               IF      WS-CROSS-LAST < WS-LEAVES
+                   MOVE    WS-CROSS-LAST         TO    WS-LEAVES
+               END-IF
+           END-IF
+           IF      FUNCTION ABS( WS-SIGHT-Z ) < 0.01
+               IF      WS-FROM-Z < WS-WALL-MIN-Z OR WS-FROM-Z > WS-WALL-MAX-Z
+                   MOVE    1                     TO    WS-MISSES
+               END-IF
+           ELSE
+               COMPUTE WS-CROSS-FIRST = ( WS-WALL-MIN-Z - WS-FROM-Z ) / WS-SIGHT-Z
+               COMPUTE WS-CROSS-LAST = ( WS-WALL-MAX-Z - WS-FROM-Z ) / WS-SIGHT-Z
+               IF      WS-CROSS-FIRST > WS-CROSS-LAST
+                   MOVE    WS-CROSS-FIRST        TO    WS-CROSS-SWAP
+                   MOVE    WS-CROSS-LAST         TO    WS-CROSS-FIRST
+                   MOVE    WS-CROSS-SWAP         TO    WS-CROSS-LAST
+               END-IF
+               IF      WS-CROSS-FIRST > WS-ENTERS
+                   MOVE    WS-CROSS-FIRST        TO    WS-ENTERS
+               END-IF
+               IF      WS-CROSS-LAST < WS-LEAVES
+                   MOVE    WS-CROSS-LAST         TO    WS-LEAVES
+               END-IF
+           END-IF
+           IF      WS-MISSES = 0 AND WS-ENTERS <= WS-LEAVES
+               MOVE    0                         TO    WS-SIGHT
            END-IF
 ]]></Event>
     <Event name="WAR-ENEMIES" paragraph="WAR-ENEMIES"><![CDATA[       PROCEDURE DIVISION.
@@ -1679,7 +1835,10 @@
                            + FUNCTION COS( WS-HELI-ANGLE(WS-HELI-INDEX) ) * WS-HELI-RADIUS(WS-HELI-INDEX)
                    COMPUTE WS-HELI-Z(WS-HELI-INDEX) = WS-HELI-CENTRE-Z(WS-HELI-INDEX)
                            + FUNCTION SIN( WS-HELI-ANGLE(WS-HELI-INDEX) ) * WS-HELI-RADIUS(WS-HELI-INDEX)
+                   *> It comes in high, over the towers around the city (the tallest stands 71 m), and is down at 21 m once
+                   *> it orbits: 0.6 m higher for every metre of radius beyond 38.
                    COMPUTE WS-HELI-Y(WS-HELI-INDEX) = 21 + FUNCTION SIN( WS-FRAME * 0.02 + WS-HELI-INDEX ) * 3
+                                                      + ( WS-HELI-RADIUS(WS-HELI-INDEX) - 38 ) * 0.6
                    SCN-1::SetPosition( WS-HELI-ROOT(WS-HELI-INDEX) WS-HELI-X(WS-HELI-INDEX) WS-HELI-Y(WS-HELI-INDEX)
                                        WS-HELI-Z(WS-HELI-INDEX) )
                    *> Nose toward the mark and a little down, the attitude of a gunship on a firing pass; the rotor spins.
@@ -1733,25 +1892,37 @@
                        SUBTRACT 1                FROM  WS-DRONE-WAIT(WS-DRONE-INDEX)
                    ELSE
                        IF      WS-DRONE-INDEX <= WS-WAVE + 1 AND WS-HEALTH > 0
-                           *> A drone appears 75 m away, ten metres up.
+                           *> A drone appears 75 m away, inside the ring of towers, twelve metres up: above every roof of the city.
                            MOVE    1                     TO    WS-DRONE-ALIVE(WS-DRONE-INDEX)
                            MOVE    2                     TO    WS-DRONE-HEALTH(WS-DRONE-INDEX)
                            COMPUTE WS-LENGTH = FUNCTION RANDOM * 6.283
                            COMPUTE WS-DRONE-X(WS-DRONE-INDEX) = WS-PLAYER-X + FUNCTION COS( WS-LENGTH ) * 75
                            COMPUTE WS-DRONE-Z(WS-DRONE-INDEX) = WS-PLAYER-Z + FUNCTION SIN( WS-LENGTH ) * 75
-                           MOVE    10                    TO    WS-DRONE-Y(WS-DRONE-INDEX)
+                           IF      WS-DRONE-X(WS-DRONE-INDEX) > 86
+                               MOVE    86                TO    WS-DRONE-X(WS-DRONE-INDEX)
+                           END-IF
+                           IF      WS-DRONE-X(WS-DRONE-INDEX) < -86
+                               MOVE    -86               TO    WS-DRONE-X(WS-DRONE-INDEX)
+                           END-IF
+                           IF      WS-DRONE-Z(WS-DRONE-INDEX) > 86
+                               MOVE    86                TO    WS-DRONE-Z(WS-DRONE-INDEX)
+                           END-IF
+                           IF      WS-DRONE-Z(WS-DRONE-INDEX) < -86
+                               MOVE    -86               TO    WS-DRONE-Z(WS-DRONE-INDEX)
+                           END-IF
+                           MOVE    12                    TO    WS-DRONE-Y(WS-DRONE-INDEX)
                            SCN-1::SetVisible( WS-DRONE-ROOT(WS-DRONE-INDEX) 1 )
                        END-IF
                    END-IF
                ELSE
-                   *> Straight at the mark, faster in later waves, wobbling; it dives once near a player it has spotted.
+                   *> Straight at the mark at 12 m, above every roof, faster in later waves, wobbling; it dives once near a player it has spotted.
                    COMPUTE WS-DISTANCE-X = WS-MARK-X - WS-DRONE-X(WS-DRONE-INDEX)
                    COMPUTE WS-DISTANCE-Z = WS-MARK-Z - WS-DRONE-Z(WS-DRONE-INDEX)
                    COMPUTE WS-DISTANCE = FUNCTION SQRT( WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z )
                    IF      WS-DISTANCE < 25 AND WS-SPOTTED = 1
                        COMPUTE WS-HEIGHT = 1.4 + WS-DISTANCE * 0.2
                    ELSE
-                       MOVE    7                 TO    WS-HEIGHT
+                       MOVE    12                TO    WS-HEIGHT
                    END-IF
                    COMPUTE WS-DISTANCE-Y = WS-HEIGHT - WS-DRONE-Y(WS-DRONE-INDEX)
                    COMPUTE WS-SPEED = 0.2 + WS-WAVE * 0.02
@@ -1767,7 +1938,32 @@
                    SCN-1::SetPosition( WS-DRONE-ROOT(WS-DRONE-INDEX) WS-DRONE-X(WS-DRONE-INDEX) WS-DRONE-Y(WS-DRONE-INDEX)
                                        WS-DRONE-Z(WS-DRONE-INDEX) )
                    SCN-1::LookAt( WS-DRONE-ROOT(WS-DRONE-INDEX) WS-MARK-X WS-DRONE-Y(WS-DRONE-INDEX) WS-MARK-Z )
-                   IF      WS-DISTANCE < 1.6 AND WS-SPOTTED = 1 AND WS-HEALTH > 0
+
+                   *> A drone that flies into a building or a container, below its roof, is wrecked against it.
+                   MOVE    0                     TO    WS-CRASHED
+                   PERFORM VARYING WS-BOX-INDEX FROM 1 BY 1 UNTIL WS-BOX-INDEX > WS-ROOM-COUNT OR WS-CRASHED = 1
+                       IF      WS-DRONE-Y(WS-DRONE-INDEX) < WS-ROOM-TOP(WS-BOX-INDEX)
+                           AND WS-DRONE-X(WS-DRONE-INDEX) > WS-ROOM-MIN-X(WS-BOX-INDEX)
+                           AND WS-DRONE-X(WS-DRONE-INDEX) < WS-ROOM-MAX-X(WS-BOX-INDEX)
+                           AND WS-DRONE-Z(WS-DRONE-INDEX) > WS-ROOM-MIN-Z(WS-BOX-INDEX)
+                           AND WS-DRONE-Z(WS-DRONE-INDEX) < WS-ROOM-MAX-Z(WS-BOX-INDEX)
+                           MOVE    1             TO    WS-CRASHED
+                       END-IF
+                   END-PERFORM
+                   IF      WS-CRASHED = 1
+                       MOVE    0                 TO    WS-DRONE-ALIVE(WS-DRONE-INDEX)
+                       SCN-1::SetVisible( WS-DRONE-ROOT(WS-DRONE-INDEX) 0 )
+                       COMPUTE WS-DRONE-WAIT(WS-DRONE-INDEX) = 120 + FUNCTION RANDOM * 120
+                       MOVE    WS-DRONE-X(WS-DRONE-INDEX)    TO    WS-BOOM-X
+                       MOVE    WS-DRONE-Y(WS-DRONE-INDEX)    TO    WS-BOOM-Y
+                       MOVE    WS-DRONE-Z(WS-DRONE-INDEX)    TO    WS-BOOM-Z
+                       MOVE    0.8                           TO    WS-BOOM-SIZE
+                       *> The drone hit a building: its grenade goes off against the wall.
+                       *> Uses: WS-BOOM-X, WS-BOOM-Y, WS-BOOM-Z (the drone), WS-BOOM-SIZE 0.8.
+                       *> Result: a small explosion there; the player hurt if within its reach, less behind the walls.
+                       CALL "WAR-EXPLODE"
+                   END-IF
+                   IF      WS-CRASHED = 0 AND WS-DISTANCE < 1.6 AND WS-SPOTTED = 1 AND WS-HEALTH > 0
                        MOVE    0                 TO    WS-DRONE-ALIVE(WS-DRONE-INDEX)
                        SCN-1::SetVisible( WS-DRONE-ROOT(WS-DRONE-INDEX) 0 )
                        COMPUTE WS-DRONE-WAIT(WS-DRONE-INDEX) = 120 + FUNCTION RANDOM * 120
@@ -2152,7 +2348,7 @@
                    SET     LBL-STATUS::ForegroundColor   TO    "#FF5040"
                    LBL-STATUS::Show()
                WHEN WS-SPOTTED = 1
-                   SET     LBL-STATUS::Caption           TO    "SPOTTED - stay hidden to lose them"
+                   SET     LBL-STATUS::Caption           TO    "SPOTTED - get out of their sight"
                    SET     LBL-STATUS::ForegroundColor   TO    "#FFA040"
                    LBL-STATUS::Show()
                WHEN WS-INDOORS = 1

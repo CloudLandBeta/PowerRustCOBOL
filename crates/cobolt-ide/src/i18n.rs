@@ -3058,6 +3058,8 @@ pub struct Tr {
     pub examples_cat_mobile: &'static str,
     /// Help → Examples: powergraphics about.
     pub examples_powergraphics_about: &'static str,
+    /// Help → Examples: powercallofduty about.
+    pub examples_powercallofduty_about: &'static str,
     /// Help → Examples: powerwebhello about.
     pub examples_powerwebhello_about: &'static str,
     /// Help → Examples: poweranalyticsweb about.
@@ -5428,6 +5430,7 @@ const EN: Tr = Tr {
     examples_cat_web: "Web",
     examples_cat_mobile: "Mobile",
     examples_powergraphics_about: "A showcase of the graphics controls: Pitfall reinterpreted on a Canvas2D (a jungle that turns into a noir ghost world after your first death, 100 screens each), an endless bridge run in a Tesla-style roadster on a Canvas3D, a top-view pool game on Physics2D, a traditional-view 3D pool game on Physics3D, and a bald runner's street view on a Scene3D; plus a chart gallery, an image lab and a 3D viewer. Built 100% in RustCOBOL.",
+    examples_powercallofduty_about: "A mini first-person shooter in a ruined city, drawn by a Canvas3D over a Scene3D: an AR-15 and a Desert Eagle held in gloved hands, doors that open and close, ammunition behind pillars and inside containers, bullet marks on the walls, and tanks, helicopters and drones that search for you and attack in growing waves. Hide in a building or a container to lose them. Built 100% in RustCOBOL.",
     examples_powerwebhello_about: "The smallest Web application: a form served from a WebAssembly bundle that greets you by name, with a Backend written in RustCOBOL that answers the greeting. The place to start before building a bigger web application.",
     examples_poweranalyticsweb_about: "The fund-analytics dashboard of PowerAnalytics rebuilt as a Web application: the same charts, filters and data grid in the browser, with the data held by a RustCOBOL Backend.",
     examples_powermobilehello_about: "The smallest Mobile application: one screen for a phone that greets you by name and can forget you, built as a WebAssembly bundle. The place to start before building a bigger mobile application.",
@@ -7775,6 +7778,7 @@ const ES: Tr = Tr {
     examples_cat_web: "Web",
     examples_cat_mobile: "Móvil",
     examples_powergraphics_about: "Una muestra de los controles gráficos: Pitfall reinterpretado en un Canvas2D (una selva que se vuelve un mundo fantasma en blanco y negro tras su primera muerte, 100 pantallas en cada uno), una carrera sin fin por un puente en un deportivo al estilo Tesla en un Canvas3D, un billar visto desde arriba con Physics2D, un billar 3D en vista tradicional con Physics3D y la vista de la calle de un corredor calvo en un Scene3D; además de una galería de gráficos, un laboratorio de imágenes y un visor 3D. Hecho 100% en RustCOBOL.",
+    examples_powercallofduty_about: "Un mini juego de disparos en primera persona en una ciudad en ruinas, dibujado por un Canvas3D sobre un Scene3D: un AR-15 y una Desert Eagle en manos enguantadas, puertas que se abren y se cierran, munición detrás de los pilares y dentro de los contenedores, marcas de bala en las paredes, y tanques, helicópteros y drones que lo buscan y atacan en oleadas crecientes. Escóndase en un edificio o en un contenedor para que le pierdan el rastro. Hecho 100% en RustCOBOL.",
     examples_powerwebhello_about: "La aplicación Web más pequeña: un formulario servido desde un paquete WebAssembly que le saluda por su nombre, con un Backend escrito en RustCOBOL que responde al saludo. El punto de partida antes de construir una aplicación web mayor.",
     examples_poweranalyticsweb_about: "El panel de análisis de fondos de PowerAnalytics reconstruido como aplicación Web: los mismos gráficos, filtros y cuadrícula de datos en el navegador, con los datos en un Backend RustCOBOL.",
     examples_powermobilehello_about: "La aplicación Móvil más pequeña: una pantalla para teléfono que le saluda por su nombre y puede olvidarle, construida como paquete WebAssembly. El punto de partida antes de construir una aplicación móvil mayor.",
@@ -10122,6 +10126,7 @@ const PT: Tr = Tr {
     examples_cat_web: "Web",
     examples_cat_mobile: "Mobile",
     examples_powergraphics_about: "Uma vitrine dos controles gráficos: Pitfall reinterpretado em um Canvas2D (uma selva que vira um mundo fantasma em preto e branco depois da primeira morte, 100 telas em cada), uma corrida sem fim numa ponte com um esportivo estilo Tesla em um Canvas3D, uma sinuca vista de cima com Physics2D, uma sinuca 3D em vista tradicional com Physics3D e a visão da rua de um corredor careca em um Scene3D; além de uma galeria de gráficos, um laboratório de imagens e um visualizador 3D. Feito 100% em RustCOBOL.",
+    examples_powercallofduty_about: "Um mini jogo de tiro em primeira pessoa em uma cidade em ruínas, desenhado por um Canvas3D sobre um Scene3D: um AR-15 e uma Desert Eagle em mãos enluvadas, portas que abrem e fecham, munição atrás dos pilares e dentro dos contêineres, marcas de bala nas paredes, e tanques, helicópteros e drones que procuram você e atacam em ondas crescentes. Esconda-se em um prédio ou em um contêiner para despistá-los. Feito 100% em RustCOBOL.",
     examples_powerwebhello_about: "A menor aplicação Web: um formulário servido de um pacote WebAssembly que cumprimenta você pelo nome, com um Backend escrito em RustCOBOL que responde ao cumprimento. O ponto de partida antes de construir uma aplicação web maior.",
     examples_poweranalyticsweb_about: "O painel de análise de fundos do PowerAnalytics reconstruído como aplicação Web: os mesmos gráficos, filtros e grade de dados no navegador, com os dados em um Backend RustCOBOL.",
     examples_powermobilehello_about: "A menor aplicação Mobile: uma tela de celular que cumprimenta você pelo nome e pode esquecer você, construída como pacote WebAssembly. O ponto de partida antes de construir uma aplicação mobile maior.",
@@ -12468,6 +12473,7 @@ const JA: Tr = Tr {
     examples_cat_web: "Web",
     examples_cat_mobile: "モバイル",
     examples_powergraphics_about: "グラフィックスコントロールのショーケース：Canvas2D で再解釈した Pitfall（最初に死ぬとジャングルがモノクロの幽霊の世界に変わり、各 100 画面）、Canvas3D でテスラ風ロードスターが走る終わりのない橋、Physics2D の真上視点ビリヤード、Physics3D の通常視点 3D ビリヤード、Scene3D のスキンヘッドのランナーの街並み。さらにグラフギャラリー、画像ラボ、3D ビューアーも収録。100% RustCOBOL で記述。",
+    examples_powercallofduty_about: "廃墟の街を舞台にした小さな一人称シューティング。Scene3D を Canvas3D で描画します：手袋をはめた手に握られた AR-15 と Desert Eagle、開閉するドア、柱の裏やコンテナの中の弾薬、壁に残る弾痕、そしてあなたを捜索し、次第に激しくなる波で襲ってくる戦車・ヘリコプター・ドローン。建物やコンテナに隠れれば追跡を振り切れます。100% RustCOBOL で作成。",
     examples_powerwebhello_about: "最小の Web アプリケーション：WebAssembly バンドルから配信されるフォームが名前であいさつし、RustCOBOL で書かれた Backend がそのあいさつに応答します。大きな Web アプリケーションを作る前の出発点です。",
     examples_poweranalyticsweb_about: "PowerAnalytics のファンド分析ダッシュボードを Web アプリケーションとして再構築：同じグラフ、フィルター、データグリッドをブラウザーで動かし、データは RustCOBOL の Backend が保持します。",
     examples_powermobilehello_about: "最小のモバイルアプリケーション：名前であいさつし、忘れることもできる携帯電話向けの 1 画面を WebAssembly バンドルとして構築。大きなモバイルアプリケーションを作る前の出発点です。",
@@ -14821,6 +14827,7 @@ const ZH: Tr = Tr {
     examples_cat_web: "Web",
     examples_cat_mobile: "移动",
     examples_powergraphics_about: "图形控件展示：在 Canvas2D 上重新演绎的 Pitfall（第一次死亡后丛林变成黑白幽灵世界，各 100 屏）、在 Canvas3D 上驾驶特斯拉风格跑车的无尽大桥、基于 Physics2D 的俯视台球、基于 Physics3D 的传统视角 3D 台球，以及基于 Scene3D 的光头跑者街景；另有图表库、图像实验室和 3D 查看器。全部用 RustCOBOL 编写。",
+    examples_powercallofduty_about: "一款以废墟城市为背景的迷你第一人称射击游戏，由 Canvas3D 绘制 Scene3D：戴手套的双手握持的 AR-15 和 Desert Eagle、可开关的门、柱子后面和集装箱里的弹药、墙上的弹痕，以及搜寻你并一波强过一波发起攻击的坦克、直升机和无人机。躲进建筑物或集装箱即可甩掉它们。100% 使用 RustCOBOL 构建。",
     examples_powerwebhello_about: "最小的 Web 应用：由 WebAssembly 包提供的窗体按姓名问候您，并由用 RustCOBOL 编写的 Backend 回应问候。构建更大的 Web 应用之前的起点。",
     examples_poweranalyticsweb_about: "将 PowerAnalytics 的基金分析仪表板重建为 Web 应用：相同的图表、筛选器和数据网格在浏览器中运行，数据由 RustCOBOL Backend 保存。",
     examples_powermobilehello_about: "最小的移动应用：一个按姓名问候、也能忘记您的手机屏幕，构建为 WebAssembly 包。构建更大的移动应用之前的起点。",
@@ -17168,6 +17175,7 @@ const FR: Tr = Tr {
     examples_cat_web: "Web",
     examples_cat_mobile: "Mobile",
     examples_powergraphics_about: "Une vitrine des contrôles graphiques : Pitfall réinterprété sur un Canvas2D (une jungle qui devient un monde fantôme en noir et blanc après votre première mort, 100 écrans chacun), une course sans fin sur un pont au volant d'un roadster façon Tesla sur un Canvas3D, un billard vu de dessus avec Physics2D, un billard 3D en vue traditionnelle avec Physics3D et la vue de la rue d'un coureur chauve sur un Scene3D ; plus une galerie de graphiques, un labo d'images et une visionneuse 3D. Écrit à 100 % en RustCOBOL.",
+    examples_powercallofduty_about: "Un mini jeu de tir à la première personne dans une ville en ruines, dessiné par un Canvas3D sur un Scene3D : un AR-15 et un Desert Eagle tenus dans des mains gantées, des portes qui s'ouvrent et se ferment, des munitions derrière les piliers et dans les conteneurs, des impacts de balles sur les murs, et des chars, des hélicoptères et des drones qui vous cherchent et attaquent par vagues croissantes. Cachez-vous dans un bâtiment ou un conteneur pour les semer. Réalisé à 100 % en RustCOBOL.",
     examples_powerwebhello_about: "La plus petite application Web : un formulaire servi par un paquet WebAssembly qui vous salue par votre nom, avec un Backend écrit en RustCOBOL qui répond à la salutation. Le point de départ avant de construire une application web plus grande.",
     examples_poweranalyticsweb_about: "Le tableau de bord d'analyse de fonds de PowerAnalytics reconstruit en application Web : les mêmes graphiques, filtres et grille de données dans le navigateur, avec les données tenues par un Backend RustCOBOL.",
     examples_powermobilehello_about: "La plus petite application Mobile : un écran de téléphone qui vous salue par votre nom et peut vous oublier, construit en paquet WebAssembly. Le point de départ avant de construire une application mobile plus grande.",
