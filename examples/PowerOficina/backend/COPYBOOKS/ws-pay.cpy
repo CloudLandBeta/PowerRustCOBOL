@@ -1,0 +1,14 @@
+       01 WS-FS-PAY                              PIC    XX.
+       01 WS-FS-INS                              PIC    XX.
+       01 WS-FS-RFD                              PIC    XX.
+       01 WS-FS-QUE                              PIC    XX.
+       01 WS-FS-NTF                              PIC    XX.
+       01 WS-NT-QUO                              PIC    9(8).
+       01 WS-NT-KIND                             PIC    X(12).
+       01 WS-NT-TEXT                             PIC    X(200).
+       01 WS-NT-CHAN                             PIC    9.
+       01 WS-FS-CUS                              PIC    XX.
+       01 WS-NT-CUS                              PIC    9(8).
+       01 WS-NT-HAS                              PIC    X.
+       01 WS-NT-RESULT                           PIC    X(8).
+       01 WS-NT-ADDR                             PIC    X(60).

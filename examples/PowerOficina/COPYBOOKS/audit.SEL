@@ -1,0 +1,5 @@
+           SELECT AUDIT-FILE ASSIGN TO "data/audit.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS AUD-ID
+               STORAGE MODE IS DISK.

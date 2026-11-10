@@ -1,0 +1,18 @@
+      *> One vehicle data collection: when the car came in, its model and what the sensors read. DGN-SOURCE is S for the simulated collector, R for a real reader and M for values typed by hand.
+       FD  DIAGNOSIS-FILE
+           RECORD CONTAINS 116 CHARACTERS.
+           01 DIAGNOSIS-RECORD.
+               05 DGN-ID PIC 9(8). *> Primary key
+               05 DGN-PLATE PIC X(8).
+               05 DGN-AT PIC 9(14). *> Entry date and time, YYYYMMDDHHMMSS
+               05 DGN-SOURCE PIC X(1). *> S, R or M
+               05 DGN-MODEL PIC X(30).
+               05 DGN-ENGINE-TEMP PIC 9(3). *> Degrees Celsius
+               05 DGN-RPM PIC 9(5).
+               05 DGN-BATTERY PIC 9(2)V9. *> Volts
+               05 DGN-OIL-PRESSURE PIC 9(3)V9. *> kPa
+               05 DGN-FAULT-1 PIC X(8). *> Fault code
+               05 DGN-FAULT-2 PIC X(8).
+               05 DGN-FAULT-3 PIC X(8).
+               05 DGN-FAULT-4 PIC X(8).
+               05 DGN-FAULT-5 PIC X(8).

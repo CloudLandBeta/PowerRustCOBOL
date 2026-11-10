@@ -1,0 +1,12 @@
+      *> Parts, labour, services and add-ons with their own price in each currency. The currency is part of the key, so a BRL row and an EUR row are different records and are never converted into each other. CAT-KIND is P part, S service, A add-on or L labour rate per hour.
+       FD  CATALOG-FILE
+           RECORD CONTAINS 74 CHARACTERS.
+           01 CATALOG-RECORD.
+               05 CAT-KEY. *> Primary key: currency then code
+                   10 CAT-CURRENCY PIC X(3). *> BRL or EUR
+                   10 CAT-CODE PIC X(12).
+               05 CAT-KIND PIC X(1). *> P, S, A or L
+               05 CAT-NAME PIC X(40).
+               05 CAT-PRICE PIC 9(7)V99. *> Unit price in the row's own currency, without tax
+               05 CAT-HOURS PIC 9(3)V99. *> Standard labour hours for a service
+               05 CAT-TAX-RATE PIC 9(2)V99. *> Tax rate in percent for this row's currency

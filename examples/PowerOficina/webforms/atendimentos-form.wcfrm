@@ -1,0 +1,646 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="ATENDIMENTOS-FORM" title="Atendimentos" width="1192" height="852" background="#F7F8FCFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded" definition="Intake screen of the workshop: finds a vehicle by plate, registers or changes the customer (with consent per channel) and the vehicle, through the Backend programs VEHICLE-FIND, CUSTOMER-SAVE and VEHICLE-SAVE." index-base="1" responsive="true">
+  <working-storage><![CDATA[       01 BE-CLASS                               GLOBAL    PIC X(16).
+       01 BE-CODE                                GLOBAL    PIC 9(9).
+       01 BE-MSG                                 GLOBAL    PIC X(80).
+       01 WS-LINE                                GLOBAL    PIC X(120).
+       01 WS-CUS-ID                              GLOBAL    PIC 9(8)    VALUE 0.
+       01 CUS-REQ                             GLOBAL.
+          05 CRQ-ID                              PIC    9(8).
+          05 CRQ-NAME                            PIC    X(60).
+          05 CRQ-DOC                             PIC    X(14).
+          05 CRQ-ADDRESS                         PIC    X(80).
+          05 CRQ-PHONE                           PIC    X(20).
+          05 CRQ-WHATSAPP                        PIC    X(20).
+          05 CRQ-EMAIL                           PIC    X(60).
+          05 CRQ-CONSENT-EMAIL                   PIC    X(1).
+          05 CRQ-CONSENT-WA                      PIC    X(1).
+          05 CRQ-OPERATOR                        PIC    X(30).
+       01 CUS-RES                             GLOBAL.
+          05 CRS-STATUS                          PIC    X(10).
+          05 CRS-MESSAGE                         PIC    X(80).
+          05 CRS-FIELD                           PIC    X(10).
+          05 CRS-ID                              PIC    9(8).
+       01 VEH-REQ                             GLOBAL.
+          05 VRQ-PLATE                           PIC    X(8).
+          05 VRQ-CUS-ID                          PIC    9(8).
+          05 VRQ-CHASSIS                         PIC    X(17).
+          05 VRQ-BRAND                           PIC    X(20).
+          05 VRQ-MODEL                           PIC    X(30).
+          05 VRQ-YEAR                            PIC    9(4).
+          05 VRQ-COLOR                           PIC    X(15).
+          05 VRQ-MILEAGE                         PIC    9(7).
+          05 VRQ-OPERATOR                        PIC    X(30).
+       01 VEH-RES                             GLOBAL.
+          05 VRS-STATUS                          PIC    X(10).
+          05 VRS-MESSAGE                         PIC    X(80).
+          05 VRS-FIELD                           PIC    X(10).
+          05 VRS-ACTION                          PIC    X(8).
+          05 VRS-PLATE                           PIC    X(8).
+       01 VFD-REQ                             GLOBAL.
+          05 VFQ-PLATE                           PIC    X(8).
+       01 VFD-RES                             GLOBAL.
+          05 VFS-STATUS                          PIC    X(10).
+          05 VFS-PLATE                           PIC    X(8).
+          05 VFS-CHASSIS                         PIC    X(17).
+          05 VFS-BRAND                           PIC    X(20).
+          05 VFS-MODEL                           PIC    X(30).
+          05 VFS-YEAR                            PIC    9(4).
+          05 VFS-COLOR                           PIC    X(15).
+          05 VFS-MILEAGE                         PIC    9(7).
+          05 VFS-CUS-ID                          PIC    9(8).
+          05 VFS-CUS-NAME                        PIC    X(60).
+          05 VFS-CUS-DOC                         PIC    X(14).
+          05 VFS-CUS-ADDRESS                     PIC    X(80).
+          05 VFS-CUS-PHONE                       PIC    X(20).
+          05 VFS-CUS-WHATSAPP                    PIC    X(20).
+          05 VFS-CUS-EMAIL                       PIC    X(60).
+          05 VFS-CUS-CONSENT-EMAIL               PIC    X(1).
+          05 VFS-CUS-CONSENT-WA                  PIC    X(1).
+]]></working-storage>
+<Control id="LBL-TITLE" type="Label" x="32" y="24" w="600" h="40" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Atendimentos</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">28</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Screen title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-SUB" type="Label" x="32" y="64" w="900" h="24" tab-order="2" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">Informe a placa para buscar o veículo; se for novo, cadastre o cliente e o veículo.</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">One-line help under the title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CARD-FIND" type="Panel" x="32" y="104" w="1128" h="96" tab-order="3" z-order="3" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the operator name and the plate search.</Property>
+  </Control>
+<Control id="LBL-OP" type="Label" x="56" y="116" w="200" h="20" tab-order="4" z-order="4" visible="true" enabled="true" parent="CARD-FIND">
+    <Property name="Caption">Operador (vai para a auditoria)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the operator field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-OPERATOR" type="TextBox" x="56" y="140" w="300" h="40" tab-order="5" z-order="5" visible="true" enabled="true" parent="CARD-FIND">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Seu nome</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the person using the system; goes to the audit trail of every save.</Property>
+  </Control>
+<Control id="LBL-PLATE" type="Label" x="392" y="116" w="200" h="20" tab-order="6" z-order="6" visible="true" enabled="true" parent="CARD-FIND">
+    <Property name="Caption">Placa do veículo</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the plate field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-PLATE" type="TextBox" x="392" y="140" w="200" h="40" tab-order="7" z-order="7" visible="true" enabled="true" parent="CARD-FIND">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">ABC1D23</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Plate of the vehicle, with or without hyphen.</Property>
+  </Control>
+<Control id="BTN-FIND" type="Button" x="616" y="140" w="160" h="40" tab-order="8" z-order="8" visible="true" enabled="true" parent="CARD-FIND">
+    <Property name="Caption">Buscar</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Looks the plate up through the Backend and fills the screen when the vehicle is known.</Property>
+    <Event name="onClick" paragraph="BTN-FIND--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> VEHICLE-FIND: looks the plate up and answers the vehicle with its owner.
+           *> Uses:   VFQ-PLATE = the plate typed in TXT-PLATE.
+           *> Result: VFS-STATUS = FOUND, NOTFOUND or INVALID; with FOUND the vehicle and owner
+           *>         fields (VFS-...) are filled; WS-CUS-ID takes the owner's number.
+
+           SET     VFQ-PLATE                     TO    TXT-PLATE::Text
+           SET     VFS-STATUS                    TO    SPACES
+           CALL    "VEHICLE-FIND" WITH WEBSOCKET LINKAGE
+               USING BY VALUE VFD-REQ
+               RETURNING VFD-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     VFS-STATUS            TO    "CALL"
+           END-CALL
+
+           EVALUATE    VFS-STATUS
+               WHEN "FOUND"
+                   SET     WS-CUS-ID             TO    VFS-CUS-ID
+                   SET     TXT-NAME::Text        TO    VFS-CUS-NAME
+                   SET     TXT-DOC::Text         TO    VFS-CUS-DOC
+                   SET     TXT-ADDRESS::Text     TO    VFS-CUS-ADDRESS
+                   SET     TXT-PHONE::Text       TO    VFS-CUS-PHONE
+                   SET     TXT-WHATSAPP::Text    TO    VFS-CUS-WHATSAPP
+                   SET     TXT-EMAIL::Text       TO    VFS-CUS-EMAIL
+                   IF    VFS-CUS-CONSENT-EMAIL = "S"
+                       SET     CHK-EMAIL::Checked  TO    1
+                   ELSE
+                       SET     CHK-EMAIL::Checked  TO    0
+                   END-IF
+                   IF    VFS-CUS-CONSENT-WA = "S"
+                       SET     CHK-WA::Checked  TO    1
+                   ELSE
+                       SET     CHK-WA::Checked  TO    0
+                   END-IF
+                   SET     TXT-CHASSIS::Text     TO    VFS-CHASSIS
+                   SET     TXT-BRAND::Text       TO    VFS-BRAND
+                   SET     TXT-MODEL::Text       TO    VFS-MODEL
+                   SET     TXT-YEAR::Text        TO    VFS-YEAR
+                   SET     TXT-COLOR::Text       TO    VFS-COLOR
+                   SET     TXT-MILEAGE::Text     TO    VFS-MILEAGE
+                   SET     LBL-STATUS::Caption   TO    "Veículo encontrado. Confira os dados e altere o que precisar."
+               WHEN "NOTFOUND"
+                   SET     WS-CUS-ID             TO    0
+                   SET     LBL-STATUS::Caption   TO    "Placa nova: preencha o cliente e o veículo."
+               WHEN "INVALID"
+                   SET     LBL-STATUS::Caption   TO    "A placa deve ter 7 letras ou números."
+               WHEN OTHER
+                   SET     LBL-STATUS::Caption   TO    "Não foi possível falar com o Backend."
+           END-EVALUATE
+]]></Event>
+  </Control>
+<Control id="CARD-CUS" type="Panel" x="32" y="216" w="556" h="500" tab-order="9" z-order="9" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the customer data and the consent per channel.</Property>
+  </Control>
+<Control id="LBL-CUS" type="Label" x="56" y="228" w="400" h="28" tab-order="10" z-order="10" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="Caption">Cliente</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the customer card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-NAME" type="Label" x="56" y="266" w="300" h="20" tab-order="11" z-order="11" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="Caption">Nome completo</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-NAME. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-NAME" type="TextBox" x="56" y="288" w="508" h="36" tab-order="12" z-order="12" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Nome do cliente</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Customer name. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-DOC" type="Label" x="56" y="330" w="300" h="20" tab-order="13" z-order="13" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="Caption">CPF ou CNPJ</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-DOC. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-DOC" type="TextBox" x="56" y="352" w="508" h="36" tab-order="14" z-order="14" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Somente números</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Customer CPF or CNPJ. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-ADDRESS" type="Label" x="56" y="394" w="300" h="20" tab-order="15" z-order="15" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="Caption">Endereço</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-ADDRESS. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-ADDRESS" type="TextBox" x="56" y="416" w="508" h="36" tab-order="16" z-order="16" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Rua, número, cidade</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Customer address. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-PHONE" type="Label" x="56" y="458" w="300" h="20" tab-order="17" z-order="17" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="Caption">Telefone</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-PHONE. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-PHONE" type="TextBox" x="56" y="480" w="508" h="36" tab-order="18" z-order="18" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">(11) 3000-1234</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Customer phone. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-WHATSAPP" type="Label" x="56" y="522" w="300" h="20" tab-order="19" z-order="19" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="Caption">WhatsApp</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-WHATSAPP. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-WHATSAPP" type="TextBox" x="56" y="544" w="508" h="36" tab-order="20" z-order="20" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">(11) 99999-0000</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Customer WhatsApp number. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-EMAIL" type="Label" x="56" y="586" w="300" h="20" tab-order="21" z-order="21" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="Caption">Email</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-EMAIL. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-EMAIL" type="TextBox" x="56" y="608" w="508" h="36" tab-order="22" z-order="22" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">nome@exemplo.com.br</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Customer email. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CHK-EMAIL" type="CheckBox" x="56" y="654" w="508" h="24" tab-order="23" z-order="23" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="Caption">Autorizo contato por email (orçamento e avisos)</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CheckBoxColor">#FFFFFFFF</Property>
+    <Property name="CheckBoxBorderStyle">Single</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Consent to be contacted by email. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CHK-WA" type="CheckBox" x="56" y="684" w="508" h="24" tab-order="24" z-order="24" visible="true" enabled="true" parent="CARD-CUS">
+    <Property name="Caption">Autorizo contato por WhatsApp (orçamento e avisos)</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CheckBoxColor">#FFFFFFFF</Property>
+    <Property name="CheckBoxBorderStyle">Single</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Consent to be contacted by WhatsApp. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CARD-VEH" type="Panel" x="604" y="216" w="556" h="500" tab-order="25" z-order="25" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the vehicle data. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-VEH" type="Label" x="628" y="228" w="400" h="28" tab-order="26" z-order="26" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="Caption">Veículo</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the vehicle card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-CHASSIS" type="Label" x="628" y="266" w="300" h="20" tab-order="27" z-order="27" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="Caption">Chassi (17 caracteres, opcional)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-CHASSIS. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-CHASSIS" type="TextBox" x="628" y="288" w="508" h="36" tab-order="28" z-order="28" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">9BWZZZ377VT004251</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Vehicle chassis number. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-BRAND" type="Label" x="628" y="330" w="300" h="20" tab-order="29" z-order="29" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="Caption">Marca</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-BRAND. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-BRAND" type="TextBox" x="628" y="352" w="508" h="36" tab-order="30" z-order="30" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Fiat</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Vehicle brand. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-MODEL" type="Label" x="628" y="394" w="300" h="20" tab-order="31" z-order="31" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="Caption">Modelo</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-MODEL. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-MODEL" type="TextBox" x="628" y="416" w="508" h="36" tab-order="32" z-order="32" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Palio 1.0</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Vehicle model. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-YEAR" type="Label" x="628" y="458" w="300" h="20" tab-order="33" z-order="33" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="Caption">Ano</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-YEAR. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-YEAR" type="TextBox" x="628" y="480" w="508" h="36" tab-order="34" z-order="34" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">2014</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Vehicle year. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-COLOR" type="Label" x="628" y="522" w="300" h="20" tab-order="35" z-order="35" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="Caption">Cor</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-COLOR. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-COLOR" type="TextBox" x="628" y="544" w="508" h="36" tab-order="36" z-order="36" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Prata</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Vehicle color. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-MILEAGE" type="Label" x="628" y="586" w="300" h="20" tab-order="37" z-order="37" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="Caption">Quilometragem</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-MILEAGE. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-MILEAGE" type="TextBox" x="628" y="608" w="508" h="36" tab-order="38" z-order="38" visible="true" enabled="true" parent="CARD-VEH">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">48000</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Vehicle mileage in km. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="BTN-SAVE" type="Button" x="32" y="732" w="200" h="44" tab-order="39" z-order="39" visible="true" enabled="true">
+    <Property name="Caption">Salvar atendimento</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Saves the customer and then the vehicle through the Backend and says how it went.</Property>
+    <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> CUSTOMER-SAVE: validates and saves the customer (new, or changed when CRQ-ID is set).
+           *> Uses:   CRQ-... = the customer fields typed on the screen and the consent boxes
+           *>         (S or N); CRQ-ID = WS-CUS-ID (0 for a new customer); CRQ-OPERATOR.
+           *> Result: CRS-STATUS = OK, INVALID, DUPLICATE or ERROR; with OK, CRS-ID is the number.
+
+           INITIALIZE    CUS-REQ
+           SET     CRQ-ID                        TO    WS-CUS-ID
+           SET     CRQ-NAME                      TO    TXT-NAME::Text
+           SET     CRQ-DOC                       TO    TXT-DOC::Text
+           SET     CRQ-ADDRESS                   TO    TXT-ADDRESS::Text
+           SET     CRQ-PHONE                     TO    TXT-PHONE::Text
+           SET     CRQ-WHATSAPP                  TO    TXT-WHATSAPP::Text
+           SET     CRQ-EMAIL                     TO    TXT-EMAIL::Text
+           SET     CRQ-OPERATOR                  TO    TXT-OPERATOR::Text
+           IF    CHK-EMAIL::Checked = 1
+               SET     CRQ-CONSENT-EMAIL         TO    "S"
+           ELSE
+               SET     CRQ-CONSENT-EMAIL         TO    "N"
+           END-IF
+
+           IF    CHK-WA::Checked = 1
+               SET     CRQ-CONSENT-WA            TO    "S"
+           ELSE
+               SET     CRQ-CONSENT-WA            TO    "N"
+           END-IF
+
+           SET     CRS-STATUS                    TO    SPACES
+           CALL    "CUSTOMER-SAVE" WITH WEBSOCKET LINKAGE
+               USING BY VALUE CUS-REQ
+               RETURNING CUS-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     CRS-STATUS            TO    "CALL"
+           END-CALL
+
+           EVALUATE    CRS-STATUS
+               WHEN "OK"
+                   SET     WS-CUS-ID             TO    CRS-ID
+
+                   *> VEHICLE-SAVE: saves the vehicle for that customer (the plate decides new or changed).
+                   *> Uses:   VRQ-... = the vehicle fields typed on the screen; VRQ-CUS-ID = WS-CUS-ID,
+                   *>         the customer just saved; VRQ-OPERATOR.
+                   *> Result: VRS-STATUS = OK, INVALID, NOCUSTOMER or ERROR; VRS-ACTION = CREATED or UPDATED.
+
+                   INITIALIZE    VEH-REQ
+                   SET     VRQ-PLATE             TO    TXT-PLATE::Text
+                   SET     VRQ-CUS-ID            TO    WS-CUS-ID
+                   SET     VRQ-CHASSIS           TO    TXT-CHASSIS::Text
+                   SET     VRQ-BRAND             TO    TXT-BRAND::Text
+                   SET     VRQ-MODEL             TO    TXT-MODEL::Text
+                   SET     VRQ-COLOR             TO    TXT-COLOR::Text
+                   SET     VRQ-OPERATOR          TO    TXT-OPERATOR::Text
+                   COMPUTE VRQ-YEAR              =     FUNCTION NUMVAL ( TXT-YEAR::Text )
+                   COMPUTE VRQ-MILEAGE           =     FUNCTION NUMVAL ( TXT-MILEAGE::Text )
+                   SET     VRS-STATUS            TO    SPACES
+                   CALL    "VEHICLE-SAVE" WITH WEBSOCKET LINKAGE
+                       USING BY VALUE VEH-REQ
+                       RETURNING VEH-RES
+                       ON EXCEPTION
+                           COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                           SET     VRS-STATUS    TO    "CALL"
+                   END-CALL
+
+                   IF    VRS-STATUS = "OK"
+                       SET     LBL-STATUS::Caption  TO    "Cliente e veículo salvos."
+                   ELSE
+                       IF    VRS-STATUS = "CALL"
+                           SET     LBL-STATUS::Caption  TO    "Não foi possível falar com o Backend."
+                       ELSE
+                           SET     LBL-STATUS::Caption  TO    VRS-MESSAGE
+                       END-IF
+                   END-IF
+               WHEN "CALL"
+                   SET     LBL-STATUS::Caption   TO    "Não foi possível falar com o Backend."
+               WHEN OTHER
+                   SET     LBL-STATUS::Caption   TO    CRS-MESSAGE
+           END-EVALUATE
+]]></Event>
+  </Control>
+<Control id="LBL-STATUS" type="Label" x="252" y="742" w="908" h="28" tab-order="40" z-order="40" visible="true" enabled="true">
+    <Property name="Caption"></Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Answer of the last action: found, saved or what is wrong with the data.</Property>
+  </Control>
+</Form>

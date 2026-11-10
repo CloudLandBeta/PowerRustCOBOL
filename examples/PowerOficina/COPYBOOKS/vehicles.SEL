@@ -1,0 +1,6 @@
+           SELECT VEHICLE-FILE ASSIGN TO "data/vehicles.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS VEH-PLATE
+               ALTERNATE RECORD KEY IS VEH-CUS-ID WITH DUPLICATES
+               STORAGE MODE IS DISK.

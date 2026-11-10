@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IndexedFile name="SEQUENCE-FILE" finalized="false" version="1.0">
+<assign-path>data/sequences.idx</assign-path>
+<access-mode>dynamic</access-mode>
+<record-format fixed-length="22"/>
+<storage mode="disk" compression="false" persistence="false"/>
+<comment><![CDATA[Next number of each sequence (customer, diagnosis, quote, payment and so on).]]></comment>
+<keys><primary duplicates="false" ordering="ascending"><part field="SEQ-NAME" offset="0" length="12" encoding="bytes"/></primary></keys>
+<fields>
+<Field level="1" name="SEQUENCE-RECORD" usage="display">
+<Field level="5" name="SEQ-NAME" pic="X(12)" usage="display" offset="0" length="12">
+<comment><![CDATA[Primary key]]></comment>
+</Field>
+<Field level="5" name="SEQ-VALUE" pic="9(10)" usage="display" offset="12" length="10">
+<comment><![CDATA[Last number issued]]></comment>
+</Field>
+</Field>
+</fields>
+</IndexedFile>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IndexedFile name="AUDIT-FILE" finalized="false" version="1.0">
+<assign-path>data/audit.idx</assign-path>
+<access-mode>dynamic</access-mode>
+<record-format fixed-length="178"/>
+<storage mode="disk" compression="false" persistence="false"/>
+<comment><![CDATA[Who changed what and when. There is no login in this version: the operator name is typed when the session opens.]]></comment>
+<keys><primary duplicates="false" ordering="ascending"><part field="AUD-ID" offset="0" length="10" encoding="bytes"/></primary></keys>
+<fields>
+<Field level="1" name="AUDIT-RECORD" usage="display">
+<Field level="5" name="AUD-ID" pic="9(10)" usage="display" offset="0" length="10">
+<comment><![CDATA[Primary key]]></comment>
+</Field>
+<Field level="5" name="AUD-AT" pic="9(14)" usage="display" offset="10" length="14">
+</Field>
+<Field level="5" name="AUD-OPERATOR" pic="X(30)" usage="display" offset="24" length="30">
+</Field>
+<Field level="5" name="AUD-ENTITY" pic="X(12)" usage="display" offset="54" length="12">
+</Field>
+<Field level="5" name="AUD-REF" pic="X(20)" usage="display" offset="66" length="20">
+</Field>
+<Field level="5" name="AUD-ACTION" pic="X(12)" usage="display" offset="86" length="12">
+</Field>
+<Field level="5" name="AUD-DETAIL" pic="X(80)" usage="display" offset="98" length="80">
+</Field>
+</Field>
+</fields>
+</IndexedFile>

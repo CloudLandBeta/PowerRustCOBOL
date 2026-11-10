@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IndexedFile name="CATALOG-FILE" finalized="false" version="1.0">
+<assign-path>data/catalog.idx</assign-path>
+<access-mode>dynamic</access-mode>
+<record-format fixed-length="74"/>
+<storage mode="disk" compression="false" persistence="false"/>
+<comment><![CDATA[Parts, labour, services and add-ons with their own price in each currency. The currency is part of the key, so a BRL row and an EUR row are different records and are never converted into each other. CAT-KIND is P part, S service, A add-on or L labour rate per hour.]]></comment>
+<keys><primary duplicates="false" ordering="ascending"><part field="CAT-KEY" offset="0" length="15" encoding="bytes"/></primary></keys>
+<fields>
+<Field level="1" name="CATALOG-RECORD" usage="display">
+<Field level="5" name="CAT-KEY" usage="display">
+<Field level="10" name="CAT-CURRENCY" pic="X(3)" usage="display" offset="0" length="3">
+<comment><![CDATA[BRL or EUR]]></comment>
+</Field>
+<Field level="10" name="CAT-CODE" pic="X(12)" usage="display" offset="3" length="12">
+</Field>
+<comment><![CDATA[Primary key: currency then code]]></comment>
+</Field>
+<Field level="5" name="CAT-KIND" pic="X(1)" usage="display" offset="15" length="1">
+<comment><![CDATA[P, S, A or L]]></comment>
+</Field>
+<Field level="5" name="CAT-NAME" pic="X(40)" usage="display" offset="16" length="40">
+</Field>
+<Field level="5" name="CAT-PRICE" pic="9(7)V99" usage="display" offset="56" length="9">
+<comment><![CDATA[Unit price in the row's own currency, without tax]]></comment>
+</Field>
+<Field level="5" name="CAT-HOURS" pic="9(3)V99" usage="display" offset="65" length="5">
+<comment><![CDATA[Standard labour hours for a service]]></comment>
+</Field>
+<Field level="5" name="CAT-TAX-RATE" pic="9(2)V99" usage="display" offset="70" length="4">
+<comment><![CDATA[Tax rate in percent for this row's currency]]></comment>
+</Field>
+</Field>
+</fields>
+</IndexedFile>

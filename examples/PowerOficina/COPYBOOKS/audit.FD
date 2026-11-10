@@ -1,0 +1,11 @@
+      *> Who changed what and when. There is no login in this version: the operator name is typed when the session opens.
+       FD  AUDIT-FILE
+           RECORD CONTAINS 178 CHARACTERS.
+           01 AUDIT-RECORD.
+               05 AUD-ID PIC 9(10). *> Primary key
+               05 AUD-AT PIC 9(14).
+               05 AUD-OPERATOR PIC X(30).
+               05 AUD-ENTITY PIC X(12).
+               05 AUD-REF PIC X(20).
+               05 AUD-ACTION PIC X(12).
+               05 AUD-DETAIL PIC X(80).

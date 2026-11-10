@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IndexedFile name="VEHICLE-FILE" finalized="false" version="1.0">
+<assign-path>data/vehicles.idx</assign-path>
+<access-mode>dynamic</access-mode>
+<record-format fixed-length="109"/>
+<storage mode="disk" compression="false" persistence="false"/>
+<comment><![CDATA[One row per vehicle, keyed by licence plate and linked to its owner.]]></comment>
+<keys><primary duplicates="false" ordering="ascending"><part field="VEH-PLATE" offset="0" length="8" encoding="bytes"/></primary><alternate name="VEH-CUS-ID" duplicates="true" ordering="ascending"><part field="VEH-CUS-ID" offset="8" length="8" encoding="bytes"/></alternate></keys>
+<fields>
+<Field level="1" name="VEHICLE-RECORD" usage="display">
+<Field level="5" name="VEH-PLATE" pic="X(8)" usage="display" offset="0" length="8">
+<comment><![CDATA[Primary key]]></comment>
+</Field>
+<Field level="5" name="VEH-CUS-ID" pic="9(8)" usage="display" offset="8" length="8">
+<comment><![CDATA[Owner, CUS-ID]]></comment>
+</Field>
+<Field level="5" name="VEH-CHASSIS" pic="X(17)" usage="display" offset="16" length="17">
+</Field>
+<Field level="5" name="VEH-BRAND" pic="X(20)" usage="display" offset="33" length="20">
+</Field>
+<Field level="5" name="VEH-MODEL" pic="X(30)" usage="display" offset="53" length="30">
+</Field>
+<Field level="5" name="VEH-YEAR" pic="9(4)" usage="display" offset="83" length="4">
+</Field>
+<Field level="5" name="VEH-COLOR" pic="X(15)" usage="display" offset="87" length="15">
+</Field>
+<Field level="5" name="VEH-MILEAGE" pic="9(7)" usage="display" offset="102" length="7">
+<comment><![CDATA[Kilometres]]></comment>
+</Field>
+</Field>
+</fields>
+</IndexedFile>

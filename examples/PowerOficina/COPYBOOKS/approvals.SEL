@@ -1,0 +1,6 @@
+           SELECT APPROVAL-FILE ASSIGN TO "data/approvals.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS APR-ID
+               ALTERNATE RECORD KEY IS APR-QUO-ID WITH DUPLICATES
+               STORAGE MODE IS DISK.

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IndexedFile name="FAULT-RULE-FILE" finalized="false" version="1.0">
+<assign-path>data/faultrules.idx</assign-path>
+<access-mode>dynamic</access-mode>
+<record-format fixed-length="116"/>
+<storage mode="disk" compression="false" persistence="false"/>
+<comment><![CDATA[Diagnostic rule: a fault code read from the vehicle points to up to three parts and one service, by catalog code. The rule carries no price: the price comes from the catalog in the quote's currency.]]></comment>
+<keys><primary duplicates="false" ordering="ascending"><part field="FLT-CODE" offset="0" length="8" encoding="bytes"/></primary></keys>
+<fields>
+<Field level="1" name="FAULT-RULE-RECORD" usage="display">
+<Field level="5" name="FLT-CODE" pic="X(8)" usage="display" offset="0" length="8">
+<comment><![CDATA[Primary key, for example P0301]]></comment>
+</Field>
+<Field level="5" name="FLT-DESC" pic="X(60)" usage="display" offset="8" length="60">
+</Field>
+<Field level="5" name="FLT-PART-1" pic="X(12)" usage="display" offset="68" length="12">
+<comment><![CDATA[CAT-CODE of a part]]></comment>
+</Field>
+<Field level="5" name="FLT-PART-2" pic="X(12)" usage="display" offset="80" length="12">
+</Field>
+<Field level="5" name="FLT-PART-3" pic="X(12)" usage="display" offset="92" length="12">
+</Field>
+<Field level="5" name="FLT-SERVICE" pic="X(12)" usage="display" offset="104" length="12">
+<comment><![CDATA[CAT-CODE of the service]]></comment>
+</Field>
+</Field>
+</fields>
+</IndexedFile>

@@ -1,0 +1,1131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="ORCAMENTOS-FORM" title="Orçamentos" width="1192" height="1062" background="#F7F8FCFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded" definition="Quote screen of the workshop: builds a quote from the suggested parts and services, adds parts and add-ons from the catalog of one currency, adjusts service hours with a reason, and shows the total without taxes, the taxes and the total, plus the execution date and validity, through the Backend programs CATALOG-LIST, QUOTE-SUGGEST and QUOTE-SAVE." index-base="1" responsive="true">
+  <user-procedures>
+    <Event name="GET-CURRENCY" paragraph="GET-CURRENCY"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           IF    RDO-EUR::Selected = 1
+               SET     WS-CUR                    TO    "EUR"
+           ELSE
+               SET     WS-CUR                    TO    "BRL"
+           END-IF
+]]></Event>
+    <Event name="LOAD-LISTS" paragraph="LOAD-LISTS"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           CALL    "GET-CURRENCY"
+
+           *> CATALOG-LIST: the parts of the catalog in one currency.
+           *> Uses:   CLQ-CURRENCY = WS-CUR; CLQ-KIND = "P" (parts).
+           *> Result: CLR-ROW lists CLR-COUNT parts with price; DG-PARTS shows them, WS-PART-CODE keeps the codes.
+
+           INITIALIZE    CLS-REQ
+           SET     CLQ-CURRENCY                  TO    WS-CUR
+           SET     CLQ-KIND                      TO    "P"
+           SET     CLR-STATUS                    TO    SPACES
+           CALL    "CATALOG-LIST" WITH WEBSOCKET LINKAGE
+               USING BY VALUE CLS-REQ
+               RETURNING CLS-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     CLR-STATUS            TO    "CALL"
+           END-CALL
+
+           DG-PARTS::ClearRows()
+           IF    CLR-STATUS = "OK"
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > CLR-COUNT
+                   SET     WS-ED-UNIT            TO    CLR-UNIT (WS-I)
+                   SET     WS-LINE               TO    SPACES
+                   STRING    CLR-CODE (WS-I) X"09" CLR-NAME (WS-I) X"09" WS-ED-UNIT::Trim()  INTO  WS-LINE
+                   DG-PARTS::AddRow( WS-LINE )
+                   SET     WS-PART-CODE (WS-I)          TO    CLR-CODE (WS-I)
+               END-PERFORM
+           END-IF
+
+           *> CATALOG-LIST: the add-on services of the catalog in one currency.
+           *> Uses:   CLQ-CURRENCY = WS-CUR; CLQ-KIND = "A" (add-ons).
+           *> Result: CLR-ROW lists CLR-COUNT add-ons with price; DG-ADDONS shows them, WS-ADD-CODE keeps the codes.
+
+           INITIALIZE    CLS-REQ
+           SET     CLQ-CURRENCY                  TO    WS-CUR
+           SET     CLQ-KIND                      TO    "A"
+           SET     CLR-STATUS                    TO    SPACES
+           CALL    "CATALOG-LIST" WITH WEBSOCKET LINKAGE
+               USING BY VALUE CLS-REQ
+               RETURNING CLS-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     CLR-STATUS            TO    "CALL"
+           END-CALL
+
+           DG-ADDONS::ClearRows()
+           IF    CLR-STATUS = "OK"
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > CLR-COUNT
+                   SET     WS-ED-UNIT            TO    CLR-UNIT (WS-I)
+                   SET     WS-LINE               TO    SPACES
+                   STRING    CLR-CODE (WS-I) X"09" CLR-NAME (WS-I) X"09" WS-ED-UNIT::Trim()  INTO  WS-LINE
+                   DG-ADDONS::AddRow( WS-LINE )
+                   SET     WS-ADD-CODE (WS-I)          TO    CLR-CODE (WS-I)
+               END-PERFORM
+           END-IF
+]]></Event>
+    <Event name="REFRESH-LINES" paragraph="REFRESH-LINES"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           DG-LINES::ClearRows()
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > QRQ-COUNT
+               EVALUATE    QRL-KIND (WS-I)
+                   WHEN "P"
+                       SET     WS-KIND-TXT       TO    "Peça"
+                   WHEN "S"
+                       SET     WS-KIND-TXT       TO    "Serviço"
+                   WHEN OTHER
+                       SET     WS-KIND-TXT       TO    "Adicional"
+               END-EVALUATE
+
+               SET     WS-LINE                   TO    SPACES
+               IF    QRL-KIND (WS-I) = "S"
+                   IF    QRL-HOURS (WS-I) > 0
+                       SET     WS-ED-QTY         TO    QRL-HOURS (WS-I)
+                       STRING    WS-KIND-TXT " " QRL-CODE (WS-I) X"09" WS-ED-QTY::Trim() " h (ajustadas)"  INTO  WS-LINE
+                   ELSE
+                       STRING    WS-KIND-TXT " " QRL-CODE (WS-I) X"09" "horas padrão do catálogo"  INTO  WS-LINE
+                   END-IF
+               ELSE
+                   SET     WS-ED-QTY             TO    QRL-QTY (WS-I)
+                   STRING    WS-KIND-TXT " " QRL-CODE (WS-I) X"09" WS-ED-QTY::Trim()  INTO  WS-LINE
+               END-IF
+
+               DG-LINES::AddRow( WS-LINE )
+           END-PERFORM
+]]></Event>
+    <Event name="SHOW-QUOTE" paragraph="SHOW-QUOTE"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> SHOW-QUOTE: paints the quote just answered (QUO-RES) on the list and the summary, and keeps its lines
+           *> and its number so the next "Gerar orçamento" is a revision of it.
+           *> Uses:   QTS-... = the quote answered by QUOTE-SAVE (lines QTL-..., totals, dates).
+           *> Result: DG-LINES shows each line with quantity, unit price, amount and tax; the summary labels
+           *>         show number, currency, hours, totals and dates; WS-QUOTE-ID = QTS-ID; QRQ-LINE = the lines.
+
+           SET     WS-QUOTE-ID                   TO    QTS-ID
+           DG-LINES::ClearRows()
+           SET     QRQ-COUNT                     TO    QTS-COUNT
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > QTS-COUNT
+               SET     WS-ED-QTY                 TO    QTL-QTY (WS-I)
+               SET     WS-ED-UNIT                TO    QTL-UNIT (WS-I)
+               SET     WS-ED-AMT                 TO    QTL-AMOUNT (WS-I)
+               SET     WS-ED-TAX                 TO    QTL-TAX (WS-I)
+               SET     WS-LINE                   TO    SPACES
+               STRING    QTL-NAME (WS-I) X"09" WS-ED-QTY::Trim() X"09" WS-ED-UNIT::Trim() X"09" WS-ED-AMT::Trim() X"09" WS-ED-TAX::Trim()
+                   INTO  WS-LINE
+               DG-LINES::AddRow( WS-LINE )
+
+               SET     QRL-KIND (WS-I)           TO    QTL-KIND (WS-I)
+               SET     QRL-CODE (WS-I)           TO    QTL-CODE (WS-I)
+               SET     QRL-QTY (WS-I)            TO    QTL-QTY (WS-I)
+               SET     QRL-HOURS (WS-I)          TO    0
+               SET     QRL-MANUAL (WS-I)         TO    QTL-MANUAL (WS-I)
+               SET     QRL-NOTE (WS-I)           TO    QTL-NOTE (WS-I)
+               IF    QTL-KIND (WS-I) = "S" AND QTL-MANUAL (WS-I) = "S"
+                   SET     QRL-HOURS (WS-I)      TO    QTL-QTY (WS-I)
+               END-IF
+               IF    QTL-KIND (WS-I) NOT = "P"
+                   SET     QRL-QTY (WS-I)        TO    1
+               END-IF
+           END-PERFORM
+
+           SET     LBL-V-NUM::Caption            TO    "-"
+           STRING    QTS-ID "/" QTS-REV  INTO  LBL-V-NUM::Caption
+           SET     LBL-V-CUR::Caption            TO    QTS-CURRENCY
+           SET     WS-ED-QTY                     TO    QTS-HOURS
+           SET     LBL-V-HRS::Caption            TO    WS-ED-QTY
+           SET     WS-ED-AMT                     TO    QTS-SUBTOTAL
+           STRING    QTS-CURRENCY " " WS-ED-AMT  INTO  LBL-V-SUB::Caption
+           SET     WS-ED-AMT                     TO    QTS-TAX
+           STRING    QTS-CURRENCY " " WS-ED-AMT  INTO  LBL-V-TAX::Caption
+           SET     WS-ED-AMT                     TO    QTS-TOTAL
+           STRING    QTS-CURRENCY " " WS-ED-AMT  INTO  LBL-V-TOT::Caption
+
+           MOVE    QTS-SUGGESTED                 TO    WS-DATE-X
+           STRING    WS-DATE-X (7:2) "/" WS-DATE-X (5:2) "/" WS-DATE-X (1:4)  INTO  LBL-V-SUG::Caption
+           MOVE    QTS-VALID-UNTIL               TO    WS-DATE-X
+           STRING    WS-DATE-X (7:2) "/" WS-DATE-X (5:2) "/" WS-DATE-X (1:4)  INTO  LBL-V-VAL::Caption
+]]></Event>
+  </user-procedures>
+  <working-storage><![CDATA[       01 BE-CLASS                               GLOBAL    PIC X(16).
+       01 BE-CODE                                GLOBAL    PIC 9(9).
+       01 BE-MSG                                 GLOBAL    PIC X(80).
+       01 WS-LINE                                GLOBAL    PIC X(120).
+       01 WS-I                                   GLOBAL    PIC 999.
+       01 WS-J                                   GLOBAL    PIC 999.
+       01 WS-K                                   GLOBAL    PIC 999.
+       01 WS-CUR                                 GLOBAL    PIC X(3)    VALUE "BRL".
+       01 WS-QUOTE-ID                            GLOBAL    PIC 9(8)    VALUE 0.
+       01 WS-KIND-TXT                            GLOBAL    PIC X(9).
+       01 WS-DATE-X                              GLOBAL    PIC X(8).
+       01 WS-PART-CODE                           GLOBAL    PIC X(12)    OCCURS 30.
+       01 WS-ADD-CODE                            GLOBAL    PIC X(12)    OCCURS 30.
+       01 WS-ED-QTY                              GLOBAL    PIC ZZZ9.99.
+       01 WS-ED-UNIT                             GLOBAL    PIC Z(6)9.99.
+       01 WS-ED-AMT                              GLOBAL    PIC Z(8)9.99.
+       01 WS-ED-TAX                              GLOBAL    PIC Z(8)9.99.
+       01 CLS-REQ                             GLOBAL.
+          05 CLQ-CURRENCY                        PIC    X(3).
+          05 CLQ-KIND                            PIC    X(1).
+       01 CLS-RES                             GLOBAL.
+          05 CLR-STATUS                          PIC    X(10).
+          05 CLR-MESSAGE                         PIC    X(80).
+          05 CLR-COUNT                           PIC    9(3).
+          05 CLR-ROW                             OCCURS 30.
+             10 CLR-CODE                         PIC    X(12).
+             10 CLR-NAME                         PIC    X(40).
+             10 CLR-UNIT                         PIC    9(7)V99.
+             10 CLR-HOURS                        PIC    9(3)V99.
+             10 CLR-TAX-RATE                     PIC    9(2)V99.
+       01 QSG-REQ                             GLOBAL.
+          05 QSQ-DGN-ID                          PIC    9(8).
+          05 QSQ-CURRENCY                        PIC    X(3).
+       01 QSG-RES                             GLOBAL.
+          05 QSS-STATUS                          PIC    X(10).
+          05 QSS-MESSAGE                         PIC    X(80).
+          05 QSS-COUNT                           PIC    9(3).
+          05 QSS-LINE                            OCCURS 20.
+             10 QSL-KIND                         PIC    X(1).
+             10 QSL-CODE                         PIC    X(12).
+             10 QSL-NAME                         PIC    X(40).
+             10 QSL-QTY                          PIC    9(4)V99.
+             10 QSL-UNIT                         PIC    9(7)V99.
+             10 QSL-HOURS                        PIC    9(3)V99.
+             10 QSL-FAULT                        PIC    X(8).
+       01 QUO-REQ                             GLOBAL.
+          05 QRQ-ID                              PIC    9(8).
+          05 QRQ-PLATE                           PIC    X(8).
+          05 QRQ-DGN-ID                          PIC    9(8).
+          05 QRQ-CURRENCY                        PIC    X(3).
+          05 QRQ-OPERATOR                        PIC    X(30).
+          05 QRQ-DEADLINE                        PIC    9(8).
+          05 QRQ-COUNT                           PIC    9(3).
+          05 QRQ-LINE                            OCCURS 20.
+             10 QRL-KIND                         PIC    X(1).
+             10 QRL-CODE                         PIC    X(12).
+             10 QRL-QTY                          PIC    9(4)V99.
+             10 QRL-HOURS                        PIC    9(3)V99.
+             10 QRL-MANUAL                       PIC    X(1).
+             10 QRL-NOTE                         PIC    X(60).
+       01 QUO-RES                             GLOBAL.
+          05 QTS-STATUS                          PIC    X(10).
+          05 QTS-MESSAGE                         PIC    X(80).
+          05 QTS-FIELD                           PIC    X(10).
+          05 QTS-LINE-NO                         PIC    9(3).
+          05 QTS-ACTION                          PIC    X(12).
+          05 QTS-ID                              PIC    9(8).
+          05 QTS-REV                             PIC    9(2).
+          05 QTS-CUS-ID                          PIC    9(8).
+          05 QTS-PLATE                           PIC    X(8).
+          05 QTS-DGN-ID                          PIC    9(8).
+          05 QTS-CURRENCY                        PIC    X(3).
+          05 QTS-QSTATUS                         PIC    X(10).
+          05 QTS-CREATED                         PIC    9(14).
+          05 QTS-VALID-UNTIL                     PIC    9(8).
+          05 QTS-DEADLINE                        PIC    9(8).
+          05 QTS-SUGGESTED                       PIC    9(8).
+          05 QTS-HOURS                           PIC    9(4)V99.
+          05 QTS-SUBTOTAL                        PIC    9(9)V99.
+          05 QTS-TAX                             PIC    9(9)V99.
+          05 QTS-TOTAL                           PIC    9(9)V99.
+          05 QTS-OPERATOR                        PIC    X(30).
+          05 QTS-COUNT                           PIC    9(3).
+          05 QTS-LINE                            OCCURS 20.
+             10 QTL-KIND                         PIC    X(1).
+             10 QTL-CODE                         PIC    X(12).
+             10 QTL-NAME                         PIC    X(40).
+             10 QTL-QTY                          PIC    9(4)V99.
+             10 QTL-UNIT                         PIC    9(7)V99.
+             10 QTL-TAX-RATE                     PIC    9(2)V99.
+             10 QTL-AMOUNT                       PIC    9(9)V99.
+             10 QTL-TAX                          PIC    9(9)V99.
+             10 QTL-MANUAL                       PIC    X(1).
+             10 QTL-NOTE                         PIC    X(60).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="ORCAMENTOS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-LISTS: fills the part and add-on lists from the catalog of the currency chosen (BRL at first).
+           *> Uses:   WS-CUR = the currency of RDO-BRL / RDO-EUR.
+           *> Result: DG-PARTS and DG-ADDONS are filled; the quote starts empty.
+
+           SET     QRQ-COUNT                     TO    0
+           CALL    "LOAD-LISTS"
+]]></Event>
+  </form-events>
+<Control id="LBL-TITLE" type="Label" x="32" y="24" w="600" h="40" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Orçamentos</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">28</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Screen title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-SUB" type="Label" x="32" y="64" w="1000" h="24" tab-order="2" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">Monte o orçamento a partir do diagnóstico. Cada orçamento tem uma só moeda; trocar a moeda cria outro orçamento, nunca converte.</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">One-line help under the title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CARD-HEAD" type="Panel" x="32" y="104" w="1128" h="96" tab-order="3" z-order="3" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the operator, plate, diagnosis number, currency and the suggest and new buttons.</Property>
+  </Control>
+<Control id="LBL-OP" type="Label" x="56" y="114" w="220" h="20" tab-order="4" z-order="4" visible="true" enabled="true" parent="CARD-HEAD">
+    <Property name="Caption">Operador (vai para a auditoria)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the operator field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-OPERATOR" type="TextBox" x="56" y="140" w="236" h="40" tab-order="5" z-order="5" visible="true" enabled="true" parent="CARD-HEAD">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Seu nome</Property>
+    <Property name="AccessibleLabel">Name of the person using the system; goes to the audit trail</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the person using the system; goes to the audit trail.</Property>
+  </Control>
+<Control id="LBL-PLATE" type="Label" x="312" y="114" w="150" h="20" tab-order="6" z-order="6" visible="true" enabled="true" parent="CARD-HEAD">
+    <Property name="Caption">Placa</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the plate field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-PLATE" type="TextBox" x="312" y="140" w="150" h="40" tab-order="7" z-order="7" visible="true" enabled="true" parent="CARD-HEAD">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">ABC1D23</Property>
+    <Property name="AccessibleLabel">Plate of a registered vehicle.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Plate of a registered vehicle. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-DGN" type="Label" x="482" y="114" w="150" h="20" tab-order="8" z-order="8" visible="true" enabled="true" parent="CARD-HEAD">
+    <Property name="Caption">Diagnóstico nº</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the diagnosis number field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-DGN" type="TextBox" x="482" y="140" w="130" h="40" tab-order="9" z-order="9" visible="true" enabled="true" parent="CARD-HEAD">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">1</Property>
+    <Property name="AccessibleLabel">Number of the diagnosis of the vehicle, shown on the Diagnós</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Number of the diagnosis of the vehicle, shown on the Diagnóstico screen when it is saved.</Property>
+  </Control>
+<Control id="LBL-CUR" type="Label" x="632" y="114" w="150" h="20" tab-order="10" z-order="10" visible="true" enabled="true" parent="CARD-HEAD">
+    <Property name="Caption">Moeda do orçamento</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the currency choice. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="RDO-BRL" type="RadioButton" x="632" y="144" w="76" h="28" tab-order="11" z-order="11" visible="true" enabled="true" parent="CARD-HEAD">
+    <Property name="Caption">BRL (R$)</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">true</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Choice of the currency of the quote: BRL (R$). A quote has one currency only and prices are never converted.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Event name="onClick" paragraph="RDO-BRL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-LISTS: fills the part list and the add-on list with the catalog of the chosen currency.
+           *> Uses:   RDO-EUR::Selected decides the currency (WS-CUR).
+           *> Result: DG-PARTS and DG-ADDONS show the catalog rows of that currency only; WS-PART-CODE and
+           *>         WS-ADD-CODE keep the code of each row, in the same order.
+
+           CALL    "LOAD-LISTS"
+]]></Event>
+  </Control>
+<Control id="RDO-EUR" type="RadioButton" x="716" y="144" w="76" h="28" tab-order="12" z-order="12" visible="true" enabled="true" parent="CARD-HEAD">
+    <Property name="Caption">EUR (€)</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Choice of the currency of the quote: EUR (€). A quote has one currency only and prices are never converted.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Event name="onClick" paragraph="RDO-EUR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-LISTS: fills the part list and the add-on list with the catalog of the chosen currency.
+           *> Uses:   RDO-EUR::Selected decides the currency (WS-CUR).
+           *> Result: DG-PARTS and DG-ADDONS show the catalog rows of that currency only; WS-PART-CODE and
+           *>         WS-ADD-CODE keep the code of each row, in the same order.
+
+           CALL    "LOAD-LISTS"
+]]></Event>
+  </Control>
+<Control id="BTN-SUGGEST" type="Button" x="840" y="140" w="200" h="40" tab-order="13" z-order="13" visible="true" enabled="true" parent="CARD-HEAD">
+    <Property name="Caption">Sugerir do diagnóstico</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Asks the Backend which parts and services the diagnosis calls for and puts them on the quote.</Property>
+    <Event name="onClick" paragraph="BTN-SUGGEST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> QUOTE-SUGGEST: asks which parts and services the diagnosis calls for.
+           *> Uses:   QSQ-DGN-ID = the number typed in TXT-DGN; QSQ-CURRENCY = WS-CUR.
+           *> Result: QSS-STATUS = OK, NODIAG or INVALID; with OK, QSS-LINE lists the parts and services
+           *>         (QSS-COUNT of them) in that currency, and they become the lines of the quote.
+
+           CALL    "GET-CURRENCY"
+           INITIALIZE    QSG-REQ
+           COMPUTE QSQ-DGN-ID                    =     FUNCTION NUMVAL ( TXT-DGN::Text )
+           SET     QSQ-CURRENCY                  TO    WS-CUR
+           SET     QSS-STATUS                    TO    SPACES
+           CALL    "QUOTE-SUGGEST" WITH WEBSOCKET LINKAGE
+               USING BY VALUE QSG-REQ
+               RETURNING QSG-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     QSS-STATUS            TO    "CALL"
+           END-CALL
+
+           EVALUATE    QSS-STATUS
+               WHEN "OK"
+                   IF    QSS-COUNT = 0
+                       SET     LBL-STATUS::Caption  TO    QSS-MESSAGE
+                   ELSE
+                       SET     QRQ-COUNT         TO    QSS-COUNT
+                       PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > QSS-COUNT
+                           SET     QRL-KIND (WS-I)    TO    QSL-KIND (WS-I)
+                           SET     QRL-CODE (WS-I)    TO    QSL-CODE (WS-I)
+                           SET     QRL-QTY (WS-I)     TO    QSL-QTY (WS-I)
+                           SET     QRL-HOURS (WS-I)   TO    0
+                           SET     QRL-MANUAL (WS-I)  TO    "N"
+                           SET     QRL-NOTE (WS-I)    TO    SPACES
+                       END-PERFORM
+
+                       CALL    "REFRESH-LINES"
+                       SET     LBL-STATUS::Caption    TO    "Itens sugeridos pelos códigos de falha. Ajuste o que precisar."
+                   END-IF
+               WHEN "CALL"
+                   SET     LBL-STATUS::Caption   TO    "Não foi possível falar com o Backend."
+               WHEN OTHER
+                   SET     LBL-STATUS::Caption   TO    QSS-MESSAGE
+           END-EVALUATE
+]]></Event>
+  </Control>
+<Control id="BTN-NEW" type="Button" x="1056" y="140" w="80" h="40" tab-order="14" z-order="14" visible="true" enabled="true" parent="CARD-HEAD">
+    <Property name="Caption">Novo</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Clears the quote on the screen to start a new one.</Property>
+    <Event name="onClick" paragraph="BTN-NEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-QUOTE-ID                   TO    0
+           SET     QRQ-COUNT                     TO    0
+           DG-LINES::ClearRows()
+           SET     LBL-V-NUM::Caption            TO    "-"
+           SET     LBL-V-CUR::Caption            TO    "-"
+           SET     LBL-V-HRS::Caption            TO    "-"
+           SET     LBL-V-SUB::Caption            TO    "-"
+           SET     LBL-V-TAX::Caption            TO    "-"
+           SET     LBL-V-TOT::Caption            TO    "-"
+           SET     LBL-V-SUG::Caption            TO    "-"
+           SET     LBL-V-VAL::Caption            TO    "-"
+           SET     LBL-STATUS::Caption           TO    "Novo orçamento."
+]]></Event>
+  </Control>
+<Control id="CARD-LINES" type="Panel" x="32" y="216" w="740" h="710" tab-order="15" z-order="15" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the lines of the quote and the pickers for parts and add-ons.</Property>
+  </Control>
+<Control id="LBL-LINES" type="Label" x="56" y="226" w="400" h="28" tab-order="16" z-order="16" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Caption">Itens do orçamento</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the lines card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="DG-LINES" type="DataGrid" x="56" y="258" w="692" h="240" tab-order="17" z-order="17" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Columns">Item:string
+Quantidade:string
+Unitário:string
+Valor:string
+Imposto:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#CBD5E1</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="HeaderBackgroundColor">#E6E8F2</Property>
+    <Property name="HeaderForegroundColor">#0F172AFF</Property>
+    <Property name="GridLineColor">#E2E8F0</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="AlternatingRowColor">#F5F7FB</Property>
+    <Property name="RowHeight">28</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="AllowSorting">1</Property>
+    <Property name="ShowColumnFilters">1</Property>
+    <Property name="AllowColumnResize">1</Property>
+    <Property name="AllowColumnReorder">0</Property>
+    <Property name="AllowRowResize">0</Property>
+    <Property name="AllowCellEditing">0</Property>
+    <Property name="AccessibleLabel">Lines of the quote</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">List of the lines of the quote: parts, services and add-ons. After the quote is generated each line shows its price and tax.</Property>
+  </Control>
+<Control id="BTN-REMOVE" type="Button" x="56" y="506" w="180" h="36" tab-order="18" z-order="18" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Caption">Remover item</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Removes the selected line from the quote.</Property>
+    <Event name="onClick" paragraph="BTN-REMOVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-I                          TO    DG-LINES::ClickedRow
+           IF    WS-I > 0 AND WS-I NOT > QRQ-COUNT
+               PERFORM VARYING WS-J FROM WS-I BY 1 UNTIL WS-J NOT < QRQ-COUNT
+                   COMPUTE WS-K                  =     WS-J + 1
+                   SET     QRL-KIND (WS-J)       TO    QRL-KIND (WS-K)
+                   SET     QRL-CODE (WS-J)       TO    QRL-CODE (WS-K)
+                   SET     QRL-QTY (WS-J)        TO    QRL-QTY (WS-K)
+                   SET     QRL-HOURS (WS-J)      TO    QRL-HOURS (WS-K)
+                   SET     QRL-MANUAL (WS-J)     TO    QRL-MANUAL (WS-K)
+                   SET     QRL-NOTE (WS-J)       TO    QRL-NOTE (WS-K)
+               END-PERFORM
+
+               SUBTRACT 1                        FROM  QRQ-COUNT
+               CALL    "REFRESH-LINES"
+               SET     LBL-STATUS::Caption       TO    "Item removido."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    "Selecione o item da lista que deseja remover."
+           END-IF
+]]></Event>
+  </Control>
+<Control id="LBL-HRS" type="Label" x="56" y="552" w="200" h="20" tab-order="19" z-order="19" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Caption">Horas do serviço</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the adjusted hours field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-HOURS" type="TextBox" x="56" y="574" w="120" h="34" tab-order="20" z-order="20" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">2.5</Property>
+    <Property name="AccessibleLabel">Hours to use for the selected service instead of the standar</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Hours to use for the selected service instead of the standard time of the catalog.</Property>
+  </Control>
+<Control id="LBL-NOTE" type="Label" x="196" y="552" w="300" h="20" tab-order="21" z-order="21" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Caption">Justificativa (obrigatória se mudar as horas)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the reason field for the adjusted hours.</Property>
+  </Control>
+<Control id="TXT-NOTE" type="TextBox" x="196" y="574" w="404" h="34" tab-order="22" z-order="22" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Por que as horas mudaram</Property>
+    <Property name="AccessibleLabel">Reason for the changed hours; it is saved on the line.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Reason for the changed hours; it is saved on the line.</Property>
+  </Control>
+<Control id="BTN-ADJUST" type="Button" x="616" y="572" w="132" h="38" tab-order="23" z-order="23" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Caption">Ajustar horas</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Applies the typed hours and reason to the selected service line.</Property>
+    <Event name="onClick" paragraph="BTN-ADJUST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-I                          TO    DG-LINES::ClickedRow
+           IF    WS-I > 0 AND WS-I NOT > QRQ-COUNT AND QRL-KIND (WS-I) = "S"
+               COMPUTE QRL-HOURS (WS-I)          =     FUNCTION NUMVAL ( TXT-HOURS::Text )
+               SET     QRL-NOTE (WS-I)           TO    TXT-NOTE::Text
+               SET     QRL-MANUAL (WS-I)         TO    "S"
+               CALL    "REFRESH-LINES"
+               SET     LBL-STATUS::Caption       TO    "Horas ajustadas. Gere o orçamento para ver o novo valor."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    "Selecione um serviço da lista para ajustar as horas."
+           END-IF
+]]></Event>
+  </Control>
+<Control id="LBL-PARTS" type="Label" x="56" y="620" w="330" h="20" tab-order="24" z-order="24" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Caption">Adicionar peça do catálogo</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the part picker. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="DG-PARTS" type="DataGrid" x="56" y="642" w="330" h="220" tab-order="25" z-order="25" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Columns">Código:string
+Peça:string
+Preço:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#CBD5E1</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="HeaderBackgroundColor">#E6E8F2</Property>
+    <Property name="HeaderForegroundColor">#0F172AFF</Property>
+    <Property name="GridLineColor">#E2E8F0</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="AlternatingRowColor">#F5F7FB</Property>
+    <Property name="RowHeight">28</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="AllowSorting">1</Property>
+    <Property name="ShowColumnFilters">1</Property>
+    <Property name="AllowColumnResize">1</Property>
+    <Property name="AllowColumnReorder">0</Property>
+    <Property name="AllowRowResize">0</Property>
+    <Property name="AllowCellEditing">0</Property>
+    <Property name="AccessibleLabel">Catalog rows</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Parts of the catalog in the currency of the quote, with their price.</Property>
+  </Control>
+<Control id="LBL-ADDONS" type="Label" x="410" y="620" w="338" h="20" tab-order="26" z-order="26" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Caption">Adicionar serviço extra (adicional)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the add-on picker. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="DG-ADDONS" type="DataGrid" x="410" y="642" w="338" h="220" tab-order="27" z-order="27" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Columns">Código:string
+Adicional:string
+Preço:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#CBD5E1</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="HeaderBackgroundColor">#E6E8F2</Property>
+    <Property name="HeaderForegroundColor">#0F172AFF</Property>
+    <Property name="GridLineColor">#E2E8F0</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="AlternatingRowColor">#F5F7FB</Property>
+    <Property name="RowHeight">28</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="AllowSorting">1</Property>
+    <Property name="ShowColumnFilters">1</Property>
+    <Property name="AllowColumnResize">1</Property>
+    <Property name="AllowColumnReorder">0</Property>
+    <Property name="AllowRowResize">0</Property>
+    <Property name="AllowCellEditing">0</Property>
+    <Property name="AccessibleLabel">Catalog rows</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Add-on services of the catalog in the currency of the quote: carpet cleaning, filters, oil and general wash.</Property>
+  </Control>
+<Control id="TXT-QTY" type="TextBox" x="56" y="870" w="80" h="34" tab-order="28" z-order="28" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">1</Property>
+    <Property name="AccessibleLabel">Quantity of the selected part to add.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Quantity of the selected part to add. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="BTN-ADD-PART" type="Button" x="146" y="868" w="240" h="38" tab-order="29" z-order="29" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Caption">Adicionar peça</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Adds the selected part, with the typed quantity, to the quote.</Property>
+    <Event name="onClick" paragraph="BTN-ADD-PART--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-I                          TO    DG-PARTS::ClickedRow
+           IF    WS-I > 0 AND WS-I NOT > 30 AND QRQ-COUNT < 20
+               ADD     1                         TO    QRQ-COUNT
+               SET     QRL-KIND (QRQ-COUNT)      TO    "P"
+               SET     QRL-CODE (QRQ-COUNT)      TO    WS-PART-CODE (WS-I)
+               COMPUTE QRL-QTY (QRQ-COUNT)       =     FUNCTION NUMVAL ( TXT-QTY::Text )
+               IF    QRL-QTY (QRQ-COUNT) = 0
+                   SET     QRL-QTY (QRQ-COUNT)   TO    1
+               END-IF
+
+               SET     QRL-HOURS (QRQ-COUNT)     TO    0
+               SET     QRL-MANUAL (QRQ-COUNT)    TO    "S"
+               SET     QRL-NOTE (QRQ-COUNT)      TO    SPACES
+               CALL    "REFRESH-LINES"
+               SET     LBL-STATUS::Caption       TO    "Peça adicionada."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    "Selecione uma peça (e há espaço para até 20 itens)."
+           END-IF
+]]></Event>
+  </Control>
+<Control id="BTN-ADD-ADDON" type="Button" x="410" y="868" w="338" h="38" tab-order="30" z-order="30" visible="true" enabled="true" parent="CARD-LINES">
+    <Property name="Caption">Adicionar adicional</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Adds the selected add-on service to the quote.</Property>
+    <Event name="onClick" paragraph="BTN-ADD-ADDON--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-I                          TO    DG-ADDONS::ClickedRow
+           IF    WS-I > 0 AND WS-I NOT > 30 AND QRQ-COUNT < 20
+               ADD     1                         TO    QRQ-COUNT
+               SET     QRL-KIND (QRQ-COUNT)      TO    "A"
+               SET     QRL-CODE (QRQ-COUNT)      TO    WS-ADD-CODE (WS-I)
+               SET     QRL-QTY (QRQ-COUNT)       TO    1
+               SET     QRL-HOURS (QRQ-COUNT)     TO    0
+               SET     QRL-MANUAL (QRQ-COUNT)    TO    "S"
+               SET     QRL-NOTE (QRQ-COUNT)      TO    SPACES
+               CALL    "REFRESH-LINES"
+               SET     LBL-STATUS::Caption       TO    "Adicional incluído. O total muda ao gerar o orçamento."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    "Selecione um adicional (e há espaço para até 20 itens)."
+           END-IF
+]]></Event>
+  </Control>
+<Control id="CARD-SUM" type="Panel" x="788" y="216" w="372" h="710" tab-order="31" z-order="31" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the summary of the generated quote: totals without and with taxes, hours, execution date and validity.</Property>
+  </Control>
+<Control id="LBL-SUM" type="Label" x="812" y="226" w="300" h="28" tab-order="32" z-order="32" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">Resumo</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the summary card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-NUM" type="Label" x="812" y="266" w="170" h="24" tab-order="33" z-order="33" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">Orçamento / revisão</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the summary line Orçamento / revisão.</Property>
+  </Control>
+<Control id="LBL-V-NUM" type="Label" x="988" y="266" w="160" h="24" tab-order="34" z-order="34" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the summary line Orçamento / revisão.</Property>
+  </Control>
+<Control id="LBL-R-CUR" type="Label" x="812" y="302" w="170" h="24" tab-order="35" z-order="35" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">Moeda</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the summary line Moeda. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-V-CUR" type="Label" x="988" y="302" w="160" h="24" tab-order="36" z-order="36" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the summary line Moeda. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-HRS" type="Label" x="812" y="338" w="170" h="24" tab-order="37" z-order="37" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">Horas de mão de obra</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the summary line Horas de mão de obra.</Property>
+  </Control>
+<Control id="LBL-V-HRS" type="Label" x="988" y="338" w="160" h="24" tab-order="38" z-order="38" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the summary line Horas de mão de obra.</Property>
+  </Control>
+<Control id="LBL-R-SUB" type="Label" x="812" y="374" w="170" h="24" tab-order="39" z-order="39" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">Total sem impostos</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the summary line Total sem impostos.</Property>
+  </Control>
+<Control id="LBL-V-SUB" type="Label" x="988" y="374" w="160" h="24" tab-order="40" z-order="40" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the summary line Total sem impostos.</Property>
+  </Control>
+<Control id="LBL-R-TAX" type="Label" x="812" y="410" w="170" h="24" tab-order="41" z-order="41" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">Impostos</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the summary line Impostos. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-V-TAX" type="Label" x="988" y="410" w="160" h="24" tab-order="42" z-order="42" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the summary line Impostos. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-TOT" type="Label" x="812" y="446" w="170" h="24" tab-order="43" z-order="43" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">Total com impostos</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the summary line Total com impostos.</Property>
+  </Control>
+<Control id="LBL-V-TOT" type="Label" x="988" y="446" w="160" h="24" tab-order="44" z-order="44" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the summary line Total com impostos.</Property>
+  </Control>
+<Control id="LBL-R-SUG" type="Label" x="812" y="482" w="170" h="24" tab-order="45" z-order="45" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">Prazo sugerido pela fila</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the summary line Prazo sugerido pela fila.</Property>
+  </Control>
+<Control id="LBL-V-SUG" type="Label" x="988" y="482" w="160" h="24" tab-order="46" z-order="46" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the summary line Prazo sugerido pela fila.</Property>
+  </Control>
+<Control id="LBL-R-VAL" type="Label" x="812" y="518" w="170" h="24" tab-order="47" z-order="47" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">Válido até</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the summary line Válido até. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-V-VAL" type="Label" x="988" y="518" w="160" h="24" tab-order="48" z-order="48" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the summary line Válido até. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-DL" type="Label" x="812" y="562" w="330" h="20" tab-order="49" z-order="49" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Caption">Prazo acordado (AAAAMMDD, opcional)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the agreed execution date field.</Property>
+  </Control>
+<Control id="TXT-DEADLINE" type="TextBox" x="812" y="586" w="200" h="36" tab-order="50" z-order="50" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">20261120</Property>
+    <Property name="AccessibleLabel">Execution date agreed with the customer, YYYYMMDD. Empty use</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Execution date agreed with the customer, YYYYMMDD. Empty uses the date the queue suggests.</Property>
+  </Control>
+<Control id="BTN-SAVE" type="Button" x="32" y="942" w="220" h="44" tab-order="51" z-order="51" visible="true" enabled="true">
+    <Property name="Caption">Gerar orçamento</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Sends the lines to the Backend, which prices them in the chosen currency and saves the quote or its next revision.</Property>
+    <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> QUOTE-SAVE: prices the lines in the catalog of the currency and saves the quote.
+           *> Uses:   QRQ-ID = WS-QUOTE-ID (0 = new; a number = a change of that quote, which adds the next
+           *>         revision, or a NEW quote when the currency is another one); QRQ-PLATE, QRQ-DGN-ID,
+           *>         QRQ-CURRENCY, QRQ-OPERATOR and QRQ-DEADLINE from the fields above; the lines in QRQ-LINE.
+           *> Result: QTS-STATUS = OK, INVALID, NOVEHICLE, NODIAG, NOTFOUND or ERROR; with OK the quote comes
+           *>         back priced, with taxes, totals, execution date and validity, and is shown on the summary.
+
+           CALL    "GET-CURRENCY"
+           SET     QRQ-ID                        TO    WS-QUOTE-ID
+           SET     QRQ-PLATE                     TO    TXT-PLATE::Text
+           SET     QRQ-CURRENCY                  TO    WS-CUR
+           SET     QRQ-OPERATOR                  TO    TXT-OPERATOR::Text
+           COMPUTE QRQ-DGN-ID                    =     FUNCTION NUMVAL ( TXT-DGN::Text )
+           COMPUTE QRQ-DEADLINE                  =     FUNCTION NUMVAL ( TXT-DEADLINE::Text )
+           SET     QTS-STATUS                    TO    SPACES
+           CALL    "QUOTE-SAVE" WITH WEBSOCKET LINKAGE
+               USING BY VALUE QUO-REQ
+               RETURNING QUO-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     QTS-STATUS            TO    "CALL"
+           END-CALL
+
+           EVALUATE    QTS-STATUS
+               WHEN "OK"
+                   CALL    "SHOW-QUOTE"
+                   EVALUATE    QTS-ACTION
+                       WHEN "REVISED"
+                           SET     LBL-STATUS::Caption  TO    "Nova revisão gerada; as anteriores foram mantidas."
+                       WHEN "NEWCURRENCY"
+                           SET     LBL-STATUS::Caption  TO    "Novo orçamento criado na outra moeda; o original foi mantido."
+                       WHEN OTHER
+                           SET     LBL-STATUS::Caption  TO    "Orçamento gerado."
+                   END-EVALUATE
+               WHEN "CALL"
+                   SET     LBL-STATUS::Caption   TO    "Não foi possível falar com o Backend."
+               WHEN OTHER
+                   SET     LBL-STATUS::Caption   TO    QTS-MESSAGE
+           END-EVALUATE
+]]></Event>
+  </Control>
+<Control id="LBL-STATUS" type="Label" x="272" y="952" w="888" h="28" tab-order="52" z-order="52" visible="true" enabled="true">
+    <Property name="Caption"></Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Answer of the last action: what was done or what is wrong.</Property>
+  </Control>
+</Form>

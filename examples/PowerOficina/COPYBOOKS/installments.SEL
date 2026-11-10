@@ -1,0 +1,6 @@
+           SELECT INSTALLMENT-FILE ASSIGN TO "data/installments.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS INS-KEY
+               ALTERNATE RECORD KEY IS INS-DUE WITH DUPLICATES
+               STORAGE MODE IS DISK.

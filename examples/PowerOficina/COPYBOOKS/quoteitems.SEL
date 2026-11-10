@@ -1,0 +1,5 @@
+           SELECT QUOTE-ITEM-FILE ASSIGN TO "data/quoteitems.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS QIT-KEY
+               STORAGE MODE IS DISK.

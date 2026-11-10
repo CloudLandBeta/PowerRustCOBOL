@@ -1,0 +1,36 @@
+      *> DASH-SUMMARY answer: everything the Dashboard shows, for one currency. Money is never added across currencies.
+       01 DSH-RES.
+          05 DSS-STATUS                          PIC    X(10).
+          05 DSS-MESSAGE                         PIC    X(80).
+          05 DSS-CURRENCY                        PIC    X(3).
+          05 DSS-VEHICLES                        PIC    9(4).
+          05 DSS-AWAITING                        PIC    9(4).
+          05 DSS-RUNNING                         PIC    9(4).
+          05 DSS-READY                           PIC    9(4).
+          05 DSS-SENT                            PIC    9(4).
+          05 DSS-APPROVED                        PIC    9(4).
+          05 DSS-RATE                            PIC    9(3)V9.
+          05 DSS-APPROVED-TOTAL                  PIC    9(11)V99.
+          05 DSS-TICKET                          PIC    9(9)V99.
+          05 DSS-MONTH                           OCCURS 6.
+             10 DSM-YM                           PIC    9(6).
+             10 DSM-SENT                         PIC    9(4).
+             10 DSM-APPROVED                     PIC    9(4).
+          05 DSS-TOP-COUNT                       PIC    9(2).
+          05 DSS-TOP                             OCCURS 5.
+             10 DST-CODE                         PIC    X(12).
+             10 DST-NAME                         PIC    X(40).
+             10 DST-QTY                          PIC    9(6)V99.
+          05 DSS-PAY-CASH                        PIC    9(4).
+          05 DSS-PAY-INST                        PIC    9(4).
+          05 DSS-PAY-REFUNDED                    PIC    9(4).
+          05 DSS-APR-LINK                        PIC    9(4).
+          05 DSS-APR-MANUAL                      PIC    9(4).
+          05 DSS-FAILED                          PIC    9(4).
+          05 DSS-GAVE-UP                         PIC    9(4).
+          05 DSS-DL-COUNT                        PIC    9(2).
+          05 DSS-DL                              OCCURS 8.
+             10 DDL-DATE                         PIC    9(8).
+             10 DDL-QUO                          PIC    9(8).
+             10 DDL-PLATE                        PIC    X(8).
+             10 DDL-KIND                         PIC    X(1).

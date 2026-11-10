@@ -1,0 +1,21 @@
+/* PowerOficina - project stylesheet (layer pr-app).
+   Palette taken from the dashboard inspiration image given on 2026-11-07, approximate:
+     indigo rail  #2E2B5F   side column
+     indigo       #5B4FE9   primary actions, highlighted bars
+     lavender     #EEEDFD   secondary actions, soft highlights
+     page         #F7F8FC   background
+     card         #FFFFFF   cards (border #ECEEF5)
+     ink          #1E1B4B   text on light (contrast >= 4.5:1, WCAG AA)
+     ink-soft     #4B5563   secondary text on light
+     pastels      #DCE4FB #F9E1E1 #DDEFEA #E9E4FB #FCE9D6 #DDEFF8  indicator cards
+     green        #15803D   positive variation
+     red          #B91C1C   negative variation
+   Elegance is dark only, so the light look is set here (spec R59). */
+:root {
+  --pr-surface: #FFFFFF;
+  --pr-bg: #F7F8FC;
+  --pr-accent: #5B4FE9;
+  --pr-text: #1E1B4B;
+  --pr-text-soft: #4B5563;
+  --pr-border: #ECEEF5;
+}

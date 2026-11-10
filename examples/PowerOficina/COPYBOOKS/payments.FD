@@ -1,0 +1,15 @@
+      *> One card contract per approved quote. The card number and the security code are never stored: only the brand, the last four digits and the gateway reference.
+       FD  PAYMENT-FILE
+           RECORD CONTAINS 126 CHARACTERS.
+           01 PAYMENT-RECORD.
+               05 PAY-ID PIC 9(8). *> Primary key
+               05 PAY-QUO-ID PIC 9(8).
+               05 PAY-CURRENCY PIC X(3).
+               05 PAY-TOTAL PIC 9(9)V99.
+               05 PAY-INSTALLMENTS PIC 9(2). *> 1 to 12, no interest
+               05 PAY-CARD-BRAND PIC X(12).
+               05 PAY-CARD-LAST4 PIC X(4).
+               05 PAY-GW-REF PIC X(40). *> Gateway transaction or recurring authorisation
+               05 PAY-STATUS PIC X(10). *> PENDING, ACTIVE, PAID, FAILED or REFUNDED
+               05 PAY-CONSENT-AT PIC 9(14). *> When the customer agreed to the future charges
+               05 PAY-AT PIC 9(14).

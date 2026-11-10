@@ -1,0 +1,749 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="DASHBOARD-FORM" title="Dashboard" width="1192" height="852" background="#F7F8FCFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded" definition="Dashboard of the workshop: the vehicles in service, quotes waiting for approval, services running and vehicles ready for pickup, the approval rate, the total approved and the average ticket, the quotes sent and approved by month, the most sold items, the payments and the approval channels, the installments that failed and the next delivery and pickup dates, for one currency at a time (Brazilian real or euro, never added together), through the Backend program DASH-SUMMARY. The figures refresh at regular intervals and nothing is shown that has no data behind it." index-base="1" responsive="true">
+  <user-procedures>
+    <Event name="LOAD-DASH" paragraph="LOAD-DASH"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    DSH-REQ
+           SET     DSQ-CURRENCY                  TO    "BRL"
+           IF    RDO-EUR::Selected = 1
+               SET     DSQ-CURRENCY              TO    "EUR"
+           END-IF
+           SET     DSS-STATUS                    TO    SPACES
+
+           *> DASH-SUMMARY: every figure of the dashboard for one currency, never mixed with the other.
+           *> Uses:   DSQ-CURRENCY = BRL or EUR from the two radio buttons; DSQ-ASOF = 0 (today).
+           *> Result: DSS-... hold the indicators, the six months, the five top items, the payments, the channels, the failed
+           *>         installments and the next dates; SHOW-DASH puts them on the screen and hides what has no data.
+           CALL    "DASH-SUMMARY" WITH WEBSOCKET LINKAGE
+               USING BY VALUE DSH-REQ
+               RETURNING DSH-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     DSS-STATUS            TO    "CALL"
+           END-CALL
+
+           IF    DSS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               IF    DSS-STATUS = "OK"
+                   *> SHOW-DASH: puts the indicators on the screen.
+                   *> Uses:   DSS-... counters, rate, ticket and total.
+                   *> Result: the cards and the total line are filled; what has no data says so.
+                   CALL    "SHOW-DASH"
+               ELSE
+                   SET     LBL-STATUS::Caption   TO    DSS-MESSAGE
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="SHOW-DASH" paragraph="SHOW-DASH"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     LBL-STATUS::Caption           TO    "-"
+           STRING    "Valores em " DSS-CURRENCY ". Atualiza a cada 15 segundos."  INTO  LBL-STATUS::Caption
+
+           SET     WS-ED-INT                     TO    DSS-VEHICLES
+           SET     VAL-VEH::Caption              TO    WS-ED-INT::Trim()
+           SET     WS-ED-INT                     TO    DSS-AWAITING
+           SET     VAL-AWA::Caption              TO    WS-ED-INT::Trim()
+           SET     WS-ED-INT                     TO    DSS-RUNNING
+           SET     VAL-RUN::Caption              TO    WS-ED-INT::Trim()
+           SET     WS-ED-INT                     TO    DSS-READY
+           SET     VAL-RDY::Caption              TO    WS-ED-INT::Trim()
+
+           SET     VAL-RAT::Caption              TO    "sem dados"
+           SET     VAL-TIC::Caption              TO    "sem dados"
+           SET     LBL-TOTAL::Caption            TO    "Nenhum orçamento aprovado ainda."
+           IF    DSS-SENT > 0
+               SET     WS-ED-RATE                TO    DSS-RATE
+               SET     VAL-RAT::Caption          TO    "-"
+               STRING    WS-ED-RATE::Trim() " %"  INTO  VAL-RAT::Caption
+           END-IF
+           IF    DSS-APPROVED > 0
+               SET     WS-ED-AMT                 TO    DSS-TICKET
+               SET     VAL-TIC::Caption          TO    "-"
+               STRING    DSS-CURRENCY " " WS-ED-AMT::Trim()  INTO  VAL-TIC::Caption
+               SET     WS-ED-AMT                 TO    DSS-APPROVED-TOTAL
+               SET     WS-ED-INT                 TO    DSS-SENT
+               SET     WS-ED-APR                 TO    DSS-APPROVED
+               SET     WS-LINE                   TO    SPACES
+               STRING    "Total aprovado: " DSS-CURRENCY " " WS-ED-AMT::Trim() "   (" WS-ED-APR::Trim() " aprovados de " WS-ED-INT::Trim()
+                         " enviados)"  INTO  WS-LINE
+               SET     LBL-TOTAL::Caption        TO    WS-LINE
+           END-IF
+
+           *> SHOW-CHARTS: draws the two charts.
+           *> Uses:   DSM-... months and the payment counters of the answer.
+           *> Result: CH-MONTHS and CH-PAYS are filled, or their empty notice is shown.
+           CALL    "SHOW-CHARTS"
+           *> SHOW-LISTS: fills the lists and the alert.
+           *> Uses:   DST-... top items, DDL-... dates, the channel and failed-installment counters.
+           *> Result: DG-TOP, DG-DL, LBL-CH and LBL-ALERT are filled.
+           CALL    "SHOW-LISTS"
+]]></Event>
+    <Event name="SHOW-CHARTS" paragraph="SHOW-CHARTS"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           CH-MONTHS::Clear()
+           CH-PAYS::Clear()
+           SET     LBL-MON-EMPTY::Visible        TO    1
+           SET     LBL-PAY-EMPTY::Visible        TO    1
+
+           IF    DSS-SENT > 0
+               SET     LBL-MON-EMPTY::Visible    TO    0
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 6
+                   MOVE    DSM-YM (WS-I)         TO    WS-YM-X
+                   SET     WS-LABEL              TO    SPACES
+                   STRING    WS-YM-X (5:2) "/" WS-YM-X (1:4)  INTO  WS-LABEL
+                   SET     WS-V1                 TO    DSM-SENT (WS-I)
+                   SET     WS-V2                 TO    DSM-APPROVED (WS-I)
+                   CH-MONTHS::AddPoint( WS-LABEL, WS-V1, WS-V2 )
+               END-PERFORM
+           END-IF
+
+           IF    DSS-PAY-CASH + DSS-PAY-INST + DSS-PAY-REFUNDED > 0
+               SET     LBL-PAY-EMPTY::Visible    TO    0
+               CH-PAYS::AddPoint( "À vista", DSS-PAY-CASH )
+               CH-PAYS::AddPoint( "Parcelado", DSS-PAY-INST )
+               CH-PAYS::AddPoint( "Estornado", DSS-PAY-REFUNDED )
+           END-IF
+]]></Event>
+    <Event name="SHOW-LISTS" paragraph="SHOW-LISTS"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           DG-TOP::ClearRows()
+           DG-DL::ClearRows()
+           IF    DSS-TOP-COUNT = 0
+               DG-TOP::AddRow( "Nenhum item vendido ainda." )
+           END-IF
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > DSS-TOP-COUNT
+               SET     WS-ED-QTY                 TO    DST-QTY (WS-I)
+               SET     WS-LINE                   TO    SPACES
+               STRING    WS-ED-QTY::Trim() X"09" DST-NAME (WS-I)  INTO  WS-LINE
+               DG-TOP::AddRow( WS-LINE )
+           END-PERFORM
+
+           IF    DSS-DL-COUNT = 0
+               DG-DL::AddRow( "Nenhuma entrega ou retirada marcada." )
+           END-IF
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > DSS-DL-COUNT
+               MOVE    DDL-DATE (WS-I)           TO    WS-DATE-X
+               SET     WS-KIND-PT                TO    "Entrega"
+               IF    DDL-KIND (WS-I) = "R"
+                   SET     WS-KIND-PT            TO    "Retirada"
+               END-IF
+               SET     WS-LINE                   TO    SPACES
+               STRING    WS-DATE-X (7:2) "/" WS-DATE-X (5:2) "/" WS-DATE-X (1:4) X"09" WS-KIND-PT
+                         X"09" DDL-QUO (WS-I) X"09" DDL-PLATE (WS-I)  INTO  WS-LINE
+               DG-DL::AddRow( WS-LINE )
+           END-PERFORM
+
+           SET     LBL-CH::Caption               TO    "-"
+           STRING    "Aprovações pelo link: " DSS-APR-LINK "   Registradas à mão: " DSS-APR-MANUAL  INTO  LBL-CH::Caption
+           SET     LBL-ALERT::Caption            TO    "Nenhuma parcela recusada."
+           IF    DSS-FAILED > 0 OR DSS-GAVE-UP > 0
+               SET     LBL-ALERT::Caption        TO    "-"
+               STRING    "ATENÇÃO: parcelas recusadas " DSS-FAILED "; desistidas após 3 tentativas " DSS-GAVE-UP
+                   INTO  LBL-ALERT::Caption
+           END-IF
+]]></Event>
+  </user-procedures>
+  <working-storage><![CDATA[       01 BE-CLASS                               GLOBAL    PIC X(16).
+       01 BE-CODE                                GLOBAL    PIC 9(9).
+       01 BE-MSG                                 GLOBAL    PIC X(80).
+       01 WS-LINE                                GLOBAL    PIC X(160).
+       01 WS-ED-AMT                              GLOBAL    PIC Z(8)9.99.
+       01 WS-DATE-X                              GLOBAL    PIC X(8).
+       01 WS-I                                   GLOBAL    PIC 999.
+       01 WS-V1                                  GLOBAL    PIC 9(6).
+       01 WS-V2                                  GLOBAL    PIC 9(6).
+       01 WS-YM-X                                GLOBAL    PIC X(6).
+       01 WS-LABEL                               GLOBAL    PIC X(12).
+       01 WS-ED-INT                              GLOBAL    PIC Z(5)9.
+       01 WS-ED-APR                              GLOBAL    PIC Z(3)9.
+       01 WS-ED-RATE                             GLOBAL    PIC ZZ9.9.
+       01 WS-ED-QTY                              GLOBAL    PIC Z(5)9.99.
+       01 WS-KIND-PT                             GLOBAL    PIC X(8).
+       01 DSH-REQ                             GLOBAL.
+          05 DSQ-CURRENCY                        PIC    X(3).
+          05 DSQ-ASOF                            PIC    9(8).
+       01 DSH-RES                             GLOBAL.
+          05 DSS-STATUS                          PIC    X(10).
+          05 DSS-MESSAGE                         PIC    X(80).
+          05 DSS-CURRENCY                        PIC    X(3).
+          05 DSS-VEHICLES                        PIC    9(4).
+          05 DSS-AWAITING                        PIC    9(4).
+          05 DSS-RUNNING                         PIC    9(4).
+          05 DSS-READY                           PIC    9(4).
+          05 DSS-SENT                            PIC    9(4).
+          05 DSS-APPROVED                        PIC    9(4).
+          05 DSS-RATE                            PIC    9(3)V9.
+          05 DSS-APPROVED-TOTAL                  PIC    9(11)V99.
+          05 DSS-TICKET                          PIC    9(9)V99.
+          05 DSS-MONTH                           OCCURS 6.
+             10 DSM-YM                           PIC    9(6).
+             10 DSM-SENT                         PIC    9(4).
+             10 DSM-APPROVED                     PIC    9(4).
+          05 DSS-TOP-COUNT                       PIC    9(2).
+          05 DSS-TOP                             OCCURS 5.
+             10 DST-CODE                         PIC    X(12).
+             10 DST-NAME                         PIC    X(40).
+             10 DST-QTY                          PIC    9(6)V99.
+          05 DSS-PAY-CASH                        PIC    9(4).
+          05 DSS-PAY-INST                        PIC    9(4).
+          05 DSS-PAY-REFUNDED                    PIC    9(4).
+          05 DSS-APR-LINK                        PIC    9(4).
+          05 DSS-APR-MANUAL                      PIC    9(4).
+          05 DSS-FAILED                          PIC    9(4).
+          05 DSS-GAVE-UP                         PIC    9(4).
+          05 DSS-DL-COUNT                        PIC    9(2).
+          05 DSS-DL                              OCCURS 8.
+             10 DDL-DATE                         PIC    9(8).
+             10 DDL-QUO                          PIC    9(8).
+             10 DDL-PLATE                        PIC    X(8).
+             10 DDL-KIND                         PIC    X(1).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="DASHBOARD-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> DASH-SUMMARY: the dashboard is read when the screen opens (LOAD-DASH); a timer keeps it current.
+           *> Uses:   the currency radio buttons (BRL at first).
+           *> Result: indicators, charts and lists are filled; what has no data says so.
+
+           *> LOAD-DASH: reads every figure of the dashboard for the chosen currency.
+           *> Uses:   the BRL and EUR radio buttons.
+           *> Result: the indicators, charts and lists are filled.
+           CALL    "LOAD-DASH"
+]]></Event>
+  </form-events>
+<Control id="LBL-TITLE" type="Label" x="32" y="12" w="500" h="36" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Dashboard</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Screen title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-STATUS" type="Label" x="32" y="56" w="620" h="24" tab-order="2" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#6B7280FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Status line with the currency shown and the result of the last reading.</Property>
+  </Control>
+<Control id="LBL-CUR" type="Label" x="700" y="24" w="64" h="24" tab-order="3" z-order="3" visible="true" enabled="true">
+    <Property name="Caption">Moeda</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the currency choice. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="RDO-BRL" type="RadioButton" x="770" y="22" w="110" h="28" tab-order="4" z-order="4" visible="true" enabled="true">
+    <Property name="Caption">BRL (R$)</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">true</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Currency of the dashboard: BRL (R$). The two currencies are never added together.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Event name="onClick" paragraph="RDO-BRL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-DASH: reads every figure of the dashboard for the chosen currency.
+           *> Uses:   the BRL and EUR radio buttons.
+           *> Result: the indicators, charts and lists are filled.
+           CALL    "LOAD-DASH"
+]]></Event>
+  </Control>
+<Control id="RDO-EUR" type="RadioButton" x="900" y="22" w="110" h="28" tab-order="5" z-order="5" visible="true" enabled="true">
+    <Property name="Caption">EUR (€)</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Currency of the dashboard: EUR (€). The two currencies are never added together.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Event name="onClick" paragraph="RDO-EUR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-DASH: reads every figure of the dashboard for the chosen currency.
+           *> Uses:   the BRL and EUR radio buttons.
+           *> Result: the indicators, charts and lists are filled.
+           CALL    "LOAD-DASH"
+]]></Event>
+  </Control>
+<Control id="TMR-REFRESH" type="Timer" x="1100" y="16" w="48" h="48" tab-order="6" z-order="6" visible="true" enabled="true">
+    <Property name="Interval">15000</Property>
+    <Property name="Enabled">1</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Timer that reads the figures again every fifteen seconds, so the dashboard follows the work without reloading the page.</Property>
+    <Event name="onTick" paragraph="TMR-REFRESH--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-DASH: reads every figure of the dashboard for the chosen currency.
+           *> Uses:   the BRL and EUR radio buttons.
+           *> Result: the indicators, charts and lists are filled.
+           CALL    "LOAD-DASH"
+]]></Event>
+  </Control>
+<Control id="KPI-VEH" type="Panel" x="32" y="92" w="178" h="100" tab-order="7" z-order="7" visible="true" enabled="true">
+    <Property name="BackgroundColor">#DCE4FBFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#DCE4FB</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Indicator: Veículos em atendimento. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="VAL-VEH" type="Label" x="44" y="140" w="154" h="44" tab-order="8" z-order="8" visible="true" enabled="true" parent="KPI-VEH">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Value of the indicator Veículos em atendimento.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+  </Control>
+<Control id="CAP-VEH" type="Label" x="44" y="102" w="154" h="36" tab-order="9" z-order="9" visible="true" enabled="true" parent="KPI-VEH">
+    <Property name="Caption">Veículos em atendimento</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the indicator Veículos em atendimento.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+  </Control>
+<Control id="KPI-AWA" type="Panel" x="222" y="92" w="178" h="100" tab-order="10" z-order="10" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F9E1E1FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#F9E1E1</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Indicator: Orçamentos aguardando aprovação.</Property>
+  </Control>
+<Control id="VAL-AWA" type="Label" x="234" y="140" w="154" h="44" tab-order="11" z-order="11" visible="true" enabled="true" parent="KPI-AWA">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Value of the indicator Orçamentos aguardando aprovação.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+  </Control>
+<Control id="CAP-AWA" type="Label" x="234" y="102" w="154" h="36" tab-order="12" z-order="12" visible="true" enabled="true" parent="KPI-AWA">
+    <Property name="Caption">Orçamentos aguardando aprovação</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the indicator Orçamentos aguardando aprovação.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+  </Control>
+<Control id="KPI-RUN" type="Panel" x="412" y="92" w="178" h="100" tab-order="13" z-order="13" visible="true" enabled="true">
+    <Property name="BackgroundColor">#DDEFEAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#DDEFEA</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Indicator: Serviços em execução. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="VAL-RUN" type="Label" x="424" y="140" w="154" h="44" tab-order="14" z-order="14" visible="true" enabled="true" parent="KPI-RUN">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Value of the indicator Serviços em execução.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+  </Control>
+<Control id="CAP-RUN" type="Label" x="424" y="102" w="154" h="36" tab-order="15" z-order="15" visible="true" enabled="true" parent="KPI-RUN">
+    <Property name="Caption">Serviços em execução</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the indicator Serviços em execução.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+  </Control>
+<Control id="KPI-RDY" type="Panel" x="602" y="92" w="178" h="100" tab-order="16" z-order="16" visible="true" enabled="true">
+    <Property name="BackgroundColor">#E9E4FBFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#E9E4FB</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Indicator: Veículos prontos para retirada.</Property>
+  </Control>
+<Control id="VAL-RDY" type="Label" x="614" y="140" w="154" h="44" tab-order="17" z-order="17" visible="true" enabled="true" parent="KPI-RDY">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Value of the indicator Veículos prontos para retirada.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+  </Control>
+<Control id="CAP-RDY" type="Label" x="614" y="102" w="154" h="36" tab-order="18" z-order="18" visible="true" enabled="true" parent="KPI-RDY">
+    <Property name="Caption">Veículos prontos para retirada</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the indicator Veículos prontos para retirada.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+  </Control>
+<Control id="KPI-RAT" type="Panel" x="792" y="92" w="178" h="100" tab-order="19" z-order="19" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FCE9D6FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#FCE9D6</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Indicator: Taxa de aprovação. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="VAL-RAT" type="Label" x="804" y="140" w="154" h="44" tab-order="20" z-order="20" visible="true" enabled="true" parent="KPI-RAT">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Value of the indicator Taxa de aprovação.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+  </Control>
+<Control id="CAP-RAT" type="Label" x="804" y="102" w="154" h="36" tab-order="21" z-order="21" visible="true" enabled="true" parent="KPI-RAT">
+    <Property name="Caption">Taxa de aprovação</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the indicator Taxa de aprovação.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+  </Control>
+<Control id="KPI-TIC" type="Panel" x="982" y="92" w="178" h="100" tab-order="22" z-order="22" visible="true" enabled="true">
+    <Property name="BackgroundColor">#DDEFF8FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#DDEFF8</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Indicator: Ticket médio aprovado. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="VAL-TIC" type="Label" x="994" y="140" w="154" h="44" tab-order="23" z-order="23" visible="true" enabled="true" parent="KPI-TIC">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Value of the indicator Ticket médio aprovado.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+  </Control>
+<Control id="CAP-TIC" type="Label" x="994" y="102" w="154" h="36" tab-order="24" z-order="24" visible="true" enabled="true" parent="KPI-TIC">
+    <Property name="Caption">Ticket médio aprovado</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the indicator Ticket médio aprovado.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+  </Control>
+<Control id="CARD-TOTAL" type="Panel" x="32" y="208" w="1128" h="56" tab-order="25" z-order="25" visible="true" enabled="true">
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Total approved in the currency shown. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-TOTAL" type="Label" x="48" y="220" w="1090" h="30" tab-order="26" z-order="26" visible="true" enabled="true" parent="CARD-TOTAL">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#2E2B5FFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Total approved in the currency shown, and how many quotes were sent and approved.</Property>
+  </Control>
+<Control id="CARD-MON" type="Panel" x="32" y="278" w="560" h="300" tab-order="27" z-order="27" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Chart of the quotes sent and approved by month.</Property>
+  </Control>
+<Control id="CH-MONTHS" type="BarChart" x="40" y="286" w="544" h="284" tab-order="28" z-order="28" visible="true" enabled="true" parent="CARD-MON">
+    <Property name="Title">Orçamentos enviados e aprovados por mês</Property>
+    <Property name="TitleColor">#1E1B4BFF</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="SeriesColors">#D9DBF9,#5B4FE9</Property>
+    <Property name="ShowLegend">1</Property>
+    <Property name="AnimateOnLoad">0</Property>
+    <Property name="AccessibleLabel">Bar chart with the quotes sent and approved in each of the l</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Bar chart with the quotes sent and approved in each of the last six months.</Property>
+    <Property name="TitleFontSize">16</Property>
+    <Property name="SeriesLabels">Enviados,Aprovados</Property>
+    <Property name="BarCornerRadius">6</Property>
+    <Property name="FontSize">9</Property>
+    <Property name="ShowGridLines">0</Property>
+    <Property name="ShowYAxis">0</Property>
+  </Control>
+<Control id="LBL-MON-EMPTY" type="Label" x="56" y="418" w="510" h="28" tab-order="29" z-order="29" visible="true" enabled="true" parent="CARD-MON">
+    <Property name="Caption">Sem orçamentos enviados ainda.</Property>
+    <Property name="ForegroundColor">#6B7280FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Shown instead of the chart when no quote was sent.</Property>
+  </Control>
+<Control id="CARD-PAYS" type="Panel" x="608" y="278" w="552" h="300" tab-order="30" z-order="30" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Chart of the payments by form. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CH-PAYS" type="DonutChart" x="616" y="286" w="536" h="284" tab-order="31" z-order="31" visible="true" enabled="true" parent="CARD-PAYS">
+    <Property name="Title">Pagamentos</Property>
+    <Property name="TitleColor">#1E1B4BFF</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="SeriesColors">#5B4FE9,#A7A1F6,#F28B8B</Property>
+    <Property name="ShowLegend">1</Property>
+    <Property name="AnimateOnLoad">0</Property>
+    <Property name="AccessibleLabel">Donut chart of the payments: in cash, in installments and re</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Donut chart of the payments: in cash, in installments and refunded.</Property>
+    <Property name="TitleFontSize">16</Property>
+    <Property name="InnerRadius">60</Property>
+    <Property name="FontSize">9</Property>
+    <Property name="ShowGridLines">0</Property>
+  </Control>
+<Control id="LBL-PAY-EMPTY" type="Label" x="632" y="418" w="500" h="28" tab-order="32" z-order="32" visible="true" enabled="true" parent="CARD-PAYS">
+    <Property name="Caption">Sem pagamentos ainda.</Property>
+    <Property name="ForegroundColor">#6B7280FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Shown instead of the chart when no payment exists.</Property>
+  </Control>
+<Control id="CARD-TOP" type="Panel" x="32" y="592" w="370" h="248" tab-order="33" z-order="33" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Most sold items. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-H1" type="Label" x="48" y="600" w="330" h="26" tab-order="34" z-order="34" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="Caption">Itens mais vendidos</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the most sold items. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="DG-TOP" type="DataGrid" x="48" y="632" w="338" h="196" tab-order="35" z-order="35" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="Columns">Qtd:string
+Item:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#CBD5E1</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="HeaderBackgroundColor">#E6E8F2</Property>
+    <Property name="HeaderForegroundColor">#0F172AFF</Property>
+    <Property name="GridLineColor">#E2E8F0</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="AlternatingRowColor">#F5F7FB</Property>
+    <Property name="RowHeight">28</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="AllowSorting">1</Property>
+    <Property name="ShowColumnFilters">1</Property>
+    <Property name="AllowColumnResize">1</Property>
+    <Property name="AllowColumnReorder">0</Property>
+    <Property name="AllowRowResize">0</Property>
+    <Property name="AllowCellEditing">0</Property>
+    <Property name="AccessibleLabel">The five parts and services most sold in approved quotes, wi</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">The five parts and services most sold in approved quotes, with the quantity.</Property>
+  </Control>
+<Control id="CARD-DL" type="Panel" x="418" y="592" w="442" h="248" tab-order="36" z-order="36" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Next delivery and pickup dates. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-H2" type="Label" x="434" y="600" w="400" h="26" tab-order="37" z-order="37" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">Próximas entregas e retiradas</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the dates list. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="DG-DL" type="DataGrid" x="434" y="632" w="410" h="196" tab-order="38" z-order="38" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Columns">Data:string
+Tipo:string
+Orçamento:string
+Veículo:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#CBD5E1</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="HeaderBackgroundColor">#E6E8F2</Property>
+    <Property name="HeaderForegroundColor">#0F172AFF</Property>
+    <Property name="GridLineColor">#E2E8F0</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="AlternatingRowColor">#F5F7FB</Property>
+    <Property name="RowHeight">28</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="AllowSorting">1</Property>
+    <Property name="ShowColumnFilters">1</Property>
+    <Property name="AllowColumnResize">1</Property>
+    <Property name="AllowColumnReorder">0</Property>
+    <Property name="AllowRowResize">0</Property>
+    <Property name="AllowCellEditing">0</Property>
+    <Property name="AccessibleLabel">The next delivery and pickup dates in date order, with the q</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">The next delivery and pickup dates in date order, with the quote and the vehicle.</Property>
+  </Control>
+<Control id="CARD-AL" type="Panel" x="876" y="592" w="284" h="248" tab-order="39" z-order="39" visible="true" enabled="true">
+    <Property name="BackgroundColor">#DCEFF5FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#DCEFF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Channels and alerts. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-H3" type="Label" x="892" y="600" w="250" h="26" tab-order="40" z-order="40" visible="true" enabled="true" parent="CARD-AL">
+    <Property name="Caption">Canais e alertas</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the channels and alerts card.</Property>
+  </Control>
+<Control id="LBL-CH" type="Label" x="892" y="632" w="252" h="70" tab-order="41" z-order="41" visible="true" enabled="true" parent="CARD-AL">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">How many approvals came through the link and how many were registered by hand.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+  </Control>
+<Control id="LBL-ALERT" type="Label" x="892" y="712" w="252" h="116" tab-order="42" z-order="42" visible="true" enabled="true" parent="CARD-AL">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#B91C1C</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Alert with the installments the gateway declined and the ones given up after three tries.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+  </Control>
+</Form>

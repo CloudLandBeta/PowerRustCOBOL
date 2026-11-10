@@ -1,0 +1,13 @@
+      *> A refund of one queued service that was not started. It is made in the payment's own currency.
+       FD  REFUND-FILE
+           RECORD CONTAINS 152 CHARACTERS.
+           01 REFUND-RECORD.
+               05 RFD-ID PIC 9(8). *> Primary key
+               05 RFD-PAY-ID PIC 9(8).
+               05 RFD-QUE-ID PIC 9(8).
+               05 RFD-CURRENCY PIC X(3).
+               05 RFD-AMOUNT PIC 9(9)V99.
+               05 RFD-BY PIC X(30). *> Customer or consultant who asked
+               05 RFD-AT PIC 9(14).
+               05 RFD-STATUS PIC X(10). *> REQUESTED, DONE or REFUSED
+               05 RFD-REASON PIC X(60).

@@ -1,0 +1,12 @@
+      *> Every message the application sends to a customer. In this version delivery is simulated: the message is recorded as sent and nothing leaves the application.
+       FD  NOTIFY-FILE
+           RECORD CONTAINS 318 CHARACTERS.
+           01 NOTIFY-RECORD.
+               05 NTF-ID PIC 9(8). *> Primary key
+               05 NTF-QUO-ID PIC 9(8).
+               05 NTF-CHANNEL PIC X(8). *> EMAIL or WHATSAPP
+               05 NTF-KIND PIC X(12). *> QUOTE, RECEIPT, PICKUP, READY, REFUND or ALERT
+               05 NTF-TO PIC X(60).
+               05 NTF-AT PIC 9(14).
+               05 NTF-STATUS PIC X(8). *> SENT or FAILED
+               05 NTF-TEXT PIC X(200).

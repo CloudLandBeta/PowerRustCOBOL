@@ -1,0 +1,741 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="PAGAMENTOS-FORM" title="Pagamentos" width="1192" height="852" background="#F7F8FCFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded" definition="Payment screen of the workshop: shows the installment schedule of an approved quote before it is confirmed, charges the first installment by credit card through the gateway (test mode), collects the installments that have fallen due and refunds a service that has not started, through the Backend programs PAYMENT-CONFIRM, INSTALLMENT-RUN and REFUND-REQUEST. The card number and the security code are never typed or kept: only the brand and the last four digits." index-base="1" responsive="true">
+  <user-procedures>
+    <Event name="DO-PAYMENT" paragraph="DO-PAYMENT"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    PCF-REQ
+           SET     PCQ-MODE                      TO    WS-MODE
+           COMPUTE PCQ-QUO-ID                    =     FUNCTION NUMVAL ( TXT-QUO::Text )
+               ON SIZE ERROR
+                   CONTINUE
+           END-COMPUTE
+           COMPUTE PCQ-INSTALLMENTS              =     FUNCTION NUMVAL ( TXT-N::Text )
+               ON SIZE ERROR
+                   CONTINUE
+           END-COMPUTE
+           SET     PCQ-CONSENT                   TO    "N"
+           IF    CHK-CONSENT::Checked = 1
+               SET     PCQ-CONSENT               TO    "S"
+           END-IF
+           SET     PCQ-BRAND                     TO    TXT-BRAND::Text
+           SET     PCQ-LAST4                     TO    TXT-LAST4::Text
+           SET     PCQ-OPERATOR                  TO    TXT-OPERATOR::Text
+           IF    CHK-DECLINE::Checked = 1
+               SET     PCQ-GATEWAY               TO    "D"
+           END-IF
+           IF    CHK-TIMEOUT::Checked = 1
+               SET     PCQ-GATEWAY               TO    "T"
+           END-IF
+           SET     PCS-STATUS                    TO    SPACES
+
+           *> PAYMENT-CONFIRM: shows (mode P) or charges (mode C) the payment of an approved quote by credit card.
+           *> Uses:   WS-MODE = P or C; PCQ-QUO-ID = TXT-QUO; PCQ-INSTALLMENTS = TXT-N; PCQ-CONSENT = CHK-CONSENT; PCQ-BRAND and
+           *>         PCQ-LAST4 = the brand and the last four digits (never the card number); PCQ-GATEWAY = D or T for the test
+           *>         simulations; PCQ-OPERATOR = TXT-OPERATOR.
+           *> Result: PCS-STATUS = OK, ALREADY, DECLINED, TIMEOUT, INVALID, NOTFOUND or UNAPPROVED; PCI-... hold the installments
+           *>         (number, due date, amount, state); with OK in mode C the first installment is paid, the payment exists and
+           *>         the services are in the queue; ALREADY returns the payment that exists, nothing is charged again.
+           CALL    "PAYMENT-CONFIRM" WITH WEBSOCKET LINKAGE
+               USING BY VALUE PCF-REQ
+               RETURNING PCF-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     PCS-STATUS            TO    "CALL"
+           END-CALL
+
+           DG-SCHED::ClearRows()
+           IF    PCS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    PCS-MESSAGE
+               IF    PCS-N > 0
+                   *> SHOW-SCHEDULE: lists the installments of the last answer.
+                   *> Uses:   PCI-NO, PCI-DUE, PCI-AMOUNT and PCI-STATUS of the PCS-N installments.
+                   *> Result: DG-SCHED, LBL-TOTAL and LBL-REF are filled.
+                   CALL    "SHOW-SCHEDULE"
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="SHOW-SCHEDULE" paragraph="SHOW-SCHEDULE"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > PCS-N
+               SET     WS-ED-AMT                 TO    PCI-AMOUNT (WS-I)
+               MOVE    PCI-DUE (WS-I)            TO    WS-DATE-X
+               SET     WS-LINE                   TO    SPACES
+               STRING    PCI-NO (WS-I) X"09" WS-DATE-X (7:2) "/" WS-DATE-X (5:2) "/" WS-DATE-X (1:4)
+                         X"09" PCS-CURRENCY " " WS-ED-AMT::Trim() X"09" PCI-STATUS (WS-I)
+                   INTO  WS-LINE
+               DG-SCHED::AddRow( WS-LINE )
+           END-PERFORM
+
+           SET     WS-ED-AMT                     TO    PCS-TOTAL
+           SET     LBL-TOTAL::Caption            TO    "-"
+           STRING    "Total: " PCS-CURRENCY " " WS-ED-AMT  INTO  LBL-TOTAL::Caption
+           SET     LBL-REF::Caption              TO    "Pagamento ainda não confirmado."
+           IF    PCS-PAY-ID > 0
+               SET     LBL-REF::Caption          TO    "-"
+               STRING    "Pagamento " PCS-PAY-ID " - " PCS-GW-REF  INTO  LBL-REF::Caption
+           END-IF
+]]></Event>
+    <Event name="DO-RUN" paragraph="DO-RUN"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    IRN-REQ
+           SET     IRQ-OPERATOR                  TO    TXT-OPERATOR::Text
+           IF    CHK-RUNDECLINE::Checked = 1
+               SET     IRQ-GATEWAY               TO    "D"
+           END-IF
+           SET     IRS-STATUS                    TO    SPACES
+
+           *> INSTALLMENT-RUN: records the gateway's answer for every installment that has fallen due.
+           *> Uses:   IRQ-ASOF = 0 (today); IRQ-GATEWAY = D when CHK-RUNDECLINE is ticked (test mode); IRQ-OPERATOR = TXT-OPERATOR.
+           *> Result: IRS-CHARGED installments paid, IRS-FAILED declined (the customer is told by email and WhatsApp, and the
+           *>         installment is tried again next time, at most 3 tries), IRS-GAVE-UP given up after the third failure.
+           CALL    "INSTALLMENT-RUN" WITH WEBSOCKET LINKAGE
+               USING BY VALUE IRN-REQ
+               RETURNING IRN-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     IRS-STATUS            TO    "CALL"
+           END-CALL
+
+           IF    IRS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    IRS-MESSAGE
+               SET     LBL-RUN::Caption          TO    "-"
+               STRING    "Cobradas: " IRS-CHARGED "   Recusadas: " IRS-FAILED "   Desistidas após 3 tentativas: " IRS-GAVE-UP
+                   INTO  LBL-RUN::Caption
+           END-IF
+]]></Event>
+    <Event name="DO-REFUND" paragraph="DO-REFUND"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    RFN-REQ
+           COMPUTE RFQ-QUE-ID                    =     FUNCTION NUMVAL ( TXT-QUE::Text )
+               ON SIZE ERROR
+                   CONTINUE
+           END-COMPUTE
+           SET     RFQ-BY                        TO    TXT-OPERATOR::Text
+           SET     RFQ-REASON                    TO    TXT-REASON::Text
+           IF    CHK-REFDECLINE::Checked = 1
+               SET     RFQ-GATEWAY               TO    "D"
+           END-IF
+           SET     RFS-STATUS                    TO    SPACES
+
+           *> REFUND-REQUEST: asks the refund of one service of a paid order; only a service still QUEUED is accepted.
+           *> Uses:   RFQ-QUE-ID = TXT-QUE; RFQ-BY = TXT-OPERATOR (who asked, customer or consultant); RFQ-REASON = TXT-REASON;
+           *>         RFQ-GATEWAY = D when CHK-REFDECLINE is ticked (test mode).
+           *> Result: RFS-STATUS = OK, REFUSED (running, done or already refunded, with the reason), DECLINED, NOTFOUND or INVALID;
+           *>         with OK the service leaves the queue, RFS-CANCELLED is taken from future installments and RFS-RETURNED is
+           *>         returned through the gateway; the customer is told by email and WhatsApp.
+           CALL    "REFUND-REQUEST" WITH WEBSOCKET LINKAGE
+               USING BY VALUE RFN-REQ
+               RETURNING RFN-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     RFS-STATUS            TO    "CALL"
+           END-CALL
+
+           IF    RFS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    RFS-MESSAGE
+               SET     LBL-REFR::Caption         TO    "-"
+               IF    RFS-STATUS = "OK"
+                   SET     WS-ED-AMT             TO    RFS-AMOUNT
+                   SET     WS-ED-AMT2            TO    RFS-CANCELLED
+                   STRING    "Valor " RFS-CURRENCY " " WS-ED-AMT "; parcelas futuras canceladas " WS-ED-AMT2
+                       INTO  LBL-REFR::Caption
+               END-IF
+           END-IF
+]]></Event>
+  </user-procedures>
+  <working-storage><![CDATA[       01 BE-CLASS                               GLOBAL    PIC X(16).
+       01 BE-CODE                                GLOBAL    PIC 9(9).
+       01 BE-MSG                                 GLOBAL    PIC X(80).
+       01 WS-LINE                                GLOBAL    PIC X(160).
+       01 WS-ED-AMT                              GLOBAL    PIC Z(8)9.99.
+       01 WS-DATE-X                              GLOBAL    PIC X(8).
+       01 WS-I                                   GLOBAL    PIC 999.
+       01 WS-MODE                                GLOBAL    PIC X(1).
+       01 WS-ED-AMT2                             GLOBAL    PIC Z(8)9.99.
+       01 PCF-REQ                             GLOBAL.
+          05 PCQ-MODE                            PIC    X(1).
+          05 PCQ-QUO-ID                          PIC    9(8).
+          05 PCQ-INSTALLMENTS                    PIC    9(2).
+          05 PCQ-CONSENT                         PIC    X(1).
+          05 PCQ-BRAND                           PIC    X(12).
+          05 PCQ-LAST4                           PIC    X(4).
+          05 PCQ-GATEWAY                         PIC    X(1).
+          05 PCQ-OPERATOR                        PIC    X(30).
+       01 PCF-RES                             GLOBAL.
+          05 PCS-STATUS                          PIC    X(10).
+          05 PCS-MESSAGE                         PIC    X(80).
+          05 PCS-FIELD                           PIC    X(10).
+          05 PCS-PAY-ID                          PIC    9(8).
+          05 PCS-QUO-ID                          PIC    9(8).
+          05 PCS-CURRENCY                        PIC    X(3).
+          05 PCS-TOTAL                           PIC    9(9)V99.
+          05 PCS-N                               PIC    9(2).
+          05 PCS-GW-REF                          PIC    X(40).
+          05 PCS-QUEUED                          PIC    9(2).
+          05 PCS-INS                             OCCURS 12.
+             10 PCI-NO                           PIC    9(2).
+             10 PCI-DUE                          PIC    9(8).
+             10 PCI-AMOUNT                       PIC    9(9)V99.
+             10 PCI-STATUS                       PIC    X(10).
+       01 IRN-REQ                             GLOBAL.
+          05 IRQ-ASOF                            PIC    9(8).
+          05 IRQ-GATEWAY                         PIC    X(1).
+          05 IRQ-OPERATOR                        PIC    X(30).
+       01 IRN-RES                             GLOBAL.
+          05 IRS-STATUS                          PIC    X(10).
+          05 IRS-MESSAGE                         PIC    X(80).
+          05 IRS-CHARGED                         PIC    9(4).
+          05 IRS-FAILED                          PIC    9(4).
+          05 IRS-GAVE-UP                         PIC    9(4).
+       01 RFN-REQ                             GLOBAL.
+          05 RFQ-QUE-ID                          PIC    9(8).
+          05 RFQ-BY                              PIC    X(30).
+          05 RFQ-REASON                          PIC    X(60).
+          05 RFQ-GATEWAY                         PIC    X(1).
+       01 RFN-RES                             GLOBAL.
+          05 RFS-STATUS                          PIC    X(10).
+          05 RFS-MESSAGE                         PIC    X(80).
+          05 RFS-RFD-ID                          PIC    9(8).
+          05 RFS-PAY-ID                          PIC    9(8).
+          05 RFS-CURRENCY                        PIC    X(3).
+          05 RFS-AMOUNT                          PIC    9(9)V99.
+          05 RFS-CANCELLED                       PIC    9(9)V99.
+          05 RFS-RETURNED                        PIC    9(9)V99.
+          05 RFS-QSTATE                          PIC    X(10).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="PAGAMENTOS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     LBL-STATUS::Caption           TO    "Informe o operador e o número do orçamento aprovado."
+]]></Event>
+  </form-events>
+<Control id="LBL-TITLE" type="Label" x="32" y="24" w="700" h="40" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Pagamentos</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">28</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Screen title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-SUB" type="Label" x="32" y="64" w="1100" h="24" tab-order="2" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">Pague um orçamento aprovado no cartão em até 12 parcelas sem juros. O cartão nunca é digitado aqui: só a bandeira e os 4 últimos dígitos.</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">One-line help under the title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-STATUS" type="Label" x="32" y="96" w="1128" h="24" tab-order="3" z-order="3" visible="true" enabled="true">
+    <Property name="Caption">Informe o operador e o número do orçamento aprovado.</Property>
+    <Property name="ForegroundColor">#5B4FE9FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Status line with the result of the last action.</Property>
+  </Control>
+<Control id="CARD-PAY" type="Panel" x="32" y="128" w="640" h="420" tab-order="4" z-order="4" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card to pay an approved quote: operator, quote, installments, consent, card brand and last four digits, and the schedule.</Property>
+  </Control>
+<Control id="LBL-H1" type="Label" x="56" y="138" w="500" h="28" tab-order="5" z-order="5" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">1. Pagar orçamento aprovado</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the payment card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-OP" type="Label" x="56" y="174" w="230" h="20" tab-order="6" z-order="6" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">Operador (vai para a auditoria)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the operator field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-OPERATOR" type="TextBox" x="56" y="196" w="230" h="38" tab-order="7" z-order="7" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Seu nome</Property>
+    <Property name="AccessibleLabel">Name of the person using the system; goes to the audit trail</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the person using the system; goes to the audit trail.</Property>
+  </Control>
+<Control id="LBL-QUO" type="Label" x="306" y="174" w="140" h="20" tab-order="8" z-order="8" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">Orçamento nº</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the quote number field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-QUO" type="TextBox" x="306" y="196" w="130" h="38" tab-order="9" z-order="9" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">1</Property>
+    <Property name="AccessibleLabel">Number of the approved quote to be paid.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Number of the approved quote to be paid.</Property>
+  </Control>
+<Control id="LBL-N" type="Label" x="456" y="174" w="150" h="20" tab-order="10" z-order="10" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">Parcelas (1 a 12)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the installments field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-N" type="TextBox" x="456" y="196" w="110" h="38" tab-order="11" z-order="11" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">1</Property>
+    <Property name="AccessibleLabel">Number of installments from 1 to 12, without interest.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Number of installments from 1 to 12, without interest.</Property>
+  </Control>
+<Control id="LBL-BRAND" type="Label" x="56" y="246" w="200" h="20" tab-order="12" z-order="12" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">Bandeira do cartão</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the card brand field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-BRAND" type="TextBox" x="56" y="268" w="230" h="38" tab-order="13" z-order="13" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">VISA</Property>
+    <Property name="AccessibleLabel">Brand of the card, as the gateway shows it. The card number </Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Brand of the card, as the gateway shows it. The card number is never typed.</Property>
+  </Control>
+<Control id="LBL-L4" type="Label" x="306" y="246" w="200" h="20" tab-order="14" z-order="14" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">4 últimos dígitos</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the last four digits field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-LAST4" type="TextBox" x="306" y="268" w="130" h="38" tab-order="15" z-order="15" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">4242</Property>
+    <Property name="AccessibleLabel">Only the last four digits of the card; the full number and t</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Only the last four digits of the card; the full number and the security code are never kept.</Property>
+  </Control>
+<Control id="CHK-CONSENT" type="CheckBox" x="56" y="312" w="560" h="28" tab-order="16" z-order="16" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">O cliente autoriza as cobranças futuras das parcelas</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CheckBoxColor">#FFFFFFFF</Property>
+    <Property name="CheckBoxBorderStyle">Single</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Express consent to the future installment charges. Without it only one installment is accepted.</Property>
+  </Control>
+<Control id="CHK-DECLINE" type="CheckBox" x="56" y="344" w="300" h="28" tab-order="17" z-order="17" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">Simular recusa do gateway</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CheckBoxColor">#FFFFFFFF</Property>
+    <Property name="CheckBoxBorderStyle">Single</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Test mode: the gateway declines the charge, to show that the quote stays approved and can be paid again.</Property>
+  </Control>
+<Control id="CHK-TIMEOUT" type="CheckBox" x="366" y="344" w="300" h="28" tab-order="18" z-order="18" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">Simular gateway sem resposta</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CheckBoxColor">#FFFFFFFF</Property>
+    <Property name="CheckBoxBorderStyle">Single</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Test mode: the gateway does not answer, to show that nothing is charged and the payment can be tried again.</Property>
+  </Control>
+<Control id="BTN-PREVIEW" type="Button" x="56" y="382" w="284" h="44" tab-order="19" z-order="19" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">Conferir parcelas</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Shows the installments, due dates and total before the payment is confirmed.</Property>
+    <Event name="onClick" paragraph="BTN-PREVIEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-MODE                       TO    "P"
+           *> DO-PAYMENT: shows or confirms the payment of the approved quote typed in TXT-QUO.
+           *> Uses:   WS-MODE (P or C) and the card fields of the screen.
+           *> Result: the installments listed, the status line set, and with mode C the payment recorded and the services queued.
+           CALL    "DO-PAYMENT"
+]]></Event>
+  </Control>
+<Control id="BTN-PAY" type="Button" x="356" y="382" w="284" h="44" tab-order="20" z-order="20" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">Confirmar pagamento</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Charges the first installment at the gateway and puts the services of the quote in the execution queue.</Property>
+    <Event name="onClick" paragraph="BTN-PAY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-MODE                       TO    "C"
+           *> DO-PAYMENT: shows or confirms the payment of the approved quote typed in TXT-QUO.
+           *> Uses:   WS-MODE (P or C) and the card fields of the screen.
+           *> Result: the installments listed, the status line set, and with mode C the payment recorded and the services queued.
+           CALL    "DO-PAYMENT"
+]]></Event>
+  </Control>
+<Control id="LBL-NOTE" type="Label" x="56" y="440" w="570" h="40" tab-order="21" z-order="21" visible="true" enabled="true" parent="CARD-PAY">
+    <Property name="Caption">Parcelas iguais; o centavo que sobra vai na primeira. A primeira é cobrada agora e as outras a cada 30 dias pelo gateway, sem pedir o cartão de novo.</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Reminder of how the installments are charged.</Property>
+  </Control>
+<Control id="CARD-SCHED" type="Panel" x="688" y="128" w="472" h="420" tab-order="22" z-order="22" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the installment schedule of the quote.</Property>
+  </Control>
+<Control id="LBL-H2" type="Label" x="712" y="138" w="420" h="28" tab-order="23" z-order="23" visible="true" enabled="true" parent="CARD-SCHED">
+    <Property name="Caption">Parcelas</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the schedule card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="DG-SCHED" type="DataGrid" x="712" y="174" w="424" h="250" tab-order="24" z-order="24" visible="true" enabled="true" parent="CARD-SCHED">
+    <Property name="Columns">Parcela:string
+Vencimento:string
+Valor:string
+Situação:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#CBD5E1</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="HeaderBackgroundColor">#E6E8F2</Property>
+    <Property name="HeaderForegroundColor">#0F172AFF</Property>
+    <Property name="GridLineColor">#E2E8F0</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="AlternatingRowColor">#F5F7FB</Property>
+    <Property name="RowHeight">28</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="AllowSorting">1</Property>
+    <Property name="ShowColumnFilters">1</Property>
+    <Property name="AllowColumnResize">1</Property>
+    <Property name="AllowColumnReorder">0</Property>
+    <Property name="AllowRowResize">0</Property>
+    <Property name="AllowCellEditing">0</Property>
+    <Property name="AccessibleLabel">Installments of the quote: number, due date, amount and stat</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Installments of the quote: number, due date, amount and state.</Property>
+  </Control>
+<Control id="LBL-TOTAL" type="Label" x="712" y="440" w="424" h="24" tab-order="25" z-order="25" visible="true" enabled="true" parent="CARD-SCHED">
+    <Property name="Caption">Total: -</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Total of the quote in its own currency; it always equals the sum of the installments.</Property>
+  </Control>
+<Control id="LBL-REF" type="Label" x="712" y="468" w="424" h="40" tab-order="26" z-order="26" visible="true" enabled="true" parent="CARD-SCHED">
+    <Property name="Caption">Pagamento: -</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Payment number and gateway reference. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CARD-RUN" type="Panel" x="32" y="564" w="560" h="200" tab-order="27" z-order="27" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card to collect the installments that have fallen due.</Property>
+  </Control>
+<Control id="LBL-H3" type="Label" x="56" y="574" w="500" h="28" tab-order="28" z-order="28" visible="true" enabled="true" parent="CARD-RUN">
+    <Property name="Caption">2. Parcelas vencidas</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the due installments card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CHK-RUNDECLINE" type="CheckBox" x="56" y="612" w="400" h="28" tab-order="29" z-order="29" visible="true" enabled="true" parent="CARD-RUN">
+    <Property name="Caption">Simular recusa do gateway nesta cobrança</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CheckBoxColor">#FFFFFFFF</Property>
+    <Property name="CheckBoxBorderStyle">Single</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Test mode: the gateway declines the due installments, to show the failure notice and the limit of three tries.</Property>
+  </Control>
+<Control id="BTN-RUN" type="Button" x="56" y="650" w="260" h="44" tab-order="30" z-order="30" visible="true" enabled="true" parent="CARD-RUN">
+    <Property name="Caption">Cobrar parcelas vencidas</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Records what the gateway answered for every installment that has fallen due.</Property>
+    <Event name="onClick" paragraph="BTN-RUN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> DO-RUN: collects the installments that have fallen due.
+           *> Uses:   the operator and the decline tick of the screen.
+           *> Result: LBL-RUN shows how many were charged, declined or given up.
+           CALL    "DO-RUN"
+]]></Event>
+  </Control>
+<Control id="LBL-RUN" type="Label" x="56" y="706" w="500" h="40" tab-order="31" z-order="31" visible="true" enabled="true" parent="CARD-RUN">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Result of the last collection. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CARD-REF" type="Panel" x="608" y="564" w="552" h="260" tab-order="32" z-order="32" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card to refund a service that has not started.</Property>
+  </Control>
+<Control id="LBL-H4" type="Label" x="632" y="574" w="500" h="28" tab-order="33" z-order="33" visible="true" enabled="true" parent="CARD-REF">
+    <Property name="Caption">3. Estorno de serviço não iniciado</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the refund card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-QS" type="Label" x="632" y="612" w="160" h="20" tab-order="34" z-order="34" visible="true" enabled="true" parent="CARD-REF">
+    <Property name="Caption">Nº do serviço na fila</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the queue service number. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-QUE" type="TextBox" x="632" y="634" w="150" h="38" tab-order="35" z-order="35" visible="true" enabled="true" parent="CARD-REF">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">1</Property>
+    <Property name="AccessibleLabel">Number of the service on the execution queue screen.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Number of the service on the execution queue screen.</Property>
+  </Control>
+<Control id="LBL-RS" type="Label" x="802" y="612" w="300" h="20" tab-order="36" z-order="36" visible="true" enabled="true" parent="CARD-REF">
+    <Property name="Caption">Motivo do estorno</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the refund reason. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-REASON" type="TextBox" x="802" y="634" w="334" h="38" tab-order="37" z-order="37" visible="true" enabled="true" parent="CARD-REF">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Motivo</Property>
+    <Property name="AccessibleLabel">Reason for the refund.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Reason for the refund. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CHK-REFDECLINE" type="CheckBox" x="632" y="682" w="400" h="28" tab-order="38" z-order="38" visible="true" enabled="true" parent="CARD-REF">
+    <Property name="Caption">Simular recusa do gateway na devolução</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CheckBoxColor">#FFFFFFFF</Property>
+    <Property name="CheckBoxBorderStyle">Single</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Test mode: the gateway does not return the amount already paid, so nothing changes.</Property>
+  </Control>
+<Control id="BTN-REFUND" type="Button" x="632" y="718" w="260" h="44" tab-order="39" z-order="39" visible="true" enabled="true" parent="CARD-REF">
+    <Property name="Caption">Pedir estorno</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Asks the refund of the service; only a service still waiting in the queue is accepted.</Property>
+    <Event name="onClick" paragraph="BTN-REFUND--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> DO-REFUND: asks the refund of a service not yet started.
+           *> Uses:   TXT-QUE, TXT-REASON, TXT-OPERATOR and the decline tick.
+           *> Result: LBL-REFR shows the amount returned and the installments cancelled.
+           CALL    "DO-REFUND"
+]]></Event>
+  </Control>
+<Control id="LBL-REFR" type="Label" x="632" y="770" w="500" h="48" tab-order="40" z-order="40" visible="true" enabled="true" parent="CARD-REF">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Result of the last refund request: value, installments cancelled and amount returned.</Property>
+  </Control>
+</Form>

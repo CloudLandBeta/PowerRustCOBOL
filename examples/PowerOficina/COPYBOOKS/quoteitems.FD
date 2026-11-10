@@ -1,0 +1,17 @@
+      *> One line of a quote revision: a part, a labour line or an add-on, with its quantity and price in the quote's currency.
+       FD  QUOTE-ITEM-FILE
+           RECORD CONTAINS 157 CHARACTERS.
+           01 QUOTE-ITEM-RECORD.
+               05 QIT-KEY. *> Primary key: quote, revision, line
+                   10 QIT-QUO-ID PIC 9(8).
+                   10 QIT-REV PIC 9(2).
+                   10 QIT-LINE PIC 9(3).
+               05 QIT-KIND PIC X(1). *> P, S, A or L
+               05 QIT-CODE PIC X(12).
+               05 QIT-NAME PIC X(40).
+               05 QIT-QTY PIC 9(4)V99.
+               05 QIT-UNIT PIC 9(7)V99. *> Unit price without tax
+               05 QIT-TAX-RATE PIC 9(2)V99.
+               05 QIT-AMOUNT PIC 9(9)V99. *> Quantity times unit price, without tax
+               05 QIT-MANUAL PIC X(1). *> S when the consultant changed the suggestion
+               05 QIT-NOTE PIC X(60). *> Reason for a manual change

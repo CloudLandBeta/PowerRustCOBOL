@@ -1,0 +1,13 @@
+      *> One row per customer of the workshop. CUS-DOC is the CPF or CNPJ. The two CONSENT flags (S or N) say whether the customer agreed to be contacted by email and by WhatsApp.
+       FD  CUSTOMER-FILE
+           RECORD CONTAINS 264 CHARACTERS.
+           01 CUSTOMER-RECORD.
+               05 CUS-ID PIC 9(8). *> Primary key
+               05 CUS-NAME PIC X(60).
+               05 CUS-DOC PIC X(14). *> CPF or CNPJ, digits only
+               05 CUS-ADDRESS PIC X(80).
+               05 CUS-PHONE PIC X(20).
+               05 CUS-WHATSAPP PIC X(20).
+               05 CUS-EMAIL PIC X(60).
+               05 CUS-CONSENT-EMAIL PIC X(1). *> S or N
+               05 CUS-CONSENT-WA PIC X(1). *> S or N

@@ -1,0 +1,55 @@
+menu:
+- id: dash
+  label: Dashboard
+  type: action
+  icon: home
+  action: home
+  enabled: true
+- id: atnd
+  label: Atendimentos
+  type: action
+  icon: users
+  action: open-form:atendimentos-form
+  enabled: true
+- id: diag
+  label: Diagnóstico
+  type: action
+  icon: car
+  action: open-form:diagnostico-form
+  enabled: true
+- id: orca
+  label: Orçamentos
+  type: action
+  icon: receipt
+  action: open-form:orcamentos-form
+  enabled: true
+- id: apro
+  label: Envio e aprovação
+  type: action
+  icon: mail
+  action: open-form:aprovacao-form
+  enabled: true
+- id: fila
+  label: Fila de execução
+  type: action
+  icon: list-view
+  action: open-form:fila-form
+  enabled: true
+- id: pagt
+  label: Pagamentos
+  type: action
+  icon: credit-card
+  action: open-form:pagamentos-form
+  enabled: true
+- id: rela
+  label: Relatórios
+  type: action
+  icon: chart-bar
+  action: open-form:relatorios-form
+  enabled: true
+- id: conf
+  label: Configurações
+  type: action
+  icon: wrench
+  enabled: true
+hash: f5533418cccd6458b046e83b41ff773f9a235385804606877833cfc3f459fd5a

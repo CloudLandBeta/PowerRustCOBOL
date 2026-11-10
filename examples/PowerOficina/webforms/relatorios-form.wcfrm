@@ -1,0 +1,343 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="RELATORIOS-FORM" title="Relatórios" width="1192" height="852" background="#F7F8FCFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded" definition="Reports of the workshop: the quotes, the payments, the installments the gateway declined and the notices that were not delivered, filtered by status, with the total of one currency at a time (never added across currencies), through the Backend program REPORT-LIST." index-base="1" responsive="true">
+  <user-procedures>
+    <Event name="LOAD-REPORT" paragraph="LOAD-REPORT"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    RPT-REQ
+           SET     RPQ-MODE                      TO    "Q"
+           IF    RDO-P::Selected = 1
+               SET     RPQ-MODE                  TO    "P"
+           END-IF
+           IF    RDO-F::Selected = 1
+               SET     RPQ-MODE                  TO    "F"
+           END-IF
+           IF    RDO-N::Selected = 1
+               SET     RPQ-MODE                  TO    "N"
+           END-IF
+           SET     RPQ-CURRENCY                  TO    "BRL"
+           IF    RDO-EUR::Selected = 1
+               SET     RPQ-CURRENCY              TO    "EUR"
+           END-IF
+           SET     RPQ-FILTER                    TO    TXT-FILTER::Text::Trim()
+           SET     RPS-STATUS                    TO    SPACES
+
+           *> REPORT-LIST: the rows of one report, with the total of one currency.
+           *> Uses:   RPQ-MODE = Q, P, F or N from the radio buttons; RPQ-CURRENCY = BRL or EUR; RPQ-FILTER = TXT-FILTER.
+           *> Result: RPL-... hold up to 40 rows; RPS-TOTAL-ROWS says how many exist; RPS-TOTAL adds the rows of that currency
+           *>         only; a wrong choice answers INVALID with a message.
+           CALL    "REPORT-LIST" WITH WEBSOCKET LINKAGE
+               USING BY VALUE RPT-REQ
+               RETURNING RPT-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     RPS-STATUS            TO    "CALL"
+           END-CALL
+
+           DG-REPORT::ClearRows()
+           IF    RPS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               IF    RPS-STATUS = "OK"
+                   *> SHOW-REPORT: lists the rows of the last report.
+                   *> Uses:   RPL-... rows, RPS-COUNT and RPS-TOTAL.
+                   *> Result: DG-REPORT, the status line and LBL-SUM are filled.
+                   CALL    "SHOW-REPORT"
+               ELSE
+                   SET     LBL-STATUS::Caption   TO    RPS-MESSAGE
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="SHOW-REPORT" paragraph="SHOW-REPORT"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           IF    RPS-COUNT = 0
+               DG-REPORT::AddRow( "Nenhum registro para este relatório." )
+           END-IF
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > RPS-COUNT
+               SET     WS-ED-AMT                 TO    RPL-AMOUNT (WS-I)
+               SET     WS-LINE                   TO    SPACES
+               MOVE    RPL-DATE (WS-I)           TO    WS-DATE-X
+               STRING    RPL-ID (WS-I) X"09" RPL-REF (WS-I) X"09" RPL-STATUS (WS-I) X"09" WS-ED-AMT::Trim() X"09"
+                         WS-DATE-X (7:2) "/" WS-DATE-X (5:2) "/" WS-DATE-X (1:4) X"09" RPL-TEXT (WS-I)  INTO  WS-LINE
+               DG-REPORT::AddRow( WS-LINE )
+           END-PERFORM
+
+           SET     WS-ED-INT                     TO    RPS-TOTAL-ROWS
+           SET     LBL-STATUS::Caption           TO    "Relatório gerado."
+           SET     LBL-SUM::Caption              TO    "-"
+           SET     WS-ED-AMT                     TO    RPS-TOTAL
+           STRING    WS-ED-INT::Trim() " registro(s)." INTO LBL-SUM::Caption
+           IF    RPS-TOTAL > 0
+               STRING    WS-ED-INT::Trim() " registro(s). Total em " RPQ-CURRENCY ": " WS-ED-AMT::Trim()  INTO  LBL-SUM::Caption
+           END-IF
+           IF    RPS-TOTAL-ROWS > RPS-COUNT
+               SET     LBL-STATUS::Caption       TO    "Mostrando os primeiros 40 registros; refine pelo estado."
+           END-IF
+]]></Event>
+  </user-procedures>
+  <working-storage><![CDATA[       01 BE-CLASS                               GLOBAL    PIC X(16).
+       01 BE-CODE                                GLOBAL    PIC 9(9).
+       01 BE-MSG                                 GLOBAL    PIC X(80).
+       01 WS-LINE                                GLOBAL    PIC X(160).
+       01 WS-ED-AMT                              GLOBAL    PIC Z(8)9.99.
+       01 WS-DATE-X                              GLOBAL    PIC X(8).
+       01 WS-I                                   GLOBAL    PIC 999.
+       01 WS-ED-INT                              GLOBAL    PIC Z(4)9.
+       01 RPT-REQ                             GLOBAL.
+          05 RPQ-MODE                            PIC    X(1).
+          05 RPQ-CURRENCY                        PIC    X(3).
+          05 RPQ-FILTER                          PIC    X(10).
+       01 RPT-RES                             GLOBAL.
+          05 RPS-STATUS                          PIC    X(10).
+          05 RPS-MESSAGE                         PIC    X(80).
+          05 RPS-COUNT                           PIC    9(3).
+          05 RPS-TOTAL-ROWS                      PIC    9(5).
+          05 RPS-TOTAL                           PIC    9(11)V99.
+          05 RPS-ROW                             OCCURS 40.
+             10 RPL-ID                           PIC    9(8).
+             10 RPL-REF                          PIC    X(8).
+             10 RPL-STATUS                       PIC    X(10).
+             10 RPL-AMOUNT                       PIC    9(9)V99.
+             10 RPL-DATE                         PIC    9(8).
+             10 RPL-TEXT                         PIC    X(60).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="RELATORIOS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     LBL-STATUS::Caption           TO    "Escolha o relatório e toque em Gerar relatório."
+]]></Event>
+  </form-events>
+<Control id="LBL-TITLE" type="Label" x="32" y="24" w="700" h="40" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Relatórios</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">28</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Screen title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-SUB" type="Label" x="32" y="64" w="1100" h="24" tab-order="2" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">Escolha o relatório, a moeda e, se quiser, um estado (por exemplo APROVADO, PAID, FAILED). O total soma só a moeda escolhida.</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">One-line help under the title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-STATUS" type="Label" x="32" y="96" w="1128" h="24" tab-order="3" z-order="3" visible="true" enabled="true">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#5B4FE9FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Status line with the result of the last report.</Property>
+  </Control>
+<Control id="CARD-F" type="Panel" x="32" y="128" w="1128" h="150" tab-order="4" z-order="4" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the choices of the report. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-H1" type="Label" x="56" y="138" w="300" h="28" tab-order="5" z-order="5" visible="true" enabled="true" parent="CARD-F">
+    <Property name="Caption">Relatório</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the choices card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="RDO-Q" type="RadioButton" x="56" y="172" w="150" h="28" tab-order="6" z-order="6" visible="true" enabled="true" parent="CARD-F">
+    <Property name="Caption">Orçamentos</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">true</Property>
+    <Property name="GroupName">KIND</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Report of the quotes, the latest revision of each.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+  </Control>
+<Control id="RDO-P" type="RadioButton" x="216" y="172" w="150" h="28" tab-order="7" z-order="7" visible="true" enabled="true" parent="CARD-F">
+    <Property name="Caption">Pagamentos</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="GroupName">KIND</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Report of the payments. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+  </Control>
+<Control id="RDO-F" type="RadioButton" x="376" y="172" w="230" h="28" tab-order="8" z-order="8" visible="true" enabled="true" parent="CARD-F">
+    <Property name="Caption">Parcelas recusadas</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="GroupName">KIND</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Report of the installments the gateway declined.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+  </Control>
+<Control id="RDO-N" type="RadioButton" x="616" y="172" w="250" h="28" tab-order="9" z-order="9" visible="true" enabled="true" parent="CARD-F">
+    <Property name="Caption">Avisos não entregues</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="GroupName">KIND</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Report of the notices that failed or were not sent for lack of consent.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+  </Control>
+<Control id="RDO-BRL" type="RadioButton" x="56" y="230" w="110" h="28" tab-order="10" z-order="10" visible="true" enabled="true" parent="CARD-F">
+    <Property name="Caption">BRL (R$)</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">true</Property>
+    <Property name="GroupName">CUR</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Currency of the report: Brazilian real. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+  </Control>
+<Control id="RDO-EUR" type="RadioButton" x="176" y="230" w="110" h="28" tab-order="11" z-order="11" visible="true" enabled="true" parent="CARD-F">
+    <Property name="Caption">EUR (€)</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="GroupName">CUR</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Currency of the report: euro. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+  </Control>
+<Control id="LBL-FILTER" type="Label" x="316" y="206" w="180" h="20" tab-order="12" z-order="12" visible="true" enabled="true" parent="CARD-F">
+    <Property name="Caption">Estado (opcional)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the status filter. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-FILTER" type="TextBox" x="316" y="230" w="200" h="38" tab-order="13" z-order="13" visible="true" enabled="true" parent="CARD-F">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">em branco = todos</Property>
+    <Property name="AccessibleLabel">Status to filter by; empty shows all.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Status to filter by; empty shows all. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="BTN-GO" type="Button" x="540" y="228" w="200" h="42" tab-order="14" z-order="14" visible="true" enabled="true" parent="CARD-F">
+    <Property name="Caption">Gerar relatório</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Reads the report chosen from the Backend and lists it.</Property>
+    <Event name="onClick" paragraph="BTN-GO--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-REPORT: reads the report chosen from the Backend.
+           *> Uses:   the report, currency and status filter of the screen.
+           *> Result: DG-REPORT and the total line are filled.
+           CALL    "LOAD-REPORT"
+]]></Event>
+  </Control>
+<Control id="CARD-L" type="Panel" x="32" y="294" w="1128" h="530" tab-order="15" z-order="15" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the rows of the report. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-H2" type="Label" x="56" y="304" w="700" h="28" tab-order="16" z-order="16" visible="true" enabled="true" parent="CARD-L">
+    <Property name="Caption">Resultado</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the result card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="DG-REPORT" type="DataGrid" x="56" y="340" w="1072" h="410" tab-order="17" z-order="17" visible="true" enabled="true" parent="CARD-L">
+    <Property name="Columns">Nº:string
+Referência:string
+Estado:string
+Valor:string
+Data:string
+Observação:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#CBD5E1</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="HeaderBackgroundColor">#E6E8F2</Property>
+    <Property name="HeaderForegroundColor">#0F172AFF</Property>
+    <Property name="GridLineColor">#E2E8F0</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="AlternatingRowColor">#F5F7FB</Property>
+    <Property name="RowHeight">28</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="AllowSorting">1</Property>
+    <Property name="ShowColumnFilters">1</Property>
+    <Property name="AllowColumnResize">1</Property>
+    <Property name="AllowColumnReorder">0</Property>
+    <Property name="AllowRowResize">0</Property>
+    <Property name="AllowCellEditing">0</Property>
+    <Property name="AccessibleLabel">The rows of the report: number, reference, state, amount, da</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">The rows of the report: number, reference, state, amount, date and note.</Property>
+  </Control>
+<Control id="LBL-SUM" type="Label" x="56" y="764" w="1072" h="40" tab-order="18" z-order="18" visible="true" enabled="true" parent="CARD-L">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Number of rows and the total of the currency chosen.</Property>
+  </Control>
+</Form>

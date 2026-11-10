@@ -1,0 +1,648 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="DIAGNOSTICO-FORM" title="Diagnóstico" width="1192" height="852" background="#F7F8FCFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded" definition="Diagnosis screen of the workshop: collects the vehicle readings (simulated connection, may drop and be finished by hand) or takes them typed, through the Backend program DIAG-COLLECT." index-base="1" responsive="true">
+  <user-procedures>
+    <Event name="SHOW-RESULT" paragraph="SHOW-RESULT"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           EVALUATE    DCS-STATUS
+               WHEN "OK"
+               WHEN "PARTIAL"
+                   IF    DCS-STATUS = "PARTIAL"
+                       SET     WS-DIAG-ID        TO    DCS-ID
+                       SET     LBL-STATUS::Caption  TO    DCS-MESSAGE
+                   ELSE
+                       SET     WS-DIAG-ID        TO    0
+                       SET     LBL-STATUS::Caption  TO    "Diagnóstico gravado."
+                   END-IF
+
+                   SET     LBL-V-ID::Caption     TO    DCS-ID
+                   SET     LBL-V-MODEL::Caption  TO    DCS-MODEL
+                   IF    DCS-SOURCE = "M"
+                       SET     LBL-V-SRC::Caption  TO  "Digitado à mão"
+                   ELSE
+                       SET     LBL-V-SRC::Caption  TO  "Coletado do veículo"
+                   END-IF
+
+                   SET     WS-EDIT-TEMP          TO    DCS-ENGINE-TEMP
+                   SET     WS-EDIT-RPM           TO    DCS-RPM
+                   SET     WS-EDIT-BATTERY       TO    DCS-BATTERY
+                   SET     WS-EDIT-OIL           TO    DCS-OIL-PRESSURE
+                   STRING    WS-EDIT-TEMP " °C"  INTO  LBL-V-TEMP::Caption
+                   STRING    WS-EDIT-RPM " rpm"  INTO  LBL-V-RPM::Caption
+                   STRING    WS-EDIT-BATTERY " V"  INTO  LBL-V-BAT::Caption
+                   STRING    WS-EDIT-OIL " kPa"  INTO  LBL-V-OIL::Caption
+                   SET     LBL-V-FLT::Caption    TO    "-"
+                   IF    DCS-FAULT-1 NOT = SPACES
+                       STRING    DCS-FAULT-1 " " DCS-FAULT-2  INTO  LBL-V-FLT::Caption
+                   END-IF
+               WHEN "CALL"
+                   SET     LBL-STATUS::Caption   TO    "Não foi possível falar com o Backend."
+               WHEN OTHER
+                   SET     LBL-STATUS::Caption   TO    DCS-MESSAGE
+           END-EVALUATE
+]]></Event>
+  </user-procedures>
+  <working-storage><![CDATA[       01 BE-CLASS                               GLOBAL    PIC X(16).
+       01 BE-CODE                                GLOBAL    PIC 9(9).
+       01 BE-MSG                                 GLOBAL    PIC X(80).
+       01 WS-LINE                                GLOBAL    PIC X(120).
+       01 WS-DIAG-ID                             GLOBAL    PIC 9(8)    VALUE 0.
+       01 WS-EDIT-TEMP                           GLOBAL    PIC ZZ9.
+       01 WS-EDIT-RPM                            GLOBAL    PIC ZZZZ9.
+       01 WS-EDIT-BATTERY                        GLOBAL    PIC Z9.9.
+       01 WS-EDIT-OIL                            GLOBAL    PIC ZZ9.9.
+       01 DGC-REQ                             GLOBAL.
+          05 DCQ-PLATE                           PIC    X(8).
+          05 DCQ-OPERATOR                        PIC    X(30).
+          05 DCQ-MODE                            PIC    X(1).
+          05 DCQ-ID                              PIC    9(8).
+          05 DCQ-INTERRUPT-AFTER                 PIC    9(1).
+          05 DCQ-ENGINE-TEMP                     PIC    9(3).
+          05 DCQ-RPM                             PIC    9(5).
+          05 DCQ-BATTERY                         PIC    9(2)V9.
+          05 DCQ-OIL-PRESSURE                    PIC    9(3)V9.
+          05 DCQ-FAULT-1                         PIC    X(8).
+          05 DCQ-FAULT-2                         PIC    X(8).
+          05 DCQ-FAULT-3                         PIC    X(8).
+          05 DCQ-FAULT-4                         PIC    X(8).
+          05 DCQ-FAULT-5                         PIC    X(8).
+       01 DGC-RES                             GLOBAL.
+          05 DCS-STATUS                          PIC    X(10).
+          05 DCS-MESSAGE                         PIC    X(80).
+          05 DCS-FIELD                           PIC    X(10).
+          05 DCS-ID                              PIC    9(8).
+          05 DCS-AT                              PIC    9(14).
+          05 DCS-SOURCE                          PIC    X(1).
+          05 DCS-MODEL                           PIC    X(30).
+          05 DCS-COLLECTED                       PIC    9(1).
+          05 DCS-ENGINE-TEMP                     PIC    9(3).
+          05 DCS-RPM                             PIC    9(5).
+          05 DCS-BATTERY                         PIC    9(2)V9.
+          05 DCS-OIL-PRESSURE                    PIC    9(3)V9.
+          05 DCS-FAULT-1                         PIC    X(8).
+          05 DCS-FAULT-2                         PIC    X(8).
+          05 DCS-FAULT-3                         PIC    X(8).
+          05 DCS-FAULT-4                         PIC    X(8).
+          05 DCS-FAULT-5                         PIC    X(8).
+]]></working-storage>
+<Control id="LBL-TITLE" type="Label" x="32" y="24" w="600" h="40" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Diagnóstico</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">28</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Screen title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-SUB" type="Label" x="32" y="64" w="900" h="24" tab-order="2" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">Colete os dados do veículo conectado ou digite-os à mão.</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">One-line help under the title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CARD-IN" type="Panel" x="32" y="104" w="1128" h="160" tab-order="3" z-order="3" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the operator, the plate and the collection buttons.</Property>
+  </Control>
+<Control id="LBL-OP" type="Label" x="56" y="116" w="240" h="20" tab-order="4" z-order="4" visible="true" enabled="true" parent="CARD-IN">
+    <Property name="Caption">Operador (vai para a auditoria)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the operator field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-OPERATOR" type="TextBox" x="56" y="140" w="300" h="40" tab-order="5" z-order="5" visible="true" enabled="true" parent="CARD-IN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Seu nome</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the person using the system. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-PLATE" type="Label" x="392" y="116" w="200" h="20" tab-order="6" z-order="6" visible="true" enabled="true" parent="CARD-IN">
+    <Property name="Caption">Placa do veículo</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the plate field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-PLATE" type="TextBox" x="392" y="140" w="200" h="40" tab-order="7" z-order="7" visible="true" enabled="true" parent="CARD-IN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">ABC1D23</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Plate of a vehicle already registered in Atendimentos.</Property>
+  </Control>
+<Control id="CHK-DROP" type="CheckBox" x="56" y="200" w="520" h="24" tab-order="8" z-order="8" visible="true" enabled="true" parent="CARD-IN">
+    <Property name="Caption">Simular queda da conexão durante a coleta</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CheckBoxColor">#FFFFFFFF</Property>
+    <Property name="CheckBoxBorderStyle">Single</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">When ticked the simulated connection drops after the sensor number typed beside it.</Property>
+  </Control>
+<Control id="LBL-DROP" type="Label" x="600" y="202" w="180" h="20" tab-order="9" z-order="9" visible="true" enabled="true" parent="CARD-IN">
+    <Property name="Caption">após o sensor (1 a 3)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the drop point. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-DROP" type="TextBox" x="784" y="196" w="64" h="34" tab-order="10" z-order="10" visible="true" enabled="true" parent="CARD-IN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">2</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Sensor after which the simulated connection drops: 1 engine temperature, 2 rpm, 3 battery.</Property>
+  </Control>
+<Control id="BTN-COLLECT" type="Button" x="868" y="192" w="200" h="40" tab-order="11" z-order="11" visible="true" enabled="true" parent="CARD-IN">
+    <Property name="Caption">Coletar do veículo</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Collects the readings of the connected vehicle (simulated) and saves the diagnosis.</Property>
+    <Event name="onClick" paragraph="BTN-COLLECT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> DIAG-COLLECT: collects the vehicle (mode S) and saves the diagnosis.
+           *> Uses:   DCQ-PLATE = TXT-PLATE; DCQ-MODE = "S"; DCQ-ID = 0 (a new collection);
+           *>         DCQ-INTERRUPT-AFTER = the sensor typed in TXT-DROP when CHK-DROP is ticked, else 0.
+           *> Result: DCS-STATUS = OK, PARTIAL, NOVEHICLE, INVALID or ERROR; with OK or PARTIAL the
+           *>         readings and fault codes (DCS-...) are shown below and DCS-ID is kept in WS-DIAG-ID.
+
+           INITIALIZE    DGC-REQ
+           SET     DCQ-PLATE                     TO    TXT-PLATE::Text
+           SET     DCQ-OPERATOR                  TO    TXT-OPERATOR::Text
+           SET     DCQ-MODE                      TO    "S"
+           IF    CHK-DROP::Checked = 1
+               COMPUTE DCQ-INTERRUPT-AFTER       =     FUNCTION NUMVAL ( TXT-DROP::Text )
+           END-IF
+
+           SET     DCS-STATUS                    TO    SPACES
+           CALL    "DIAG-COLLECT" WITH WEBSOCKET LINKAGE
+               USING BY VALUE DGC-REQ
+               RETURNING DGC-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     DCS-STATUS            TO    "CALL"
+           END-CALL
+
+           *> SHOW-RESULT: paints the answer of DIAG-COLLECT on the result card and the status line.
+           *> Uses:   DCS-... = the answer just received; DCS-STATUS decides what is shown.
+           *> Result: LBL-V-... captions and LBL-STATUS::Caption are set; WS-DIAG-ID keeps the number of
+           *>         a partial collection (0 otherwise) so the manual entry can complete it.
+
+           CALL    "SHOW-RESULT"
+]]></Event>
+  </Control>
+<Control id="CARD-MAN" type="Panel" x="32" y="280" w="556" h="456" tab-order="12" z-order="12" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the readings typed by hand. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-MAN" type="Label" x="56" y="292" w="400" h="28" tab-order="13" z-order="13" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Entrada manual</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the manual card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-MAN-H" type="Label" x="56" y="322" w="508" h="40" tab-order="14" z-order="14" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Use para completar uma coleta interrompida (o número do diagnóstico é mantido) ou para digitar os valores.</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Explains when the manual entry is used. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-TEMP" type="Label" x="56" y="370" w="300" h="20" tab-order="15" z-order="15" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Temperatura do motor (°C)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-TEMP. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-TEMP" type="TextBox" x="56" y="392" w="508" h="34" tab-order="16" z-order="16" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">90</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Engine temperature in degrees Celsius. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-RPM" type="Label" x="56" y="432" w="300" h="20" tab-order="17" z-order="17" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Rotação (rpm)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-RPM. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-RPM" type="TextBox" x="56" y="454" w="508" h="34" tab-order="18" z-order="18" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">800</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Engine speed in rpm. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-BAT" type="Label" x="56" y="494" w="300" h="20" tab-order="19" z-order="19" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Bateria (volts)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-BATTERY. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-BATTERY" type="TextBox" x="56" y="516" w="508" h="34" tab-order="20" z-order="20" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">12.6</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Battery voltage. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-OIL" type="Label" x="56" y="556" w="300" h="20" tab-order="21" z-order="21" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Pressão do óleo (kPa)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-OIL. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-OIL" type="TextBox" x="56" y="578" w="508" h="34" tab-order="22" z-order="22" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">300</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Oil pressure in kPa. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-FAULTS" type="Label" x="56" y="618" w="300" h="20" tab-order="23" z-order="23" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Código de falha (opcional)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of TXT-FAULTS. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-FAULTS" type="TextBox" x="56" y="640" w="508" h="34" tab-order="24" z-order="24" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">P0300</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">One fault code. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="BTN-MANUAL" type="Button" x="56" y="684" w="200" h="40" tab-order="25" z-order="25" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Gravar manualmente</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Saves the typed readings, completing the pending partial collection when there is one.</Property>
+    <Event name="onClick" paragraph="BTN-MANUAL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> DIAG-COLLECT: saves hand-typed readings (mode M); with WS-DIAG-ID set it completes that
+           *> partial collection instead of making a new diagnosis.
+           *> Uses:   DCQ-PLATE = TXT-PLATE; DCQ-MODE = "M"; DCQ-ID = WS-DIAG-ID (0 = new); the readings
+           *>         typed in the boxes above and one fault code.
+           *> Result: DCS-STATUS = OK or what is wrong (field in DCS-FIELD); the saved diagnosis is shown below.
+
+           INITIALIZE    DGC-REQ
+           SET     DCQ-PLATE                     TO    TXT-PLATE::Text
+           SET     DCQ-OPERATOR                  TO    TXT-OPERATOR::Text
+           SET     DCQ-MODE                      TO    "M"
+           SET     DCQ-ID                        TO    WS-DIAG-ID
+           SET     DCQ-FAULT-1                   TO    TXT-FAULTS::Text
+           COMPUTE DCQ-ENGINE-TEMP               =     FUNCTION NUMVAL ( TXT-TEMP::Text )
+           COMPUTE DCQ-RPM                       =     FUNCTION NUMVAL ( TXT-RPM::Text )
+           COMPUTE DCQ-BATTERY                   =     FUNCTION NUMVAL ( TXT-BATTERY::Text )
+           COMPUTE DCQ-OIL-PRESSURE              =     FUNCTION NUMVAL ( TXT-OIL::Text )
+           SET     DCS-STATUS                    TO    SPACES
+           CALL    "DIAG-COLLECT" WITH WEBSOCKET LINKAGE
+               USING BY VALUE DGC-REQ
+               RETURNING DGC-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     DCS-STATUS            TO    "CALL"
+           END-CALL
+
+           *> SHOW-RESULT: paints the answer of DIAG-COLLECT on the result card and the status line.
+           *> Uses:   DCS-... = the answer just received; DCS-STATUS decides what is shown.
+           *> Result: LBL-V-... captions and LBL-STATUS::Caption are set; WS-DIAG-ID keeps the number of
+           *>         a partial collection (0 otherwise) so the manual entry can complete it.
+
+           CALL    "SHOW-RESULT"
+]]></Event>
+  </Control>
+<Control id="CARD-RES" type="Panel" x="604" y="280" w="556" h="456" tab-order="26" z-order="26" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the diagnosis as saved. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-RES" type="Label" x="628" y="292" w="400" h="28" tab-order="27" z-order="27" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">Diagnóstico gravado</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the result card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-ID" type="Label" x="628" y="332" w="200" h="24" tab-order="28" z-order="28" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">Número</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the saved Número. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-V-ID" type="Label" x="836" y="332" w="300" h="24" tab-order="29" z-order="29" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the saved Número. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-MODEL" type="Label" x="628" y="372" w="200" h="24" tab-order="30" z-order="30" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">Modelo</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the saved Modelo. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-V-MODEL" type="Label" x="836" y="372" w="300" h="24" tab-order="31" z-order="31" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the saved Modelo. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-SRC" type="Label" x="628" y="412" w="200" h="24" tab-order="32" z-order="32" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">Origem</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the saved Origem. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-V-SRC" type="Label" x="836" y="412" w="300" h="24" tab-order="33" z-order="33" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the saved Origem. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-TEMP" type="Label" x="628" y="452" w="200" h="24" tab-order="34" z-order="34" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">Temperatura do motor</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the saved Temperatura do motor.</Property>
+  </Control>
+<Control id="LBL-V-TEMP" type="Label" x="836" y="452" w="300" h="24" tab-order="35" z-order="35" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the saved Temperatura do motor.</Property>
+  </Control>
+<Control id="LBL-R-RPM" type="Label" x="628" y="492" w="200" h="24" tab-order="36" z-order="36" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">Rotação</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the saved Rotação. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-V-RPM" type="Label" x="836" y="492" w="300" h="24" tab-order="37" z-order="37" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the saved Rotação. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-BAT" type="Label" x="628" y="532" w="200" h="24" tab-order="38" z-order="38" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">Bateria</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the saved Bateria. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-V-BAT" type="Label" x="836" y="532" w="300" h="24" tab-order="39" z-order="39" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the saved Bateria. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-OIL" type="Label" x="628" y="572" w="200" h="24" tab-order="40" z-order="40" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">Pressão do óleo</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the saved Pressão do óleo. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-V-OIL" type="Label" x="836" y="572" w="300" h="24" tab-order="41" z-order="41" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the saved Pressão do óleo. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-FLT" type="Label" x="628" y="612" w="200" h="24" tab-order="42" z-order="42" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">Códigos de falha</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the saved Códigos de falha. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-V-FLT" type="Label" x="836" y="612" w="300" h="24" tab-order="43" z-order="43" visible="true" enabled="true" parent="CARD-RES">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Value of the saved Códigos de falha. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-STATUS" type="Label" x="32" y="748" w="1128" h="28" tab-order="44" z-order="44" visible="true" enabled="true">
+    <Property name="Caption"></Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Answer of the last action: what was saved or what is wrong.</Property>
+  </Control>
+</Form>

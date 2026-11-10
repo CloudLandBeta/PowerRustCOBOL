@@ -1,0 +1,12 @@
+      *> The answer of the customer to a quote: approved or refused, when, by which channel, why, and who registered it. One row per answer, never changed.
+       FD  APPROVAL-FILE
+           RECORD CONTAINS 153 CHARACTERS.
+           01 APPROVAL-RECORD.
+               05 APR-ID PIC 9(8). *> Primary key
+               05 APR-QUO-ID PIC 9(8).
+               05 APR-REV PIC 9(2).
+               05 APR-DECISION PIC X(1). *> A approved, R refused or asked for a change
+               05 APR-CHANNEL PIC X(10). *> LINK, PHONE, WHATSAPP or COUNTER
+               05 APR-AT PIC 9(14).
+               05 APR-REASON PIC X(80).
+               05 APR-OPERATOR PIC X(30).

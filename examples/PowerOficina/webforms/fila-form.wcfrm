@@ -1,0 +1,589 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="FILA-FORM" title="Fila de execução" width="1192" height="852" background="#F7F8FCFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded" definition="Execution queue screen of the workshop: lists the paid services ordered by priority and approval, starts and finishes a service with the operator and time recorded, warns when the vehicle is ready for pickup, and changes the delivery date of an order, through the Backend programs QUEUE-LIST and QUEUE-UPDATE. The list refreshes itself at regular intervals." index-base="1" responsive="true">
+  <user-procedures>
+    <Event name="LOAD-QUEUE" paragraph="LOAD-QUEUE"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    QLN-REQ
+
+           IF    RDO-ALL::Selected = 1
+               SET     QLQ-FILTER                TO    "ALL"
+           END-IF
+           IF    RDO-DONE::Selected = 1
+               SET     QLQ-FILTER                TO    "DONE"
+           END-IF
+           IF    RDO-REFUNDED::Selected = 1
+               SET     QLQ-FILTER                TO    "REFUNDED"
+           END-IF
+
+           SET     QLS-STATUS                    TO    SPACES
+
+           *> QUEUE-LIST: the services of the queue, by priority and approval, for the filter chosen.
+           *> Uses:   QLQ-FILTER = blank (waiting and running), ALL, DONE or REFUNDED, from the radio buttons.
+           *> Result: QLR-... hold up to 40 rows (number, quote, vehicle, service, state, priority, delivery date, ready);
+           *>         QLS-COUNT, QLS-QUEUED, QLS-RUNNING and QLS-READY count them; DG-QUEUE shows them.
+           CALL    "QUEUE-LIST" WITH WEBSOCKET LINKAGE
+               USING BY VALUE QLN-REQ
+               RETURNING QLN-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+
+                   SET     QLS-STATUS            TO    "CALL"
+           END-CALL
+
+           IF    QLS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               *> SHOW-QUEUE: lists the rows of the last queue answer.
+               *> Uses:   QLR-... rows, QLS-COUNT and the counters QLS-QUEUED, QLS-RUNNING and QLS-READY.
+               *> Result: DG-QUEUE, WS-QID and the status line are filled.
+               CALL    "SHOW-QUEUE"
+           END-IF
+]]></Event>
+    <Event name="SHOW-QUEUE" paragraph="SHOW-QUEUE"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           DG-QUEUE::ClearRows()
+
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > QLS-COUNT
+               SET     WS-QID (WS-I)             TO    QLR-ID (WS-I)
+               SET     WS-QUO (WS-I)             TO    QLR-QUO-ID (WS-I)
+
+               EVALUATE    QLR-STATE (WS-I)
+                   WHEN "QUEUED"
+                       SET     WS-STATE-PT       TO    "Na fila"
+                   WHEN "RUNNING"
+                       SET     WS-STATE-PT       TO    "Em execução"
+                   WHEN "DONE"
+                       SET     WS-STATE-PT       TO    "Concluído"
+                   WHEN OTHER
+                       SET     WS-STATE-PT       TO    "Estornado"
+               END-EVALUATE
+
+               MOVE    QLR-DEADLINE (WS-I)       TO    WS-DATE-X
+
+               SET     WS-RDY                    TO    SPACES
+
+               IF    QLR-READY (WS-I) = "Y"
+                   SET     WS-RDY                TO    "PRONTO PARA RETIRADA"
+               END-IF
+
+               SET     WS-LINE                   TO    SPACES
+
+               STRING    QLR-ID (WS-I) X"09" QLR-PLATE (WS-I) X"09" QLR-SERVICE (WS-I) X"09" WS-STATE-PT X"09"
+                         WS-DATE-X (7:2) "/" WS-DATE-X (5:2) "/" WS-DATE-X (1:4) X"09" WS-RDY
+                   INTO  WS-LINE
+
+               DG-QUEUE::AddRow( WS-LINE )
+           END-PERFORM
+
+           SET     LBL-STATUS::Caption           TO    "-"
+           SET     WS-ED-N1                      TO    QLS-QUEUED
+           SET     WS-ED-N2                      TO    QLS-RUNNING
+           SET     WS-ED-N3                      TO    QLS-READY
+
+           STRING    "Na fila: " WS-ED-N1::Trim() "   Em execução: " WS-ED-N2::Trim() "   Veículos prontos: " WS-ED-N3::Trim()
+               INTO  LBL-STATUS::Caption
+]]></Event>
+    <Event name="DO-UPDATE" paragraph="DO-UPDATE"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    QUN-REQ
+
+           SET     QUQ-ACTION                    TO    WS-ACTION
+           SET     QUQ-OPERATOR                  TO    TXT-OPERATOR::Text
+           SET     WS-I                          TO    DG-QUEUE::ClickedRow
+
+           IF    WS-I > 0 AND WS-I NOT > QLS-COUNT
+               SET     QUQ-QUE-ID                TO    WS-QID (WS-I)
+           END-IF
+
+           COMPUTE QUQ-QUO-ID                    =     FUNCTION NUMVAL ( TXT-QUO::Text )
+               ON SIZE ERROR
+                   CONTINUE
+           END-COMPUTE
+
+           SET     WS-DATE-IN                    TO    TXT-DATE::Text
+
+           COMPUTE QUQ-DEADLINE                  =     FUNCTION NUMVAL ( WS-DATE-IN (7:4) ) * 10000
+                                                       + FUNCTION NUMVAL ( WS-DATE-IN (4:2) ) * 100
+                                                       + FUNCTION NUMVAL ( WS-DATE-IN (1:2) )
+
+           SET     QUS-STATUS                    TO    SPACES
+
+           *> QUEUE-UPDATE: starts (S) or finishes (F) the selected service, or changes the delivery date of an order (D).
+           *> Uses:   WS-ACTION = S, F or D; QUQ-QUE-ID = the number of the selected row of DG-QUEUE; for D, QUQ-QUO-ID = TXT-QUO
+           *>         and QUQ-DEADLINE = TXT-DATE read as dd/mm/aaaa; QUQ-OPERATOR = TXT-OPERATOR.
+           *> Result: QUS-STATUS = OK, INVALID or NOTFOUND with QUS-MESSAGE; the time and the operator are written on the row; when
+           *>         the last service of an order is done QUS-READY = Y and the customer is told the vehicle is ready; with D the
+           *>         customer is told the new date.
+           CALL    "QUEUE-UPDATE" WITH WEBSOCKET LINKAGE
+               USING BY VALUE QUN-REQ
+               RETURNING QUN-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+
+                   SET     QUS-STATUS            TO    "CALL"
+           END-CALL
+
+           IF    QUS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               *> LOAD-QUEUE: reads the queue again from the Backend.
+               *> Uses:   the filter radio buttons.
+               *> Result: DG-QUEUE and the counters in LBL-STATUS are filled.
+               CALL    "LOAD-QUEUE"
+
+               SET     LBL-STATUS::Caption       TO    QUS-MESSAGE
+           END-IF
+]]></Event>
+  </user-procedures>
+  <working-storage><![CDATA[       01 BE-CLASS                               GLOBAL    PIC X(16).
+       01 BE-CODE                                GLOBAL    PIC 9(9).
+       01 BE-MSG                                 GLOBAL    PIC X(80).
+       01 WS-LINE                                GLOBAL    PIC X(160).
+       01 WS-ED-AMT                              GLOBAL    PIC Z(8)9.99.
+       01 WS-DATE-X                              GLOBAL    PIC X(8).
+       01 WS-I                                   GLOBAL    PIC 999.
+       01 WS-ACTION                              GLOBAL    PIC X(1).
+       01 WS-QID                                 GLOBAL    PIC 9(8)    OCCURS 40.
+       01 WS-QUO                                 GLOBAL    PIC 9(8)    OCCURS 40.
+       01 WS-DATE-IN                             GLOBAL    PIC X(10).
+       01 WS-STATE-PT                            GLOBAL    PIC X(13).
+       01 WS-RDY                                 GLOBAL    PIC X(24).
+       01 WS-ED-N1                               GLOBAL    PIC Z(2)9.
+       01 WS-ED-N2                               GLOBAL    PIC Z(2)9.
+       01 WS-ED-N3                               GLOBAL    PIC Z(2)9.
+       01 QLN-REQ                             GLOBAL.
+          05 QLQ-FILTER                          PIC    X(10).
+       01 QLN-RES                             GLOBAL.
+          05 QLS-STATUS                          PIC    X(10).
+          05 QLS-MESSAGE                         PIC    X(80).
+          05 QLS-COUNT                           PIC    9(3).
+          05 QLS-READY                           PIC    9(3).
+          05 QLS-RUNNING                         PIC    9(3).
+          05 QLS-QUEUED                          PIC    9(3).
+          05 QLS-ROW                             OCCURS 40.
+             10 QLR-ID                           PIC    9(8).
+             10 QLR-QUO-ID                       PIC    9(8).
+             10 QLR-PLATE                        PIC    X(8).
+             10 QLR-SERVICE                      PIC    X(40).
+             10 QLR-STATE                        PIC    X(10).
+             10 QLR-PRIORITY                     PIC    9(2).
+             10 QLR-APPROVED-AT                  PIC    9(14).
+             10 QLR-DEADLINE                     PIC    9(8).
+             10 QLR-READY                        PIC    X(1).
+       01 QUN-REQ                             GLOBAL.
+          05 QUQ-ACTION                          PIC    X(1).
+          05 QUQ-QUE-ID                          PIC    9(8).
+          05 QUQ-QUO-ID                          PIC    9(8).
+          05 QUQ-DEADLINE                        PIC    9(8).
+          05 QUQ-OPERATOR                        PIC    X(30).
+       01 QUN-RES                             GLOBAL.
+          05 QUS-STATUS                          PIC    X(10).
+          05 QUS-MESSAGE                         PIC    X(80).
+          05 QUS-QUO-ID                          PIC    9(8).
+          05 QUS-STATE                           PIC    X(10).
+          05 QUS-READY                           PIC    X(1).
+          05 QUS-CHANGED                         PIC    9(3).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="FILA-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> QUEUE-LIST: the queue is read when the screen opens (LOAD-QUEUE); a timer keeps it current.
+           *> Uses:   the filter radio buttons (waiting and running at first).
+           *> Result: DG-QUEUE is filled.
+
+           *> LOAD-QUEUE: reads the queue again from the Backend.
+           *> Uses:   the filter radio buttons.
+           *> Result: DG-QUEUE and the counters in LBL-STATUS are filled.
+           CALL    "LOAD-QUEUE"
+]]></Event>
+  </form-events>
+<Control id="LBL-TITLE" type="Label" x="32" y="24" w="700" h="40" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Fila de execução</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">28</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Screen title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-SUB" type="Label" x="32" y="64" w="1100" h="24" tab-order="2" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">Serviços pagos, por prioridade e data de aprovação. Selecione um serviço para iniciar ou concluir; o veículo fica pronto quando o último serviço termina.</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">One-line help under the title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-STATUS" type="Label" x="32" y="96" w="1128" h="24" tab-order="3" z-order="3" visible="true" enabled="true">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#5B4FE9FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Status line with the result of the last action.</Property>
+  </Control>
+<Control id="CARD-Q" type="Panel" x="32" y="128" w="1128" h="420" tab-order="4" z-order="4" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card with the execution queue and its filter.</Property>
+  </Control>
+<Control id="LBL-H1" type="Label" x="56" y="138" w="420" h="28" tab-order="5" z-order="5" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="Caption">Fila</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the queue card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="RDO-ACTIVE" type="RadioButton" x="500" y="140" w="110" h="28" tab-order="6" z-order="6" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="Caption">Em aberto</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">true</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Filter of the queue: Em aberto. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Event name="onClick" paragraph="RDO-ACTIVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-QUEUE: reads the queue again from the Backend.
+           *> Uses:   the filter radio buttons.
+           *> Result: DG-QUEUE and the counters in LBL-STATUS are filled.
+           CALL    "LOAD-QUEUE"
+]]></Event>
+  </Control>
+<Control id="RDO-ALL" type="RadioButton" x="640" y="140" w="110" h="28" tab-order="7" z-order="7" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="Caption">Todos</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Filter of the queue: Todos. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Event name="onClick" paragraph="RDO-ALL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-QUEUE: reads the queue again from the Backend.
+           *> Uses:   the filter radio buttons.
+           *> Result: DG-QUEUE and the counters in LBL-STATUS are filled.
+           CALL    "LOAD-QUEUE"
+]]></Event>
+  </Control>
+<Control id="RDO-DONE" type="RadioButton" x="760" y="140" w="110" h="28" tab-order="8" z-order="8" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="Caption">Concluídos</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Filter of the queue: Concluídos. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Event name="onClick" paragraph="RDO-DONE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-QUEUE: reads the queue again from the Backend.
+           *> Uses:   the filter radio buttons.
+           *> Result: DG-QUEUE and the counters in LBL-STATUS are filled.
+           CALL    "LOAD-QUEUE"
+]]></Event>
+  </Control>
+<Control id="RDO-REFUNDED" type="RadioButton" x="900" y="140" w="110" h="28" tab-order="9" z-order="9" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="Caption">Estornados</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Filter of the queue: Estornados. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Event name="onClick" paragraph="RDO-REFUNDED--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-QUEUE: reads the queue again from the Backend.
+           *> Uses:   the filter radio buttons.
+           *> Result: DG-QUEUE and the counters in LBL-STATUS are filled.
+           CALL    "LOAD-QUEUE"
+]]></Event>
+  </Control>
+<Control id="DG-QUEUE" type="DataGrid" x="56" y="178" w="1072" h="230" tab-order="10" z-order="10" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="Columns">Nº:string
+Veículo:string
+Serviço:string
+Situação:string
+Entrega:string
+Retirada:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#CBD5E1</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="HeaderBackgroundColor">#E6E8F2</Property>
+    <Property name="HeaderForegroundColor">#0F172AFF</Property>
+    <Property name="GridLineColor">#E2E8F0</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="AlternatingRowColor">#F5F7FB</Property>
+    <Property name="RowHeight">28</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="AllowSorting">1</Property>
+    <Property name="ShowColumnFilters">1</Property>
+    <Property name="AllowColumnResize">1</Property>
+    <Property name="AllowColumnReorder">0</Property>
+    <Property name="AllowRowResize">0</Property>
+    <Property name="AllowCellEditing">0</Property>
+    <Property name="AccessibleLabel">Services of the queue: number, vehicle, service, state, deli</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="Definition">Services of the queue: number, vehicle, service, state, delivery date and whether the whole order is ready.</Property>
+  </Control>
+<Control id="LBL-OP" type="Label" x="56" y="420" w="230" h="20" tab-order="11" z-order="11" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="Caption">Operador (vai para a auditoria)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the operator field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-OPERATOR" type="TextBox" x="56" y="442" w="230" h="38" tab-order="12" z-order="12" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Seu nome</Property>
+    <Property name="AccessibleLabel">Name of the person who moves the service; goes to the audit </Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the person who moves the service; goes to the audit trail with the time.</Property>
+  </Control>
+<Control id="BTN-START" type="Button" x="310" y="440" w="200" h="42" tab-order="13" z-order="13" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="Caption">Iniciar serviço</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Starts the selected service: it goes from waiting to running.</Property>
+    <Event name="onClick" paragraph="BTN-START--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-ACTION                     TO    "S"
+
+           *> DO-UPDATE: starts or finishes the selected service, or changes the delivery date.
+           *> Uses:   WS-ACTION (S, F or D), the selected row, TXT-QUO and TXT-DATE.
+           *> Result: the queue is read again and the status line shows the answer.
+           CALL    "DO-UPDATE"
+]]></Event>
+  </Control>
+<Control id="BTN-FINISH" type="Button" x="526" y="440" w="200" h="42" tab-order="14" z-order="14" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="Caption">Concluir serviço</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Finishes the selected running service; when it is the last of the order the vehicle is ready for pickup.</Property>
+    <Event name="onClick" paragraph="BTN-FINISH--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-ACTION                     TO    "F"
+
+           *> DO-UPDATE: starts or finishes the selected service, or changes the delivery date.
+           *> Uses:   WS-ACTION (S, F or D), the selected row, TXT-QUO and TXT-DATE.
+           *> Result: the queue is read again and the status line shows the answer.
+           CALL    "DO-UPDATE"
+]]></Event>
+  </Control>
+<Control id="BTN-REFRESH" type="Button" x="742" y="440" w="180" h="42" tab-order="15" z-order="15" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="Caption">Atualizar</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Reads the queue again from the Backend. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Event name="onClick" paragraph="BTN-REFRESH--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-QUEUE: reads the queue again from the Backend.
+           *> Uses:   the filter radio buttons.
+           *> Result: DG-QUEUE and the counters in LBL-STATUS are filled.
+           CALL    "LOAD-QUEUE"
+]]></Event>
+  </Control>
+<Control id="LBL-AUTO" type="Label" x="938" y="448" w="200" h="24" tab-order="16" z-order="16" visible="true" enabled="true" parent="CARD-Q">
+    <Property name="Caption">Atualiza a cada 15 s</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Reminder that the list refreshes by itself.</Property>
+  </Control>
+<Control id="CARD-DL" type="Panel" x="32" y="564" w="1128" h="150" tab-order="17" z-order="17" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card to change the delivery date of an order.</Property>
+  </Control>
+<Control id="LBL-H2" type="Label" x="56" y="574" w="600" h="28" tab-order="18" z-order="18" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">Data de entrega do veículo</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the delivery date card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-DQ" type="Label" x="56" y="612" w="150" h="20" tab-order="19" z-order="19" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">Orçamento nº</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the quote number field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-QUO" type="TextBox" x="56" y="634" w="150" h="38" tab-order="20" z-order="20" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">1</Property>
+    <Property name="AccessibleLabel">Number of the quote whose delivery date changes.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Number of the quote whose delivery date changes.</Property>
+  </Control>
+<Control id="LBL-DD" type="Label" x="226" y="612" w="200" h="20" tab-order="21" z-order="21" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">Nova data (dd/mm/aaaa)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the new delivery date field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-DATE" type="TextBox" x="226" y="634" w="200" h="38" tab-order="22" z-order="22" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">31/12/2026</Property>
+    <Property name="AccessibleLabel">New delivery date, day, month and year with slashes.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">New delivery date, day, month and year with slashes.</Property>
+  </Control>
+<Control id="BTN-DATE" type="Button" x="446" y="632" w="300" h="42" tab-order="23" z-order="23" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">Alterar data e avisar cliente</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Changes the delivery date of the services still open and tells the customer the date to come back.</Property>
+    <Event name="onClick" paragraph="BTN-DATE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-ACTION                     TO    "D"
+
+           *> DO-UPDATE: starts or finishes the selected service, or changes the delivery date.
+           *> Uses:   WS-ACTION (S, F or D), the selected row, TXT-QUO and TXT-DATE.
+           *> Result: the queue is read again and the status line shows the answer.
+           CALL    "DO-UPDATE"
+]]></Event>
+  </Control>
+<Control id="TMR-REFRESH" type="Timer" x="1100" y="20" w="48" h="48" tab-order="24" z-order="24" visible="true" enabled="true">
+    <Property name="Interval">15000</Property>
+    <Property name="Enabled">1</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Timer that reads the queue again every fifteen seconds, so the list follows the work without reloading the page.</Property>
+    <Event name="onTick" paragraph="TMR-REFRESH--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-QUEUE: reads the queue again from the Backend.
+           *> Uses:   the filter radio buttons.
+           *> Result: DG-QUEUE and the counters in LBL-STATUS are filled.
+           CALL    "LOAD-QUEUE"
+]]></Event>
+  </Control>
+</Form>

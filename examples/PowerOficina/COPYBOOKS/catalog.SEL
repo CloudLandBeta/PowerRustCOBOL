@@ -1,0 +1,5 @@
+           SELECT CATALOG-FILE ASSIGN TO "data/catalog.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS CAT-KEY
+               STORAGE MODE IS DISK.

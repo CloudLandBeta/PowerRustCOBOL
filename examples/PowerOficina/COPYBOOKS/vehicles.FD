@@ -1,0 +1,12 @@
+      *> One row per vehicle, keyed by licence plate and linked to its owner.
+       FD  VEHICLE-FILE
+           RECORD CONTAINS 109 CHARACTERS.
+           01 VEHICLE-RECORD.
+               05 VEH-PLATE PIC X(8). *> Primary key
+               05 VEH-CUS-ID PIC 9(8). *> Owner, CUS-ID
+               05 VEH-CHASSIS PIC X(17).
+               05 VEH-BRAND PIC X(20).
+               05 VEH-MODEL PIC X(30).
+               05 VEH-YEAR PIC 9(4).
+               05 VEH-COLOR PIC X(15).
+               05 VEH-MILEAGE PIC 9(7). *> Kilometres

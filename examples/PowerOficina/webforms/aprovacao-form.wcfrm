@@ -1,0 +1,792 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="APROVACAO-FORM" title="Envio e aprovação" width="1192" height="852" background="#F7F8FCFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded" definition="Quote delivery and approval screen: the consultant sends a quote to the customer by email and WhatsApp (simulated), the customer approves or refuses with the quote number and the short code, and the consultant can register the decision made by phone, WhatsApp or at the counter, through the Backend programs QUOTE-SEND, QUOTE-VIEW, QUOTE-APPROVE and QUOTE-EXPIRE." index-base="1" responsive="true">
+  <user-procedures>
+  </user-procedures>
+  <working-storage><![CDATA[       01 BE-CLASS                               GLOBAL    PIC X(16).
+       01 BE-CODE                                GLOBAL    PIC 9(9).
+       01 BE-MSG                                 GLOBAL    PIC X(80).
+       01 WS-LINE                                GLOBAL    PIC X(160).
+       01 WS-ED-AMT                              GLOBAL    PIC Z(8)9.99.
+       01 WS-DATE-X                              GLOBAL    PIC X(8).
+       01 QSN-REQ                             GLOBAL.
+          05 QSN-ID                              PIC    9(8).
+          05 QSN-OPERATOR                        PIC    X(30).
+          05 QSN-DOWN-EMAIL                      PIC    X(1).
+          05 QSN-DOWN-WA                         PIC    X(1).
+       01 QSN-RES                             GLOBAL.
+          05 QNS-STATUS                          PIC    X(10).
+          05 QNS-MESSAGE                         PIC    X(80).
+          05 QNS-ID                              PIC    9(8).
+          05 QNS-REV                             PIC    9(2).
+          05 QNS-EMAIL                           PIC    X(8).
+          05 QNS-EMAIL-TRIES                     PIC    9.
+          05 QNS-WA                              PIC    X(8).
+          05 QNS-WA-TRIES                        PIC    9.
+          05 QNS-TOKEN                           PIC    X(32).
+          05 QNS-CODE                            PIC    X(6).
+          05 QNS-EXPIRES                         PIC    9(14).
+          05 QNS-TEXT                            PIC    X(200).
+       01 QVW-REQ                             GLOBAL.
+          05 QVW-TOKEN                           PIC    X(32).
+          05 QVW-QUO-ID                          PIC    9(8).
+          05 QVW-CODE                            PIC    X(6).
+       01 QUO-RES                             GLOBAL.
+          05 QTS-STATUS                          PIC    X(10).
+          05 QTS-MESSAGE                         PIC    X(80).
+          05 QTS-FIELD                           PIC    X(10).
+          05 QTS-LINE-NO                         PIC    9(3).
+          05 QTS-ACTION                          PIC    X(12).
+          05 QTS-ID                              PIC    9(8).
+          05 QTS-REV                             PIC    9(2).
+          05 QTS-CUS-ID                          PIC    9(8).
+          05 QTS-PLATE                           PIC    X(8).
+          05 QTS-DGN-ID                          PIC    9(8).
+          05 QTS-CURRENCY                        PIC    X(3).
+          05 QTS-QSTATUS                         PIC    X(10).
+          05 QTS-CREATED                         PIC    9(14).
+          05 QTS-VALID-UNTIL                     PIC    9(8).
+          05 QTS-DEADLINE                        PIC    9(8).
+          05 QTS-SUGGESTED                       PIC    9(8).
+          05 QTS-HOURS                           PIC    9(4)V99.
+          05 QTS-SUBTOTAL                        PIC    9(9)V99.
+          05 QTS-TAX                             PIC    9(9)V99.
+          05 QTS-TOTAL                           PIC    9(9)V99.
+          05 QTS-OPERATOR                        PIC    X(30).
+          05 QTS-COUNT                           PIC    9(3).
+          05 QTS-LINE                            OCCURS 20.
+             10 QTL-KIND                         PIC    X(1).
+             10 QTL-CODE                         PIC    X(12).
+             10 QTL-NAME                         PIC    X(40).
+             10 QTL-QTY                          PIC    9(4)V99.
+             10 QTL-UNIT                         PIC    9(7)V99.
+             10 QTL-TAX-RATE                     PIC    9(2)V99.
+             10 QTL-AMOUNT                       PIC    9(9)V99.
+             10 QTL-TAX                          PIC    9(9)V99.
+             10 QTL-MANUAL                       PIC    X(1).
+             10 QTL-NOTE                         PIC    X(60).
+       01 QAP-REQ                             GLOBAL.
+          05 QAP-MODE                            PIC    X(1).
+          05 QAP-TOKEN                           PIC    X(32).
+          05 QAP-QUO-ID                          PIC    9(8).
+          05 QAP-CODE                            PIC    X(6).
+          05 QAP-CHANNEL                         PIC    X(10).
+          05 QAP-DECISION                        PIC    X(1).
+          05 QAP-REASON                          PIC    X(80).
+          05 QAP-OPERATOR                        PIC    X(30).
+       01 QAP-RES                             GLOBAL.
+          05 QAS-STATUS                          PIC    X(10).
+          05 QAS-MESSAGE                         PIC    X(80).
+          05 QAS-FIELD                           PIC    X(10).
+          05 QAS-QUO-ID                          PIC    9(8).
+          05 QAS-REV                             PIC    9(2).
+          05 QAS-QSTATUS                         PIC    X(10).
+          05 QAS-AT                              PIC    9(14).
+          05 QAS-CHANNEL                         PIC    X(10).
+       01 QEX-REQ                             GLOBAL.
+          05 QEX-OPERATOR                        PIC    X(30).
+       01 QEX-RES                             GLOBAL.
+          05 QEY-STATUS                          PIC    X(10).
+          05 QEY-COUNT                           PIC    9(4).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="APROVACAO-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    QEX-REQ
+           SET     QEX-OPERATOR                  TO    "sistema"
+
+           *> QUOTE-EXPIRE: marks as EXPIRADO the quotes still open or sent whose validity has passed.
+           *> Uses:   QEX-OPERATOR = "sistema" (the audit trail records who ran it).
+           *> Result: QEY-COUNT quotes changed; nothing else on this screen depends on it.
+           CALL    "QUOTE-EXPIRE" WITH WEBSOCKET LINKAGE
+               USING BY VALUE QEX-REQ
+               RETURNING QEX-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     QEY-STATUS            TO    "CALL"
+           END-CALL
+]]></Event>
+  </form-events>
+<Control id="LBL-TITLE" type="Label" x="32" y="24" w="700" h="40" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Envio e aprovação</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">28</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Screen title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-SUB" type="Label" x="32" y="64" w="1100" h="24" tab-order="2" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">Envie o orçamento, receba a decisão do cliente pelo link e código, ou registre a decisão dada por telefone, WhatsApp ou balcão.</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">One-line help under the title. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-STATUS" type="Label" x="32" y="96" w="1128" h="24" tab-order="3" z-order="3" visible="true" enabled="true">
+    <Property name="Caption">Informe o operador e o número do orçamento.</Property>
+    <Property name="ForegroundColor">#5B4FE9FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Status line with the result of the last action.</Property>
+  </Control>
+<Control id="CARD-SEND" type="Panel" x="32" y="128" w="552" h="360" tab-order="4" z-order="4" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card to send a quote to the customer by email and WhatsApp.</Property>
+  </Control>
+<Control id="LBL-H1" type="Label" x="56" y="138" w="400" h="28" tab-order="5" z-order="5" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="Caption">1. Enviar ao cliente</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the send card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-OP" type="Label" x="56" y="174" w="230" h="20" tab-order="6" z-order="6" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="Caption">Operador (vai para a auditoria)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the operator field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-OPERATOR" type="TextBox" x="56" y="196" w="240" h="38" tab-order="7" z-order="7" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Seu nome</Property>
+    <Property name="AccessibleLabel">Name of the person using the system; goes to the audit trail</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Name of the person using the system; goes to the audit trail.</Property>
+  </Control>
+<Control id="LBL-QUO" type="Label" x="316" y="174" w="200" h="20" tab-order="8" z-order="8" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="Caption">Orçamento nº</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the quote number field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-QUO" type="TextBox" x="316" y="196" w="150" h="38" tab-order="9" z-order="9" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">1</Property>
+    <Property name="AccessibleLabel">Number of the quote to send or decide, shown on the Orçament</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Number of the quote to send or decide, shown on the Orçamentos screen.</Property>
+  </Control>
+<Control id="CHK-NOEMAIL" type="CheckBox" x="56" y="244" w="230" h="28" tab-order="10" z-order="10" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="Caption">Simular falha no email</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CheckBoxColor">#FFFFFFFF</Property>
+    <Property name="CheckBoxBorderStyle">Single</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">When ticked, the simulated email delivery fails, to show that the system retries up to three times and then reports the failure.</Property>
+  </Control>
+<Control id="CHK-NOWA" type="CheckBox" x="316" y="244" w="230" h="28" tab-order="11" z-order="11" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="Caption">Simular falha no WhatsApp</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CheckBoxColor">#FFFFFFFF</Property>
+    <Property name="CheckBoxBorderStyle">Single</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">When ticked, the simulated WhatsApp delivery fails, to show the retries and the reported failure.</Property>
+  </Control>
+<Control id="BTN-SEND" type="Button" x="56" y="288" w="260" h="44" tab-order="12" z-order="12" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="Caption">Enviar por email e WhatsApp</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Sends the quote to the customer through the simulated email and WhatsApp channels.</Property>
+    <Event name="onClick" paragraph="BTN-SEND--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    QSN-REQ
+           COMPUTE QSN-ID                        =     FUNCTION NUMVAL ( TXT-QUO::Text )
+               ON SIZE ERROR
+                   CONTINUE
+           END-COMPUTE
+           SET     QSN-OPERATOR                  TO    TXT-OPERATOR::Text
+           SET     QSN-DOWN-EMAIL                TO    "N"
+           SET     QSN-DOWN-WA                   TO    "N"
+           IF    CHK-NOEMAIL::Checked = 1
+               SET     QSN-DOWN-EMAIL            TO    "S"
+           END-IF
+           IF    CHK-NOWA::Checked = 1
+               SET     QSN-DOWN-WA               TO    "S"
+           END-IF
+           SET     QNS-STATUS                    TO    SPACES
+
+           *> QUOTE-SEND: sends the quote to the customer by email and WhatsApp (simulated), only to the channels with consent.
+           *> Uses:   QSN-ID = TXT-QUO; QSN-OPERATOR = TXT-OPERATOR; QSN-DOWN-EMAIL / QSN-DOWN-WA = the two ticks (S forces a failure).
+           *> Result: QNS-STATUS = OK, NOTFOUND, INVALID...; QNS-EMAIL and QNS-WA say SENT, FAILED or SKIPPED; the quote becomes
+           *>         ENVIADO when one channel delivered; QNS-CODE is the short code the customer types, QNS-TEXT the message sent.
+           CALL    "QUOTE-SEND" WITH WEBSOCKET LINKAGE
+               USING BY VALUE QSN-REQ
+               RETURNING QSN-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     QNS-STATUS            TO    "CALL"
+           END-CALL
+
+           IF    QNS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    QNS-MESSAGE
+               SET     LBL-R-EMAIL::Caption      TO    "-"
+               STRING    "Email: " QNS-EMAIL " (tentativas " QNS-EMAIL-TRIES ")"  INTO  LBL-R-EMAIL::Caption
+               SET     LBL-R-WA::Caption         TO    "-"
+               STRING    "WhatsApp: " QNS-WA " (tentativas " QNS-WA-TRIES ")"  INTO  LBL-R-WA::Caption
+               SET     LBL-R-CODE::Caption       TO    "-"
+               STRING    "Código do cliente: " QNS-CODE  INTO  LBL-R-CODE::Caption
+               SET     LST-MSG::Text             TO    QNS-TEXT
+           END-IF
+]]></Event>
+  </Control>
+<Control id="LBL-R-EMAIL" type="Label" x="56" y="344" w="490" h="22" tab-order="13" z-order="13" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="Caption">Email: -</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Result of the email delivery. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-WA" type="Label" x="56" y="368" w="490" h="22" tab-order="14" z-order="14" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="Caption">WhatsApp: -</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Result of the WhatsApp delivery. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-R-CODE" type="Label" x="56" y="392" w="490" h="22" tab-order="15" z-order="15" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="Caption">Código do cliente: -</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Short code the customer types to approve.</Property>
+  </Control>
+<Control id="LBL-R-MSGH" type="Label" x="56" y="418" w="490" h="20" tab-order="16" z-order="16" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="Caption">Mensagem enviada (simulada)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the message text box. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LST-MSG" type="TextBox" x="56" y="438" w="496" h="44" tab-order="17" z-order="17" visible="true" enabled="true" parent="CARD-SEND">
+    <Property name="BackgroundColor">#F7F8FCFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="ReadOnly">true</Property>
+    <Property name="AccessibleLabel">Message sent</Property>
+    <Property name="InnerPadding">6</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Text of the message the customer received, with the quote number, total and short code.</Property>
+  </Control>
+<Control id="CARD-CUST" type="Panel" x="600" y="128" w="560" h="360" tab-order="18" z-order="18" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card where the customer sees the quote and approves or refuses with the short code.</Property>
+  </Control>
+<Control id="LBL-H2" type="Label" x="624" y="138" w="420" h="28" tab-order="19" z-order="19" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="Caption">2. Aprovação do cliente</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the customer card. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="LBL-CQ" type="Label" x="624" y="174" w="150" h="20" tab-order="20" z-order="20" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="Caption">Orçamento nº</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the customer quote number. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-CQUO" type="TextBox" x="624" y="196" w="150" h="38" tab-order="21" z-order="21" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">1</Property>
+    <Property name="AccessibleLabel">Quote number from the message the customer received.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Quote number from the message the customer received.</Property>
+  </Control>
+<Control id="LBL-CC" type="Label" x="794" y="174" w="150" h="20" tab-order="22" z-order="22" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="Caption">Código recebido</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the code field. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-CODE" type="TextBox" x="794" y="196" w="150" h="38" tab-order="23" z-order="23" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">123456</Property>
+    <Property name="AccessibleLabel">Six-digit code from the message the customer received.</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Six-digit code from the message the customer received.</Property>
+  </Control>
+<Control id="BTN-VIEW" type="Button" x="964" y="194" w="172" h="42" tab-order="24" z-order="24" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="Caption">Ver orçamento</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Opens the quote for the customer with the number and the code.</Property>
+    <Event name="onClick" paragraph="BTN-VIEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    QVW-REQ
+           COMPUTE QVW-QUO-ID                    =     FUNCTION NUMVAL ( TXT-CQUO::Text )
+               ON SIZE ERROR
+                   CONTINUE
+           END-COMPUTE
+           SET     QVW-CODE                      TO    TXT-CODE::Text
+           SET     QTS-STATUS                    TO    SPACES
+
+           *> QUOTE-VIEW: shows the customer the quote that the number and the code open; it does not use up the code.
+           *> Uses:   QVW-QUO-ID = TXT-CQUO; QVW-CODE = TXT-CODE.
+           *> Result: QTS-STATUS = OK, NOTFOUND, BADCODE, USED, REPLACED or EXPIRED; with OK the summary shows total and validity.
+           CALL    "QUOTE-VIEW" WITH WEBSOCKET LINKAGE
+               USING BY VALUE QVW-REQ
+               RETURNING QUO-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     QTS-STATUS            TO    "CALL"
+           END-CALL
+
+           SET     LBL-C-SUM::Caption            TO    "-"
+           IF    QTS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    QTS-MESSAGE
+               IF    QTS-STATUS = "OK"
+                   SET     WS-ED-AMT             TO    QTS-TOTAL
+                   STRING    "Orçamento " QTS-ID " - " QTS-PLATE " - total " QTS-CURRENCY " " WS-ED-AMT  INTO  LBL-C-SUM::Caption
+               END-IF
+           END-IF
+]]></Event>
+  </Control>
+<Control id="LBL-C-SUM" type="Label" x="624" y="246" w="520" h="24" tab-order="25" z-order="25" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Summary of the quote the customer opened.</Property>
+  </Control>
+<Control id="LBL-RS" type="Label" x="624" y="278" w="300" h="20" tab-order="26" z-order="26" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="Caption">Motivo (obrigatório para recusar)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the refusal reason. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-REASON" type="TextBox" x="624" y="300" w="512" h="38" tab-order="27" z-order="27" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Por que está recusando</Property>
+    <Property name="AccessibleLabel">Reason for refusing the quote; required when the customer re</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Reason for refusing the quote; required when the customer refuses.</Property>
+  </Control>
+<Control id="BTN-APPROVE" type="Button" x="624" y="350" w="250" h="46" tab-order="28" z-order="28" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="Caption">Aprovar orçamento</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">The customer approves the quote with the number and the code.</Property>
+    <Event name="onClick" paragraph="BTN-APPROVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    QAP-REQ
+           SET     QAP-MODE                      TO    "L"
+           COMPUTE QAP-QUO-ID                    =     FUNCTION NUMVAL ( TXT-CQUO::Text )
+               ON SIZE ERROR
+                   CONTINUE
+           END-COMPUTE
+           SET     QAP-CODE                      TO    TXT-CODE::Text
+           SET     QAP-DECISION                  TO    "A"
+           SET     QAP-REASON                    TO    TXT-REASON::Text
+           SET     QAS-STATUS                    TO    SPACES
+
+           *> QUOTE-APPROVE (link): the customer decides with the quote number and the short code; the code works only once.
+           *> Uses:   QAP-MODE = "L"; QAP-QUO-ID = TXT-CQUO; QAP-CODE = TXT-CODE; QAP-DECISION = A or R; QAP-REASON = TXT-REASON.
+           *> Result: QAS-STATUS = OK, BADCODE, USED, EXPIRED or INVALID; with OK the quote becomes APROVADO or RECUSADO.
+           CALL    "QUOTE-APPROVE" WITH WEBSOCKET LINKAGE
+               USING BY VALUE QAP-REQ
+               RETURNING QAP-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     QAS-STATUS            TO    "CALL"
+           END-CALL
+
+           IF    QAS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    QAS-MESSAGE
+           END-IF
+]]></Event>
+  </Control>
+<Control id="BTN-REFUSE" type="Button" x="886" y="350" w="250" h="46" tab-order="29" z-order="29" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="Caption">Recusar orçamento</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">The customer refuses the quote, with a reason.</Property>
+    <Event name="onClick" paragraph="BTN-REFUSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    QAP-REQ
+           SET     QAP-MODE                      TO    "L"
+           COMPUTE QAP-QUO-ID                    =     FUNCTION NUMVAL ( TXT-CQUO::Text )
+               ON SIZE ERROR
+                   CONTINUE
+           END-COMPUTE
+           SET     QAP-CODE                      TO    TXT-CODE::Text
+           SET     QAP-DECISION                  TO    "R"
+           SET     QAP-REASON                    TO    TXT-REASON::Text
+           SET     QAS-STATUS                    TO    SPACES
+
+           *> QUOTE-APPROVE (link): the customer decides with the quote number and the short code; the code works only once.
+           *> Uses:   QAP-MODE = "L"; QAP-QUO-ID = TXT-CQUO; QAP-CODE = TXT-CODE; QAP-DECISION = A or R; QAP-REASON = TXT-REASON.
+           *> Result: QAS-STATUS = OK, BADCODE, USED, EXPIRED or INVALID; with OK the quote becomes APROVADO or RECUSADO.
+           CALL    "QUOTE-APPROVE" WITH WEBSOCKET LINKAGE
+               USING BY VALUE QAP-REQ
+               RETURNING QAP-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     QAS-STATUS            TO    "CALL"
+           END-CALL
+
+           IF    QAS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    QAS-MESSAGE
+           END-IF
+]]></Event>
+  </Control>
+<Control id="LBL-C-NOTE" type="Label" x="624" y="410" w="520" h="60" tab-order="30" z-order="30" visible="true" enabled="true" parent="CARD-CUST">
+    <Property name="Caption">O código vale uma só vez e até o fim da validade do orçamento. Aprovado, o orçamento não pode mais ser alterado.</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Reminder of how the code works. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="CARD-MAN" type="Panel" x="32" y="504" w="1128" h="200" tab-order="31" z-order="31" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Card where the consultant registers a decision given by phone, WhatsApp or at the counter.</Property>
+  </Control>
+<Control id="LBL-H3" type="Label" x="56" y="514" w="600" h="28" tab-order="32" z-order="32" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">3. Registro manual pelo consultor</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Heading of the manual registration card.</Property>
+  </Control>
+<Control id="LBL-CH" type="Label" x="56" y="550" w="300" h="20" tab-order="33" z-order="33" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Canal em que o cliente respondeu</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the channel choice. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="RDO-PHONE" type="RadioButton" x="56" y="574" w="150" h="28" tab-order="34" z-order="34" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Telefone</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">true</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Channel of the decision: Telefone. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+  </Control>
+<Control id="RDO-WA" type="RadioButton" x="216" y="574" w="150" h="28" tab-order="35" z-order="35" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">WhatsApp</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Channel of the decision: WhatsApp. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+  </Control>
+<Control id="RDO-COUNTER" type="RadioButton" x="376" y="574" w="150" h="28" tab-order="36" z-order="36" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Balcão</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Channel of the decision: Balcão. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+  </Control>
+<Control id="LBL-MR" type="Label" x="56" y="614" w="400" h="20" tab-order="37" z-order="37" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Motivo (obrigatório se recusado)</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Caption of the manual refusal reason. It belongs to a screen of the PowerOficina workshop application.</Property>
+  </Control>
+<Control id="TXT-MREASON" type="TextBox" x="56" y="636" w="600" h="38" tab-order="38" z-order="38" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D5D8E6</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="HintText">Motivo da recusa</Property>
+    <Property name="AccessibleLabel">Reason for a refusal given by the customer; required when th</Property>
+    <Property name="InnerPadding">8</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Reason for a refusal given by the customer; required when the decision is Recusado.</Property>
+  </Control>
+<Control id="BTN-MAPPROVE" type="Button" x="690" y="632" w="210" h="46" tab-order="39" z-order="39" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Registrar aprovação</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Registers that the customer approved the quote by the chosen channel.</Property>
+    <Event name="onClick" paragraph="BTN-MAPPROVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    QAP-REQ
+           SET     QAP-MODE                      TO    "M"
+           COMPUTE QAP-QUO-ID                    =     FUNCTION NUMVAL ( TXT-QUO::Text )
+               ON SIZE ERROR
+                   CONTINUE
+           END-COMPUTE
+           SET     QAP-DECISION                  TO    "A"
+           SET     QAP-REASON                    TO    TXT-MREASON::Text
+           SET     QAP-OPERATOR                  TO    TXT-OPERATOR::Text
+           EVALUATE    TRUE
+               WHEN  RDO-WA::Selected = 1
+                   SET     QAP-CHANNEL           TO    "WHATSAPP"
+               WHEN  RDO-COUNTER::Selected = 1
+                   SET     QAP-CHANNEL           TO    "COUNTER"
+               WHEN  OTHER
+                   SET     QAP-CHANNEL           TO    "PHONE"
+           END-EVALUATE
+           SET     QAS-STATUS                    TO    SPACES
+
+           *> QUOTE-APPROVE (manual): the consultant registers the decision the customer gave by phone, WhatsApp or at the counter.
+           *> Uses:   QAP-MODE = "M"; QAP-QUO-ID = TXT-QUO; QAP-DECISION = A or R; QAP-CHANNEL = the chosen radio; QAP-OPERATOR = TXT-OPERATOR.
+           *> Result: QAS-STATUS = OK or INVALID; the quote becomes APROVADO or RECUSADO and the decision is written with channel and operator.
+           CALL    "QUOTE-APPROVE" WITH WEBSOCKET LINKAGE
+               USING BY VALUE QAP-REQ
+               RETURNING QAP-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     QAS-STATUS            TO    "CALL"
+           END-CALL
+
+           IF    QAS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    QAS-MESSAGE
+           END-IF
+]]></Event>
+  </Control>
+<Control id="BTN-MREFUSE" type="Button" x="916" y="632" w="210" h="46" tab-order="40" z-order="40" visible="true" enabled="true" parent="CARD-MAN">
+    <Property name="Caption">Registrar recusa</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="ForegroundColor">#4338CAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">Registers that the customer refused the quote by the chosen channel.</Property>
+    <Event name="onClick" paragraph="BTN-MREFUSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    QAP-REQ
+           SET     QAP-MODE                      TO    "M"
+           COMPUTE QAP-QUO-ID                    =     FUNCTION NUMVAL ( TXT-QUO::Text )
+               ON SIZE ERROR
+                   CONTINUE
+           END-COMPUTE
+           SET     QAP-DECISION                  TO    "R"
+           SET     QAP-REASON                    TO    TXT-MREASON::Text
+           SET     QAP-OPERATOR                  TO    TXT-OPERATOR::Text
+           EVALUATE    TRUE
+               WHEN  RDO-WA::Selected = 1
+                   SET     QAP-CHANNEL           TO    "WHATSAPP"
+               WHEN  RDO-COUNTER::Selected = 1
+                   SET     QAP-CHANNEL           TO    "COUNTER"
+               WHEN  OTHER
+                   SET     QAP-CHANNEL           TO    "PHONE"
+           END-EVALUATE
+           SET     QAS-STATUS                    TO    SPACES
+
+           *> QUOTE-APPROVE (manual): the consultant registers the decision the customer gave by phone, WhatsApp or at the counter.
+           *> Uses:   QAP-MODE = "M"; QAP-QUO-ID = TXT-QUO; QAP-DECISION = A or R; QAP-CHANNEL = the chosen radio; QAP-OPERATOR = TXT-OPERATOR.
+           *> Result: QAS-STATUS = OK or INVALID; the quote becomes APROVADO or RECUSADO and the decision is written with channel and operator.
+           CALL    "QUOTE-APPROVE" WITH WEBSOCKET LINKAGE
+               USING BY VALUE QAP-REQ
+               RETURNING QAP-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     QAS-STATUS            TO    "CALL"
+           END-CALL
+
+           IF    QAS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               SET     LBL-STATUS::Caption       TO    QAS-MESSAGE
+           END-IF
+]]></Event>
+  </Control>
+</Form>

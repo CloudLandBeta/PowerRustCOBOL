@@ -1,0 +1,5 @@
+           SELECT SEQUENCE-FILE ASSIGN TO "data/sequences.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS SEQ-NAME
+               STORAGE MODE IS DISK.

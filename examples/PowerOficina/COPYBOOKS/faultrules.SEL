@@ -1,0 +1,5 @@
+           SELECT FAULT-RULE-FILE ASSIGN TO "data/faultrules.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS FLT-CODE
+               STORAGE MODE IS DISK.

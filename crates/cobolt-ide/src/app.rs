@@ -1971,7 +1971,7 @@ impl Example {
 
 /// The examples Help → Examples offers, in menu order (operator, 2026-09-25:
 /// one entry per example instead of a single one).
-pub const EXAMPLES: [Example; 10] = [
+pub const EXAMPLES: [Example; 11] = [
     Example { project: "PowerChat", manifest: "PowerChat.project.toml", kind: ExampleKind::Desktop },
     Example { project: "PowerDemo3", manifest: "PowerDemo3.project.toml", kind: ExampleKind::Desktop },
     // The Spatial theme, and a group of docked windows (operator, 2026-10-04).
@@ -1987,6 +1987,8 @@ pub const EXAMPLES: [Example; 10] = [
     // The Web and Mobile examples, under their own submenus (operator, 2026-11-09).
     Example { project: "PowerWebHello", manifest: "PowerWebHello.project.toml", kind: ExampleKind::Web },
     Example { project: "PowerAnalyticsWeb", manifest: "PowerAnalyticsWeb.project.toml", kind: ExampleKind::Web },
+    // A car-workshop management application: a Web project with a Backend (operator, 2026-11-09).
+    Example { project: "PowerOficina", manifest: "PowerOficina.project.toml", kind: ExampleKind::Web },
     Example { project: "PowerMobileHello", manifest: "PowerMobileHello.project.toml", kind: ExampleKind::Mobile },
 ];
 
@@ -13448,6 +13450,7 @@ impl CoboltApp {
                                     "PowerCallOfDuty" => Some(tr.examples_powercallofduty_about),
                                     "PowerWebHello" => Some(tr.examples_powerwebhello_about),
                                     "PowerAnalyticsWeb" => Some(tr.examples_poweranalyticsweb_about),
+                                    "PowerOficina" => Some(tr.examples_poweroficina_about),
                                     "PowerMobileHello" => Some(tr.examples_powermobilehello_about),
                                     _ => None,
                                 };

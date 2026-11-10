@@ -1,0 +1,10 @@
+      *> Diagnostic rule: a fault code read from the vehicle points to up to three parts and one service, by catalog code. The rule carries no price: the price comes from the catalog in the quote's currency.
+       FD  FAULT-RULE-FILE
+           RECORD CONTAINS 116 CHARACTERS.
+           01 FAULT-RULE-RECORD.
+               05 FLT-CODE PIC X(8). *> Primary key, for example P0301
+               05 FLT-DESC PIC X(60).
+               05 FLT-PART-1 PIC X(12). *> CAT-CODE of a part
+               05 FLT-PART-2 PIC X(12).
+               05 FLT-PART-3 PIC X(12).
+               05 FLT-SERVICE PIC X(12). *> CAT-CODE of the service

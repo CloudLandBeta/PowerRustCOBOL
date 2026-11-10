@@ -1,0 +1,13 @@
+      *> One installment of a payment. The first is charged at the contract and each next one 30 days after the previous, by the gateway's recurring billing.
+       FD  INSTALLMENT-FILE
+           RECORD CONTAINS 94 CHARACTERS.
+           01 INSTALLMENT-RECORD.
+               05 INS-KEY. *> Primary key: payment then number
+                   10 INS-PAY-ID PIC 9(8).
+                   10 INS-NO PIC 9(2).
+               05 INS-DUE PIC 9(8). *> YYYYMMDD
+               05 INS-AMOUNT PIC 9(9)V99.
+               05 INS-STATUS PIC X(10). *> DUE, PAID, FAILED or CANCELLED
+               05 INS-GW-REF PIC X(40).
+               05 INS-PAID-AT PIC 9(14).
+               05 INS-TRIES PIC 9(1). *> Charge attempts made on this installment (at most 3)

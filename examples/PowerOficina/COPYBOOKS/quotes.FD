@@ -1,0 +1,20 @@
+      *> One revision of a quote. A sent quote is never changed: a change makes revision 2, 3 and so on. The currency is fixed when the quote is created.
+       FD  QUOTE-FILE
+           RECORD CONTAINS 146 CHARACTERS.
+           01 QUOTE-RECORD.
+               05 QUO-KEY. *> Primary key: number then revision
+                   10 QUO-ID PIC 9(8).
+                   10 QUO-REV PIC 9(2).
+               05 QUO-CUS-ID PIC 9(8).
+               05 QUO-PLATE PIC X(8).
+               05 QUO-DGN-ID PIC 9(8). *> Diagnosis that originated the quote
+               05 QUO-CURRENCY PIC X(3). *> BRL or EUR
+               05 QUO-STATUS PIC X(10). *> DRAFT, SENT, APPROVED, REFUSED, EXPIRED, PAID or CANCELLED
+               05 QUO-CREATED PIC 9(14).
+               05 QUO-VALID-UNTIL PIC 9(8). *> YYYYMMDD
+               05 QUO-DEADLINE PIC 9(8). *> Agreed execution deadline, YYYYMMDD
+               05 QUO-HOURS PIC 9(4)V99. *> Total labour hours
+               05 QUO-SUBTOTAL PIC 9(9)V99. *> Without tax
+               05 QUO-TAX PIC 9(9)V99.
+               05 QUO-TOTAL PIC 9(9)V99. *> With tax
+               05 QUO-OPERATOR PIC X(30).

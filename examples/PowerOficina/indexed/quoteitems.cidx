@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IndexedFile name="QUOTE-ITEM-FILE" finalized="false" version="1.0">
+<assign-path>data/quoteitems.idx</assign-path>
+<access-mode>dynamic</access-mode>
+<record-format fixed-length="157"/>
+<storage mode="disk" compression="false" persistence="false"/>
+<comment><![CDATA[One line of a quote revision: a part, a labour line or an add-on, with its quantity and price in the quote's currency.]]></comment>
+<keys><primary duplicates="false" ordering="ascending"><part field="QIT-KEY" offset="0" length="13" encoding="bytes"/></primary></keys>
+<fields>
+<Field level="1" name="QUOTE-ITEM-RECORD" usage="display">
+<Field level="5" name="QIT-KEY" usage="display">
+<Field level="10" name="QIT-QUO-ID" pic="9(8)" usage="display" offset="0" length="8">
+</Field>
+<Field level="10" name="QIT-REV" pic="9(2)" usage="display" offset="8" length="2">
+</Field>
+<Field level="10" name="QIT-LINE" pic="9(3)" usage="display" offset="10" length="3">
+</Field>
+<comment><![CDATA[Primary key: quote, revision, line]]></comment>
+</Field>
+<Field level="5" name="QIT-KIND" pic="X(1)" usage="display" offset="13" length="1">
+<comment><![CDATA[P, S, A or L]]></comment>
+</Field>
+<Field level="5" name="QIT-CODE" pic="X(12)" usage="display" offset="14" length="12">
+</Field>
+<Field level="5" name="QIT-NAME" pic="X(40)" usage="display" offset="26" length="40">
+</Field>
+<Field level="5" name="QIT-QTY" pic="9(4)V99" usage="display" offset="66" length="6">
+</Field>
+<Field level="5" name="QIT-UNIT" pic="9(7)V99" usage="display" offset="72" length="9">
+<comment><![CDATA[Unit price without tax]]></comment>
+</Field>
+<Field level="5" name="QIT-TAX-RATE" pic="9(2)V99" usage="display" offset="81" length="4">
+</Field>
+<Field level="5" name="QIT-AMOUNT" pic="9(9)V99" usage="display" offset="85" length="11">
+<comment><![CDATA[Quantity times unit price, without tax]]></comment>
+</Field>
+<Field level="5" name="QIT-MANUAL" pic="X(1)" usage="display" offset="96" length="1">
+<comment><![CDATA[S when the consultant changed the suggestion]]></comment>
+</Field>
+<Field level="5" name="QIT-NOTE" pic="X(60)" usage="display" offset="97" length="60">
+<comment><![CDATA[Reason for a manual change]]></comment>
+</Field>
+</Field>
+</fields>
+</IndexedFile>

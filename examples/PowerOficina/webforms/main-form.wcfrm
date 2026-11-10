@@ -1,0 +1,2357 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MAIN-FORM" title="PowerOficina" width="1440" height="900" background="#F7F8FCFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" definition="Main form of the PowerOficina workshop application: the single-page shell, with the side navigation rail and the content area where each screen (dashboard, intake, quotes, queue, payments, reports, settings) is loaded. It shows the Dashboard as its own home content." main-form="true" index-base="1" responsive="true">
+  <working-storage><![CDATA[       01 BE-CLASS                               GLOBAL    PIC X(16).
+       01 BE-CODE                                GLOBAL    PIC 9(9).
+       01 BE-MSG                                 GLOBAL    PIC X(80).
+       01 WS-LINE                                GLOBAL    PIC X(160).
+       01 WS-ED-AMT                              GLOBAL    PIC Z(8)9.99.
+       01 WS-DATE-X                              GLOBAL    PIC X(8).
+       01 WS-I                                   GLOBAL    PIC 999.
+       01 WS-ON-M1                               GLOBAL    PIC 9       VALUE 0.
+       01 WS-ON-M2                               GLOBAL    PIC 9       VALUE 0.
+       01 WS-ON-P1                               GLOBAL    PIC 9       VALUE 0.
+       01 WS-ON-P2                               GLOBAL    PIC 9       VALUE 0.
+       01 WS-ON-P3                               GLOBAL    PIC 9       VALUE 0.
+       01 WS-ALL-M                               GLOBAL    PIC 9.
+       01 WS-ALL-P                               GLOBAL    PIC 9.
+       01 WS-COLORS                              GLOBAL    PIC X(40).
+       01 WS-PTR                                 GLOBAL    PIC 99.
+       01 WS-V1                                  GLOBAL    PIC 9(6).
+       01 WS-V2                                  GLOBAL    PIC 9(6).
+       01 WS-YM-X                                GLOBAL    PIC X(6).
+       01 WS-LABEL                               GLOBAL    PIC X(12).
+       01 WS-ED-INT                              GLOBAL    PIC Z(5)9.
+       01 WS-ED-APR                              GLOBAL    PIC Z(3)9.
+       01 WS-ED-RATE                             GLOBAL    PIC ZZ9.9.
+       01 WS-ED-QTY                              GLOBAL    PIC Z(5)9.99.
+       01 WS-KIND-PT                             GLOBAL    PIC X(8).
+       01 DSH-REQ                             GLOBAL.
+          05 DSQ-CURRENCY                        PIC    X(3).
+          05 DSQ-ASOF                            PIC    9(8).
+       01 DSH-RES                             GLOBAL.
+          05 DSS-STATUS                          PIC    X(10).
+          05 DSS-MESSAGE                         PIC    X(80).
+          05 DSS-CURRENCY                        PIC    X(3).
+          05 DSS-VEHICLES                        PIC    9(4).
+          05 DSS-AWAITING                        PIC    9(4).
+          05 DSS-RUNNING                         PIC    9(4).
+          05 DSS-READY                           PIC    9(4).
+          05 DSS-SENT                            PIC    9(4).
+          05 DSS-APPROVED                        PIC    9(4).
+          05 DSS-RATE                            PIC    9(3)V9.
+          05 DSS-APPROVED-TOTAL                  PIC    9(11)V99.
+          05 DSS-TICKET                          PIC    9(9)V99.
+          05 DSS-MONTH                           OCCURS 6.
+             10 DSM-YM                           PIC    9(6).
+             10 DSM-SENT                         PIC    9(4).
+             10 DSM-APPROVED                     PIC    9(4).
+          05 DSS-TOP-COUNT                       PIC    9(2).
+          05 DSS-TOP                             OCCURS 5.
+             10 DST-CODE                         PIC    X(12).
+             10 DST-NAME                         PIC    X(40).
+             10 DST-QTY                          PIC    9(6)V99.
+          05 DSS-PAY-CASH                        PIC    9(4).
+          05 DSS-PAY-INST                        PIC    9(4).
+          05 DSS-PAY-REFUNDED                    PIC    9(4).
+          05 DSS-APR-LINK                        PIC    9(4).
+          05 DSS-APR-MANUAL                      PIC    9(4).
+          05 DSS-FAILED                          PIC    9(4).
+          05 DSS-GAVE-UP                         PIC    9(4).
+          05 DSS-DL-COUNT                        PIC    9(2).
+          05 DSS-DL                              OCCURS 8.
+             10 DDL-DATE                         PIC    9(8).
+             10 DDL-QUO                          PIC    9(8).
+             10 DDL-PLATE                        PIC    X(8).
+             10 DDL-KIND                         PIC    X(1).
+       01 WS-3D-READY                            GLOBAL    PIC 9        VALUE 0.
+       01 WS-ROOT-TOP                            GLOBAL    PIC 9(10)    VALUE 0.
+       01 WS-ROOT-DL                             GLOBAL    PIC 9(10)    VALUE 0.
+       01 WS-NODE                                GLOBAL    PIC 9(10).
+       01 WS-FLOOR-TOP                           GLOBAL    PIC 9(10).
+       01 WS-FLOOR-DL                            GLOBAL    PIC 9(10).
+       01 WS-CAM-TOP                             GLOBAL    PIC 9(10).
+       01 WS-CAM-DL                              GLOBAL    PIC 9(10).
+       01 WS-LIGHT-TOP                           GLOBAL    PIC 9(10).
+       01 WS-LIGHT-DL                            GLOBAL    PIC 9(10).
+       01 WS-MAX-QTY                             GLOBAL    PIC 9(6)V99.
+       01 WS-MAX-COUNT                           GLOBAL    PIC 99.
+       01 WS-ED-COUNT                            GLOBAL    PIC Z9.
+       01 WS-BAR-H                               GLOBAL    PIC 9(3)V99.
+       01 WS-BAR-Y                               GLOBAL    PIC 9(3)V99.
+       01 WS-BAR-X                               GLOBAL    PIC S9(3)V99.
+       01 WS-BAR-POS                             GLOBAL    PIC S9(3)V99.
+       01 WS-J                                   GLOBAL    PIC 999.
+       01 WS-K                                   GLOBAL    PIC 999.
+       01 WS-LINE-2                              GLOBAL    PIC X(160).
+       01 WS-DATE-ROWS                           GLOBAL.
+          05 WS-DR-COUNT                         PIC    9.
+          05 WS-DR                               OCCURS 5.
+             10 WS-DR-DATE                       PIC    9(8).
+             10 WS-DR-DELIVERIES                 PIC    99.
+             10 WS-DR-PICKUPS                    PIC    99.
+]]></working-storage>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <user-procedures>
+    <Event name="LOAD-DASH" paragraph="LOAD-DASH"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           INITIALIZE    DSH-REQ
+           SET     DSQ-CURRENCY                  TO    "BRL"
+           IF    RDO-EUR::Selected = 1
+               SET     DSQ-CURRENCY              TO    "EUR"
+           END-IF
+           SET     DSS-STATUS                    TO    SPACES
+
+           *> DASH-SUMMARY: every figure of the dashboard for one currency, never mixed with the other.
+           *> Uses:   DSQ-CURRENCY = BRL or EUR from the two radio buttons; DSQ-ASOF = 0 (today).
+           *> Result: DSS-... hold the indicators, the six months, the five top items, the payments, the channels, the failed
+           *>         installments and the next dates; SHOW-DASH puts them on the screen and hides what has no data.
+           CALL    "DASH-SUMMARY" WITH WEBSOCKET LINKAGE
+               USING BY VALUE DSH-REQ
+               RETURNING DSH-RES
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( BE-CLASS BE-CODE BE-MSG )
+                   SET     DSS-STATUS            TO    "CALL"
+           END-CALL
+
+           IF    DSS-STATUS = "CALL"
+               SET     LBL-STATUS::Caption       TO    "Não foi possível falar com o Backend."
+           ELSE
+               IF    DSS-STATUS = "OK"
+                   *> SHOW-DASH: puts the indicators on the screen.
+                   *> Uses:   DSS-... counters, rate, ticket and total.
+                   *> Result: the cards and the total line are filled; what has no data says so.
+                   CALL    "SHOW-DASH"
+               ELSE
+                   SET     LBL-STATUS::Caption   TO    DSS-MESSAGE
+               END-IF
+           END-IF
+]]></Event>
+    <Event name="SHOW-DASH" paragraph="SHOW-DASH"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     LBL-STATUS::Caption           TO    "-"
+           STRING    "Valores em " DSS-CURRENCY ". Atualiza a cada 15 segundos."  INTO  LBL-STATUS::Caption
+
+           SET     WS-ED-INT                     TO    DSS-VEHICLES
+           SET     VAL-VEH::Caption              TO    WS-ED-INT::Trim()
+           SET     WS-ED-INT                     TO    DSS-AWAITING
+           SET     VAL-AWA::Caption              TO    WS-ED-INT::Trim()
+           SET     WS-ED-INT                     TO    DSS-RUNNING
+           SET     VAL-RUN::Caption              TO    WS-ED-INT::Trim()
+           SET     WS-ED-INT                     TO    DSS-READY
+           SET     VAL-RDY::Caption              TO    WS-ED-INT::Trim()
+
+           SET     VAL-RAT::Caption              TO    "sem dados"
+           SET     VAL-TIC::Caption              TO    "sem dados"
+           SET     LBL-TOTAL::Caption            TO    "Nenhum orçamento aprovado ainda."
+           IF    DSS-SENT > 0
+               SET     WS-ED-RATE                TO    DSS-RATE
+               SET     VAL-RAT::Caption          TO    "-"
+               STRING    WS-ED-RATE::Trim() " %"  INTO  VAL-RAT::Caption
+           END-IF
+           IF    DSS-APPROVED > 0
+               SET     WS-ED-AMT                 TO    DSS-TICKET
+               SET     VAL-TIC::Caption          TO    "-"
+               STRING    DSS-CURRENCY " " WS-ED-AMT::Trim()  INTO  VAL-TIC::Caption
+               SET     WS-ED-AMT                 TO    DSS-APPROVED-TOTAL
+               SET     WS-ED-INT                 TO    DSS-SENT
+               SET     WS-ED-APR                 TO    DSS-APPROVED
+               SET     WS-LINE                   TO    SPACES
+               STRING    "Total aprovado: " DSS-CURRENCY " " WS-ED-AMT::Trim() "   (" WS-ED-APR::Trim() " aprovados de " WS-ED-INT::Trim()
+                         " enviados)"  INTO  WS-LINE
+               SET     LBL-TOTAL::Caption        TO    WS-LINE
+           END-IF
+
+           *> SHOW-CHARTS: draws the two charts.
+           *> Uses:   DSM-... months and the payment counters of the answer.
+           *> Result: CH-MONTHS and CH-PAYS are filled, or their empty notice is shown.
+           CALL    "SHOW-CHARTS"
+           *> SHOW-LISTS: fills the lists and the alert.
+           *> Uses:   DST-... top items, DDL-... dates, the channel and failed-installment counters.
+           *> Result: DG-TOP, DG-DL, LBL-CH and LBL-ALERT are filled.
+           CALL    "SHOW-LISTS"
+]]></Event>
+    <Event name="PAINT-LEGEND" paragraph="PAINT-LEGEND"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           IF    WS-ON-M1 = 1
+               SET     BTN-LEG-M1::BackgroundColor    TO    "#D9DBF9"
+               SET     BTN-LEG-M1::ForegroundColor    TO    "#0F172AFF"
+           ELSE
+               SET     BTN-LEG-M1::BackgroundColor    TO    "#FFFFFFFF"
+               SET     BTN-LEG-M1::ForegroundColor    TO    "#0F172AFF"
+           END-IF
+           IF    WS-ON-M2 = 1
+               SET     BTN-LEG-M2::BackgroundColor    TO    "#5B4FE9"
+               SET     BTN-LEG-M2::ForegroundColor    TO    "#FFFFFFFF"
+           ELSE
+               SET     BTN-LEG-M2::BackgroundColor    TO    "#FFFFFFFF"
+               SET     BTN-LEG-M2::ForegroundColor    TO    "#0F172AFF"
+           END-IF
+           IF    WS-ON-P1 = 1
+               SET     BTN-LEG-P1::BackgroundColor    TO    "#5B4FE9"
+               SET     BTN-LEG-P1::ForegroundColor    TO    "#FFFFFFFF"
+           ELSE
+               SET     BTN-LEG-P1::BackgroundColor    TO    "#FFFFFFFF"
+               SET     BTN-LEG-P1::ForegroundColor    TO    "#0F172AFF"
+           END-IF
+           IF    WS-ON-P2 = 1
+               SET     BTN-LEG-P2::BackgroundColor    TO    "#A9A3F5"
+               SET     BTN-LEG-P2::ForegroundColor    TO    "#0F172AFF"
+           ELSE
+               SET     BTN-LEG-P2::BackgroundColor    TO    "#FFFFFFFF"
+               SET     BTN-LEG-P2::ForegroundColor    TO    "#0F172AFF"
+           END-IF
+           IF    WS-ON-P3 = 1
+               SET     BTN-LEG-P3::BackgroundColor    TO    "#F28B8B"
+               SET     BTN-LEG-P3::ForegroundColor    TO    "#0F172AFF"
+           ELSE
+               SET     BTN-LEG-P3::BackgroundColor    TO    "#FFFFFFFF"
+               SET     BTN-LEG-P3::ForegroundColor    TO    "#0F172AFF"
+           END-IF
+
+]]></Event>
+    <Event name="SHOW-CHARTS" paragraph="SHOW-CHARTS"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           CH-MONTHS::Clear()
+           CH-PAYS::Clear()
+           SET     LBL-MON-EMPTY::Visible        TO    1
+           SET     LBL-PAY-EMPTY::Visible        TO    1
+
+           *> The legend buttons choose what the charts show: only the marked items, or all when none is marked.
+           SET     WS-ALL-M                      TO    0
+           IF    WS-ON-M1 = 0 AND WS-ON-M2 = 0
+               SET     WS-ALL-M                  TO    1
+           END-IF
+
+           IF    WS-ALL-M = 1
+               SET     CH-MONTHS::SeriesColors   TO    "#D9DBF9,#5B4FE9"
+               SET     CH-MONTHS::SeriesLabels   TO    "Enviados,Aprovados"
+           ELSE
+               IF    WS-ON-M1 = 1 AND WS-ON-M2 = 1
+                   SET     CH-MONTHS::SeriesColors TO  "#D9DBF9,#5B4FE9"
+                   SET     CH-MONTHS::SeriesLabels TO  "Enviados,Aprovados"
+               ELSE
+                   IF    WS-ON-M1 = 1
+                       SET     CH-MONTHS::SeriesColors TO "#D9DBF9"
+                       SET     CH-MONTHS::SeriesLabels TO "Enviados"
+                   ELSE
+                       SET     CH-MONTHS::SeriesColors TO "#5B4FE9"
+                       SET     CH-MONTHS::SeriesLabels TO "Aprovados"
+                   END-IF
+               END-IF
+           END-IF
+
+           IF    DSS-SENT > 0
+               SET     LBL-MON-EMPTY::Visible    TO    0
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 6
+                   MOVE    DSM-YM (WS-I)         TO    WS-YM-X
+                   SET     WS-LABEL              TO    SPACES
+                   STRING    WS-YM-X (5:2) "/" WS-YM-X (1:4)  INTO  WS-LABEL
+                   SET     WS-V1                 TO    DSM-SENT (WS-I)
+                   SET     WS-V2                 TO    DSM-APPROVED (WS-I)
+
+                   EVALUATE    TRUE
+                       WHEN WS-ALL-M = 1 OR (WS-ON-M1 = 1 AND WS-ON-M2 = 1)
+                           CH-MONTHS::AddPoint( WS-LABEL, WS-V1, WS-V2 )
+                       WHEN WS-ON-M1 = 1
+                           CH-MONTHS::AddPoint( WS-LABEL, WS-V1 )
+                       WHEN OTHER
+                           CH-MONTHS::AddPoint( WS-LABEL, WS-V2 )
+                   END-EVALUATE
+               END-PERFORM
+           END-IF
+
+           *> The payments donut: each slice keeps its own colour whatever is hidden.
+           SET     WS-COLORS                     TO    SPACES
+           SET     WS-PTR                        TO    1
+           SET     WS-ALL-P                      TO    0
+           IF    WS-ON-P1 = 0 AND WS-ON-P2 = 0 AND WS-ON-P3 = 0
+               SET     WS-ALL-P                  TO    1
+           END-IF
+
+           IF    DSS-PAY-CASH + DSS-PAY-INST + DSS-PAY-REFUNDED > 0
+               SET     LBL-PAY-EMPTY::Visible    TO    0
+
+               IF    WS-ALL-P = 1 OR WS-ON-P1 = 1
+                   CH-PAYS::AddPoint( "À vista", DSS-PAY-CASH )
+                   STRING    "#5B4FE9," INTO  WS-COLORS WITH POINTER WS-PTR
+               END-IF
+
+               IF    WS-ALL-P = 1 OR WS-ON-P2 = 1
+                   CH-PAYS::AddPoint( "Parcelado", DSS-PAY-INST )
+                   STRING    "#A9A3F5," INTO  WS-COLORS WITH POINTER WS-PTR
+               END-IF
+
+               IF    WS-ALL-P = 1 OR WS-ON-P3 = 1
+                   CH-PAYS::AddPoint( "Estornado", DSS-PAY-REFUNDED )
+                   STRING    "#F28B8B," INTO  WS-COLORS WITH POINTER WS-PTR
+               END-IF
+
+               COMPUTE WS-PTR                    =     WS-PTR - 1
+               SET     WS-COLORS (WS-PTR:1)      TO    SPACE
+               SET     CH-PAYS::SeriesColors     TO    WS-COLORS::Trim()
+           END-IF
+
+           *> PAINT-LEGEND: fills the marked legend buttons with their series colour.
+           *> Uses:   WS-ON-M1, WS-ON-M2, WS-ON-P1, WS-ON-P2, WS-ON-P3.
+           *> Result: a marked button is filled; an unmarked one is white with a coloured outline.
+           CALL    "PAINT-LEGEND"
+]]></Event>
+    <Event name="SHOW-LISTS" paragraph="SHOW-LISTS"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> PREPARE-3D: builds the floor, the light and the isometric camera of the two 3D histograms, the first time only.
+           *> Uses:   SCN-TOP, SCN-DL, CNV-TOP and CNV-DL.
+           *> Result: both canvases show their scene; WS-3D-READY is 1.
+           CALL    "PREPARE-3D"
+
+           *> DRAW-TOP: draws one bar per most sold item, as tall as its quantity, and writes the legend under it.
+           *> Uses:   DSS-TOP-COUNT and DST-NAME / DST-QTY of the answer.
+           *> Result: CNV-TOP shows the bars; LBL-T1 to LBL-T5 and SW-T1 to SW-T5 name them.
+           CALL    "DRAW-TOP"
+
+           *> DRAW-DELIVERIES: draws, for each date, one bar of deliveries and one of pickups, and writes the dates under them.
+           *> Uses:   DSS-DL-COUNT and DDL-DATE / DDL-KIND of the answer.
+           *> Result: CNV-DL shows the bars; LBL-D1 to LBL-D5 give the counts of each date.
+           CALL    "DRAW-DELIVERIES"
+
+           SET     WS-ED-INT                     TO    DSS-APR-LINK
+           SET     VAL-LNK::Caption              TO    WS-ED-INT::Trim()
+           SET     WS-ED-INT                     TO    DSS-APR-MANUAL
+           SET     VAL-MAN::Caption              TO    WS-ED-INT::Trim()
+           SET     WS-ED-INT                     TO    DSS-FAILED
+           SET     VAL-REF::Caption              TO    WS-ED-INT::Trim()
+           SET     WS-ED-INT                     TO    DSS-GAVE-UP
+           SET     VAL-GUP::Caption              TO    WS-ED-INT::Trim()
+
+           IF    DSS-FAILED > 0
+               SET     VAL-REF::ForegroundColor  TO    "#B91C1C"
+           ELSE
+               SET     VAL-REF::ForegroundColor  TO    "#1E1B4BFF"
+           END-IF
+           IF    DSS-GAVE-UP > 0
+               SET     VAL-GUP::ForegroundColor  TO    "#B91C1C"
+           ELSE
+               SET     VAL-GUP::ForegroundColor  TO    "#1E1B4BFF"
+           END-IF
+]]></Event>
+    <Event name="PREPARE-3D" paragraph="PREPARE-3D"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           IF    WS-3D-READY = 0
+               SET     WS-3D-READY               TO    1
+
+               SCN-TOP::SetBackground( "#FFFFFF00" )
+               SCN-TOP::SetAmbient( 1 1 1 0.55 )
+               SET     WS-FLOOR-TOP              TO    SCN-TOP::AddPlane( 16 7 )
+               SCN-TOP::SetColor( WS-FLOOR-TOP "#E9EDF7" )
+               SET     WS-CAM-TOP                TO    SCN-TOP::AddOrthographicCamera( 9 0.1 100 )
+               SCN-TOP::SetPosition( WS-CAM-TOP 10 9 10 )
+               SCN-TOP::LookAt( WS-CAM-TOP 0 1.6 0 )
+               SET     WS-LIGHT-TOP              TO    SCN-TOP::AddDirectionalLight( 1 1 1 1.1 )
+               SCN-TOP::SetRotation( WS-LIGHT-TOP, -50, 35, 0 )
+               CNV-TOP::SetScene( SCN-TOP::GetHandle() )
+               CNV-TOP::SetCamera( WS-CAM-TOP )
+
+               SCN-DL::SetBackground( "#FFFFFF00" )
+               SCN-DL::SetAmbient( 1 1 1 0.55 )
+               SET     WS-FLOOR-DL               TO    SCN-DL::AddPlane( 16 7 )
+               SCN-DL::SetColor( WS-FLOOR-DL "#E9EDF7" )
+               SET     WS-CAM-DL                 TO    SCN-DL::AddOrthographicCamera( 9 0.1 100 )
+               SCN-DL::SetPosition( WS-CAM-DL 10 9 10 )
+               SCN-DL::LookAt( WS-CAM-DL 0 1.6 0 )
+               SET     WS-LIGHT-DL               TO    SCN-DL::AddDirectionalLight( 1 1 1 1.1 )
+               SCN-DL::SetRotation( WS-LIGHT-DL, -50, 35, 0 )
+               CNV-DL::SetScene( SCN-DL::GetHandle() )
+               CNV-DL::SetCamera( WS-CAM-DL )
+           END-IF
+]]></Event>
+    <Event name="DRAW-TOP" paragraph="DRAW-TOP"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           IF    WS-ROOT-TOP > 0
+               SCN-TOP::Remove( WS-ROOT-TOP )
+           END-IF
+           SET     WS-ROOT-TOP                   TO    SCN-TOP::AddGroup()
+           SET     WS-MAX-QTY                    TO    1
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > DSS-TOP-COUNT
+               IF    DST-QTY (WS-I) > WS-MAX-QTY
+                   SET     WS-MAX-QTY            TO    DST-QTY (WS-I)
+               END-IF
+           END-PERFORM
+
+           SET     LBL-T1::Caption               TO    SPACES
+           SET     SW-T1::Visible                TO    0
+           SET     LBL-T2::Caption               TO    SPACES
+           SET     SW-T2::Visible                TO    0
+           SET     LBL-T3::Caption               TO    SPACES
+           SET     SW-T3::Visible                TO    0
+           SET     LBL-T4::Caption               TO    SPACES
+           SET     SW-T4::Visible                TO    0
+           SET     LBL-T5::Caption               TO    SPACES
+           SET     SW-T5::Visible                TO    0
+
+           IF    DSS-TOP-COUNT = 0
+               SET     LBL-T1::Caption           TO    "Nenhum item vendido ainda."
+           END-IF
+
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > DSS-TOP-COUNT
+               COMPUTE WS-BAR-H              =     0.4 + 4 * DST-QTY (WS-I) / WS-MAX-QTY
+               COMPUTE WS-BAR-Y              =     WS-BAR-H / 2
+               COMPUTE WS-BAR-X              =     1.6 * WS-I - 0.8 * (DSS-TOP-COUNT + 1)
+               SET     WS-NODE                   TO    SCN-TOP::AddBox( 1.2 WS-BAR-H 1.2 )
+               SCN-TOP::SetParent( WS-NODE WS-ROOT-TOP )
+               SCN-TOP::SetPosition( WS-NODE, WS-BAR-X, WS-BAR-Y, 0 )
+
+               SET     WS-ED-QTY                 TO    DST-QTY (WS-I)
+               SET     WS-LINE                   TO    SPACES
+               STRING    WS-ED-QTY::Trim() "  " DST-NAME (WS-I)  INTO  WS-LINE
+
+               EVALUATE WS-I
+                   WHEN 1
+                       SCN-TOP::SetColor( WS-NODE "#1E3A8A" )
+                       SET     LBL-T1::Caption   TO    WS-LINE::Trim()
+                       SET     SW-T1::Visible    TO    1
+                   WHEN 2
+                       SCN-TOP::SetColor( WS-NODE "#22B8F0" )
+                       SET     LBL-T2::Caption   TO    WS-LINE::Trim()
+                       SET     SW-T2::Visible    TO    1
+                   WHEN 3
+                       SCN-TOP::SetColor( WS-NODE "#2EC27E" )
+                       SET     LBL-T3::Caption   TO    WS-LINE::Trim()
+                       SET     SW-T3::Visible    TO    1
+                   WHEN 4
+                       SCN-TOP::SetColor( WS-NODE "#FF9F1C" )
+                       SET     LBL-T4::Caption   TO    WS-LINE::Trim()
+                       SET     SW-T4::Visible    TO    1
+                   WHEN 5
+                       SCN-TOP::SetColor( WS-NODE "#F43F7A" )
+                       SET     LBL-T5::Caption   TO    WS-LINE::Trim()
+                       SET     SW-T5::Visible    TO    1
+               END-EVALUATE
+           END-PERFORM
+
+           CNV-TOP::Render()
+]]></Event>
+    <Event name="DRAW-DELIVERIES" paragraph="DRAW-DELIVERIES"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           IF    WS-ROOT-DL > 0
+               SCN-DL::Remove( WS-ROOT-DL )
+           END-IF
+           SET     WS-ROOT-DL                    TO    SCN-DL::AddGroup()
+           MOVE    0                         TO    WS-DR-COUNT
+           SET     WS-MAX-COUNT                  TO    1
+
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > DSS-DL-COUNT
+               SET     WS-J                      TO    0
+               PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-DR-COUNT
+                   IF    DDL-DATE (WS-I) = WS-DR-DATE (WS-K)
+                   SET     WS-J                  TO    WS-K
+                   END-IF
+               END-PERFORM
+
+               IF    WS-J = 0 AND WS-DR-COUNT < 5
+                   ADD     1                 TO    WS-DR-COUNT
+                   SET     WS-J                  TO    WS-DR-COUNT
+                   MOVE    DDL-DATE (WS-I)   TO    WS-DR-DATE (WS-J)
+                   MOVE    0                 TO    WS-DR-DELIVERIES (WS-J)
+                   MOVE    0                 TO    WS-DR-PICKUPS (WS-J)
+               END-IF
+
+               IF    WS-J > 0
+                   IF    DDL-KIND (WS-I) = "R"
+                       ADD     1             TO    WS-DR-PICKUPS (WS-J)
+                   ELSE
+                       ADD     1             TO    WS-DR-DELIVERIES (WS-J)
+                   END-IF
+               END-IF
+           END-PERFORM
+
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-DR-COUNT
+               IF    WS-DR-DELIVERIES (WS-I) > WS-MAX-COUNT
+                   SET     WS-MAX-COUNT          TO    WS-DR-DELIVERIES (WS-I)
+               END-IF
+               IF    WS-DR-PICKUPS (WS-I) > WS-MAX-COUNT
+                   SET     WS-MAX-COUNT          TO    WS-DR-PICKUPS (WS-I)
+               END-IF
+           END-PERFORM
+
+           SET     LBL-D1::Caption               TO    SPACES
+           SET     LBL-D2::Caption               TO    SPACES
+           SET     LBL-D3::Caption               TO    SPACES
+           SET     LBL-D4::Caption               TO    SPACES
+           SET     LBL-D5::Caption               TO    SPACES
+
+           IF    DSS-DL-COUNT = 0
+               SET     LBL-D1::Caption           TO    "Nenhuma entrega ou retirada marcada."
+           END-IF
+
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-DR-COUNT
+               COMPUTE WS-BAR-X              =     2.6 * WS-I - 1.3 * (WS-DR-COUNT + 1)
+
+               IF    WS-DR-DELIVERIES (WS-I) > 0
+                   COMPUTE WS-BAR-H          =     0.4 + 4 * WS-DR-DELIVERIES (WS-I) / WS-MAX-COUNT
+                   COMPUTE WS-BAR-Y          =     WS-BAR-H / 2
+                   COMPUTE WS-BAR-POS          =     WS-BAR-X - 0.65
+                   SET     WS-NODE               TO    SCN-DL::AddBox( 1.1 WS-BAR-H 1.1 )
+                   SCN-DL::SetParent( WS-NODE WS-ROOT-DL )
+                   SCN-DL::SetPosition( WS-NODE, WS-BAR-POS, WS-BAR-Y, 0 )
+                   SCN-DL::SetColor( WS-NODE "#FF9F1C" )
+               END-IF
+
+               IF    WS-DR-PICKUPS (WS-I) > 0
+                   COMPUTE WS-BAR-H          =     0.4 + 4 * WS-DR-PICKUPS (WS-I) / WS-MAX-COUNT
+                   COMPUTE WS-BAR-Y          =     WS-BAR-H / 2
+                   COMPUTE WS-BAR-POS          =     WS-BAR-X + 0.65
+                   SET     WS-NODE               TO    SCN-DL::AddBox( 1.1 WS-BAR-H 1.1 )
+                   SCN-DL::SetParent( WS-NODE WS-ROOT-DL )
+                   SCN-DL::SetPosition( WS-NODE, WS-BAR-POS, WS-BAR-Y, 0 )
+                   SCN-DL::SetColor( WS-NODE "#22B8F0" )
+               END-IF
+
+               MOVE    WS-DR-DATE (WS-I)     TO    WS-DATE-X
+               SET     WS-LINE                   TO    SPACES
+               SET     WS-ED-COUNT               TO    WS-DR-DELIVERIES (WS-I)
+               STRING    WS-DATE-X (7:2) "/" WS-DATE-X (5:2) "/" WS-DATE-X (1:4) "   Entregas " WS-ED-COUNT::Trim()
+                   INTO  WS-LINE
+               SET     WS-ED-COUNT               TO    WS-DR-PICKUPS (WS-I)
+               SET     WS-LINE-2                 TO    SPACES
+               STRING    WS-LINE::Trim() "   Retiradas " WS-ED-COUNT::Trim()  INTO  WS-LINE-2
+
+               EVALUATE WS-I
+                   WHEN 1
+                       SET     LBL-D1::Caption   TO    WS-LINE-2::Trim()
+                   WHEN 2
+                       SET     LBL-D2::Caption   TO    WS-LINE-2::Trim()
+                   WHEN 3
+                       SET     LBL-D3::Caption   TO    WS-LINE-2::Trim()
+                   WHEN 4
+                       SET     LBL-D4::Caption   TO    WS-LINE-2::Trim()
+                   WHEN 5
+                       SET     LBL-D5::Caption   TO    WS-LINE-2::Trim()
+               END-EVALUATE
+           END-PERFORM
+
+           CNV-DL::Render()
+]]></Event>
+  </user-procedures>
+  <form-events>
+    <Event name="onLoad" paragraph="MAIN-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> DASH-SUMMARY: the dashboard is read when the screen opens as the application home (LOAD-DASH); a timer keeps it current.
+           *> Uses:   the currency radio buttons (BRL at first).
+           *> Result: indicators, charts and lists are filled; what has no data says so.
+
+           *> LOAD-DASH: reads every figure of the dashboard for the chosen currency.
+           *> Uses:   the BRL and EUR radio buttons.
+           *> Result: the indicators, charts and lists are filled.
+           CALL    "LOAD-DASH"
+]]></Event>
+    <Event name="onClose" paragraph="MAIN-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="SIDEMENU-1" type="SideMenu" x="0" y="0" w="248" h="900" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#2E2B5FFF</Property>
+    <Property name="ForegroundColor">#E4E2F5FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="HighlightBgColor">#3D3A78</Property>
+    <Property name="HighlightFgColor">#FFFFFF</Property>
+    <Property name="SelectedBgColor">#4A4690FF</Property>
+    <Property name="SelectedFgColor">#FFFFFF</Property>
+    <Property name="FullHeight">true</Property>
+    <Property name="Collapsed">false</Property>
+    <Property name="IconSize">22</Property>
+    <Property name="IconSizeCollapsed">28</Property>
+    <Property name="FooterHeight">96</Property>
+    <Property name="HeaderHeight">96</Property>
+    <Property name="BreadcrumbHeight">41</Property>
+    <Property name="BreadcrumbBackgroundColor">#F7F8FCFF</Property>
+    <Property name="BreadcrumbFontSize">14</Property>
+    <Property name="BreadcrumbIconSize">29</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="HeaderBandHeight">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Side navigation rail of the application, in deep indigo with light text and a lighter row for the screen in use. Its items open each screen of the workshop (dashboard, intake, diagnosis, quotes, execution queue, payments, reports, settings) in the content area without leaving the page.</Property>
+    <Property name="HeaderImage">Assets/6f0beead-16ae-47f4-a9ee-0b9ca1d412d2.png</Property>
+    <Property name="HeaderIcon">Assets/0dce31c0-a083-484b-a3f6-71e6de1e8a21.png</Property>
+  </Control>
+  <Control id="SIDEMENU-1-Footer" type="Panel" x="0" y="804" w="248" h="96" tab-order="0" z-order="0" visible="true" enabled="true" parent="SIDEMENU-1">
+    <Property name="BackgroundColor">#2E2B5FFF</Property>
+    <Property name="HideBackground">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="IsSideMenuFooter">true</Property>
+    <Property name="Definition">Footer band of the navigation rail, holding the application&apos;s name card.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+  </Control>
+  <Control id="CARD-BRAND" type="Panel" x="16" y="816" w="216" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="SIDEMENU-1-Footer">
+    <Property name="BackgroundColor">#3D3A78FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="Definition">Name card at the foot of the rail: the application&apos;s initials, its name and what it is for.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-INITIALS" type="Label" x="28" y="830" w="44" h="44" tab-order="0" z-order="0" visible="true" enabled="true" parent="CARD-BRAND">
+    <Property name="Caption">PO</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#5B4FE9FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="TextAlignment">Center</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="Definition">Round badge with the application&apos;s initials.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+  </Control>
+  <Control id="LBL-BRAND" type="Label" x="82" y="832" w="142" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="CARD-BRAND">
+    <Property name="Caption">PowerOficina</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Name of the application on the rail&apos;s name card.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="LBL-BRAND-SUB" type="Label" x="82" y="854" w="142" h="20" tab-order="0" z-order="0" visible="true" enabled="true" parent="CARD-BRAND">
+    <Property name="Caption">Gestão da oficina</Property>
+    <Property name="ForegroundColor">#C7C4EEFF</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">What the application is for, under its name on the rail&apos;s name card.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="LBL-TITLE" type="Label" x="280" y="48" w="500" h="36" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Dashboard</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Screen title. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="LBL-STATUS" type="Label" x="280" y="92" w="620" h="24" tab-order="2" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#6B7280FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Status line with the currency shown and the result of the last reading.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="LBL-CUR" type="Label" x="948" y="60" w="64" h="24" tab-order="3" z-order="3" visible="true" enabled="true">
+    <Property name="Caption">Moeda</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Caption of the currency choice. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="RDO-BRL" type="RadioButton" x="1018" y="58" w="110" h="28" tab-order="4" z-order="4" visible="true" enabled="true">
+    <Property name="Caption">BRL (R$)</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">true</Property>
+    <Property name="Definition">Currency of the dashboard: BRL (R$). The two currencies are never added together.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">0</Property>
+    <Event name="onClick" paragraph="RDO-BRL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-DASH: reads every figure of the dashboard for the chosen currency.
+           *> Uses:   the BRL and EUR radio buttons.
+           *> Result: the indicators, charts and lists are filled.
+           CALL    "LOAD-DASH"
+]]></Event>
+  </Control>
+  <Control id="RDO-EUR" type="RadioButton" x="1148" y="58" w="110" h="28" tab-order="5" z-order="5" visible="true" enabled="true">
+    <Property name="Caption">EUR (€)</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Selected">false</Property>
+    <Property name="Definition">Currency of the dashboard: EUR (€). The two currencies are never added together.</Property>
+    <Property name="CheckColor">#5B4FE9</Property>
+    <Property name="CheckBoxBorderColor">#5B4FE9</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">0</Property>
+    <Event name="onClick" paragraph="RDO-EUR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-DASH: reads every figure of the dashboard for the chosen currency.
+           *> Uses:   the BRL and EUR radio buttons.
+           *> Result: the indicators, charts and lists are filled.
+           CALL    "LOAD-DASH"
+]]></Event>
+  </Control>
+  <Control id="TMR-REFRESH" type="Timer" x="1348" y="52" w="48" h="48" tab-order="6" z-order="6" visible="true" enabled="true">
+    <Property name="Interval">15000</Property>
+    <Property name="Enabled">1</Property>
+    <Property name="Definition">Timer that reads the figures again every fifteen seconds, so the dashboard follows the work without reloading the page.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Event name="onTick" paragraph="TMR-REFRESH--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> LOAD-DASH: reads every figure of the dashboard for the chosen currency.
+           *> Uses:   the BRL and EUR radio buttons.
+           *> Result: the indicators, charts and lists are filled.
+           CALL    "LOAD-DASH"
+]]></Event>
+  </Control>
+  <Control id="KPI-VEH" type="Panel" x="280" y="128" w="178" h="100" tab-order="7" z-order="7" visible="true" enabled="true">
+    <Property name="BackgroundColor">#DCE4FBFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#DCE4FB</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Definition">Indicator: Veículos em atendimento. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="VAL-VEH" type="Label" x="292" y="176" w="154" h="44" tab-order="8" z-order="8" visible="true" enabled="true" parent="KPI-VEH">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Value of the indicator Veículos em atendimento.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CAP-VEH" type="Label" x="292" y="138" w="154" h="36" tab-order="9" z-order="9" visible="true" enabled="true" parent="KPI-VEH">
+    <Property name="Caption">Veículos em atendimento</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Name of the indicator Veículos em atendimento.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="KPI-AWA" type="Panel" x="470" y="128" w="178" h="100" tab-order="10" z-order="10" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F9E1E1FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#F9E1E1</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Definition">Indicator: Orçamentos aguardando aprovação.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="VAL-AWA" type="Label" x="482" y="176" w="154" h="44" tab-order="11" z-order="11" visible="true" enabled="true" parent="KPI-AWA">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Value of the indicator Orçamentos aguardando aprovação.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CAP-AWA" type="Label" x="482" y="138" w="154" h="36" tab-order="12" z-order="12" visible="true" enabled="true" parent="KPI-AWA">
+    <Property name="Caption">Orçamentos aguardando aprovação</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Name of the indicator Orçamentos aguardando aprovação.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="KPI-RUN" type="Panel" x="660" y="128" w="178" h="100" tab-order="13" z-order="13" visible="true" enabled="true">
+    <Property name="BackgroundColor">#DDEFEAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#DDEFEA</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Definition">Indicator: Serviços em execução. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="VAL-RUN" type="Label" x="672" y="176" w="154" h="44" tab-order="14" z-order="14" visible="true" enabled="true" parent="KPI-RUN">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Value of the indicator Serviços em execução.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CAP-RUN" type="Label" x="672" y="138" w="154" h="36" tab-order="15" z-order="15" visible="true" enabled="true" parent="KPI-RUN">
+    <Property name="Caption">Serviços em execução</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Name of the indicator Serviços em execução.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="KPI-RDY" type="Panel" x="850" y="128" w="178" h="100" tab-order="16" z-order="16" visible="true" enabled="true">
+    <Property name="BackgroundColor">#E9E4FBFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#E9E4FB</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Definition">Indicator: Veículos prontos para retirada.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="VAL-RDY" type="Label" x="862" y="176" w="154" h="44" tab-order="17" z-order="17" visible="true" enabled="true" parent="KPI-RDY">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Value of the indicator Veículos prontos para retirada.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CAP-RDY" type="Label" x="862" y="138" w="154" h="36" tab-order="18" z-order="18" visible="true" enabled="true" parent="KPI-RDY">
+    <Property name="Caption">Veículos prontos para retirada</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Name of the indicator Veículos prontos para retirada.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="KPI-RAT" type="Panel" x="1040" y="128" w="178" h="100" tab-order="19" z-order="19" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FCE9D6FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#FCE9D6</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Definition">Indicator: Taxa de aprovação. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="VAL-RAT" type="Label" x="1052" y="176" w="154" h="44" tab-order="20" z-order="20" visible="true" enabled="true" parent="KPI-RAT">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Value of the indicator Taxa de aprovação.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CAP-RAT" type="Label" x="1052" y="138" w="154" h="36" tab-order="21" z-order="21" visible="true" enabled="true" parent="KPI-RAT">
+    <Property name="Caption">Taxa de aprovação</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Name of the indicator Taxa de aprovação.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="KPI-TIC" type="Panel" x="1230" y="128" w="178" h="100" tab-order="22" z-order="22" visible="true" enabled="true">
+    <Property name="BackgroundColor">#DDEFF8FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#DDEFF8</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Definition">Indicator: Ticket médio aprovado. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="VAL-TIC" type="Label" x="1242" y="176" w="154" h="44" tab-order="23" z-order="23" visible="true" enabled="true" parent="KPI-TIC">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">30</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Value of the indicator Ticket médio aprovado.</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CAP-TIC" type="Label" x="1242" y="138" w="154" h="36" tab-order="24" z-order="24" visible="true" enabled="true" parent="KPI-TIC">
+    <Property name="Caption">Ticket médio aprovado</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Name of the indicator Ticket médio aprovado.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CARD-TOTAL" type="Panel" x="280" y="244" w="1128" h="56" tab-order="25" z-order="25" visible="true" enabled="true">
+    <Property name="BackgroundColor">#EEEDFDFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#EEEDFD</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="Definition">Total approved in the currency shown. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-TOTAL" type="Label" x="296" y="256" w="1090" h="30" tab-order="26" z-order="26" visible="true" enabled="true" parent="CARD-TOTAL">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#2E2B5FFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Total approved in the currency shown, and how many quotes were sent and approved.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CARD-MON" type="Panel" x="280" y="314" w="560" h="300" tab-order="27" z-order="27" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Definition">Chart of the quotes sent and approved by month.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="CH-MONTHS" type="BarChart" x="288" y="322" w="544" h="246" tab-order="28" z-order="28" visible="true" enabled="true" parent="CARD-MON">
+    <Property name="Title">Orçamentos enviados e aprovados por mês</Property>
+    <Property name="TitleColor">#1E1B4BFF</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="SeriesColors">#D9DBF9,#5B4FE9</Property>
+    <Property name="ShowLegend">0</Property>
+    <Property name="AnimateOnLoad">1</Property>
+    <Property name="AnimateValues">1</Property>
+    <Property name="AnimationDuration">700</Property>
+    <Property name="ShowTooltips">1</Property>
+    <Property name="AccessibleLabel">Bar chart with the quotes sent and approved in each of the l</Property>
+    <Property name="Definition">Bar chart with the quotes sent and approved in each of the last six months.</Property>
+    <Property name="TitleFontSize">16</Property>
+    <Property name="SeriesLabels">Enviados,Aprovados</Property>
+    <Property name="BarCornerRadius">6</Property>
+    <Property name="FontSize">9</Property>
+    <Property name="ShowGridLines">0</Property>
+    <Property name="ShowYAxis">0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="BorderColor">#3C50A0</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+  </Control>
+  <Control id="BTN-LEG-M1" type="Button" x="420" y="574" w="120" h="30" tab-order="61" z-order="61" visible="true" enabled="true" parent="CARD-MON">
+    <Property name="Caption">Enviados</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#D9DBF9</Property>
+    <Property name="AccessibleLabel">Legend item of the monthly chart: show only the quotes sent.</Property>
+    <Property name="Definition">Legend item of the monthly chart: show only the quotes sent.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Event name="onClick" paragraph="BTN-LEG-M1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> Legend button: marks or unmarks this item; the chart then shows only the marked ones (none marked = all).
+           *> Uses:   WS-ON-M1 (1 = marked, 0 = not marked).
+           *> Result: WS-ON-M1 flips, the buttons are repainted and the charts are drawn again.
+
+           IF    WS-ON-M1 = 1
+               SET     WS-ON-M1                    TO    0
+           ELSE
+               SET     WS-ON-M1                    TO    1
+           END-IF
+
+           *> SHOW-CHARTS: draws the two charts again with only the marked legend items, and repaints the legend buttons.
+           *> Uses:   WS-ON-M1, WS-ON-M2, WS-ON-P1, WS-ON-P2, WS-ON-P3 and the figures of the last reading (DSS-...).
+           *> Result: CH-MONTHS and CH-PAYS show what is marked (all when nothing is); the buttons show their state.
+           CALL    "SHOW-CHARTS"
+]]></Event>
+  </Control>
+  <Control id="BTN-LEG-M2" type="Button" x="548" y="574" w="120" h="30" tab-order="62" z-order="62" visible="true" enabled="true" parent="CARD-MON">
+    <Property name="Caption">Aprovados</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#5B4FE9</Property>
+    <Property name="AccessibleLabel">Legend item of the monthly chart: show only the quotes appro</Property>
+    <Property name="Definition">Legend item of the monthly chart: show only the quotes approved.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Event name="onClick" paragraph="BTN-LEG-M2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> Legend button: marks or unmarks this item; the chart then shows only the marked ones (none marked = all).
+           *> Uses:   WS-ON-M2 (1 = marked, 0 = not marked).
+           *> Result: WS-ON-M2 flips, the buttons are repainted and the charts are drawn again.
+
+           IF    WS-ON-M2 = 1
+               SET     WS-ON-M2                    TO    0
+           ELSE
+               SET     WS-ON-M2                    TO    1
+           END-IF
+
+           *> SHOW-CHARTS: draws the two charts again with only the marked legend items, and repaints the legend buttons.
+           *> Uses:   WS-ON-M1, WS-ON-M2, WS-ON-P1, WS-ON-P2, WS-ON-P3 and the figures of the last reading (DSS-...).
+           *> Result: CH-MONTHS and CH-PAYS show what is marked (all when nothing is); the buttons show their state.
+           CALL    "SHOW-CHARTS"
+]]></Event>
+  </Control>
+  <Control id="BTN-LEG-P1" type="Button" x="944" y="574" w="110" h="30" tab-order="63" z-order="63" visible="true" enabled="true" parent="CARD-PAYS">
+    <Property name="Caption">À vista</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#5B4FE9</Property>
+    <Property name="AccessibleLabel">Legend item of the payments chart: show only the payments in</Property>
+    <Property name="Definition">Legend item of the payments chart: show only the payments in cash.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Event name="onClick" paragraph="BTN-LEG-P1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> Legend button: marks or unmarks this item; the chart then shows only the marked ones (none marked = all).
+           *> Uses:   WS-ON-P1 (1 = marked, 0 = not marked).
+           *> Result: WS-ON-P1 flips, the buttons are repainted and the charts are drawn again.
+
+           IF    WS-ON-P1 = 1
+               SET     WS-ON-P1                    TO    0
+           ELSE
+               SET     WS-ON-P1                    TO    1
+           END-IF
+
+           *> SHOW-CHARTS: draws the two charts again with only the marked legend items, and repaints the legend buttons.
+           *> Uses:   WS-ON-M1, WS-ON-M2, WS-ON-P1, WS-ON-P2, WS-ON-P3 and the figures of the last reading (DSS-...).
+           *> Result: CH-MONTHS and CH-PAYS show what is marked (all when nothing is); the buttons show their state.
+           CALL    "SHOW-CHARTS"
+]]></Event>
+  </Control>
+  <Control id="BTN-LEG-P2" type="Button" x="1062" y="574" w="110" h="30" tab-order="64" z-order="64" visible="true" enabled="true" parent="CARD-PAYS">
+    <Property name="Caption">Parcelado</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#A9A3F5</Property>
+    <Property name="AccessibleLabel">Legend item of the payments chart: show only the installment</Property>
+    <Property name="Definition">Legend item of the payments chart: show only the installment payments.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Event name="onClick" paragraph="BTN-LEG-P2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> Legend button: marks or unmarks this item; the chart then shows only the marked ones (none marked = all).
+           *> Uses:   WS-ON-P2 (1 = marked, 0 = not marked).
+           *> Result: WS-ON-P2 flips, the buttons are repainted and the charts are drawn again.
+
+           IF    WS-ON-P2 = 1
+               SET     WS-ON-P2                    TO    0
+           ELSE
+               SET     WS-ON-P2                    TO    1
+           END-IF
+
+           *> SHOW-CHARTS: draws the two charts again with only the marked legend items, and repaints the legend buttons.
+           *> Uses:   WS-ON-M1, WS-ON-M2, WS-ON-P1, WS-ON-P2, WS-ON-P3 and the figures of the last reading (DSS-...).
+           *> Result: CH-MONTHS and CH-PAYS show what is marked (all when nothing is); the buttons show their state.
+           CALL    "SHOW-CHARTS"
+]]></Event>
+  </Control>
+  <Control id="BTN-LEG-P3" type="Button" x="1180" y="574" w="110" h="30" tab-order="65" z-order="65" visible="true" enabled="true" parent="CARD-PAYS">
+    <Property name="Caption">Estornado</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#0F172AFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#F28B8B</Property>
+    <Property name="AccessibleLabel">Legend item of the payments chart: show only the refunded pa</Property>
+    <Property name="Definition">Legend item of the payments chart: show only the refunded payments.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Event name="onClick" paragraph="BTN-LEG-P3--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> Legend button: marks or unmarks this item; the chart then shows only the marked ones (none marked = all).
+           *> Uses:   WS-ON-P3 (1 = marked, 0 = not marked).
+           *> Result: WS-ON-P3 flips, the buttons are repainted and the charts are drawn again.
+
+           IF    WS-ON-P3 = 1
+               SET     WS-ON-P3                    TO    0
+           ELSE
+               SET     WS-ON-P3                    TO    1
+           END-IF
+
+           *> SHOW-CHARTS: draws the two charts again with only the marked legend items, and repaints the legend buttons.
+           *> Uses:   WS-ON-M1, WS-ON-M2, WS-ON-P1, WS-ON-P2, WS-ON-P3 and the figures of the last reading (DSS-...).
+           *> Result: CH-MONTHS and CH-PAYS show what is marked (all when nothing is); the buttons show their state.
+           CALL    "SHOW-CHARTS"
+]]></Event>
+  </Control>
+  <Control id="LBL-MON-EMPTY" type="Label" x="304" y="454" w="510" h="28" tab-order="29" z-order="29" visible="true" enabled="true" parent="CARD-MON">
+    <Property name="Caption">Sem orçamentos enviados ainda.</Property>
+    <Property name="ForegroundColor">#6B7280FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Shown instead of the chart when no quote was sent.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CARD-PAYS" type="Panel" x="856" y="314" w="552" h="300" tab-order="30" z-order="30" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Definition">Chart of the payments by form. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="CH-PAYS" type="DonutChart" x="864" y="322" w="536" h="246" tab-order="31" z-order="31" visible="true" enabled="true" parent="CARD-PAYS">
+    <Property name="Title">Pagamentos</Property>
+    <Property name="TitleColor">#1E1B4BFF</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="SeriesColors">#5B4FE9,#A7A1F6,#F28B8B</Property>
+    <Property name="ShowLegend">0</Property>
+    <Property name="AnimateOnLoad">1</Property>
+    <Property name="AnimateValues">1</Property>
+    <Property name="AnimationDuration">700</Property>
+    <Property name="ShowTooltips">1</Property>
+    <Property name="AccessibleLabel">Donut chart of the payments: in cash, in installments and re</Property>
+    <Property name="Definition">Donut chart of the payments: in cash, in installments and refunded.</Property>
+    <Property name="TitleFontSize">16</Property>
+    <Property name="InnerRadius">60</Property>
+    <Property name="FontSize">9</Property>
+    <Property name="ShowGridLines">0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="BorderColor">#3C50A0</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+  </Control>
+  <Control id="LBL-PAY-EMPTY" type="Label" x="880" y="454" w="500" h="28" tab-order="32" z-order="32" visible="true" enabled="true" parent="CARD-PAYS">
+    <Property name="Caption">Sem pagamentos ainda.</Property>
+    <Property name="ForegroundColor">#6B7280FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Shown instead of the chart when no payment exists.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CARD-TOP" type="Panel" x="280" y="628" w="370" h="248" tab-order="33" z-order="33" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Definition">Most sold items. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-H1" type="Label" x="296" y="636" w="330" h="26" tab-order="34" z-order="34" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="Caption">Itens mais vendidos</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Heading of the most sold items. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CNV-TOP" type="Canvas3D" x="296" y="668" w="338" h="126" tab-order="35" z-order="35" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="Definition">The 3D histogram of the most sold items: one bar per item, as tall as the quantity sold.</Property>
+    <Property name="AccessibleLabel">Histograma 3D dos itens mais vendidos</Property>
+    <Property name="ClearColor">#FFFFFF00</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="SW-T1" type="Panel" x="296" y="798" w="10" h="10" tab-order="60" z-order="60" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="BackgroundColor">#1E3A8AFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#1E3A8A</Property>
+    <Property name="CornerRadius">2</Property>
+    <Property name="Definition">Colour of bar 1 of the most sold items.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-T1" type="Label" x="312" y="796" w="322" h="14" tab-order="61" z-order="61" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Quantity and name of the item of bar 1.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="SW-T2" type="Panel" x="296" y="812" w="10" h="10" tab-order="62" z-order="62" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="BackgroundColor">#22B8F0FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#22B8F0</Property>
+    <Property name="CornerRadius">2</Property>
+    <Property name="Definition">Colour of bar 2 of the most sold items.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-T2" type="Label" x="312" y="810" w="322" h="14" tab-order="63" z-order="63" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Quantity and name of the item of bar 2.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="SW-T3" type="Panel" x="296" y="826" w="10" h="10" tab-order="64" z-order="64" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="BackgroundColor">#2EC27EFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#2EC27E</Property>
+    <Property name="CornerRadius">2</Property>
+    <Property name="Definition">Colour of bar 3 of the most sold items.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-T3" type="Label" x="312" y="824" w="322" h="14" tab-order="65" z-order="65" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Quantity and name of the item of bar 3.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="SW-T4" type="Panel" x="296" y="840" w="10" h="10" tab-order="66" z-order="66" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="BackgroundColor">#FF9F1CFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#FF9F1C</Property>
+    <Property name="CornerRadius">2</Property>
+    <Property name="Definition">Colour of bar 4 of the most sold items.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-T4" type="Label" x="312" y="838" w="322" h="14" tab-order="67" z-order="67" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Quantity and name of the item of bar 4.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="SW-T5" type="Panel" x="296" y="854" w="10" h="10" tab-order="68" z-order="68" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="BackgroundColor">#F43F7AFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#F43F7A</Property>
+    <Property name="CornerRadius">2</Property>
+    <Property name="Definition">Colour of bar 5 of the most sold items.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-T5" type="Label" x="312" y="852" w="322" h="14" tab-order="69" z-order="69" visible="true" enabled="true" parent="CARD-TOP">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Quantity and name of the item of bar 5.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CARD-DL" type="Panel" x="666" y="628" w="442" h="248" tab-order="36" z-order="36" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#ECEEF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Definition">Next delivery and pickup dates. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-H2" type="Label" x="682" y="636" w="400" h="26" tab-order="37" z-order="37" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">Próximas entregas e retiradas</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Heading of the dates list. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CNV-DL" type="Canvas3D" x="682" y="668" w="410" h="126" tab-order="38" z-order="38" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Definition">The 3D histogram of the next deliveries and pickups: for each date, one bar of deliveries and one of pickups.</Property>
+    <Property name="AccessibleLabel">Histograma 3D das próximas entregas e retiradas</Property>
+    <Property name="ClearColor">#FFFFFF00</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="LBL-D1" type="Label" x="682" y="796" w="300" h="14" tab-order="80" z-order="80" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Date, deliveries and pickups of the date of bar pair 1.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="LBL-D2" type="Label" x="682" y="810" w="300" h="14" tab-order="81" z-order="81" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Date, deliveries and pickups of the date of bar pair 2.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="LBL-D3" type="Label" x="682" y="824" w="300" h="14" tab-order="82" z-order="82" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Date, deliveries and pickups of the date of bar pair 3.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="LBL-D4" type="Label" x="682" y="838" w="300" h="14" tab-order="83" z-order="83" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Date, deliveries and pickups of the date of bar pair 4.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="LBL-D5" type="Label" x="682" y="852" w="300" h="14" tab-order="84" z-order="84" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Date, deliveries and pickups of the date of bar pair 5.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="SW-DEL" type="Panel" x="990" y="798" w="10" h="10" tab-order="85" z-order="85" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="BackgroundColor">#FF9F1CFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#FF9F1C</Property>
+    <Property name="CornerRadius">2</Property>
+    <Property name="Definition">Colour of the deliveries.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-DEL" type="Label" x="1006" y="796" w="90" h="14" tab-order="86" z-order="86" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">Entregas</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Key of the deliveries colour.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="SW-PCK" type="Panel" x="990" y="814" w="10" h="10" tab-order="87" z-order="87" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="BackgroundColor">#22B8F0FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#22B8F0</Property>
+    <Property name="CornerRadius">2</Property>
+    <Property name="Definition">Colour of the pickups.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-PCK" type="Label" x="1006" y="812" w="90" h="14" tab-order="88" z-order="88" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Caption">Retiradas</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Key of the pickups colour.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="CARD-AL" type="Panel" x="1124" y="628" w="284" h="248" tab-order="39" z-order="39" visible="true" enabled="true">
+    <Property name="BackgroundColor">#DCEFF5FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#DCEFF5</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Definition">Channels and alerts. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="LBL-H3" type="Label" x="1140" y="636" w="250" h="26" tab-order="40" z-order="40" visible="true" enabled="true" parent="CARD-AL">
+    <Property name="Caption">Canais e alertas</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Heading of the channels and alerts card.</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="KPI-LNK" type="Panel" x="1140" y="668" w="120" h="92" tab-order="43" z-order="43" visible="true" enabled="true" parent="CARD-AL">
+    <Property name="BackgroundColor">#DCE4FBFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#DCE4FB</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="Definition">Indicator: Aprovações pelo link. It belongs to the channels and alerts card.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="CAP-LNK" type="Label" x="1150" y="676" w="100" h="34" tab-order="44" z-order="44" visible="true" enabled="true" parent="KPI-LNK">
+    <Property name="Caption">Aprovações pelo link</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Name of the indicator Aprovações pelo link.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="VAL-LNK" type="Label" x="1150" y="714" w="100" h="38" tab-order="45" z-order="45" visible="true" enabled="true" parent="KPI-LNK">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">26</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Value of the indicator Aprovações pelo link.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="KPI-MAN" type="Panel" x="1268" y="668" w="120" h="92" tab-order="46" z-order="46" visible="true" enabled="true" parent="CARD-AL">
+    <Property name="BackgroundColor">#DDEFEAFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#DDEFEA</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="Definition">Indicator: Registradas à mão. It belongs to the channels and alerts card.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="CAP-MAN" type="Label" x="1278" y="676" w="100" h="34" tab-order="47" z-order="47" visible="true" enabled="true" parent="KPI-MAN">
+    <Property name="Caption">Registradas à mão</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Name of the indicator Registradas à mão.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="VAL-MAN" type="Label" x="1278" y="714" w="100" h="38" tab-order="48" z-order="48" visible="true" enabled="true" parent="KPI-MAN">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">26</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Value of the indicator Registradas à mão.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="KPI-REF" type="Panel" x="1140" y="768" w="120" h="92" tab-order="49" z-order="49" visible="true" enabled="true" parent="CARD-AL">
+    <Property name="BackgroundColor">#F9E1E1FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#F9E1E1</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="Definition">Indicator: Parcelas recusadas. It belongs to the channels and alerts card.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="CAP-REF" type="Label" x="1150" y="776" w="100" h="34" tab-order="50" z-order="50" visible="true" enabled="true" parent="KPI-REF">
+    <Property name="Caption">Parcelas recusadas</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Name of the indicator Parcelas recusadas.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="VAL-REF" type="Label" x="1150" y="814" w="100" h="38" tab-order="51" z-order="51" visible="true" enabled="true" parent="KPI-REF">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">26</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Value of the indicator Parcelas recusadas.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="KPI-GUP" type="Panel" x="1268" y="768" w="120" h="92" tab-order="52" z-order="52" visible="true" enabled="true" parent="CARD-AL">
+    <Property name="BackgroundColor">#FCE9D6FF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#FCE9D6</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="Definition">Indicator: Desistidas após 3 tentativas. It belongs to the channels and alerts card.</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HideBackground">false</Property>
+  </Control>
+  <Control id="CAP-GUP" type="Label" x="1278" y="776" w="100" h="34" tab-order="53" z-order="53" visible="true" enabled="true" parent="KPI-GUP">
+    <Property name="Caption">Desistidas após 3 tentativas</Property>
+    <Property name="ForegroundColor">#4B5563FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Name of the indicator Desistidas após 3 tentativas.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="VAL-GUP" type="Label" x="1278" y="814" w="100" h="38" tab-order="54" z-order="54" visible="true" enabled="true" parent="KPI-GUP">
+    <Property name="Caption">-</Property>
+    <Property name="ForegroundColor">#1E1B4BFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">26</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#FFFFFF00</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Definition">Value of the indicator Desistidas após 3 tentativas.</Property>
+    <Property name="WordWrap">1</Property>
+    <Property name="VerticalAlignment">Bottom</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
+  <Control id="SCN-TOP" type="Scene3D" x="1280" y="884" w="60" h="24" tab-order="90" z-order="90" visible="true" enabled="true">
+    <Property name="Definition">The 3D scene of the most sold items: a floor, the bars, a light and an isometric camera.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+  </Control>
+  <Control id="SCN-DL" type="Scene3D" x="1344" y="884" w="60" h="24" tab-order="91" z-order="91" visible="true" enabled="true">
+    <Property name="Definition">The 3D scene of the next deliveries and pickups: a floor, the bars, a light and an isometric camera.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+  </Control>
+</Form>

@@ -1,0 +1,6 @@
+      *> Next number of each sequence (customer, diagnosis, quote, payment and so on).
+       FD  SEQUENCE-FILE
+           RECORD CONTAINS 22 CHARACTERS.
+           01 SEQUENCE-RECORD.
+               05 SEQ-NAME PIC X(12). *> Primary key
+               05 SEQ-VALUE PIC 9(10). *> Last number issued

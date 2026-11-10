@@ -1,0 +1,10 @@
+      *> Approval link: a single-use token with an expiry and the short code the customer types on the approval page.
+       FD  TOKEN-FILE
+           RECORD CONTAINS 63 CHARACTERS.
+           01 TOKEN-RECORD.
+               05 TOK-TOKEN PIC X(32). *> Primary key
+               05 TOK-QUO-ID PIC 9(8).
+               05 TOK-REV PIC 9(2).
+               05 TOK-CODE PIC X(6). *> Short code typed by the customer
+               05 TOK-EXPIRES PIC 9(14).
+               05 TOK-USED PIC X(1). *> S once used

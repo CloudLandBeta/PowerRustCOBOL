@@ -1,0 +1,16 @@
+      *> The execution queue: one row per paid service of a quote. A service can be refunded only while it is QUEUED.
+       FD  QUEUE-FILE
+           RECORD CONTAINS 159 CHARACTERS.
+           01 QUEUE-RECORD.
+               05 QUE-ID PIC 9(8). *> Primary key
+               05 QUE-QUO-ID PIC 9(8).
+               05 QUE-LINE PIC 9(3).
+               05 QUE-PLATE PIC X(8).
+               05 QUE-SERVICE PIC X(40).
+               05 QUE-STATE PIC X(10). *> QUEUED, RUNNING, DONE or REFUNDED
+               05 QUE-PRIORITY PIC 9(2).
+               05 QUE-APPROVED-AT PIC 9(14).
+               05 QUE-DEADLINE PIC 9(8).
+               05 QUE-STARTED PIC 9(14).
+               05 QUE-DONE PIC 9(14).
+               05 QUE-BY PIC X(30). *> Operator who changed the state
