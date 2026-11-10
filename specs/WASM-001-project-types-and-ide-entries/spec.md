@@ -164,7 +164,7 @@ selected template ("New Desktop Project"). The mock-up is "suggestive": it fixes
 - [x] **AC5** — A new template can be added by adding a descriptor only (demonstrated by a test that registers a fake template and
   sees it in the list with its options).
 - [x] **AC6** — `cargo test -p cobolt-ide i18n` is green and the dialog's strings exist in six languages.
-- [ ] **AC7** — The existing desktop test suites are unaffected (no new failure in `cargo test -p cobolt-ide --bin cobolt-ide` and
+- [x] **AC7** — The existing desktop test suites are unaffected (no new failure in `cargo test -p cobolt-ide --bin cobolt-ide` and
   `-p cobolt-project-tools`).
 
 - [ ] **AC8** — Creating a Mobile project with the native-project step accepted yields the Android Studio project (and, on a Mac, the Xcode project) named after the project, and the manifest says so; cancelling the step yields the Mobile project alone and a manifest that says the native project is missing; a Web or Desktop template shows no such step.

@@ -7,9 +7,9 @@
       "sha256": "c45b4f656c0fd2be200a9df0e9ac07806b049507f6a5be35fe229b5f32dd7825"
     },
     {
-      "bytes": 3190492,
+      "bytes": 3191115,
       "path": "parts/canvas/canvas_bg.wasm",
-      "sha256": "54fe57cc755d1c718c8f72d0f096299775273acc0020786323c7b8222e8feb97"
+      "sha256": "1bd5b034b1c494ce70b2ccbed7f1e5efc0b3d3d55100634868e5fd1fe6b39e19"
     },
     {
       "bytes": 25244,
@@ -17,9 +17,9 @@
       "sha256": "4e76bd99e7392dd110f0f81382d99997084868048882b57322bea5ddb8282c60"
     },
     {
-      "bytes": 5974590,
+      "bytes": 5975528,
       "path": "parts/graphics/graphics_bg.wasm",
-      "sha256": "6826862af9cc14eacd99cfdcb2ca26e6a82ddbea90091ebe7caafc093c74bcd3"
+      "sha256": "3df06f52f593853b82d8e87da25824c759e487a2675846a7fb78d8cef312af0a"
     },
     {
       "bytes": 143445,
@@ -27,9 +27,9 @@
       "sha256": "1a74709c11159e42de8abf305d23d211ef643856308eedfae1092d63e68705e7"
     },
     {
-      "bytes": 8471497,
+      "bytes": 8472739,
       "path": "parts/graphics3d/graphics3d_bg.wasm",
-      "sha256": "2c20524737cb40db37bfec4a2c8d1cb46b52f94577c4a624526c3999bec428e6"
+      "sha256": "5e8f0276864144bb5ccaa4bcb0b991d994ab9866c006ecec0a5a24780541e3f5"
     },
     {
       "bytes": 7985,
@@ -37,9 +37,9 @@
       "sha256": "2585e75ede88c4a08edb85882d76f07972c94362415cad19fb64745caca9f26d"
     },
     {
-      "bytes": 2218089,
+      "bytes": 2218129,
       "path": "parts/mermaid/mermaid_bg.wasm",
-      "sha256": "8922d647f157d9c7efc983de1f42935482ed42dfcf2bc2d36f5bcdfaa4664cf5"
+      "sha256": "ae93238b9bde7617bbaacf9829c8e223713ce802ceed8420280bc43e0e359564"
     },
     {
       "bytes": 6785,
@@ -47,29 +47,29 @@
       "sha256": "0acbcc4dbaa3dea42c3bc8e9f4228aa9110f792e8d77349f3f578b03aa42e7cf"
     },
     {
-      "bytes": 216662,
+      "bytes": 216702,
       "path": "parts/pdf/pdf_bg.wasm",
-      "sha256": "b691e23f8b2ed3eef38b6e182ac504565fa6d413a654f53d81831db9d01a597a"
+      "sha256": "0166f3ca8637e47df186687ae83f5bddfc4e250fc84fa87999cd949dd647f09d"
     },
     {
       "bytes": 100647,
       "path": "plain/player.js",
-      "sha256": "e61dab0863597ce4442e2be1c7a91abab592861b4214b6783b788323c74844ec"
+      "sha256": "822d071cd110e23a0474c70f36c4b2301c41de8d6341f7d9189e29d35659e610"
     },
     {
-      "bytes": 4063999,
+      "bytes": 4065006,
       "path": "plain/player_bg.wasm",
-      "sha256": "fdb4b21e8cd17c45d1d07c47229da4c0f69784c7e12e6ea8c88975bfd99d3b30"
+      "sha256": "fdcbbb0eb3214082b98453331b5e2f44a4f12e51fbfb6f500443480e0ea648e1"
     },
     {
       "bytes": 106925,
       "path": "threaded/player.js",
-      "sha256": "6e2853b7d13fd826458dd2435d0f0794bfbcfe2b244c1e37cabfc04327897ee0"
+      "sha256": "f5e7fd8f191b9d1cc38fc7dda3dea72f8d3f41cdb7fb06f1807032c2f43b215e"
     },
     {
-      "bytes": 3881412,
+      "bytes": 3883559,
       "path": "threaded/player_bg.wasm",
-      "sha256": "d91d0f359175a778eebf8ce1ec2d4a9df9b4c2202094343a51e389a2fd70a9f5"
+      "sha256": "2b8c57383239979f19a2cdc5553f118b2a1ed213bab807349e018e58c0e09938"
     },
     {
       "bytes": 4556,
@@ -87,67 +87,67 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 4420655,
-      "after_wasm_opt_bytes": 4063999,
-      "cargo_output_bytes": 5917935,
+      "after_bindgen_bytes": 4416499,
+      "after_wasm_opt_bytes": 4065006,
+      "cargo_output_bytes": 5913545,
       "glue_js_bytes": 100647,
-      "gzip_bytes": 1403503,
+      "gzip_bytes": 1403370,
       "opt_level": "s",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 4186334,
-      "after_wasm_opt_bytes": 3881412,
-      "cargo_output_bytes": 5694347,
+      "after_bindgen_bytes": 4189476,
+      "after_wasm_opt_bytes": 3883559,
+      "cargo_output_bytes": 5697711,
       "glue_js_bytes": 106925,
-      "gzip_bytes": 1382038,
+      "gzip_bytes": 1382276,
       "opt_level": "s",
       "variant": "threaded"
     }
   ],
   "parts": [
     {
-      "after_bindgen_bytes": 2392217,
-      "after_wasm_opt_bytes": 2218089,
-      "cargo_output_bytes": 2540314,
+      "after_bindgen_bytes": 2392379,
+      "after_wasm_opt_bytes": 2218129,
+      "cargo_output_bytes": 2540488,
       "glue_js_bytes": 7985,
-      "gzip_bytes": 798367,
+      "gzip_bytes": 798434,
       "name": "mermaid",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 3459442,
-      "after_wasm_opt_bytes": 3190492,
-      "cargo_output_bytes": 3620154,
+      "after_bindgen_bytes": 3460082,
+      "after_wasm_opt_bytes": 3191115,
+      "cargo_output_bytes": 3620794,
       "glue_js_bytes": 19178,
-      "gzip_bytes": 1255713,
+      "gzip_bytes": 1255628,
       "name": "canvas",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 6574431,
-      "after_wasm_opt_bytes": 5974590,
-      "cargo_output_bytes": 7476036,
+      "after_bindgen_bytes": 6575393,
+      "after_wasm_opt_bytes": 5975528,
+      "cargo_output_bytes": 7476996,
       "glue_js_bytes": 25244,
-      "gzip_bytes": 2376483,
+      "gzip_bytes": 2376784,
       "name": "graphics",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 9328188,
-      "after_wasm_opt_bytes": 8471497,
-      "cargo_output_bytes": 10981306,
+      "after_bindgen_bytes": 9329468,
+      "after_wasm_opt_bytes": 8472739,
+      "cargo_output_bytes": 10982586,
       "glue_js_bytes": 143445,
-      "gzip_bytes": 3349779,
+      "gzip_bytes": 3350273,
       "name": "graphics3d",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 237318,
-      "after_wasm_opt_bytes": 216662,
-      "cargo_output_bytes": 265623,
+      "after_bindgen_bytes": 237358,
+      "after_wasm_opt_bytes": 216702,
+      "cargo_output_bytes": 265663,
       "glue_js_bytes": 6785,
-      "gzip_bytes": 100610,
+      "gzip_bytes": 100653,
       "name": "pdf",
       "opt_level": "s"
     }
@@ -160,7 +160,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "b612a4aa52baeb3f7923d97446adf2bbf178e81c88855f3b980204e379b70b59",
+  "source_hash": "0b4f3fb5d44899d3469dadb91738c114de525bc7e8cfa5c32e9ad349450dd58c",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",

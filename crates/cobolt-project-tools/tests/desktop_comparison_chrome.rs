@@ -92,9 +92,12 @@ const CONTROLS: &[Spec] = &[
     ("CMB-A", "ComboBox", 200, 80, 160, 30, &[("Items", "one&#10;two&#10;three"), ("DropDownStyle", "DropDownList")]),
     ("NUD-A", "NumericUpDown", 380, 80, 120, 30, &[]),
     ("SLD-A", "Slider", 520, 80, 220, 40, &[]),
-    // Class B — fixed data.
-    ("CH-BAR", "BarChart", 20, 220, 300, 200, &[("__ChartData", "Q1&#9;10&#10;Q2&#9;20&#10;Q3&#9;15")]),
-    ("CH-PIE", "PieChart", 340, 220, 240, 200, &[("__ChartData", "A&#9;30&#10;B&#9;50&#10;C&#9;20")]),
+    // Class B — fixed data. The two charts do not grow on load (`AnimateOnLoad`, 2000 ms by default): the desktop's picture
+    // is taken 1 s in (a bar 87.5 % grown) and the page's colours are read some time after it started, so with the growth
+    // on, what is compared is a race between the two clocks (found in a release build, 2.0.404, where Chrome was read at
+    // the start and showed no bar at all). The growth has its own tests (`motion`, `render.rs`).
+    ("CH-BAR", "BarChart", 20, 220, 300, 200, &[("__ChartData", "Q1&#9;10&#10;Q2&#9;20&#10;Q3&#9;15"), ("AnimateOnLoad", "false")]),
+    ("CH-PIE", "PieChart", 340, 220, 240, 200, &[("__ChartData", "A&#9;30&#10;B&#9;50&#10;C&#9;20"), ("AnimateOnLoad", "false")]),
     ("GAU-B", "Gauge", 600, 220, 180, 160, &[("Value", "40")]),
     ("KNB-B", "Knob", 800, 220, 150, 150, &[("Value", "60")]),
     // Class C — through the backend; its box only.
@@ -333,7 +336,14 @@ fn the_reference_form_on_the_desktop_and_in_chrome() {
         // wide, so there a point a pixel off reads another colour: the pie is read in the middle of each of its three slices
         // (30, 50 and 20 % from the top, clockwise, 30 px from the centre of the plot, left of the legend) and the knob on its
         // rim's ring and at its middle.
+        //
+        // A bar chart's axis line stands at 75 % of its height (the band for the category labels lifted it, 2.0.309): a
+        // line 1.45 px wide, which the desktop snaps to a pixel and a browser spreads over two, so a point on its row can
+        // differ by more than any allowance. The bar chart is read clear of every line: inside the first and the third bar
+        // (their tops are at 44 % and 28 % of the height, their middles at 17 % and 74 % of the width), and in the
+        // background above them. Where the bars and the axis stand is `svg_space`'s to say, below.
         let points: &[(f64, f64)] = match *ty {
+            "BarChart" => &[(0.5, 0.5), (0.25, 0.25), (0.75, 0.25), (0.17, 0.65), (0.74, 0.65)],
             "PieChart" => &[(0.451, 0.412), (0.311, 0.643), (0.277, 0.378)],
             "Knob" => &[(0.5, 0.5), (0.3, 0.226), (0.7, 0.226), (0.3, 0.626), (0.7, 0.626)],
             _ => &[(0.5, 0.5), (0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)],
@@ -351,6 +361,27 @@ fn the_reference_form_on_the_desktop_and_in_chrome() {
         println!("{id:<8} colours desktop/Chrome: {} — max {worst}", line.join(" "));
         if worst > 24 {
             diffs.push((id.to_string(), "colour".into(), format!("max {worst} levels: {}", line.join(" "))));
+        }
+    }
+
+    // ── Where a chart's pixels are ──
+    // The painter's arithmetic (the plot, the bars, the axis) is in pixels of the control's whole box, and the desktop paints
+    // it there. The page draws it in an SVG inside the control's border, so the SVG's user space must be the control's box
+    // exactly: one user unit a pixel, the origin at the box's corner. The colours above cannot say so (a bar's edge or an axis
+    // line is the only place a 1 % scale shows, and their rows are where an allowance cannot hold), so the page's own transform
+    // is read: (scale x, scale y, origin x, origin y from the box's corner). Found by this test at 2.0.401: `0 0 w h` in a
+    // box less its 1 px border was (0.993, 0.99, 1, 1), which lowered the desktop's baseline against the page's by a pixel.
+    for (id, ty, ..) in CONTROLS {
+        if !matches!(*ty, "BarChart" | "PieChart") {
+            continue;
+        }
+        let m = page
+            .eval(&format!("(() => {{ {LIB} const e = el('{id}'); const m = e.querySelector('svg').getScreenCTM(); const r = e.getBoundingClientRect(); return [m.a, m.d, m.e - r.x, m.f - r.y]; }})()"))
+            .unwrap();
+        let m: Vec<f64> = (0..4).map(|k| m[k].as_f64().unwrap_or(f64::NAN)).collect();
+        println!("{id:<8} svg user space (scale x, scale y, origin x, origin y): {m:.4?}");
+        if !((m[0] - 1.0).abs() < 1e-3 && (m[1] - 1.0).abs() < 1e-3 && m[2].abs() < 1e-2 && m[3].abs() < 1e-2) {
+            diffs.push((id.to_string(), "svg_space".into(), format!("the SVG's user space is {m:.4?}, not the control's pixels [1, 1, 0, 0]")));
         }
     }
 

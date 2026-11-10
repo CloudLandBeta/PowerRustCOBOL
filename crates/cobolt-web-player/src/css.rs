@@ -304,7 +304,7 @@ pub fn border_width(ctl: &Ctl) -> f64 {
     if matches!(ctl.control_type(), Some(ControlType::Panel | ControlType::GroupBox)) && ctl.flag("hidebackground") {
         return 0.0;
     }
-    let width = int(ctl, "borderwidth").unwrap_or(1).clamp(0, 32) as f64;
+    let width = int(ctl, "borderwidth").unwrap_or(1).clamp(0, if is_chart(ctl) { 40 } else { 32 }) as f64;
     match ctl.raw("borderstyle").map(|s| s.trim().to_ascii_lowercase()) {
         None => {
             if matches!(ctl.control_type(), Some(ControlType::GroupBox)) {

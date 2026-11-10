@@ -456,6 +456,16 @@ fn line(x1: f64, y1: f64, x2: f64, y2: f64, width: f64, stroke: Rgba) -> VNode {
     sv("line").attr("x1", f(x1)).attr("y1", f(y1)).attr("x2", f(x2)).attr("y2", f(y2)).attr("stroke", rgb(stroke)).attr("stroke-width", f(width))
 }
 
+/// The `viewBox` that puts the painter's arithmetic where the desktop puts it. The painter's numbers are pixels of the control's
+/// whole box (`w` by `h`); the page's border (`css::border_width`) sits outside the SVG's own box, which is the control less that
+/// border. A `viewBox` of `0 0 w h` would squeeze the whole picture into that smaller box (the plot 0.7 % narrower, 1 % shorter and
+/// moved in by the frame at the default 1 px, so a baseline fell a pixel off the desktop's); this one is the part of the control
+/// the SVG covers, so a point of the painter's arithmetic is the same pixel of the control on both.
+fn view_box(ctl: &crate::tree::Ctl, w: f64, h: f64) -> String {
+    let b = crate::css::border_width(ctl).min(w / 2.0 - 0.5).min(h / 2.0 - 0.5).max(0.0);
+    format!("{} {} {} {}", f(b), f(b), f(w - 2.0 * b), f(h - 2.0 * b))
+}
+
 // ── the chart ────────────────────────────────────────────────────────────────
 
 /// The chart as the desktop paints it, or `None` for a kind this module does not draw (the older
@@ -525,7 +535,7 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
     let (pl, pt, pr, pb) = fr.plot;
     let clip_plot = format!("pr-plot-{name}");
     let clip_all = format!("pr-chrome-{name}");
-    let mut svg = sv("svg").key("svg").class(class).attr("viewBox", format!("0 0 {} {}", f(w), f(h))).attr("preserveAspectRatio", "none").attr("width", f(w)).attr("height", f(h));
+    let mut svg = sv("svg").key("svg").class(class).attr("viewBox", view_box(ctl, w, h)).attr("preserveAspectRatio", "none").attr("width", f(w)).attr("height", f(h));
     // The painter clips the data to the plot grown by 8 px, and the margins' text to the control less a pixel.
     let (cl, ct, cr, cb) = ((pl - 8.0).max(1.0), (pt - 8.0).max(1.0), (pr + 8.0).min(w - 1.0), (pb + 8.0).min(h - 1.0));
     svg = svg.child(sv("defs").child(sv("clipPath").attr("id", clip_plot.clone()).child(sv("rect").attr("x", f(cl)).attr("y", f(ct)).attr("width", f((cr - cl).max(0.0))).attr("height", f((cb - ct).max(0.0)))))
@@ -1202,6 +1212,35 @@ mod tests {
             })
             .collect();
         (texts, bars)
+    }
+
+    /// The painter's pixels are the control's pixels: the page's border sits outside the SVG, so the `viewBox` is the part of the
+    /// control's box the SVG covers (`view_box`), at any border the chart can wear — not `0 0 w h`, which squeezed the picture into
+    /// the box less its border and put a BarChart's baseline a pixel off the desktop's (found by `desktop_comparison_chrome`,
+    /// 2026-11-10; the page itself is measured there).
+    #[test]
+    fn the_view_box_is_the_part_of_the_control_the_svg_covers() {
+        let view_box_of = |extra: &[(&str, &str)]| {
+            let mut all = vec![("Width", "300"), ("Height", "200"), ("__ChartData", "Q1\t10\nQ2\t20\nQ3\t15")];
+            all.extend_from_slice(extra);
+            let (t, i) = crate::tree::testing::tree_with("BarChart", "CH", &all);
+            let e = super::super::Empty::default();
+            let n = chart(&e.cx(&t), i).expect("a BarChart is drawn by this painter");
+            let mut svgs = Vec::new();
+            n.find_all(&|v| v.tag == "svg", &mut svgs);
+            svgs[0].attr_of("viewBox").expect("the SVG has a viewBox").to_owned()
+        };
+        println!("viewBox by border:");
+        for (props, want) in [
+            (vec![("BorderStyle", "Single")], "1 1 298 198"),
+            (vec![("BorderStyle", "Single"), ("BorderWidth", "5")], "5 5 290 190"),
+            (vec![("BorderStyle", "Single"), ("BorderWidth", "40")], "40 40 220 120"),
+            (vec![("BorderStyle", "None")], "0 0 300 200"),
+        ] {
+            let got = view_box_of(&props);
+            println!("  {props:?} -> {got}");
+            assert_eq!(got, want, "{props:?}");
+        }
     }
 
     /// The interactive legend on the web (`LegendInteractive`, `MarkedSeries`): marking the second series draws only its
