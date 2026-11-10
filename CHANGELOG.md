@@ -2,6 +2,10 @@
 
 
 
+## 2.0.395 — 2026-11-10
+
+**PowerOficina's dashboard shows a loading state when the currency changes.** Choosing BRL or EUR now runs `SHOW-LOADING` before the Backend call: the status line, the six cards and the two chart areas read *Carregando…* (the cards show an ellipsis) until the answer replaces them. The 15-second refresh does not blank the screen. Whether the form repaints while a `WEBSOCKET` call is pending is WASM-005 AC6, still unaudited in `specs/WASM-OPEN-ACS.md`: if the state is not seen, that criterion is the place to look. No code outside the example changed.
+
 ## 2.0.394 — 2026-11-10
 
 **PowerOficina's dashboard: no more chart sample over "no data", and a loading state.** A chart with no points paints its design-time sample, and the empty-state label sat on top of it, so the screen looked half drawn. The two empty-state labels now cover the chart's plot area with an opaque face (the chart's title stays), say *Carregando…* until the Backend answers, then the real sentence (*Sem orçamentos enviados ainda.*, *Sem pagamentos ainda.*) or, when the call fails, *Sem resposta do Backend.* The status line also starts at *Carregando…*. The zeros on a fresh copy are real answers: the example ships without data (the seed loads only the catalog), so the dashboard counts what the developer registers. Not checked in a browser here.

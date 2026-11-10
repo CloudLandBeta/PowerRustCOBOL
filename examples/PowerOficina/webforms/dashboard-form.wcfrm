@@ -42,6 +42,23 @@
                END-IF
            END-IF
 ]]></Event>
+    <Event name="SHOW-LOADING" paragraph="SHOW-LOADING"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     LBL-STATUS::Caption           TO    "Carregando…"
+           SET     VAL-VEH::Caption              TO    "…"
+           SET     VAL-AWA::Caption              TO    "…"
+           SET     VAL-RUN::Caption              TO    "…"
+           SET     VAL-RDY::Caption              TO    "…"
+           SET     VAL-RAT::Caption              TO    "…"
+           SET     VAL-TIC::Caption              TO    "…"
+           SET     LBL-MON-EMPTY::Caption        TO    "Carregando…"
+           SET     LBL-PAY-EMPTY::Caption        TO    "Carregando…"
+           SET     LBL-MON-EMPTY::Visible        TO    1
+           SET     LBL-PAY-EMPTY::Visible        TO    1
+]]></Event>
     <Event name="SHOW-DASH" paragraph="SHOW-DASH"><![CDATA[       ENVIRONMENT DIVISION.
 
        DATA DIVISION.
@@ -280,6 +297,10 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+           *> SHOW-LOADING: shows that the figures of the other currency are being read.
+           *> Uses:   nothing.
+           *> Result: the status line, the cards and the two chart areas say "Carregando…" until the answer arrives.
+           CALL    "SHOW-LOADING"
            *> LOAD-DASH: reads every figure of the dashboard for the chosen currency.
            *> Uses:   the BRL and EUR radio buttons.
            *> Result: the indicators, charts and lists are filled.
@@ -300,6 +321,10 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+           *> SHOW-LOADING: shows that the figures of the other currency are being read.
+           *> Uses:   nothing.
+           *> Result: the status line, the cards and the two chart areas say "Carregando…" until the answer arrives.
+           CALL    "SHOW-LOADING"
            *> LOAD-DASH: reads every figure of the dashboard for the chosen currency.
            *> Uses:   the BRL and EUR radio buttons.
            *> Result: the indicators, charts and lists are filled.
