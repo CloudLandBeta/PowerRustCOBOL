@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="WAR-FORM" title="PowerCallOfDuty" width="1280" height="760" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" definition="A mini first-person shooter drawn by a Canvas3D: a ruined city under a smoky dusk sky, an AR-15 and a Desert Eagle, doors that open and close, ammunition behind pillars and inside containers, bullet marks on the walls, and tanks, helicopters and drones that attack in growing waves." index-base="1">
+<Form name="WAR-FORM" title="PowerCallOfDuty" width="1280" height="760" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" definition="A mini first-person shooter drawn by a Canvas3D: a ruined city under a smoky dusk sky, an AR-15 and a Desert Eagle, doors that open and close, ammunition behind pillars and inside containers, bullet marks on the walls, and tanks, helicopters and drones that attack in growing waves." index-base="1" responsive="true">
   <working-storage><![CDATA[      *> The city: one record per piece - kind, x, z (metres) and turn (degrees about the vertical axis).
       *> H house, A apartment block, R and B red and blue containers, P pillar, W burnt-out car, J jersey barrier.
       *> A door, or a container's open end, faces local +Z; a pillar's ammunition crate stands behind it, at local -Z.
@@ -151,6 +151,9 @@
        01 WS-POINTER-Y                           GLOBAL    PIC S9(5).
        01 WS-LAST-POINTER-X                      GLOBAL    PIC S9(5).
        01 WS-LAST-POINTER-Y                      GLOBAL    PIC S9(5).
+      *> The size of the view: the canvas fills the window, and its picture is kept at the size it is laid out at.
+       01 WS-VIEW-WIDTH                          GLOBAL    PIC 9(5)        VALUE 1280.
+       01 WS-VIEW-HEIGHT                         GLOBAL    PIC 9(5)        VALUE 760.
        01 WS-LOOK-READY                          GLOBAL    PIC 9           VALUE 0.
        01 WS-HEALTH                              GLOBAL    PIC S9(3)V9(2)  VALUE 100.
        01 WS-DEAD-FRAMES                         GLOBAL    PIC 9(5)        VALUE 0.
@@ -169,6 +172,11 @@
                10 WS-HOLD-Z                      PIC S9V999.
                10 WS-HOLD-TURN                   PIC S99.
        01 WS-MUZZLE-LIGHT                        GLOBAL    PIC 9(10).
+      *> The crosshair: two thin bright bars 0.3 m in front of the eyes, so it is always in the middle of the view, where
+      *> the rounds go, whatever the size of the window.
+       01 WS-CROSSHAIR                           GLOBAL    PIC 9(10).
+       01 WS-CROSSHAIR-INK                       GLOBAL.
+           05 WS-CROSSHAIR-MATERIAL              PIC 9(10)   OCCURS 2.
        01 WS-TRIGGER                             GLOBAL    PIC 9           VALUE 0.
        01 WS-BURST                               GLOBAL    PIC 9           VALUE 0.
        01 WS-COOLDOWN                            GLOBAL    PIC 99          VALUE 0.
@@ -214,7 +222,7 @@
        01 WS-CLEAR-COUNT                         GLOBAL    PIC 99          VALUE 0.
        01 WS-CLEAR-INDEX                         GLOBAL    PIC 99.
 
-      *> Being found. The attackers search for five seconds (150 frames) before they spot a player in the open; a player
+      *> Being found. The attackers search for thirty seconds (900 frames) before they spot a player in the open; a player
       *> inside a building or a container is found only by chance; one who stays hidden five seconds after being spotted is
       *> lost again. They aim at WS-MARK: the player once spotted, the last place the player was seen while hiding, and a
       *> place nearby that changes every four seconds while they search.
@@ -225,8 +233,7 @@
        01 WS-MARK-X                              GLOBAL    PIC S9(4)V9(4)  VALUE 0.
        01 WS-MARK-Z                              GLOBAL    PIC S9(4)V9(4)  VALUE 0.
        01 WS-ATTACKERS                           GLOBAL    PIC 9           VALUE 0.
-       01 WS-CLOSE-DRONE                         GLOBAL    PIC 9           VALUE 0.
-       01 WS-SHOW-SECONDS                        GLOBAL    PIC 9.9.
+       01 WS-SHOW-SECONDS                        GLOBAL    PIC Z9.
 
       *> Bullet marks and scorch marks: one plane each, drawn once per matrix (SetInstances), recycled oldest first.
        01 WS-DECAL-NODE                          GLOBAL    PIC 9(10).
@@ -372,7 +379,7 @@
 
            *> Builds the player's camera, the two weapons held in front of it and the muzzle light.
            *> Uses: SCN-1.
-           *> Result: WS-CAMERA, WS-WEAPON-NODE and WS-WEAPON-FLASH of both weapons, WS-MUZZLE-LIGHT; full magazines and reserves.
+           *> Result: WS-CAMERA, WS-WEAPON-NODE and WS-WEAPON-FLASH of both weapons, WS-MUZZLE-LIGHT, WS-CROSSHAIR; full magazines and reserves.
            CALL "WAR-BUILD-PLAYER"
 
            *> Loads the two tanks, two helicopters and four drones, hidden until they spawn.
@@ -383,7 +390,7 @@
            *> Builds the effects: shells in flight, explosions with their lights, bullet and scorch marks, smoke and the impact spark.
            *> Uses: SCN-1 and IMG-DECAL (the decal pictures are loaded through it).
            *> Result: WS-SHOT-NODE, WS-BLAST-*, WS-DECAL-NODE, WS-SCORCH-NODE, WS-PUFF-NODE and WS-SPARK exist, all hidden;
-           *> WS-CLEAR lists them with the fire flames and the weapons, the nodes a round flies through.
+           *> WS-CLEAR lists them with the fire flames, the weapons and the crosshair, the nodes a round flies through.
            CALL "WAR-BUILD-EFFECTS"
 
            CNV-3D::SetMsaa( 4 )
@@ -708,6 +715,16 @@
            SCN-1::SetPosition( WS-MUZZLE-LIGHT, 0.25, -0.1, -1 )
            SCN-1::SetVisible( WS-MUZZLE-LIGHT 0 )
 
+           SET     WS-CROSSHAIR                  TO    SCN-1::AddGroup()
+           SCN-1::SetParent( WS-CROSSHAIR WS-CAMERA )
+           SCN-1::SetPosition( WS-CROSSHAIR, 0, 0, -0.3 )
+           SET     WS-PART                       TO    SCN-1::AddBox( 0.0095 0.0009 0.0002 )
+           SCN-1::SetParent( WS-PART WS-CROSSHAIR )
+           SET     WS-CROSSHAIR-MATERIAL(1)      TO    SCN-1::GetMaterial( WS-PART )
+           SET     WS-PART                       TO    SCN-1::AddBox( 0.0009 0.0095 0.0002 )
+           SCN-1::SetParent( WS-PART WS-CROSSHAIR )
+           SET     WS-CROSSHAIR-MATERIAL(2)      TO    SCN-1::GetMaterial( WS-PART )
+
            MOVE    30                            TO    WS-MAGAZINE-SIZE(1)
            MOVE    7                             TO    WS-MAGAZINE-SIZE(2)
 
@@ -866,6 +883,8 @@
                MOVE    WS-WEAPON-NODE(WS-CELL-INDEX)     TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
            END-PERFORM
            ADD     1                             TO    WS-CLEAR-COUNT
+           MOVE    WS-CROSSHAIR                  TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
+           ADD     1                             TO    WS-CLEAR-COUNT
            MOVE    WS-SPARK                      TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
            ADD     1                             TO    WS-CLEAR-COUNT
            MOVE    WS-DECAL-NODE                 TO    WS-CLEAR-NODE(WS-CLEAR-COUNT)
@@ -874,6 +893,15 @@
 ]]></Event>
     <Event name="WAR-STEP" paragraph="WAR-STEP"><![CDATA[       PROCEDURE DIVISION.
            ADD     1                             TO    WS-FRAME
+           *> The canvas follows the window (it is anchored to all four edges): when its size changed, so does its picture,
+           *> so the view is never stretched and a round still leaves the middle of it.
+           COMPUTE WS-VIEW-WIDTH = CNV-3D::Width
+           COMPUTE WS-VIEW-HEIGHT = CNV-3D::Height
+           IF      WS-VIEW-WIDTH > 63 AND WS-VIEW-HEIGHT > 63
+               AND ( WS-VIEW-WIDTH NOT = CNV-3D::GetWidth() OR WS-VIEW-HEIGHT NOT = CNV-3D::GetHeight() )
+               CNV-3D::Resize( WS-VIEW-WIDTH WS-VIEW-HEIGHT )
+           END-IF
+
            *> The war grows every 45 seconds (1350 frames): more machines are allowed at once.
            IF      WS-FRAME < 132300
                COMPUTE WS-WAVE = 1 + WS-FRAME / 1350
@@ -905,7 +933,7 @@
            *> Result: WS-RESERVE of both weapons grows; the crate disappears and LBL-MESSAGE says what was found.
            CALL "WAR-AMMO-PICKUP"
 
-           *> Decides whether the attackers have found the player: five seconds in the open, or by chance in a hiding place.
+           *> Decides whether the attackers have found the player: thirty seconds in the open, or by chance in a hiding place.
            *> Uses: WS-INDOORS (in a building or a container), WS-PLAYER-X, WS-PLAYER-Z, the attackers alive, WS-HEALTH.
            *> Result: WS-SPOTTED, WS-SEARCH-FRAMES, WS-LOST-FRAMES, WS-ATTACKERS, and WS-MARK, the point the attackers go for.
            CALL "WAR-SPOTTING"
@@ -946,8 +974,8 @@
                IF      WS-POINTER-X > 0 AND WS-POINTER-X < 110
                    COMPUTE WS-YAW = WS-YAW + ( 110 - WS-POINTER-X ) * 0.03
                END-IF
-               IF      WS-POINTER-X > 1170
-                   COMPUTE WS-YAW = WS-YAW - ( WS-POINTER-X - 1170 ) * 0.03
+               IF      WS-POINTER-X > WS-VIEW-WIDTH - 110
+                   COMPUTE WS-YAW = WS-YAW - ( WS-POINTER-X - WS-VIEW-WIDTH + 110 ) * 0.03
                END-IF
            END-IF
            MOVE    1                             TO    WS-LOOK-READY
@@ -1469,18 +1497,10 @@
            END-IF
 ]]></Event>
     <Event name="WAR-SPOTTING" paragraph="WAR-SPOTTING"><![CDATA[       PROCEDURE DIVISION.
-           *> Who is in the city, and is a drone close enough (6 m) to see the player with its own camera?
+           *> Who is in the city.
            MOVE    0                             TO    WS-ATTACKERS
-           MOVE    0                             TO    WS-CLOSE-DRONE
            PERFORM VARYING WS-FIND-INDEX FROM 1 BY 1 UNTIL WS-FIND-INDEX > 4
-               IF      WS-DRONE-ALIVE(WS-FIND-INDEX) = 1
-                   ADD     1                     TO    WS-ATTACKERS
-                   COMPUTE WS-DISTANCE-X = WS-PLAYER-X - WS-DRONE-X(WS-FIND-INDEX)
-                   COMPUTE WS-DISTANCE-Z = WS-PLAYER-Z - WS-DRONE-Z(WS-FIND-INDEX)
-                   IF      WS-DISTANCE-X * WS-DISTANCE-X + WS-DISTANCE-Z * WS-DISTANCE-Z < 36
-                       MOVE    1                 TO    WS-CLOSE-DRONE
-                   END-IF
-               END-IF
+               ADD     WS-DRONE-ALIVE(WS-FIND-INDEX)     TO    WS-ATTACKERS
                IF      WS-FIND-INDEX <= 2
                    ADD     WS-TANK-ALIVE(WS-FIND-INDEX) WS-HELI-ALIVE(WS-FIND-INDEX) TO WS-ATTACKERS
                END-IF
@@ -1499,9 +1519,9 @@
                            MOVE    1             TO    WS-SPOTTED
                        END-IF
                    ELSE
-                       *> In the open: found after five seconds, or at once by a drone close by.
+                       *> In the open: found after thirty seconds, time enough to reach a building or a container.
                        ADD     1                 TO    WS-SEARCH-FRAMES
-                       IF      WS-SEARCH-FRAMES >= 150 OR WS-CLOSE-DRONE = 1
+                       IF      WS-SEARCH-FRAMES >= 900
                            MOVE    1             TO    WS-SPOTTED
                        END-IF
                    END-IF
@@ -2046,11 +2066,17 @@
            *> The crosshair turns into a red X for a moment when a round hits an attacker.
            IF      WS-HIT-FRAMES > 0
                SUBTRACT 1                        FROM  WS-HIT-FRAMES
-               SET     LBL-CROSSHAIR::Caption    TO    "X"
-               SET     LBL-CROSSHAIR::ForegroundColor    TO    "#FF4030"
+               SCN-1::SetRotation( WS-CROSSHAIR 0 0 45 )
+               PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > 2
+                   SCN-1::SetMaterialColor( WS-CROSSHAIR-MATERIAL(WS-CELL-INDEX) "#FF4030" )
+                   SCN-1::SetEmissive( WS-CROSSHAIR-MATERIAL(WS-CELL-INDEX) 1 0.2 0.12 )
+               END-PERFORM
            ELSE
-               SET     LBL-CROSSHAIR::Caption    TO    "+"
-               SET     LBL-CROSSHAIR::ForegroundColor    TO    "#F2F2F2"
+               SCN-1::SetRotation( WS-CROSSHAIR 0 0 0 )
+               PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > 2
+                   SCN-1::SetMaterialColor( WS-CROSSHAIR-MATERIAL(WS-CELL-INDEX) "#F2F2F2" )
+                   SCN-1::SetEmissive( WS-CROSSHAIR-MATERIAL(WS-CELL-INDEX) 0.95 0.95 0.95 )
+               END-PERFORM
            END-IF
            IF      WS-DAMAGE-FRAMES > 0
                SUBTRACT 1                        FROM  WS-DAMAGE-FRAMES
@@ -2134,17 +2160,18 @@
                    SET     LBL-STATUS::ForegroundColor   TO    "#9FE0A0"
                    LBL-STATUS::Show()
                WHEN OTHER
-                   COMPUTE WS-SHOW-SECONDS = ( 150 - WS-SEARCH-FRAMES ) / 30
+                   COMPUTE WS-SHOW-SECONDS = ( 929 - WS-SEARCH-FRAMES ) / 30
                    STRING  "SEARCHING FOR YOU  " WS-SHOW-SECONDS " s" INTO LBL-STATUS::Caption
                    SET     LBL-STATUS::ForegroundColor   TO    "#F0D890"
                    LBL-STATUS::Show()
            END-EVALUATE
 ]]></Event>
   </user-procedures>
-  <Control id="CNV-3D" type="Canvas3D" x="0" y="0" w="1280" h="720" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="Definition">The battlefield: a 1280 by 720 3D view of the ruined city drawn thirty times a second. Click it to take the keyboard; the mouse looks, the arrows or W A S D walk, the right button or X fires.</Property>
+  <Control id="CNV-3D" type="Canvas3D" x="0" y="0" w="1280" h="760" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">Top,Bottom,Left,Right</Property>
+    <Property name="Definition">The battlefield: a 3D view of the ruined city that fills the window, drawn thirty times a second. Click it to take the keyboard; the mouse looks, the arrows or W A S D walk, the right button or X fires.</Property>
     <Property name="Width">1280</Property>
-    <Property name="Height">720</Property>
+    <Property name="Height">760</Property>
     <Property name="TargetFps">30</Property>
     <Property name="Cursor">Crosshair</Property>
     <Property name="AccessibleLabel">A first-person view of a ruined city at war: the mouse turns the view, the arrow keys or W A S D walk, the right mouse button or X fires, M switches weapon, R reloads, Space opens and closes doors</Property>
@@ -2163,25 +2190,22 @@
 ]]></Event>
   </Control>
   <Control id="SCN-1" type="Scene3D" x="1120" y="728" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">Bottom,Right</Property>
     <Property name="Definition">The 3D scene of the battle: the city, the player's camera and weapons, the attackers and the effects.</Property>
   </Control>
   <Control id="IMG-DECAL" type="ImageBuffer" x="1190" y="728" w="60" h="24" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">Bottom,Right</Property>
     <Property name="Definition">Loads the bullet-mark and scorch-mark pictures that the decal materials are painted with.</Property>
   </Control>
-  <Control id="LBL-CROSSHAIR" type="Label" x="620" y="340" w="40" h="40" tab-order="3" z-order="1" visible="true" enabled="true">
-    <Property name="Definition">The crosshair in the middle of the view, where the rounds go; it turns into a red X when a round hits an attacker.</Property>
-    <Property name="Caption">+</Property>
-    <Property name="FontSize">30</Property>
-    <Property name="ForegroundColor">#F2F2F2</Property>
-    <Property name="TextAlignment">Center</Property>
-  </Control>
   <Control id="LBL-SCORE" type="Label" x="16" y="12" w="720" h="32" tab-order="4" z-order="1" visible="true" enabled="true">
+    <Property name="Anchor">Top,Left</Property>
     <Property name="Definition">The score, the number of attackers destroyed and the current wave.</Property>
     <Property name="Caption">SCORE 0</Property>
     <Property name="FontSize">18</Property>
     <Property name="ForegroundColor">#F0D890</Property>
   </Control>
-  <Control id="LBL-HEALTH" type="Label" x="16" y="668" w="300" h="40" tab-order="5" z-order="1" visible="true" enabled="true">
+  <Control id="LBL-HEALTH" type="Label" x="16" y="676" w="300" h="40" tab-order="5" z-order="1" visible="true" enabled="true">
+    <Property name="Anchor">Bottom,Left</Property>
     <Property name="Definition">The player's health, out of 100; red below 30.</Property>
     <Property name="Caption">HEALTH 100</Property>
     <Property name="FontSize">24</Property>
@@ -2190,7 +2214,8 @@
     <Property name="CornerRadius">8</Property>
     <Property name="TextAlignment">Center</Property>
   </Control>
-  <Control id="LBL-AMMO" type="Label" x="824" y="668" w="440" h="40" tab-order="6" z-order="1" visible="true" enabled="true">
+  <Control id="LBL-AMMO" type="Label" x="824" y="676" w="440" h="40" tab-order="6" z-order="1" visible="true" enabled="true">
+    <Property name="Anchor">Bottom,Right</Property>
     <Property name="Definition">The weapon in the hands, the rounds in its magazine and the rounds in reserve.</Property>
     <Property name="Caption">AR-15   30 / 120</Property>
     <Property name="FontSize">24</Property>
@@ -2200,15 +2225,17 @@
     <Property name="TextAlignment">Center</Property>
   </Control>
   <Control id="LBL-STATUS" type="Label" x="864" y="12" w="400" h="32" tab-order="11" z-order="1" visible="false" enabled="true">
-    <Property name="Definition">Whether the attackers have found the player: searching (with the seconds left in the open), hidden, or spotted.</Property>
-    <Property name="Caption">SEARCHING FOR YOU  5.0 s</Property>
+    <Property name="Anchor">Top,Right</Property>
+    <Property name="Definition">Whether the attackers have found the player: searching (with the seconds left of the thirty in the open), hidden, or spotted.</Property>
+    <Property name="Caption">SEARCHING FOR YOU  30 s</Property>
     <Property name="FontSize">18</Property>
     <Property name="ForegroundColor">#F0D890</Property>
     <Property name="BackgroundColor">#00000066</Property>
     <Property name="CornerRadius">8</Property>
     <Property name="TextAlignment">Center</Property>
   </Control>
-  <Control id="LBL-PROMPT" type="Label" x="490" y="440" w="300" h="34" tab-order="7" z-order="1" visible="false" enabled="true">
+  <Control id="LBL-PROMPT" type="Label" x="490" y="460" w="300" h="34" tab-order="7" z-order="1" visible="false" enabled="true">
+    <Property name="Anchor">Bottom,Left,Right</Property>
     <Property name="Definition">Shown near a door: Space opens or closes it.</Property>
     <Property name="Caption">SPACE  open the door</Property>
     <Property name="FontSize">18</Property>
@@ -2217,7 +2244,8 @@
     <Property name="CornerRadius">8</Property>
     <Property name="TextAlignment">Center</Property>
   </Control>
-  <Control id="LBL-MESSAGE" type="Label" x="290" y="220" w="700" h="60" tab-order="8" z-order="1" visible="true" enabled="true">
+  <Control id="LBL-MESSAGE" type="Label" x="290" y="230" w="700" h="60" tab-order="8" z-order="1" visible="true" enabled="true">
+    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Definition">A message across the view: how to start, the ammunition found, or the player killed in action.</Property>
     <Property name="Caption">Click the battlefield with the left button to take control</Property>
     <Property name="FontSize">22</Property>
@@ -2226,12 +2254,14 @@
     <Property name="CornerRadius">12</Property>
     <Property name="TextAlignment">Center</Property>
   </Control>
-  <Control id="LBL-DAMAGE" type="Label" x="0" y="0" w="1280" h="720" tab-order="9" z-order="1" visible="false" enabled="true">
+  <Control id="LBL-DAMAGE" type="Label" x="0" y="0" w="1280" h="760" tab-order="9" z-order="1" visible="false" enabled="true">
+    <Property name="Anchor">Top,Bottom,Left,Right</Property>
     <Property name="Definition">The red flash over the whole view when the player is hurt.</Property>
     <Property name="Caption"> </Property>
     <Property name="BackgroundColor">#C0000050</Property>
   </Control>
-  <Control id="LBL-HELP" type="Label" x="0" y="724" w="1100" h="32" tab-order="10" z-order="0" visible="true" enabled="true">
+  <Control id="LBL-HELP" type="Label" x="16" y="726" w="1100" h="32" tab-order="10" z-order="1" visible="true" enabled="true">
+    <Property name="Anchor">Bottom,Left</Property>
     <Property name="Definition">The controls of the game.</Property>
     <Property name="Caption">Mouse: look   Arrows or W A S D: walk   Right button or X: fire   M: AR-15 / Desert Eagle   R: reload   Space: doors (and redeploy)</Property>
     <Property name="FontSize">15</Property>
