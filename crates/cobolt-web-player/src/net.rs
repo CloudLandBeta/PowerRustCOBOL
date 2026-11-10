@@ -25,7 +25,9 @@
 //!   `{"id":N,"error":{"class","code","message",…}}`;
 //! * the player's own failures use the closed list of WASM-014 R7 (`transport` 1000/1001/1002/1003,
 //!   `validation` 4001, `version` 6000/6001, `limit` 7000), with `may_have_run` where it applies;
-//! * `authentication` 2002 (token expired) refreshes the token and repeats the call once;
+//! * `authentication` 2002 (token expired), 2001 (token invalid) and, when the player holds a token,
+//!   2000 (token missing: the server has none for this connection) refresh the token and repeat
+//!   the call once; the server refused before running anything;
 //! * a broken connection is tried again by the one retry policy (`cobolt_wire::retry`, WASM-003
 //!   R25): attempts with windows of 10, 20 and 30 s, an attempt that fails early waiting its window
 //!   out; meanwhile the application is *blocked* (R26, [`Out::Blocked`]) and a call's timeout does
@@ -61,6 +63,8 @@ pub mod code {
     pub const CLOSED: u32 = 1001;
     pub const TIMEOUT: u32 = 1002;
     pub const NOT_CONFIGURED: u32 = 1003;
+    pub const TOKEN_MISSING: u32 = 2000;
+    pub const TOKEN_INVALID: u32 = 2001;
     pub const TOKEN_EXPIRED: u32 = 2002;
     pub const BAD_MESSAGE: u32 = 4001;
     pub const CLIENT_TOO_OLD: u32 = 6000;
@@ -270,8 +274,11 @@ struct InFlight {
     ever_sent: bool,
     /// Sent on a connection that broke: decided when the next one works (repeated or failed).
     lost: bool,
-    /// Repeated once after `authentication` 2002.
+    /// Repeated once after `authentication` 2000, 2001 or 2002.
     auth_repeated: bool,
+    /// The code the server refused with (2000, 2001 or 2002) when `auth_repeated` was set, 0 before: what the
+    /// program is told if the refresh fails, so a wrong token still reads as one.
+    auth_refused: u32,
     /// Repeated once after a lost connection.
     drop_repeated: bool,
 }
@@ -517,7 +524,14 @@ impl<S: Socket> Client<S> {
             Some(_) => {} // the waiting calls go out when the connection is ready
             None => {
                 for id in waiting {
-                    self.fail(id, class::AUTHENTICATION, code::TOKEN_EXPIRED, "the session expired and could not be refreshed", Some(false));
+                    // Told what the server said: an expired session, or a token it refused outright.
+                    let said = self.inflight.get(&id).map_or(0, |f| f.auth_refused);
+                    let (wire_code, why) = match said {
+                        code::TOKEN_INVALID => (code::TOKEN_INVALID, "the token was refused and could not be refreshed"),
+                        code::TOKEN_MISSING => (code::TOKEN_MISSING, "the server had no token and none could be refreshed"),
+                        _ => (code::TOKEN_EXPIRED, "the session expired and could not be refreshed"),
+                    };
+                    self.fail(id, class::AUTHENTICATION, wire_code, why, Some(false));
                 }
             }
         }
@@ -658,6 +672,7 @@ impl<S: Socket> Client<S> {
                 ever_sent: false,
                 lost: false,
                 auth_repeated: false,
+                auth_refused: 0,
                 drop_repeated: false,
             },
         );
@@ -906,9 +921,12 @@ impl<S: Socket> Client<S> {
                     return;
                 }
                 let Some(f) = self.inflight.get_mut(&id) else { return };
-                // The token expired: refresh and repeat once; the server refused before running anything.
-                if class_ == class::AUTHENTICATION && code_ == code::TOKEN_EXPIRED && !f.auth_repeated && self.token.is_some() {
+                // The token expired, or the server calls it invalid, or has none for this connection although
+                // the player holds one: refresh and repeat once; the server refused before running anything.
+                let refreshable = matches!(code_, code::TOKEN_EXPIRED | code::TOKEN_INVALID | code::TOKEN_MISSING);
+                if class_ == class::AUTHENTICATION && refreshable && !f.auth_repeated && self.token.is_some() {
                     f.auth_repeated = true;
+                    f.auth_refused = code_;
                     f.sent = false;
                     self.refresh_requested = true;
                     return;
@@ -1507,6 +1525,78 @@ mod tests {
         println!("2002: refreshed, repeated once under key {}, a second 2002 reaches the program", calls[0]["key"]);
     }
 
+    /// 2001 (invalid) and 2000 (missing, while the player holds a token) are handled as 2002 is: refresh, repeat once under the
+    /// same key, and a second refusal is final. With no token to refresh, 2000 and 2001 go to the program as they came.
+    #[test]
+    fn an_invalid_or_missing_token_is_refreshed_and_the_call_repeated_once_like_an_expired_one() {
+        let mut rows = Vec::new();
+        for (case, wire_code) in [("2001 invalid", code::TOKEN_INVALID), ("2000 missing", code::TOKEN_MISSING), ("2002 expired", code::TOKEN_EXPIRED)] {
+            let mut c = client();
+            c.set_token(Some("old".into()));
+            c.connect(URL, 0).unwrap();
+            c.on_open(1);
+            c.on_message(&hello_ok());
+            c.on_message(r#"{"t":"auth-ok","sub":"u","expires_in":1}"#);
+            let id = c.request(br#"{"program":"X"}"#, 2);
+            let refused = format!(r#"{{"t":"error","id":{id},"class":"authentication","code":{wire_code},"message":"refused"}}"#);
+            c.on_message(&refused);
+            assert!(c.refresh_requested, "{case}: the owner is asked to refresh");
+            assert!(answers(&mut c).is_empty(), "{case}: the program is not told yet");
+            c.set_token(Some("new".into()));
+            let sent = sent_json(&c);
+            assert!(sent.iter().any(|m| m["t"] == "auth" && m["token"] == "new"), "{case}: the new token is sent");
+            let calls: Vec<&Value> = sent.iter().filter(|m| m["t"] == "call" && m["id"] == id).collect();
+            assert_eq!(calls.len(), 2, "{case}: the call was repeated");
+            assert_eq!(calls[0]["key"], calls[1]["key"], "{case}: under the same key");
+            c.on_message(&refused);
+            let a = answers(&mut c);
+            assert_eq!((a.len(), a[0].1["error"]["code"].as_u64()), (1, Some(u64::from(wire_code))), "{case}: a second refusal is final");
+            rows.push(format!("{case}: refreshed, repeated once under key {}, the second refusal reached the program", calls[0]["key"]));
+        }
+        // No token held: nothing to refresh, the refusal is the answer.
+        for (case, wire_code) in [("2001 invalid, no token", code::TOKEN_INVALID), ("2000 missing, no token", code::TOKEN_MISSING)] {
+            let mut c = ready_client();
+            let id = c.request(br#"{"program":"X"}"#, 2);
+            c.on_message(&format!(r#"{{"t":"error","id":{id},"class":"authentication","code":{wire_code},"message":"refused"}}"#));
+            assert!(!c.refresh_requested, "{case}: no refresh is asked for");
+            let a = answers(&mut c);
+            assert_eq!((a.len(), a[0].1["error"]["code"].as_u64()), (1, Some(u64::from(wire_code))), "{case}");
+            rows.push(format!("{case}: handed to the program, no refresh"));
+        }
+        for r in &rows {
+            println!("{r}");
+        }
+        assert_eq!(rows.len(), 5);
+    }
+
+    /// When the refresh itself fails (the owner has no token to give), the program is told what the server said:
+    /// a wrong token still reads as a wrong token, not as an expiry.
+    #[test]
+    fn a_failed_refresh_tells_the_program_the_servers_own_code() {
+        let mut rows = Vec::new();
+        for (case, wire_code) in [("2001 invalid", code::TOKEN_INVALID), ("2000 missing", code::TOKEN_MISSING), ("2002 expired", code::TOKEN_EXPIRED)] {
+            let mut c = client();
+            c.set_token(Some("old".into()));
+            c.connect(URL, 0).unwrap();
+            c.on_open(1);
+            c.on_message(&hello_ok());
+            c.on_message(r#"{"t":"auth-ok","sub":"u","expires_in":1}"#);
+            let id = c.request(br#"{"program":"X"}"#, 2);
+            c.on_message(&format!(r#"{{"t":"error","id":{id},"class":"authentication","code":{wire_code},"message":"refused"}}"#));
+            assert!(c.refresh_requested, "{case}");
+            c.set_token(None);
+            let a = answers(&mut c);
+            let e = &a[0].1["error"];
+            assert_eq!((a.len(), e["class"].as_str(), e["code"].as_u64()), (1, Some("authentication"), Some(u64::from(wire_code))), "{case}");
+            assert_eq!(e["may_have_run"], false, "{case}: the server refused before running anything");
+            rows.push(format!("{case}: refresh failed, the program got {} \"{}\"", e["code"], e["message"].as_str().unwrap_or("")));
+        }
+        for r in &rows {
+            println!("{r}");
+        }
+        assert_eq!(rows.len(), 3);
+    }
+
     #[test]
     fn a_safe_program_is_repeated_once_after_a_drop_and_an_unsafe_one_fails_with_may_have_run() {
         let mut c = ready_client();
@@ -1957,6 +2047,8 @@ mod tests {
             ("CLOSED", code::CLOSED),
             ("TIMEOUT", code::TIMEOUT),
             ("NOT_CONFIGURED", code::NOT_CONFIGURED),
+            ("TOKEN_MISSING", code::TOKEN_MISSING),
+            ("TOKEN_INVALID", code::TOKEN_INVALID),
             ("TOKEN_EXPIRED", code::TOKEN_EXPIRED),
             ("BAD_MESSAGE", code::BAD_MESSAGE),
             ("CLIENT_TOO_OLD", code::CLIENT_TOO_OLD),
