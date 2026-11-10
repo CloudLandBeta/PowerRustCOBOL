@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule (WASM-036)
 
-- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376), T16 done (2.0.377), T17 done (2.0.378), T18 done (2.0.379), T19 and T20 done (2.0.380: `chunked.data` regeneration owed to the operator, the semantic model is not on this machine); T21 done (2.0.381); T22 done (2.0.382); T23 next.
+- **Status:** in progress. T1 done (2.0.362), T2 done (2.0.363), T3 done (2.0.364), T4 done (2.0.365), T5 done (2.0.366), T6 done (2.0.367), T7 done (2.0.368), T8 done (2.0.369), T9 done (2.0.370), T10 done (2.0.371), T11 done (2.0.372), T12 done (2.0.373), T13 done (2.0.374), T14 done (2.0.375), T15 done (2.0.376), T16 done (2.0.377), T17 done (2.0.378), T18 done (2.0.379), T19 and T20 done (2.0.380: `chunked.data` regeneration owed to the operator, the semantic model is not on this machine); T21 done (2.0.381); T22 done (2.0.382); T23 owed to the operator (emulator by eye, AC16); T24 done (2.0.384).
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-07 (2.0.302, on `features-2x`)
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
@@ -413,7 +413,7 @@ Tasks committed together share one bump. `README.md` and `docs/` are never touch
     - Both screenshots are kept in `PowerRustCOBOL-local-settings/evidence/WASM-036/`, outside the repository.
     - Their paths and what they show are written in `WASM-PROGRESS.md`. **AC16.**
 
-- [ ] **T24 — Finalize**
+- [x] **T24 — Finalize**
   - Do:
     - Bump `z`, add the CHANGELOG entry, and mark this spec's row done in `WASM-PROGRESS.md` with the evidence of every AC.
     - Check off the ACs in `spec.md`, and set Status: done here and in the spec.

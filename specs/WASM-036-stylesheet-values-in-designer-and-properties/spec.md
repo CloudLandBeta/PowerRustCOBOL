@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule
 
-- **Status:** planned and broken into tasks (`plan.md`; `tasks.md`, 2.0.302, 2026-11-07). No task started.
+- **Status:** implemented 2.0.362–2.0.382; every AC checked except AC16 (the operator's emulator comparison, T23), which waits for a person with the emulator. The Developer's Guide chapter is written when 2.x.x merges into main.
   - The operator asked for it on 2026-11-07 and accepted the six recommended answers to Q1–Q6 the same day.
   - R1, R4, R5 and R17 were corrected to what the code does (plan §0.6).
   - At the operator's request (2.0.301) it also covers three gaps the plan found: the designer gets a Light / Dark colour scheme (R24, R25); `render_form` and `check` read the stylesheets (R17, R21); the Form Designer agent gets a property tool, and its change sets take the Properties panel's path (R22, R23). Q5 was revised to match.
@@ -250,8 +250,8 @@ So the coding agent's picture of a Web or Mobile form, and its report on it, are
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** (R2) — A test enumerates `CSS_TO_PROPERTIES` and finds a reverse rule with a fidelity for each CSS property. For each *exact* rule, values in every notation round-trip: a colour as hex, `rgb()`, `hsl()` and a name; lengths in `px`, `em` and `rem`. Each converts to the property, back to CSS, and again to the same property value.
-- [ ] **AC2** (R1, R4) — A fixture sets the same property at every level:
+- [x] **AC1** (R2) — A test enumerates `CSS_TO_PROPERTIES` and finds a reverse rule with a fidelity for each CSS property. For each *exact* rule, values in every notation round-trip: a colour as hex, `rgb()`, `hsl()` and a name; lengths in `px`, `em` and `rem`. Each converts to the property, back to CSS, and again to the same property value.
+- [x] **AC2** (R1, R4) — A fixture sets the same property at every level:
   - the theme block;
   - the stored property;
   - the project sheet;
@@ -264,16 +264,16 @@ So the coding agent's picture of a Web or Mobile form, and its report on it, are
   - a `:hover` rule.
 
   The value and source the IDE computes equal the computed style the player gives in a headless browser at the form's size, for N of N cases.
-- [ ] **AC3** (R5) — The test drives real frames of the Properties panel, as `designer_page_backdrop_tests.rs` does.
+- [x] **AC3** (R5) — The test drives real frames of the Properties panel, as `designer_page_backdrop_tests.rs` does.
   - A button styled by `#BTN-1 { background-color: rgb(10 132 255) }` shows `#0A84FF` in its BackgroundColor row.
   - The row's mark names the sheet and line, in each of the six languages.
   - The stored value is in the tooltip.
   - A `calc()` value shows as read-only CSS text.
-- [ ] **AC4** (R6, R7) — The canvas fill of that button, read back from the frame's shapes, is the CSS colour.
+- [x] **AC4** (R6, R7) — The canvas fill of that button, read back from the frame's shapes, is the CSS colour.
   - `render_form` of the same form gives the same pixel, within 1 per channel.
   - A control with `width: 50%` keeps its designed rectangle, and its badge's tooltip lists that declaration with its line.
-- [ ] **AC5** (R8) — A sheet written by another program changes the canvas fill within 1 s. The time is measured and reported.
-- [ ] **AC6** (R9, R10) — The edit's bytes are checked for each case:
+- [x] **AC5** (R8) — A sheet written by another program changes the canvas fill within 1 s. The time is measured and reported.
+- [x] **AC6** (R9, R10) — The edit's bytes are checked for each case:
   - a longhand;
   - a shorthand that can be rewritten (`border: 1px solid red`, then a BorderColor edit);
   - a shorthand that cannot (a longhand is added);
@@ -281,37 +281,37 @@ So the coding agent's picture of a Web or Mobile form, and its report on it, are
   - a `CssStyle`.
 
   For each case, a byte diff shows that the sheet changed only in the bytes the edit names, and the effective value afterwards is the one typed.
-- [ ] **AC7** (R11) — A `.pr-button` rule styles three buttons, and the question names 2 others.
+- [x] **AC7** (R11) — A `.pr-button` rule styles three buttons, and the question names 2 others.
   - **Change the rule** changes all three.
   - **Only this control** adds `#BTN-1 { … }` at the end of the form's sheet, and only BTN-1 changes.
   - **Cancel** leaves both files byte-identical.
-- [ ] **AC8** (R12) — A later `!important` rule beats the write. The write is undone, the sheet is byte-identical to before, and the message names the winning file and line.
-- [ ] **AC9** (R13) — Undo and the two guards:
+- [x] **AC8** (R12) — A later `!important` rule beats the write. The write is undone, the sheet is byte-identical to before, and the message names the winning file and line.
+- [x] **AC9** (R13) — Undo and the two guards:
   - Ctrl+Z after a write restores the sheet byte for byte, and Ctrl+Y applies the write again.
   - With unapplied text in the modal, the write is refused with its message.
   - A sheet changed on disk between the read and the write is read again, and the other program's change is kept.
-- [ ] **AC10** (R14) — The two row actions:
+- [x] **AC10** (R14) — The two row actions:
   - **Remove the CSS declaration** asks first, removes only that declaration, and undo puts it back.
   - **Go to rule** opens the modal with the caret on the rule's line.
-- [ ] **AC11** (R15) — Three buttons are selected, two different effective colours among them. The row shows mixed; one edit gives all three the typed value; there is one question.
-- [ ] **AC12** (R17) — `render_form` of the AC2 fixture gives the canvas's pixel for the styled button, within 1 per channel:
+- [x] **AC11** (R15) — Three buttons are selected, two different effective colours among them. The row shows mixed; one edit gives all three the typed value; there is one question.
+- [x] **AC12** (R17) — `render_form` of the AC2 fixture gives the canvas's pixel for the styled button, within 1 per channel:
   - with no `color_scheme`, and with `color_scheme: "dark"` on a rule under `@media (prefers-color-scheme: dark)`;
   - from the IDE's renderer and from `rcrun`'s.
-- [ ] **AC13** (R11, i18n) — The question window keeps the same rectangle over 120 frames in each of the six languages. After a drag of its grip it keeps the dragged size. Every new string exists in the six languages.
-- [ ] **AC14** (R19) — With a stylesheet placed beside a Desktop form, the Properties panel shows no mark and the canvas paints the stored properties. The existing designer and Properties tests stay green.
-- [ ] **AC15** (R20) — The time for the 200-control, 500-rule fixture is printed in the test's result block, within the plan's budget.
-- [ ] **AC17** (R21) — `check` on the AC2 fixture:
+- [x] **AC13** (R11, i18n) — The question window keeps the same rectangle over 120 frames in each of the six languages. After a drag of its grip it keeps the dragged size. Every new string exists in the six languages.
+- [x] **AC14** (R19) — With a stylesheet placed beside a Desktop form, the Properties panel shows no mark and the canvas paints the stored properties. The existing designer and Properties tests stay green.
+- [x] **AC15** (R20) — The time for the 200-control, 500-rule fixture is printed in the test's result block, within the plan's budget.
+- [x] **AC17** (R21) — `check` on the AC2 fixture:
   - lists one note per certain override, each naming the file, the line and the scheme;
   - lists one note for a `:has()` selector;
   - its result and exit status are the same as without the stylesheet.
-- [ ] **AC18** (R22) — `form.properties` gives every mapped property's stored value, effective value and source for each of the fixture's controls and the form, in Light and in Dark. The agent's context lists the overrides.
-- [ ] **AC19** (R23) — A change set setting BackgroundColor on a control a form-sheet rule overrides:
+- [x] **AC18** (R22) — `form.properties` gives every mapped property's stored value, effective value and source for each of the fixture's controls and the form, in Light and in Dark. The agent's context lists the overrides.
+- [x] **AC19** (R23) — A change set setting BackgroundColor on a control a form-sheet rule overrides:
   - writes that declaration, shown by a byte diff;
   - its ledger names the file and line;
   - Ctrl+Z restores the sheet.
 
   The same change set on a shared rule holds the operation until the question is answered, and Cancel leaves the files byte-identical. On a Desktop form the change set is applied as before.
-- [ ] **AC20** (R24, R25) — With `@media (prefers-color-scheme: dark) { #BTN-1 { background-color: #111111 } }`:
+- [x] **AC20** (R24, R25) — With `@media (prefers-color-scheme: dark) { #BTN-1 { background-color: #111111 } }`:
   - **Light:** the canvas and the Properties panel show the button's other value, and the rule is not marked "may";
   - **Dark:** they show `#111111` as certain;
   - **An edit in Dark** rewrites the declaration inside the dark block;
