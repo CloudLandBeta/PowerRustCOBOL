@@ -582,6 +582,42 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut
         },
     );
 
+    run.with_backend(
+        "backend restarted mid-cycle: it is gone for the first 10 s (attempt 1 refused, attempt 2 refused at once), comes back inside attempt 2's wait, and attempt 3 re-does the whole handshake by itself, with no Try again (WASM-016 R20)",
+        |p, slot| {
+            let b = slot.take().ok_or("no backend")?;
+            p.wait_for("!__pr.root().querySelector('dialog.pr-netmodal')", 10)?;
+            let (port, calls) = b.kill();
+            let t0 = Instant::now();
+            p.wait_for(&format!("!!{MODAL}"), 10)?;
+            // Attempt 2 opens at 10 s and is refused at once: its window is waited out.
+            let cell = |p: &mut Page, label: &str| -> Result<String, String> {
+                let v = p.eval(&format!(
+                    "(() => {{ const d = {MODAL}; if (!d) return ''; const c = [...d.querySelectorAll('.pr-netmodal-cell')].find((c) => c.querySelector('dt').textContent === '{label}'); return c ? c.querySelector('dd').textContent : ''; }})()"
+                ))?;
+                Ok(v.as_str().unwrap_or("").to_owned())
+            };
+            p.wait_for(&format!("(() => {{ const d = {MODAL}; if (!d) return false; const c = [...d.querySelectorAll('.pr-netmodal-cell')].find((c) => c.querySelector('dt').textContent === 'Attempt'); return !!c && c.querySelector('dd').textContent === '2/3'; }})()"), 20)?;
+            let (attempt, last, now) = (cell(p, "Attempt")?, cell(p, "Last")?, cell(p, "Now")?);
+            if last != "no connection" || !now.starts_with("failed, waiting") {
+                return Err(format!("in attempt 2 the status said attempt {attempt}, last {last:?}, now {now:?}"));
+            }
+            // The backend returns while the page is waiting for attempt 3 (at 30 s).
+            let back_at = t0.elapsed().as_secs_f64();
+            *slot = Some(Backend::start(port, 0, calls));
+            p.wait_for("!__pr.root().querySelector('dialog.pr-netmodal')", 40)?;
+            let reconnected = t0.elapsed().as_secs_f64();
+            if !(28.0..=34.0).contains(&reconnected) {
+                return Err(format!("reconnected at {reconnected:.1} s; attempt 3 opens at 30 s"));
+            }
+            click(p, main, "BTN-REMOTE")?;
+            p.wait_for(&format!("(__pr.text({}, {}) || '').includes('pong')", q(main), q(LBL_OUT)), 20)?;
+            Ok(format!(
+                "backend back at {back_at:.1} s (inside attempt 2's wait); status then: attempt {attempt}, last {last:?}, now {now:?}; reconnected by attempt 3 at {reconnected:.1} s with no Try again; a call afterwards answered pong"
+            ))
+        },
+    );
+
     run.with_backend("backend down for good: three attempts at 10, 20 and 30 s, then the modal says so, the main form's onBackendUnreachable runs, the status line counts the attempts, and Try again starts the whole cycle over (AC14, WASM-016 R21)", |p, slot| {
         let b = slot.as_ref().ok_or("no backend")?;
         p.wait_for("!__pr.root().querySelector('dialog.pr-netmodal')", 10)?;
