@@ -1068,3 +1068,123 @@ fn a_form_whose_sheet_is_the_project_stylesheet_is_refused() {
     assert!(text.contains("webforms/application.cfrm") && text.contains("project stylesheet"), "{text}");
     let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
 }
+
+/// 2.0.399: the complete Build writes the deployment kit (`hosting/deploy/`) beside the bundle, from
+/// the Build's own security headers, and the SBOM covers each of its files. The unit tests of
+/// `cobolt_web_bundle::deploy` read the kit on its own; this one reads what the Build left on disk.
+#[test]
+fn the_build_writes_the_deploy_kit_from_its_own_headers_and_the_sbom_covers_it() {
+    use cobolt_web_bundle::deploy::{slug, LANGUAGES};
+    use std::time::Instant;
+
+    let manifest = project("deploykit", "           MOVE \"Hi\" TO LBL-OUT::Caption.\n");
+    let req = WebBuildRequest::from_manifest(&manifest).unwrap();
+    let started = Instant::now();
+    let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
+    let first_ms = started.elapsed().as_millis();
+    let all = snapshot(&report.bundle_dir);
+    let kit: std::collections::BTreeMap<&str, &Vec<u8>> =
+        all.iter().filter_map(|(k, v)| k.strip_prefix("hosting/deploy/").map(|r| (r, v))).collect();
+    let text = |k: &str| String::from_utf8(kit.get(k).unwrap_or_else(|| panic!("{k} is not in the kit: {:?}", kit.keys())).to_vec()).unwrap();
+    let mut checks = 0usize;
+    let mut check = |ok: bool, what: &str| {
+        assert!(ok, "{what}");
+        checks += 1;
+    };
+
+    // 1. The files: the eight of the kit and one README per language, nothing else.
+    let mut want: Vec<String> = [
+        "nginx/site.conf",
+        "docker/Dockerfile.backend",
+        "docker/Dockerfile.web",
+        "docker/nginx-task.conf",
+        "aws/1-push-images.sh",
+        "aws/2-ecs-task-definition.json",
+        "aws/3-create-service.sh",
+        "aws/4-api-gateway-websocket.sh",
+    ]
+    .iter()
+    .map(|s| (*s).to_owned())
+    .collect();
+    want.extend(LANGUAGES.iter().map(|(code, _)| format!("README-{code}.md")));
+    want.sort();
+    let got: Vec<String> = kit.keys().map(|k| (*k).to_owned()).collect();
+    check(got == want, &format!("the kit's files: {got:?}"));
+
+    // 2. The kit is written from the Build's own headers: every header the bundle's `_headers`
+    //    sends on `/*` is an `add_header` in both nginx files, with the same value.
+    let headers = String::from_utf8(all["_headers"].clone()).unwrap();
+    let mut on_all: Vec<(String, String)> = Vec::new();
+    let mut at = "";
+    for line in headers.lines() {
+        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+            continue;
+        }
+        if !line.starts_with(' ') {
+            at = line.trim();
+        } else if at == "/*" {
+            if let Some((k, v)) = line.trim().split_once(": ") {
+                on_all.push((k.to_owned(), v.to_owned()));
+            }
+        }
+    }
+    check(on_all.iter().any(|(k, _)| k == "Content-Security-Policy") && on_all.len() >= 5, &format!("the bundle's own headers: {on_all:?}"));
+    for file in ["nginx/site.conf", "docker/nginx-task.conf"] {
+        let t = text(file);
+        for (k, v) in &on_all {
+            check(t.contains(&format!("add_header {k} \"{}\" always;", v.replace('"', "\\\""))), &format!("{file} carries {k}"));
+        }
+    }
+
+    // 3. The names come from the project: the two images are `<slug>-backend` and `<slug>-web`, the
+    //    task family, the log group and the service `<slug>`, the API `<slug>-ws`; every README
+    //    names the Backend image.
+    let name = slug(&req.name);
+    let (push, task, service, apigw) =
+        (text("aws/1-push-images.sh"), text("aws/2-ecs-task-definition.json"), text("aws/3-create-service.sh"), text("aws/4-api-gateway-websocket.sh"));
+    check(push.contains(&format!("{name}-backend")) && push.contains(&format!("{name}-web")), "the push script names both images");
+    check(task.contains(&format!("\"family\": \"{name}\"")) && task.contains(&format!("{name}-web:")) && task.contains(&format!("{name}-backend:")), "the task definition names the family and both images");
+    check(service.contains(&format!("/ecs/{name}")) && service.contains(&format!("--services {name} ")), "the service script names the log group and the service");
+    check(apigw.contains(&format!("{name}-ws")), "the API Gateway script names the API");
+    for (code, _) in LANGUAGES {
+        check(text(&format!("README-{code}.md")).contains(&format!("{name}-backend")), &format!("README-{code}.md names {name}-backend"));
+    }
+
+    // 4. The task definition is JSON; the scripts are shell scripts; no file holds a credential.
+    let task: serde_json::Value = serde_json::from_str(&text("aws/2-ecs-task-definition.json")).expect("the task definition is JSON");
+    check(task["containerDefinitions"].as_array().is_some_and(|c| c.len() >= 2), "the task has the Backend and the web containers");
+    for s in ["aws/1-push-images.sh", "aws/3-create-service.sh", "aws/4-api-gateway-websocket.sh"] {
+        check(text(s).starts_with("#!/bin/sh"), &format!("{s} starts with a shebang"));
+    }
+    for (path, bytes) in &kit {
+        let t = String::from_utf8_lossy(bytes);
+        for needle in ["AKIA", "aws_secret_access_key", "BEGIN PRIVATE KEY", "password="] {
+            check(!t.contains(needle), &format!("{path} holds {needle}"));
+        }
+    }
+
+    // 5. The SBOM names every file of the kit (the build's integrity record covers it).
+    let sbom: serde_json::Value = serde_json::from_slice(&all["sbom.cdx.json"]).unwrap();
+    let names: Vec<&str> = sbom["components"].as_array().unwrap().iter().filter_map(|c| c["name"].as_str()).collect();
+    for k in kit.keys() {
+        check(names.contains(&format!("hosting/deploy/{k}").as_str()), &format!("the SBOM names hosting/deploy/{k}"));
+    }
+
+    // 6. A second Build writes the same kit, byte for byte, and leaves nothing beside it.
+    let started = Instant::now();
+    let again = GeneratorBackend.build(&req).unwrap();
+    let second_ms = started.elapsed().as_millis();
+    let after = snapshot(&again.bundle_dir);
+    let same = kit.iter().all(|(k, v)| after.get(&format!("hosting/deploy/{k}")) == Some(*v));
+    check(same && after.keys().filter(|k| k.starts_with("hosting/deploy/")).count() == kit.len(), "the second Build writes the same kit");
+
+    eprintln!(
+        "deploy kit through the Build: {} files ({} bytes) in hosting/deploy/; {} headers of the bundle in both nginx files; \
+         {} SBOM entries; {checks} of {checks} checks passed, 0 failed; Build {first_ms} ms, again {second_ms} ms",
+        kit.len(),
+        kit.values().map(|v| v.len()).sum::<usize>(),
+        on_all.len(),
+        kit.len()
+    );
+    let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+}
