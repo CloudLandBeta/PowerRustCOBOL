@@ -24,12 +24,13 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | `blocked-operator` | Needs the operator's eyes or accounts (a look at a window, a real identity provider, an emulator comparison). |
 | `blocked-hardware` | Needs a browser, device or simulator this Mac does not have (Safari, iOS, Android WebView, a physical phone; Firefox was removed from the targets on 2026-11-10). |
 | `blocked-tool` | Needs a tool that is not installed here (`xcodegen`, an iOS 18 simulator). |
+| `red` | Audited, and a test of the criterion's own suite fails for a reason found in the audit. Fix the cause (or document the difference where the test has a table for it), then tick. |
 
 ## Index
 
 | Spec | Open ACs | Class |
 |---|---|---|
-| [WASM-001-project-types-and-ide-entries](#wasm-001-project-types-and-ide-entries) | 8 | `blocked-tool`, `unaudited` |
+| [WASM-001-project-types-and-ide-entries](#wasm-001-project-types-and-ide-entries) | 2 | `blocked-tool`, `red` |
 | [WASM-002-wasm-build-target-and-host-page](#wasm-002-wasm-build-target-and-host-page) | 3 | `blocked-hardware` |
 | [WASM-003-backend-project-and-secure-channel](#wasm-003-backend-project-and-secure-channel) | 11 | `unaudited` |
 | [WASM-004-control-reuse-on-the-web](#wasm-004-control-reuse-on-the-web) | 13 | `unaudited` |
@@ -47,21 +48,15 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | [WASM-017-module-architecture-and-js-boundary](#wasm-017-module-architecture-and-js-boundary) | 15 | `unaudited` |
 | [WASM-018-canvas-and-graphics-objects](#wasm-018-canvas-and-graphics-objects) | 14 | `unaudited` |
 | [WASM-036-stylesheet-values-in-designer-and-properties](#wasm-036-stylesheet-values-in-designer-and-properties) | 1 | `blocked-operator` |
-| **Total** | **184** | |
+| **Total** | **178** | |
 
 ## WASM-001-project-types-and-ide-entries
 
-**8 open.** Not audited against the code, one criterion at a time. Blocked part: the Xcode half of the native-project step (iOS) needs WASM-012's iOS generator, which needs `xcodegen` and an iOS simulator; this Mac has Xcode 15.2 without iOS 18.
+**2 open.** AC1–AC6 were audited against the code on 2026-11-10 (2.0.402) and ticked in `spec.md`; their rows are gone. AC7 was audited the same day and is not green (below). AC8 is the Xcode half of the native-project step (iOS), which needs WASM-012's iOS generator, which needs `xcodegen` and an iOS simulator; this Mac has Xcode 15.2 without iOS 18.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|
-| AC1 | `unaudited` | The dialog shows the left list and right pane of the mock-up; selecting each template changes the title and the options; the entries of R5 that are unavailable cannot be created. | T2, T6 |
-| AC2 | `unaudited` | Creating one project of each creatable kind writes the kind (and Mobile platform/device) to the manifest; closing and reopening gives the same kind; an old manifest loads as desktop and is not modified by loading. | T1, T3, T5; T15.2 (new names), T15.7 (a legacy `.cfrm` opens unmodified) |
-| AC3 | `unaudited` | For the same inputs, the IDE's *Create*, `rcrun`'s creation path and the MCP `create_project` tool produce byte-identical manifests and file trees (extend `project_model.rs`'s byte-identity test). | T8; T15.2 extends it to `.wcfrm`/`.mcfrm` |
-| AC4 | `unaudited` | Web: the tree shows WebForms and Backend and no Forms; Mobile: MobileForms and Backend; Desktop: unchanged. | T5; T15.4 (forms of the new extensions listed in their entry); T14.3 (toolbox by kind) |
-| AC5 | `unaudited` | A new template can be added by adding a descriptor only (demonstrated by a test that registers a fake template and sees it in the list with its options). | T2 |
-| AC6 | `unaudited` | `cargo test -p cobolt-ide i18n` is green and the dialog's strings exist in six languages. | T7, T16 |
-| AC7 | `unaudited` | The existing desktop test suites are unaffected (no new failure in `cargo test -p cobolt-ide --bin cobolt-ide` and `-p cobolt-project-tools`). | T13, T18 |
+| AC7 | `red` | The existing desktop test suites are unaffected (no new failure in `cargo test -p cobolt-ide --bin cobolt-ide` and `-p cobolt-project-tools`). | T13, T18. **Sweep of 2026-11-10 (2.0.402, no code changed):** `cobolt-ide --bin` 2012 passed, 5 failed, 6 ignored: exactly the five known reds (`docs_embed::every_document_ships_in_every_language`, `external_crates_service::flow_tests::{live_resolver_verdicts, compatible_and_reserved_collisions_still_refuse}`, `grace_host::tests::{prebuilt_chunked_kb_matches_the_published_documentation, a_menu_reorder_request_retrieves_the_sidemenu_structure}`). `-p cobolt-project-tools`: every target green except **one new red**, `tests/desktop_comparison_chrome.rs::the_reference_form_on_the_desktop_and_in_chrome` (WASM-004 T33 / WASM-015 AC5): the CH-BAR colour probes differ by up to 112 levels at (95,370) and (245,370), the same numbers on four runs (deterministic, not load). The two pictures of the bar chart are alike but the desktop's tallest bar is about 12 px shorter and its baseline sits about 2 px lower than Chrome's. Not caused by WASM-001 (no chart code is in its tasks); not bisected; `AnimateOnLoad=false` on the chart did not change a number. Ticks when that test is green. |
 | AC8 | `blocked-tool` | Creating a Mobile project with the native-project step accepted yields the Android Studio project (and, on a Mac, the Xcode project) named after the project, and the manifest says so; cancelling the step yields the Mobile project alone and a manifest that says the native project is missing; a Web or Desktop template shows no… | not mapped in its tasks.md |
 
 ## WASM-002-wasm-build-target-and-host-page

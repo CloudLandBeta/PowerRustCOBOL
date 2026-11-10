@@ -154,16 +154,16 @@ selected template ("New Desktop Project"). The mock-up is "suggestive": it fixes
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — The dialog shows the left list and right pane of the mock-up; selecting each template changes the title and the
+- [x] **AC1** — The dialog shows the left list and right pane of the mock-up; selecting each template changes the title and the
   options; the entries of R5 that are unavailable cannot be created.
-- [ ] **AC2** — Creating one project of each creatable kind writes the kind (and Mobile platform/device) to the manifest; closing
+- [x] **AC2** — Creating one project of each creatable kind writes the kind (and Mobile platform/device) to the manifest; closing
   and reopening gives the same kind; an old manifest loads as desktop and is not modified by loading.
-- [ ] **AC3** — For the same inputs, the IDE's *Create*, `rcrun`'s creation path and the MCP `create_project` tool produce
+- [x] **AC3** — For the same inputs, the IDE's *Create*, `rcrun`'s creation path and the MCP `create_project` tool produce
   byte-identical manifests and file trees (extend `project_model.rs`'s byte-identity test).
-- [ ] **AC4** — Web: the tree shows WebForms and Backend and no Forms; Mobile: MobileForms and Backend; Desktop: unchanged.
-- [ ] **AC5** — A new template can be added by adding a descriptor only (demonstrated by a test that registers a fake template and
+- [x] **AC4** — Web: the tree shows WebForms and Backend and no Forms; Mobile: MobileForms and Backend; Desktop: unchanged.
+- [x] **AC5** — A new template can be added by adding a descriptor only (demonstrated by a test that registers a fake template and
   sees it in the list with its options).
-- [ ] **AC6** — `cargo test -p cobolt-ide i18n` is green and the dialog's strings exist in six languages.
+- [x] **AC6** — `cargo test -p cobolt-ide i18n` is green and the dialog's strings exist in six languages.
 - [ ] **AC7** — The existing desktop test suites are unaffected (no new failure in `cargo test -p cobolt-ide --bin cobolt-ide` and
   `-p cobolt-project-tools`).
 

@@ -10,7 +10,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## Open acceptance criteria and closed tasks (operator's ruling, 2026-11-09)
 
-**184 acceptance criteria in 18 specs are still open; their list, with the task or test meant to verify each, is `specs/WASM-OPEN-ACS.md`.** The operator ruled that every task depending on one of them is closed (33 tasks in 9 specs: WASM-001 T19; WASM-002 T23, T24; WASM-006 T18–T21; WASM-008 T11; WASM-009 T5, T6, T24, T26; WASM-011 T25; WASM-012 T8–T11, T13–T16, T19–T22, T24–T26 with T25b and T25c; WASM-016 T22, T30; WASM-036 T23), so the work could go on. **A closed task is not a verified criterion:** the rows below that say *Open: T…* describe work that was closed unverified. When a problem turns up, start from the open-AC document, reproduce with the test it names, fix, tick the box and remove its row there.
+**178 acceptance criteria in 18 specs are still open; their list, with the task or test meant to verify each, is `specs/WASM-OPEN-ACS.md`.** The operator ruled that every task depending on one of them is closed (33 tasks in 9 specs: WASM-001 T19; WASM-002 T23, T24; WASM-006 T18–T21; WASM-008 T11; WASM-009 T5, T6, T24, T26; WASM-011 T25; WASM-012 T8–T11, T13–T16, T19–T22, T24–T26 with T25b and T25c; WASM-016 T22, T30; WASM-036 T23), so the work could go on. **A closed task is not a verified criterion:** the rows below that say *Open: T…* describe work that was closed unverified. When a problem turns up, start from the open-AC document, reproduce with the test it names, fix, tick the box and remove its row there.
 
 ## Operating rules (so that anyone can resume)
 
@@ -31,7 +31,7 @@ Legend: **S** specified · **P** planned (plan.md) · **T** tasked (tasks.md) ·
 
 | Spec | Subject | S | P | T | Implementation | Evidence / next action |
 |---|---|---|---|---|---|---|
-| WASM-001 | Project kinds, selector, tree entries | ✔ | ✔ | ✔ | **I** — 27 of 28 tasks done | Open: **T19** (D22, the native-project step in New Project; WASM-012 R16–R17). Spec AC boxes 0 of 8 ticked: not audited one by one. *(Row refreshed 2026-11-06, 2.0.287, from `tasks.md`.)* |
+| WASM-001 | Project kinds, selector, tree entries | ✔ | ✔ | ✔ | **I** — 27 of 28 tasks done | Open: **T19** (D22, the native-project step in New Project; WASM-012 R16–R17). Spec AC boxes 6 of 8 ticked: AC1–AC6 audited against the code on 2026-11-10 (2.0.402); AC7 audited and not green (one red outside the known list in `-p cobolt-project-tools`, a desktop-vs-Chrome bar-chart comparison, see `specs/WASM-OPEN-ACS.md`); AC8 stays open (the Xcode half needs `xcodegen` and an iOS 18 simulator). *(Row refreshed 2026-11-06, 2.0.287, from `tasks.md`; AC count 2026-11-10.)* |
 | WASM-002 | WebAssembly target, host page, isolation headers | ✔ | ✔ | ✔ | **I** — 23 of 25 tasks done | Open: **T23** (the Mobile build, WASM-012) and **T24** (Firefox, Safari, iOS and Android WebView cells of the matrix: none of those can be measured here). AC boxes 6 of 9 ticked (AC4, AC6, AC7 open). |
 | WASM-003 | Backend, WebSocket channel, JWT | ✔ | ✔ | ✔ | **I** — 29 of 29 tasks done | AC boxes 1 of 12 ticked: not audited one by one. |
 | WASM-004 | Control reuse on the web (classes A–E) | ✔ | ✔ | ✔ | **I** — 35 of 35 tasks done | AC boxes 0 of 13 ticked: not audited one by one. |
