@@ -172,6 +172,7 @@
        01 WS-QUOTE-ID                            GLOBAL    PIC 9(8)    VALUE 0.
        01 WS-KIND-TXT                            GLOBAL    PIC X(9).
        01 WS-DATE-X                              GLOBAL    PIC X(8).
+       01 WS-DEADLINE-ISO                        GLOBAL    PIC X(10).
        01 WS-PART-CODE                           GLOBAL    PIC X(12)    OCCURS 30.
        01 WS-ADD-CODE                            GLOBAL    PIC X(12)    OCCURS 30.
        01 WS-ED-QTY                              GLOBAL    PIC ZZZ9.99.
@@ -560,6 +561,7 @@ Imposto:string</Property>
     <Property name="AllowSorting">1</Property>
     <Property name="ShowColumnFilters">1</Property>
     <Property name="AllowColumnResize">1</Property>
+    <Property name="AutoFitColumns">1</Property>
     <Property name="AllowColumnReorder">0</Property>
     <Property name="AllowRowResize">0</Property>
     <Property name="AllowCellEditing">0</Property>
@@ -713,6 +715,7 @@ Preço:string</Property>
     <Property name="AllowSorting">1</Property>
     <Property name="ShowColumnFilters">1</Property>
     <Property name="AllowColumnResize">1</Property>
+    <Property name="AutoFitColumns">1</Property>
     <Property name="AllowColumnReorder">0</Property>
     <Property name="AllowRowResize">0</Property>
     <Property name="AllowCellEditing">0</Property>
@@ -752,6 +755,7 @@ Preço:string</Property>
     <Property name="AllowSorting">1</Property>
     <Property name="ShowColumnFilters">1</Property>
     <Property name="AllowColumnResize">1</Property>
+    <Property name="AutoFitColumns">1</Property>
     <Property name="AllowColumnReorder">0</Property>
     <Property name="AllowRowResize">0</Property>
     <Property name="AllowCellEditing">0</Property>
@@ -1039,7 +1043,7 @@ Preço:string</Property>
     <Property name="Definition">Value of the summary line Válido até. It belongs to a screen of the PowerOficina workshop application.</Property>
   </Control>
 <Control id="LBL-DL" type="Label" x="812" y="562" w="330" h="20" tab-order="49" z-order="49" visible="true" enabled="true" parent="CARD-SUM">
-    <Property name="Caption">Prazo acordado (AAAAMMDD, opcional)</Property>
+    <Property name="Caption">Prazo acordado (opcional)</Property>
     <Property name="ForegroundColor">#4B5563FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">13</Property>
@@ -1049,18 +1053,18 @@ Preço:string</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Definition">Caption of the agreed execution date field.</Property>
   </Control>
-<Control id="TXT-DEADLINE" type="TextBox" x="812" y="586" w="200" h="36" tab-order="50" z-order="50" visible="true" enabled="true" parent="CARD-SUM">
+<Control id="DTP-DEADLINE" type="DateTimePicker" x="812" y="586" w="200" h="36" tab-order="50" z-order="50" visible="true" enabled="true" parent="CARD-SUM">
+    <Property name="Format">Custom</Property>
+    <Property name="CustomFormat">dd/MM/yyyy</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="ForegroundColor">#1E1B4BFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#D5D8E6</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="FontSize">14</Property>
-    <Property name="HintText">20261120</Property>
-    <Property name="AccessibleLabel">Execution date agreed with the customer, YYYYMMDD. Empty use</Property>
-    <Property name="InnerPadding">8</Property>
+    <Property name="AccessibleLabel">Execution date agreed with the customer. Empty uses the date the queue suggests.</Property>
     <Property name="Anchor">Top,Left</Property>
-    <Property name="Definition">Execution date agreed with the customer, YYYYMMDD. Empty uses the date the queue suggests.</Property>
+    <Property name="Definition">Execution date agreed with the customer, typed as day, month and year or picked from the calendar. Empty uses the date the queue suggests.</Property>
   </Control>
 <Control id="BTN-SAVE" type="Button" x="32" y="942" w="220" h="44" tab-order="51" z-order="51" visible="true" enabled="true">
     <Property name="Caption">Gerar orçamento</Property>
@@ -1091,7 +1095,12 @@ Preço:string</Property>
            SET     QRQ-CURRENCY                  TO    WS-CUR
            SET     QRQ-OPERATOR                  TO    TXT-OPERATOR::Text
            COMPUTE QRQ-DGN-ID                    =     FUNCTION NUMVAL ( TXT-DGN::Text )
-           COMPUTE QRQ-DEADLINE                  =     FUNCTION NUMVAL ( TXT-DEADLINE::Text )
+           SET     WS-DEADLINE-ISO               TO    DTP-DEADLINE::Value
+
+           COMPUTE QRQ-DEADLINE                  =     FUNCTION NUMVAL ( WS-DEADLINE-ISO (1:4) ) * 10000
+                                                       + FUNCTION NUMVAL ( WS-DEADLINE-ISO (6:2) ) * 100
+                                                       + FUNCTION NUMVAL ( WS-DEADLINE-ISO (9:2) )
+
            SET     QTS-STATUS                    TO    SPACES
            CALL    "QUOTE-SAVE" WITH WEBSOCKET LINKAGE
                USING BY VALUE QUO-REQ

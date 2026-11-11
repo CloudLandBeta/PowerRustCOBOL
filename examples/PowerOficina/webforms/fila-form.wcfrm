@@ -109,17 +109,17 @@
                    CONTINUE
            END-COMPUTE
 
-           SET     WS-DATE-IN                    TO    TXT-DATE::Text
+           SET     WS-DATE-IN                    TO    DTP-DATE::Value
 
-           COMPUTE QUQ-DEADLINE                  =     FUNCTION NUMVAL ( WS-DATE-IN (7:4) ) * 10000
-                                                       + FUNCTION NUMVAL ( WS-DATE-IN (4:2) ) * 100
-                                                       + FUNCTION NUMVAL ( WS-DATE-IN (1:2) )
+           COMPUTE QUQ-DEADLINE                  =     FUNCTION NUMVAL ( WS-DATE-IN (1:4) ) * 10000
+                                                       + FUNCTION NUMVAL ( WS-DATE-IN (6:2) ) * 100
+                                                       + FUNCTION NUMVAL ( WS-DATE-IN (9:2) )
 
            SET     QUS-STATUS                    TO    SPACES
 
            *> QUEUE-UPDATE: starts (S) or finishes (F) the selected service, or changes the delivery date of an order (D).
            *> Uses:   WS-ACTION = S, F or D; QUQ-QUE-ID = the number of the selected row of DG-QUEUE; for D, QUQ-QUO-ID = TXT-QUO
-           *>         and QUQ-DEADLINE = TXT-DATE read as dd/mm/aaaa; QUQ-OPERATOR = TXT-OPERATOR.
+           *>         and QUQ-DEADLINE = the date of DTP-DATE (its Value, YYYY-MM-DD) as YYYYMMDD; QUQ-OPERATOR = TXT-OPERATOR.
            *> Result: QUS-STATUS = OK, INVALID or NOTFOUND with QUS-MESSAGE; the time and the operator are written on the row; when
            *>         the last service of an order is done QUS-READY = Y and the customer is told the vehicle is ready; with D the
            *>         customer is told the new date.
@@ -366,6 +366,7 @@ Retirada:string</Property>
     <Property name="AllowSorting">1</Property>
     <Property name="ShowColumnFilters">1</Property>
     <Property name="AllowColumnResize">1</Property>
+    <Property name="AutoFitColumns">1</Property>
     <Property name="AllowColumnReorder">0</Property>
     <Property name="AllowRowResize">0</Property>
     <Property name="AllowCellEditing">0</Property>
@@ -416,7 +417,7 @@ Retirada:string</Property>
            SET     WS-ACTION                     TO    "S"
 
            *> DO-UPDATE: starts or finishes the selected service, or changes the delivery date.
-           *> Uses:   WS-ACTION (S, F or D), the selected row, TXT-QUO and TXT-DATE.
+           *> Uses:   WS-ACTION (S, F or D), the selected row, TXT-QUO and DTP-DATE.
            *> Result: the queue is read again and the status line shows the answer.
            CALL    "DO-UPDATE"
 ]]></Event>
@@ -440,7 +441,7 @@ Retirada:string</Property>
            SET     WS-ACTION                     TO    "F"
 
            *> DO-UPDATE: starts or finishes the selected service, or changes the delivery date.
-           *> Uses:   WS-ACTION (S, F or D), the selected row, TXT-QUO and TXT-DATE.
+           *> Uses:   WS-ACTION (S, F or D), the selected row, TXT-QUO and DTP-DATE.
            *> Result: the queue is read again and the status line shows the answer.
            CALL    "DO-UPDATE"
 ]]></Event>
@@ -523,7 +524,7 @@ Retirada:string</Property>
     <Property name="Definition">Number of the quote whose delivery date changes.</Property>
   </Control>
 <Control id="LBL-DD" type="Label" x="226" y="612" w="200" h="20" tab-order="21" z-order="21" visible="true" enabled="true" parent="CARD-DL">
-    <Property name="Caption">Nova data (dd/mm/aaaa)</Property>
+    <Property name="Caption">Nova data</Property>
     <Property name="ForegroundColor">#4B5563FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">13</Property>
@@ -533,18 +534,18 @@ Retirada:string</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Definition">Caption of the new delivery date field. It belongs to a screen of the PowerOficina workshop application.</Property>
   </Control>
-<Control id="TXT-DATE" type="TextBox" x="226" y="634" w="200" h="38" tab-order="22" z-order="22" visible="true" enabled="true" parent="CARD-DL">
+<Control id="DTP-DATE" type="DateTimePicker" x="226" y="634" w="200" h="38" tab-order="22" z-order="22" visible="true" enabled="true" parent="CARD-DL">
+    <Property name="Format">Custom</Property>
+    <Property name="CustomFormat">dd/MM/yyyy</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="ForegroundColor">#1E1B4BFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#D5D8E6</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="FontSize">14</Property>
-    <Property name="HintText">31/12/2026</Property>
-    <Property name="AccessibleLabel">New delivery date, day, month and year with slashes.</Property>
-    <Property name="InnerPadding">8</Property>
+    <Property name="AccessibleLabel">New delivery date: type day, month and year, or pick it from the calendar.</Property>
     <Property name="Anchor">Top,Left</Property>
-    <Property name="Definition">New delivery date, day, month and year with slashes.</Property>
+    <Property name="Definition">New delivery date, typed as day, month and year or picked from the calendar.</Property>
   </Control>
 <Control id="BTN-DATE" type="Button" x="446" y="632" w="300" h="42" tab-order="23" z-order="23" visible="true" enabled="true" parent="CARD-DL">
     <Property name="Caption">Alterar data e avisar cliente</Property>
@@ -566,7 +567,7 @@ Retirada:string</Property>
            SET     WS-ACTION                     TO    "D"
 
            *> DO-UPDATE: starts or finishes the selected service, or changes the delivery date.
-           *> Uses:   WS-ACTION (S, F or D), the selected row, TXT-QUO and TXT-DATE.
+           *> Uses:   WS-ACTION (S, F or D), the selected row, TXT-QUO and DTP-DATE.
            *> Result: the queue is read again and the status line shows the answer.
            CALL    "DO-UPDATE"
 ]]></Event>

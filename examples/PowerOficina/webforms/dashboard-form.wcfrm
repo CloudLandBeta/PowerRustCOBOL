@@ -689,6 +689,7 @@ Item:string</Property>
     <Property name="AllowSorting">1</Property>
     <Property name="ShowColumnFilters">1</Property>
     <Property name="AllowColumnResize">1</Property>
+    <Property name="AutoFitColumns">1</Property>
     <Property name="AllowColumnReorder">0</Property>
     <Property name="AllowRowResize">0</Property>
     <Property name="AllowCellEditing">0</Property>
@@ -738,6 +739,7 @@ Veículo:string</Property>
     <Property name="AllowSorting">1</Property>
     <Property name="ShowColumnFilters">1</Property>
     <Property name="AllowColumnResize">1</Property>
+    <Property name="AutoFitColumns">1</Property>
     <Property name="AllowColumnReorder">0</Property>
     <Property name="AllowRowResize">0</Property>
     <Property name="AllowCellEditing">0</Property>

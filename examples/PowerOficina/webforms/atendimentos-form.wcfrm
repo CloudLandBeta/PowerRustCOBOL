@@ -1,10 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="ATENDIMENTOS-FORM" title="Atendimentos" width="1192" height="852" background="#F7F8FCFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded" definition="Intake screen of the workshop: finds a vehicle by plate, registers or changes the customer (with consent per channel) and the vehicle, through the Backend programs VEHICLE-FIND, CUSTOMER-SAVE and VEHICLE-SAVE." index-base="1" responsive="true">
+  <user-procedures>
+    <Event name="FORMAT-PHONE" paragraph="FORMAT-PHONE"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           MOVE    SPACES                        TO    WS-PHONE-DIGITS
+           MOVE    0                             TO    WS-PHONE-COUNT
+
+           PERFORM VARYING WS-PHONE-POSITION FROM 1 BY 1 UNTIL WS-PHONE-POSITION > 20
+               IF    WS-PHONE-EDIT (WS-PHONE-POSITION:1) IS NUMERIC
+                   ADD     1                     TO    WS-PHONE-COUNT
+                   MOVE    WS-PHONE-EDIT (WS-PHONE-POSITION:1)
+                                                 TO    WS-PHONE-DIGITS (WS-PHONE-COUNT:1)
+               END-IF
+           END-PERFORM
+
+           EVALUATE    WS-PHONE-COUNT
+               WHEN 11
+                   MOVE    SPACES                TO    WS-PHONE-EDIT
+                   STRING    "(" WS-PHONE-DIGITS (1:2) ") " WS-PHONE-DIGITS (3:5) "-" WS-PHONE-DIGITS (8:4)
+                       INTO WS-PHONE-EDIT
+               WHEN 10
+                   MOVE    SPACES                TO    WS-PHONE-EDIT
+                   STRING    "(" WS-PHONE-DIGITS (1:2) ") " WS-PHONE-DIGITS (3:4) "-" WS-PHONE-DIGITS (7:4)
+                       INTO WS-PHONE-EDIT
+           END-EVALUATE
+]]></Event>
+  </user-procedures>
   <working-storage><![CDATA[       01 BE-CLASS                               GLOBAL    PIC X(16).
        01 BE-CODE                                GLOBAL    PIC 9(9).
        01 BE-MSG                                 GLOBAL    PIC X(80).
        01 WS-LINE                                GLOBAL    PIC X(120).
        01 WS-CUS-ID                              GLOBAL    PIC 9(8)    VALUE 0.
+       01 WS-PHONE-EDIT                          GLOBAL    PIC X(20).
+       01 WS-PHONE-DIGITS                        GLOBAL    PIC X(20).
+       01 WS-PHONE-COUNT                         GLOBAL    PIC 9(2).
+       01 WS-PHONE-POSITION                      GLOBAL    PIC 9(2).
        01 CUS-REQ                             GLOBAL.
           05 CRQ-ID                              PIC    9(8).
           05 CRQ-NAME                            PIC    X(60).
@@ -311,6 +344,21 @@
     <Property name="InnerPadding">8</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Definition">Customer phone. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Event name="onLostFocus" paragraph="TXT-PHONE--ONLOSTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-PHONE-EDIT                 TO    TXT-PHONE::Text
+
+           *> FORMAT-PHONE: writes a Brazilian phone number with its area code in parentheses and a hyphen.
+           *> Uses:   WS-PHONE-EDIT = the text of TXT-PHONE as it was typed.
+           *> Result: WS-PHONE-EDIT = (DD) NNNNN-NNNN when the text holds 11 digits and (DD) NNNN-NNNN when it
+           *>         holds 10; a text with any other number of digits is left as it was typed.
+           CALL    "FORMAT-PHONE"
+
+           SET     TXT-PHONE::Text               TO    WS-PHONE-EDIT
+]]></Event>
   </Control>
 <Control id="LBL-WHATSAPP" type="Label" x="56" y="522" w="300" h="20" tab-order="19" z-order="19" visible="true" enabled="true" parent="CARD-CUS">
     <Property name="Caption">WhatsApp</Property>
@@ -334,6 +382,21 @@
     <Property name="InnerPadding">8</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Definition">Customer WhatsApp number. It belongs to a screen of the PowerOficina workshop application.</Property>
+    <Event name="onLostFocus" paragraph="TXT-WHATSAPP--ONLOSTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           SET     WS-PHONE-EDIT                 TO    TXT-WHATSAPP::Text
+
+           *> FORMAT-PHONE: writes a Brazilian phone number with its area code in parentheses and a hyphen.
+           *> Uses:   WS-PHONE-EDIT = the text of TXT-WHATSAPP as it was typed.
+           *> Result: WS-PHONE-EDIT = (DD) NNNNN-NNNN when the text holds 11 digits and (DD) NNNN-NNNN when it
+           *>         holds 10; a text with any other number of digits is left as it was typed.
+           CALL    "FORMAT-PHONE"
+
+           SET     TXT-WHATSAPP::Text            TO    WS-PHONE-EDIT
+]]></Event>
   </Control>
 <Control id="LBL-EMAIL" type="Label" x="56" y="586" w="300" h="20" tab-order="21" z-order="21" visible="true" enabled="true" parent="CARD-CUS">
     <Property name="Caption">Email</Property>
