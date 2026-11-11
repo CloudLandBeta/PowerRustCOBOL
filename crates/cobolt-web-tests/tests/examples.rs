@@ -9,9 +9,10 @@
 //! the handler shows. The suite copies it, checks it, builds it with the real Build, scans its whole tree for
 //! secrets, starts its Backend in process and calls `HELLO`, and loads the page in the system web view.
 //!
-//! The one thing not run here is the click that reaches the Backend *from the page*: the page speaks `ws://` on
-//! a loopback address, the test kit's server speaks TLS with a certificate no web view trusts. That step is
-//! open (`tasks.md`, T22b); every other step of AC12 is checked below.
+//! The click that reaches the Backend *from the page* is not run here: the page speaks `ws://` on a loopback
+//! address, the test kit's server speaks TLS with a certificate no web view trusts. It is
+//! `example_click_chrome.rs` (T22b), which runs the example's Backend as the Preview does and clicks in Chrome;
+//! every other step of AC12 is checked below.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

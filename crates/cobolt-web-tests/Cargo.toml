@@ -20,3 +20,9 @@ cobolt-web-bundle    = { path = "../cobolt-web-bundle" }
 cobolt-codegen       = { path = "../cobolt-codegen" }
 cobolt-mcp           = { path = "../cobolt-mcp" }
 tokio                = { workspace = true }
+# The headless-Chrome DevTools client the Chrome tests share (`cobolt-web-bundle/tests/support/cdp.rs`, reached by path):
+# its dependencies, the same versions the project-tools tests use, all already in the lock file.
+tempfile             = "3"
+tungstenite          = { version = "0.28", default-features = false, features = ["handshake"] }
+png                  = "0.17"
+base64               = "0.22"

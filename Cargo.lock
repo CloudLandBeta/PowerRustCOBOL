@@ -2695,6 +2695,7 @@ dependencies = [
 name = "cobolt-web-tests"
 version = "0.2.0"
 dependencies = [
+ "base64 0.22.1",
  "cobolt-codegen",
  "cobolt-forms",
  "cobolt-mcp",
@@ -2702,8 +2703,11 @@ dependencies = [
  "cobolt-server",
  "cobolt-wasm",
  "cobolt-web-bundle",
+ "png 0.17.16",
  "serde_json",
+ "tempfile",
  "tokio",
+ "tungstenite 0.28.0",
 ]
 
 [[package]]
