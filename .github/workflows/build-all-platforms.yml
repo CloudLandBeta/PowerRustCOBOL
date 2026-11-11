@@ -172,6 +172,12 @@ jobs:
         shell: bash
         env:
           PRC_REQUIRE_WEBVIEW: "1"
+          # The first run of this step on GitHub (run 49) failed one test on Linux with `WebKitGTK:
+          # There was an error creating the snapshot`: Xvfb has no graphics card, so WebKitGTK is told
+          # to draw in software. (Read by the Linux cell only; the other systems ignore them.)
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+          LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
           set -euo pipefail
           if [ "$RUNNER_OS" = "Linux" ]; then run="xvfb-run -a"; else run=""; fi
@@ -1364,6 +1370,11 @@ jobs:
       # binaries at once, which is what a full disk looks like to a memory-mapped output file. The tests
       # read no debug info, so the job builds without it. The `df` step at the end prints what is left.
       CARGO_PROFILE_DEV_DEBUG: "0"
+      # WebKitGTK under Xvfb has no graphics card: it draws in software or takes no snapshot.
+      # (Read by the Linux cell only; the other systems ignore them.)
+      WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+      WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+      LIBGL_ALWAYS_SOFTWARE: "1"
     steps:
       - uses: actions/checkout@v7
 
@@ -1377,7 +1388,10 @@ jobs:
             libasound2-dev \
             libwebkit2gtk-4.1-dev xvfb
 
+      # The player build the browser tests run compiles the player for `wasm32-unknown-unknown`.
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -1386,6 +1400,52 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      # About thirty browser tests build the player from source (`built_player()`, which runs
+      # `examples/build_player.rs`), and that build runs two tools no runner image carries: the
+      # `wasm-bindgen` CLI, whose version must equal the one the crate pins (WASM_BINDGEN in
+      # build_player.rs), and Binaryen's `wasm-opt`. The first run of this job stopped on every one
+      # of them with `tool runs: ... NotFound`. Each tool is its project's own release archive,
+      # checked against the checksum that release publishes.
+      - name: Install the wasm tools the player build runs
+        shell: bash
+        env:
+          WASM_BINDGEN_VERSION: "0.2.129"
+          BINARYEN_VERSION: "version_133"
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64)   bindgen_target=x86_64-unknown-linux-musl; binaryen_target=x86_64-linux ;;
+            macOS-ARM64) bindgen_target=aarch64-apple-darwin;      binaryen_target=arm64-macos ;;
+            Windows-X64) bindgen_target=x86_64-pc-windows-msvc;    binaryen_target=x86_64-windows ;;
+            *) echo "no wasm tools are listed for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          esac
+          # A POSIX path on every system: GNU tar reads `D:\...` as a host name.
+          dir="$(cd "$RUNNER_TEMP" && pwd)/wasm-tools"
+          mkdir -p "$dir"
+          # fetch <archive url> <checksum url>: download, verify, unpack into $dir.
+          fetch() {
+            local file="${1##*/}" want got
+            curl -fsSL --retry 3 -o "$dir/$file" "$1"
+            curl -fsSL --retry 3 -o "$dir/$file.sum" "$2"
+            want=$(awk '{print $1}' "$dir/$file.sum")
+            if command -v sha256sum >/dev/null; then got=$(sha256sum "$dir/$file" | awk '{print $1}'); else got=$(shasum -a 256 "$dir/$file" | awk '{print $1}'); fi
+            test "$want" = "$got" || { echo "$file: checksum is $got, the release publishes $want"; exit 1; }
+            tar xzf "$dir/$file" -C "$dir"
+          }
+          bindgen="wasm-bindgen-$WASM_BINDGEN_VERSION-$bindgen_target"
+          base="https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$WASM_BINDGEN_VERSION"
+          fetch "$base/$bindgen.tar.gz" "$base/$bindgen.tar.gz.sha256sum"
+          binaryen="binaryen-$BINARYEN_VERSION-$binaryen_target"
+          base="https://github.com/WebAssembly/binaryen/releases/download/$BINARYEN_VERSION"
+          fetch "$base/$binaryen.tar.gz" "$base/$binaryen.tar.gz.sha256"
+          for d in "$dir/$bindgen" "$dir/binaryen-$BINARYEN_VERSION/bin"; do
+            if [ "$RUNNER_OS" = "Windows" ]; then cygpath -w "$d" >> "$GITHUB_PATH"; else echo "$d" >> "$GITHUB_PATH"; fi
+          done
+          # What the tests will find (this step's own PATH does not carry the two folders yet).
+          PATH="$dir/$bindgen:$dir/binaryen-$BINARYEN_VERSION/bin:$PATH"
+          wasm-bindgen --version
+          wasm-opt --version
 
       # The browser runner finds the helper next to the test binaries; build it first.
       - name: Build the headless web view helper
