@@ -1756,6 +1756,11 @@ uma mudança que vale a pena conhecer, um evento. O IDE o mostra em uma janela i
 - **Quando.** O IDE procura por um quando inicia e a cada seis horas enquanto
   roda. Ele espera até que nenhum diálogo de primeira execução, convite de configuração de IA, assistente
   de agente, janela de compilação ou Walkthrough esteja na tela.
+- **No seu idioma.** A janela mostra o anúncio no idioma em que o IDE está configurado:
+  inglês, espanhol, português, japonês, chinês ou francês. Quando a equipe ainda não
+  publicou um no seu idioma, o IDE mostra o anúncio em inglês. Se você mudar o idioma do IDE, o
+  anúncio no novo idioma é lido na próxima verificação e também é mostrado uma vez. O
+  COBOL, os comandos e os caminhos de arquivo que ele contém nunca são traduzidos.
 - **Uma vez por anúncio.** Feche a janela (o seu botão **Close** ou o seu ×)
   e esse anúncio não é mostrado de novo nesta máquina. Um anúncio novo ou alterado
   é mostrado mais uma vez. Se você sair sem fechá-la, ela é mostrada
@@ -1763,7 +1768,12 @@ uma mudança que vale a pena conhecer, um evento. O IDE o mostra em uma janela i
 - **Sem anúncio, sem janela.** Nada é mostrado quando nenhum está publicado, quando
   não há rede ou quando o GitHub não pode ser alcançado, e nenhuma mensagem
   é mostrada também.
-- **De onde ele vem.** A página é `announcements/announcement.html` no
+- **Ver de novo.** Escolha **Help ▸ What's new** para abrir o anúncio a qualquer
+  momento, no idioma em que o IDE está configurado, mesmo um que você já tenha fechado.
+  Ele não espera que um diálogo seja fechado antes. Se não houver nenhum para mostrar,
+  ou se não houver rede, o painel Output avisa.
+- **De onde ele vem.** A página é `announcements/announcement.html` (inglês) ou
+  `announcements/announcement.<code>.html` (`es`, `pt`, `ja`, `zh`, `fr`) no
   repositório do PowerRustCOBOL no GitHub. O IDE a lê como lê a última
   versão para a verificação de atualização, sem enviar nada além da sua versão.
 - **Como ele é desenhado.** A página é desenhada pelo mesmo motor de um controle **Viewer**

@@ -1754,13 +1754,23 @@ un cambio que conviene conocer, un evento. El IDE lo muestra en una ventana titu
 - **Cuándo.** El IDE busca uno cuando arranca y cada seis horas mientras
   se ejecuta. Espera hasta que no haya en pantalla ningún diálogo de primer arranque, invitación de configuración de IA, asistente de agentes,
   ventana de compilación ni Walkthrough.
+- **En su idioma.** La ventana muestra el anuncio en el idioma en que está configurado
+  el IDE: inglés, español, portugués, japonés, chino o francés. Cuando el equipo aún no ha
+  publicado uno en su idioma, el IDE muestra el inglés. Si cambia el idioma del IDE, el
+  anuncio en el idioma nuevo se lee en la siguiente comprobación y también se muestra una
+  vez. El COBOL, los comandos y las rutas de archivo que contiene nunca se traducen.
 - **Una vez por anuncio.** Cierre la ventana (su botón **Close** o su ×)
   y ese anuncio no se vuelve a mostrar en este equipo. Un anuncio nuevo o modificado
   se muestra una vez más. Si sale sin cerrarlo, se muestra
   en el siguiente arranque.
 - **Sin anuncio, sin ventana.** No se muestra nada cuando no hay ninguno publicado, cuando
   no hay red o cuando no se puede llegar a GitHub, y tampoco se muestra ningún mensaje.
-- **De dónde viene.** La página es `announcements/announcement.html` en el
+- **Verlo otra vez.** Elija **Help ▸ What's new** para abrir el anuncio en cualquier
+  momento, en el idioma en que está configurado el IDE, incluso uno que ya haya cerrado.
+  No espera a que se cierre un diálogo. Si no hay ninguno que mostrar, o no hay red, el
+  panel Output lo indica.
+- **De dónde viene.** La página es `announcements/announcement.html` (inglés) o
+  `announcements/announcement.<code>.html` (`es`, `pt`, `ja`, `zh`, `fr`) en el
   repositorio de PowerRustCOBOL en GitHub. El IDE la lee como lee la última
   versión para la comprobación de actualizaciones, sin enviar nada más que su versión.
 - **Cómo se dibuja.** La página la dibuja el mismo motor que un control **Viewer**

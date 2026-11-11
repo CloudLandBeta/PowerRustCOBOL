@@ -1951,6 +1951,12 @@ l'affiche dans une fenêtre intitulée **What's going on**, à 70 % de l'écran.
   qu'il s'exécute. Il attend qu'aucune boîte de dialogue de premier lancement,
   invitation à la configuration de l'IA, assistant d'agent, fenêtre de compilation
   ou visite guidée ne soit à l'écran.
+- **Dans votre langue.** La fenêtre affiche l'annonce dans la langue réglée dans
+  l'IDE : anglais, espagnol, portugais, japonais, chinois ou français. Lorsque
+  l'équipe n'en a pas encore publié dans votre langue, l'IDE affiche celle en
+  anglais. Si vous changez la langue de l'IDE, l'annonce dans la nouvelle langue est
+  lue à la vérification suivante et affichée une fois elle aussi. Le COBOL, les
+  commandes et les chemins de fichiers qu'elle contient ne sont jamais traduits.
 - **Une fois par annonce.** Fermez la fenêtre (son bouton **Close** ou sa ×) et
   cette annonce n'est plus affichée sur cette machine. Une annonce nouvelle ou
   modifiée est affichée une fois de plus. Si vous quittez sans l'avoir fermée,
@@ -1958,7 +1964,12 @@ l'affiche dans une fenêtre intitulée **What's going on**, à 70 % de l'écran.
 - **Pas d'annonce, pas de fenêtre.** Rien n'est affiché lorsqu'aucune n'est
   publiée, lorsque le réseau n'est pas là ou lorsque GitHub est injoignable, et
   aucun message n'est affiché non plus.
-- **D'où elle vient.** La page est `announcements/announcement.html` dans le dépôt
+- **L'afficher de nouveau.** Choisissez **Help ▸ What's new** pour ouvrir l'annonce
+  à tout moment, dans la langue réglée dans l'IDE, même une que vous avez déjà
+  fermée. Elle n'attend pas qu'une boîte de dialogue soit fermée. S'il n'y en a
+  aucune à afficher, ou si le réseau n'est pas là, le panneau Output le dit.
+- **D'où elle vient.** La page est `announcements/announcement.html` (anglais) ou
+  `announcements/announcement.<code>.html` (`es`, `pt`, `ja`, `zh`, `fr`) dans le dépôt
   PowerRustCOBOL sur GitHub. L'IDE la lit comme il lit la dernière version pour la
   vérification des mises à jour, sans rien envoyer d'autre que sa version.
 - **Comment elle est dessinée.** La page est dessinée par le même moteur qu'un
