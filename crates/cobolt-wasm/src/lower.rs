@@ -2250,6 +2250,10 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     pub(crate) fn store_to(&mut self, target: &Expr, rounded: bool, phrase: bool, dup: bool) -> GenResult<()> {
+        // A control property is not a data item: the sum goes to the host as text.
+        if matches!(target, Expr::Member { .. }) {
+            return self.store_to_member(target, rounded, dup);
+        }
         let dst = self.receiver(target)?;
         if dup {
             self.i32c(0);

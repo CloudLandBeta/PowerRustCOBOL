@@ -251,6 +251,31 @@ impl Lower<'_, '_> {
         Ok(())
     }
 
+    /// A control property as the receiving field of `ADD`, `SUBTRACT`, `MULTIPLY`, `DIVIDE` or
+    /// `COMPUTE` (`ADD 1 TO NUD-1::Value`): the result on the top register goes into a temporary and
+    /// from there to the host as text, as `MOVE <expression> TO Ctrl::Property` does. `operand`
+    /// reads a property; storing into what it answers raised COBOL run-time error 104 (a bad
+    /// operand) on the page. `dup` keeps the result for the next receiver.
+    pub(crate) fn store_to_member(&mut self, target: &Expr, rounded: bool, dup: bool) -> GenResult<()> {
+        let line = target.span().line;
+        if rounded {
+            return self.err(line, "ROUNDED is not supported with a control property as the receiving field");
+        }
+        let k = self.temp_next;
+        if k >= cobolt_wasm_rt::state::NTEMP as u32 {
+            return self.err(line, "this statement needs more than eight computed operands");
+        }
+        self.temp_next += 1;
+        if dup {
+            self.i32c(0);
+            self.call_rt("rt_pick");
+        }
+        self.i32c(k as i32);
+        self.call_rt("rt_save_temp");
+        let src = self.pool.opd_temp(k);
+        self.member_set(target, src, line)
+    }
+
     /// A control property as the receiving field of `STRING`: its current text
     /// in a character temporary widened to the temporary's full capacity, so
     /// the statement can write into it. Answers the temporary's index and its
