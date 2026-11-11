@@ -10186,7 +10186,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
     <Property name="AlignSelf">Auto</Property>
-    <Property name="Anchor">Top,Left</Property>
+    <Property name="Anchor">Left</Property>
     <Property name="ColumnSpan">1</Property>
     <Property name="Dock">None</Property>
     <Property name="FlexBasis">Auto</Property>
@@ -10236,7 +10236,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
     <Property name="AlignSelf">Auto</Property>
-    <Property name="Anchor">Top,Left</Property>
+    <Property name="Anchor">Left</Property>
     <Property name="ColumnSpan">1</Property>
     <Property name="Dock">None</Property>
     <Property name="FlexBasis">Auto</Property>
@@ -11846,7 +11846,7 @@
     <Property name="ScaleFont">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-D2-C" type="Label" x="1201" y="618" w="100" h="24" tab-order="108" z-order="107" visible="true" enabled="true" parent="C-DONUT2">
+  <Control id="LBL-D2-C" type="Label" x="1201" y="609" w="100" h="24" tab-order="108" z-order="107" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -11896,7 +11896,7 @@
     <Property name="ScaleFont">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-D2-S" type="Label" x="1201" y="642" w="100" h="14" tab-order="109" z-order="108" visible="true" enabled="true" parent="C-DONUT2">
+  <Control id="LBL-D2-S" type="Label" x="1201" y="633" w="100" h="14" tab-order="109" z-order="108" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption">fundos</Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>

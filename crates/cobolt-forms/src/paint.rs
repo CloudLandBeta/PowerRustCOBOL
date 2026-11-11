@@ -13969,6 +13969,14 @@ pub fn chart_frame(ctrl: &Control, rect: egui::Rect) -> ChartFrame {
     let mut margin_b = rect.height() * 0.12 + cap_h + legend_h + cat_h;
     let mut margin_t = (rect.height() * 0.12).max(title_band);
     let mut margin_r = rect.width() * 0.04 + legend_w;
+    if is_pie {
+        // A pie or donut has no Y axis to leave room for on the left: both sides keep the same room (the 10 % and 4 % the
+        // other charts use add up to the 14 % these two keep), so the ring is drawn in the MIDDLE of its control, and a label a
+        // form puts in a donut's hole, centred on the control, is in the hole (2.0.413). Only what the properties ask for (a
+        // Y caption on the left, the legend on the right) makes one side wider.
+        margin_l = rect.width() * 0.07 + cap_w;
+        margin_r = rect.width() * 0.07 + legend_w;
+    }
     if ctrl.control_type == CT::RadarChart {
         // A radar centres its circle in the plot and hangs the axis captions
         // off the rim INSIDE it (`chart::radar_layout`), so the margins hold
@@ -25220,6 +25228,38 @@ slice = [4, 4, 4, 4]
         let bare = chart_frame(&bar_chart(&[("__ChartData", MONTHS), ("ShowXAxis", "false")]), Rect::from_min_size(Pos2::ZERO, Vec2::new(420.0, 260.0)));
         let unlabelled = chart_frame(&bar_chart(&[("__ChartData", "\t5\t3\n\t6\t4")]), Rect::from_min_size(Pos2::ZERO, Vec2::new(420.0, 260.0)));
         assert_eq!((bare.cat_h, unlabelled.cat_h), (0.0, 0.0), "and no band kept for them");
+    }
+
+    /// 2.0.413: a pie or donut is drawn in the MIDDLE of its control. The plot frame kept the room of a Y axis on the left (10 %)
+    /// and 4 % on the right, which put every ring 3 % of the width right of the middle, so a label a form centres on the control
+    /// (the PowerAnalytics donuts' "43.701 / fundos") sat left of the hole. Only what the properties ask for moves a side.
+    #[test]
+    fn a_pie_and_a_donut_are_drawn_in_the_middle_of_their_control() {
+        let frame = |ty: CT, props: &[(&str, &str)]| {
+            let mut c = bar_chart(props);
+            c.control_type = ty;
+            c.rect = crate::model::Rect::new(0, 0, 302, 204);
+            chart_frame(&c, Rect::from_min_size(Pos2::ZERO, Vec2::new(302.0, 204.0)))
+        };
+        let mut report = Vec::new();
+        for ty in [CT::PieChart, CT::DonutChart] {
+            let plain = frame(ty.clone(), &[("ShowLegend", "false")]);
+            let (cx, cy) = (plain.plot.center().x, plain.plot.center().y);
+            report.push(format!("{ty:?}: ring middle ({cx:.2}, {cy:.2}) in a 302 x 204 control (middle 151, 102)"));
+            assert!((cx - 151.0).abs() < 0.01 && (cy - 102.0).abs() < 0.01, "{ty:?}: the ring's middle is ({cx}, {cy}), not the control's (151, 102)");
+            // The ring keeps the size it always had: the two margins still add up to 14 % of the width.
+            assert!((plain.plot.width() - 302.0 * 0.86).abs() < 0.01, "{ty:?}: width {}", plain.plot.width());
+            // A legend on the right makes the right side wider and nothing else; a Y caption makes the left side wider.
+            let legend = frame(ty.clone(), &[("ShowLegend", "true")]);
+            assert!((legend.plot.min.x - plain.plot.min.x).abs() < 0.01, "{ty:?}: a legend leaves the left side alone");
+            assert!(legend.plot.max.x < plain.plot.max.x - 1.0, "{ty:?}: a legend takes room from the right side");
+            let caption = frame(ty.clone(), &[("ShowLegend", "false"), ("YAxisLabel", "Total")]);
+            assert!(caption.plot.min.x > plain.plot.min.x + 1.0, "{ty:?}: a Y caption takes room from the left side");
+        }
+        // The charts that have axes keep the room of a Y axis on the left.
+        let bar = chart_frame(&bar_chart(&[]), Rect::from_min_size(Pos2::ZERO, Vec2::new(302.0, 204.0)));
+        assert!(bar.plot.center().x > 151.0 + 5.0, "a bar chart's plot still starts further from the left than it ends from the right");
+        println!("pie and donut centred: {}", report.join("; "));
     }
 
     /// The LAST full-size paint on a chart's frame is the developer's own

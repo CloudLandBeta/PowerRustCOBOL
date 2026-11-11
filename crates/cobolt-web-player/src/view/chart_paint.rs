@@ -267,6 +267,12 @@ fn frame(c: &Ctx) -> Frame {
     let mut margin_b = c.h * 0.12 + cap_h + legend_h + cat_h;
     let mut margin_t = (c.h * 0.12).max(title_band);
     let mut margin_r = c.w * 0.04 + legend_w;
+    if is_pie {
+        // As `paint::chart_frame`: a pie or donut has no Y axis to leave room for, so both sides keep the same room and the
+        // ring is drawn in the middle of its control (2.0.413). A form's label in a donut's hole is centred on the control.
+        margin_l = c.w * 0.07 + cap_w;
+        margin_r = c.w * 0.07 + legend_w;
+    }
     if c.ty == ControlType::RadarChart {
         margin_l = c.w * 0.02;
         margin_r = c.w * 0.02;
@@ -1168,6 +1174,36 @@ mod tests {
             assert!(step >= row, "entries {step} px apart, text {row} px tall: they overlap");
             assert!((step - pitch).abs() < 1e-6, "step {step}, pitch {pitch}");
         }
+    }
+
+    /// 2.0.413: a pie or donut is drawn in the MIDDLE of its control, as `paint::chart_frame` now has it. The frame kept the
+    /// room of a Y axis on the left (10 %) and 4 % on the right, which put the ring 3 % of the width right of the middle: a
+    /// label a form centres on the control (PowerAnalytics' "43.701 / fundos") sat 9 px left of the hole on a 302 px chart.
+    #[test]
+    fn a_pie_and_a_donut_are_drawn_in_the_middle_of_their_control() {
+        let mut report = Vec::new();
+        for (kind, w, h) in [("DonutChart", 302.0, 204.0), ("DonutChart", 120.0, 300.0), ("PieChart", 200.0, 200.0)] {
+            let (t, i) = crate::tree::testing::tree_with(
+                kind,
+                "CH",
+                &[("ShowLegend", "false"), ("ShowLabels", "false"), ("InnerRadius", "66"), ("Width", &w.to_string()), ("Height", &h.to_string())],
+            );
+            let e = super::super::Empty::default();
+            let n = chart(&e.cx(&t), i).expect("a pie is drawn by this painter");
+            let mut slices = Vec::new();
+            n.find_all(&|v| v.tag == "polygon", &mut slices);
+            assert!(!slices.is_empty(), "{kind}: the sample slices are drawn");
+            let pts: Vec<(f64, f64)> = slices
+                .iter()
+                .flat_map(|s| s.attr_of("points").unwrap_or("").split(' ').filter_map(|p| p.split_once(',').and_then(|(x, y)| Some((x.parse::<f64>().ok()?, y.parse::<f64>().ok()?)))).collect::<Vec<_>>())
+                .collect();
+            let (min_x, max_x) = pts.iter().fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p.0), a.1.max(p.0)));
+            let (min_y, max_y) = pts.iter().fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p.1), a.1.max(p.1)));
+            let (mx, my) = ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
+            report.push(format!("{kind} {w}x{h}: ring middle ({mx:.2}, {my:.2}), control middle ({:.0}, {:.0})", w / 2.0, h / 2.0));
+            assert!((mx - w / 2.0).abs() < 0.2 && (my - h / 2.0).abs() < 0.2, "{kind} {w}x{h}: the ring's middle is ({mx:.2}, {my:.2}), not the control's ({}, {})", w / 2.0, h / 2.0);
+        }
+        println!("pie and donut centred on the web: {}", report.join("; "));
     }
 
     /// The desktop painter's BarChart fixtures (`paint::elegance_tests::MONTHS`, `PAYMENTS`): 420 × 260 at the
