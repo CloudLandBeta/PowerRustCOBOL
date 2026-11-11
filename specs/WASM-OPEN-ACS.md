@@ -32,7 +32,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | Spec | Open ACs | Class |
 |---|---|---|
 | [WASM-001-project-types-and-ide-entries](#wasm-001-project-types-and-ide-entries) | 1 | `gap` |
-| [WASM-002-wasm-build-target-and-host-page](#wasm-002-wasm-build-target-and-host-page) | 3 | `blocked-hardware`, `gap` |
+| [WASM-002-wasm-build-target-and-host-page](#wasm-002-wasm-build-target-and-host-page) | 2 | `blocked-hardware` |
 | [WASM-003-backend-project-and-secure-channel](#wasm-003-backend-project-and-secure-channel) | 11 | `unaudited` |
 | [WASM-004-control-reuse-on-the-web](#wasm-004-control-reuse-on-the-web) | 13 | `unaudited` |
 | [WASM-005-websocket-call-and-remote-data](#wasm-005-websocket-call-and-remote-data) | 11 | `unaudited` |
@@ -49,7 +49,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | [WASM-017-module-architecture-and-js-boundary](#wasm-017-module-architecture-and-js-boundary) | 15 | `unaudited` |
 | [WASM-018-canvas-and-graphics-objects](#wasm-018-canvas-and-graphics-objects) | 14 | `unaudited` |
 | [WASM-036-stylesheet-values-in-designer-and-properties](#wasm-036-stylesheet-values-in-designer-and-properties) | 1 | `blocked-operator` |
-| **Total** | **168** | |
+| **Total** | **167** | |
 
 ## WASM-001-project-types-and-ide-entries
 
@@ -61,17 +61,16 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## WASM-002-wasm-build-target-and-host-page
 
-**3 open**: AC4 and AC6 are `blocked-hardware`, AC7 is a `gap`. The iOS web view cell of the matrix was measured on 2026-11-10 (2.0.407; see AC7); the Safari-on-a-Mac and Android WebView-on-a-device cells still cannot be measured here (Firefox is out of scope by the operator's ruling of 2026-11-10: global share below 3 %, about 1.9 % in the U.S.); the Mobile build is WASM-012.
+**2 open**, both `blocked-hardware`: AC4 and AC6. AC7 was ticked on 2026-11-10 (2.0.411): the Android package shows the form on the emulator, and the iOS package, the development application for the iOS simulator, shows it on an iPhone 18 Pro (the store archive is WASM-012 AC1). The iOS web view cell of the matrix was measured the same day (2.0.407); the Safari-on-a-Mac and Android WebView-on-a-device cells still cannot be measured here (Firefox is out of scope by the operator's ruling of 2026-11-10: global share below 3 %, about 1.9 % in the U.S.); the Mobile build is WASM-012.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|
 | AC4 | `blocked-hardware` | A program in the subset, run on the desktop runtime and as the generated module (headless), prints identical output for a fixed set of programs; the conformance list and its numbers are WASM-010 R16 and AC7–AC8, which is what R4's "behave as" is measured against. | WASM-010 parity gate (not here) |
-| AC6 | `blocked-hardware` | Missing-tool messages for each tool of R6 appear when that tool is absent (tested by hiding it from `PATH`). | T18 (Web half); Mobile half WASM-012 |
-| AC7 | `gap` | The Mobile build produces an Android package and (on macOS) an iOS package from the same project; both start and show the form. **Android half measured 2026-11-10:** the APK builds (42 MB, 12 s) and shows the form on the emulator. **iOS half open, and not for want of a tool:** the iOS package step is not written (Build answers `package.built: false`); Xcode 27.2, `xcodegen` and the simulators are in place. **What the iOS simulator did measure on 2026-11-10 (2.0.407, iPhone 18 Pro, iOS 27.2, Mobile Safari):** an iPhone project's bundle carries the single-memory program module only, and the Web kind carries both; on the Web bundle the loader chose the threaded player and `program.single`, the form drew, typing reached the text box, a tap ran `onClick`, and the Backend call answered "Hello, Ada" in 45.4 ms (without a Backend: run-time error 1110 at the handler's line, the application kept running). So the old claim "no single-memory module for Safari / the iOS web view" no longer holds. | T23 → WASM-012 |
+| AC6 | `blocked-hardware` | Missing-tool messages for each tool of R6 appear when that tool is absent (tested by hiding it from `PATH`). **iOS tools tested 2026-11-10 (2.0.411), at the facts the build gathers, not by emptying `PATH`:** with Xcode (absent, and older than 16), XcodeGen, `idevicesyslog`, CocoaPods, `tauri-cli` and the `aarch64-apple-ios-sim` target withheld in turn, `ios_problems` names the one that is missing with the command that gets it (7 cases, 1 problem each), and no step installs anything; the reading of each tool from `PATH` and the Homebrew folders is a separate test. | T18 (Web half); Mobile half WASM-012 |
 
 ## WASM-003-backend-project-and-secure-channel
 
-**10 open.** AC5 (phase C: the call that waits, the resume, the queued events) was audited against the code on 2026-11-10 (2.0.406) and ticked in `spec.md`; its row is gone. The implementing tasks of the other ten are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
+**11 open.** The implementing tasks are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|
@@ -109,7 +108,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## WASM-005-websocket-call-and-remote-data
 
-**10 open.** AC5 (phase C: the call that waits, the resume, the queued events) was audited against the code on 2026-11-10 (2.0.406) and ticked in `spec.md`; its row is gone. The implementing tasks of the other ten are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
+**11 open.** The implementing tasks are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|
@@ -245,7 +244,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## WASM-014-backend-contract-and-evolution
 
-**10 open.** AC5 (phase C: the call that waits, the resume, the queued events) was audited against the code on 2026-11-10 (2.0.406) and ticked in `spec.md`; its row is gone. The implementing tasks of the other ten are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
+**11 open.** The implementing tasks are done and their tests exist, but nobody has ticked these boxes against the code, one criterion at a time.
 
 | AC | Class | What it says | Verified in |
 |---|---|---|---|

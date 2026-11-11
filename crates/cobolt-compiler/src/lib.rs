@@ -6596,7 +6596,7 @@ and unavailable); the coding-agent `create_project` tool takes `kind`
 |---|---|---|---|---|
 | Desktop | `forms/` | `<name>.cfrm` | Forms | a native executable in `bin/` |
 | Web | `webforms/` | `<name>.wcfrm` | WebForms | a static WebAssembly bundle in `dist/web/` |
-| Mobile | `mobileforms/` | `<name>.mcfrm` | MobileForms | the same bundle, then for Android the installable package `dist/mobile/android/<Name>-debug.apk` (the iOS package step is not finished yet) |
+| Mobile | `mobileforms/` | `<name>.mcfrm` | MobileForms | the same bundle, then for Android the installable package `dist/mobile/android/<Name>-debug.apk`, and for iOS (on a Mac with Xcode 16 or later) the application the iOS simulator runs, `dist/mobile/ios/<Name>-debug.app` (a release archive for a device or the store needs your Apple developer account and is not built yet) |
 
 Every kind lists its forms under `[files] forms`. The three form files are one
 format; only the name differs. A form named for another kind (a `.cfrm` in a Web

@@ -29,8 +29,20 @@
 //! read from the build's environment (D-Sign) — are made to it in the staging folder each build.
 //! The signing passwords reach Gradle only as environment variables of the build process: they are
 //! never written to a file.
+//!
+//! **iOS** ([`build_ios`], WASM-012 R1, T11 iOS half) is the same four steps with Xcode in place of
+//! Gradle, on a Mac only: the package is the **simulator** application (`dist/mobile/ios/<Name>-debug.app`,
+//! Apple silicon). A release archive needs the developer's Apple team, identity and provisioning
+//! profile and is refused with the reason (R5). What Tauri's `ios init` generates (an XcodeGen
+//! project) lives in the staging folder too; the orientation, the version, the name under the icon
+//! and its translations reach it through the files Tauri itself merges at every build
+//! (`Info.ios.plist`) and the `InfoPlist.strings` of each language, never by editing a generated
+//! file. [`IosToolchain`] checks Xcode, XcodeGen, libimobiledevice and CocoaPods first and names
+//! each one that is missing with the command that installs it: `ios init` would install them by
+//! itself, which this program never lets it do.
 
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -61,6 +73,12 @@ pub const PACKAGE_SUBDIR: &str = "dist/mobile";
 
 /// The Web bundle a package wraps, inside the project.
 pub const BUNDLE_SUBDIR: &str = "dist/web";
+
+/// What the Tauri command line calls the iOS simulator of an Apple-silicon Mac (`--target`), the Rust
+/// target it compiles to, and the folder under `gen/apple/build/` it writes the application in.
+pub const IOS_TAURI_TARGET: &str = "aarch64-sim";
+pub const IOS_RUST_TARGET: &str = "aarch64-apple-ios-sim";
+const IOS_BUILD_SUBDIR: &str = "arm64-sim";
 
 /// The environment variables the generated Gradle project reads the release signing from.
 pub const ENV_KEYSTORE: &str = "PRC_ANDROID_KEYSTORE";
@@ -194,9 +212,14 @@ impl PackageRequest {
         self.settings.display_name("en", &self.project_name)
     }
 
-    /// Where the package is copied in the project.
+    /// Where the package is copied in the project: an `.apk` for Android, an `.app` folder (the
+    /// application the simulator installs) for iOS.
     pub fn package_path(&self) -> PathBuf {
-        let file = format!("{}-{}.apk", file_stem(&self.project_name), self.profile.as_str());
+        let extension = match self.settings.platform {
+            MobilePlatform::Android => "apk",
+            MobilePlatform::Ios => "app",
+        };
+        let file = format!("{}-{}.{extension}", file_stem(&self.project_name), self.profile.as_str());
         self.project_dir.join(PACKAGE_SUBDIR).join(self.settings.platform.as_str()).join(file)
     }
 }
@@ -348,7 +371,14 @@ fn check_parts(req: &PackageRequest, signing: Option<&SigningSecrets>, with_bund
             }
         }
     };
-    if req.profile == Profile::Release {
+    if req.profile == Profile::Release && s.platform == MobilePlatform::Ios {
+        // R5: never an unsigned archive, never one signed with a development identity. The archive
+        // needs the Apple developer account's material, which this program neither holds nor tests.
+        problems.push(
+            "an iOS release archive needs your Apple developer team, signing identity and provisioning profile, and this version does not build it; build the development package (Debug), which runs on the iOS simulator"
+                .to_owned(),
+        );
+    } else if req.profile == Profile::Release {
         let sg = &s.signing;
         if sg.android_keystore.trim().is_empty() || sg.android_alias.trim().is_empty() {
             problems.push("a release package needs the keystore and the key's alias (Mobile settings, Signing)".to_owned());
@@ -454,9 +484,16 @@ pub fn app_entry(app_id: &str, title: &str, style: ApplicationStyle) -> String {
 
 /// The staged `tauri.conf.json`.
 pub fn tauri_conf(req: &PackageRequest, c: &Checked) -> Value {
+    // The name under an Android icon is the product's name. On iOS the product name is the name of
+    // the Xcode target, the executable and the `.app` folder: a file-safe one, while the name under
+    // the icon (`CFBundleDisplayName`, with its translations) is written to `Info.ios.plist`.
+    let product = match req.settings.platform {
+        MobilePlatform::Android => req.display_name().to_owned(),
+        MobilePlatform::Ios => file_stem(&req.project_name),
+    };
     let mut conf = json!({
         "$schema": "https://schema.tauri.app/config/2",
-        "productName": req.display_name(),
+        "productName": product,
         "version": req.version.trim(),
         "identifier": c.app_id,
         "build": { "frontendDist": "../frontend" },
@@ -470,10 +507,100 @@ pub fn tauri_conf(req: &PackageRequest, c: &Checked) -> Value {
             "iOS": { "minimumSystemVersion": c.ios_min_version },
         },
     });
+    if req.settings.platform == MobilePlatform::Ios {
+        // `CFBundleVersion`, the build number (D-BuildNo), beside the version's own
+        // `CFBundleShortVersionString`.
+        conf["bundle"]["iOS"]["bundleVersion"] = json!(c.build_number.to_string());
+    }
     if has(&c.features, "deep-link") {
         conf["plugins"] = json!({ "deep-link": { "mobile": [{ "scheme": [deep_link_scheme(&c.app_id)], "appLink": false }] } });
     }
     conf
+}
+
+/// The iOS orientations a project allows, for the iPhone and for the iPad (`Auto`: the device's, which
+/// is what Tauri's template writes, so nothing is overridden).
+fn ios_orientations(orientation: Orientation) -> Option<(&'static [&'static str], &'static [&'static str])> {
+    match orientation {
+        Orientation::Auto => None,
+        Orientation::Portrait => Some((&["UIInterfaceOrientationPortrait"], &["UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown"])),
+        Orientation::Landscape => {
+            const LANDSCAPE: &[&str] = &["UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"];
+            Some((LANDSCAPE, LANDSCAPE))
+        }
+    }
+}
+
+/// A text for a property list (`&`, `<` and `>` written as entities).
+fn plist_text(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// The language folders of the name under an iOS icon (`<lang>.lproj`), for the languages of
+/// `[mobile.app_name]` that have a name. `en` is the development language and needs none.
+fn ios_lproj(lang: &str) -> Option<&'static str> {
+    match lang {
+        "es" => Some("es"),
+        "pt" => Some("pt"),
+        "fr" => Some("fr"),
+        "ja" => Some("ja"),
+        "zh" => Some("zh-Hans"),
+        _ => None,
+    }
+}
+
+/// The languages with a name of their own, as `(lproj, name)`, in the table's order.
+fn ios_names(req: &PackageRequest) -> Vec<(&'static str, String)> {
+    ["es", "pt", "fr", "ja", "zh"]
+        .iter()
+        .filter_map(|lang| {
+            let name = req.settings.app_name.get(*lang)?.trim();
+            (!name.is_empty()).then(|| (ios_lproj(lang).unwrap_or_default(), name.to_owned()))
+        })
+        .collect()
+}
+
+/// `src-tauri/Info.ios.plist`: the keys the Tauri command line merges over the generated
+/// `Info.plist` at every iOS build — the name under the icon, the languages it is translated into
+/// and, when the project sets one, the orientations. Nothing else: the version and the build number
+/// come from `tauri.conf.json`, and no device feature of the first set has a usage key.
+pub fn ios_info_plist(req: &PackageRequest) -> String {
+    let mut body = format!("\t<key>CFBundleDisplayName</key>\n\t<string>{}</string>\n", plist_text(req.display_name()));
+    let mut languages = vec!["en"];
+    languages.extend(ios_names(req).into_iter().map(|(lproj, _)| lproj));
+    body.push_str("\t<key>CFBundleLocalizations</key>\n\t<array>\n");
+    for l in languages {
+        body.push_str(&format!("\t\t<string>{l}</string>\n"));
+    }
+    body.push_str("\t</array>\n");
+    if let Some((phone, pad)) = ios_orientations(req.settings.orientation) {
+        for (key, values) in [("UISupportedInterfaceOrientations", phone), ("UISupportedInterfaceOrientations~ipad", pad)] {
+            body.push_str(&format!("\t<key>{key}</key>\n\t<array>\n"));
+            for v in values {
+                body.push_str(&format!("\t\t<string>{v}</string>\n"));
+            }
+            body.push_str("\t</array>\n");
+        }
+    }
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- Generated by PowerRustCOBOL AI from [mobile] (WASM-012). Rewritten at every Build. -->\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n{body}</dict>\n</plist>\n"
+    )
+}
+
+/// A name for an `InfoPlist.strings` file: quoted, with `"` and `\` escaped.
+pub fn ios_strings_value(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' | '\r' => out.push(' '),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// The staged capability file: what the page may ask of the shell, and nothing more.
@@ -578,6 +705,8 @@ pub struct Staged {
     pub app_dir: PathBuf,
     /// The Gradle project Tauri generates (`src-tauri/gen/android`).
     pub android_dir: PathBuf,
+    /// The XcodeGen and Xcode project Tauri generates (`src-tauri/gen/apple`).
+    pub apple_dir: PathBuf,
     /// The icon the platform sizes are made from.
     pub icon: PathBuf,
 }
@@ -585,13 +714,19 @@ pub struct Staged {
 /// Write `text` to `path` unless it already holds it (an unchanged file keeps its time, so cargo
 /// and Gradle do not rebuild what did not change).
 pub(crate) fn write_if_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    write_changed(path, bytes).map(|_| ())
+}
+
+/// [`write_if_changed`], saying whether it wrote.
+pub(crate) fn write_changed(path: &Path, bytes: &[u8]) -> Result<bool, String> {
     if std::fs::read(path).is_ok_and(|old| old == bytes) {
-        return Ok(());
+        return Ok(false);
     }
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{} cannot be created ({e})", dir.display()))?;
     }
-    std::fs::write(path, bytes).map_err(|e| format!("{} cannot be written ({e})", path.display()))
+    std::fs::write(path, bytes).map_err(|e| format!("{} cannot be written ({e})", path.display()))?;
+    Ok(true)
 }
 
 /// Copy the folder `from` to `to`, replacing what `to` held.
@@ -639,9 +774,38 @@ pub fn stage(req: &PackageRequest, c: &Checked) -> Result<Staged, String> {
     let pretty = |v: &Value| serde_json::to_string_pretty(v).unwrap_or_default() + "\n";
     write_if_changed(&app_dir.join("tauri.conf.json"), pretty(&tauri_conf(req, c)).as_bytes())?;
     write_if_changed(&app_dir.join("capabilities/default.json"), pretty(&capability(&c.features)).as_bytes())?;
+    if req.settings.platform == MobilePlatform::Ios {
+        write_if_changed(&app_dir.join("Info.ios.plist"), ios_info_plist(req).as_bytes())?;
+    }
     let icon = root.join("icon.png");
     write_if_changed(&icon, &c.icon)?;
-    Ok(Staged { android_dir: app_dir.join("gen/android"), app_dir, icon, root })
+    Ok(Staged { android_dir: app_dir.join("gen/android"), apple_dir: app_dir.join("gen/apple"), app_dir, icon, root })
+}
+
+/// The edits the generated Xcode project needs, made after `ios init`: the name under the icon in
+/// each language `[mobile.app_name]` gives is an `InfoPlist.strings` in the target's folder, which
+/// XcodeGen turns into the project's localised resources. `Ok(true)`: a language was added, changed
+/// or removed, so the project has to be generated again ([`build_ios`] runs `xcodegen generate`).
+pub fn patch_ios_project(staged: &Staged, req: &PackageRequest) -> Result<bool, String> {
+    let target = staged.apple_dir.join(format!("{}_iOS", req.crate_name()));
+    let names = ios_names(req);
+    let mut changed = false;
+    for lang in ["es", "pt", "fr", "ja", "zh"] {
+        let Some(lproj) = ios_lproj(lang) else { continue };
+        let dir = target.join(format!("{lproj}.lproj"));
+        match names.iter().find(|(l, _)| *l == lproj) {
+            Some((_, name)) => {
+                let text = format!("/* Generated by PowerRustCOBOL AI from [mobile.app_name]. */\n\"CFBundleDisplayName\" = {};\n", ios_strings_value(name));
+                changed |= write_changed(&dir.join("InfoPlist.strings"), text.as_bytes())?;
+            }
+            None if dir.exists() => {
+                std::fs::remove_dir_all(&dir).map_err(|e| format!("{} cannot be removed ({e})", dir.display()))?;
+                changed = true;
+            }
+            None => {}
+        }
+    }
+    Ok(changed)
 }
 
 /// The edits the generated Gradle project needs, made after `android init`: the orientation, the
@@ -690,17 +854,11 @@ impl Toolchain {
     pub fn detect(abi: AndroidAbi) -> Result<Self, Vec<Missing>> {
         let mut missing = Vec::new();
         let mut lack = |what: &str, how: String| missing.push(Missing { what: what.to_owned(), how });
-        let cli = format!("tauri-cli {TAURI_CLI_VERSION}");
-        match tauri_cli_version() {
-            Some(v) if v == TAURI_CLI_VERSION => {}
-            Some(v) => lack(&cli, format!("the Tauri command line is {v}; this release builds with {TAURI_CLI_VERSION}: {INSTALL_TAURI_CLI}")),
-            None => lack(&cli, format!("the Tauri command line is not installed: {INSTALL_TAURI_CLI}")),
+        if let Some(m) = tauri_cli_problem() {
+            lack(&m.what, m.how);
         }
-        if let Some(installed) = rust_targets() {
-            if !installed.iter().any(|t| t == abi.rust_target()) {
-                let t = abi.rust_target();
-                lack(&format!("the Rust target {t}"), format!("the Rust target {t} is not installed: rustup target add {t}"));
-            }
+        if let Some(m) = rust_target_problem(abi.rust_target()) {
+            lack(&m.what, m.how);
         }
         let android_home = android_sdk();
         let ndk_home = android_home.as_deref().and_then(ndk_of);
@@ -734,6 +892,27 @@ impl Toolchain {
     pub fn adb(&self) -> PathBuf {
         self.android_home.join("platform-tools").join(if cfg!(windows) { "adb.exe" } else { "adb" })
     }
+}
+
+/// The Tauri command line at the version this release builds with: what is wrong with it, or `None`.
+fn tauri_cli_problem() -> Option<Missing> {
+    let what = format!("tauri-cli {TAURI_CLI_VERSION}");
+    let how = match tauri_cli_version() {
+        Some(v) if v == TAURI_CLI_VERSION => return None,
+        Some(v) => format!("the Tauri command line is {v}; this release builds with {TAURI_CLI_VERSION}: {INSTALL_TAURI_CLI}"),
+        None => format!("the Tauri command line is not installed: {INSTALL_TAURI_CLI}"),
+    };
+    Some(Missing { what, how })
+}
+
+/// `target` of the Rust compiler, when `rustup` says it is not installed (it is not asked when
+/// `rustup` is not there).
+fn rust_target_problem(target: &str) -> Option<Missing> {
+    let installed = rust_targets()?;
+    (!installed.iter().any(|t| t == target)).then(|| Missing {
+        what: format!("the Rust target {target}"),
+        how: format!("the Rust target {target} is not installed: rustup target add {target}"),
+    })
 }
 
 /// The installed Tauri command line's version (`cargo tauri --version` says `tauri-cli 2.12.4`).
@@ -820,6 +999,141 @@ fn java_home() -> Option<PathBuf> {
     studio.into_iter().find(|p| java_ok(p))
 }
 
+/// What an iOS package build asks of this computer, as found (no judgement yet): [`ios_problems`]
+/// says what is wrong with it.
+#[derive(Debug, Clone, Default)]
+pub struct IosFacts {
+    pub macos: bool,
+    pub apple_silicon: bool,
+    /// The major version of the selected Xcode (`xcodebuild -version`).
+    pub xcode: Option<u32>,
+    pub xcodegen: Option<PathBuf>,
+    /// `idevicesyslog`, of libimobiledevice: the Tauri command line checks for it.
+    pub idevicesyslog: Option<PathBuf>,
+    /// CocoaPods' `pod`, which the Tauri command line checks for too.
+    pub pod: Option<PathBuf>,
+    pub tauri_cli: Option<Missing>,
+    pub rust_target: Option<Missing>,
+}
+
+/// The oldest Xcode that has the iOS 18 SDK, the floor of 2.x (D-MinOS).
+const XCODE_FLOOR: u32 = 16;
+
+/// Where Homebrew puts its tools; a program started from the Dock has neither on its `PATH`.
+const HOMEBREW_DIRS: [&str; 2] = ["/opt/homebrew/bin", "/usr/local/bin"];
+
+/// What is wrong with `facts`, each with how to get it. Xcode is never installed by this program,
+/// and neither is anything else: the Tauri command line would install XcodeGen, libimobiledevice
+/// and CocoaPods by itself (and CocoaPods with `sudo`), so they are named here first (R2).
+pub fn ios_problems(f: &IosFacts) -> Vec<Missing> {
+    let mut out = Vec::new();
+    let mut lack = |what: &str, how: &str| out.push(Missing { what: what.to_owned(), how: how.to_owned() });
+    if !f.macos {
+        lack("macOS", "an iOS package can only be built on macOS; the web bundle is built and can be taken there");
+        return out;
+    }
+    if !f.apple_silicon {
+        lack("an Apple-silicon Mac", "this release builds the iOS simulator package (the Rust target aarch64-apple-ios-sim) on an Apple-silicon Mac");
+    }
+    match f.xcode {
+        None => lack(
+            "Xcode",
+            "Xcode was not found: install Xcode 16 or later from the Mac App Store, open it once to accept its licence, and select it with `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` (PowerRustCOBOL AI never installs Xcode)",
+        ),
+        Some(v) if v < XCODE_FLOOR => lack(
+            "Xcode 16 or later",
+            &format!("the selected Xcode is {v}; this release needs Xcode {XCODE_FLOOR} or later, which has the iOS 18 SDK: update it from the Mac App Store"),
+        ),
+        Some(_) => {}
+    }
+    if f.xcodegen.is_none() {
+        lack("XcodeGen", "XcodeGen was not found; the Tauri command line makes the Xcode project with it: brew install xcodegen");
+    }
+    if f.idevicesyslog.is_none() {
+        lack(
+            "libimobiledevice",
+            "libimobiledevice (its idevicesyslog) was not found; the Tauri command line looks for it before an iOS build: brew install libimobiledevice",
+        );
+    }
+    if f.pod.is_none() {
+        lack("CocoaPods", "CocoaPods was not found; the Tauri command line looks for it before an iOS build: brew install cocoapods");
+    }
+    out.extend(f.tauri_cli.clone());
+    out.extend(f.rust_target.clone());
+    out
+}
+
+/// The major version in `xcodebuild -version` (`Xcode 27.2` and a build line).
+pub fn parse_xcode_version(text: &str) -> Option<u32> {
+    let line = text.lines().find_map(|l| l.trim().strip_prefix("Xcode "))?;
+    line.split('.').next()?.trim().parse().ok()
+}
+
+/// `name` in the first of `dirs` that holds it as a file.
+pub fn find_tool(name: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+    dirs.iter().map(|d| d.join(name)).find(|p| p.is_file())
+}
+
+/// The folders tools are looked for in: the `PATH`, then Homebrew's.
+fn tool_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    dirs.extend(HOMEBREW_DIRS.iter().map(PathBuf::from));
+    dirs
+}
+
+/// The Apple tools an iOS package build runs, found on this computer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IosToolchain {
+    /// The folders of the tools found, for the front of the build's `PATH`.
+    pub path_dirs: Vec<PathBuf>,
+    /// `xcodegen`, which makes the Xcode project again when a language is added.
+    pub xcodegen: PathBuf,
+}
+
+impl IosToolchain {
+    /// Look at this computer ([`IosFacts`]) and judge it ([`ios_problems`]).
+    pub fn detect() -> Result<Self, Vec<Missing>> {
+        let macos = cfg!(target_os = "macos");
+        let dirs = tool_dirs();
+        let facts = IosFacts {
+            macos,
+            apple_silicon: std::env::consts::ARCH == "aarch64",
+            xcode: macos
+                .then(|| Command::new("xcodebuild").arg("-version").output().ok())
+                .flatten()
+                .filter(|o| o.status.success())
+                .and_then(|o| parse_xcode_version(&String::from_utf8_lossy(&o.stdout))),
+            xcodegen: find_tool("xcodegen", &dirs),
+            idevicesyslog: find_tool("idevicesyslog", &dirs),
+            pod: find_tool("pod", &dirs),
+            tauri_cli: tauri_cli_problem(),
+            rust_target: rust_target_problem(IOS_RUST_TARGET),
+        };
+        let problems = ios_problems(&facts);
+        let (Some(xcodegen), true) = (facts.xcodegen.clone(), problems.is_empty()) else {
+            return Err(problems);
+        };
+        let mut path_dirs: Vec<PathBuf> = Vec::new();
+        for tool in [&facts.xcodegen, &facts.idevicesyslog, &facts.pod].into_iter().flatten() {
+            if let Some(d) = tool.parent().map(Path::to_path_buf).filter(|d| !path_dirs.contains(d)) {
+                path_dirs.push(d);
+            }
+        }
+        Ok(Self { path_dirs, xcodegen })
+    }
+
+    /// The environment of a build process: the tools' folders in front of the `PATH`, and a UTF-8
+    /// locale (CocoaPods refuses to run without one).
+    pub fn env(&self) -> Vec<(&'static str, OsString)> {
+        let mut paths = self.path_dirs.clone();
+        if let Some(p) = std::env::var_os("PATH") {
+            paths.extend(std::env::split_paths(&p));
+        }
+        let path = std::env::join_paths(paths).unwrap_or_default();
+        vec![("PATH", path), ("LANG", OsString::from("en_US.UTF-8"))]
+    }
+}
+
 /// A built package.
 #[derive(Debug, Clone)]
 pub struct Package {
@@ -836,10 +1150,23 @@ pub struct Package {
 /// Run `program args` in `dir` with the toolchain's environment (and `extra`), every line of its
 /// output to `log`. `Err` carries the last lines when it fails.
 pub(crate) fn run_logged(dir: &Path, args: &[&str], tools: &Toolchain, extra: &[(&str, String)], log: &mut dyn FnMut(&str)) -> Result<(), String> {
-    log(&format!("$ cargo {}", args.join(" ")));
-    let mut cmd = Command::new("cargo");
+    let env: Vec<(&str, OsString)> = tools.env().into_iter().map(|(k, v)| (k, v.into_os_string())).collect();
+    run_program("cargo", dir, args, &env, extra, log)
+}
+
+/// [`run_logged`] for any program, with the environment `env` and `extra`.
+pub(crate) fn run_program(
+    program: &str,
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, OsString)],
+    extra: &[(&str, String)],
+    log: &mut dyn FnMut(&str),
+) -> Result<(), String> {
+    log(&format!("$ {program} {}", args.join(" ")));
+    let mut cmd = Command::new(program);
     cmd.args(args).current_dir(dir).stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
-    for (k, v) in tools.env() {
+    for (k, v) in env {
         cmd.env(k, v);
     }
     for (k, v) in extra {
@@ -848,7 +1175,7 @@ pub(crate) fn run_logged(dir: &Path, args: &[&str], tools: &Toolchain, extra: &[
     // A CARGO_TARGET_DIR of the developer's shell would send the build elsewhere; the staging
     // folder keeps its own.
     cmd.env_remove("CARGO_TARGET_DIR");
-    let mut child = cmd.spawn().map_err(|e| format!("cargo could not be started ({e}); is Rust installed?"))?;
+    let mut child = cmd.spawn().map_err(|e| format!("{program} could not be started ({e}){}", if program == "cargo" { "; is Rust installed?" } else { "" }))?;
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     let mut readers = Vec::new();
     if let Some(out) = child.stdout.take() {
@@ -879,11 +1206,11 @@ pub(crate) fn run_logged(dir: &Path, args: &[&str], tools: &Toolchain, extra: &[
     for r in readers {
         let _ = r.join();
     }
-    let status = child.wait().map_err(|e| format!("cargo {} did not finish ({e})", args.join(" ")))?;
+    let status = child.wait().map_err(|e| format!("{program} {} did not finish ({e})", args.join(" ")))?;
     if status.success() {
         Ok(())
     } else {
-        Err(format!("cargo {} failed ({status}):\n{}", args.join(" "), Vec::from(tail).join("\n")))
+        Err(format!("{program} {} failed ({status}):\n{}", args.join(" "), Vec::from(tail).join("\n")))
     }
 }
 
@@ -956,4 +1283,86 @@ pub fn built_apk(android_dir: &Path, profile: Profile) -> Option<PathBuf> {
     let dir = android_dir.join("app/build/outputs/apk/universal").join(profile.as_str());
     let names = [format!("app-universal-{}.apk", profile.as_str()), format!("app-universal-{}-unsigned.apk", profile.as_str())];
     names.iter().map(|n| dir.join(n)).find(|p| p.is_file())
+}
+
+/// The Xcode project Tauri generated is the project's: it carries its application id, its product
+/// name, its target and the oldest iOS it was made for. A project made for another identity or
+/// another floor is generated again, from nothing (the folder is the build's, never the developer's).
+pub fn apple_project_current(staged: &Staged, req: &PackageRequest, c: &Checked) -> bool {
+    let Ok(yml) = std::fs::read_to_string(staged.apple_dir.join("project.yml")) else { return false };
+    [
+        format!("PRODUCT_BUNDLE_IDENTIFIER: {}", c.app_id),
+        format!("PRODUCT_NAME: {}", file_stem(&req.project_name)),
+        format!("{}_iOS:", req.crate_name()),
+        format!("iOS: {}", c.ios_min_version),
+    ]
+    .iter()
+    .all(|line| yml.lines().any(|l| l.trim() == line))
+}
+
+/// The size of every file under `dir`.
+pub fn dir_size(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    entries
+        .flatten()
+        .map(|e| {
+            let p = e.path();
+            if p.is_dir() {
+                dir_size(&p)
+            } else {
+                e.metadata().map(|m| m.len()).unwrap_or(0)
+            }
+        })
+        .sum()
+}
+
+/// Build the iOS package of `req` — the application the iOS simulator runs: check, stage, run the
+/// Tauri command line and Xcode, copy the application into the project. `log` receives every line
+/// of the tools' output. A release archive is refused by [`check`].
+pub fn build_ios(req: &PackageRequest, tools: &IosToolchain, log: &mut dyn FnMut(&str)) -> Result<Package, String> {
+    if req.settings.platform != MobilePlatform::Ios {
+        return Err("the project's platform is Android; an iOS package is built for an iOS project".to_owned());
+    }
+    let started = Instant::now();
+    let checked = check(req, None).map_err(|p| p.join("\n"))?;
+    log(&format!("Staging the mobile shell in {}", req.staging_dir.display()));
+    let staged = stage(req, &checked)?;
+    let env = tools.env();
+    let cargo = |args: &[&str], log: &mut dyn FnMut(&str)| run_program("cargo", &staged.app_dir, args, &env, &[], log);
+    if !apple_project_current(&staged, req, &checked) {
+        if staged.apple_dir.exists() {
+            std::fs::remove_dir_all(&staged.apple_dir).map_err(|e| format!("{} cannot be emptied ({e})", staged.apple_dir.display()))?;
+        }
+        cargo(&["tauri", "ios", "init", "--ci", "--skip-targets-install"], log)?;
+    }
+    if patch_ios_project(&staged, req)? {
+        run_program(&tools.xcodegen.to_string_lossy(), &staged.apple_dir, &["generate"], &env, &[], log)?;
+    }
+    let icon = staged.icon.to_string_lossy().into_owned();
+    cargo(&["tauri", "icon", &icon], log)?;
+    // A build that fails must not leave the last application to be found.
+    while let Some(old) = built_ios_app(&staged.apple_dir) {
+        std::fs::remove_dir_all(&old).map_err(|e| format!("the previous application {} cannot be removed ({e})", old.display()))?;
+    }
+    cargo(&["tauri", "ios", "build", "--debug", "--target", IOS_TAURI_TARGET, "--ci"], log)?;
+    let built = built_ios_app(&staged.apple_dir)
+        .ok_or_else(|| format!("the build finished but no application was found under {}", staged.apple_dir.join("build").join(IOS_BUILD_SUBDIR).display()))?;
+    let dest = req.package_path();
+    copy_tree(&built, &dest)?;
+    let bytes = dir_size(&dest);
+    let names: Vec<String> = checked.features.iter().map(|f| f.name.to_owned()).collect();
+    log(&format!("Package: {} ({:.1} MB)", dest.display(), bytes as f64 / 1_048_576.0));
+    Ok(Package {
+        path: dest,
+        bytes,
+        elapsed_ms: started.elapsed().as_millis(),
+        features: checked.features.iter().map(|f| f.name).collect(),
+        checklist: mobile_features::checklist(&names),
+    })
+}
+
+/// The application Xcode wrote for the simulator (`gen/apple/build/arm64-sim/<Name>.app`).
+pub fn built_ios_app(apple_dir: &Path) -> Option<PathBuf> {
+    let dir = apple_dir.join("build").join(IOS_BUILD_SUBDIR);
+    std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| p.is_dir() && p.extension().is_some_and(|x| x == "app"))
 }

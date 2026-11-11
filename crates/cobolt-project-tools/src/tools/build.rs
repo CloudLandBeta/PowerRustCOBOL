@@ -70,7 +70,7 @@ pub struct BuildSlot {
 /// desktop build — regenerate, then `check`, and no build over an error — and
 /// then the web backend builds the bundle. The answer carries the size by part,
 /// the start-up time and the warnings; a Mobile project says plainly which
-/// package step this program cannot perform and why.
+/// package step this computer cannot perform and why.
 fn run_web<H: ProjectHost>(
     host: &mut H,
     root: &ProjectRoot,
@@ -79,16 +79,16 @@ fn run_web<H: ProjectHost>(
     release: bool,
 ) -> Result<Value, String> {
     use crate::web::{self, WebBuildError, WebBuildRequest};
-    let android = view.kind == cobolt_compiler::ProjectKind::Mobile
-        && view.mobile.as_ref().is_some_and(|m| m.platform == cobolt_compiler::project_kind::MobilePlatform::Android);
+    use cobolt_compiler::project_kind::MobilePlatform;
+    let platform = view.mobile.as_ref().filter(|_| view.kind == cobolt_compiler::ProjectKind::Mobile).map(|m| m.platform);
     // A package still building: keep waiting on it (the bundle it wraps was built by the call that
     // started it, and is not rebuilt under it).
-    if android && !slot_idle(shared) {
+    if let (Some(platform), false) = (platform, slot_idle(shared)) {
         return Ok(json!({
             "status": "built",
             "kind": view.kind.as_str(),
             "bundle": web::BUNDLE_SUBDIR,
-            "package": package_answer(wait(shared, root)),
+            "package": package_answer(wait(shared, root), platform),
         }));
     }
     if let Some(why) = host.build_blocked() {
@@ -142,18 +142,9 @@ fn run_web<H: ProjectHost>(
     };
     answer["elapsed_ms"] = json!(started.elapsed().as_millis() as u64);
     if view.kind == cobolt_compiler::ProjectKind::Mobile && answer["status"] == "built" {
-        answer["package"] = if android {
-            start_android_package(shared, root, release)
-        } else {
-            json!({
-                "built": false,
-                "reason": if cfg!(target_os = "macos") {
-                    "this release builds the Android package; the iOS package step (Xcode 16 or later, the iOS 18 SDK) is not finished yet. The web bundle it wraps is built"
-                } else {
-                    "an iOS package can only be built on macOS; the web bundle is built and can be taken there"
-                },
-            })
-        };
+        // A Mobile project whose `[mobile]` table cannot be read is answered by the iOS step, which
+        // says so (`PackageRequest::from_manifest`).
+        answer["package"] = start_package(shared, root, release, platform.unwrap_or(MobilePlatform::Ios));
     }
     Ok(answer)
 }
@@ -162,23 +153,35 @@ fn slot_idle(shared: &Arc<Shared>) -> bool {
     matches!(*shared.build.state.lock().unwrap_or_else(|p| p.into_inner()), SlotState::Idle)
 }
 
-/// The package step of an Android project (WASM-012 T18): the tools found, the project checked,
-/// and the package built on the build worker — the slot a desktop build uses, so one build runs at
-/// a time and a call waits at most [`DEFAULT_BUILD_WAIT`] on it. The tools' output goes to
-/// `package.log` in the staging folder (stdout is the protocol stream of `rcrun mcp`).
-fn start_android_package(shared: &Arc<Shared>, root: &ProjectRoot, release: bool) -> Value {
+/// The tools of a package build, found on this computer.
+enum PackageTools {
+    Android(cobolt_compiler::mobile_build::Toolchain),
+    Ios(cobolt_compiler::mobile_build::IosToolchain),
+}
+
+/// The package step of a Mobile project (WASM-012 T18; the iOS one is the simulator application):
+/// the tools found, the project checked, and the package built on the build worker — the slot a
+/// desktop build uses, so one build runs at a time and a call waits at most
+/// [`DEFAULT_BUILD_WAIT`] on it. The tools' output goes to `package.log` in the staging folder
+/// (stdout is the protocol stream of `rcrun mcp`).
+fn start_package(shared: &Arc<Shared>, root: &ProjectRoot, release: bool, platform: cobolt_compiler::project_kind::MobilePlatform) -> Value {
     use cobolt_compiler::mobile_build as mb;
+    use cobolt_compiler::project_kind::MobilePlatform;
     let abi = mb::AndroidAbi::Aarch64;
-    let tools = match mb::Toolchain::detect(abi) {
+    let (tools, label) = match platform {
+        MobilePlatform::Android => (mb::Toolchain::detect(abi).map(PackageTools::Android), "Android"),
+        MobilePlatform::Ios => (mb::IosToolchain::detect().map(PackageTools::Ios), "iOS"),
+    };
+    let tools = match tools {
         Ok(t) => t,
         Err(missing) => {
             let how: Vec<&str> = missing.iter().map(|m| m.how.as_str()).collect();
-            return json!({ "built": false, "reason": "the Android tools this build needs are missing", "missing": how });
+            return json!({ "built": false, "reason": format!("the {label} tools this build needs are missing"), "missing": how });
         }
     };
     let profile = if release { mb::Profile::Release } else { mb::Profile::Debug };
     let name = cobolt_compiler::project_manifest_view(root.manifest()).map(|v| mb::application_name(&v.name)).unwrap_or_default();
-    let staging = cobolt_compiler::build_staging_dir(None, &format!("{}-android", mb::crate_name(&name)));
+    let staging = cobolt_compiler::build_staging_dir(None, &format!("{}-{}", mb::crate_name(&name), platform.as_str()));
     let req = match mb::PackageRequest::from_manifest(root.manifest(), staging, profile, abi) {
         Ok(r) => r,
         Err(e) => return json!({ "built": false, "reason": e }),
@@ -198,9 +201,13 @@ fn start_android_package(shared: &Arc<Shared>, root: &ProjectRoot, release: bool
                 let _ = writeln!(f, "{line}");
             }
         };
-        mb::build_android(&req, &tools, secrets.as_ref(), &mut log).map(|p| BuildOutcome { binary: p.path })
+        let package = match &tools {
+            PackageTools::Android(t) => mb::build_android(&req, t, secrets.as_ref(), &mut log),
+            PackageTools::Ios(t) => mb::build_ios(&req, t, &mut log),
+        };
+        package.map(|p| BuildOutcome { binary: p.path })
     });
-    let mut answer = package_answer(wait(shared, root));
+    let mut answer = package_answer(wait(shared, root), platform);
     answer["log"] = json!(log_shown);
     answer
 }
@@ -214,11 +221,16 @@ fn signing_secrets_from_env() -> Option<cobolt_compiler::mobile_build::SigningSe
     Some(mb::SigningSecrets { store_password, key_password })
 }
 
-/// A package's answer from the slot's: `built` true or false, the package's path as `apk`.
-fn package_answer(mut slot: Value) -> Value {
+/// A package's answer from the slot's: `built` true or false, the package's path as `apk` (Android)
+/// or `app` (the iOS simulator's application).
+fn package_answer(mut slot: Value, platform: cobolt_compiler::project_kind::MobilePlatform) -> Value {
     let built = slot["status"] == "built";
-    if let Some(apk) = slot.as_object_mut().and_then(|o| o.remove("binary")) {
-        slot["apk"] = apk;
+    let key = match platform {
+        cobolt_compiler::project_kind::MobilePlatform::Android => "apk",
+        cobolt_compiler::project_kind::MobilePlatform::Ios => "app",
+    };
+    if let Some(path) = slot.as_object_mut().and_then(|o| o.remove("binary")) {
+        slot[key] = path;
     }
     slot["built"] = json!(built);
     slot
@@ -319,7 +331,10 @@ fn wait(shared: &Arc<Shared>, root: &ProjectRoot) -> Value {
                 };
                 return match result {
                     Ok(out) => {
-                        let size = std::fs::metadata(&out.binary).map(|m| m.len()).ok();
+                        // An iOS package is a folder (the application): the size of what is in it.
+                        let size = std::fs::metadata(&out.binary)
+                            .map(|m| if m.is_dir() { cobolt_compiler::mobile_build::dir_size(&out.binary) } else { m.len() })
+                            .ok();
                         json!({
                             "status": "built",
                             "binary": root.relative(&out.binary).unwrap_or_else(|| {

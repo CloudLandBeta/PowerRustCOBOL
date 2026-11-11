@@ -166,7 +166,11 @@ bundle layout serve both.
 - [x] **AC4b** — The built bundle contains no interpreter, AST or runtime library, and the program module's import section lists only the host API (R16).
 - [x] **AC5** — A key placed in a form's property (a deliberate test secret) stops Build with a message that names the file and pattern.
 - [ ] **AC6** — Missing-tool messages for each tool of R6 appear when that tool is absent (tested by hiding it from `PATH`).
-- [ ] **AC7** — The Mobile build produces an Android package and (on macOS) an iOS package from the same project; both start and show the form.
+- [x] **AC7** — The Mobile build produces an Android package and (on macOS) an iOS package from the same project; both start and show the form.
+  Measured 2026-11-10: the APK (42 MB, 12 s) shows the form on the Android emulator; the iOS package (2.0.411) is the development
+  application for the iOS simulator, `dist/mobile/ios/<Name>-debug.app` (60 MB, 14 s warm), installed, started and photographed on an
+  iPhone 18 Pro, iOS 27.2 (`crates/cobolt-project-tools/tests/ios_package.rs`). The store archive is not built: it needs the Apple team,
+  signing identity and provisioning profile (WASM-012 AC1).
 - [x] **AC8** — A Desktop project builds byte-for-byte as before (the existing compiler tests stay green).
 
 ## 6. Constraints & steering check

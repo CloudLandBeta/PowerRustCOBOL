@@ -11,7 +11,8 @@
 //!   package from the bundle the Preview serves, installs it on that device, starts it and shows the
 //!   application's log (the page's console, the shell's lines, a crash) in the Output; without any
 //!   of them the Preview opens in the browser at a phone's width, as before.
-//! * A **Build** goes on into the package (`dist/mobile/android/<Name>-debug.apk`).
+//! * A **Build** goes on into the package (`dist/mobile/android/<Name>-debug.apk`; for an iOS project on a
+//!   Mac, the simulator application `dist/mobile/ios/<Name>-debug.app`).
 //!
 //! Both run the Tauri command line and Gradle, which take seconds when warm and a few minutes the
 //! first time: never on the UI thread. Every line of the tools goes to `package.log` in the staging
@@ -93,7 +94,7 @@ impl Drop for MobileDeviceRunner {
 /// `package.log`.
 fn worth_showing(line: &str) -> bool {
     let l = line.trim_start();
-    ["$ cargo", "Staging", "Package:", "error", "Error", "BUILD ", "FAILURE", "What went wrong", "Finished"].iter().any(|p| l.starts_with(p))
+    ["$ cargo", "$ /", "Staging", "Package:", "error", "Error", "BUILD ", "** BUILD ", "FAILURE", "What went wrong", "Finished"].iter().any(|p| l.starts_with(p))
 }
 
 fn fill(template: &str, values: &[&str]) -> String {
@@ -120,18 +121,35 @@ impl Job {
         let staging = cobolt_compiler::build_staging_dir(None, &format!("{}-android", mb::crate_name(&name)));
         let req = PackageRequest::from_manifest(&self.manifest, staging, Profile::Debug, abi)?;
         let tools = Toolchain::detect(abi).map_err(|missing| missing.into_iter().map(|m| m.how).collect::<Vec<_>>().join("; "))?;
-        let _ = std::fs::create_dir_all(&req.staging_dir);
-        let mut file = std::fs::File::create(req.staging_dir.join("package.log")).ok();
-        let mut log = |line: &str| {
+        let mut log = self.logging(&req.staging_dir);
+        let package = mb::build_android(&req, &tools, None, &mut log)?;
+        Ok((package, req.settings.app_id.trim().to_owned()))
+    }
+
+    /// Build the development package of an iOS project: the application the simulator runs.
+    fn package_ios(&self) -> Result<mb::Package, String> {
+        let view = cobolt_compiler::project_manifest_view(&self.manifest)?;
+        let name = mb::application_name(&view.name);
+        let staging = cobolt_compiler::build_staging_dir(None, &format!("{}-ios", mb::crate_name(&name)));
+        let req = PackageRequest::from_manifest(&self.manifest, staging, Profile::Debug, AndroidAbi::Aarch64)?;
+        let tools = mb::IosToolchain::detect().map_err(|missing| missing.into_iter().map(|m| m.how).collect::<Vec<_>>().join("; "))?;
+        let mut log = self.logging(&req.staging_dir);
+        mb::build_ios(&req, &tools, &mut log)
+    }
+
+    /// Where the tools' lines go: every one to `package.log` in the staging folder, the ones worth
+    /// showing to the Output as well.
+    fn logging<'a>(&'a self, staging: &std::path::Path) -> impl FnMut(&str) + 'a {
+        let _ = std::fs::create_dir_all(staging);
+        let mut file = std::fs::File::create(staging.join("package.log")).ok();
+        move |line: &str| {
             if let Some(f) = file.as_mut() {
                 let _ = writeln!(f, "{line}");
             }
             if worth_showing(line) {
                 self.say(line);
             }
-        };
-        let package = mb::build_android(&req, &tools, None, &mut log)?;
-        Ok((package, req.settings.app_id.trim().to_owned()))
+        }
     }
 
     fn say_built(&self, p: &mb::Package) {
@@ -244,8 +262,10 @@ impl DeviceRunner for MobileDeviceRunner {
         self.claim()?;
         let job = self.job.clone();
         std::thread::spawn(move || {
-            match job.package_for(AndroidAbi::Aarch64) {
-                Ok((p, _)) => job.say_built(&p),
+            let ios = cobolt_compiler::project_manifest_view(&job.manifest).ok().and_then(|v| v.mobile).is_some_and(|m| m.platform == MobilePlatform::Ios);
+            let built = if ios { job.package_ios() } else { job.package_for(AndroidAbi::Aarch64).map(|(p, _)| p) };
+            match built {
+                Ok(p) => job.say_built(&p),
                 Err(why) => job.say(fill(job.tr.pk_pkg_failed, &[&why])),
             }
             job.done();

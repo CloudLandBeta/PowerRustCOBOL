@@ -77,10 +77,10 @@ pub enum Note {
     PlayerSizes(Vec<PartSize>),
     /// The project pins a player the Build cannot use (WASM-016 R11).
     PlayerPin(PlayerPinError),
-    /// A Mobile build of a platform whose package step is not finished (iOS) ends at the bundle.
+    /// A Mobile build whose device runner has no package step ends at the bundle.
     PackageNote,
-    /// A Mobile build goes on into the Android package (WASM-012 T17); its progress follows as
-    /// [`Note::DeviceLog`] lines.
+    /// A Mobile build goes on into the Android package, or the iOS simulator's application
+    /// (WASM-012 T17); its progress follows as [`Note::DeviceLog`] lines.
     PackageStarted,
     NoBundle,
     Serving { name: String, url: String },
@@ -1178,19 +1178,17 @@ impl WebPreview {
         match kind {
             // A Build ends here; a Mobile one says where it stops.
             JobKind::Initial(Intent::Build) => {
-                let mobile = self.launch.as_ref().filter(|l| l.kind == ProjectKind::Mobile).map(|l| (l.platform, l.devices.clone()));
-                if let (true, Some((platform, devices))) = (built, mobile) {
-                    if platform == Some(MobilePlatform::Ios) {
-                        self.say(Note::PackageNote);
-                    } else {
-                        match devices.package() {
-                            Ok(()) => {
-                                self.on_device = true;
-                                self.say(Note::PackageStarted);
-                            }
-                            Err(why) if why.is_empty() => self.say(Note::PackageNote),
-                            Err(why) => self.say(Note::DeviceLog(why)),
+                let mobile = self.launch.as_ref().filter(|l| l.kind == ProjectKind::Mobile).map(|l| l.devices.clone());
+                if let (true, Some(devices)) = (built, mobile) {
+                    // The runner knows the project's platform: the Android package, or on a Mac the
+                    // iOS simulator's application.
+                    match devices.package() {
+                        Ok(()) => {
+                            self.on_device = true;
+                            self.say(Note::PackageStarted);
                         }
+                        Err(why) if why.is_empty() => self.say(Note::PackageNote),
+                        Err(why) => self.say(Note::DeviceLog(why)),
                     }
                 }
             }

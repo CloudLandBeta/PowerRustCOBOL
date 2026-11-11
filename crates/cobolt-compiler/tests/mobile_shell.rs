@@ -650,3 +650,222 @@ fn gradle_builds_the_android_studio_project_while_the_tauri_command_runs_ac12() 
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── iOS (WASM-012 R1, R2, R5; the simulator application) ────────────────────────────────────────
+
+fn ios_settings() -> MobileSettings {
+    let mut s = MobileSettings::new(MobilePlatform::Ios, DeviceClass::Phone);
+    s.app_id = "com.example.powermobile".into();
+    s
+}
+
+#[test]
+fn an_ios_project_stages_the_info_plist_the_tauri_command_line_merges() {
+    let t = Instant::now();
+    let dir = project("ios-stage", &[]);
+    let mut s = ios_settings();
+    s.orientation = Orientation::Portrait;
+    s.app_name.insert("en".into(), "Olá & <Hi>".into());
+    s.app_name.insert("es".into(), "Hola".into());
+    s.app_name.insert("ja".into(), "こんにちは".into());
+    s.app_name.insert("zh".into(), "你好".into());
+    s.app_name.insert("fr".into(), "   ".into());
+    let req = request(&dir, s, Profile::Debug);
+    let checked = mb::check(&req, None).expect("a complete iOS project passes");
+    assert_eq!((checked.build_number, checked.ios_min_version.as_str()), (10203, "18.0"), "1.2.3 is build 10203; auto is iOS 18");
+    let staged = mb::stage(&req, &checked).unwrap();
+    assert_eq!(staged.apple_dir, staged.app_dir.join("gen/apple"));
+
+    // The name under the icon, escaped, with the languages that have one (a blank name has none).
+    let plist = read(&staged.app_dir.join("Info.ios.plist"));
+    assert!(plist.contains("<key>CFBundleDisplayName</key>\n\t<string>Olá &amp; &lt;Hi&gt;</string>"), "{plist}");
+    let localizations: Vec<&str> = plist.split("<key>CFBundleLocalizations</key>").nth(1).unwrap().split("</array>").next().unwrap().matches("<string>").map(|_| "").collect();
+    assert_eq!(localizations.len(), 4, "en, es, ja and zh-Hans: {plist}");
+    for l in ["<string>en</string>", "<string>es</string>", "<string>ja</string>", "<string>zh-Hans</string>"] {
+        assert!(plist.contains(l), "{l} in {plist}");
+    }
+    assert!(!plist.contains("<string>fr</string>") && !plist.contains("<string>pt</string>"));
+    // Portrait: the iPhone's one, and the iPad's two.
+    assert!(plist.contains("<key>UISupportedInterfaceOrientations</key>\n\t<array>\n\t\t<string>UIInterfaceOrientationPortrait</string>\n\t</array>"), "{plist}");
+    assert!(plist.contains("<key>UISupportedInterfaceOrientations~ipad</key>") && plist.contains("UIInterfaceOrientationPortraitUpsideDown"), "{plist}");
+    let mut landscape = req.clone();
+    landscape.settings.orientation = Orientation::Landscape;
+    let l = mb::ios_info_plist(&landscape);
+    assert!(l.contains("UIInterfaceOrientationLandscapeLeft") && l.contains("UIInterfaceOrientationLandscapeRight") && !l.contains("Portrait"), "{l}");
+    let mut auto = req.clone();
+    auto.settings.orientation = Orientation::Auto;
+    assert!(!mb::ios_info_plist(&auto).contains("UISupportedInterfaceOrientations"), "auto leaves what Tauri wrote");
+    // The property list is well-formed to the system's own reader.
+    if cfg!(target_os = "macos") {
+        for text in [&plist, &l] {
+            let path = dir.join("Info.ios.check.plist");
+            std::fs::write(&path, text).unwrap();
+            let out = std::process::Command::new("plutil").arg("-lint").arg(&path).output().expect("plutil runs on a Mac");
+            assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        }
+    }
+
+    // tauri.conf.json: a file-safe product name (the Xcode target and the `.app`), CFBundleVersion.
+    let conf = json(&staged.app_dir.join("tauri.conf.json"));
+    assert_eq!(conf["productName"], "PowerMobileHello");
+    assert_eq!(conf["bundle"]["iOS"]["minimumSystemVersion"], "18.0");
+    assert_eq!(conf["bundle"]["iOS"]["bundleVersion"], "10203");
+    assert_eq!(conf["version"], "1.2.3");
+
+    // An Android project is as it was: the name under the icon is the product name, no iOS build number, no plist.
+    let mut android = settings(&[]);
+    android.app_name.insert("en".into(), "Olá".into());
+    let areq = request(&project("ios-stage-android", &[]), android, Profile::Debug);
+    let astaged = mb::stage(&areq, &mb::check(&areq, None).unwrap()).unwrap();
+    let aconf = json(&astaged.app_dir.join("tauri.conf.json"));
+    assert_eq!(aconf["productName"], "Olá");
+    assert!(aconf["bundle"]["iOS"].get("bundleVersion").is_none());
+    assert!(!astaged.app_dir.join("Info.ios.plist").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+    println!(
+        "ios staging: Info.ios.plist with the name escaped (Olá &amp; &lt;Hi&gt;), 4 languages (a blank name skipped), portrait/landscape/auto orientations, plutil -lint ok; \
+         tauri.conf productName PowerMobileHello, CFBundleVersion 10203, minimum iOS 18.0; the Android project unchanged; {} ms",
+        t.elapsed().as_millis()
+    );
+}
+
+#[test]
+fn an_ios_release_is_refused_and_the_application_goes_to_dist_mobile_ios() {
+    let dir = project("ios-release", &[]);
+    let problems = mb::check(&request(&dir, ios_settings(), Profile::Release), None).unwrap_err();
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("Apple developer team") && problems[0].contains("Debug"), "{problems:?}");
+    assert!(!problems[0].contains("keystore"), "an iOS release is not asked for an Android keystore");
+    assert!(mb::check(&request(&dir, ios_settings(), Profile::Debug), None).is_ok());
+    let ios = request(&dir, ios_settings(), Profile::Debug);
+    assert!(ios.package_path().ends_with("dist/mobile/ios/PowerMobileHello-debug.app"), "{}", ios.package_path().display());
+    assert!(request(&dir, settings(&[]), Profile::Debug).package_path().ends_with("dist/mobile/android/PowerMobileHello-debug.apk"));
+    // Each builder refuses the other platform's project before any tool runs.
+    let tools = mb::IosToolchain { path_dirs: Vec::new(), xcodegen: PathBuf::from("/nowhere/xcodegen") };
+    let wrong = mb::build_ios(&request(&dir, settings(&[]), Profile::Debug), &tools, &mut |_| {}).unwrap_err();
+    assert!(wrong.contains("platform is Android"), "{wrong}");
+    let _ = std::fs::remove_dir_all(&dir);
+    println!("ios package: release refused with one sentence (no keystore asked), debug passes; .app under dist/mobile/ios, .apk under dist/mobile/android; an Android project refused by build_ios");
+}
+
+/// What a Mac that can build the package has.
+fn ios_ready() -> mb::IosFacts {
+    mb::IosFacts {
+        macos: true,
+        apple_silicon: true,
+        xcode: Some(27),
+        xcodegen: Some(PathBuf::from("/opt/homebrew/bin/xcodegen")),
+        idevicesyslog: Some(PathBuf::from("/opt/homebrew/bin/idevicesyslog")),
+        pod: Some(PathBuf::from("/opt/homebrew/bin/pod")),
+        tauri_cli: None,
+        rust_target: None,
+    }
+}
+
+#[test]
+fn each_ios_tool_hidden_in_turn_is_named_with_the_command_that_gets_it() {
+    assert!(mb::ios_problems(&ios_ready()).is_empty(), "a Mac with everything is ready");
+    type Hide = fn(&mut mb::IosFacts);
+    let cases: [(&str, Hide, &str, &str); 7] = [
+        ("Xcode", |f| f.xcode = None, "Xcode", "Mac App Store"),
+        ("Xcode 15", |f| f.xcode = Some(15), "Xcode 16 or later", "update it"),
+        ("XcodeGen", |f| f.xcodegen = None, "XcodeGen", "brew install xcodegen"),
+        ("libimobiledevice", |f| f.idevicesyslog = None, "libimobiledevice", "brew install libimobiledevice"),
+        ("CocoaPods", |f| f.pod = None, "CocoaPods", "brew install cocoapods"),
+        ("Tauri CLI", |f| f.tauri_cli = Some(mb::Missing { what: "tauri-cli 2.12.4".into(), how: mb::INSTALL_TAURI_CLI.into() }), "tauri-cli", "cargo install tauri-cli"),
+        ("Rust target", |f| f.rust_target = Some(mb::Missing { what: "the Rust target aarch64-apple-ios-sim".into(), how: "rustup target add aarch64-apple-ios-sim".into() }), "Rust target", "rustup target add aarch64-apple-ios-sim"),
+    ];
+    let mut rows = Vec::new();
+    for (hidden, hide, what, how) in cases {
+        let mut f = ios_ready();
+        hide(&mut f);
+        let problems = mb::ios_problems(&f);
+        assert_eq!(problems.len(), 1, "{hidden}: {problems:?}");
+        assert!(problems[0].what.contains(what) && problems[0].how.contains(how), "{hidden}: {problems:?}");
+        rows.push(format!("{hidden} -> {}", problems[0].how.split(':').last().unwrap_or("").trim()));
+    }
+    // Several at once are all named; Xcode is never offered as an install command.
+    let mut f = ios_ready();
+    (f.xcode, f.xcodegen, f.pod) = (None, None, None);
+    let all = mb::ios_problems(&f);
+    assert_eq!(all.len(), 3);
+    assert!(all.iter().all(|m| !m.how.contains("brew install xcode") || m.how.contains("xcodegen")), "{all:?}");
+    assert!(all[0].how.contains("never installs Xcode"));
+    // Off macOS: one reason, nothing else; an Intel Mac: the simulator target is Apple silicon's.
+    let mut f = ios_ready();
+    f.macos = false;
+    f.xcodegen = None;
+    let off = mb::ios_problems(&f);
+    assert_eq!(off.len(), 1);
+    assert!(off[0].how.contains("only be built on macOS"));
+    let mut f = ios_ready();
+    f.apple_silicon = false;
+    assert!(mb::ios_problems(&f)[0].how.contains("Apple-silicon"));
+    println!("ios tools: ready Mac -> 0 problems; 7 tools hidden one at a time -> 1 each, named with the command ({}); 3 hidden together -> 3; off macOS -> 1; Intel -> 1", rows.join("; "));
+}
+
+#[test]
+fn the_ios_tools_are_read_from_what_they_print_and_found_where_homebrew_puts_them() {
+    assert_eq!(mb::parse_xcode_version("Xcode 27.2\nBuild version 18C5033c\n"), Some(27));
+    assert_eq!(mb::parse_xcode_version("Xcode 16.4"), Some(16));
+    assert_eq!(mb::parse_xcode_version("xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory is a command line tools instance"), None);
+    let dir = scratch("ios-tools");
+    let (a, b) = (dir.join("a"), dir.join("b"));
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    std::fs::write(b.join("xcodegen"), "#!/bin/sh\n").unwrap();
+    std::fs::create_dir(a.join("pod")).unwrap();
+    assert_eq!(mb::find_tool("xcodegen", &[a.clone(), b.clone()]), Some(b.join("xcodegen")));
+    assert_eq!(mb::find_tool("pod", &[a.clone(), b.clone()]), None, "a folder is not a tool");
+    assert_eq!(mb::find_tool("idevicesyslog", &[a, b.clone()]), None);
+    // The build's environment: the tools' folders before the PATH, a UTF-8 locale for CocoaPods.
+    let tools = mb::IosToolchain { path_dirs: vec![b.clone()], xcodegen: b.join("xcodegen") };
+    let env = tools.env();
+    let path = env.iter().find(|(k, _)| *k == "PATH").map(|(_, v)| v.clone()).unwrap();
+    assert_eq!(std::env::split_paths(&path).next(), Some(b));
+    assert_eq!(env.iter().find(|(k, _)| *k == "LANG").map(|(_, v)| v.to_string_lossy().into_owned()).as_deref(), Some("en_US.UTF-8"));
+    let _ = std::fs::remove_dir_all(&dir);
+    println!("ios tools: 3 Xcode outputs read (27, 16, a command-line-tools refusal -> none); xcodegen found in the second folder, a folder named pod ignored, a missing tool none; PATH leads with the tool folder, LANG en_US.UTF-8");
+}
+
+#[test]
+fn the_name_under_the_ios_icon_is_a_strings_file_per_language_and_the_project_is_made_again_only_when_one_changes() {
+    let dir = project("ios-names", &[]);
+    let mut s = ios_settings();
+    s.app_name.insert("es".into(), "Hola \"mundo\" \\ 1".into());
+    s.app_name.insert("ja".into(), "こんにちは".into());
+    let mut req = request(&dir, s, Profile::Debug);
+    let checked = mb::check(&req, None).unwrap();
+    let staged = mb::stage(&req, &checked).unwrap();
+    let target = staged.apple_dir.join("powermobilehello_iOS");
+    std::fs::create_dir_all(&target).unwrap();
+
+    assert!(mb::patch_ios_project(&staged, &req).unwrap(), "two languages written: the project is made again");
+    let es = read(&target.join("es.lproj/InfoPlist.strings"));
+    assert!(es.contains("\"CFBundleDisplayName\" = \"Hola \\\"mundo\\\" \\\\ 1\";"), "{es}");
+    assert!(read(&target.join("ja.lproj/InfoPlist.strings")).contains("\"CFBundleDisplayName\" = \"こんにちは\";"));
+    assert!(!target.join("en.lproj").exists() && !target.join("pt.lproj").exists());
+    assert!(!mb::patch_ios_project(&staged, &req).unwrap(), "nothing changed: no new project, so Xcode rebuilds nothing");
+    req.settings.app_name.remove("ja");
+    assert!(mb::patch_ios_project(&staged, &req).unwrap(), "a language taken away");
+    assert!(!target.join("ja.lproj").exists() && target.join("es.lproj").exists());
+    assert!(!mb::patch_ios_project(&staged, &req).unwrap());
+    assert_eq!(mb::ios_strings_value("a\nb"), "\"a b\"", "a line break is a space");
+
+    // The generated project is the project's own, or it is generated again from nothing.
+    assert!(!mb::apple_project_current(&staged, &req, &checked), "no project yet");
+    let yml = "settingGroups:\n  app:\n    base:\n      PRODUCT_NAME: PowerMobileHello\n      PRODUCT_BUNDLE_IDENTIFIER: com.example.powermobile\n  options:\n    deploymentTarget:\n      iOS: 18.0\ntargets:\n  powermobilehello_iOS:\n    type: application\n";
+    std::fs::write(staged.apple_dir.join("project.yml"), yml).unwrap();
+    assert!(mb::apple_project_current(&staged, &req, &checked));
+    for (what, changed) in [
+        ("another application id", yml.replace("com.example.powermobile", "com.example.other")),
+        ("another product name", yml.replace("PowerMobileHello", "Other")),
+        ("another floor", yml.replace("iOS: 18.0", "iOS: 15.0")),
+        ("another target", yml.replace("powermobilehello_iOS", "other_iOS")),
+    ] {
+        std::fs::write(staged.apple_dir.join("project.yml"), changed).unwrap();
+        assert!(!mb::apple_project_current(&staged, &req, &checked), "{what}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    println!("ios names: es and ja written as InfoPlist.strings (quote and backslash escaped), 2nd pass changed nothing, a removed language deleted its folder; generated project current for the same id/name/target/floor, regenerated for 4 changes");
+}
