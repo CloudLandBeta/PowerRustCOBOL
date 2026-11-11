@@ -1358,6 +1358,12 @@ jobs:
     env:
       PRC_REQUIRE_WEBVIEW: "1"
       PRC_REQUIRE_NODE: "1"
+      # The three crates hold about ninety test files, and each one is a binary of its own that links
+      # the whole dependency graph (wasmtime, wgpu, the AWS SDK). With debug info in every one of them
+      # the first run of this job died in the linker: `ld terminated with signal 7 [Bus error]` on three
+      # binaries at once, which is what a full disk looks like to a memory-mapped output file. The tests
+      # read no debug info, so the job builds without it. The `df` step at the end prints what is left.
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v7
 
@@ -1394,6 +1400,11 @@ jobs:
           # A skip is a failure here, whatever the test said about it.
           # (A Chrome test that finds no Chrome says so in its own words; that is the WASM-016 job's to require.)
           ! grep -E "skipped: " web-tests.log | grep -viE "chrome"
+
+      - name: Disk left on the runner
+        if: always()
+        shell: bash
+        run: df -h . | tail -n 2
 
   # The backend runner against the built binary (WASM-015 T7, AC3): it builds the backend with cargo, which
   # takes minutes, so it runs once, on Linux, and not in every cell.

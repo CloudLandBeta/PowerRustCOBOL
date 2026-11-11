@@ -330,19 +330,92 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     install_executable(&src_bin, &dst).ctx(|| format!("install the backend at '{}'", dst.display()))?;
     log(&format!("✅ Backend → {}", dst.display()));
 
-    // 7. The SBOM beside the binary (WASM-013 R10): the packages cargo resolved, offline, and the binary's hash.
-    let meta = std::process::Command::new("cargo")
-        .args(["metadata", "--format-version", "1", "--offline"])
-        .current_dir(&build_dir)
-        .output()
-        .map_err(|e| toolchain_error("cargo", &e))?;
-    if !meta.status.success() {
-        return Err(CompilerError::CargoBuild { code: meta.status.code().unwrap_or(-1), stderr: String::from_utf8_lossy(&meta.stderr).into_owned() });
-    }
+    // 7. The SBOM beside the binary (WASM-013 R10): the packages cargo resolved for this machine's platform, and the
+    // binary's hash. Asked for the platform the binary is built for: without one, `cargo metadata` lists the crates of
+    // EVERY platform (an Android-only one included) and, offline, fails on a machine whose cache holds only what this
+    // build needed (a fresh install, a CI runner): "failed to download `android_system_properties`". Offline first; online
+    // once, as the build above does, if even the crates of this platform are not all there.
+    let mut metadata_offline = true;
+    let meta = loop {
+        let out = std::process::Command::new("cargo")
+            .args(metadata_args(Some(&host), metadata_offline))
+            .current_dir(&build_dir)
+            .output()
+            .map_err(|e| toolchain_error("cargo", &e))?;
+        if out.status.success() {
+            break out;
+        }
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        if metadata_offline && stderr.contains("--offline") {
+            metadata_offline = false;
+            continue;
+        }
+        return Err(CompilerError::CargoBuild { code: out.status.code().unwrap_or(-1), stderr });
+    };
     let binary_bytes = std::fs::read(&dst).ctx(|| format!("read '{}'", dst.display()))?;
     let bom = backend_sbom(&bin_name, &exe, &binary_bytes, &String::from_utf8_lossy(&meta.stdout)).map_err(|m| CompilerError::Semantic { file: "sbom.cdx.json".into(), message: m })?;
     let sbom_path = bin_dir.join("sbom.cdx.json");
     std::fs::write(&sbom_path, serde_json::to_string_pretty(&bom).expect("sbom")).ctx(|| format!("write '{}'", sbom_path.display()))?;
     log(&format!("   SBOM → {}", sbom_path.display()));
     Ok(BackendBuildResult { binary: dst, interface: interface_path, contract, programs: backend.interface.programs.len(), notes, sbom: sbom_path })
+}
+
+/// The arguments of the `cargo metadata` that lists the packages the SBOM names: for `host` when it is known, offline
+/// when asked.
+fn metadata_args(host: Option<&str>, offline: bool) -> Vec<String> {
+    let mut args: Vec<String> = ["metadata", "--format-version", "1"].iter().map(|a| (*a).to_owned()).collect();
+    if let Some(host) = host {
+        args.push("--filter-platform".into());
+        args.push(host.into());
+    }
+    if offline {
+        args.push("--offline".into());
+    }
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_sbom_lists_the_packages_of_the_platform_the_binary_is_built_for() {
+        // Offline first, for the platform: the crates of every other platform are not on a machine that did not need them.
+        assert_eq!(metadata_args(Some("x86_64-unknown-linux-gnu"), true), ["metadata", "--format-version", "1", "--filter-platform", "x86_64-unknown-linux-gnu", "--offline"]);
+        // The retry may use the network, still for the platform.
+        assert_eq!(metadata_args(Some("x86_64-unknown-linux-gnu"), false), ["metadata", "--format-version", "1", "--filter-platform", "x86_64-unknown-linux-gnu"]);
+        // `rustc` could not be asked: what the build did before.
+        assert_eq!(metadata_args(None, true), ["metadata", "--format-version", "1", "--offline"]);
+    }
+
+    /// The failure that CI showed: a machine whose cargo home is cold builds online (only the crates this platform needs
+    /// are downloaded) and `cargo metadata --offline` then asks for every platform's crates. A tiny crate with a dependency
+    /// that is Android-only is built with a fresh cargo home, and the SBOM's own arguments must still answer. Needs the
+    /// network once (crates.io); with none, the test says it was skipped.
+    #[test]
+    fn the_sbom_is_listed_on_a_machine_whose_cache_holds_only_what_the_build_needed() {
+        let Ok(host) = host_triple() else {
+            println!("skipped: rustc cannot be asked for its host");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("prc-sbom-cold-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"cold\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[target.'cfg(target_os = \"android\")'.dependencies]\nandroid_system_properties = \"0.1\"\n").unwrap();
+        std::fs::write(dir.join("src").join("main.rs"), "fn main() {}\n").unwrap();
+        let home = dir.join("cargo-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let cargo = |args: &[String]| std::process::Command::new("cargo").args(args).env("CARGO_HOME", &home).current_dir(&dir).output().expect("cargo runs");
+        let build = cargo(&["build".to_owned()]);
+        if !build.status.success() {
+            println!("skipped: the crates could not be fetched ({})", String::from_utf8_lossy(&build.stderr).lines().last().unwrap_or(""));
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        let before = cargo(&metadata_args(None, true));
+        assert!(!before.status.success() && String::from_utf8_lossy(&before.stderr).contains("--offline"), "without a platform the offline listing wants every platform's crates: {}", String::from_utf8_lossy(&before.stderr));
+        let after = cargo(&metadata_args(Some(&host), true));
+        assert!(after.status.success(), "for the host platform the offline listing needs only what the build downloaded: {}", String::from_utf8_lossy(&after.stderr));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
