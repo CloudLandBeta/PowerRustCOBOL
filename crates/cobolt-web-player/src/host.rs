@@ -502,6 +502,9 @@ pub struct Host {
     next_handle: u32,
     pub effects: Vec<Effect>,
     pub outbox: Vec<Outbound>,
+    /// The ids of the requests made by a Timer's `onTick` handler and not yet handed to the transport (2.0.413): an
+    /// automatic refresh, which the loading effect ignores. [`Host::take_automatic`] reads and forgets each.
+    automatic_requests: std::collections::HashSet<u32>,
     pub stats: Stats,
     pub opts: HostOptions,
     stopped: bool,
@@ -648,6 +651,7 @@ impl Host {
             next_handle: 1,
             effects: Vec::new(),
             outbox: Vec::new(),
+            automatic_requests: std::collections::HashSet::new(),
             stats: Stats::default(),
             opts,
             stopped: false,
@@ -1892,10 +1896,20 @@ impl Host {
         let id = self.next_id;
         self.next_id += 1;
         self.outbox.push(Outbound::Request { id, frame: frame.to_vec() });
+        // A call made while a Timer's `onTick` handler runs (or runs on, after an answer) is an automatic refresh.
+        if self.inflight.as_ref().and_then(|f| f.event_desc.as_ref()).is_some_and(|(_, ev)| is_timer_tick(ev)) {
+            self.automatic_requests.insert(id);
+        }
         if let Some(f) = &mut self.inflight {
             f.wait = Some(Wait::Remote { id, answer: None });
         }
         Ok(id)
+    }
+
+    /// Was request `id` made by a Timer's `onTick` handler, an automatic refresh the loading effect ignores (2.0.413)? Asked
+    /// once, when the request goes to the transport: the answer is true at most one time for an id.
+    pub fn take_automatic(&mut self, id: u32) -> bool {
+        self.automatic_requests.remove(&id)
     }
 
     /// `abort(len)`: the batch holds an ERROR command. Report it; the module then traps.
@@ -3476,6 +3490,14 @@ impl Host {
         serde_json::Value::Object(m)
     }
 }
+
+/// Is `event` (the text a handler run is described by: `onTick`, or `TMR-REFRESH onTick`) a Timer's tick?
+fn is_timer_tick(event: &str) -> bool {
+    event.split_whitespace().last().is_some_and(|w| w.eq_ignore_ascii_case("ontick"))
+}
+
+#[cfg(test)]
+mod automatic_tests;
 
 #[cfg(test)]
 mod graphics_tests;

@@ -437,6 +437,40 @@ fn the_payload_limit_reaches_the_module_and_the_player_017() {
     eprintln!("payload limit: {}", seen.join("; "));
 }
 
+// ── 2.0.413: the loading effect is a project setting ────────────────────────
+
+/// The project's `loading_effect` reaches `config.json`'s `options.loading_effect`: a project that never chose gets
+/// `moving-stripes` (what its marked controls always meant), `none` turns the effect off, and the bundle's list of effects is the
+/// project's (the player and the IDE's combobox read the same names).
+#[test]
+fn the_loading_effect_reaches_the_bundle_config() {
+    use cobolt_compiler::project_kind::LoadingEffect as Chosen;
+    use cobolt_web_bundle::LoadingEffect as Bundled;
+    assert_eq!(Chosen::ALL.len(), Bundled::ALL.len(), "one list of effects");
+    for c in Chosen::ALL {
+        assert_eq!(Bundled::from_name(c.as_str()).map(Bundled::as_str), Some(c.as_str()), "{c:?} has the same name in the bundle");
+    }
+    assert_eq!(Chosen::default().as_str(), Bundled::default().as_str(), "the same default");
+
+    let mut seen = Vec::new();
+    for (tag, web, want) in [
+        ("loadfx-default", "[web]\nmulti_memory = true\n", "moving-stripes"),
+        ("loadfx-none", "[web]\nmulti_memory = true\nloading_effect = \"none\"\n", "none"),
+        ("loadfx-stripes", "[web]\nmulti_memory = true\nloading_effect = \"moving-stripes\"\n", "moving-stripes"),
+    ] {
+        let manifest = project_with(tag, web, &["main-form"]);
+        let req = WebBuildRequest::from_manifest(&manifest).unwrap();
+        assert_eq!(req.web.loading_effect.as_str(), want, "{tag}: the request");
+        let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
+        let files = snapshot(&report.bundle_dir);
+        let config: serde_json::Value = serde_json::from_slice(&files["config.json"]).unwrap();
+        assert_eq!(config["options"]["loading_effect"], want, "{tag}: config.json");
+        seen.push(format!("{tag}: options.loading_effect = {want}"));
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+    }
+    eprintln!("loading effect: {}", seen.join("; "));
+}
+
 // ── WASM-017 T3: `Instances` out of range refuses Check and Build ───────────
 
 #[test]

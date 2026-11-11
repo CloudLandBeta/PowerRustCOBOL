@@ -205,10 +205,12 @@ div.pr-line > svg > line { stroke: var(--pr-line-color, currentColor); stroke-wi
 .pr-sm-header { display: flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; padding: 4px 12px; height: var(--pr-sm-header-h, 120px); flex: none; }
 .pr-sm-header img { width: 270px; height: 80px; max-width: 100%; max-height: 100%; object-fit: contain; }
 .pr-sm-title { font-weight: 600; }
-/* LoadingEffect: barber-shop stripes run left to right over the control while a Backend call is in flight; the answer takes them away. */
+/* LoadingEffect: a control marked LoadingEffect shows the project's effect while a Backend call is in flight; the answer takes it away.
+   The player writes the effect's name as the busy mark's value; "moving-stripes" (the default) is barber-shop stripes running left to right,
+   "none" (or a name not drawn here) matches nothing. */
 .pr-loadfx { position: relative; isolation: isolate; }
 .pr-loadfx::after { content: ""; position: absolute; inset: 0; z-index: 2147483000; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .15s; background: repeating-linear-gradient(135deg, rgba(255,255,255,.86) 0 24px, rgba(226,228,233,.86) 24px 48px); background-size: 67.88px 67.88px; backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
-[data-pr-busy] .pr-loadfx::after { opacity: 1; animation: pr-barber 1.2s linear infinite; }
+[data-pr-busy="moving-stripes"] .pr-loadfx::after { opacity: 1; animation: pr-barber 1.2s linear infinite; }
 @keyframes pr-barber { to { background-position: 67.88px 0; } }
 .pr-sm-toggle { align-self: flex-end; margin: 0 8px 4px; background: transparent; border: 0; color: inherit; cursor: pointer; font: inherit; }
 .pr-sm-items { flex: 1; overflow: auto; margin: 0; padding: 0; list-style: none; }
@@ -510,8 +512,12 @@ mod tests {
     fn the_loading_effect_reads_a_mark_that_a_shadow_root_can_see() {
         let b = base_layer();
         let rule = b.lines().find(|l| l.contains("data-pr-busy")).expect("the busy rule");
-        assert!(rule.starts_with("[data-pr-busy] .pr-loadfx::after {"), "{rule}");
+        assert!(rule.starts_with("[data-pr-busy=\"moving-stripes\"] .pr-loadfx::after {"), "{rule}");
         assert!(!b.contains("body[data-pr-busy]"), "a selector in a shadow root cannot see <body>");
+        // The mark carries the project's effect by name: no rule may match a bare mark (that would draw whatever the
+        // project chose, `none` included), and nothing is drawn for `none`.
+        assert!(!b.contains("[data-pr-busy] "), "a bare busy mark must not draw an effect");
+        assert!(!b.contains("[data-pr-busy=\"none\"]"), "`none` draws nothing");
         eprintln!("loading effect rule: {rule}");
     }
 

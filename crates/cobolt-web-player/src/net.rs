@@ -40,9 +40,17 @@
 //!
 //! The session id lives in [`Client`] only — never in browser storage (WASM-014 Q5).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde_json::{json, Value};
+
+/// Is a call the user (or the initial load) started in flight, so that the loading effect shows (2.0.413)? `in_flight` is the
+/// ids the connection has out; `automatic` holds the ids a Timer's `onTick` handler made, which are automatic refreshes and
+/// show nothing. The ids that are no longer in flight are forgotten.
+pub fn user_call_in_flight(in_flight: &[u32], automatic: &mut HashSet<u32>) -> bool {
+    automatic.retain(|id| in_flight.contains(id));
+    in_flight.iter().any(|id| !automatic.contains(id))
+}
 
 mod transfer;
 pub use transfer::{plain_name, CHUNK_BYTES};
@@ -436,6 +444,11 @@ impl<S: Socket> Client<S> {
 
     pub fn in_flight(&self) -> usize {
         self.inflight.len()
+    }
+
+    /// The ids of the requests in flight, in order (2.0.413): the loading effect asks which of them are the user's.
+    pub fn in_flight_ids(&self) -> Vec<u32> {
+        self.inflight.keys().copied().collect()
     }
 
     /// The application is blocked while the connection is tried again (R26).
@@ -1218,6 +1231,37 @@ mod tests {
 
     fn reply(id: u32, returning: &str) -> String {
         format!(r#"{{"t":"reply","id":{id},"args":[null],"returning":{returning}}}"#)
+    }
+
+    /// 2.0.413: the loading effect shows while a call the user (or the initial load) started is in flight; a call a Timer's tick
+    /// made is an automatic refresh and shows nothing. The set of automatic ids forgets the calls that ended.
+    #[test]
+    fn the_loading_effect_ignores_calls_a_timers_tick_made() {
+        use std::collections::HashSet;
+        let mut automatic: HashSet<u32> = [7].into_iter().collect();
+        assert!(!user_call_in_flight(&[], &mut automatic), "nothing in flight: not busy");
+        assert!(automatic.is_empty(), "the ended call is forgotten");
+        let mut automatic: HashSet<u32> = [7].into_iter().collect();
+        assert!(!user_call_in_flight(&[7], &mut automatic), "only the Timer's call is out: the effect stays away");
+        assert!(user_call_in_flight(&[7, 8], &mut automatic), "the user's call 8 is out beside it: the effect shows");
+        assert!(user_call_in_flight(&[8], &mut automatic), "the Timer's call ended, the user's goes on");
+        assert!(automatic.is_empty(), "7 is forgotten once it is no longer in flight");
+        assert!(user_call_in_flight(&[9], &mut automatic), "a call nobody marked is the user's (the initial load's, a grid's)");
+        println!("busy: timer-only -> no, timer + user -> yes, user only -> yes, nothing -> no; ended calls forgotten");
+    }
+
+    /// The client lists the ids it has in flight, in order.
+    #[test]
+    fn the_client_lists_the_requests_in_flight() {
+        let mut c = Client::new(Config::from_page(cfg().origins, false, None, None), Mock::default());
+        c.set_token(None);
+        c.connect(URL, 0).unwrap();
+        assert!(c.in_flight_ids().is_empty());
+        c.request_as(5, br#"{"program":"P","args":[]}"#, 0);
+        c.request_as(3, br#"{"program":"P","args":[]}"#, 0);
+        assert_eq!(c.in_flight_ids(), vec![3, 5]);
+        assert_eq!(c.in_flight(), 2);
+        println!("in flight: {:?}", c.in_flight_ids());
     }
 
     /// WASM-017 T6: the page's `max_frame` (the project's payload limit) is

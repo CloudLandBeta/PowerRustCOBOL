@@ -99,9 +99,26 @@ pub struct PlayerConfig {
     pub address: String,
     /// A phone's navigation stack (WASM-011 R13, Q5): every form opened over another is a full screen, and Back pops it.
     pub stack: bool,
+    /// What a control marked `LoadingEffect` shows while a call is in flight (2.0.413, the project's `loading_effect`):
+    /// `"moving-stripes"` or `"none"`. Empty = `"moving-stripes"`, so a bundle written before the setting existed keeps the
+    /// effect its marked controls always meant. The player names it on its busy mark; the base stylesheet draws the ones it knows.
+    pub loading_effect: String,
 }
 
+/// The effect a project that never chose has (and the one an empty `loading_effect` means).
+pub const DEFAULT_LOADING_EFFECT: &str = "moving-stripes";
+
 impl PlayerConfig {
+    /// The loading effect's name for the busy mark: the project's, lower-cased, or the default when it named none.
+    pub fn loading_effect_name(&self) -> String {
+        let n = self.loading_effect.trim().to_ascii_lowercase();
+        if n.is_empty() {
+            DEFAULT_LOADING_EFFECT.to_string()
+        } else {
+            n
+        }
+    }
+
     /// This application follows and writes the page's address: a single-page application that was not told to leave it
     /// to the page. A standalone window's address is its own page's, which the player never rewrites.
     pub fn owns_address(&self) -> bool {
@@ -461,8 +478,9 @@ pub(crate) trait Surface {
     fn render(&self, inner: &Rc<Inner>);
     fn effect(&self, inner: &Rc<Inner>, e: &Effect);
     fn net_state(&self, inner: &Rc<Inner>, s: LinkState);
-    /// A call to the Backend is in flight (`busy`) or none is: the controls with a `LoadingEffect` show their stripes while it is.
-    fn net_busy(&self, _busy: bool) {}
+    /// A call to the Backend is in flight (`busy`) or none is: the controls with a `LoadingEffect` show the project's effect
+    /// (`effect`, its name: `moving-stripes`, `none`) while it is.
+    fn net_busy(&self, _busy: bool, _effect: &str) {}
     /// The connection is being retried (`blocked`) or gave up (`unreachable`): show, change or take away the "connecting"
     /// modal that blocks the application (WASM-016 R20–R21).
     fn net_blocked(&self, inner: &Rc<Inner>, blocked: bool, unreachable: bool);
@@ -501,6 +519,9 @@ pub(crate) struct Inner {
     driving: Cell<bool>,
     inbox: RefCell<VecDeque<Inbox>>,
     net: RefCell<Option<Client<WsSocket>>>,
+    /// The requests a Timer's `onTick` handler made and that are still in flight (2.0.413): an automatic refresh, which the
+    /// loading effect does not show.
+    automatic: RefCell<std::collections::HashSet<u32>>,
     net_timer: RefCell<Option<Timeout>>,
     /// The connection's latest *blocked* and *unreachable* (WASM-003 R26, WASM-016 R21): what the
     /// "connecting" modal (WASM-016 R20) is drawn from; `stats()` reports them.
@@ -701,13 +722,16 @@ impl Inner {
 
     /// Hand the connection's answers to the host and set the timer for its next deadline.
     fn drain_net(self: &Rc<Self>) {
-        let (outs, refresh, deadline, busy) = {
+        let (outs, refresh, deadline, in_flight) = {
             let mut guard = self.net.borrow_mut();
             let Some(c) = guard.as_mut() else { return };
-            (c.take_out(), std::mem::take(&mut c.refresh_requested), c.next_deadline(), c.in_flight() > 0)
+            (c.take_out(), std::mem::take(&mut c.refresh_requested), c.next_deadline(), c.in_flight_ids())
         };
+        // The loading effect shows for what the user (or the initial load) started; a call a Timer's tick made is an automatic
+        // refresh and shows nothing. Calls that ended are forgotten.
+        let busy = net::user_call_in_flight(&in_flight, &mut self.automatic.borrow_mut());
         if let Some(sf) = self.surface.borrow().as_ref() {
-            sf.net_busy(busy);
+            sf.net_busy(busy, &self.cfg.loading_effect_name());
         }
         let mut modal_changed = false;
         for o in outs {
@@ -1085,6 +1109,11 @@ impl Inner {
         for o in outs {
             match o {
                 Outbound::Request { id, frame } => {
+                    // A request a Timer's tick made is an automatic refresh: noted before it goes out, which is when the busy
+                    // mark is worked out.
+                    if self.host.borrow_mut().take_automatic(id) {
+                        self.automatic.borrow_mut().insert(id);
+                    }
                     // No backend configured, or an address the page may not connect to: the program is
                     // told, as for any lost connection.
                     if let Err(e) = self.net_submit(id, &frame) {
@@ -1419,6 +1448,7 @@ impl Player {
             driving: Cell::new(false),
             inbox: RefCell::new(VecDeque::new()),
             net: RefCell::new(None),
+            automatic: RefCell::new(std::collections::HashSet::new()),
             net_timer: RefCell::new(None),
             net_blocked: Cell::new(false),
             net_unreachable: Cell::new(false),

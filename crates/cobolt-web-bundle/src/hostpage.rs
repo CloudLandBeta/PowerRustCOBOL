@@ -870,6 +870,8 @@ export async function mount(target, options = {}) {
       // override per mount; and a phone's navigation stack (R13).
       address: options.address || (config.options && config.options.embed && config.options.embed.address) || '',
       stack: !!(config.options && config.options.stack),
+      // What a control marked LoadingEffect shows while a call is in flight (the project's setting); empty = the player's default.
+      loading_effect: (config.options && config.options.loading_effect) || '',
     };
     if ((pcfg.hosted_code || pcfg.hosted_state) && env.history && typeof env.history.replaceState === 'function' && env.location) {
       try {

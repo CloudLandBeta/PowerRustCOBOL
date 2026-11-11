@@ -193,6 +193,45 @@ impl ApplicationStyle {
     }
 }
 
+/// What a control marked `LoadingEffect` shows while a call to the Backend is
+/// in flight and no data has arrived yet (2.0.413). The per-control property
+/// stays the switch for WHICH controls show it; this project setting chooses
+/// WHAT they show. More effects can be added here later: the player and the
+/// IDE's combobox read the list from this one enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LoadingEffect {
+    /// Nothing: marked controls stay as they are while a call is in flight.
+    None,
+    /// Pale diagonal stripes that move from left to right over the control,
+    /// its content blurred behind them. The default (a project that never
+    /// chose keeps the effect its marked controls always meant).
+    #[default]
+    MovingStripes,
+}
+
+impl LoadingEffect {
+    /// Every effect, in the order the combobox lists them.
+    pub const ALL: [LoadingEffect; 2] = [LoadingEffect::None, LoadingEffect::MovingStripes];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LoadingEffect::None => "none",
+            LoadingEffect::MovingStripes => "moving-stripes",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|o| o.as_str() == s.trim().to_ascii_lowercase())
+    }
+
+    /// `serde` writes the key only when it is not the default, so an existing
+    /// manifest is saved unchanged.
+    pub fn is_default(&self) -> bool {
+        *self == LoadingEffect::default()
+    }
+}
+
 /// The cross-origin isolation a Web bundle is served with (WASM-002 R20).
 /// Threads need the page to be isolated; nothing needs threads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -530,6 +569,12 @@ pub struct WebSettings {
     /// Written only when it is not the default.
     #[serde(default = "default_call_timeout", skip_serializing_if = "is_default_call_timeout")]
     pub call_timeout_ms: u32,
+    /// What a control marked `LoadingEffect` shows while a call to the Backend
+    /// is in flight (2.0.413): `none` or `moving-stripes`. Written only when
+    /// it is not the default (`moving-stripes`), so an existing manifest is
+    /// saved unchanged and its marked controls keep their stripes.
+    #[serde(default, skip_serializing_if = "LoadingEffect::is_default")]
+    pub loading_effect: LoadingEffect,
     /// Carry the single-memory module beside the multi-memory one (WASM-017
     /// R9, D5). On by default; off asks for "multi-memory only", which the
     /// Build refuses while the matrix has a WebKit engine
@@ -573,6 +618,7 @@ impl Default for WebSettings {
             player: None,
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             call_timeout_ms: DEFAULT_CALL_TIMEOUT_MS,
+            loading_effect: LoadingEffect::default(),
             single_memory_fallback: true,
             stylesheet: web_stylesheet(),
             theme_file: None,
@@ -639,6 +685,9 @@ pub struct MobileSettings {
     /// The remote-call wait, as [`WebSettings::call_timeout_ms`].
     #[serde(default = "default_call_timeout", skip_serializing_if = "is_default_call_timeout")]
     pub call_timeout_ms: u32,
+    /// The loading effect, as [`WebSettings::loading_effect`].
+    #[serde(default, skip_serializing_if = "LoadingEffect::is_default")]
+    pub loading_effect: LoadingEffect,
     /// The application's identity on the device (WASM-012 R6): reverse-DNS,
     /// two or more segments, each `[A-Za-z][A-Za-z0-9_]*`
     /// ([`validate_app_id`]). Empty until set; a package build needs it.
@@ -897,6 +946,7 @@ impl MobileSettings {
             player: None,
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             call_timeout_ms: DEFAULT_CALL_TIMEOUT_MS,
+            loading_effect: LoadingEffect::default(),
             stylesheet: mobile_stylesheet(),
             theme_file: None,
             preview_browser: String::new(),
@@ -1161,6 +1211,29 @@ mod tests {
         assert_eq!(mobile.max_payload_bytes, DEFAULT_MAX_PAYLOAD_BYTES);
         assert_eq!(MobileSettings::new(MobilePlatform::Android, DeviceClass::Phone).max_payload_bytes, DEFAULT_MAX_PAYLOAD_BYTES);
         println!("payload limit: old table 393216, set 524288 round-trips, mobile default 393216");
+    }
+
+    /// 2.0.413: the loading effect is a project setting. An old `[web]`/`[mobile]` table reads "moving stripes" and is
+    /// written back without the key; `none` and a named effect round-trip; an unknown name is refused.
+    #[test]
+    fn the_loading_effect_defaults_to_moving_stripes_and_is_written_only_when_chosen() {
+        let old: WebSettings = toml::from_str("backend_url = \"wss://api.example.com/ws\"").unwrap();
+        assert_eq!(old.loading_effect, LoadingEffect::MovingStripes);
+        assert!(!toml::to_string_pretty(&old).unwrap().contains("loading_effect"), "an old manifest is saved unchanged");
+        let none: WebSettings = toml::from_str("loading_effect = \"none\"").unwrap();
+        assert_eq!(none.loading_effect, LoadingEffect::None);
+        assert!(toml::to_string_pretty(&none).unwrap().contains("loading_effect = \"none\""));
+        let stripes: WebSettings = toml::from_str("loading_effect = \"moving-stripes\"").unwrap();
+        assert_eq!(stripes.loading_effect, LoadingEffect::MovingStripes);
+        assert!(!toml::to_string_pretty(&stripes).unwrap().contains("loading_effect"), "the default is never written");
+        let mobile: MobileSettings = toml::from_str("platform = \"ios\"\ndevice = \"phone\"\nloading_effect = \"none\"").unwrap();
+        assert_eq!(mobile.loading_effect, LoadingEffect::None);
+        assert_eq!(MobileSettings::new(MobilePlatform::Android, DeviceClass::Phone).loading_effect, LoadingEffect::MovingStripes);
+        assert!(toml::from_str::<WebSettings>("loading_effect = \"confetti\"").is_err());
+        for e in LoadingEffect::ALL {
+            assert_eq!(LoadingEffect::parse(e.as_str()), Some(e), "{e:?} reads back from its own name");
+        }
+        println!("loading effect: old table = moving-stripes (key not written), none round-trips, unknown refused, {} effects listed", LoadingEffect::ALL.len());
     }
 
     /// WASM-005 R11: an old `[web]`/`[mobile]` table reads the 60 s remote-call

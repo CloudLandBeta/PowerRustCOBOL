@@ -90,6 +90,37 @@ impl AppStyle {
     }
 }
 
+/// What a control marked `LoadingEffect` shows while a call to the Backend is in flight (2.0.413): the project's
+/// `[web] loading_effect` / `[mobile] loading_effect`. The player names it on its busy mark (`data-pr-busy="<name>"`) and the
+/// base stylesheet draws the one it knows; a name it does not know draws nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LoadingEffect {
+    /// Nothing: marked controls stay as they are.
+    None,
+    /// Pale diagonal stripes moving left to right over the control. The default: a project that never chose keeps what its
+    /// marked controls always meant.
+    #[default]
+    MovingStripes,
+}
+
+impl LoadingEffect {
+    /// Every effect, in the order the project's combobox lists them.
+    pub const ALL: [LoadingEffect; 2] = [LoadingEffect::None, LoadingEffect::MovingStripes];
+
+    /// The effect as `cobolt.toml` spells it (`cobolt_compiler::project_kind::LoadingEffect::as_str`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LoadingEffect::None => "none",
+            LoadingEffect::MovingStripes => "moving-stripes",
+        }
+    }
+
+    /// The bundle's effect for the project's `loading_effect` setting; `None` for a name that is no effect.
+    pub fn from_name(name: &str) -> Option<LoadingEffect> {
+        Self::ALL.into_iter().find(|e| e.as_str().eq_ignore_ascii_case(name.trim()))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Embed {
     /// The application is the page and fills the window.
@@ -212,6 +243,9 @@ pub struct BundleOptions {
     pub own_address: Option<bool>,
     /// A phone's navigation stack (WASM-011 R13, Q5): every form opened over another is a full screen. `options.stack`.
     pub stack: bool,
+    /// What a control marked `LoadingEffect` shows while a call is in flight (2.0.413, the project's `loading_effect`).
+    /// `options.loading_effect`.
+    pub loading_effect: LoadingEffect,
     /// A release build refuses every `unsafe` setting (WASM-013 R11).
     pub release: bool,
     pub unsafe_plain_ws: bool,
@@ -279,6 +313,7 @@ impl Default for BundleOptions {
             texts: BTreeMap::new(),
             own_address: None,
             stack: false,
+            loading_effect: LoadingEffect::default(),
             release: true,
             unsafe_plain_ws: false,
             skip_secret_scan: false,
@@ -980,6 +1015,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
             "image_origins": csp_opts.extra_img.iter().chain(csp_opts.extra_font.iter().filter(|f| !csp_opts.extra_img.contains(f))).cloned().collect::<Vec<_>>(),
             "embed": embed_cfg,
             "stack": o.stack,
+            "loading_effect": o.loading_effect.as_str(),
         },
         "texts": Value::Object(texts),
         "versions": {"abi": cobolt_wasm_abi::ABI_VERSION, "description": DESCRIPTION_VERSION, "loader": LOADER_VERSION},

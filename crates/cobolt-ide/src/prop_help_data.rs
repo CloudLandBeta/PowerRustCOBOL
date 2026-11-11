@@ -674,12 +674,12 @@ pub static PROP_HELP: &[PropHelp] = &[
         "Le nom qu'un lecteur d'écran annonce pour le contrôle, sur le bureau et dans un navigateur. Vide : le Caption du contrôle, sinon le Label juste avant lui dans l'ordre de tabulation, sinon son Tooltip ; sans aucun d'eux, le Check d'un projet Web ou Mobile avertit.",
     ] },
     PropHelp { ty: "", prop: "LoadingEffect", text: [
-        "Web and Mobile: while any call to the Backend is in flight, the control shows barber-shop stripes running left to right; when the answer arrives the stripes go away. Off by default; the desktop ignores it.",
-        "Web y Móvil: mientras una llamada al Backend está en curso, el control muestra franjas de barbería que corren de izquierda a derecha; al llegar la respuesta desaparecen. Desactivado por defecto; el escritorio lo ignora.",
-        "Web e Mobile: enquanto uma chamada ao Backend está em andamento, o controle mostra listras de barbearia correndo da esquerda para a direita; quando a resposta chega, as listras somem. Desligado por padrão; o desktop ignora.",
-        "Web とモバイル: Backend への呼び出しが進行中のあいだ、コントロールに左から右へ流れる理容店風のストライプを表示し、応答が届くと消えます。既定はオフで、デスクトップでは無視されます。",
-        "Web 和移动：只要有对后端的调用在进行，控件就会显示从左向右移动的理发店条纹；应答到达后条纹消失。默认关闭；桌面版忽略此属性。",
-        "Web et Mobile : tant qu'un appel au Backend est en cours, le contrôle affiche des bandes de barbier qui défilent de gauche à droite ; la réponse les fait disparaître. Désactivé par défaut ; le bureau l'ignore.",
+        "Web and Mobile: while any call to the Backend is in flight, the control shows the project's loading effect (Settings > Loading effect: moving stripes by default, or none); when the answer arrives it goes away. This property chooses which controls show it. Off by default; the desktop ignores it.",
+        "Web y Móvil: mientras una llamada al Backend está en curso, el control muestra el efecto de carga del proyecto (Configuración > Efecto de carga: franjas en movimiento por defecto, o ninguno); al llegar la respuesta desaparece. Esta propiedad elige qué controles lo muestran. Desactivado por defecto; el escritorio lo ignora.",
+        "Web e Mobile: enquanto uma chamada ao Backend está em andamento, o controle mostra o efeito de carregamento do projeto (Configurações > Efeito de carregamento: listras em movimento por padrão, ou nenhum); quando a resposta chega, ele some. Esta propriedade escolhe quais controles o mostram. Desligado por padrão; o desktop ignora.",
+        "Web とモバイル: Backend への呼び出しが進行中のあいだ、コントロールにプロジェクトの読み込み中の効果（設定 > 読み込み中の効果: 既定は動くストライプ、または なし）を表示し、応答が届くと消えます。このプロパティは、どのコントロールに表示するかを選びます。既定はオフで、デスクトップでは無視されます。",
+        "Web 和移动：只要有对后端的调用在进行，控件就会显示项目的加载效果（设置 > 加载效果：默认为移动条纹，也可选无）；应答到达后效果消失。此属性决定哪些控件显示该效果。默认关闭；桌面版忽略此属性。",
+        "Web et Mobile : tant qu'un appel au Backend est en cours, le contrôle affiche l'effet de chargement du projet (Paramètres > Effet de chargement : rayures en mouvement par défaut, ou aucun) ; la réponse le fait disparaître. Cette propriété choisit quels contrôles l'affichent. Désactivé par défaut ; le bureau l'ignore.",
     ] },
     PropHelp { ty: "", prop: "Transparency", text: [
         "How much of what lies behind shows through the control's face, 0 (opaque) to 100 (face not painted). It fades the background, frame and shadow; text and border stay legible. A CheckBox defaults to 100.",

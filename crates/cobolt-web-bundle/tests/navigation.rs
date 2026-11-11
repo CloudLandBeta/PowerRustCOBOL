@@ -9,7 +9,7 @@
 
 mod support;
 
-use cobolt_web_bundle::{assemble_bundle, AppStyle, BundleOptions, Embed, PlayerInput, PlayerVariantInput};
+use cobolt_web_bundle::{assemble_bundle, AppStyle, BundleOptions, Embed, LoadingEffect, PlayerInput, PlayerVariantInput};
 use serde_json::Value;
 
 fn stub_player() -> PlayerInput {
@@ -59,6 +59,22 @@ fn the_page_owns_its_address_and_an_application_mounted_into_another_page_does_n
 fn the_stack_is_off_unless_the_build_asks_for_it() {
     assert_eq!(config(BundleOptions::default())["options"]["stack"], false);
     assert_eq!(config(BundleOptions { stack: true, ..Default::default() })["options"]["stack"], true);
+}
+
+/// 2.0.413: the loading effect is the project's: `moving-stripes` unless the Build says `none`, written to `options.loading_effect`
+/// and forwarded by the loader to the player, which names it on its busy mark.
+#[test]
+fn the_loading_effect_is_moving_stripes_unless_the_build_says_otherwise_and_the_loader_forwards_it() {
+    assert_eq!(LoadingEffect::from_name("none"), Some(LoadingEffect::None));
+    assert_eq!(LoadingEffect::from_name(" Moving-Stripes "), Some(LoadingEffect::MovingStripes));
+    assert_eq!(LoadingEffect::from_name("confetti"), None, "a name that is no effect is refused");
+    assert_eq!(LoadingEffect::default(), LoadingEffect::MovingStripes);
+    assert_eq!(config(BundleOptions::default())["options"]["loading_effect"], "moving-stripes");
+    assert_eq!(config(BundleOptions { loading_effect: LoadingEffect::None, ..Default::default() })["options"]["loading_effect"], "none");
+    let out = assemble_bundle(&support::input_with(stub_player(), BundleOptions::default())).unwrap_or_else(|e| panic!("{e}"));
+    let loader = out.files.iter().find(|f| f.path.ends_with(".js") && String::from_utf8_lossy(&f.bytes).contains("const pcfg = {")).expect("the loader");
+    let text = String::from_utf8_lossy(&loader.bytes);
+    assert!(text.contains("loading_effect: (config.options && config.options.loading_effect) || ''"), "the effect is forwarded to the player");
 }
 
 #[test]

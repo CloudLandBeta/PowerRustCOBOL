@@ -1148,6 +1148,8 @@ impl WebBuildBackend for GeneratorBackend {
             },
             backend_origins: backend_origin(&req.web.backend_url).into_iter().collect(),
             max_frame: Some(req.web.max_payload_bytes),
+            // The project's `loading_effect` (2.0.413): what a control marked `LoadingEffect` shows while a call is in flight.
+            loading_effect: cobolt_web_bundle::LoadingEffect::from_name(req.web.loading_effect.as_str()).unwrap_or_default(),
             backend_contract,
             backend_idempotent,
             // `[links] schemes` (WASM-006 R7): the same reader the desktop hosts publish from.

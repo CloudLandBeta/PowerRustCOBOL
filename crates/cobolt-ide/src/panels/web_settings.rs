@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 use egui::{RichText, Ui};
 
 use cobolt_compiler::project_kind::{
-    backend_url_problem, ApplicationStyle, BackendUrlProblem, Isolation, MobilePlatform, ModuleVariants, Orientation, BACKEND_FOLDER,
+    backend_url_problem, ApplicationStyle, BackendUrlProblem, Isolation, LoadingEffect, MobilePlatform, ModuleVariants, Orientation, BACKEND_FOLDER,
 };
 use cobolt_compiler::ProjectKind;
 use cobolt_project_tools::templates;
@@ -136,6 +136,13 @@ fn style_text<'a>(tr: &'a Tr, s: ApplicationStyle) -> &'a str {
     match s {
         ApplicationStyle::Spa => tr.pk_c_spa,
         ApplicationStyle::Standalone => tr.pk_c_standalone,
+    }
+}
+
+fn loading_effect_text<'a>(tr: &'a Tr, e: LoadingEffect) -> &'a str {
+    match e {
+        LoadingEffect::None => tr.pk_c_loading_none,
+        LoadingEffect::MovingStripes => tr.pk_c_loading_stripes,
     }
 }
 
@@ -1114,6 +1121,29 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
         }
     }
 
+    // What a control whose LoadingEffect property is on shows while a call to the Backend is in flight (2.0.413): the
+    // project's, Web or Mobile. The property chooses WHICH controls show it; this chooses WHAT they show.
+    let mut effect = match draft.kind {
+        ProjectKind::Web => draft.web.loading_effect,
+        _ => draft.mobile.as_ref().map(|m| m.loading_effect).unwrap_or_default(),
+    };
+    row(ui, lay, tr.pk_o_loading_effect, |ui| {
+        egui::ComboBox::from_id_salt("kind_loading_effect").selected_text(loading_effect_text(tr, effect)).show_ui(ui, |ui| {
+            for e in LoadingEffect::ALL {
+                ui.selectable_value(&mut effect, e, loading_effect_text(tr, e));
+            }
+        });
+    });
+    note(ui, lay, tr.pk_o_loading_effect_note, dim);
+    match draft.kind {
+        ProjectKind::Web => draft.web.loading_effect = effect,
+        _ => {
+            if let Some(m) = &mut draft.mobile {
+                m.loading_effect = effect;
+            }
+        }
+    }
+
     if draft.kind == ProjectKind::Web {
         row(ui, lay, tr.pk_set_browsers, |ui| {
             ui.vertical(|ui| {
@@ -1334,6 +1364,39 @@ mod tests {
         draft.apply_kind(&mut p);
         assert!(!p.web.as_ref().unwrap().browsers.safari);
         assert!(!p.web.as_ref().unwrap().single_memory_fallback);
+    }
+
+    /// 2.0.413: the loading effect is a project setting, Web and Mobile; the draft reads it, the combobox names every effect in
+    /// all six languages, and a chosen effect is written back (the default is not written, so an old project is saved as it was).
+    #[test]
+    fn the_loading_effect_setting_round_trips_and_is_named_in_six_languages() {
+        let llm = LlmConfig::load_defaults_for_test();
+        let mut web = web_project();
+        let mut draft = SettingsDraft::from_project(&web, &llm);
+        assert_eq!(draft.web.loading_effect, LoadingEffect::MovingStripes, "a project that never chose has the stripes");
+        draft.web.loading_effect = LoadingEffect::None;
+        draft.apply_kind(&mut web);
+        assert_eq!(web.web.as_ref().unwrap().loading_effect, LoadingEffect::None);
+        assert!(toml::to_string(&web.web).unwrap().contains("loading_effect = \"none\""), "a chosen effect is written");
+
+        let mut mobile = mobile_project(MobilePlatform::Ios);
+        let mut draft = SettingsDraft::from_project(&mobile, &llm);
+        assert_eq!(draft.mobile.as_ref().unwrap().loading_effect, LoadingEffect::MovingStripes);
+        draft.mobile.as_mut().unwrap().loading_effect = LoadingEffect::None;
+        draft.apply_kind(&mut mobile);
+        assert_eq!(mobile.mobile.as_ref().unwrap().loading_effect, LoadingEffect::None);
+
+        let mut named = 0;
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            let labels: Vec<&str> = LoadingEffect::ALL.iter().map(|&e| loading_effect_text(&tr, e)).collect();
+            assert_ne!(labels[0], labels[1], "{lang:?}: the two effects read differently");
+            for t in labels.into_iter().chain([tr.pk_o_loading_effect, tr.pk_o_loading_effect_note]) {
+                assert!(!t.trim().is_empty() && !t.to_lowercase().contains("cobolt"), "{lang:?}: {t:?}");
+            }
+            named += 1;
+        }
+        println!("loading effect setting: Web and Mobile round-trip; {} effects named in {named} languages", LoadingEffect::ALL.len());
     }
 
     /// WASM-017 T7: "multi-memory only" with Safari in the matrix is said in

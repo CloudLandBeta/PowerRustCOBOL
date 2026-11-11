@@ -148,6 +148,7 @@ impl WebBuildRequest {
                     player: mobile.player.clone(),
                     max_payload_bytes: mobile.max_payload_bytes,
                     call_timeout_ms: mobile.call_timeout_ms,
+                    loading_effect: mobile.loading_effect,
                     // A Mobile build's variants are its platform's (below).
                     single_memory_fallback: true,
                     stylesheet: mobile.stylesheet.clone(),

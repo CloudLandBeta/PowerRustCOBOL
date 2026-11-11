@@ -6621,6 +6621,7 @@ isolation    = "require-corp"  # "off", "require-corp" or "credentialless": the 
 backend_url  = ""            # wss://..., or ws:// to this machine only (localhost, 127.0.0.1, ::1)
 max_payload_bytes = 393216   # the largest text or JSON frame between page, program and Backend (384 KB)
 call_timeout_ms = 60000      # how long a remote call waits for the Backend's answer (60 s); then TRANSPORT 1002
+loading_effect = "moving-stripes"  # what a control with LoadingEffect on shows during a Backend call: "none" or "moving-stripes"
 # player     = "2.0.0"       # pin an older player this IDE keeps; absent = the player this IDE ships
 [web.browsers]               # the browsers the build promises to run in; all true
 chromium        = true
@@ -6639,6 +6640,7 @@ multi_memory = false         # false is the iOS default; true for Android
 backend_url  = ""
 max_payload_bytes = 393216   # as under [web]
 call_timeout_ms = 60000      # as under [web]
+loading_effect = "moving-stripes"  # as under [web]
 # player     = "2.0.0"       # as under [web]
 app_id       = "com.example.orders"  # the application's identity on the phone: reverse-DNS, two or more parts; a package needs it
 features     = ["secure-storage"]   # the device features it uses: secure-storage, open-address, deep-link
@@ -6844,6 +6846,16 @@ LINKAGE` — and a bound grid's read or save — waits for the Backend's answer
 before it fails with class `TRANSPORT`, code 1002 (`ON EXCEPTION` runs; a bound
 grid keeps its changes for the next `Save()`). Default 60 000 ms; a program
 declared `long_running` on the Backend has its own, longer limit.
+
+**The loading effect.** A control whose `LoadingEffect` property is on shows
+the project's effect while any call to the Backend is in flight, and loses it
+when the answer arrives. The property chooses WHICH controls show it;
+`loading_effect` (Settings, Web or Mobile: the "Loading effect" box) chooses
+WHAT they show: `"moving-stripes"` (the default: pale diagonal stripes moving
+from left to right over the control, its content blurred behind them) or
+`"none"` (the marked controls stay as they are). A project that never chose has
+the stripes, and the key is written only when it is not that. A player pinned
+with `player =` to a version older than 2.0.413 ignores the setting.
 
 **The player.** A bundle is the program module the compiler emits plus the
 **player**: a prebuilt WebAssembly form engine (drawn with Leptos) that the IDE

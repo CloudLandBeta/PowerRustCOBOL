@@ -28,7 +28,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cobolt_web_bundle::devserver::{serve, ServeOptions};
-use cobolt_web_bundle::{assemble_bundle, BundleOptions, Embed, Isolation, PlayerInput};
+use cobolt_web_bundle::{assemble_bundle, BundleOptions, Embed, Isolation, LoadingEffect, PlayerInput};
 use cobolt_wasm_abi::fixture::standard::{BACKEND_UNREACHABLE, CHILD_FORM, GREETING, LBL_OUT, LST_1, MAIN_FORM, TXT_IN};
 use support::cdp::{find_chrome, Chrome, Page};
 
@@ -356,7 +356,7 @@ fn check_modal_blocks(p: &mut Page, main: &str) -> Result<String, String> {
     ))
 }
 
-fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut Option<Backend>, dir: &Path) -> Vec<(String, Result<String, String>)> {
+fn run_scenarios(page: &mut Page, url: &str, placement: Placement, effect: LoadingEffect, backend: &mut Option<Backend>, dir: &Path) -> Vec<(String, Result<String, String>)> {
     let mut run = Run { page, placement, backend, dir, results: Vec::new() };
     let main = MAIN_FORM;
     let child = CHILD_FORM;
@@ -522,13 +522,15 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut
         Ok(format!("label went {}; the backend saw one call", seq.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>().join(" -> ")))
     });
 
-    run.with_backend("loading effect: a card marked LoadingEffect shows its stripes while the call is in flight and loses them with the answer (2.0.412)", |p, b| {
+    let effect_name = effect.as_str();
+    run.with_backend(&format!("loading effect `{effect_name}` (the project's setting): a card marked LoadingEffect shows it while the call is in flight and loses it with the answer (2.0.412, 2.0.413)"), |p, b| {
         let b = b.as_ref().ok_or("no backend")?;
         b.delay_ms.store(1500, Ordering::SeqCst);
-        // What the browser says about the card's overlay and about the player's busy mark, which the page's <body> also carries.
+        // What the browser says about the card's overlay and about the player's busy mark (its value is the project's effect),
+        // which the page's <body> also carries; `null` = no mark.
         let look = format!(
             "(() => {{ const c = __pr.ctl({m}, {card}), a = getComputedStyle(c, '::after'), r = __pr.root().querySelector('.pr-root'); \
-             return {{ cls: c.classList.contains('pr-loadfx'), opacity: a.opacity, animation: a.animationName, root: r.hasAttribute('data-pr-busy'), body: document.body.hasAttribute('data-pr-busy') }}; }})()",
+             return {{ cls: c.classList.contains('pr-loadfx'), opacity: a.opacity, animation: a.animationName, root: r.getAttribute('data-pr-busy'), body: document.body.getAttribute('data-pr-busy') }}; }})()",
             m = q(main),
             card = q(CARD)
         );
@@ -536,25 +538,41 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut
         p.wait_for(&format!("getComputedStyle(__pr.ctl({m}, {card}), '::after').opacity === '0'", m = q(main), card = q(CARD)), 10)
             .map_err(|e| format!("the stripes of the call before this one never faded: {e}; {}", p.eval(&look).unwrap_or_default()))?;
         let rest = p.eval(&look)?;
-        if rest["cls"] != true || rest["opacity"] != "0" || rest["root"] != false {
+        if rest["cls"] != true || rest["opacity"] != "0" || !rest["root"].is_null() {
             return Err(format!("at rest the card must carry the class with an invisible overlay and the player not be busy: {rest}"));
         }
         click(p, main, "BTN-REMOTE")?;
         wait_text(p, main, LBL_OUT, "calling")?;
-        p.wait_for(&format!("(() => {{ const a = getComputedStyle(__pr.ctl({m}, {card}), '::after'); return a.opacity === '1' && a.animationName === 'pr-barber'; }})()", m = q(main), card = q(CARD)), 10)
-            .map_err(|e| format!("the card never showed its stripes while the call was in flight: {e}; {}", p.eval(&look).unwrap_or_default()))?;
-        let busy = p.eval(&look)?;
-        if busy["root"] != true || busy["body"] != true {
-            return Err(format!("the player marks its root and the page's body while a call is out: {busy}"));
+        // The player marks its root and the page's body with the project's effect by name, whatever the effect is...
+        p.wait_for(&format!("(() => {{ const r = __pr.root().querySelector('.pr-root'); return r.getAttribute('data-pr-busy') === {n} && document.body.getAttribute('data-pr-busy') === {n}; }})()", n = q(effect_name)), 10)
+            .map_err(|e| format!("the player never marked itself busy with `{effect_name}` while the call was in flight: {e}; {}", p.eval(&look).unwrap_or_default()))?;
+        match effect {
+            // ...and the stripes come up with it...
+            LoadingEffect::MovingStripes => {
+                p.wait_for(&format!("(() => {{ const a = getComputedStyle(__pr.ctl({m}, {card}), '::after'); return a.opacity === '1' && a.animationName === 'pr-barber'; }})()", m = q(main), card = q(CARD)), 10)
+                    .map_err(|e| format!("the card never showed its stripes while the call was in flight: {e}; {}", p.eval(&look).unwrap_or_default()))?;
+            }
+            // ...but `none` shows nothing: the mark is there, no rule draws it. Wait longer than the fade (.15 s) before saying so.
+            LoadingEffect::None => {
+                std::thread::sleep(Duration::from_millis(700));
+                let still = p.eval(&look)?;
+                if still["opacity"] != "0" || still["animation"] != "none" {
+                    return Err(format!("with the effect set to none the card must stay as it is while the call is in flight: {still}"));
+                }
+            }
         }
+        let busy = p.eval(&look)?;
         p.wait_for(&format!("(__pr.text({}, {}) || '').includes('pong')", q(main), q(LBL_OUT)), 20).map_err(|e| format!("the answer never came: {e}"))?;
         p.wait_for(&format!("(() => {{ const a = getComputedStyle(__pr.ctl({m}, {card}), '::after'); return a.opacity === '0'; }})()", m = q(main), card = q(CARD)), 10)
             .map_err(|e| format!("the stripes stayed after the answer: {e}"))?;
         let after = p.eval(&look)?;
-        if after["root"] != false || after["body"] != false {
+        if !after["root"].is_null() || !after["body"].is_null() {
             return Err(format!("the busy mark stayed after the answer: {after}"));
         }
-        Ok(format!("at rest opacity {}; call out: opacity {} with {}; answered: opacity {}, no busy mark", rest["opacity"], busy["opacity"], busy["animation"], after["opacity"]))
+        Ok(format!(
+            "at rest opacity {}; call out: mark `{}`, overlay opacity {} animation {}; answered: opacity {}, no busy mark",
+            rest["opacity"], busy["root"].as_str().unwrap_or("?"), busy["opacity"], busy["animation"], after["opacity"]
+        ))
     });
 
     run.with_backend(
@@ -787,7 +805,9 @@ fn the_page_drawn_by_leptos_answers_the_user_and_the_backend_in_chrome() {
     let mut failed = Vec::new();
     let mut passed = 0;
     let player_out = support::built_player();
-    for placement in [Placement::Window, Placement::Div] {
+    // Each placement is built with one of the project's loading effects (2.0.413): the page that is the window with the default
+    // (moving stripes), the element on someone else's page with `none`, so a real call is held open under both.
+    for (placement, effect) in [(Placement::Window, LoadingEffect::MovingStripes), (Placement::Div, LoadingEffect::None)] {
         let mut backend = Some(Backend::start(0, 0, Arc::new(Mutex::new(Vec::new()))));
         let backend_url = backend.as_ref().unwrap().url();
         let embed = match placement {
@@ -796,7 +816,7 @@ fn the_page_drawn_by_leptos_answers_the_user_and_the_backend_in_chrome() {
         };
         let mut input = support::input_with(
             PlayerInput { plain: Some(support::player_variant(&player_out, "plain")), parts: support::player_parts(&player_out), ..Default::default() },
-            BundleOptions { isolation: Isolation::RequireCorp, embed, backend_origins: vec![backend_url], ..Default::default() },
+            BundleOptions { isolation: Isolation::RequireCorp, embed, backend_origins: vec![backend_url], loading_effect: effect, ..Default::default() },
         );
         // A card with `LoadingEffect` on, for the scenario that holds a call open (2.0.412); no handler touches it.
         for f in input.forms.iter_mut().filter(|f| f.name == MAIN_FORM) {
@@ -817,7 +837,7 @@ fn the_page_drawn_by_leptos_answers_the_user_and_the_backend_in_chrome() {
         let server = serve(dir.path(), "127.0.0.1:0", ServeOptions { isolation: Isolation::RequireCorp, ..Default::default() }).unwrap();
         let mut page = chrome.new_page().unwrap_or_else(|e| panic!("{e}"));
         let url = format!("{}/{entry}", server.url());
-        for (name, r) in run_scenarios(&mut page, &url, placement, &mut backend, dir.path()) {
+        for (name, r) in run_scenarios(&mut page, &url, placement, effect, &mut backend, dir.path()) {
             let tag = format!("{:<6} {name}", placement.name());
             match r {
                 Ok(detail) => {

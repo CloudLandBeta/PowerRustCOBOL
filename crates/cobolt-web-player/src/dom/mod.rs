@@ -1073,12 +1073,13 @@ impl Surface for Dom {
         self.sh.set_net_modal(inner, blocked, unreachable);
     }
 
-    fn net_busy(&self, busy: bool) {
+    fn net_busy(&self, busy: bool, effect: &str) {
         // The player's styles live in a shadow root, where a selector cannot see the page's `<body>`: the attribute is also
-        // on the player's own root, which is what `[data-pr-busy] .pr-loadfx` in the base layer reads. The body keeps it for
-        // the host page's own CSS.
+        // on the player's own root, which is what `[data-pr-busy="moving-stripes"] .pr-loadfx` in the base layer reads. The
+        // body keeps it for the host page's own CSS. Its value is the project's effect: the base layer draws the ones it
+        // knows by name, so `none` (or a name it does not know) matches nothing and the marked controls stay as they are.
         let set = |e: &Element| {
-            let _ = if busy { e.set_attribute("data-pr-busy", "") } else { e.remove_attribute("data-pr-busy") };
+            let _ = if busy { e.set_attribute("data-pr-busy", effect) } else { e.remove_attribute("data-pr-busy") };
         };
         set(&self.sh.root);
         if let Some(body) = self.sh.doc.body() {

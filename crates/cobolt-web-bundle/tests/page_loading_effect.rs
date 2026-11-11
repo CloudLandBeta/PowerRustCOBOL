@@ -66,7 +66,7 @@ const LOOK: &str = r#"
     const c = card(id), a = getComputedStyle(c, '::after');
     return { marked: c.classList.contains('pr-loadfx'), content: a.content, opacity: a.opacity, animation: a.animationName };
   };
-  const busyOn = el => el.setAttribute('data-pr-busy', '');
+  const busyOn = (el, name) => el.setAttribute('data-pr-busy', name === undefined ? 'moving-stripes' : name);
   const busyOff = el => el.removeAttribute('data-pr-busy');
   const pr = root.querySelector('.pr-root');
 "#;
@@ -99,7 +99,19 @@ fn a_marked_card_shows_its_stripes_while_the_player_is_busy_and_nothing_else_doe
     assert_eq!(body_only["opacity"], "0", "a mark on <body> must not be what the stripes wait for: {body_only}");
     page.eval(&js("busyOff(document.body); return true;")).unwrap();
 
-    // What the player does since 2.0.412: the mark on its own root. The stripes come (the opacity eases in over .15 s)...
+    // Since 2.0.413 the mark's value is the project's effect: `none`, an effect nothing draws and a bare mark show nothing.
+    let mut quiet = Vec::new();
+    for name in ["none", "confetti", ""] {
+        page.eval(&js(&format!("busyOn(pr, {name:?}); return true;"))).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let look = page.eval(&js("return look('CARD-MARKED');")).unwrap();
+        assert_eq!(look["opacity"], "0", "a busy mark naming {name:?} must show nothing: {look}");
+        assert_eq!(look["animation"], "none", "{look}");
+        quiet.push(format!("{name:?}"));
+        page.eval(&js("busyOff(pr); return true;")).unwrap();
+    }
+
+    // What the player does since 2.0.412: the mark on its own root, naming the default effect. The stripes come (the opacity eases in over .15 s)...
     page.eval(&js("busyOn(pr); return true;")).unwrap();
     let on = page
         .wait_for(&js("const l = look('CARD-MARKED'); return l.opacity === '1' && l.animation === 'pr-barber';"), 10)
@@ -112,7 +124,7 @@ fn a_marked_card_shows_its_stripes_while_the_player_is_busy_and_nothing_else_doe
     page.eval(&js("busyOff(pr); return true;")).unwrap();
     page.wait_for(&js("return look('CARD-MARKED').opacity === '0';"), 10).unwrap_or_else(|e| panic!("the stripes stayed after the answer: {e}"));
     println!(
-        "loading effect in Chrome: at rest overlay opacity {}; busy mark on <body> only -> {}; on the player's root -> {} with animation {}; unmarked card: overlay {}; mark taken away -> 0",
-        rest["marked"]["opacity"], body_only["opacity"], on["marked"]["opacity"], on["marked"]["animation"], on["plain"]["content"]
+        "loading effect in Chrome: at rest overlay opacity {}; busy mark on <body> only -> {}; marks naming {} -> 0; on the player's root naming moving-stripes -> {} with animation {}; unmarked card: overlay {}; mark taken away -> 0",
+        rest["marked"]["opacity"], body_only["opacity"], quiet.join(", "), on["marked"]["opacity"], on["marked"]["animation"], on["plain"]["content"]
     );
 }
