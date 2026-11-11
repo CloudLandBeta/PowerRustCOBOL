@@ -20,7 +20,10 @@ assets = []
 documentation = []
 generated = ["generated/main-form.cbl"]
 indexed = []
-backend = ["backend/src/health.cbl"]
+backend = [
+    "backend/src/health.cbl",
+    "backend/COPYBOOKS/WS-STATUS.cpy",
+]
 
 [runtime]
 fixed_format = false

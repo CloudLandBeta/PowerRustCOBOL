@@ -96,7 +96,7 @@ exists on the web and what does not. This spec specifies that equipment; without
 - [ ] **AC4** — The web property round-trip tests pass for every class A and B control; the list of uncovered controls with a decision each exists.
 - [x] **AC5** — The reference form's desktop and browser renderings agree within the plan's tolerance, with only the documented differences.
 - [x] **AC6** — The ledger shows the generated module's NC, IF and IC rows; a regression run is one command.
-- [ ] **AC7** — The golden files for a web form's artefacts exist and regenerate with the golden switch.
+- [x] **AC7** — The golden files for a web form's artefacts exist and regenerate with the golden switch.
 - [x] **AC8** — Through the MCP tools on a web form: `create_project` with a kind, `check` (an error for a class D control and for a file verb), `build` (a bundle), `render_form` (a picture) and `run_form` (a click and a property read) all work and report the engine used.
 - [x] **AC9** — The IDE-served and the stdio server give the same answers for the same web project.
 - [x] **AC10** — The plugin's rules include the web rules; the reviewer flags a web form containing a `SqlDatabase`; the new skills exist.
