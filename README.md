@@ -12,7 +12,8 @@ See the LICENSE file in the project root for full license information.
 
 <p align="center">
   <em>A modern, Rust-powered RAD (Rapid Application Development) environment for COBOL —<br>
-  design forms visually, run them on a fast tree-walking runtime, and compile to a single self-contained binary.</em>
+  design forms visually, run them on a fast tree-walking runtime, and ship them as a native binary,<br>
+  a WebAssembly web application, or a mobile app.</em>
 </p>
 
 <p align="center">
@@ -23,6 +24,15 @@ See the LICENSE file in the project root for full license information.
 
 ---
 
+> ### 🌐 New in version 2: Web and Mobile applications
+>
+> The COBOL you already write, the Form Designer you already use — and now **File ▸ New
+> Project** also offers **Web** and **Mobile**. A Web application is built to
+> **WebAssembly** and runs in the browser; a Mobile application is the same bundle in an
+> Android package (and an iOS app for the simulator). The part that must stay secret — files,
+> databases, keys — lives in a COBOL **Backend** that the page reaches with
+> `CALL … WITH WEBSOCKET LINKAGE`. [How it works ↓](#version-2-web-and-mobile-applications)
+
 > ### 🤖 New: build whole COBOL applications with Claude Code
 >
 > PowerRustCOBOL AI now plugs into **[Claude Code](https://www.anthropic.com/claude-code)**,
@@ -31,6 +41,144 @@ See the LICENSE file in the project root for full license information.
 > COBOL, defines the indexed files, compiles, **looks at every screen and clicks through
 > it** before it calls the work done. One menu item connects the two:
 > **Settings ▸ Configure Claude Code**. [How it works ↓](#build-applications-with-claude-code)
+
+## Version 2: Web and Mobile applications
+
+Version 2 adds two **project kinds** beside the Desktop project every earlier version made.
+The kind is chosen once, in **File ▸ New Project** (Desktop, Web, Android phone and
+tablet, iOS iPhone and iPad), and a project written before kinds existed is a Desktop
+project that loads unchanged. You keep one language, one Form Designer and one control
+catalogue; what changes is what **Build** makes:
+
+| Kind | Forms live in | Form file | Build makes |
+| ---- | ------------- | --------- | ----------- |
+| **Desktop** | `forms/` | `.cfrm` | a native executable in `bin/` |
+| **Web** | `webforms/` | `.wcfrm` | a static **WebAssembly** bundle in `dist/web/` — host it anywhere that serves files |
+| **Mobile** | `mobileforms/` | `.mcfrm` | the same bundle, then an **Android package** (`dist/mobile/android/<Name>-debug.apk`) or an **iOS app for the simulator** (`dist/mobile/ios/<Name>-debug.app`) |
+
+A Web or Mobile project may also have a **Backend** (`backend/`): COBOL that runs on the
+native runtime and holds everything a page must not — files, SQL, keys. It is part of the
+project, not a kind of its own.
+
+### How it works
+
+```mermaid
+flowchart LR
+    subgraph PAGE["The page (browser, or the mobile shell)"]
+        PL["Player<br/>prebuilt, draws any form<br/>HTML + CSS3"]
+        PM["Program module<br/>your COBOL, compiled to<br/>WebAssembly — no interpreter"]
+        PL <--> PM
+    end
+    PM -- "CALL … WITH WEBSOCKET LINKAGE<br/>JSON over TLS, bearer token" --> BE["Backend<br/>native runtime: files, SQL, HTTP, secrets"]
+    BE -- "sign-in, sign-up, reset" --> IDP["Identity provider<br/>Cognito · Keycloak · Entra"]
+```
+
+- **The compiler generates WebAssembly directly.** The program module is your COBOL
+  compiled to one self-contained `.wasm` — no interpreter and no COBOL runtime in the
+  browser. Beside it goes the **player**, a prebuilt form engine the IDE ships and copies
+  into every bundle, so **a Web build needs no Rust toolchain**. The module is held equal
+  to the interpreter by the conformance runs: the NIST CCVS85 NC, IF and IC modules all
+  run to zero failures on the generated code (measured at 2.0.36).
+- **The same Form Designer.** Forms, controls, layers, the Properties panel, themes and
+  responsive layout carry over. Each control is classed by where it can run; the ones that
+  need a server (a database, an indexed file) go through the Backend, and the SqlDatabase
+  control is Backend-only, so it is not in the Web and Mobile toolbox. The **Canvas 2D**,
+  **Canvas 3D** and graphics objects (ImageBuffer, Plot, Scene3D, Physics2D, Physics3D)
+  are available on every platform.
+- **A Backend in COBOL.** The page calls the programs the Backend **exports**, by name:
+
+  ```cobol
+  CALL "GET-CUSTOMER" WITH WEBSOCKET LINKAGE
+      USING BY REFERENCE CUSTOMER-REC
+      RETURNING RESULT-REC
+      ON EXCEPTION
+          COBOL::"WS-LAST-ERROR" ( WS-CLASS WS-CODE WS-MESSAGE )
+          SET LBL-STATUS::Caption TO WS-MESSAGE
+  END-CALL
+  ```
+
+  The arguments are COBOL groups, sent as JSON. The connection, the bearer token (JWT), the
+  framing, the reconnection and the token refresh are the runtime's, and the channel is
+  encrypted on top of TLS. The Backend side is `backend/exports.toml` plus ordinary COBOL
+  in `backend/src/`; programs reach the database with `COBOL::SqlDatabase::…` (no
+  `EXEC SQL` needed) or with `EXEC SQL`. A versioned contract tells an old page whether
+  a new Backend still understands it.
+- **Backend tools in `rcrun`:** `rcrun backend run` serves it for development,
+  `describe` writes its interface description, `check` compares the contract with the
+  released ones, `release` records it, `build` makes the headless binary
+  `bin/<name>-backend`, and `auth test` checks the identity-provider settings.
+- **Sign-in and links.** The **Authentication** control talks to an identity provider
+  (Cognito, Keycloak, Entra) through the Backend — sign-in, sign-up, confirmation and
+  password reset — and the **Hyperlink** control is a real link on the page: `http`,
+  `https`, `mailto`, `tel`, `sms`, an address on the same page, or a download.
+- **CSS3 for the look.** An application stylesheet and one per form style the page, and
+  the stylesheet wins over a property. A Single-Page Application is the default,
+  standalone form pages the alternative.
+- **Preview in a web view.** The designer's **Preview** builds the bundle, serves it on a
+  loopback port and shows it in the system web view; its controls window picks a device
+  (phone, tablet or desktop sizes), the orientation, the pixel ratio, the colour scheme
+  and the page language, and a change to a form, a stylesheet or the Backend reaches the
+  open page.
+- **Mobile.** The bundle runs inside the PowerRustCOBOL mobile shell (Tauri 2). **Run** with
+  a phone or an Android emulator connected builds, installs and starts the application and
+  shows its log in the Output panel; a release package is signed with your own key. The
+  phone's secure store (`COBOL::SecureStore`, `SecureLoad`, `SecureDelete`) and deep links
+  are available as device features.
+- **Security by default.** The Build scans your project's own files for secrets and stops
+  on one, gives the bundle a Content-Security-Policy and the cross-origin-isolation
+  headers, writes `/.well-known/security.txt` from a `[security]` table, and — for
+  Mobile — can pin the certificates of the application's web view. A release Backend refuses a literal secret
+  in its configuration: write `env:NAME` or `file:PATH`.
+- **The coding agent knows the kinds.** The Claude Code plugin below and the IDE's
+  assistant, Grace, know project kinds, the Backend, `CALL … WITH WEBSOCKET LINKAGE` and
+  `COBOL::SqlDatabase`; `create_project` takes the kind.
+
+### Try it
+
+Open **File ▸ Open Project** and choose one of the examples — each Web or Mobile project
+runs from its **Preview** or **Run** button:
+
+| Example | What it shows |
+| ------- | ------------- |
+| `examples/PowerWebHello` | the smallest Web project: a form with a side menu and a Backend |
+| `examples/PowerMobileHello` | the smallest Mobile project |
+| `examples/PowerOficina` | a workshop-management application — queue, quotes, approvals, payments, reports — with a Backend over indexed files |
+| `examples/PowerAnalyticsWeb` | the look of the desktop PowerAnalytics dashboard on the web |
+
+To make your own, choose the kind in **File ▸ New Project**. Outside the IDE, a Web or
+Mobile project builds through the coding-agent tool server (`rcrun mcp`, its `build`
+tool) — the same Build the IDE's button runs — while `rcrun build` makes native
+binaries.
+
+### What each target needs
+
+| You build | You need |
+| --------- | -------- |
+| a Web application | nothing beyond the IDE — no Rust toolchain; the player is prebuilt |
+| a Backend release binary | the same toolchain a Desktop **Build** needs (Rust and the platform linker) |
+| an Android package | the Android SDK and NDK, Java 17 to 21, the Rust target of the phone and the Tauri command line — the Build names each one that is missing |
+| an iOS app for the simulator | a Mac with Xcode 16 or later |
+
+### Honest scope
+
+Version 2 is under active development, and this README says what is measured, not what is
+hoped:
+
+- A web form's COBOL is a subset: files, SQL and other server-side work belong in the
+  Backend, and the Build refuses what cannot run in a page, naming the line.
+- **iOS:** the application for the simulator is built; a release archive for a device or
+  the store is **not built yet**, and an iOS project has no Xcode project.
+- Browser coverage has been measured in Chromium and in the system web views (WebKit,
+  including the iOS simulator's); Safari on a Mac and the Android web view on a physical
+  device are not measured yet.
+- Some acceptance criteria of the WebAssembly specs are still open, and
+  [`specs/WASM-OPEN-ACS.md`](specs/WASM-OPEN-ACS.md) lists each one with the test meant to
+  prove it. The series itself is indexed in [`specs/WASM-INDEX.md`](specs/WASM-INDEX.md).
+
+The full reference is the Developer's Guide chapters
+[Web and Mobile applications](docs/developers-guide-en.md#23-web-and-mobile-applications),
+[The Backend and the secure channel](docs/developers-guide-en.md#24-the-backend-and-the-secure-channel)
+and [Mobile applications: Android and iOS](docs/developers-guide-en.md#25-mobile-applications-android-and-ios).
 
 ## Build applications with Claude Code
 
@@ -60,13 +208,17 @@ if the bundle would carry an API key or a personal path. The plugin brings:
   token; it works on the project open in the IDE, which reloads what the agent changes.
   When the IDE is closed, Claude Code starts `rcrun mcp` instead and works on the project
   in its own folder.
-- **Fifteen tools** that act through the product itself, never around it:
+- **Seventeen tools** that act through the product itself, never around it:
   `create_project` and `open_project`; `add_to_project`; `add_crate` and `remove_crate`,
   which register and unregister a third-party Rust crate for `EXEC RUST` blocks as the IDE's
   Project's Crates dialog does, so a session that cannot reach the IDE can still do it;
   `regenerate` (the IDE's own
   generator); `check` (the IDE's own Check, which names the form, the control ▸ event
-  and the handler line of each error); `validate`; `build`; `list_files`; `kb_lookup`
+  and the handler line of each error); `describe` and `set_definition`, which read and
+  write the **Definition for AI** the developer gives each form, control, layer, indexed
+  file and field, so the agent learns what an element is *for* before it changes it;
+  `validate`; `build` (a native binary for a Desktop project, the WebAssembly bundle for
+  a Web or Mobile one); `list_files`; `kb_lookup`
   and `kb_search` over the same Knowledge Base the IDE's assistant uses; `render_form`,
   which gives the agent **a picture of a form** as Run Form draws it — at any window size,
   or inside the application shell; `run_form`, which **runs a form off screen through a
@@ -78,10 +230,11 @@ if the bundle would carry an API key or a personal path. The plugin brings:
   the `.cfrm` and `.cidx` formats — plus a **patterns pack** of working forms (application
   shell, ContentPane screen, indexed-file maintenance, DataGrid, REST call, AI question,
   modal dialog). A name that is not in the reference does not exist for the agent.
-- **Ten skills** — create a form, add a control and bind its event, define an indexed
+- **Thirteen skills** — create a form, add a control and bind its event, define an indexed
   file, add assets, write a Common Code procedure, check and fix, report a gap, build an
-  application, the application shell and navigation, layout and themes — and a
-  **reviewer** the agent runs before it calls a change done.
+  application, the application shell and navigation, layout and themes, SQL with embedded
+  `EXEC SQL`, and — for version 2 — building a Web or Mobile application and writing its
+  Backend — plus a **reviewer** the agent runs before it calls a change done.
 - **Golden rules** every generated application follows: responsive at any resolution,
   the Spatial theme, a side menu with screens embedded in its content pane, a slick and
   lean layout, built-in controls first, every text in six languages switched at run time,
@@ -158,7 +311,8 @@ The full reference is the Developer's Guide chapter
 **PowerRustCOBOL AI** brings COBOL into a modern desktop development experience. It pairs a
 practical subset of the **COBOL-85 standard** with a visual form designer, a rich widget
 toolbox, an interactive debugger, and a compiler that turns a project into one
-**self-contained native binary** — no COBOL source shipped inside it.
+**self-contained native binary** — no COBOL source shipped inside it — or, since
+version 2, into a **WebAssembly web application** or a **mobile app**.
 
 <!-- 📷 theide.png — **self-contained native binary** — no COBOL source shipped inside it. […] | Name | Role | -->
 <p align="center"><img src="assets/images/screenshots/theide.png" alt="The IDE with a project open: the project tree listing Forms, Indexed Files, Common Code, Generated Code, Project's Crates, Assets and Knowledge Base; the Project Settings form in the main pane; the Output panel along the bottom" width="900"></p>
@@ -180,6 +334,9 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 - **Create modern applications** with Agentic AI capabilities, themed forms, GPU support, solid COBOL-85 support (NIST tested)
 - **Ship real apps**: compile a project into a single native executable that embeds its
   forms and program logic.
+- **Reach the web and the phone** (version 2): build the same forms and COBOL to a
+  WebAssembly bundle that runs in the browser, or to an Android package or an iOS app,
+  with the data and the secrets in a COBOL Backend.
 - **Stay self-contained**: the default toolchain needs no system COBOL, no FFmpeg, and no
   proprietary dependencies.
 - **Be honest about scope**: implement the parts of COBOL-85 that matter for building
@@ -195,7 +352,9 @@ form designer with over **40 widgets** and pixel-parity rendering from canvas to
 compiled binary, a COBOL-85 language core with **exact fixed-point arithmetic**,
 **INDEXED (ISAM)** files with real transactions, SQL / REST / chart integrations,
 an **agentic AI assistant mesh**, and a compiler that emits a **single native
-binary** with no `.cbl` source inside it.
+binary** with no `.cbl` source inside it — and, from version 2, **Web and Mobile
+projects** built to WebAssembly (with a COBOL Backend, sign-in, CSS3 styling and a
+web-view Preview), with the same COBOL-85 core underneath.
 
 > **Every capability has its own row in the
 > [PowerRustCOBOL AI Support Matrix](docs/cobol-support-matrix-en.md)** — including
@@ -210,6 +369,7 @@ binary** with no `.cbl` source inside it.
 | Which exact spelling of a statement is accepted + the NIST CCVS85 scoreboard | [Supported syntax reference](docs/cobol85-supported-syntax-en.md)                                                                    |
 | What to test for each verb                                                   | [Verb test matrix](docs/cobol85-verb-test-matrix-en.md)                                                                              |
 | How to build applications with it                                            | [Developer's guide](docs/developers-guide-en.md)                                                                                     |
+| Web and Mobile applications, the Backend (version 2)                         | [Version 2 section](#version-2-web-and-mobile-applications) · [guide chapters 23–25](docs/developers-guide-en.md#23-web-and-mobile-applications) · [WASM specs index](specs/WASM-INDEX.md) |
 | Indexed files — format, internals, redb engine                              | [format](docs/indexed-file-format-en.md) · [internals](docs/indexed-file-internals-en.md) · [redb](docs/indexed-redb-engine-en.md) |
 | SQL runtime · logging and metrics                                           | [database](docs/database-runtime-en.md) · [observability](docs/observability-en.md)                                                 |
 
@@ -243,7 +403,10 @@ arrive with the package Rust already needs in order to link.
 > prerequisites of a released `.msi`, `.dmg`, `.deb` or `.rpm` just as much as of
 > this repository. The IDE asks on its first run and names whatever is missing;
 > everything else (the Form Designer, the editor, **Run**, the debugger) works
-> without either.
+> without either. (A **Web** application's Build is the exception: it emits the
+> WebAssembly module and copies the prebuilt player, so it needs no Rust toolchain.
+> The Android and iOS targets have prerequisites of their own, listed under
+> [What each target needs](#what-each-target-needs).)
 
 #### macOS
 
@@ -533,11 +696,12 @@ the CLI **rcrun**):
 
 | Path              | Responsibility                                                                                               |
 | ----------------- | ------------------------------------------------------------------------------------------------------------ |
-| `specs/`          | Spec-driven development — steering docs, templates, and per-feature`NNN-<slug>/` specs (`specs/README.md`). |
+| `specs/`          | Spec-driven development — steering docs, templates, per-feature `NNN-<slug>/` specs (`specs/README.md`) and the `WASM-NNN` series of version 2 (`specs/WASM-INDEX.md`). |
 | `.claude/skills/` | Slash-command skills for the workflow (`/specify`, `/plan`, `/implement`, `/docsync`, …).                   |
 | `docs/`           | Developer guide (English canonical), language reference, and internals docs.                                 |
 | `tests/cobol/`    | COBOL integration programs exercised against the runtime.                                                    |
-| `examples/`       | `PowerDemo3` — the 42-form demo application described above.                                                 |
+| `examples/`       | `PowerDemo3` — the 42-form demo application described above — and the Web and Mobile examples of version 2. |
+| `assets/web-player/` | The prebuilt player every Web and Mobile bundle carries (plain and threaded variants, and its on-demand parts). |
 
 
 | Crate             | Responsibility                                                     |
@@ -559,6 +723,31 @@ the CLI **rcrun**):
 | `cobolt-agents`   | The agentic AI mesh: Grace, specialists, chunked KB / RAG.         |
 | `cobolt-bench`    | Performance + allocation baseline harness.                         |
 | `cobolt-ide`      | The PowerRustCOBOL AI desktop app (egui/eframe).                   |
+
+Added with version 2 (Web and Mobile) and with the coding-agent and document work that came with it:
+
+| Crate                   | Responsibility                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- |
+| `cobolt-wasm`           | The WebAssembly generator: COBOL AST → one self-contained program module.                               |
+| `cobolt-wasm-rt`        | The support routines the generated module links in (decimal arithmetic, moves, comparisons, display).   |
+| `cobolt-wasm-abi`       | The ABI v1 contract between the program module, the player and the host page.                           |
+| `cobolt-web-player`     | The player: draws any form in the browser and hosts the program module.                                 |
+| `cobolt-web-bundle`     | The Web bundle assembler: host page, loader, manifest, CSP and isolation headers, a static dev server.  |
+| `cobolt-web-preview`    | The headless web-view helper behind Preview, `render_form` and `run_form` on the web kinds.             |
+| `cobolt-web-tests`      | Shared helpers and fixtures for the browser, Backend and module test runners.                           |
+| `cobolt-server`         | The Backend server (WebSocket over TLS, bearer-token checks, exported programs) and its client.         |
+| `cobolt-wire`           | The frontend–Backend contract: group layouts, the COBOL group ⇄ JSON mapping, the wire protocol.        |
+| `cobolt-mobile-shell`   | The mobile shell (Tauri 2) that hosts a Mobile application on Android and iOS.                          |
+| `cobolt-graphics`       | Canvas 2D/3D and the graphics objects (ImageBuffer, Plot, Scene3D, Physics2D, Physics3D), in pure Rust. |
+| `cobolt-graphics-wire`  | The display-list wire format shared by the interpreter, the player and the host.                        |
+| `cobolt-decimal`        | The exact decimal kernel shared by the interpreter and the WebAssembly routines.                        |
+| `cobolt-numedit`        | The numeric-edited `PICTURE` engine shared by the form painter, the interpreter and WebAssembly.        |
+| `cobolt-format`         | Locale-aware number formatting (`FORMAT` / `LOCALE`).                                                   |
+| `cobolt-project-tools`  | The coding-agent tool set over a project, served by `rcrun mcp` (stdio) and the IDE (HTTP).             |
+| `cobolt-mcp`            | A wire-compatible Model Context Protocol: JSON-RPC framing, types and server.                           |
+| `cobolt-kb`             | The application Knowledge Base: chunking, embedding, a shared index, search.                            |
+| `cobolt-docs`           | Document import for applications: Office, OpenDocument, PDF, HTML, tables and archives to Markdown.     |
+| `cobolt-os-blur`        | Native window calls: the desktop blur behind a window and window groups that move as one.               |
 
 ```sh
 # Build everything
