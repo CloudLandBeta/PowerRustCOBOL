@@ -42,6 +42,8 @@ pub const OVERSCAN: usize = 12;
 
 /// The scroll bar's track thickness and the shortest thumb it can be grabbed by (`render.rs`: `BAR`, `BAR_MIN`).
 const BAR: f64 = 10.0;
+/// How many rows are measured to see which columns are cut off.
+const NEED_SAMPLE: usize = 200;
 const BAR_MIN: f64 = 28.0;
 /// The soft shadow the frozen band casts: how far it reaches and how dark it starts (`frozen_shadow_shape`).
 const SHADOW_TOP: f64 = 9.0;
@@ -69,6 +71,34 @@ const ADVANCED_PROPS: [&str; 17] = [
     "_RuntimeColumnWidths",
     "_RuntimeColumnTitles",
 ];
+
+/// `declared` with the width the grid has to spare given first to the columns whose text does not fit, each up to what it
+/// needs (`need(n)`: the width column `n` takes to show its titles and cells whole), the surplus shared in proportion to
+/// what each lacks so that they all come to fit together. What is left after that is shared by the caller's
+/// `resolve_column_widths` among all the points columns. Nothing changes when the columns already take the whole width,
+/// or when none is cut off (`need` is asked only then).
+fn clipped_first(declared: &[(f32, DataGridWidthUnit)], room: f32, need: &dyn Fn(usize) -> f32) -> Vec<(f32, DataGridWidthUnit)> {
+    let base = resolve_column_widths(declared, room, false);
+    let surplus = room - base.iter().sum::<f32>();
+    if surplus < 0.5 {
+        return declared.to_vec();
+    }
+    let any_points = declared.iter().any(|(_, u)| matches!(u, DataGridWidthUnit::Points));
+    let lacks: Vec<f32> = (0..declared.len())
+        .map(|n| if any_points && !matches!(declared[n].1, DataGridWidthUnit::Points) { 0.0 } else { (need(n) - base[n]).max(0.0) })
+        .collect();
+    let total: f32 = lacks.iter().sum();
+    if total < 0.5 {
+        return declared.to_vec();
+    }
+    let give = surplus.min(total);
+    (0..declared.len()).map(|n| if lacks[n] > 0.0 { (base[n] + lacks[n] * give / total, DataGridWidthUnit::Points) } else { declared[n] }).collect()
+}
+
+/// How wide column `display` is drawn, or `None` when there is no such column.
+pub fn column_width(cx: &ViewCtx, i: usize, display: usize) -> Option<f64> {
+    Grid::new(cx, i).cols.iter().find(|c| c.display == display).map(|c| c.w)
+}
 
 fn px(v: f64) -> String {
     format!("{}px", fmt_number(v))
@@ -185,6 +215,7 @@ pub struct Grid {
     advanced: DataGridAdvanced,
     look: Look,
     reorder: bool,
+    resize: bool,
     enabled: bool,
     selection_mode: String,
     selected_row: Option<usize>,
@@ -279,7 +310,45 @@ impl Grid {
             })
             .collect();
         let auto_fit = flag(c, "AutoFitColumns", false);
-        let resolved = resolve_column_widths(&declared, cw, auto_fit);
+        // A column the user dragged keeps that width; the others share what is left (and, with `AutoFitColumns`, fill it).
+        let pinned: Vec<Option<f32>> = (0..ncols)
+            .map(|k| cx.ui.grid_widths.get(&i).and_then(|m| m.get(&k)).map(|w| (*w as f32).max(cobolt_forms::datagrid::MIN_COLUMN_WIDTH)))
+            .collect();
+        let free: Vec<usize> = (0..ncols).filter(|k| pinned[*k].is_none()).collect();
+        let free_room = (cw - pinned.iter().flatten().sum::<f32>()).max(0.0);
+        let mut free_declared: Vec<(f32, DataGridWidthUnit)> = free.iter().map(|k| declared[*k]).collect();
+        if auto_fit {
+            // The width the grid has to spare goes first to the columns whose text is cut off, then to all of them.
+            let need = |n: usize| {
+                let k = free[n];
+                let meta = advanced.columns.get(k);
+                let (source, name, ty) = &display_cols[k];
+                let (cell_font, head_font) = (
+                    meta.map(|m| m.font_size).filter(|s| *s > 0).map(|s| s as f64).unwrap_or(font as f64),
+                    meta.map(|m| m.header_font_size.max(6) as f64).unwrap_or(12.0),
+                );
+                let mask = meta.map(|m| m.cobol_mask.as_str()).unwrap_or("");
+                let mut want = metrics::text_width(name, head_font) + 16.0;
+                if *source != usize::MAX {
+                    for &o in displayed.iter().take(NEED_SAMPLE) {
+                        let raw = rows.get(o).and_then(|r| r.get(*source)).map(String::as_str).unwrap_or("");
+                        want = want.max(metrics::text_width(&format_cell_with_cobol_mask(raw, ty, mask).0, cell_font) + 16.0);
+                    }
+                }
+                want as f32
+            };
+            free_declared = clipped_first(&free_declared, free_room, &need);
+        }
+        let free_widths = resolve_column_widths(&free_declared, free_room, auto_fit);
+        let mut resolved = vec![0.0f32; ncols];
+        for (n, k) in free.iter().enumerate() {
+            resolved[*k] = free_widths[n];
+        }
+        for (k, w) in pinned.iter().enumerate() {
+            if let Some(w) = w {
+                resolved[k] = *w;
+            }
+        }
         let measures: Vec<DataGridColumnMeasure> = (0..ncols)
             .map(|k| DataGridColumnMeasure {
                 width: resolved.get(k).copied().unwrap_or(col_w).max(cobolt_forms::datagrid::MIN_COLUMN_WIDTH),
@@ -400,6 +469,7 @@ impl Grid {
             advanced,
             look,
             reorder: c.enabled() && ncols > 1 && flag(c, "AllowColumnReorder", true),
+            resize: c.enabled() && flag(c, "AllowColumnResize", true),
             enabled: c.enabled(),
             selection_mode: sv("SelectionMode").trim().to_ascii_lowercase(),
             selected_row,
@@ -545,6 +615,26 @@ impl Grid {
                         .style("height", px(box_h))
                         .style("font-size", px(col.font.min(13.0)))
                         .on("input"),
+                );
+            }
+            // The edge a drag widens or narrows the column by.
+            if self.resize {
+                hc = hc.child(
+                    VNode::new("div")
+                        .key("colsize")
+                        .class("pr-dg-rs")
+                        .attr("data-part", "colsize")
+                        .attr("data-c", col.display.to_string())
+                        .attr("role", "separator")
+                        .attr("aria-orientation", "vertical")
+                        .attr("aria-label", format!("Resize {}", col.title))
+                        .style("left", px((col.w - 6.0).max(0.0)))
+                        .style("width", "6px")
+                        .style("height", px(self.header_h))
+                        .on("pointerdown")
+                        .on("pointermove")
+                        .on("pointerup")
+                        .on("pointercancel"),
                 );
             }
             // The two buttons that move the column left and right.
@@ -1227,5 +1317,80 @@ mod tests {
         assert!(n.find(&|x| x.has_class("pr-dg-caption")).is_none());
         assert_eq!(px_of(n.find(&|x| x.has_class("pr-dg-head")).unwrap(), "top"), 0.0);
         assert!(n.find(&|x| x.has_class("pr-dg-csv")).is_none(), "no button unless ShowCSVExportButton");
+    }
+
+    /// A grid 300 pixels wide whose columns A, B and C are as wide as `widths` say, with `rows`, and `AutoFitColumns` as given.
+    fn three_columns(widths: [f32; 3], rows: &str, auto_fit: bool) -> (crate::tree::FormTree, usize, Empty) {
+        let mut advanced = DataGridAdvanced::default();
+        for (name, w) in ["A", "B", "C"].iter().zip(widths) {
+            advanced.columns.push(cobolt_forms::model::DataGridColumn { id: (*name).into(), title: (*name).into(), source_name: (*name).into(), width: w, ..Default::default() });
+        }
+        let json = advanced.to_json().unwrap();
+        let (t, i) = tree_with(
+            "DataGrid",
+            "G",
+            &[("Columns", "A:string\nB:string\nC:string"), ("Rows", rows), ("AdvancedGrid", json.as_str()), ("AutoFitColumns", if auto_fit { "1" } else { "0" }), ("ShowRowNumbers", "0")],
+        );
+        let mut e = Empty::default();
+        e.ui.box_sizes.insert(i, (300.0, 200.0));
+        (t, i, e)
+    }
+
+    fn widths_of(t: &crate::tree::FormTree, i: usize, e: &Empty) -> Vec<f64> {
+        Grid::new(&e.cx(t), i).cols.iter().map(|c| c.w).collect()
+    }
+
+    #[test]
+    fn the_width_to_spare_goes_first_to_the_columns_whose_text_is_cut_off() {
+        // A is 40 wide and holds a long name, B and C are 40 wide and hold short codes: 180 pixels are spare.
+        let long = "A rather long customer name indeed";
+        let rows = format!("{long}\tx\ty\nshort\tz\tw");
+        let (t, i, e) = three_columns([40.0, 40.0, 40.0], &rows, true);
+        let w = widths_of(&t, i, &e);
+        assert!((w.iter().sum::<f64>() - 300.0).abs() < 1.0, "the columns fill the grid: {w:?}");
+        let need = metrics::text_width(long, 12.0) + 16.0;
+        assert!(w[0] >= need - 1.0, "A is given what it needs to show its text whole ({need:.0}): {w:?}");
+        assert!(w[1] < 50.0 && (w[1] - w[2]).abs() < 1.0, "B and C, not cut off, get only a share of what A did not take: {w:?}");
+        // Without AutoFitColumns the grid is left as it was: the columns keep their widths.
+        let (t, i, e) = three_columns([40.0, 40.0, 40.0], &rows, false);
+        assert_eq!(widths_of(&t, i, &e), vec![40.0, 40.0, 40.0]);
+    }
+
+    #[test]
+    fn with_no_column_cut_off_the_spare_width_is_shared_by_all() {
+        let (t, i, e) = three_columns([60.0, 60.0, 60.0], "x\ty\tz", true);
+        let w = widths_of(&t, i, &e);
+        assert!(w.iter().all(|c| (c - 100.0).abs() < 1.0), "300 shared by three equal columns: {w:?}");
+    }
+
+    #[test]
+    fn a_column_the_user_dragged_keeps_its_width_and_the_others_share_the_rest() {
+        let (t, i, mut e) = three_columns([100.0, 100.0, 100.0], "x\ty\tz", true);
+        e.ui.grid_widths.entry(i).or_default().insert(0, 160.0);
+        let w = widths_of(&t, i, &e);
+        assert_eq!(w[0], 160.0);
+        assert!((w[1] - 70.0).abs() < 1.0 && (w[2] - 70.0).abs() < 1.0, "the other two take the 140 that are left: {w:?}");
+        // The edge of every title is there to be dragged, unless the grid says it cannot be.
+        let n = data_grid(&e.cx(&t), i);
+        let mut edges = Vec::new();
+        n.find_all(&|x| x.attr_of("data-part") == Some("colsize"), &mut edges);
+        assert_eq!(edges.len(), 3);
+        let (mut t2, i2, e2) = three_columns([100.0, 100.0, 100.0], "x\ty\tz", true);
+        t2.set(i2, "AllowColumnResize", "0");
+        let off = data_grid(&e2.cx(&t2), i2);
+        let mut none = Vec::new();
+        off.find_all(&|x| x.attr_of("data-part") == Some("colsize"), &mut none);
+        assert!(none.is_empty(), "AllowColumnResize off: no edge to drag");
+    }
+
+    #[test]
+    fn the_surplus_is_not_spent_on_columns_that_fit() {
+        let need = |n: usize| [30.0f32, 200.0, 10.0][n];
+        let declared = [(50.0, DataGridWidthUnit::Points); 3];
+        // 150 asked, 90 spare: only B lacks anything (150), so it takes the 90 and the others stay.
+        let out = clipped_first(&declared, 240.0, &need);
+        assert_eq!(out.iter().map(|d| d.0).collect::<Vec<_>>(), vec![50.0, 140.0, 50.0]);
+        // Nothing spare: nothing changes.
+        assert_eq!(clipped_first(&declared, 150.0, &need), declared.to_vec());
     }
 }

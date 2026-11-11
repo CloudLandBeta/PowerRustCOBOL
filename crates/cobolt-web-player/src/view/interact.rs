@@ -112,6 +112,11 @@ pub enum UiOp {
     /// A DataGrid is to scroll down or up to this offset: the keyboard moved its selection to a row out of view.
     GridScrollTo { top: f64 },
     GridSort { col: usize, descending: bool },
+    /// A drag on the edge of a DataGrid column's title began: the column, the pointer's x and the column's width at that moment.
+    GridResizeStart { col: usize, x: f64, width: f64 },
+    /// The column is now this wide, as the user's drag put it.
+    GridResize { col: usize, width: f64 },
+    GridResizeEnd,
     Sidebar(bool),
     DropOver(bool),
     /// A pointer drag on a Maps control began at this pixel, with this centre.
@@ -913,6 +918,25 @@ fn data_grid(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
             let Some(title) = datagrid::title_of(cx, i, col) else { return Vec::new() };
             vec![quiet("ColumnFilters", datagrid::with_filter(&cx.tree.get(i, "ColumnFilters"), &title, &p.value))]
         }
+        // The edge of a column's title is dragged to widen or narrow the column, as on the desktop (`AllowColumnResize`).
+        "pointerdown" if p.part.as_deref() == Some("colsize") && p.button == 0 => {
+            let Some(col) = p.col.filter(|c| *c >= 0).map(|c| c as usize) else { return Vec::new() };
+            match datagrid::column_width(cx, i, col) {
+                Some(width) => vec![Act::Prevent, Act::Ui(UiOp::GridResizeStart { col, x: p.x, width })],
+                None => Vec::new(),
+            }
+        }
+        "pointermove" if p.part.as_deref() == Some("colsize") && p.buttons & 1 == 1 => {
+            let Some((col, x0, w0)) = cx.ui.grid_resize.get(&i).copied() else { return Vec::new() };
+            let width = (w0 + p.x - x0).round().clamp(cobolt_forms::datagrid::MIN_COLUMN_WIDTH as f64, 1600.0);
+            if datagrid::column_width(cx, i, col).is_some_and(|now| (now - width).abs() < 0.5) {
+                return Vec::new();
+            }
+            vec![Act::Prevent, Act::Ui(UiOp::GridResize { col, width })]
+        }
+        "pointerup" | "pointercancel" if p.part.as_deref() == Some("colsize") => vec![Act::Ui(UiOp::GridResizeEnd)],
+        // A press on that edge is not a header click: it never sorts.
+        "click" | "dblclick" if p.part.as_deref() == Some("colsize") => vec![Act::Prevent],
         // Clicking in a filter box only focuses it: it is not a header click, so it never sorts.
         "click" | "dblclick" if p.part.as_deref() == Some("filter") => Vec::new(),
         "click" | "dblclick" => {
@@ -2108,6 +2132,40 @@ mod tests {
         left.id = Some("left".into());
         left.col = Some(0);
         assert!(!run(&t, g, &e, left).iter().any(|a| matches!(a, Act::Quiet { prop, .. } if prop == "AdvancedGrid")));
+    }
+
+    #[test]
+    fn dragging_the_edge_of_a_column_title_sets_the_width_of_the_column() {
+        let (t, g) = tree_with("DataGrid", "G", &[("Columns", "A:string\nB:string\nC:string"), ("Rows", "x\ty\tz")]);
+        let mut e = Empty::default();
+        e.ui.box_sizes.insert(g, (300.0, 200.0));
+        let edge = |kind: &str, x: f64, buttons: u16| {
+            let mut p = Payload::new(kind, "colsize");
+            p.part = Some("colsize".into());
+            p.col = Some(1);
+            p.x = x;
+            p.buttons = buttons;
+            p
+        };
+        // The press records where it began and how wide the column was.
+        let w0 = crate::view::datagrid::column_width(&e.cx(&t), g, 1).expect("the second column is drawn");
+        let acts = run(&t, g, &e, edge("pointerdown", 200.0, 1));
+        assert!(acts.contains(&Act::Ui(UiOp::GridResizeStart { col: 1, x: 200.0, width: w0 })), "{acts:?}");
+        // A move with the button down is the width it started with, plus the way the pointer went.
+        e.ui.grid_resize.insert(g, (1, 200.0, w0));
+        let acts = run(&t, g, &e, edge("pointermove", 230.0, 1));
+        assert!(acts.contains(&Act::Ui(UiOp::GridResize { col: 1, width: w0 + 30.0 })), "{acts:?}");
+        // Never narrower than a column can be drawn.
+        let acts = run(&t, g, &e, edge("pointermove", 0.0, 1));
+        assert!(acts.contains(&Act::Ui(UiOp::GridResize { col: 1, width: 32.0 })), "{acts:?}");
+        // No button, no drag; no drag started, nothing to follow.
+        assert!(run(&t, g, &e, edge("pointermove", 230.0, 0)).is_empty());
+        e.ui.grid_resize.clear();
+        assert!(run(&t, g, &e, edge("pointermove", 230.0, 1)).is_empty());
+        assert_eq!(run(&t, g, &e, edge("pointerup", 230.0, 0)), vec![Act::Ui(UiOp::GridResizeEnd)]);
+        // The click that ends a drag on the edge is not a click on the title: it does not sort.
+        let acts = run(&t, g, &e, { let mut p = edge("click", 230.0, 0); p.button = 0; p });
+        assert!(!acts.iter().any(|a| matches!(a, Act::Ui(UiOp::GridSort { .. }))) && !names(&acts).contains(&"onColumnClick(1)".to_string()), "{acts:?}");
     }
 
     #[test]

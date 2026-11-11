@@ -364,13 +364,13 @@ impl Shared {
         }
         // A drag (a map pan, a knob turn, the splitter's handle) keeps hearing the pointer after it
         // leaves the element: capture it for the length of the press.
-        let capture = kind == "pointerdown" && (key == "handle" || acts.iter().any(|a| matches!(a, Act::Ui(UiOp::MapDrag { .. }) | Act::Ui(UiOp::Focus))));
+        let capture = kind == "pointerdown" && (key == "handle" || key == "colsize" || acts.iter().any(|a| matches!(a, Act::Ui(UiOp::MapDrag { .. }) | Act::Ui(UiOp::Focus))));
         // What only the page needs to know (where a drag began, that a box has the focus) is recorded **now**, not
         // when the driver next takes the inbox in: the pointer moves that follow a press can arrive in the same
         // turn, and each is read against what the press recorded.
         let (now, acts): (Vec<Act>, Vec<Act>) = acts
             .into_iter()
-            .partition(|a| matches!(a, Act::Ui(UiOp::MapDrag { .. } | UiOp::MapDragEnd | UiOp::Editing(_) | UiOp::DropOver(_) | UiOp::ShowValue(_))));
+            .partition(|a| matches!(a, Act::Ui(UiOp::MapDrag { .. } | UiOp::MapDragEnd | UiOp::GridResizeStart { .. } | UiOp::GridResizeEnd | UiOp::Editing(_) | UiOp::DropOver(_) | UiOp::ShowValue(_))));
         for a in now {
             if let Act::Ui(op) = a {
                 self.ui_op(&inner, inst, ctl, op);

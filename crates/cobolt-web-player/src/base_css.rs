@@ -189,6 +189,8 @@ pub const BASE_CSS: &str = r#"
 .pr-dg-sel::after { content: ""; position: absolute; inset: 0 2px; pointer-events: none; }
 .pr-dg-clip { position: absolute; left: 0; top: 0; overflow: hidden; pointer-events: none; }
 .pr-dg-mv { position: absolute; overflow: hidden; cursor: pointer; }
+.pr-dg-rs { position: absolute; top: 0; z-index: 4; cursor: col-resize; touch-action: none; }
+.pr-dg-rs:hover { background: rgba(255, 255, 255, 0.28); }
 .pr-dg-csv { position: absolute; box-sizing: border-box; cursor: pointer; }
 .pr-dg-fill { position: absolute; pointer-events: none; }
 .pr-dg-hl { position: absolute; left: 0; right: 0; height: 1px; z-index: 6; pointer-events: none; }

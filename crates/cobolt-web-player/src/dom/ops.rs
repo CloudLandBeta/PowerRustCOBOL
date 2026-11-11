@@ -329,6 +329,15 @@ impl Shared {
             UiOp::GridSort { col, descending } => self.with_ui(inst, |ui| {
                 ui.grid_sort.insert(ctl, (col, descending));
             }),
+            UiOp::GridResizeStart { col, x, width } => self.with_ui(inst, |ui| {
+                ui.grid_resize.insert(ctl, (col, x, width));
+            }),
+            UiOp::GridResize { col, width } => self.with_ui(inst, |ui| {
+                ui.grid_widths.entry(ctl).or_default().insert(col, width);
+            }),
+            UiOp::GridResizeEnd => self.with_ui(inst, |ui| {
+                ui.grid_resize.remove(&ctl);
+            }),
             UiOp::Sidebar(collapsed) => {
                 self.with_ui(inst, |ui| ui.sidebar_collapsed = Some(collapsed));
                 self.persist_sidebar(collapsed);

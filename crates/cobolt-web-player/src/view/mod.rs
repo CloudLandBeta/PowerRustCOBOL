@@ -304,6 +304,10 @@ pub struct UiState {
     pub grid_scroll: BTreeMap<usize, (f64, f64)>,
     /// The DataGrid column sorted by the user and its direction.
     pub grid_sort: BTreeMap<usize, (usize, bool)>,
+    /// The widths the user dragged DataGrid columns to, by control then column: such a column keeps its width and the others share the rest.
+    pub grid_widths: BTreeMap<usize, BTreeMap<usize, f64>>,
+    /// A column-edge drag on a DataGrid: `(column, pointer x where it began, the column's width then)`.
+    pub grid_resize: BTreeMap<usize, (usize, f64, f64)>,
     /// A ComboBox whose list is open (a custom popup is never used: the native `<select>` opens itself).
     pub focused: Option<usize>,
     /// How many matches the page found for each Viewer's search text, by control (the page counts them in the text it shows).

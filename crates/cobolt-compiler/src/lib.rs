@@ -7764,13 +7764,15 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "PreviousValue" => ("text (runtime-only, read-only)", "DataGrid: in `onCellEdited`, what the cell held before the edit."),
         "RowHeightOverrides" => ("`row=height` pairs separated by `;` — rows numbered from 1 (e.g. `1=40;8=64`); empty = every row is `RowHeight`", "DataGrid: rows with a height of their own, 14–400 points; every other row stays `RowHeight`. The row is the DATA row, so a height stays with its row when the grid is sorted or filtered, and `Sort`, `DeleteRow` and `ClearRows` carry it along. Set it in the grid's settings, or from COBOL with `SetRowHeight(row, pixels)` (0 pixels hands the row back to `RowHeight`). Dragging the lower edge of such a row resizes that row alone; dragging any other row edge still resizes every row."),
         "AllowSorting" => (BOOL_DOMAIN, "A click on a column title sorts the rows shown by that column — ascending, then descending on the next click — and a ▲/▼ marks it. A column declared numeric, or whose every value is a number, sorts by value (9 before 100); any other sorts as text, ignoring case. Display order only: `Rows` keeps its order, and a click still reports each row's own index. A column whose settings turn sorting off is not sorted. `onColumnClick` fires either way. The `Sort` method, by contrast, reorders `Rows` itself."),
-        "AllowColumnResize" => (BOOL_DOMAIN, "Drag header edges to resize."),
+        "AllowColumnResize" => (BOOL_DOMAIN, "Drag header edges to resize. On a Web or Mobile page the edge of each column title is dragged: the column keeps the width the pointer leaves it at for as long as the page is open, and the other columns share the rest of the grid's width."),
         "AutoFitColumns" => (
             BOOL_DOMAIN,
             "Make the columns fill the grid's width exactly instead of scrolling or leaving a gap. \
              The difference is absorbed by the columns measured in points, in proportion to their \
              size, so a column declared as a percentage keeps the share it asked for. Off by \
-             default: the columns keep their declared widths. Each column chooses its own unit in \
+             default: the columns keep their declared widths. On a Web or Mobile page the width to \
+             spare goes first to the columns whose text is cut off, each up to what it needs to \
+             show its title and cells whole, and what is left is shared as above. Each column chooses its own unit in \
              **Edit DataGrid settings…** — points for the narrow, predictable ones, a percentage \
              for those that should follow the form.",
         ),
