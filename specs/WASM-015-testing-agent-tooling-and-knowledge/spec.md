@@ -93,7 +93,7 @@ exists on the web and what does not. This spec specifies that equipment; without
 - [x] **AC1** — One command runs the NC subset on the generated module through the module runner and prints two numbers per module with the excluded programs and their reasons.
 - [x] **AC2** — The browser runner builds, serves and drives a hello-world bundle on a headless engine, reads the DOM and a computed style and returns a picture, on a machine with no separately installed browser (or with the requirement stated and checked).
 - [x] **AC3** — The backend runner starts a backend, signs a test user in against the local issuer, makes a call and a version-skew call, and tears down cleanly.
-- [ ] **AC4** — The web property round-trip tests pass for every class A and B control; the list of uncovered controls with a decision each exists.
+- [x] **AC4** — The web property round-trip tests pass for every class A and B control; the list of uncovered controls with a decision each exists.
 - [x] **AC5** — The reference form's desktop and browser renderings agree within the plan's tolerance, with only the documented differences.
 - [x] **AC6** — The ledger shows the generated module's NC, IF and IC rows; a regression run is one command.
 - [x] **AC7** — The golden files for a web form's artefacts exist and regenerate with the golden switch.
