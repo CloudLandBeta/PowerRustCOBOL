@@ -102,7 +102,7 @@ exists on the web and what does not. This spec specifies that equipment; without
 - [x] **AC10** — The plugin's rules include the web rules; the reviewer flags a web form containing a `SqlDatabase`; the new skills exist.
 - [ ] **AC11** — `prebuilt_chunked_kb_matches_the_published_documentation` is green with the web knowledge; a Grace run asked for a `SqlDatabase` on a web form refuses or reroutes it through the backend.
 - [x] **AC12** — The example Web application and Backend build and run in the test suite and contain no secret.
-- [ ] **AC13** — The reference form with layers gives the same stacking, visibility, hit testing and tab order on the desktop and in the browser, except the differences WASM-004 R17 and R20 record (R17).
+- [x] **AC13** — The reference form with layers gives the same stacking, visibility, hit testing and tab order on the desktop and in the browser, except the differences WASM-004 R17 and R20 record (R17).
 
 ## 6. Constraints & steering check
 
