@@ -362,11 +362,14 @@ pub fn text_box(cx: &ViewCtx, i: usize) -> VNode {
     let max = num(cx, i, "MaximumLength", 0.0) as i64;
     // An explicit PICTURE (WASM-004): its width bounds the box, a number gets the keypad a number needs, and
     // a numeric-edited one shows the edited form at rest and the plain value to edit while it has the focus.
+    // Only an edited picture has another form to show (the desktop's rule, `render.rs`: `!has_focus && p.is_edited()`).
+    // A character picture (`X(20)`, `A(10)`) shows what it holds: padded to its width, as `Picture::display` answers
+    // it at rest, the box was full of spaces before the first key, and its `maxlength` then refused every key.
     let pic = cx.tree.picture_of(i);
     let raw = cx.tree.get(i, "Text");
     let shown = match &pic {
-        Some(p) => p.display(&raw, cx.ui.focused == Some(i), cx.tree.decimal_comma, cx.tree.currency),
-        None => raw,
+        Some(p) if p.is_edited() => p.display(&raw, cx.ui.focused == Some(i), cx.tree.decimal_comma, cx.tree.currency),
+        _ => raw,
     };
     let mut input = VNode::new(if multiline { "textarea" } else { "input" })
         .key("input")
@@ -1532,6 +1535,16 @@ mod tests {
         let (mut t, i) = tree_with("TextBox", "N-3", &[("Picture", "ZZ.ZZ9,99"), ("Text", "1234,5")]);
         t.decimal_comma = true;
         assert_eq!(input(&t, i, false).prop_of("value"), Some(&Prop::Str(" 1.234,50".into())));
+        // A character picture has no edited form: the box shows what it holds, never the picture's width in spaces
+        // (which filled the box to its `maxLength` and left no room for a key), so an empty one shows its hint.
+        for (picture, held) in [("X(5)", ""), ("X(5)", "ab"), ("A(10)", "Ana"), ("XXBXX", "ab"), ("9(4)", "")] {
+            let (t, i) = tree_with("TextBox", "C-1", &[("Picture", picture), ("Text", held), ("HintText", "type here")]);
+            for focused in [false, true] {
+                let n = input(&t, i, focused);
+                assert_eq!(n.prop_of("value"), Some(&Prop::Str(held.into())), "PIC {picture} holding {held:?}, focused {focused}: {}", n.describe());
+                assert_eq!(n.attr_of("placeholder"), Some("type here"));
+            }
+        }
         // No explicit picture: the box is what it was (MaximumLength, no keypad hint).
         let (t, i) = tree_with("TextBox", "N-4", &[("MaximumLength", "10"), ("Text", "hello")]);
         let n = input(&t, i, false);

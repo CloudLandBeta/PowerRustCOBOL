@@ -279,7 +279,9 @@ fn main() {
     let repo_root = crate_dir.join("../..").canonicalize().unwrap();
     let mut files = Vec::new();
     fn collect(base: &Path, dir: &Path, out: &mut Vec<serde_json::Value>) {
-        let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().collect();
+        // A hidden entry (macOS's `.DS_Store`, which Finder writes into any folder it has shown) is the machine's, never the
+        // player's: the Build leaves it out of a bundle (`files_under`), and so does this record.
+        let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().filter(|e| !e.file_name().to_string_lossy().starts_with('.')).collect();
         entries.sort_by_key(|e| e.file_name());
         for e in entries {
             let p = e.path();

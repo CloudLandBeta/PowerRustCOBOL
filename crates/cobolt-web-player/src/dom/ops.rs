@@ -360,8 +360,21 @@ impl Shared {
             }
             UiOp::ShowValue(text) => {
                 if let Some(el) = self.control_element(inst, ctl) {
-                    if let Ok(Some(input)) = el.query_selector("input") {
+                    if let Ok(Some(input)) = el.query_selector("input, textarea") {
+                        // A refused key leaves the caret where it was. The browser had moved it past what it put in
+                        // (or back over what it took out), and writing `value` sends it to the end: it goes back by the
+                        // difference in length. A field with no caret to read (`type=number`) answers null, and one the
+                        // user is not in is left alone.
+                        let units = |s: &str| s.encode_utf16().count() as f64;
+                        let live = js_sys::Reflect::get(&input, &"value".into()).ok().and_then(|v| v.as_string()).unwrap_or_default();
+                        let caret = js_sys::Reflect::get(&input, &"selectionStart".into()).ok().and_then(|v| v.as_f64()).filter(|_| input.matches(":focus").unwrap_or(false));
                         let _ = js_sys::Reflect::set(&input, &"value".into(), &text.as_str().into());
+                        if let Some(caret) = caret {
+                            let at = (caret - (units(&live) - units(&text))).clamp(0.0, units(&text));
+                            if let Ok(f) = js_sys::Reflect::get(&input, &"setSelectionRange".into()).and_then(|f| f.dyn_into::<js_sys::Function>()) {
+                                let _ = f.call2(&input, &at.into(), &at.into());
+                            }
+                        }
                     }
                 }
                 return;

@@ -86,7 +86,8 @@ pub fn player_variant(out: &Path, name: &str) -> PlayerVariantInput {
     let dir = out.join(name);
     let mut files = Vec::new();
     fn walk(base: &Path, dir: &Path, files: &mut Vec<(String, Vec<u8>)>) {
-        for e in std::fs::read_dir(dir).unwrap().flatten() {
+        // A hidden entry (`.DS_Store`) is the machine's, never the player's, as the Build reads the folder.
+        for e in std::fs::read_dir(dir).unwrap().flatten().filter(|e| !e.file_name().to_string_lossy().starts_with('.')) {
             let p = e.path();
             if p.is_dir() {
                 walk(base, &p, files);
@@ -103,10 +104,10 @@ pub fn player_variant(out: &Path, name: &str) -> PlayerVariantInput {
 pub fn player_parts(out: &Path) -> Vec<PlayerPartInput> {
     let mut parts = Vec::new();
     let Ok(rd) = std::fs::read_dir(out.join("parts")) else { return parts };
-    for e in rd.flatten() {
+    for e in rd.flatten().filter(|e| e.path().is_dir() && !e.file_name().to_string_lossy().starts_with('.')) {
         let name = e.file_name().to_string_lossy().into_owned();
         let mut files = Vec::new();
-        for f in std::fs::read_dir(e.path()).unwrap().flatten() {
+        for f in std::fs::read_dir(e.path()).unwrap().flatten().filter(|f| !f.file_name().to_string_lossy().starts_with('.')) {
             files.push((f.file_name().to_string_lossy().into_owned(), std::fs::read(f.path()).unwrap()));
         }
         parts.push(PlayerPartInput { entry_js: format!("{name}.js"), entry_wasm: format!("{name}_bg.wasm"), name, files });

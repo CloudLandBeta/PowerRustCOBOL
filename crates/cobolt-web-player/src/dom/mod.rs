@@ -370,7 +370,7 @@ impl Shared {
         // turn, and each is read against what the press recorded.
         let (now, acts): (Vec<Act>, Vec<Act>) = acts
             .into_iter()
-            .partition(|a| matches!(a, Act::Ui(UiOp::MapDrag { .. } | UiOp::MapDragEnd | UiOp::Editing(_) | UiOp::DropOver(_))));
+            .partition(|a| matches!(a, Act::Ui(UiOp::MapDrag { .. } | UiOp::MapDragEnd | UiOp::Editing(_) | UiOp::DropOver(_) | UiOp::ShowValue(_))));
         for a in now {
             if let Act::Ui(op) = a {
                 self.ui_op(&inner, inst, ctl, op);

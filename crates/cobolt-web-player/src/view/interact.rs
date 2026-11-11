@@ -126,8 +126,9 @@ pub enum UiOp {
     /// The user is in (`true`) or has left (`false`) a TextBox that has a numeric-edited PICTURE: it shows
     /// the plain value to edit while focused and the edited form at rest.
     Editing(bool),
-    /// Put this text in the control's field: what was typed was committed as another value (a NumericUpDown's rung)
-    /// that the property may already hold, so no redraw would bring it back.
+    /// Put this text in the control's field: what was typed was committed as another value (a NumericUpDown's rung),
+    /// or refused (a key a TextBox's PICTURE does not take), and the property may already hold this text, so no
+    /// redraw would bring it back. Done as the event is heard, before the next key.
     ShowValue(String),
 }
 
@@ -445,9 +446,11 @@ fn text_box(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
             if pic.accepts_partial(&p.value, dc) {
                 vec![Act::Change { prop: "Text".into(), value: p.value.clone() }]
             } else {
-                // Refused: the box goes back to what it held. Storing the same value redraws the control,
-                // and the redraw writes the stored text over what the user typed.
-                vec![quiet("Text", cx.tree.get(i, "Text"))]
+                // Refused: the box goes back to what it held, at once. The page is told to write it (`ShowValue`):
+                // storing the same value changes nothing a redraw would apply, since the node layer writes an
+                // element only when what the view says of it differs, and the view still says the text it held
+                // (until 2.0.431 this stored the value and the refused character stayed in the box).
+                vec![Act::Ui(UiOp::ShowValue(cx.tree.get(i, "Text")))]
             }
         }
         "focusin" if pic.is_edited() => vec![Act::Ui(UiOp::Editing(true))],
@@ -2329,15 +2332,17 @@ mod tests {
             p.value = v.to_owned();
             names(&run(&t, i, &e, p))
         };
+        // A refusal stores nothing: the page writes what the box held back into the field (`ShowValue`).
+        let back = |held: &str| vec![format!("{:?}", Act::Ui(UiOp::ShowValue(held.to_owned())))];
         assert_eq!(typed("123"), ["~Text=123"], "a digit within the width is the user's edit");
-        assert_eq!(typed("12a"), ["Text=12"], "a letter is refused: the stored text is written back over it");
-        assert_eq!(typed("1234"), ["Text=12"], "one digit too many");
+        assert_eq!(typed("12a"), back("12"), "a letter is refused: the held text is written back over it");
+        assert_eq!(typed("1234"), back("12"), "one digit too many");
         assert_eq!(typed(""), ["~Text="], "emptying the box is allowed");
         // Letters only.
         let (t, i) = tree_with("TextBox", "A-1", &[("Picture", "A(3)"), ("Text", "ab")]);
         let mut p = Payload::new("input", "input");
         p.value = "ab1".into();
-        assert_eq!(names(&run(&t, i, &e, p.clone())), ["Text=ab"]);
+        assert_eq!(run(&t, i, &e, p.clone()), vec![Act::Ui(UiOp::ShowValue("ab".into()))]);
         p.value = "abc".into();
         assert_eq!(names(&run(&t, i, &e, p)), ["~Text=abc"]);
     }
@@ -2352,8 +2357,9 @@ mod tests {
             names(&run(&t, i, &e, p))
         };
         assert_eq!(key("12."), ["~Text=12."], "an unfinished number can be typed");
-        assert_eq!(key("12.345"), ["Text=-5.5"], "a third decimal does not fit");
-        assert_eq!(key("1.2.3"), ["Text=-5.5"], "one decimal separator");
+        let back = vec![format!("{:?}", Act::Ui(UiOp::ShowValue("-5.5".into())))];
+        assert_eq!(key("12.345"), back, "a third decimal does not fit");
+        assert_eq!(key("1.2.3"), back, "one decimal separator");
         // Focus shows the plain value; leaving shows the edited one and puts the sign where the picture does.
         let fin = Payload::new("focusin", "input");
         assert_eq!(run(&t, i, &e, fin), vec![Act::Ui(UiOp::Editing(true))]);

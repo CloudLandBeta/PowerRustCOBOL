@@ -81,7 +81,8 @@ fn every_shipped_file_is_exactly_what_the_build_wrote_and_nothing_else_is_there(
     // Nothing is in the directory that the build did not write.
     let mut on_disk = BTreeSet::new();
     fn walk(base: &Path, dir: &Path, out: &mut BTreeSet<String>) {
-        for e in std::fs::read_dir(dir).unwrap().flatten() {
+        // A hidden entry (`.DS_Store`) is the machine's: neither the build record nor a bundle takes it.
+        for e in std::fs::read_dir(dir).unwrap().flatten().filter(|e| !e.file_name().to_string_lossy().starts_with('.')) {
             let p = e.path();
             if p.is_dir() {
                 // The older players a project may pin have records of their own (checked below).
