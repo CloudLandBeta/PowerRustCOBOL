@@ -243,6 +243,7 @@
     <Property name="Definition">Status line with the result of the last action.</Property>
   </Control>
 <Control id="CARD-Q" type="Panel" x="32" y="128" w="1128" h="420" tab-order="4" z-order="4" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#ECEEF5</Property>

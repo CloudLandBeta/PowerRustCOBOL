@@ -280,6 +280,7 @@
 ]]></Event>
   </Control>
 <Control id="CARD-L" type="Panel" x="32" y="294" w="1128" h="530" tab-order="15" z-order="15" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#ECEEF5</Property>

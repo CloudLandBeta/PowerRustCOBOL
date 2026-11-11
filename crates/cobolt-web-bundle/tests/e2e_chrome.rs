@@ -28,9 +28,12 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cobolt_web_bundle::devserver::{serve, ServeOptions};
-use cobolt_web_bundle::{BundleOptions, Embed, Isolation, PlayerInput};
+use cobolt_web_bundle::{assemble_bundle, BundleOptions, Embed, Isolation, PlayerInput};
 use cobolt_wasm_abi::fixture::standard::{BACKEND_UNREACHABLE, CHILD_FORM, GREETING, LBL_OUT, LST_1, MAIN_FORM, TXT_IN};
 use support::cdp::{find_chrome, Chrome, Page};
+
+/// The card of the loading-effect scenario, added to the main form's description by the test (no handler touches it).
+const CARD: &str = "CARD-DATA";
 
 /// Helpers the scenarios evaluate in the page; the application is inside `#pr-app`'s shadow root.
 const HELPERS: &str = r#"
@@ -519,6 +522,41 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut
         Ok(format!("label went {}; the backend saw one call", seq.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>().join(" -> ")))
     });
 
+    run.with_backend("loading effect: a card marked LoadingEffect shows its stripes while the call is in flight and loses them with the answer (2.0.412)", |p, b| {
+        let b = b.as_ref().ok_or("no backend")?;
+        b.delay_ms.store(1500, Ordering::SeqCst);
+        // What the browser says about the card's overlay and about the player's busy mark, which the page's <body> also carries.
+        let look = format!(
+            "(() => {{ const c = __pr.ctl({m}, {card}), a = getComputedStyle(c, '::after'), r = __pr.root().querySelector('.pr-root'); \
+             return {{ cls: c.classList.contains('pr-loadfx'), opacity: a.opacity, animation: a.animationName, root: r.hasAttribute('data-pr-busy'), body: document.body.hasAttribute('data-pr-busy') }}; }})()",
+            m = q(main),
+            card = q(CARD)
+        );
+        // The scenario before this one ended a moment after its own call was answered: let its stripes finish fading.
+        p.wait_for(&format!("getComputedStyle(__pr.ctl({m}, {card}), '::after').opacity === '0'", m = q(main), card = q(CARD)), 10)
+            .map_err(|e| format!("the stripes of the call before this one never faded: {e}; {}", p.eval(&look).unwrap_or_default()))?;
+        let rest = p.eval(&look)?;
+        if rest["cls"] != true || rest["opacity"] != "0" || rest["root"] != false {
+            return Err(format!("at rest the card must carry the class with an invisible overlay and the player not be busy: {rest}"));
+        }
+        click(p, main, "BTN-REMOTE")?;
+        wait_text(p, main, LBL_OUT, "calling")?;
+        p.wait_for(&format!("(() => {{ const a = getComputedStyle(__pr.ctl({m}, {card}), '::after'); return a.opacity === '1' && a.animationName === 'pr-barber'; }})()", m = q(main), card = q(CARD)), 10)
+            .map_err(|e| format!("the card never showed its stripes while the call was in flight: {e}; {}", p.eval(&look).unwrap_or_default()))?;
+        let busy = p.eval(&look)?;
+        if busy["root"] != true || busy["body"] != true {
+            return Err(format!("the player marks its root and the page's body while a call is out: {busy}"));
+        }
+        p.wait_for(&format!("(__pr.text({}, {}) || '').includes('pong')", q(main), q(LBL_OUT)), 20).map_err(|e| format!("the answer never came: {e}"))?;
+        p.wait_for(&format!("(() => {{ const a = getComputedStyle(__pr.ctl({m}, {card}), '::after'); return a.opacity === '0'; }})()", m = q(main), card = q(CARD)), 10)
+            .map_err(|e| format!("the stripes stayed after the answer: {e}"))?;
+        let after = p.eval(&look)?;
+        if after["root"] != false || after["body"] != false {
+            return Err(format!("the busy mark stayed after the answer: {after}"));
+        }
+        Ok(format!("at rest opacity {}; call out: opacity {} with {}; answered: opacity {}, no busy mark", rest["opacity"], busy["opacity"], busy["animation"], after["opacity"]))
+    });
+
     run.with_backend(
         "backend lost: the modal blocks the application while the page retries by the policy, the call in flight ends in ON EXCEPTION when it reconnects, the modal goes and the form is as it was, a later call succeeds (AC5, AC13, WASM-003 R25)",
         |p, slot| {
@@ -756,10 +794,15 @@ fn the_page_drawn_by_leptos_answers_the_user_and_the_backend_in_chrome() {
             Placement::Window => Embed::Window,
             Placement::Div => Embed::Element { selector: "#pr-app".into() },
         };
-        let out = support::assemble(
+        let mut input = support::input_with(
             PlayerInput { plain: Some(support::player_variant(&player_out, "plain")), parts: support::player_parts(&player_out), ..Default::default() },
             BundleOptions { isolation: Isolation::RequireCorp, embed, backend_origins: vec![backend_url], ..Default::default() },
         );
+        // A card with `LoadingEffect` on, for the scenario that holds a call open (2.0.412); no handler touches it.
+        for f in input.forms.iter_mut().filter(|f| f.name == MAIN_FORM) {
+            f.cfrm = f.cfrm.replace("</Form>", &format!("  <Control id=\"{CARD}\" type=\"Panel\" x=\"400\" y=\"380\" w=\"200\" h=\"80\"><Property name=\"LoadingEffect\">true</Property></Control>\n</Form>"));
+        }
+        let out = assemble_bundle(&input).unwrap_or_else(|e| panic!("{e}"));
         let dir = tempfile::tempdir().unwrap();
         support::write_bundle(&out, dir.path());
         let entry = match placement {

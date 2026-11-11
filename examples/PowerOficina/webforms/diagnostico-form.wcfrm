@@ -440,6 +440,7 @@
 ]]></Event>
   </Control>
 <Control id="CARD-RES" type="Panel" x="604" y="280" w="556" h="456" tab-order="26" z-order="26" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#ECEEF5</Property>

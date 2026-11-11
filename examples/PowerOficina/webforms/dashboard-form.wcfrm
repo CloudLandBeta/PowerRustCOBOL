@@ -348,6 +348,7 @@
 ]]></Event>
   </Control>
 <Control id="KPI-VEH" type="Panel" x="32" y="92" w="178" h="100" tab-order="7" z-order="7" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#DCE4FBFF</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#DCE4FB</Property>
@@ -381,6 +382,7 @@
     <Property name="VerticalAlignment">Top</Property>
   </Control>
 <Control id="KPI-AWA" type="Panel" x="222" y="92" w="178" h="100" tab-order="10" z-order="10" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#F9E1E1FF</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#F9E1E1</Property>
@@ -414,6 +416,7 @@
     <Property name="VerticalAlignment">Top</Property>
   </Control>
 <Control id="KPI-RUN" type="Panel" x="412" y="92" w="178" h="100" tab-order="13" z-order="13" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#DDEFEAFF</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#DDEFEA</Property>
@@ -447,6 +450,7 @@
     <Property name="VerticalAlignment">Top</Property>
   </Control>
 <Control id="KPI-RDY" type="Panel" x="602" y="92" w="178" h="100" tab-order="16" z-order="16" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#E9E4FBFF</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#E9E4FB</Property>
@@ -480,6 +484,7 @@
     <Property name="VerticalAlignment">Top</Property>
   </Control>
 <Control id="KPI-RAT" type="Panel" x="792" y="92" w="178" h="100" tab-order="19" z-order="19" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#FCE9D6FF</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#FCE9D6</Property>
@@ -513,6 +518,7 @@
     <Property name="VerticalAlignment">Top</Property>
   </Control>
 <Control id="KPI-TIC" type="Panel" x="982" y="92" w="178" h="100" tab-order="22" z-order="22" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#DDEFF8FF</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#DDEFF8</Property>
@@ -546,6 +552,7 @@
     <Property name="VerticalAlignment">Top</Property>
   </Control>
 <Control id="CARD-TOTAL" type="Panel" x="32" y="208" w="1128" h="56" tab-order="25" z-order="25" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#EEEDFDFF</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#EEEDFD</Property>
@@ -565,6 +572,7 @@
     <Property name="Definition">Total approved in the currency shown, and how many quotes were sent and approved.</Property>
   </Control>
 <Control id="CARD-MON" type="Panel" x="32" y="278" w="560" h="300" tab-order="27" z-order="27" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#ECEEF5</Property>
@@ -604,6 +612,7 @@
     <Property name="Definition">Covers the chart's sample while the answer is awaited and while there is nothing to draw; says "Carregando…" first, then that no data exists.</Property>
   </Control>
 <Control id="CARD-PAYS" type="Panel" x="608" y="278" w="552" h="300" tab-order="30" z-order="30" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#ECEEF5</Property>
@@ -641,6 +650,7 @@
     <Property name="Definition">Covers the chart's sample while the answer is awaited and while there is nothing to draw; says "Carregando…" first, then that no data exists.</Property>
   </Control>
 <Control id="CARD-TOP" type="Panel" x="32" y="592" w="370" h="248" tab-order="33" z-order="33" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#ECEEF5</Property>
@@ -687,6 +697,7 @@ Item:string</Property>
     <Property name="Definition">The five parts and services most sold in approved quotes, with the quantity.</Property>
   </Control>
 <Control id="CARD-DL" type="Panel" x="418" y="592" w="442" h="248" tab-order="36" z-order="36" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#ECEEF5</Property>
@@ -735,6 +746,7 @@ Veículo:string</Property>
     <Property name="Definition">The next delivery and pickup dates in date order, with the quote and the vehicle.</Property>
   </Control>
 <Control id="CARD-AL" type="Panel" x="876" y="592" w="284" h="248" tab-order="39" z-order="39" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#DCEFF5FF</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#DCEFF5</Property>

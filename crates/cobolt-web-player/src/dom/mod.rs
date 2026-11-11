@@ -1074,8 +1074,15 @@ impl Surface for Dom {
     }
 
     fn net_busy(&self, busy: bool) {
+        // The player's styles live in a shadow root, where a selector cannot see the page's `<body>`: the attribute is also
+        // on the player's own root, which is what `[data-pr-busy] .pr-loadfx` in the base layer reads. The body keeps it for
+        // the host page's own CSS.
+        let set = |e: &Element| {
+            let _ = if busy { e.set_attribute("data-pr-busy", "") } else { e.remove_attribute("data-pr-busy") };
+        };
+        set(&self.sh.root);
         if let Some(body) = self.sh.doc.body() {
-            let _ = if busy { body.set_attribute("data-pr-busy", "") } else { body.remove_attribute("data-pr-busy") };
+            set(&body);
         }
     }
 

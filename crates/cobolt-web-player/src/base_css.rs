@@ -206,10 +206,10 @@ div.pr-line > svg > line { stroke: var(--pr-line-color, currentColor); stroke-wi
 .pr-sm-header img { width: 270px; height: 80px; max-width: 100%; max-height: 100%; object-fit: contain; }
 .pr-sm-title { font-weight: 600; }
 /* LoadingEffect: barber-shop stripes run left to right over the control while a Backend call is in flight; the answer takes them away. */
-.pr-loadfx { position: relative; }
-.pr-loadfx::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .15s; background: repeating-linear-gradient(135deg, rgba(255,255,255,.55) 0 12px, rgba(120,120,160,.28) 12px 24px); background-size: 34px 34px; }
-body[data-pr-busy] .pr-loadfx::after { opacity: 1; animation: pr-barber 0.8s linear infinite; }
-@keyframes pr-barber { to { background-position: 34px 0; } }
+.pr-loadfx { position: relative; isolation: isolate; }
+.pr-loadfx::after { content: ""; position: absolute; inset: 0; z-index: 2147483000; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .15s; background: repeating-linear-gradient(135deg, rgba(255,255,255,.86) 0 24px, rgba(226,228,233,.86) 24px 48px); background-size: 67.88px 67.88px; backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+[data-pr-busy] .pr-loadfx::after { opacity: 1; animation: pr-barber 1.2s linear infinite; }
+@keyframes pr-barber { to { background-position: 67.88px 0; } }
 .pr-sm-toggle { align-self: flex-end; margin: 0 8px 4px; background: transparent; border: 0; color: inherit; cursor: pointer; font: inherit; }
 .pr-sm-items { flex: 1; overflow: auto; margin: 0; padding: 0; list-style: none; }
 .pr-sidemenu .pr-menu-items { position: static; margin: 0; padding: 0 0 0 16px; list-style: none; }
@@ -502,6 +502,17 @@ mod tests {
         // A name with a quote cannot break out of the attribute selector.
         assert!(!scoped("a\"] { } x[\"", "").contains("\"] {"));
         assert!(nested("main-form", "a { b: c }").starts_with("[data-pr-form=\"main-form\"] {"));
+    }
+
+    /// The loading effect (2.0.320) never showed: its rule began with `body[data-pr-busy]`, and the sheet lives in a shadow
+    /// root, where a selector cannot see the page's `<body>`. The rule reads a mark the player puts on its own root.
+    #[test]
+    fn the_loading_effect_reads_a_mark_that_a_shadow_root_can_see() {
+        let b = base_layer();
+        let rule = b.lines().find(|l| l.contains("data-pr-busy")).expect("the busy rule");
+        assert!(rule.starts_with("[data-pr-busy] .pr-loadfx::after {"), "{rule}");
+        assert!(!b.contains("body[data-pr-busy]"), "a selector in a shadow root cannot see <body>");
+        eprintln!("loading effect rule: {rule}");
     }
 
     #[test]

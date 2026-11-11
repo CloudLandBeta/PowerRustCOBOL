@@ -494,6 +494,7 @@
     <Property name="Definition">Reminder of how the installments are charged.</Property>
   </Control>
 <Control id="CARD-SCHED" type="Panel" x="688" y="128" w="472" h="420" tab-order="22" z-order="22" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#ECEEF5</Property>

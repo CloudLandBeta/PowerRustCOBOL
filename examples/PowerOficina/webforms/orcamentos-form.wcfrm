@@ -518,6 +518,7 @@
 ]]></Event>
   </Control>
 <Control id="CARD-LINES" type="Panel" x="32" y="216" w="740" h="710" tab-order="15" z-order="15" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#ECEEF5</Property>
@@ -842,6 +843,7 @@ Preço:string</Property>
 ]]></Event>
   </Control>
 <Control id="CARD-SUM" type="Panel" x="788" y="216" w="372" h="710" tab-order="31" z-order="31" visible="true" enabled="true">
+    <Property name="LoadingEffect">true</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#ECEEF5</Property>
