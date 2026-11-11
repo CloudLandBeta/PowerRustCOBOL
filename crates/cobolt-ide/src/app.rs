@@ -285,8 +285,57 @@ enum BuildThenLaunch {
 /// **Run** of a program without a block keeps the interpreter, which is the
 /// optimised fast path already. A form with no project has nothing to build,
 /// so its Debug stays on `rcrun run-form --debug`.
-fn run_needs_a_build(debug: bool, has_blocks: bool, has_project: bool) -> bool {
-    has_blocks || (debug && has_project)
+///
+/// So does a form of a **Web or Mobile** project (fix 2.0.430): the native
+/// build does not make that kind and refuses it, so asking it for the debug
+/// build ended every Debug in "this is a web project, not a desktop one". Such
+/// a form is debugged on this machine, by the interpreter, in a window of its
+/// own — no debugger reaches the browser or the phone.
+fn run_needs_a_build(debug: bool, has_blocks: bool, kind: Option<cobolt_compiler::ProjectKind>) -> bool {
+    match kind {
+        Some(k) if !k.is_desktop() => false,
+        _ => has_blocks || (debug && kind.is_some()),
+    }
+}
+
+/// What a form run on this machine needs to call the project's Backend: the
+/// address the development Backend listens on, its token for this run, and the
+/// interface description the Backend's build wrote, when there is one
+/// (`COBOLT_BACKEND_*`, read by `rcrun` at start — WASM-014). Nothing until the
+/// Backend has said both its address and its token.
+fn local_backend_env(url: Option<&str>, token: Option<&str>, interface: Option<&Path>) -> Vec<(String, String)> {
+    let (Some(url), Some(token)) = (url, token) else {
+        return Vec::new();
+    };
+    let mut env = vec![
+        ("COBOLT_BACKEND_URL".to_owned(), url.to_owned()),
+        ("COBOLT_BACKEND_TOKEN".to_owned(), token.to_owned()),
+    ];
+    if let Some(interface) = interface {
+        env.push(("COBOLT_BACKEND_INTERFACE".to_owned(), interface.display().to_string()));
+    }
+    env
+}
+
+/// Where the Backend the IDE runs stands for a Debug that needs it (fix
+/// 2.0.430). Debug of a Web or Mobile form starts the Backend first, as Run
+/// does, and the form starts once the Backend is [`BackendForDebug::Ready`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackendForDebug {
+    /// It runs and has said its address and its token: the form can start.
+    Ready,
+    /// It runs and has not said both yet.
+    ComingUp,
+    /// None runs.
+    Down,
+}
+
+fn backend_for_debug(running: bool, said_address: bool, said_token: bool) -> BackendForDebug {
+    match (running, said_address && said_token) {
+        (false, _) => BackendForDebug::Down,
+        (true, true) => BackendForDebug::Ready,
+        (true, false) => BackendForDebug::ComingUp,
+    }
 }
 
 /// The tip of a designer's Run Form button: the live interpreter in a Desktop project (or
@@ -466,11 +515,16 @@ fn parse_debug_line(json: &str) -> Option<cobolt_runtime::DebugWire> {
 /// no project, a lone open COBOL source is debuggable as it always was — there
 /// is no project build for it to wait on. The menu and the toolbar both read
 /// this one answer.
-fn debug_gate(has_source: bool, has_project: bool, built_by_this_version: bool) -> bool {
-    if has_project {
-        built_by_this_version
-    } else {
-        has_source
+///
+/// A **Web or Mobile** project has no native build to wait for (fix 2.0.430):
+/// its Build makes the bundle and stamps nothing, so the gate stayed shut for
+/// good. Its Debug runs the form on this machine in the interpreter
+/// ([`run_needs_a_build`]), which needs no build, so it is always live.
+fn debug_gate(has_source: bool, kind: Option<cobolt_compiler::ProjectKind>, built_by_this_version: bool) -> bool {
+    match kind {
+        None => has_source,
+        Some(k) if k.is_desktop() => built_by_this_version,
+        Some(_) => true,
     }
 }
 
@@ -999,6 +1053,9 @@ pub struct CoboltApp {
     backend_inspector: std::sync::Arc<cobolt_project_tools::web::inspector::Inspector>,
     /// The Backend ended with an error: the top-bar button stays red until it is clicked.
     backend_failed: bool,
+    /// A Debug of a Web or Mobile form waiting for the Backend to say its
+    /// address and its token: the form, and until when it waits (fix 2.0.430).
+    debug_waits_for_backend: Option<(PathBuf, Form, std::time::Instant)>,
 
     // Cross-window pending actions
     /// A file path waiting to be opened in the code editor (set by a designer
@@ -2423,6 +2480,7 @@ impl CoboltApp {
             backend_window_live: false,
             backend_inspector: cobolt_project_tools::web::inspector::Inspector::new(),
             backend_failed: false,
+            debug_waits_for_backend: None,
 
             pending_open_in_editor: None,
             pending_goto_paragraph: None,
@@ -3057,8 +3115,28 @@ impl CoboltApp {
         }
     }
 
+    /// Where the project's Backend stands for a Debug ([`backend_for_debug`]).
+    fn backend_state_for_debug(&self) -> BackendForDebug {
+        let run = self.backend_run.as_ref();
+        backend_for_debug(
+            run.is_some_and(|r| r.is_running()),
+            run.is_some_and(|r| r.url().is_some()),
+            run.is_some_and(|r| r.token().is_some()),
+        )
+    }
+
+    /// A Debug that waited for the Backend starts nothing, and says so.
+    fn debug_gives_up_on_backend(&mut self) {
+        if self.debug_waits_for_backend.take().is_some() {
+            self.output.push_status(
+                crate::ui_text::ide("Debug was not started: the Backend is not listening.").to_owned(),
+            );
+        }
+    }
+
     /// Run menu → Stop Backend, and a project change.
     fn stop_backend(&mut self) {
+        self.debug_gives_up_on_backend();
         self.backend_failed = false;
         if let Some(mut run) = self.backend_run.take() {
             let was_running = run.is_running();
@@ -3119,6 +3197,20 @@ impl CoboltApp {
                     self.backend_window.push_line(format!("{} ({why})", tr.backend_stopped));
                     self.output.push_status(format!("{} ({why})", tr.backend_stopped));
                 }
+            }
+        }
+        // A Debug waiting for this Backend (fix 2.0.430): the form starts once
+        // the Backend has said its address and its token. A Backend that ended,
+        // or said neither in time, starts nothing — and that is said.
+        if let Some(deadline) = self.debug_waits_for_backend.as_ref().map(|wait| wait.2) {
+            match self.backend_state_for_debug() {
+                BackendForDebug::Ready => {
+                    if let Some((form_path, form, _)) = self.debug_waits_for_backend.take() {
+                        self.spawn_form_run(form_path, form, true);
+                    }
+                }
+                BackendForDebug::ComingUp if std::time::Instant::now() < deadline => {}
+                BackendForDebug::ComingUp | BackendForDebug::Down => self.debug_gives_up_on_backend(),
             }
         }
         if running {
@@ -3782,6 +3874,26 @@ impl CoboltApp {
     /// Form button and the project Run button (which launches the MAIN form,
     /// open in a designer or not — spec 037 R5).
     fn spawn_form_run(&mut self, form_path: PathBuf, form: Form, debug: bool) {
+        // Debug of a Web or Mobile form whose project has a Backend starts the
+        // Backend first, as Run does (fix 2.0.430). The form's process is told
+        // the Backend's address and token when it starts, so it waits until
+        // the Backend has said both; `poll_backend` then comes back here.
+        if debug && self.backend_project_dir().is_some() {
+            if self.backend_state_for_debug() == BackendForDebug::Down {
+                self.start_backend();
+            }
+            if self.backend_state_for_debug() == BackendForDebug::ComingUp {
+                let wait = crate::panels::web_preview::BACKEND_WAIT;
+                self.output.push_status(crate::ui_text::idef(
+                    "Waiting for the project's Backend: Debug begins when it listens (at most {} s).",
+                    &[&wait.as_secs()],
+                ));
+                self.debug_waits_for_backend = Some((form_path, form, std::time::Instant::now() + wait));
+                return;
+            }
+            // Still down: it could not be started, which `start_backend` said.
+            // The form starts, and the notice below says its calls will fail.
+        }
         self.output.clear_run_output();
         self.output.push_status(crate::ui_text::idef(
             if debug { "── Debugging form {} ──" } else { "── Running form {} ──" },
@@ -3855,7 +3967,7 @@ impl CoboltApp {
         let run_cbl_paths = self.run_program_paths(&form_path);
         let has_blocks =
             crate::exec_rust_run::any_has_blocks(run_cbl_paths.iter().map(PathBuf::as_path));
-        if run_needs_a_build(debug, has_blocks, self.cobolt_project.is_some()) {
+        if run_needs_a_build(debug, has_blocks, self.cobolt_project.as_ref().map(|p| p.kind())) {
             let tr = self.lang.tr();
             // Debug takes the SAME route as Run: build, then attach the
             // debugger to what the build produced.
@@ -3953,7 +4065,29 @@ impl CoboltApp {
         // Every credential this process may need — including the forms it will
         // load into a ContentPane or open in their own windows, which are read
         // from disk long after this launch.
-        let secrets: Vec<(String, String)> = self.credential_env(&form);
+        let mut secrets: Vec<(String, String)> = self.credential_env(&form);
+        // A Web or Mobile form run on this machine calls its Backend as the
+        // page does: it is told where the Backend the IDE runs listens, and
+        // the token of that run. With no Backend up the form still runs, and
+        // the developer is told why its calls will fail.
+        if let Some(dir) = self.backend_project_dir() {
+            let run = self.backend_run.as_ref().filter(|r| r.is_running());
+            let interface = dir.join(cobolt_compiler::project_kind::BACKEND_FOLDER).join("contract").join("interface.json");
+            let backend = local_backend_env(
+                run.and_then(|r| r.url()),
+                run.and_then(|r| r.token()),
+                interface.is_file().then_some(interface.as_path()),
+            );
+            if debug && backend.is_empty() {
+                self.output.push_status(
+                    crate::ui_text::ide(
+                        "The Backend is not running, so this form's calls to it will fail: start it (Start Backend), then debug again.",
+                    )
+                    .to_owned(),
+                );
+            }
+            secrets.extend(backend);
+        }
         match crate::form_runtime::ExternalFormRun::spawn(
             form_path.clone(),
             form.name.clone(),
@@ -17321,8 +17455,11 @@ impl eframe::App for CoboltApp {
             p.project.has_recorded_build()
                 && !p.project.build_is_stale_for(crate::version::VERSION)
         });
-        let menu_debuggable =
-            debug_gate(self.editor.active_source().is_some(), has_project, menu_built);
+        let menu_debuggable = debug_gate(
+            self.editor.active_source().is_some(),
+            self.cobolt_project.as_ref().map(|p| p.kind()),
+            menu_built,
+        );
         // Why Debug is grey, when it is: a project waits for its build; a lone
         // file waits to be opened.
         let menu_debug_hint = if has_project {
@@ -22859,12 +22996,31 @@ mod debug_gate_tests {
     /// outside any project is debuggable as it always was.
     #[test]
     fn debug_waits_for_the_projects_build() {
-        assert!(debug_gate(false, true, true), "built project, no tab: Debug is live");
-        assert!(debug_gate(true, true, true), "built project, tab open: Debug is live");
-        assert!(!debug_gate(false, true, false), "unbuilt project, no tab: grey");
-        assert!(!debug_gate(true, true, false), "unbuilt project: an open source does not bypass the build");
-        assert!(debug_gate(true, false, false), "a lone COBOL file, no project: Debug is live");
-        assert!(!debug_gate(false, false, false), "nothing open at all: grey");
+        let desktop = Some(cobolt_compiler::ProjectKind::Desktop);
+        assert!(debug_gate(false, desktop, true), "built project, no tab: Debug is live");
+        assert!(debug_gate(true, desktop, true), "built project, tab open: Debug is live");
+        assert!(!debug_gate(false, desktop, false), "unbuilt project, no tab: grey");
+        assert!(!debug_gate(true, desktop, false), "unbuilt project: an open source does not bypass the build");
+        assert!(debug_gate(true, None, false), "a lone COBOL file, no project: Debug is live");
+        assert!(!debug_gate(false, None, false), "nothing open at all: grey");
+    }
+
+    /// Fix 2.0.430: a Web or Mobile project has no native build to wait for —
+    /// its Build stamps nothing — so its Debug is live with or without a tab
+    /// open, and the form is debugged on this machine.
+    #[test]
+    fn debug_is_live_in_a_web_or_mobile_project_without_a_native_build() {
+        use cobolt_compiler::ProjectKind;
+        let mut cases = 0;
+        for kind in [ProjectKind::Web, ProjectKind::Mobile] {
+            for has_source in [false, true] {
+                for built in [false, true] {
+                    assert!(debug_gate(has_source, Some(kind), built), "{kind:?}, tab open {has_source}, stamped {built}");
+                    cases += 1;
+                }
+            }
+        }
+        println!("debug gate, Web and Mobile projects: {cases} cases, all live (no native build to wait for)");
     }
 
     /// The stamp predicate the gate is fed: present AND from the running
@@ -25509,19 +25665,99 @@ mod build_profile_tests {
     /// Debug builds the unoptimised application whenever there is a project.
     #[test]
     fn run_form_builds_only_for_a_block_and_debug_builds_in_a_project() {
-        // (debug, has_blocks, has_project) -> builds first?
+        use cobolt_compiler::ProjectKind;
+        let desktop = Some(ProjectKind::Desktop);
+        // (debug, has_blocks, the project's kind) -> builds first?
         let table = [
-            ((false, false, true), false, "Run, no block: the optimised interpreter, no build"),
-            ((false, false, false), false, "Run of a lone form: the interpreter"),
-            ((false, true, true), true, "Run with EXEC RUST: built first, as before"),
-            ((true, false, true), true, "Debug in a project: the debug build, even with no block"),
-            ((true, true, true), true, "Debug with EXEC RUST: the debug build"),
-            ((true, false, false), false, "Debug of a lone form: nothing to build, `rcrun run-form --debug`"),
+            ((false, false, desktop), false, "Run, no block: the optimised interpreter, no build"),
+            ((false, false, None), false, "Run of a lone form: the interpreter"),
+            ((false, true, desktop), true, "Run with EXEC RUST: built first, as before"),
+            ((false, true, None), true, "Run of a lone form with EXEC RUST: asks for a project to build"),
+            ((true, false, desktop), true, "Debug in a project: the debug build, even with no block"),
+            ((true, true, desktop), true, "Debug with EXEC RUST: the debug build"),
+            ((true, false, None), false, "Debug of a lone form: nothing to build, `rcrun run-form --debug`"),
         ];
-        for ((debug, blocks, project), want, why) in table {
-            assert_eq!(run_needs_a_build(debug, blocks, project), want, "{why}");
+        for ((debug, blocks, kind), want, why) in table {
+            assert_eq!(run_needs_a_build(debug, blocks, kind), want, "{why}");
         }
         println!("run/debug routing: {} cases (Run -> interpreter unless a block; Debug -> debug build in a project)", table.len());
+    }
+
+    /// Fix 2.0.430: the native build refuses a Web or Mobile project ("this is a
+    /// web project, not a desktop one"), so Debug never asks it for one there:
+    /// the form is debugged on this machine through `rcrun run-form --debug`.
+    #[test]
+    fn debug_in_a_web_or_mobile_project_never_asks_for_the_native_build() {
+        use cobolt_compiler::ProjectKind;
+        let mut cases = 0;
+        for kind in [ProjectKind::Web, ProjectKind::Mobile] {
+            for debug in [false, true] {
+                for blocks in [false, true] {
+                    assert!(!run_needs_a_build(debug, blocks, Some(kind)), "{kind:?}, debug {debug}, EXEC RUST {blocks}");
+                    cases += 1;
+                }
+            }
+        }
+        println!("run/debug routing, Web and Mobile projects: {cases} cases, none asks for the native build");
+    }
+
+    /// Fix 2.0.430: a Web or Mobile form debugged on this machine is told where the
+    /// Backend the IDE runs listens and that run's token; nothing is handed over
+    /// until the Backend has said both.
+    #[test]
+    fn a_locally_debugged_form_is_told_its_backend_only_once_the_backend_said_address_and_token() {
+        use super::local_backend_env;
+        use std::path::Path;
+        let url = "ws://127.0.0.1:47011/ws";
+        let token = "aaa.bbb.ccc";
+        assert!(local_backend_env(None, None, None).is_empty(), "no Backend running");
+        assert!(local_backend_env(Some(url), None, None).is_empty(), "listening, token not printed yet");
+        assert!(local_backend_env(None, Some(token), None).is_empty(), "a token with no address");
+        let pair = |name: &str, value: &str| (name.to_owned(), value.to_owned());
+        assert_eq!(
+            local_backend_env(Some(url), Some(token), None),
+            vec![pair("COBOLT_BACKEND_URL", url), pair("COBOLT_BACKEND_TOKEN", token)],
+        );
+        let interface = Path::new("backend").join("contract").join("interface.json");
+        assert_eq!(
+            local_backend_env(Some(url), Some(token), Some(&interface)),
+            vec![
+                pair("COBOLT_BACKEND_URL", url),
+                pair("COBOLT_BACKEND_TOKEN", token),
+                pair("COBOLT_BACKEND_INTERFACE", &interface.display().to_string()),
+            ],
+        );
+        let notice = "The Backend is not running, so this form's calls to it will fail: start it (Start Backend), then debug again.";
+        assert!(crate::ui_text::has_ide(notice), "the notice is in the IDE's table, in six languages");
+        println!("local Backend environment: 5 cases (3 incomplete -> nothing, address+token -> 2 variables, with the interface file -> 3)");
+    }
+
+    /// Fix 2.0.430: Debug of a Web or Mobile form starts the Backend when none
+    /// runs, as Run does, and the form starts only once the Backend has said
+    /// its address and its token.
+    #[test]
+    fn debug_starts_a_backend_that_is_down_and_waits_for_one_that_is_coming_up() {
+        use super::{backend_for_debug, BackendForDebug};
+        // (running, said its address, said its token) -> where it stands
+        let table = [
+            ((false, false, false), BackendForDebug::Down, "none runs: Debug starts it"),
+            ((false, true, true), BackendForDebug::Down, "it said both and then ended: started again"),
+            ((true, false, false), BackendForDebug::ComingUp, "just started: Debug waits"),
+            ((true, true, false), BackendForDebug::ComingUp, "listening, token not printed yet: Debug waits"),
+            ((true, false, true), BackendForDebug::ComingUp, "a token with no address: Debug waits"),
+            ((true, true, true), BackendForDebug::Ready, "address and token: the form starts"),
+        ];
+        for ((running, address, token), want, why) in table {
+            assert_eq!(backend_for_debug(running, address, token), want, "{why}");
+        }
+        let texts = [
+            "Waiting for the project's Backend: Debug begins when it listens (at most {} s).",
+            "Debug was not started: the Backend is not listening.",
+        ];
+        for text in texts {
+            assert!(crate::ui_text::has_ide(text), "{text:?} is in the IDE's table, in six languages");
+        }
+        println!("Backend before Debug: {} states (2 down, 3 coming up, 1 ready), {} messages in six languages", table.len(), texts.len());
     }
 
     /// Fix 2.0.297: a Web or Mobile project's Run Form runs the application where Run does
