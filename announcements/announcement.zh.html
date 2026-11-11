@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>最新动态 — PowerRustCOBOL AI 2</title>
+<style>
+  body { font-family: sans-serif; color: #1f2933; background: #ffffff; margin: 0; padding: 0; }
+  .band { background: #1d3557; color: #ffffff; padding: 22px 28px; }
+  .band h1 { margin: 0 0 6px 0; font-size: 28px; }
+  .band p { margin: 0; font-size: 15px; color: #dbe6f4; }
+  .wrap { padding: 18px 28px 28px 28px; }
+  h2 { color: #1d3557; font-size: 20px; margin: 22px 0 8px 0; }
+  p { line-height: 1.5; margin: 0 0 10px 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { border: 1px solid #c9d6e4; border-radius: 8px; padding: 12px 14px; background: #f6f9fc; }
+  .card h3 { margin: 0 0 6px 0; font-size: 16px; color: #0b3d91; }
+  .card p { margin: 0; font-size: 14px; }
+  code { background: #eef2f7; color: #8a1c1c; padding: 1px 4px; }
+  ol li, ul li { margin: 0 0 6px 0; line-height: 1.45; }
+  table { border-collapse: collapse; width: 100%; }
+  th { text-align: left; background: #e3ebf5; color: #1d3557; padding: 6px 10px; border: 1px solid #c9d6e4; }
+  td { padding: 6px 10px; border: 1px solid #c9d6e4; }
+  .note { border-left: 4px solid #e0a100; background: #fff8e1; padding: 8px 14px; margin: 12px 0; }
+  .small { font-size: 13px; color: #52606d; }
+</style>
+</head>
+<body>
+
+<div class="band">
+  <h1>PowerRustCOBOL AI 2：Web 与 Mobile</h1>
+  <p>您已经在写的 COBOL，您已经在用的 Form Designer，现在可以用于浏览器和手机。</p>
+</div>
+
+<div class="wrap">
+
+<p>第 2 版在 Desktop 项目之外，新增了两种<strong>项目类型</strong>：<strong>Web</strong> 和
+<strong>Mobile</strong>。请在 <strong>File &#9656; New Project</strong> 中选择。您以前写的所有项目都是
+Desktop 项目，可以原样打开。以下是新增内容。</p>
+
+<h2>现在您可以做什么</h2>
+
+<div class="grid">
+
+  <div class="card">
+    <h3>Web 应用程序</h3>
+    <p>Build 将您的 COBOL 直接编译为 <strong>WebAssembly</strong>：页面中没有解释器，Web 的 Build 也不需要
+    Rust 工具链，因为 IDE 会把预先构建好的播放器复制到您的程序旁边。结果是位于 <code>dist/web/</code> 的静态
+    包，任何 Web 服务器都可以托管。</p>
+  </div>
+
+  <div class="card">
+    <h3>移动应用程序</h3>
+    <p>支持 Android 手机和平板、iOS 的 iPhone 和 iPad。<strong>Run</strong> 会在已连接的手机或 Android 模拟器上
+    构建、安装并启动应用，并在 Output 面板中显示其日志；Android 发布版使用您自己的密钥签名。对于 iOS，目前
+    可构建用于<strong>模拟器</strong>的应用。</p>
+  </div>
+
+  <div class="card">
+    <h3>COBOL Backend</h3>
+    <p>文件、数据库和密钥都位于项目的 <code>backend/</code> 文件夹中，运行在原生运行时之上。页面通过
+    <code>CALL "NAME" WITH WEBSOCKET LINKAGE</code> 调用 Backend 导出的程序：基于 TLS 的 JSON 加 bearer 令牌，
+    重新连接和令牌刷新由系统代劳。<code>COBOL::SqlDatabase</code> 无需
+    <code>EXEC SQL</code> 即可访问 SQLite、PostgreSQL 和 MySQL。</p>
+  </div>
+
+  <div class="card">
+    <h3>登录与链接</h3>
+    <p><strong>Authentication</strong> 控件通过您的 Backend，借助 Cognito、Keycloak 或 Entra 完成登录、注册、
+    找回密码和第二因素验证。<strong>Hyperlink</strong> 控件是页面上真正的链接。</p>
+  </div>
+
+  <div class="card">
+    <h3>CSS3 与响应式页面</h3>
+    <p>应用程序样式表和每个窗体各自的样式表共同为页面设置样式，并且样式表优先于属性。默认是单页应用程序；
+    独立的窗体页面是另一种选择。</p>
+  </div>
+
+  <div class="card">
+    <h3>在 Web 视图中预览</h3>
+    <p>设计器的 <strong>Preview</strong> 在系统的 Web 视图中显示该包。您可以选择手机、平板或桌面尺寸、方向、
+    像素比、配色方案以及页面语言；对窗体、样式表或 Backend 的修改会同步到已打开的页面。</p>
+  </div>
+
+  <div class="card">
+    <h3>Canvas 与图形</h3>
+    <p><strong>Canvas 2D</strong>、<strong>Canvas 3D</strong>，以及 ImageBuffer、Plot、Scene3D、Physics2D 和
+    Physics3D 对象，适用于所有平台。</p>
+  </div>
+
+  <div class="card">
+    <h3>默认安全</h3>
+    <p>Build 会扫描项目自身的文件中是否含有密钥，发现后即停止；包中带有 Content-Security-Policy；Mobile 项目
+    可以固定证书；发布版 Backend 会拒绝在其配置中直接写入的密钥。</p>
+  </div>
+
+  <div class="card">
+    <h3>Claude Code 和 Grace 也了解这些类型</h3>
+    <p>Claude Code 插件现在有十七个工具和十三个技能，其中包括面向 Web 应用程序和 Backend 的；IDE 的助手
+    Grace 也了解它们，同样了解 <code>COBOL::SqlDatabase</code>。</p>
+  </div>
+
+  <div class="card">
+    <h3>底层是同一个 COBOL</h3>
+    <p>生成的 WebAssembly 通过一致性测试与解释器保持相同：NIST CCVS85 的 NC、IF 和 IC 模块在其上运行，
+    失败数为零。</p>
+  </div>
+
+</div>
+
+<h2>从这里开始</h2>
+
+<ol>
+  <li>选择 <strong>File &#9656; New Project</strong>，然后选择 <em>Web</em>（或一台 Android 或 iOS 设备）。</li>
+  <li>打开一个窗体并按下 <strong>Preview</strong>，在 Web 视图中查看。</li>
+  <li>添加一个 Backend 程序，把它列入 <code>backend/exports.toml</code>，然后在处理程序中用 <code>CALL</code> 调用它。</li>
+  <li>按下 <strong>Build</strong>。</li>
+</ol>
+
+<p>或者从 <strong>File &#9656; Open Project</strong> 打开一个示例：</p>
+
+<table>
+  <tr><th>示例</th><th>展示内容</th></tr>
+  <tr><td><code>examples/PowerWebHello</code></td><td>最小的 Web 项目：一个带侧边菜单的窗体，以及一个 Backend</td></tr>
+  <tr><td><code>examples/PowerMobileHello</code></td><td>最小的 Mobile 项目</td></tr>
+  <tr><td><code>examples/PowerOficina</code></td><td>一个车间管理应用程序，其 Backend 基于索引文件</td></tr>
+  <tr><td><code>examples/PowerAnalyticsWeb</code></td><td>桌面版 PowerAnalytics 仪表板在 Web 上的外观</td></tr>
+</table>
+
+<h2>每个目标需要什么</h2>
+
+<table>
+  <tr><th>您要构建</th><th>您需要</th></tr>
+  <tr><td>Web 应用程序</td><td>只需要 IDE</td></tr>
+  <tr><td>Backend 发布版二进制文件</td><td>与桌面 Build 相同的工具链：Rust 和平台的链接器</td></tr>
+  <tr><td>Android 包</td><td>Android SDK 和 NDK、Java 17 至 21、手机对应的 Rust 目标以及 Tauri 命令行；缺少的每一项，Build 都会指出</td></tr>
+  <tr><td>用于模拟器的 iOS 应用</td><td>安装了 Xcode 16 或更高版本的 Mac</td></tr>
+</table>
+
+<div class="note">
+  <strong>如实说明范围。</strong> 面向设备或应用商店的 iOS 应用发布归档<strong>尚未构建</strong>。
+  浏览器覆盖情况已在 Chromium 和系统的 Web 视图中测量；Mac 上的 Safari 以及真机上的 Android Web 视图尚未测量。
+  Web 窗体中的 COBOL 只是一个子集：文件、SQL 以及其他服务器端工作属于 Backend，Build 会告诉您哪一行无法在页面中运行。
+  WebAssembly 规范的部分验收标准仍未完成；清单见 <code>specs/WASM-OPEN-ACS.md</code>。
+</div>
+
+<h2>了解更多</h2>
+
+<p>开发者指南用四个新章节讲述完整的内容：<em>Web and Mobile applications</em>、
+<em>The Backend and the secure channel</em>、<em>Mobile applications: Android and iOS</em> 和
+<em>Graphics: Canvas 2D, Canvas 3D and the graphics objects</em>。请通过菜单栏中的
+<strong>Documentation</strong> 按钮打开，或阅读代码库中的 <code>docs/developers-guide-en.md</code>，
+代码库地址为 <code>https://github.com/CloudLandBeta/PowerRustCOBOL</code>。那里的 README 在
+<em>Version 2: Web and Mobile applications</em> 下有一份简短的导览。</p>
+
+<p class="small">此页面的每个版本只显示一次这个窗口。看完后请关闭它。</p>
+
+</div>
+</body>
+</html>

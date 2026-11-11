@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>お知らせ — PowerRustCOBOL AI 2</title>
+<style>
+  body { font-family: sans-serif; color: #1f2933; background: #ffffff; margin: 0; padding: 0; }
+  .band { background: #1d3557; color: #ffffff; padding: 22px 28px; }
+  .band h1 { margin: 0 0 6px 0; font-size: 28px; }
+  .band p { margin: 0; font-size: 15px; color: #dbe6f4; }
+  .wrap { padding: 18px 28px 28px 28px; }
+  h2 { color: #1d3557; font-size: 20px; margin: 22px 0 8px 0; }
+  p { line-height: 1.5; margin: 0 0 10px 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { border: 1px solid #c9d6e4; border-radius: 8px; padding: 12px 14px; background: #f6f9fc; }
+  .card h3 { margin: 0 0 6px 0; font-size: 16px; color: #0b3d91; }
+  .card p { margin: 0; font-size: 14px; }
+  code { background: #eef2f7; color: #8a1c1c; padding: 1px 4px; }
+  ol li, ul li { margin: 0 0 6px 0; line-height: 1.45; }
+  table { border-collapse: collapse; width: 100%; }
+  th { text-align: left; background: #e3ebf5; color: #1d3557; padding: 6px 10px; border: 1px solid #c9d6e4; }
+  td { padding: 6px 10px; border: 1px solid #c9d6e4; }
+  .note { border-left: 4px solid #e0a100; background: #fff8e1; padding: 8px 14px; margin: 12px 0; }
+  .small { font-size: 13px; color: #52606d; }
+</style>
+</head>
+<body>
+
+<div class="band">
+  <h1>PowerRustCOBOL AI 2：Web と Mobile</h1>
+  <p>これまで書いてきた COBOL と、これまで使ってきた Form Designer が、ブラウザーとスマートフォンに対応します。</p>
+</div>
+
+<div class="wrap">
+
+<p>バージョン 2 では、Desktop プロジェクトに加えて、<strong>Web</strong> と <strong>Mobile</strong> の 2 つの
+<strong>プロジェクトの種類</strong>が加わりました。<strong>File &#9656; New Project</strong> で選びます。これまでに作成した
+プロジェクトはすべて Desktop プロジェクトで、そのまま開けます。新機能を紹介します。</p>
+
+<h2>できるようになったこと</h2>
+
+<div class="grid">
+
+  <div class="card">
+    <h3>Web アプリケーション</h3>
+    <p>Build は COBOL を直接 <strong>WebAssembly</strong> にコンパイルします。ページにインタープリターは不要で、
+    Web の Build に Rust ツールチェーンも要りません。IDE があらかじめビルド済みのプレーヤーをプログラムの隣に
+    コピーするためです。成果物は <code>dist/web/</code> にある静的なバンドルで、どの Web サーバーでも公開できます。</p>
+  </div>
+
+  <div class="card">
+    <h3>モバイルアプリケーション</h3>
+    <p>Android のスマートフォンとタブレット、iOS の iPhone と iPad に対応します。<strong>Run</strong> は、接続した
+    スマートフォンまたは Android エミュレーターにアプリをビルドしてインストールし、起動して、そのログを Output
+    パネルに表示します。Android のリリース版はご自身の鍵で署名します。iOS では、現在は<strong>シミュレーター</strong>向けの
+    アプリをビルドできます。</p>
+  </div>
+
+  <div class="card">
+    <h3>COBOL の Backend</h3>
+    <p>ファイル、データベース、シークレットは、プロジェクトの <code>backend/</code> フォルダー内で、ネイティブの
+    ランタイム上に置かれます。ページは Backend がエクスポートするプログラムを
+    <code>CALL "NAME" WITH WEBSOCKET LINKAGE</code> で呼び出します。TLS 上の JSON とベアラートークンを使い、
+    再接続とトークンの更新は自動で行われます。<code>COBOL::SqlDatabase</code> は、
+    <code>EXEC SQL</code> なしで SQLite、PostgreSQL、MySQL に接続します。</p>
+  </div>
+
+  <div class="card">
+    <h3>サインインとリンク</h3>
+    <p><strong>Authentication</strong> コントロールは、Backend を通じて、Cognito、Keycloak、Entra でサインイン、
+    サインアップ、パスワードの回復、第 2 要素の確認を行います。<strong>Hyperlink</strong> コントロールは、
+    ページ上の本物のリンクです。</p>
+  </div>
+
+  <div class="card">
+    <h3>CSS3 とレスポンシブなページ</h3>
+    <p>アプリケーション全体のスタイルシートとフォームごとのスタイルシートがページを装飾し、スタイルシートは
+    プロパティより優先されます。既定はシングルページアプリケーションで、独立したフォームページが代替の方式です。</p>
+  </div>
+
+  <div class="card">
+    <h3>Web ビューでのプレビュー</h3>
+    <p>デザイナーの <strong>Preview</strong> は、システムの Web ビューでバンドルを表示します。スマートフォン、
+    タブレット、デスクトップのいずれかのサイズ、向き、ピクセル比、配色、ページの言語を選べます。フォーム、
+    スタイルシート、Backend を変更すると、開いているページに反映されます。</p>
+  </div>
+
+  <div class="card">
+    <h3>Canvas とグラフィックス</h3>
+    <p><strong>Canvas 2D</strong>、<strong>Canvas 3D</strong>、そして ImageBuffer、Plot、Scene3D、Physics2D、
+    Physics3D の各オブジェクトを、すべてのプラットフォームで利用できます。</p>
+  </div>
+
+  <div class="card">
+    <h3>既定で安全</h3>
+    <p>Build はプロジェクト自身のファイルにシークレットが含まれていないか調べ、見つかると停止します。
+    バンドルには Content-Security-Policy が付きます。Mobile プロジェクトは証明書をピン留めでき、リリース版の
+    Backend は設定にシークレットを直接書くことを拒否します。</p>
+  </div>
+
+  <div class="card">
+    <h3>Claude Code と Grace も新しい種類を理解</h3>
+    <p>Claude Code プラグインは、17 のツールと 13 のスキルを備え、Web アプリケーションと Backend 向けのものも
+    含まれます。IDE のアシスタントである Grace もそれらを理解し、<code>COBOL::SqlDatabase</code> も
+    理解しています。</p>
+  </div>
+
+  <div class="card">
+    <h3>中身は同じ COBOL</h3>
+    <p>生成される WebAssembly は、適合性テストによってインタープリターと同じ動作に保たれています。NIST CCVS85 の
+    NC、IF、IC の各モジュールは、生成された WebAssembly 上で失敗ゼロで実行されます。</p>
+  </div>
+
+</div>
+
+<h2>はじめに</h2>
+
+<ol>
+  <li><strong>File &#9656; New Project</strong> を選び、<em>Web</em>（または Android か iOS のデバイス）を選びます。</li>
+  <li>フォームを開いて <strong>Preview</strong> を押すと、Web ビューで確認できます。</li>
+  <li>Backend のプログラムを追加し、<code>backend/exports.toml</code> に登録して、ハンドラーから <code>CALL</code> で呼び出します。</li>
+  <li><strong>Build</strong> を押します。</li>
+</ol>
+
+<p>または、<strong>File &#9656; Open Project</strong> からサンプルを開きます。</p>
+
+<table>
+  <tr><th>サンプル</th><th>内容</th></tr>
+  <tr><td><code>examples/PowerWebHello</code></td><td>最小の Web プロジェクト：サイドメニュー付きのフォームと Backend</td></tr>
+  <tr><td><code>examples/PowerMobileHello</code></td><td>最小の Mobile プロジェクト</td></tr>
+  <tr><td><code>examples/PowerOficina</code></td><td>インデックスファイル上の Backend を持つ、整備工場の管理アプリケーション</td></tr>
+  <tr><td><code>examples/PowerAnalyticsWeb</code></td><td>デスクトップ版 PowerAnalytics ダッシュボードの見た目を Web で再現</td></tr>
+</table>
+
+<h2>ターゲットごとの必要条件</h2>
+
+<table>
+  <tr><th>ビルドするもの</th><th>必要なもの</th></tr>
+  <tr><td>Web アプリケーション</td><td>IDE のみ</td></tr>
+  <tr><td>Backend のリリースバイナリ</td><td>デスクトップの Build と同じツールチェーン：Rust とプラットフォームのリンカー</td></tr>
+  <tr><td>Android パッケージ</td><td>Android SDK と NDK、Java 17 から 21、スマートフォン用の Rust ターゲット、Tauri のコマンドライン。足りないものは Build が一つずつ示します</td></tr>
+  <tr><td>シミュレーター向けの iOS アプリ</td><td>Xcode 16 以降を搭載した Mac</td></tr>
+</table>
+
+<div class="note">
+  <strong>対応範囲について（正直に）。</strong> デバイスやストア向けの iOS アプリのリリースアーカイブは、
+  <strong>まだビルドできません</strong>。ブラウザーの対応状況は、Chromium とシステムの Web ビューで測定しました。
+  Mac の Safari と、実機の Android の Web ビューは、まだ測定していません。Web フォームの COBOL は一部の機能に
+  限られます。ファイル、SQL などサーバー側の処理は Backend の役割で、ページで実行できない行は Build が
+  知らせます。WebAssembly の仕様の受け入れ基準には、まだ未完了のものがあります。一覧は
+  <code>specs/WASM-OPEN-ACS.md</code> にあります。
+</div>
+
+<h2>詳しくは</h2>
+
+<p>開発者ガイドには、4 つの新しい章があります：<em>Web and Mobile applications</em>、
+<em>The Backend and the secure channel</em>、<em>Mobile applications: Android and iOS</em>、
+<em>Graphics: Canvas 2D, Canvas 3D and the graphics objects</em>。メニューバーの
+<strong>Documentation</strong> ボタンから開くか、リポジトリの <code>docs/developers-guide-en.md</code> をお読みください。
+リポジトリは <code>https://github.com/CloudLandBeta/PowerRustCOBOL</code> です。そこの README には、
+<em>Version 2: Web and Mobile applications</em> に短い紹介があります。</p>
+
+<p class="small">このウィンドウは、このページのバージョンごとに 1 回だけ表示されます。読み終えたら閉じてください。</p>
+
+</div>
+</body>
+</html>

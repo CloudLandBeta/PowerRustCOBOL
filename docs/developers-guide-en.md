@@ -1760,6 +1760,12 @@ a change worth knowing about, an event. The IDE shows it in a window titled
 - **When.** The IDE looks for one when it starts and every six hours while it
   runs. It waits until no first-run dialog, AI-setup invitation, agent wizard,
   build window or Walkthrough is on the screen.
+- **In your language.** The window shows the announcement in the language the
+  IDE is set to: English, Spanish, Portuguese, Japanese, Chinese or French. When
+  the team has not published one in your language yet, the IDE shows the English
+  one. If you change the IDE's language, the announcement in the new language is
+  read at the next check and shown once as well. COBOL, commands and file paths
+  in it are never translated.
 - **Once per announcement.** Close the window (its **Close** button or its ×)
   and that announcement is not shown again on this machine. A new or changed
   announcement is shown once more. If you quit without closing it, it is shown
@@ -1767,9 +1773,10 @@ a change worth knowing about, an event. The IDE shows it in a window titled
 - **No announcement, no window.** Nothing is shown when none is published, when
   the network is not there, or when GitHub cannot be reached, and no message is
   shown either.
-- **Where it comes from.** The page is `announcements/announcement.html` in the
-  PowerRustCOBOL repository on GitHub. The IDE reads it as it reads the latest
-  release for the update check, sending nothing but its version.
+- **Where it comes from.** The page is `announcements/announcement.html` (English)
+  or `announcements/announcement.<code>.html` (`es`, `pt`, `ja`, `zh`, `fr`) in
+  the PowerRustCOBOL repository on GitHub. The IDE reads it as it reads the
+  latest release for the update check, sending nothing but its version.
 - **How it is drawn.** The page is drawn by the same engine as a **Viewer**
   control showing HTML, on a white page: headings, lists, tables, colours,
   boxes and flex/grid layout. No script runs and nothing else is fetched. A

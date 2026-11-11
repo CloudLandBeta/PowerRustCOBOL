@@ -36,7 +36,7 @@ The operator, 2026-10-17:
 
 **Non-goals:**
 - A history of past announcements.
-- Announcements per language or per version of the IDE.
+- Announcements per version of the IDE. *(Per language was a non-goal until 2026-11-11: see §9.)*
 - Turning announcements off.
 - A Help menu item to reopen the last one.
 - Following links and showing pictures. These are the Viewer's own limits, and belong to the Viewer, where every Viewer control gains them (§7).
@@ -114,3 +114,21 @@ The operator, 2026-10-17:
 - **6 hours** between checks: an IDE left open for days still learns of a new announcement, at four requests a day.
 - **Dismissal by Close**, not by showing: a window the developer never acknowledged is shown again.
 - The **Viewer engine**, not a second HTML renderer: one implementation, whose subset is already documented for the product's users.
+
+## 9. Amendment 2026-11-11 — the announcement follows the IDE's language
+
+The operator, 2026-11-11, looking at a Portuguese IDE: the window's title ("Novidades") and its button ("Fechar") were Portuguese, and the page was English alone; *the message should appear in the language selected in the IDE.* §3 had left per-language announcements out; this reverses that. The text of the window's chrome was already a `Tr` string (R6, R10); what follows is the page.
+
+**Classification:** fix — the window is half translated; completing a localization the IDE already promises. It takes the next `z`.
+
+- **R13** The repository's `announcements/` folder shall hold one page per IDE language: `announcement.html` for English (its name, address and role unchanged) and `announcement.<code>.html` for the others, `<code>` being the language's code in the IDE's own table (`es`, `pt`, `ja`, `zh`, `fr`).
+- **R14** The IDE shall read the page of its own language and, when that language's page is not there (a 404, a blank body, any outcome R3 calls *no announcement*), the English page. English asks for nothing else. Every other rule of R2 and R3 stays.
+- **R15** The language is the IDE's at the moment of each check. A language chosen while the IDE runs applies from the next check; a page already open is left alone (R9).
+- **R16** A page's identity is the hash of the page read (R4), so each language's page is dismissed on its own, and one edited in a single language is a new announcement for the readers of that language only. A developer who changes the IDE's language reads the new language's page once, at the next check.
+- **R17** The six pages shall be one page: the same style sheet and structure, and every `<code>` item (COBOL, commands, paths) word for word, because those stay English in every language; the menu and button names a page mentions stay English too, as in the Developer's Guide. A test holds the pages to it.
+- **R18** The README of `announcements/` shall say all of the above to whoever publishes: the six file names, English as the fallback and written first, the pages kept alike, and that retiring an announcement means deleting all six.
+
+**Decisions:**
+- **One file per language, not one file carrying six languages.** A page stays a plain HTML page the Viewer engine already draws, with no selector to parse out of it; the operator translates and diffs a file at a time; and English keeps the name every IDE already in the field reads.
+- **The hash of the page read, not of the English page.** An announcement nobody has translated yet is not mistaken for read, and a mistake fixed in one language reaches its readers.
+- **Menu and button names stay English** in the translated pages, the Guide's rule (GOLDEN RULE #8), so the pages carry no label the IDE might spell differently.

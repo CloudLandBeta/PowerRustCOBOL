@@ -2550,8 +2550,8 @@ impl CoboltApp {
         // declining is good for this run and the question comes back next start.
         app.update_offer.start(crate::version::VERSION);
         // Spec 107 — the repository's announcement: read now and every six hours, on a
-        // thread of its own, shown once per page.
-        app.announcement.start(crate::ui_prefs::announcement_dismissed());
+        // thread of its own, in the IDE's language, shown once per page.
+        app.announcement.start(crate::ui_prefs::announcement_dismissed(), app.lang.code());
 
         if !crate::ui_prefs::rust_check_done() {
             // Only here — never on a later start. Asking whether the machine
@@ -14048,6 +14048,8 @@ impl CoboltApp {
     /// free (R5) — no first-run dialog, AI-setup invitation, agent wizard, build window or
     /// Walkthrough up — and record the page the developer closes (R8).
     fn show_announcement(&mut self, ctx: &Context, tr: &Tr) {
+        // A language chosen while the IDE runs reaches the next check.
+        self.announcement.set_language(self.lang.code());
         self.announcement.poll();
         if !self.announcement.has_announcement() {
             return;

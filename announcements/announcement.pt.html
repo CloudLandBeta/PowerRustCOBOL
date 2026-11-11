@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<title>Novidades — PowerRustCOBOL AI 2</title>
+<style>
+  body { font-family: sans-serif; color: #1f2933; background: #ffffff; margin: 0; padding: 0; }
+  .band { background: #1d3557; color: #ffffff; padding: 22px 28px; }
+  .band h1 { margin: 0 0 6px 0; font-size: 28px; }
+  .band p { margin: 0; font-size: 15px; color: #dbe6f4; }
+  .wrap { padding: 18px 28px 28px 28px; }
+  h2 { color: #1d3557; font-size: 20px; margin: 22px 0 8px 0; }
+  p { line-height: 1.5; margin: 0 0 10px 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { border: 1px solid #c9d6e4; border-radius: 8px; padding: 12px 14px; background: #f6f9fc; }
+  .card h3 { margin: 0 0 6px 0; font-size: 16px; color: #0b3d91; }
+  .card p { margin: 0; font-size: 14px; }
+  code { background: #eef2f7; color: #8a1c1c; padding: 1px 4px; }
+  ol li, ul li { margin: 0 0 6px 0; line-height: 1.45; }
+  table { border-collapse: collapse; width: 100%; }
+  th { text-align: left; background: #e3ebf5; color: #1d3557; padding: 6px 10px; border: 1px solid #c9d6e4; }
+  td { padding: 6px 10px; border: 1px solid #c9d6e4; }
+  .note { border-left: 4px solid #e0a100; background: #fff8e1; padding: 8px 14px; margin: 12px 0; }
+  .small { font-size: 13px; color: #52606d; }
+</style>
+</head>
+<body>
+
+<div class="band">
+  <h1>PowerRustCOBOL AI 2: Web e Mobile</h1>
+  <p>O COBOL que você já escreve e o Form Designer que você já usa, agora para o navegador e para o celular.</p>
+</div>
+
+<div class="wrap">
+
+<p>A versão 2 adiciona dois <strong>tipos de projeto</strong> ao lado do projeto Desktop: <strong>Web</strong> e
+<strong>Mobile</strong>. Escolha um em <strong>File &#9656; New Project</strong>. Todo projeto que você escreveu
+antes é um projeto Desktop e abre sem mudanças. Veja o que há de novo.</p>
+
+<h2>O que você já pode fazer</h2>
+
+<div class="grid">
+
+  <div class="card">
+    <h3>Aplicações web</h3>
+    <p>O Build compila o seu COBOL direto para <strong>WebAssembly</strong>: sem interpretador na página e
+    sem precisar da cadeia de ferramentas do Rust para um Build web, porque o IDE copia um player
+    pré-compilado para junto do seu programa. O resultado é um pacote estático em <code>dist/web/</code> que
+    qualquer servidor web pode hospedar.</p>
+  </div>
+
+  <div class="card">
+    <h3>Aplicações mobile</h3>
+    <p>Celular e tablet Android, iPhone e iPad com iOS. O <strong>Run</strong> compila, instala e inicia o
+    aplicativo em um celular conectado ou em um emulador Android e mostra o log dele no painel Output; uma
+    versão de lançamento para Android é assinada com a sua própria chave. Para iOS, hoje é compilado o
+    aplicativo para o <strong>simulador</strong>.</p>
+  </div>
+
+  <div class="card">
+    <h3>Um Backend em COBOL</h3>
+    <p>Arquivos, bancos de dados e segredos ficam na pasta <code>backend/</code> do projeto, no runtime
+    nativo. A página chama os programas que o Backend exporta com
+    <code>CALL "NAME" WITH WEBSOCKET LINKAGE</code>: JSON sobre TLS com um token bearer; a reconexão e a
+    renovação do token são feitas para você. <code>COBOL::SqlDatabase</code> acessa SQLite, PostgreSQL e
+    MySQL sem <code>EXEC SQL</code>.</p>
+  </div>
+
+  <div class="card">
+    <h3>Login e links</h3>
+    <p>O controle <strong>Authentication</strong> faz login e cadastro de usuários, recupera uma senha e
+    responde a um segundo fator, por meio do seu Backend, com Cognito, Keycloak ou Entra. O controle
+    <strong>Hyperlink</strong> é um link de verdade na página.</p>
+  </div>
+
+  <div class="card">
+    <h3>CSS3 e páginas responsivas</h3>
+    <p>Uma folha de estilo da aplicação e uma por formulário estilizam a página, e a folha de estilo
+    prevalece sobre uma propriedade. A aplicação de página única é o padrão; as páginas de formulário
+    independentes são a alternativa.</p>
+  </div>
+
+  <div class="card">
+    <h3>Preview em uma web view</h3>
+    <p>O <strong>Preview</strong> do designer mostra o pacote na web view do sistema. Escolha o tamanho de
+    celular, tablet ou desktop, a orientação, a densidade de pixels, o esquema de cores e o idioma da página;
+    uma alteração em um formulário, em uma folha de estilo ou no Backend chega à página aberta.</p>
+  </div>
+
+  <div class="card">
+    <h3>Canvas e gráficos</h3>
+    <p><strong>Canvas 2D</strong>, <strong>Canvas 3D</strong> e os objetos ImageBuffer, Plot, Scene3D,
+    Physics2D e Physics3D, em todas as plataformas.</p>
+  </div>
+
+  <div class="card">
+    <h3>Seguro por padrão</h3>
+    <p>O Build examina os arquivos do seu projeto em busca de segredos e para ao encontrar um; o pacote
+    leva uma Content-Security-Policy; um projeto Mobile pode fixar certificados; um Backend de lançamento
+    recusa um segredo escrito literalmente na sua configuração.</p>
+  </div>
+
+  <div class="card">
+    <h3>O Claude Code e a Grace conhecem os tipos</h3>
+    <p>O plugin do Claude Code agora tem dezessete ferramentas e treze skills, incluindo algumas para
+    aplicações web e para o Backend; a Grace, a assistente do IDE, as conhece, assim como conhece o
+    <code>COBOL::SqlDatabase</code>.</p>
+  </div>
+
+  <div class="card">
+    <h3>O mesmo COBOL por baixo</h3>
+    <p>O WebAssembly gerado é mantido igual ao interpretador pelas execuções de conformidade: os módulos NC,
+    IF e IC do NIST CCVS85 rodam com zero falhas nele.</p>
+  </div>
+
+</div>
+
+<h2>Comece por aqui</h2>
+
+<ol>
+  <li><strong>File &#9656; New Project</strong>, e escolha <em>Web</em> (ou um dispositivo Android ou iOS).</li>
+  <li>Abra um formulário e pressione <strong>Preview</strong> para vê-lo em uma web view.</li>
+  <li>Adicione um programa de Backend, inclua-o em <code>backend/exports.toml</code> e chame-o com <code>CALL</code> a partir de um handler.</li>
+  <li>Pressione <strong>Build</strong>.</li>
+</ol>
+
+<p>Ou abra um exemplo em <strong>File &#9656; Open Project</strong>:</p>
+
+<table>
+  <tr><th>Exemplo</th><th>O que mostra</th></tr>
+  <tr><td><code>examples/PowerWebHello</code></td><td>o menor projeto Web: um formulário com menu lateral e um Backend</td></tr>
+  <tr><td><code>examples/PowerMobileHello</code></td><td>o menor projeto Mobile</td></tr>
+  <tr><td><code>examples/PowerOficina</code></td><td>uma aplicação de gestão de oficina com um Backend sobre arquivos indexados</td></tr>
+  <tr><td><code>examples/PowerAnalyticsWeb</code></td><td>o visual do painel PowerAnalytics do desktop, na web</td></tr>
+</table>
+
+<h2>O que cada destino exige</h2>
+
+<table>
+  <tr><th>Você compila</th><th>Você precisa de</th></tr>
+  <tr><td>uma aplicação web</td><td>nada além do IDE</td></tr>
+  <tr><td>um binário de lançamento do Backend</td><td>a mesma cadeia de ferramentas de um Build desktop: Rust e o linker da plataforma</td></tr>
+  <tr><td>um pacote Android</td><td>o SDK e o NDK do Android, Java 17 a 21, o alvo Rust do celular e a linha de comando do Tauri; o Build indica cada item que falta</td></tr>
+  <tr><td>um aplicativo iOS para o simulador</td><td>um Mac com Xcode 16 ou posterior</td></tr>
+</table>
+
+<div class="note">
+  <strong>Escopo, com honestidade.</strong> O arquivo de lançamento de um aplicativo iOS para um dispositivo
+  ou para a loja <strong>ainda não é compilado</strong>. A cobertura de navegadores foi medida no Chromium e nas
+  web views do sistema; o Safari em um Mac e a web view do Android em um celular físico ainda não foram medidos.
+  O COBOL de um formulário web é um subconjunto: arquivos, SQL e demais trabalhos do lado do servidor pertencem
+  ao Backend, e o Build informa a linha que não pode ser executada em uma página. Alguns critérios de aceitação
+  das especificações do WebAssembly continuam em aberto; a lista está em <code>specs/WASM-OPEN-ACS.md</code>.
+</div>
+
+<h2>Saiba mais</h2>
+
+<p>O Guia do Desenvolvedor conta a história completa em quatro capítulos novos: <em>Web and Mobile applications</em>,
+<em>The Backend and the secure channel</em>, <em>Mobile applications: Android and iOS</em> e
+<em>Graphics: Canvas 2D, Canvas 3D and the graphics objects</em>. Abra-o pelo
+botão <strong>Documentation</strong> da barra de menus, ou leia <code>docs/developers-guide-en.md</code> no repositório, em
+<code>https://github.com/CloudLandBeta/PowerRustCOBOL</code>. O README de lá traz um tour rápido
+em <em>Version 2: Web and Mobile applications</em>.</p>
+
+<p class="small">Esta janela aparece uma vez para cada versão desta página. Feche-a quando terminar.</p>
+
+</div>
+</body>
+</html>

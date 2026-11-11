@@ -6,24 +6,37 @@
 
 //! Spec 107 — *What's going on*: the announcement the repository publishes.
 //!
-//! The operator writes `announcements/announcement.html` in the repository. The IDE reads
-//! it at start-up and every six hours, on a background thread, and shows it ONCE: closing
-//! the window records the page's identity (a hash of its bytes) in `ui.toml`, so it is not
-//! shown again until the file changes. No file, a network that is not there, a page that is
-//! blank: no window, and nothing said — as the update check, an announcement must never be
-//! an interruption of its own.
+//! The operator writes `announcements/announcement.html` (English) in the repository, and
+//! beside it one page per other language, `announcement.<code>.html` (`es`, `pt`, `ja`, `zh`,
+//! `fr`). The IDE reads the page of its own language at start-up and every six hours, on a
+//! background thread — the English page when its language has none — and shows it ONCE:
+//! closing the window records the page's identity (a hash of its bytes) in `ui.toml`, so it
+//! is not shown again until the file changes. No file, a network that is not there, a page
+//! that is blank: no window, and nothing said — as the update check, an announcement must
+//! never be an interruption of its own.
 //!
 //! The page is painted by the Viewer control's engine (`cobolt_forms::paint::paint_html_page`):
 //! its HTML subset styled by the page's own CSS, on a white page, and never run as a browser
 //! would run it — no script, nothing fetched.
 
 use std::sync::mpsc::{channel, Receiver};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-/// Where the announcement lives: the repository's default branch, read as a raw file. The
-/// repository is fixed, as the update check's is — this is *this* product's news.
+/// Where the English announcement lives: the repository's default branch, read as a raw file.
+/// The repository is fixed, as the update check's is — this is *this* product's news. English
+/// keeps the name it always had, so an IDE older than the language pages still reads it.
 pub const URL: &str =
     "https://raw.githubusercontent.com/CloudLandBeta/PowerRustCOBOL/main/announcements/announcement.html";
+
+/// Where an announcement lives in `code`'s language (`Language::code`): English is [`URL`],
+/// every other language has its own page beside it, `announcement.<code>.html`.
+pub fn url_for(code: &str) -> String {
+    match code {
+        "" | "en" => URL.to_owned(),
+        _ => URL.replace("announcement.html", &format!("announcement.{code}.html")),
+    }
+}
 
 /// Short: the first check runs while the IDE starts (R2).
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -77,13 +90,18 @@ pub fn window_size(monitor: Option<egui::Vec2>, ide: egui::Vec2) -> egui::Vec2 {
     (screen * SCREEN_SHARE).min(ide * IDE_SHARE)
 }
 
+/// The IDE's language as the watch thread reads it at every check: the code of
+/// `Language::code`, shared so a language chosen while the IDE runs reaches the next check.
+type SharedLanguage = Arc<Mutex<&'static str>>;
+
 /// Start watching: every check sends one message — `Some` for an announcement, `None` for
-/// every other outcome — first at once, then every [`RECHECK`]. The thread stops when the
-/// receiver is dropped.
-pub fn spawn_watch() -> Receiver<Option<Announcement>> {
+/// every other outcome — first at once, then every [`RECHECK`], each in the language held
+/// in `lang` at that moment. The thread stops when the receiver is dropped.
+fn spawn_watch(lang: SharedLanguage) -> Receiver<Option<Announcement>> {
     let (tx, rx) = channel();
     std::thread::spawn(move || loop {
-        if tx.send(fetch()).is_err() {
+        let code = *lang.lock().unwrap_or_else(|e| e.into_inner());
+        if tx.send(fetch(code)).is_err() {
             return;
         }
         std::thread::sleep(RECHECK);
@@ -91,8 +109,9 @@ pub fn spawn_watch() -> Receiver<Option<Announcement>> {
     rx
 }
 
-/// Ask GitHub once. `None` on anything but a page — see [`from_response`].
-fn fetch() -> Option<Announcement> {
+/// Ask GitHub once, for the page of `code`'s language. `None` on anything but a page — see
+/// [`from_response`].
+fn fetch(code: &str) -> Option<Announcement> {
     // As the update check: ureq with default features off has no TLS until a connector is
     // handed to it.
     let mut builder = ureq::AgentBuilder::new()
@@ -101,17 +120,33 @@ fn fetch() -> Option<Announcement> {
     if let Ok(c) = native_tls::TlsConnector::new() {
         builder = builder.tls_connector(std::sync::Arc::new(c));
     }
-    // ureq answers a 404 as an error: no file, no announcement.
-    let resp = builder.build().get(URL).call().ok()?;
-    let status = resp.status();
-    let body = resp.into_string().ok()?;
-    from_response(status, &body)
+    let agent = builder.build();
+    fetch_with(code, |url| {
+        // ureq answers a 404 as an error: no file, no announcement.
+        let resp = agent.get(url).call().ok()?;
+        let status = resp.status();
+        let body = resp.into_string().ok()?;
+        from_response(status, &body)
+    })
+}
+
+/// The language's page, or the English one when that language has none yet: a language the
+/// operator has not written for still hears the news. `get` answers one address.
+fn fetch_with(code: &str, mut get: impl FnMut(&str) -> Option<Announcement>) -> Option<Announcement> {
+    if !matches!(code, "" | "en") {
+        if let Some(page) = get(&url_for(code)) {
+            return Some(page);
+        }
+    }
+    get(URL)
 }
 
 /// The window and what it shows, kept on the app.
 #[derive(Default)]
 pub struct AnnouncementWindow {
     rx: Option<Receiver<Option<Announcement>>>,
+    /// The IDE's language, which the next check reads.
+    lang: SharedLanguage,
     /// The identity of the page last closed on this machine — read from `ui.toml` once, at
     /// start-up, and kept here, so a frame never reads a file.
     dismissed: String,
@@ -124,10 +159,18 @@ pub struct AnnouncementWindow {
 }
 
 impl AnnouncementWindow {
-    /// Start the checks (once, at start-up), knowing which page was closed last.
-    pub fn start(&mut self, dismissed: String) {
+    /// Start the checks (once, at start-up), knowing which page was closed last and the
+    /// language the IDE starts in (`Language::code`).
+    pub fn start(&mut self, dismissed: String, code: &'static str) {
         self.dismissed = dismissed;
-        self.rx = Some(spawn_watch());
+        self.set_language(code);
+        self.rx = Some(spawn_watch(self.lang.clone()));
+    }
+
+    /// The language the IDE is in now: the next check asks for that page. A page already
+    /// open stays as it is.
+    pub fn set_language(&self, code: &'static str) {
+        *self.lang.lock().unwrap_or_else(|e| e.into_inner()) = code;
     }
 
     /// Watch a channel the caller feeds (tests).
@@ -249,6 +292,94 @@ mod tests {
         assert_eq!(identity(b""), "cbf29ce484222325");
         assert_eq!(identity(b"a"), "af63dc4c8601ec8c");
         assert_ne!(identity(b"<p>News</p>"), identity(b"<p>News.</p>"));
+    }
+
+    #[test]
+    fn each_language_reads_its_own_page_and_english_keeps_its_old_name() {
+        assert_eq!(url_for("en"), URL, "English is the page every IDE has always read");
+        assert_eq!(url_for(""), URL, "no language yet is English");
+        let mut seen = std::collections::BTreeSet::new();
+        for &lang in crate::i18n::Language::ALL {
+            assert!(seen.insert(url_for(lang.code())), "{lang:?} has an address of its own");
+        }
+        assert_eq!(url_for("pt"), URL.replace("announcement.html", "announcement.pt.html"));
+        assert!(url_for("ja").ends_with("/announcements/announcement.ja.html"));
+        let w = AnnouncementWindow::default();
+        w.set_language("zh");
+        assert_eq!(*w.lang.lock().unwrap(), "zh", "the next check reads the language chosen last");
+    }
+
+    #[test]
+    fn a_language_without_a_page_hears_the_english_one() {
+        let en = from_response(200, "<p>English</p>").unwrap();
+        let pt = from_response(200, "<p>Portugues</p>").unwrap();
+        let pages = |url: &str| match url {
+            u if u == URL => Some(en.clone()),
+            u if u == url_for("pt") => Some(pt.clone()),
+            _ => None,
+        };
+        let asked = std::cell::RefCell::new(Vec::new());
+        let ask = |code: &str| {
+            asked.borrow_mut().clear();
+            fetch_with(code, |url| {
+                asked.borrow_mut().push(url.to_owned());
+                pages(url)
+            })
+        };
+        assert_eq!(ask("pt"), Some(pt.clone()), "its own page");
+        assert_eq!(*asked.borrow(), vec![url_for("pt")], "one request when its page is there");
+        assert_eq!(ask("fr"), Some(en.clone()), "no French page: the English one");
+        assert_eq!(*asked.borrow(), vec![url_for("fr"), URL.to_owned()]);
+        assert_eq!(ask("en"), Some(en.clone()));
+        assert_eq!(*asked.borrow(), vec![URL.to_owned()], "English asks for nothing else");
+        assert_eq!(fetch_with("ja", |_| None), None, "no page at all: no announcement");
+    }
+
+    /// The text between each `open` and the next `close` in `s`, in order.
+    fn between<'a>(s: &'a str, open: &str, close: &str) -> Vec<&'a str> {
+        let mut out = Vec::new();
+        let mut rest = s;
+        while let Some(a) = rest.find(open) {
+            let after = &rest[a + open.len()..];
+            let Some(b) = after.find(close) else { break };
+            out.push(&after[..b]);
+            rest = &after[b + close.len()..];
+        }
+        out
+    }
+
+    fn page(code: &str) -> String {
+        let name = if code == "en" { "announcement.html".to_owned() } else { format!("announcement.{code}.html") };
+        std::fs::read_to_string(format!("{}/../../announcements/{name}", env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|e| panic!("announcements/{name}: {e}"))
+    }
+
+    /// The pages the operator publishes: one per language, made like the English one. The
+    /// same style sheet (so the same layout), the same structure, and every `<code>` — COBOL,
+    /// commands, paths — word for word, because those stay English in every language.
+    #[test]
+    fn every_language_has_a_page_made_like_the_english_one() {
+        let en = page("en");
+        assert!(en.contains("<html lang=\"en\">"));
+        let count = |s: &str, tag: &str| s.matches(tag).count();
+        let tags = ["<h1>", "<h2>", "<h3>", "<ol>", "<li>", "<table>", "<tr>", "<th>", "<td>", "class=\"card\"", "class=\"note\"", "class=\"small\""];
+        let mut ids = std::collections::BTreeSet::new();
+        ids.insert(from_response(200, &en).unwrap().id);
+        for &lang in crate::i18n::Language::ALL.iter().filter(|l| l.code() != "en") {
+            let code = lang.code();
+            let p = page(code);
+            assert!(p.contains(&format!("<html lang=\"{code}\">")), "{code}: lang attribute");
+            assert_eq!(between(&p, "<style>", "</style>"), between(&en, "<style>", "</style>"), "{code}: the same style sheet");
+            assert_eq!(between(&p, "<code>", "</code>"), between(&en, "<code>", "</code>"), "{code}: COBOL, commands and paths stay English");
+            for tag in tags {
+                assert_eq!(count(&p, tag), count(&en, tag), "{code}: the number of {tag}");
+            }
+            assert_ne!(between(&p, "<h1>", "</h1>"), between(&en, "<h1>", "</h1>"), "{code}: the title is translated");
+            assert_ne!(between(&p, "<h2>", "</h2>"), between(&en, "<h2>", "</h2>"), "{code}: the headings are translated");
+            let a = from_response(200, &p).unwrap_or_else(|| panic!("{code}: not a page"));
+            assert!(ids.insert(a.id), "{code}: its own identity, not another language's page");
+        }
+        println!("announcement pages: {} languages, {} <code> items each, the style sheet and {} structural tags equal to the English page", ids.len(), between(&en, "<code>", "</code>").len(), tags.len());
     }
 
     #[test]
