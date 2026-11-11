@@ -652,8 +652,27 @@ fn parse_lambda(p: &mut Parser) -> Option<Expr> {
     })
 }
 
+/// `COBOL::SqlDatabase` — the two-word receiver of the program-level SQL
+/// database — as the one word the rest of the pipeline knows it by
+/// ([`cobolt_ast::methods::SQL_DATABASE_OBJECT`]). `None` for any other base.
+fn sql_database_receiver(base: &Expr) -> Option<Expr> {
+    let Expr::Member { recv, member, parens: false, span, .. } = base else { return None };
+    let Expr::Identifier(object, _) = recv.as_ref() else { return None };
+    if object.eq_ignore_ascii_case("COBOL")
+        && member.trim().eq_ignore_ascii_case(cobolt_ast::methods::SQL_DATABASE_MEMBER)
+    {
+        Some(Expr::Identifier(cobolt_ast::methods::SQL_DATABASE_OBJECT.to_string(), *span))
+    } else {
+        None
+    }
+}
+
 pub(crate) fn parse_member_chain(p: &mut Parser, mut base: Expr) -> Expr {
     while *p.peek() == Token::Colon && *p.peek_at(1) == Token::Colon {
+        // `COBOL::SqlDatabase::Query(…)`: the receiver is the object, not a member of COBOL.
+        if let Some(object) = sql_database_receiver(&base) {
+            base = object;
+        }
         let start = base.span();
         p.advance(); // first ':'
         p.advance(); // second ':'

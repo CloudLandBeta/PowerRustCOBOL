@@ -3832,6 +3832,11 @@ impl Interpreter {
     }
 
     fn queue_control_event(&mut self, obj: &str, event: &str) {
+        // `COBOL::SqlDatabase` (WASM-015 AC11) belongs to the program, not to a form: it has no
+        // handler to deliver `onQueryComplete` and the like to; its answers are the verbs' own.
+        if cobolt_ast::methods::is_sql_database_object(obj) {
+            return;
+        }
         // The form's spelling, not the caller's: the generated event loop
         // compares against the literal the designer wrote.
         let ctrl = self.form_spelling(obj);
@@ -15233,7 +15238,8 @@ impl Interpreter {
         let prop = &self.canonical_prop_name(obj, prop);
         let val = self.canonical_prop_value(obj, prop, val);
         self.objects.set_property(obj, prop, val.clone());
-        if let Some(tx) = &self.state_tx {
+        // The program-level SQL database (WASM-015 AC11) is no control on any form: nothing to repaint.
+        if let Some(tx) = self.state_tx.as_ref().filter(|_| !cobolt_ast::methods::is_sql_database_object(obj)) {
             let _ = tx.send(StateUpdate::new(
                 obj.to_string(),
                 prop.to_string(),

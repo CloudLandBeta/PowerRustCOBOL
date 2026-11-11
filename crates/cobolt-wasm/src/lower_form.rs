@@ -122,6 +122,15 @@ impl Lower<'_, '_> {
         if self.resolve_item(root).is_ok() {
             return None;
         }
+        // `COBOL::SqlDatabase::…` reaches here as the one word the parser makes of it: the database is the Backend's.
+        if cobolt_ast::methods::is_sql_database_object(name) {
+            return Some(crate::error::GenError::kinded(
+                line,
+                crate::error::ErrorKind::BackendOnly,
+                "COBOL::SqlDatabase",
+                crate::support::SQL_DATABASE_OBJECT,
+            ));
+        }
         let f = self.form.as_ref()?;
         if f.layer_names.is_empty() {
             return None;

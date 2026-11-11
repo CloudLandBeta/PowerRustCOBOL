@@ -529,8 +529,9 @@ fn architecture() -> String {
      - Data lives in indexed files described by `.cidx` (or declared in a form's file-control), in \
      web services reached with RestClient, and in SQL databases — through embedded SQL \
      (`EXEC SQL … END-EXEC` with `:host` variables, connecting by the name of one of the \
-     project's SQL connections) or a SqlDatabase control. A model is asked through an \
-     AgentObject.\n\
+     project's SQL connections), a SqlDatabase control on a desktop form, or — in a program with \
+     no form, a Backend above all — the program's own database object, `COBOL::SqlDatabase::Open`, \
+     `Execute`, `Query`, `Fetch`. A model is asked through an AgentObject.\n\
      - Common Code in `src/` holds COBOL programs several forms `CALL`.\n\
      - An `EXEC RUST` block may `use` std, egui and eframe, and the third-party crates the project \
      has registered under `crates/`. `add_crate` registers one (and `remove_crate` takes it away) \
@@ -1189,6 +1190,14 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("After each statement test `SQLSTATE` (`00000` succeeded, `02000` no row) or \
                    declare `EXEC SQL WHENEVER SQLERROR GO TO …`, and end a unit of work with \
                    `EXEC SQL COMMIT END-EXEC` — the COBOL `COMMIT` verb is for indexed files."),
+                s("In a program with no form — a Backend program above all — the program's own \
+                   database object does the same without a block: \
+                   `MOVE COBOL::SqlDatabase::Open(\"sql-connection:SALES\") TO WS-HANDLE`, then \
+                   `COBOL::SqlDatabase::Execute(WS-SQL).` or `::Query(WS-SQL)`, `::Fetch()` (a row \
+                   with its columns separated by a TAB, SPACES at the end), `::LastError`, \
+                   `::StatusCode` and `::Close()`. It takes the statement TEXT only, so build the \
+                   text from trusted values and use `EXEC SQL` with host variables for anything a \
+                   person typed. Never add a SqlDatabase control to a Web or Mobile form."),
                 s("Call `regenerate` with the form (or nothing for Common Code), then `check`; \
                    fix every error it reports in the block — an undeclared host variable, a \
                    cursor used before it is declared — until `check` reports none."),
@@ -1262,7 +1271,12 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("Confirm the project has a Backend: `list_files` shows `backend` files for a Web or \
                    Mobile project made with the `backend` option on. The Backend is plain RustCOBOL \
                    under `backend/src/` (with `backend/COPYBOOKS/`): it can use indexed files, SQL \
-                   and the built-ins, and it runs on the machine that hosts it, never in the page."),
+                   and the built-ins, and it runs on the machine that hosts it, never in the page. \
+                   Its SQL is `EXEC SQL` or the program's own database object, \
+                   `COBOL::SqlDatabase::Open(\"sql-connection:NAME\")`, `::Execute(sql)`, \
+                   `::Query(sql)`, `::Fetch()`, `::LastError` and `::Close()` (look the names up \
+                   with `kb_lookup`); a Web or Mobile form never holds the database — it has no \
+                   SqlDatabase control, and the Backend program the form `CALL`s does the work."),
                 s("Write one program per thing a form may ask for, and give each a clear, documented \
                    input and output group. Only the programs listed as exports in the project's \
                    Backend settings can be called from a form; do not export what the browser has no \
@@ -1359,8 +1373,9 @@ fn reviewer() -> Reviewer {
                actions run-app, open-terminal, print and share, the Viewer's Print and Share): reject \
                it. A class C control (a bound DataGrid, Maps and the like) is accepted only when the \
                project has a Backend and the control names a backend configuration; reject a \
-               SqlDatabase or any control holding a connection string, key, token or password, and \
-               a class C control in a project with no Backend."),
+               SqlDatabase control (the Backend's programs use `COBOL::SqlDatabase`), any use of \
+               `COBOL::SqlDatabase` in a form's handler, any control holding a connection string, \
+               key, token or password, and a class C control in a project with no Backend."),
             s("`check` reports no error for the changed files. A missing capability has a gap report \
                in `docs/compiler-requests/` instead of a workaround that pretends."),
         ],

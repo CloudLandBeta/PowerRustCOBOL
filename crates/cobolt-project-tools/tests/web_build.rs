@@ -624,6 +624,10 @@ fn portable_every_r3_construct_is_refused_with_an_alternative() {
         ("STORAGE IS MEMORY WITH PERSISTENCE", indexed("\n               STORAGE IS MEMORY WITH PERSISTENCE"), cust_fd, "       PROCEDURE DIVISION.\n           OPEN I-O CUST.\n".into()),
         ("SQL", String::new(), "", "       PROCEDURE DIVISION.\n           EXEC SQL DELETE FROM T END-EXEC.\n".into()),
         ("SQL (a database built-in)", String::new(), "", format!("{ws}           CALL \"COBOL-OPEN-DB\" USING \"x.db\" H ST.\n")),
+        // WASM-015 AC11: the program-level database is the Backend's; a statement, a value and a property each say so.
+        ("SQL (COBOL::SqlDatabase, a call)", String::new(), "", format!("{ws}           COBOL::SqlDatabase::Execute(\"DELETE FROM T\").\n")),
+        ("SQL (COBOL::SqlDatabase, a value)", String::new(), "", format!("{ws}           MOVE COBOL::SqlDatabase::Open(\"x.db\") TO H.\n")),
+        ("SQL (COBOL::SqlDatabase, a property)", String::new(), "", format!("{ws}           MOVE COBOL::SqlDatabase::LastError TO ST.\n")),
         // The runtime answers HTTP over a native socket, on its own threads for
         // the asynchronous calls (cobolt-runtime interpreter.rs `thread::spawn`).
         ("a native socket (HTTP)", String::new(), "", format!("{ws}           CALL \"COBOL-HTTP-GET\" USING \"https://example.invalid\" BODY ST.\n")),

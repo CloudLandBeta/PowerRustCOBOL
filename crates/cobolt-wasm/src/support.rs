@@ -178,6 +178,9 @@ pub struct BuiltinClass {
 
 const BOTH: Engines = Engines { chrome: true, safari: true };
 const SQL: &str = "embedded SQL and databases run on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
+/// What `COBOL::SqlDatabase::…` in a browser module is told (WASM-015 AC11): the program-level
+/// database is the Backend's, and the page reaches the Backend's program with a CALL.
+pub const SQL_DATABASE_OBJECT: &str = "COBOL::SqlDatabase runs on the backend, not in a browser module: the database and its connection belong to the Backend; write a Backend program that uses COBOL::SqlDatabase and call it from the page with CALL … WITH WEBSOCKET LINKAGE";
 const FILES: &str = "files are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
 const HTTP: &str = "HTTP calls run on the backend, which holds the keys and is not bound by the page's CORS rules; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
 const SECRETS: &str = "keys and model providers stay on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE";

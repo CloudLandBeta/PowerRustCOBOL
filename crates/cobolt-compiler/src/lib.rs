@@ -5456,6 +5456,7 @@ A Web or Mobile project has a backend (the `backend/` folder) that runs on the n
 - **A FileDropZone's upload slot.** Each FileDropZone of a Web or Mobile form gets an upload slot `RC-<n>-<FORM>-<n>-<ZONE>-COMMITFILES` in `backend/generated/exports.toml` that takes only the zone's `AllowedExtensions` and at most its `MaximumFileSizeKB` (`0`: the backend's own limit), from the zone's **BackendRoles**; the backend names every stored file, and a name that could mean a path is refused. A slot of that name in `backend.toml`'s `[files] slots` stops the start. The browser's zone does not upload to it yet.
 - **A Viewer on the web.** A document the user opens goes through the Viewer's own upload slot, `RC-<n>-<FORM>-<n>-<VIEWER>-OPEN`; a document the backend offers is fetched with `COBOL::"WS-DOWNLOAD"`, and the browser never names a backend path. On a Web or Mobile form the Viewer has two more properties for that slot: `AllowedExtensions` (blank: the types the Viewer shows — txt, text, log, md, markdown, png, jpg, jpeg, gif, webp, bmp, tiff, tif, svg, pdf, html, htm) and `MaximumFileSizeKB` (default `10240`, 10 MB); a desktop form never carries them. `SaveAs` and `SaveAsPdf` do not go through the backend: on the web they download the document to the user, the PDF made in the browser, and their path argument is ignored. The browser's side of both is not in the player yet.
 - **The AWS controls on the web.** The sixteen AWS controls (`AwsMcp` … `AwsCognito`) are class C like the SqlDatabase and the RestClient: a call of one of their routes (DynamoDB `GetItem`, S3 `List`, Lambda `Invoke`, …) in a handler runs on the Backend through a program the Build generates for the call site, the rules above about a literal statement, resource or function name and about local files apply to them, and the control holds only the NAME of a connection (`Connection`), never a key.
+- **The database on the web is the Backend's: `COBOL::SqlDatabase`.** The Web and Mobile toolbox does not offer the SqlDatabase control. Write the Backend program that reads or writes the database with `COBOL::SqlDatabase::Open(…)`, `Execute(…)`, `Query(…)`, `Fetch()` and the rest (section *Program-level database*), export it in `backend/exports.toml`, and call it from the form with `CALL "NAME" WITH WEBSOCKET LINKAGE USING …`. `COBOL::SqlDatabase::…` in a form's handler is a Build and Preview error that says so (class `BackendOnly`). A form that already holds a SqlDatabase control keeps loading, building and running as described above.
 - **No connection string or key on a web form.** Check and Build of a Web or Mobile project stop when a control holds a value in a property that carries a secret — a SqlDatabase's `ConnectionString` (even without a password; the default `sqlite::memory:` is allowed), a RestClient's `AuthToken`, an AgentObject's `AgentAPIKey`, a KnowledgeBase's `EmbeddingAPIKey`, a WebSearch's `ApiKey` — naming the control and the property (`DB-1.ConnectionString`), never the value. Clear it, put the value in a `[[configuration]]` of `backend/backend.toml`, and write that configuration's name in the control's **BackendConfig**.
 
 ### Sound — the `AUDIO-…` built-ins
@@ -5804,6 +5805,36 @@ Without the clause, `.` is the decimal point and `,` groups digits, the usual wa
 - **Units of work**: one starts with the first statement after a connect or the last `COMMIT`/`ROLLBACK` (on SQLite, only before a statement that changes data). `EXEC SQL COMMIT`/`ROLLBACK` end it; the COBOL `COMMIT`/`ROLLBACK` verbs are INDEXED-file transactions and never touch the database.
 - **End of the run**: work still open when the application ends is COMMITTED after a normal end (`STOP RUN`, `GOBACK` from the main program, the main window closing) and ROLLED BACK after a runtime error or an IDE Stop; then every connection closes. Every form of an application shares ONE set of SQL connections: a form opened later reads through the connection another form made (uncommitted rows included) without a `CONNECT`; closing a form releases only its own cursors and prepared statements, and a runtime error in a child form rolls nothing back — only the MAIN form's end settles the work.
 - **Check reports**, each on its line and without any database: an unterminated block, a misplaced block, an undeclared or ambiguous host variable or indicator, an indicator of the wrong shape, a subscripted host variable, a figurative constant in SQL, a cursor used before it is declared or declared twice, `EXECUTE`/`DESCRIBE` of a statement not prepared earlier in the source, a `WHENEVER … GO TO` with no such paragraph or section, an `INCLUDE` not found, and a literal password in `CONNECT … USING`. Table and column names are NOT checked.
+
+## Program-level database — `COBOL::SqlDatabase`
+**Status: runs on SQLite, PostgreSQL and MySQL, in any program that runs on the native runtime — a Backend program above all.** `COBOL::SqlDatabase` is the SqlDatabase control's own verbs on ONE object every program has: no control on a form, no `EXEC SQL`, no host variables. A Backend program (`backend/src/`) uses it to reach the database; a Web or Mobile form never does (see below).
+
+```cobol
+           MOVE COBOL::SqlDatabase::Open("sql-connection:SALES") TO WS-HANDLE
+           IF WS-HANDLE = 0
+               *> The connection did not open: LastError says why.
+               MOVE COBOL::SqlDatabase::LastError TO WS-MESSAGE
+           ELSE
+               MOVE COBOL::SqlDatabase::Query("SELECT id, name FROM customer ORDER BY id") TO WS-ROWS
+               PERFORM UNTIL 1 = 2
+                   MOVE COBOL::SqlDatabase::Fetch() TO WS-ROW
+                   IF WS-ROW = SPACES
+                       EXIT PERFORM
+                   END-IF
+                   *> WS-ROW holds one row, its columns separated by a TAB.
+                   PERFORM SHOW-ROW
+               END-PERFORM
+               COBOL::SqlDatabase::Close()
+           END-IF.
+```
+
+- **The verbs** are the control's, with the same answers: `Open(connection)` answers the handle, `0` when it could not connect; `Open()` with no argument connects through the `SqlConnection` property (a project SQL connection's name; it wins) or else the `ConnectionString` property. `Execute(sql)` runs one statement and answers the rows it changed (`0` when it failed). `Query(sql)` runs a SELECT and answers its row count. `Fetch()` answers the NEXT row as text with its columns separated by a TAB, and SPACES once the rows run out — loop until it comes back empty. `FetchAll()` answers the row count. `ColumnNames()` answers the column names separated by a TAB, `ColumnCount()` how many, `ColumnName(n)` the nth (1-based). `BeginTransaction()`, `Commit()` and `Rollback()` answer `1` when they took effect and `0` when they could not (no transaction open, one already open); `IsInTransaction()` answers `1` or `0`. `Close()` closes the connection.
+- **The properties** `LastError` (the database's message) and `StatusCode` (`0` after a good `Open`, `1` after one that failed) are read like any property: `MOVE COBOL::SqlDatabase::LastError TO WS-MESSAGE`, `IF COBOL::SqlDatabase::StatusCode NOT = 0`. `SqlConnection` and `ConnectionString` are written with `MOVE ... TO COBOL::SqlDatabase::SqlConnection` before an `Open()`.
+- **The connection** is named as `CONNECT TO` and the control name it: `':memory:'`, a SQLite path, `sqlite:path`, `postgres://…`, `mysql://…`, or `sql-connection:NAME` for one of the project's `[[sql-connections]]` — the project under the IDE, `rcrun` and `rcrun backend run`, `sql-connections.toml` in a built application. The object holds ONE connection, the last one opened; it is its own connection, apart from any `EXEC SQL` connection and any SqlDatabase control.
+- **No parameters.** `Execute` and `Query` take the statement TEXT and nothing else: there are no `?` markers and no host variables. Build the text with `STRING` from values the program trusts, REFUSE a typed value that holds a single quote (`INSPECT WS-NAME TALLYING WS-N FOR ALL "'"`), and use `EXEC SQL` with host variables where a statement takes input from a person. Never put raw user input into the text.
+- **Reading it in a program.** A call is a statement at the start of a line (`COBOL::SqlDatabase::Execute(WS-SQL).`) and a value anywhere a value goes (`MOVE`, `SET`, `IF`, `DISPLAY`, an argument); a call is never a receiving field. The method names above are the whole vocabulary. A `DISPLAY` ends in front of a `COBOL::SqlDatabase::…(` call that opens a new line, so a statement under a `DISPLAY` is its own statement.
+- **On a Web or Mobile project** the database is the Backend's, so the page never holds one: the SqlDatabase control is NOT in the Web and Mobile toolbox, and `COBOL::SqlDatabase::…` in a form's handler is refused at Build and Preview (class `BackendOnly`) with the way out — write a Backend program that uses it and call that program with `CALL "NAME" WITH WEBSOCKET LINKAGE USING …`. A web form that already holds a SqlDatabase control keeps working as before. A Desktop project keeps the control in its toolbox, and `COBOL::SqlDatabase` is there too.
+- **A built application and a built Backend** link the SQL drivers when any of their programs names `COBOL::SqlDatabase`, as for `EXEC SQL` or `COBOL::"OPEN-DB"`.
 
 ## National and UTF-8 data — `PIC N`, `PIC U`
 `PIC X` counts BYTES, so accented or non-Latin text in it can be cut in half a character. Declare text by CHARACTERS instead:
@@ -15201,6 +15232,47 @@ mod runtime_only_property_tests {
 
 #[cfg(test)]
 mod published_documentation_tests {
+    /// WASM-015 AC11: Grace is taught `COBOL::SqlDatabase`. The extensions document holds one
+    /// section for the program-level database — every verb and property by name, the Web and
+    /// Mobile rule, the way out — its example parses and names the one object the runtime
+    /// knows it by, and the web Backend section points a form at it.
+    #[test]
+    fn the_program_level_database_is_taught_in_the_system_kb() {
+        let docs = super::system_documentation();
+        let (_, text) = docs.iter().find(|(n, _)| *n == "rustcobol_extensions.md").expect("the extensions document");
+        let section = text
+            .split("## Program-level database — `COBOL::SqlDatabase`")
+            .nth(1)
+            .expect("the section is there")
+            .split("\n## ")
+            .next()
+            .unwrap();
+        for word in [
+            "Open(", "Execute(", "Query(", "Fetch()", "FetchAll()", "ColumnNames()", "ColumnCount()", "ColumnName(n)", "BeginTransaction()",
+            "Commit()", "Rollback()", "IsInTransaction()", "Close()", "LastError", "StatusCode", "SqlConnection", "ConnectionString",
+            "BackendOnly", "WITH WEBSOCKET LINKAGE", "EXEC SQL", "TAB",
+        ] {
+            assert!(section.contains(word), "the section does not mention {word}");
+        }
+        assert!(section.contains("NOT in the Web and Mobile toolbox"), "the toolbox rule is stated");
+        // The example is a real program: it parses, and the tree names the one object.
+        let example = section
+            .split("```cobol\n")
+            .nth(1)
+            .and_then(|r| r.split("```").next())
+            .expect("the example");
+        let program = format!(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-HANDLE PIC 9(4).\n\
+             01 WS-ROWS PIC 9(4).\n01 WS-ROW PIC X(80).\n01 WS-MESSAGE PIC X(80).\nPROCEDURE DIVISION.\nMAIN.\n{example}\n"
+        );
+        let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&program, cobolt_lexer::SourceFormat::Free));
+        let errors: Vec<_> = parsed.diagnostics.iter().filter(|d| d.severity == cobolt_parser::Severity::Error).collect();
+        assert!(errors.is_empty(), "the KB example does not parse: {errors:?}");
+        let tree = format!("{:?}", parsed.program.expect("a program").procedure);
+        assert!(tree.contains(cobolt_ast::methods::SQL_DATABASE_OBJECT), "the example does not use the object: {tree}");
+        assert!(text.contains("**The database on the web is the Backend's: `COBOL::SqlDatabase`.**"), "the web Backend section points at it");
+    }
+
     /// WASM-010 T22 (R7, D7): the System KB says, for every built-in of the
     /// runtime and every statement, whether a browser module runs it.
     #[test]

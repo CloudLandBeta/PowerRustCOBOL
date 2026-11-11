@@ -100,7 +100,7 @@ exists on the web and what does not. This spec specifies that equipment; without
 - [x] **AC8** — Through the MCP tools on a web form: `create_project` with a kind, `check` (an error for a class D control and for a file verb), `build` (a bundle), `render_form` (a picture) and `run_form` (a click and a property read) all work and report the engine used.
 - [x] **AC9** — The IDE-served and the stdio server give the same answers for the same web project.
 - [x] **AC10** — The plugin's rules include the web rules; the reviewer flags a web form containing a `SqlDatabase`; the new skills exist.
-- [ ] **AC11** — `prebuilt_chunked_kb_matches_the_published_documentation` is green with the web knowledge; a Grace run asked for a `SqlDatabase` on a web form refuses or reroutes it through the backend.
+- [ ] **AC11** — `prebuilt_chunked_kb_matches_the_published_documentation` is green with the web knowledge; a Grace run asked for a `SqlDatabase` on a web form refuses or reroutes it through the backend. *(Open, 2.0.421: the knowledge half is green — `chunked.data` regenerated, `prebuilt_chunked_kb_matches_the_published_documentation` passes — and Grace is taught `COBOL::SqlDatabase`, the Backend's way to SQL, with the control out of the Web and Mobile toolbox; the live Grace run needs a model key and is the operator's. See `WASM-OPEN-ACS.md`.)*
 - [x] **AC12** — The example Web application and Backend build and run in the test suite and contain no secret.
 - [x] **AC13** — The reference form with layers gives the same stacking, visibility, hit testing and tab order on the desktop and in the browser, except the differences WASM-004 R17 and R20 record (R17).
 

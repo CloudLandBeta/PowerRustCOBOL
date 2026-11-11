@@ -487,12 +487,14 @@ pub struct ToolboxPanel {
 
 /// Is this control offered to a project of `kind`? Desktop: every control but those made for
 /// Web and Mobile only (the Authentication control, WASM-009 R1). Web and Mobile: everything but
-/// class D (`cobolt_forms::web_class`).
+/// class D and the controls withdrawn from the Backend-owned side (the SqlDatabase control,
+/// WASM-015 AC11 — a form that already has one still loads and runs)
+/// (`cobolt_forms::web_class`).
 fn offered_to(kind: ProjectKind, ct: &ControlType) -> bool {
     if kind.is_desktop() {
         return !cobolt_forms::web_class::web_and_mobile_only(ct);
     }
-    cobolt_forms::web_class::available_on_web(ct)
+    cobolt_forms::web_class::available_on_web(ct) && !cobolt_forms::web_class::withdrawn_from_web_toolbox(ct)
 }
 
 /// A user control follows the rule through what it is made of: it is offered
@@ -2740,13 +2742,35 @@ mod project_kind_tests {
             .filter(|e| cobolt_forms::web_class::class_of(&e.ct) == cobolt_forms::web_class::Class::D)
             .map(|e| e.label)
             .collect();
+        // WASM-015 AC11 — the SqlDatabase control is withdrawn from Web and Mobile: the Backend's
+        // programs use `COBOL::SqlDatabase::…`. Class C still, so existing forms are untouched.
+        let withdrawn: Vec<&str> = TOOLS
+            .iter()
+            .filter(|e| cobolt_forms::web_class::withdrawn_from_web_toolbox(&e.ct) && !class_d.contains(&e.label))
+            .map(|e| e.label)
+            .collect();
+        assert_eq!(withdrawn, vec!["SqlDatabase"]);
+        assert!(desktop.contains(&"SqlDatabase"), "a Desktop project keeps the SqlDatabase control");
         for kind in [ProjectKind::Web, ProjectKind::Mobile] {
             let list = offered(kind);
             let hidden: Vec<&str> = desktop.iter().copied().filter(|l| !list.contains(l)).collect();
             println!("{} toolbox: {} controls, {} hidden {:?}", kind.as_str(), list.len(), hidden.len(), hidden);
-            assert_eq!(list.len(), TOOLS.len() - class_d.len());
-            assert_eq!(hidden, class_d, "exactly the class D controls are hidden");
+            assert_eq!(list.len(), TOOLS.len() - class_d.len() - withdrawn.len());
+            let mut expected: Vec<&str> = class_d.iter().chain(withdrawn.iter()).copied().collect();
+            expected.sort_by_key(|l| desktop.iter().position(|d| d == l));
+            assert_eq!(hidden, expected, "exactly the class D controls and the withdrawn ones are hidden");
+            assert!(!list.contains(&"SqlDatabase"), "{kind:?}: the Backend owns the database");
         }
+    }
+
+    /// A form that already holds a SqlDatabase keeps it: the type stays class C, so it is available and
+    /// does its work on the Backend exactly as before — only the toolbox no longer offers it.
+    #[test]
+    fn an_existing_sql_database_control_on_a_web_form_still_belongs_to_the_backend() {
+        use cobolt_forms::web_class::{available_on_web, class_of, uses_backend, Class};
+        assert!(available_on_web(&ControlType::SqlDatabase));
+        assert_eq!(class_of(&ControlType::SqlDatabase), Class::C);
+        assert!(uses_backend(&ControlType::SqlDatabase));
     }
 
     #[test]

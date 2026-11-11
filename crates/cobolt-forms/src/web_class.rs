@@ -347,6 +347,17 @@ pub fn available_on_web(t: &ControlType) -> bool {
     class_of(t) != D
 }
 
+/// Is this control withdrawn from the toolbox of a Web or Mobile project (WASM-015 AC11)? The
+/// SqlDatabase control is: the Backend owns the database, and its programs reach it with
+/// `COBOL::SqlDatabase::Open`, `Query`, `Fetch`, … — no control on a page, no `EXEC SQL`.
+///
+/// Only what is OFFERED changes. The control stays class C, so a form that already holds one
+/// loads, saves, builds and runs exactly as before ([`available_on_web`], [`uses_backend`]);
+/// a Desktop project keeps the control in its toolbox.
+pub fn withdrawn_from_web_toolbox(t: &ControlType) -> bool {
+    matches!(t, ControlType::SqlDatabase)
+}
+
 // ── The backend's side of a class C control (WASM-005 R14, R16) ──────────────
 
 /// The property naming the configuration in `backend/backend.toml` that holds a class C control's

@@ -377,6 +377,40 @@ fn unknown_layer_refused() {
     eprintln!("layers: unknown layer, unknown property, a write to Layer and to Name refused at build time");
 }
 
+/// WASM-015 AC11: the program-level database, `COBOL::SqlDatabase`, belongs to the Backend. In a
+/// form's handler — as a statement, as a value, as a property, on a form with layers or without —
+/// it is refused as backend-only, and the message names the way out.
+#[test]
+fn the_program_level_database_is_refused_in_a_form_with_the_way_out() {
+    let plain = |body: &str| {
+        let src = form_source("PLAIN-FORM", "", &[("BTN-GO", "onClick", body)]);
+        Project::new().form("PLAIN-FORM", true, 1, &[("BTN-GO", "Button"), ("LBL-A", "Label")], &src)
+    };
+    let mut refused = 0;
+    for body in [
+        "    COBOL::SqlDatabase::Execute(\"DELETE FROM T\")\n",
+        "    MOVE COBOL::SqlDatabase::Open(\"x.db\") TO LBL-A::Caption\n",
+        "    MOVE COBOL::SqlDatabase::LastError TO LBL-A::Caption\n",
+    ] {
+        for (what, project) in [("no layers", plain(body)), ("with layers", layered(body))] {
+            let err = project.try_compile(true).err().unwrap_or_else(|| panic!("{what}: {body} compiled"));
+            let all = err.all_kinded();
+            let e = all
+                .iter()
+                .find(|e| e.kind == cobolt_wasm::ErrorKind::BackendOnly)
+                .unwrap_or_else(|| panic!("{what}: {body}: not a backend-only refusal: {all:?}"));
+            assert_eq!(e.subject, "COBOL::SqlDatabase");
+            assert!(
+                e.message.contains("backend") && e.message.contains("CALL … WITH WEBSOCKET LINKAGE") && e.message.contains("COBOL::SqlDatabase"),
+                "{what}: the refusal names the Backend and the way out: {}",
+                e.message
+            );
+            refused += 1;
+        }
+    }
+    eprintln!("COBOL::SqlDatabase: {refused} uses in a form refused as backend-only, each naming the Backend and CALL … WITH WEBSOCKET LINKAGE");
+}
+
 /// R19, A9: a layer is addressed by the id after the controls; its property is
 /// written and read like a control's, and the manifest lists it.
 #[test]

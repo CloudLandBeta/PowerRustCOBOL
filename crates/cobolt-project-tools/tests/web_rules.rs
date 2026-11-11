@@ -78,3 +78,22 @@ fn the_skills_teach_layers_and_the_gates_and_the_reviewer_rejects_class_d() {
     assert!(checks.contains("class D") && checks.contains("class C"), "{checks}");
     assert!(checks.contains("SqlDatabase") && checks.contains("a class C control in a project with no Backend"), "{checks}");
 }
+
+/// WASM-015 AC11: the plugin teaches the program-level database. The Backend skill and the SQL
+/// skill name `COBOL::SqlDatabase` and its verbs, the reviewer rejects a SqlDatabase control and
+/// any use of it in a form, and the overview lists it — so an agent never reaches for `EXEC SQL`
+/// only, nor puts the control on a web form.
+#[test]
+fn the_plugin_teaches_the_program_level_database_and_the_reviewer_rejects_it_in_a_form() {
+    let kit = kit();
+    let skill = |name: &str| kit.skills.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("a `{name}` skill")).steps.join("\n");
+    let be = skill("powerrustcobol-backend");
+    assert!(be.contains("COBOL::SqlDatabase::Open") && be.contains("::Fetch()") && be.contains("::LastError"), "{be}");
+    assert!(be.contains("no SqlDatabase control") || be.contains("it has no SqlDatabase control"), "{be}");
+    let sql = skill("powerrustcobol-use-sql");
+    assert!(sql.contains("COBOL::SqlDatabase::Open") && sql.contains("Never add a SqlDatabase control to a Web or Mobile form"), "{sql}");
+    assert!(sql.contains("statement TEXT only") && sql.contains("EXEC SQL"), "it says what the object cannot do: {sql}");
+    let checks = kit.reviewer.checks.join("\n");
+    assert!(checks.contains("any use of `COBOL::SqlDatabase` in a form's handler"), "{checks}");
+    assert!(content::server_instructions("1.test").contains("COBOL::SqlDatabase"), "the overview lists the object");
+}

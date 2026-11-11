@@ -128,7 +128,7 @@ impl Kind {
 
 /// What a Web or Mobile project's forms designer is told before the product's own rules (the
 /// `web-kinds` and `web-layers` rules) are appended by the host. A policy, not a word heuristic.
-const WEB_PREAMBLE: &str = "This project is a **Web or Mobile** project: its forms are built to WebAssembly and run in a browser. Deploy only controls the CONTEXT legend lists, and only what a browser can run: never an indexed or sequential file organisation on disk, SQL, EXEC RUST, a child process, a native socket, a plug-in control, or any key, password, token or connection string. Work that needs a file, a database or a secret goes to the Backend; a control of class C names a backend configuration and holds no secret. A layer is addressed as LAYER-NAME::Property and is never a control.";
+const WEB_PREAMBLE: &str = "This project is a **Web or Mobile** project: its forms are built to WebAssembly and run in a browser. Deploy only controls the CONTEXT legend lists, and only what a browser can run: never an indexed or sequential file organisation on disk, SQL, EXEC RUST, a child process, a native socket, a plug-in control, or any key, password, token or connection string. Work that needs a file, a database or a secret goes to the Backend: never deploy a SqlDatabase control (a Web or Mobile toolbox has none) and never write `COBOL::SqlDatabase` in a form; the Backend program uses `COBOL::SqlDatabase::Open/Execute/Query/Fetch` and the form calls it with CALL \"NAME\" WITH WEBSOCKET LINKAGE. A control of class C names a backend configuration and holds no secret. A layer is addressed as LAYER-NAME::Property and is never a control.";
 
 impl Specialist {
     /// The built-in specialist with this exact name, if any. Named project
@@ -400,6 +400,9 @@ mod tests {
         assert!(s.system_prompt.contains("Web Forms Designer Agent"));
         assert!(s.system_prompt.contains("Web or Mobile") && s.system_prompt.contains("HOST WEB RULES"));
         assert!(!Specialist::new("FormsDesigner").system_prompt.contains("Web or Mobile"), "desktop unchanged");
+        // WASM-015 AC11: the database is the Backend's, through `COBOL::SqlDatabase`, never a control on a page.
+        assert!(s.system_prompt.contains("never deploy a SqlDatabase control") && s.system_prompt.contains("COBOL::SqlDatabase::Open"));
+        assert!(!Specialist::new("FormsDesigner").system_prompt.contains("COBOL::SqlDatabase"), "desktop unchanged");
     }
 
     #[test]

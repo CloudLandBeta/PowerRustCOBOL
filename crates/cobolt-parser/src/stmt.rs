@@ -3921,7 +3921,8 @@ fn can_start_expr(p: &Parser) -> bool {
     // the `DISPLAY` before it took it as one more thing to display, and the
     // call never ran.
     if at_cobol_object_call(p) {
-        return false;
+        // The program-level SQL database has values as well as calls (AC11).
+        return at_sql_database_object(p) && !opens_a_sql_database_statement(p);
     }
     matches!(
         p.peek(),
@@ -4026,6 +4027,23 @@ pub(crate) fn at_cobol_object_call(p: &Parser) -> bool {
     matches!(p.peek(), Token::Identifier(w) if w.eq_ignore_ascii_case("COBOL"))
         && *p.peek_at(1) == Token::Colon
         && *p.peek_at(2) == Token::Colon
+}
+
+/// At `COBOL::SqlDatabase::member` — the program-level SQL database (WASM-015
+/// AC11). It is an OBJECT, so beside the built-in CALLs it also has VALUES:
+/// `DISPLAY "error: " COBOL::SqlDatabase::LastError` shows its property.
+fn at_sql_database_object(p: &Parser) -> bool {
+    at_cobol_object_call(p)
+        && matches!(p.peek_at(3), Token::Identifier(w) if w.eq_ignore_ascii_case(cobolt_ast::methods::SQL_DATABASE_MEMBER))
+        && *p.peek_at(4) == Token::Colon
+        && *p.peek_at(5) == Token::Colon
+}
+
+/// `COBOL::SqlDatabase::Verb(` at the head of a source line: the next statement,
+/// not one more operand of the statement above. A property (no parenthesis) is
+/// always a value, on any line; so is a call that continues the line it is on.
+fn opens_a_sql_database_statement(p: &Parser) -> bool {
+    at_sql_database_object(p) && p.at_line_start(0) && *p.peek_at(7) == Token::LParen
 }
 
 /// Return the current identifier as an uppercase string without consuming it.

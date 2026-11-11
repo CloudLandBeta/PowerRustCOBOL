@@ -414,6 +414,14 @@ pub fn scan_program(program: &Program) -> RuntimeFeatures {
     if !program.sql_cursors.is_empty() {
         found.sql = true;
     }
+    // `COBOL::SqlDatabase::Query(…)` (WASM-015 AC11) is the program-level SQL
+    // database: an object named in an EXPRESSION, which the walk of statements
+    // above does not enter. The tree names it by one word, so one look at the
+    // procedure finds it wherever it sits. A literal that merely spells the
+    // word links the drivers for nothing, which costs a build, never a run.
+    if format!("{:?}", program.procedure).contains(&format!("\"{}\"", cobolt_ast::methods::SQL_DATABASE_OBJECT)) {
+        found.sql = true;
+    }
     // An item-level block is Rust at module scope; it can name the runtime too.
     for item in &program.rust_items {
         found = found.union(scan_rust(&item.source));
@@ -674,6 +682,22 @@ mod tests {
                       PROCEDURE DIVISION.\nMAIN-PARA.\n    STOP RUN.\n";
         assert!(scan(cursor).sql, "a declared cursor links the drivers");
         assert!(!scan(&prog("DISPLAY \"EXEC SQL\"")).sql, "the words in a literal do not");
+    }
+
+    /// WASM-015 AC11: `COBOL::SqlDatabase::…` is an object in an expression, in a
+    /// statement, a value or a condition — the drivers are linked for each.
+    #[test]
+    fn the_program_level_sql_database_links_the_drivers() {
+        for body in [
+            "    COBOL::SqlDatabase::Open(\":memory:\").\n    STOP RUN.",
+            "    MOVE COBOL::SqlDatabase::Query(\"SELECT 1\") TO WS-H.\n    STOP RUN.",
+            "    IF COBOL::SqlDatabase::StatusCode NOT = 0\n        DISPLAY \"no\"\n    END-IF.\n    STOP RUN.",
+        ] {
+            let f = scan(&prog(body));
+            assert!(f.sql, "{body}");
+            assert_eq!(f.as_toml_features(), "\"sql\"", "and nothing else with it: {body}");
+        }
+        assert!(!scan(&prog("    DISPLAY \"no database here\".\n    STOP RUN.")).sql);
     }
 
     #[test]

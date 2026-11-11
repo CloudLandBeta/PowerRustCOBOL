@@ -102,6 +102,23 @@ pub fn canonical_data_item_method(name: &str) -> Option<&'static str> {
         .map(|(_, canonical)| *canonical)
 }
 
+/// The name `COBOL::SqlDatabase` takes in the syntax tree (WASM-015 AC11): the
+/// program-level SQL database, a SqlDatabase that needs no control on a form.
+/// The parser rewrites the two-word receiver `COBOL::SqlDatabase` to this one
+/// word, so `COBOL::SqlDatabase::Query(sql)` is an ordinary member call on an
+/// object of that name and runs through the verbs of the SqlDatabase control —
+/// `Open`, `Execute`, `Query`, `Fetch`, `FetchAll`, `ColumnNames`,
+/// `BeginTransaction`, `Commit`, `Rollback`, `Close` — with no `EXEC SQL`.
+pub const SQL_DATABASE_OBJECT: &str = "COBOL-SQLDATABASE";
+
+/// The spelling the developer writes after `COBOL::`.
+pub const SQL_DATABASE_MEMBER: &str = "SqlDatabase";
+
+/// `true` if `name` is the program-level SQL database (see [`SQL_DATABASE_OBJECT`]).
+pub fn is_sql_database_object(name: &str) -> bool {
+    name.trim().eq_ignore_ascii_case(SQL_DATABASE_OBJECT)
+}
+
 /// The value methods that are **properties**: `Len` (and its older spelling
 /// `Length`) is written without parentheses — `WS-TEXT::Len`, `WS-TEXT::Trim()::Len`.
 /// `WS-TEXT::Len()` is not a program (operator, 2026-11-01); the analyser, the

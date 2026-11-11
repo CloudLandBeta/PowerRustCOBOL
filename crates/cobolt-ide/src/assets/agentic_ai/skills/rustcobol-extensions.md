@@ -169,7 +169,11 @@ receive `CONTROL-ARRAY-INDEX PIC S9(4) COMP-5` (the 1-based firing index).
 Use the control object methods/properties for data, network, and chart controls.
 Do not write low-level runtime `CALL`s for these services.
 
-- **SQL** (SqlDatabase): use methods on the SqlDatabase control.
+- **SQL** (SqlDatabase): use methods on the SqlDatabase control of a desktop form. In a program
+  with no form (a Backend program) use the program's own database object,
+  `COBOL::SqlDatabase::Open(...)`, `::Execute(sql)`, `::Query(sql)`, `::Fetch()`, `::LastError`,
+  `::Close()` — no `EXEC SQL`, no control. A Web or Mobile form never holds the database: no
+  SqlDatabase control there; the form `CALL`s the Backend program.
 - **HTTP** (RestClient): use methods on the RestClient control.
 - **Charts:** use methods such as `Chart-1::Clear()`, `Chart-1::AddPoint(...)`,
   `Chart-1::Refresh()`, or properties such as `Chart-1::DataSource`.
