@@ -38,7 +38,7 @@ The operator, 2026-10-17:
 - A history of past announcements.
 - Announcements per version of the IDE. *(Per language was a non-goal until 2026-11-11: see §9.)*
 - Turning announcements off.
-- A Help menu item to reopen the last one.
+- A Help menu item to reopen the last one. *(Built 2026-11-11: see §10.)*
 - Following links and showing pictures. These are the Viewer's own limits, and belong to the Viewer, where every Viewer control gains them (§7).
 
 ## 4. Requirements (EARS)
@@ -132,3 +132,18 @@ The operator, 2026-11-11, looking at a Portuguese IDE: the window's title ("Novi
 - **One file per language, not one file carrying six languages.** A page stays a plain HTML page the Viewer engine already draws, with no selector to parse out of it; the operator translates and diffs a file at a time; and English keeps the name every IDE already in the field reads.
 - **The hash of the page read, not of the English page.** An announcement nobody has translated yet is not mistaken for read, and a mistake fixed in one language reaches its readers.
 - **Menu and button names stay English** in the translated pages, the Guide's rule (GOLDEN RULE #8), so the pages carry no label the IDE might spell differently.
+
+## 10. Amendment 2026-11-11 — Help ▸ What's new
+
+The operator, 2026-11-11: *add an item "What's new" in the Help menu to show the "What's new" modal window.* §3 had left a Help item to reopen the last announcement out; this reverses it.
+
+**Classification:** feature — a new menu item and a way to open the window that did not exist. It takes the next `z`.
+
+- **R19** Help shall have an item **What's new** (a `Tr` string, six languages), in the group just above *About*. It configures nothing, so it is not under Settings (spec 099). Choosing it shows the announcement window with the page of the IDE's language, at any time.
+- **R20** The page is read when the item is chosen (the same read as R2, R13 and R14, on a thread of its own: the menu never waits for the network) and is shown **whether or not the developer closed it before**. It does not wait for a free screen (R5): the developer asked for it. A page already on screen is replaced by it. Closing it records its identity as any close does (R8), so a page read for the first time through the menu counts as read.
+- **R21** When no page can be read (no network, nothing published: R3), nothing opens and the Output panel says so once, in the IDE's language (`whats_new_unavailable`). The automatic checks stay silent (R3).
+- **R22** The window is the one of R6 — its title, its size, its Close — whichever way it was opened.
+
+**Decisions:**
+- **Read on demand, not kept from the last check.** The page shown is the one GitHub has now, in the language the IDE is in now, so a language change or a new announcement is never answered with a stale copy. The price is that the item needs the network; it says so (R21) instead of showing nothing.
+- **A message in the Output panel, not a page of the window.** An error page opened as an announcement would be recorded as dismissed on Close and could hide the real one.

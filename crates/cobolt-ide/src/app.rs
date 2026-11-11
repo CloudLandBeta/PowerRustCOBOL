@@ -13528,6 +13528,14 @@ impl CoboltApp {
                     self.toggle_task_wizard(ctx);
                 }
             }
+            Item::WhatsNew => {
+                // Spec 107 R19 — the announcement again, in the IDE's language, whether or
+                // not it was closed before.
+                if ui.button(tr.menu_whats_new).clicked() {
+                    self.announcement.ask(ctx);
+                    ui.close();
+                }
+            }
             Item::About => {
                 if ui
                     .button(crate::ui_text::idef("ℹ About {}", &[&crate::theme::brand_name()]))
@@ -14051,6 +14059,10 @@ impl CoboltApp {
         // A language chosen while the IDE runs reaches the next check.
         self.announcement.set_language(self.lang.code());
         self.announcement.poll();
+        // R21 — a page asked for from Help that cannot be read is said, once.
+        if self.announcement.take_unavailable() {
+            self.output.push_status(tr.whats_new_unavailable);
+        }
         if !self.announcement.has_announcement() {
             return;
         }

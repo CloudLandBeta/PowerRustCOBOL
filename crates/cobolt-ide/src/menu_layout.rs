@@ -51,12 +51,13 @@ pub enum Item {
     Examples,
     IdeWalkthrough,
     TaskWizard,
+    WhatsNew,
     About,
 }
 
 impl Item {
     /// Every item, so a test can say "each one is in exactly one menu".
-    pub const ALL: [Item; 18] = [
+    pub const ALL: [Item; 19] = [
         Item::NewProject,
         Item::OpenProject,
         Item::SaveProject,
@@ -74,6 +75,7 @@ impl Item {
         Item::Examples,
         Item::IdeWalkthrough,
         Item::TaskWizard,
+        Item::WhatsNew,
         Item::About,
     ];
 
@@ -101,6 +103,7 @@ impl Item {
             | Item::Examples
             | Item::IdeWalkthrough
             | Item::TaskWizard
+            | Item::WhatsNew
             | Item::About => false,
         }
     }
@@ -140,7 +143,7 @@ pub const SETTINGS: &[Entry] = &[
     I(Item::ReindexKnowledgeBases),
 ];
 
-/// Help: the documentation, the examples, the tour, and what this is.
+/// Help: the documentation, the examples, the tour, then the news and what this is.
 pub const HELP: &[Entry] = &[
     I(Item::Documentation),
     I(Item::Examples),
@@ -148,6 +151,7 @@ pub const HELP: &[Entry] = &[
     I(Item::IdeWalkthrough),
     I(Item::TaskWizard),
     S,
+    I(Item::WhatsNew),
     I(Item::About),
 ];
 
@@ -272,6 +276,16 @@ mod tests {
 
     /// Spec 104 R6 — the Task Wizard switch is in Help, right after the IDE Walkthrough, for
     /// the same reason: it switches a way of working, it configures nothing.
+    /// Spec 107 R19 — What's new is in Help, just above About, and configures nothing: it
+    /// shows the announcement again.
+    #[test]
+    fn whats_new_sits_in_help_just_above_about() {
+        let help = names(HELP);
+        let at = help.iter().position(|i| *i == Item::WhatsNew).expect("What's new is in Help");
+        assert_eq!(help.get(at + 1), Some(&Item::About));
+        assert!(!Item::WhatsNew.is_configuration());
+    }
+
     #[test]
     fn the_task_wizard_sits_in_help_right_after_the_walkthrough() {
         let help = names(HELP);

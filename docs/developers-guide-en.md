@@ -1773,6 +1773,10 @@ a change worth knowing about, an event. The IDE shows it in a window titled
 - **No announcement, no window.** Nothing is shown when none is published, when
   the network is not there, or when GitHub cannot be reached, and no message is
   shown either.
+- **Show it again.** Choose **Help ▸ What's new** to open the announcement at
+  any time, in the language the IDE is set to, even one you have already
+  closed. It does not wait for a dialog to be closed first. If there is none to
+  show, or the network is not there, the Output panel says so.
 - **Where it comes from.** The page is `announcements/announcement.html` (English)
   or `announcements/announcement.<code>.html` (`es`, `pt`, `ja`, `zh`, `fr`) in
   the PowerRustCOBOL repository on GitHub. The IDE reads it as it reads the

@@ -32,6 +32,9 @@ hours, and shows it once in a window titled **What's going on** (in the IDE's la
   shows nothing either.
 - **A few minutes to arrive.** GitHub caches raw files for a few minutes, so a page just
   pushed may take that long to reach an IDE that checks.
+- **Help ▸ What's new** shows the page again at any time, in the IDE's language, even one the
+  developer closed: the IDE reads it from here when the item is chosen. With no network, or
+  no page published, it says so in the Output panel.
 
 ## What the page can contain
 

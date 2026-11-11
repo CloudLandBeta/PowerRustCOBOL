@@ -156,6 +156,12 @@ pub struct AnnouncementWindow {
     size: Option<egui::Vec2>,
     /// The page's height as last painted, for the scroll area.
     page_h: f32,
+    /// The answer to the page asked for from Help ▸ What's new (R19), while it is awaited.
+    asked: Option<Receiver<Option<Announcement>>>,
+    /// The window on screen was asked for, so it does not wait for the screen to be free.
+    wanted: bool,
+    /// The page asked for could not be read, and nobody has been told yet.
+    unavailable: bool,
 }
 
 impl AnnouncementWindow {
@@ -184,28 +190,69 @@ impl AnnouncementWindow {
         self.current.is_some()
     }
 
+    /// R19 — Help ▸ What's new: read the page of the IDE's language now, on a thread of its
+    /// own, to show it whether or not it was closed before. The answer reaches [`poll`](Self::poll).
+    pub fn ask(&mut self, ctx: &egui::Context) {
+        let code = *self.lang.lock().unwrap_or_else(|e| e.into_inner());
+        let (tx, rx) = channel();
+        // An idle IDE draws no frame of its own: the answer wakes it.
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(fetch(code));
+            ctx.request_repaint();
+        });
+        self.asked = Some(rx);
+    }
+
+    /// R21 — whether the page asked for could not be read (no network, none published) since
+    /// the last time this was asked. Said once, so the caller can tell the developer once.
+    pub fn take_unavailable(&mut self) -> bool {
+        std::mem::take(&mut self.unavailable)
+    }
+
+    /// Put `a` on screen in place of whatever was there; `wanted` says the developer asked for it.
+    fn open(&mut self, a: Announcement, wanted: bool) {
+        let doc = cobolt_forms::viewer::parse_html(&a.html);
+        self.current = Some((a, doc));
+        self.size = None;
+        self.page_h = 0.0;
+        self.wanted = wanted;
+    }
+
     /// Read what the checks found since the last frame. A new announcement — not the one
     /// the developer dismissed — replaces whatever was there; a check that found none
     /// leaves an open window alone, so what the developer is reading does not vanish (R9).
+    /// The page asked for from Help is shown dismissed or not (R20).
     pub fn poll(&mut self) {
+        if let Some(rx) = &self.asked {
+            match rx.try_recv() {
+                Ok(found) => {
+                    self.asked = None;
+                    match found {
+                        Some(a) => self.open(a, true),
+                        None => self.unavailable = true,
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.asked = None,
+            }
+        }
         let Some(rx) = &self.rx else { return };
-        while let Ok(found) = rx.try_recv() {
-            let Some(a) = found else { continue };
+        let found: Vec<Announcement> = rx.try_iter().flatten().collect();
+        for a in found {
             if a.id == self.dismissed || self.current.as_ref().is_some_and(|(c, _)| c.id == a.id) {
                 continue;
             }
-            let doc = cobolt_forms::viewer::parse_html(&a.html);
-            self.current = Some((a, doc));
-            self.size = None;
-            self.page_h = 0.0;
+            self.open(a, false);
         }
     }
 
     /// Show the announcement when there is one and `blocked` is false (another first-run
-    /// dialog or modal owns the screen, R5). Returns the identity the developer dismissed
-    /// this frame — with Close or the window's × — for the caller to record (R8).
+    /// dialog or modal owns the screen, R5) — unless the developer asked for it, which waits
+    /// for nothing. Returns the identity the developer dismissed this frame — with Close or
+    /// the window's × — for the caller to record (R8).
     pub fn show(&mut self, ctx: &egui::Context, tr: &crate::i18n::Tr, blocked: bool) -> Option<String> {
-        if blocked {
+        if blocked && !self.wanted {
             return None;
         }
         let (announcement, doc) = self.current.as_ref()?;
@@ -266,6 +313,7 @@ impl AnnouncementWindow {
             self.dismissed = id.clone();
             self.current = None;
             self.size = None;
+            self.wanted = false;
             return Some(id);
         }
         None
@@ -333,6 +381,61 @@ mod tests {
         assert_eq!(ask("en"), Some(en.clone()));
         assert_eq!(*asked.borrow(), vec![URL.to_owned()], "English asks for nothing else");
         assert_eq!(fetch_with("ja", |_| None), None, "no page at all: no announcement");
+    }
+
+    /// Whether the window is on screen after a few frames, the screen being free or not.
+    fn on_screen(w: &mut AnnouncementWindow, blocked: bool) -> bool {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0));
+        let tr = crate::i18n::Language::English.tr();
+        let ctx = egui::Context::default();
+        for _ in 0..5 {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                w.show(ui.ctx(), &tr, blocked);
+            });
+            out.textures_delta.clear();
+        }
+        ctx.memory(|m| m.area_rect(egui::Id::new("ide_announcement"))).is_some()
+    }
+
+    /// R19–R21: the page asked for from Help ▸ What's new opens though the developer closed it
+    /// before, waits for no free screen (the automatic one does), and a page that cannot be read
+    /// is said once and opens nothing.
+    #[test]
+    fn the_page_asked_for_from_help_opens_though_it_was_closed_and_waits_for_nothing() {
+        let a = from_response(200, "<p>Closed before</p>").unwrap();
+
+        // Automatic: a page already closed is not shown again, and one not yet seen waits.
+        let mut closed = AnnouncementWindow::watching(channel().1, &a.id);
+        let (tx, rx) = channel();
+        closed.rx = Some(rx);
+        tx.send(Some(a.clone())).unwrap();
+        closed.poll();
+        assert!(!closed.has_announcement(), "the automatic check leaves a closed page alone");
+        let mut fresh = AnnouncementWindow::watching(channel().1, "");
+        let (tx, rx) = channel();
+        fresh.rx = Some(rx);
+        tx.send(Some(a.clone())).unwrap();
+        fresh.poll();
+        assert!(fresh.has_announcement() && !on_screen(&mut fresh, true), "an unseen page waits for a free screen");
+
+        // Asked for: the same closed page opens, and on a screen that is not free.
+        let (tx, rx) = channel();
+        closed.asked = Some(rx);
+        tx.send(Some(a.clone())).unwrap();
+        closed.poll();
+        assert!(closed.has_announcement(), "a closed page opens when asked for");
+        assert!(on_screen(&mut closed, true), "…and does not wait for a free screen");
+
+        // Asked for, and nothing to read: nothing opens, and it is said once.
+        let mut none = AnnouncementWindow::watching(channel().1, "");
+        let (tx, rx) = channel();
+        none.asked = Some(rx);
+        tx.send(None).unwrap();
+        none.poll();
+        assert!(!none.has_announcement());
+        assert!(none.take_unavailable(), "the developer is told");
+        assert!(!none.take_unavailable(), "once");
+        println!("What's new: a closed page opens when asked for, on a busy screen; an unreadable one is said once");
     }
 
     /// The text between each `open` and the next `close` in `s`, in order.

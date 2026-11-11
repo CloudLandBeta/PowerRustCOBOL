@@ -2046,6 +2046,10 @@ pub struct Tr {
     /// The window's title (operator: "What's going on").
     pub announcement_title: &'static str,
     pub announcement_close: &'static str,
+    /// Help ▸ What's new (R19): shows the announcement again, in the IDE's language.
+    pub menu_whats_new: &'static str,
+    /// Said in the Output panel when the page asked for from Help cannot be read (R21).
+    pub whats_new_unavailable: &'static str,
     pub bt_apply: &'static str,
     pub bt_ok: &'static str,
     pub bt_err_title: &'static str,
@@ -4628,6 +4632,8 @@ const EN: Tr = Tr {
     dg_col_warn_button_too_long: "{} is longer than the 30 characters ROW-NAME holds: the handler sees it cut.",
     announcement_title: "What's going on",
     announcement_close: "Close",
+    menu_whats_new: "What's new",
+    whats_new_unavailable: "There is no announcement to show right now: none is published, or the network cannot be reached.",
     bt_apply:           "Beautify",
     bt_ok:              "OK",
     bt_err_title:       "Beautify blocked",
@@ -6987,6 +6993,8 @@ const ES: Tr = Tr {
     dg_col_warn_button_too_long: "{} supera los 30 caracteres que caben en ROW-NAME: el manejador lo recibe cortado.",
     announcement_title: "Novedades",
     announcement_close: "Cerrar",
+    menu_whats_new: "Novedades",
+    whats_new_unavailable: "No hay ningún anuncio que mostrar ahora: no se ha publicado ninguno o no se puede acceder a la red.",
     bt_apply:           "Embellecer",
     bt_ok:              "Aceptar",
     bt_err_title:       "Embellecido bloqueado",
@@ -9346,6 +9354,8 @@ const PT: Tr = Tr {
     dg_col_warn_button_too_long: "{} passa dos 30 caracteres que cabem em ROW-NAME: o manipulador o recebe cortado.",
     announcement_title: "Novidades",
     announcement_close: "Fechar",
+    menu_whats_new: "Novidades",
+    whats_new_unavailable: "Não há nenhum anúncio para mostrar agora: nenhum foi publicado ou não foi possível acessar a rede.",
     bt_apply:           "Embelezar",
     bt_ok:              "OK",
     bt_err_title:       "Embelezamento bloqueado",
@@ -11704,6 +11714,8 @@ const JA: Tr = Tr {
     dg_col_warn_button_too_long: "{} は ROW-NAME に入る 30 文字を超えています。ハンドラーには切り詰められて届きます。",
     announcement_title: "お知らせ",
     announcement_close: "閉じる",
+    menu_whats_new: "お知らせ",
+    whats_new_unavailable: "現在表示できるお知らせはありません。公開されていないか、ネットワークに接続できません。",
     bt_apply:           "整形",
     bt_ok:              "OK",
     bt_err_title:       "整形できません",
@@ -14068,6 +14080,8 @@ const ZH: Tr = Tr {
     dg_col_warn_button_too_long: "{} 超过了 ROW-NAME 能容纳的 30 个字符：处理程序收到的是截断后的名称。",
     announcement_title: "最新动态",
     announcement_close: "关闭",
+    menu_whats_new: "最新动态",
+    whats_new_unavailable: "目前没有可显示的公告：尚未发布，或无法连接网络。",
     bt_apply: "美化",
     bt_ok: "确定",
     bt_err_title: "无法美化",
@@ -16428,6 +16442,8 @@ const FR: Tr = Tr {
     dg_col_warn_button_too_long: "{} dépasse les 30 caractères que contient ROW-NAME : le gestionnaire le reçoit tronqué.",
     announcement_title: "Quoi de neuf",
     announcement_close: "Fermer",
+    menu_whats_new: "Quoi de neuf",
+    whats_new_unavailable: "Il n'y a aucune annonce à afficher pour le moment : aucune n'est publiée, ou le réseau est inaccessible.",
     bt_apply:           "Embellir",
     bt_ok:              "OK",
     bt_err_title:       "Embellissement bloqué",
@@ -18191,6 +18207,8 @@ mod announcement_strings_107 {
             for (name, text, english) in [
                 ("announcement_title", t.announcement_title, en.announcement_title),
                 ("announcement_close", t.announcement_close, en.announcement_close),
+                ("menu_whats_new", t.menu_whats_new, en.menu_whats_new),
+                ("whats_new_unavailable", t.whats_new_unavailable, en.whats_new_unavailable),
             ] {
                 assert!(!text.trim().is_empty(), "{lang:?}/{name} is empty");
                 if lang != Language::English {
