@@ -76,7 +76,7 @@ pub const TABLE: &[Row] = &[
     r("ToolBar", A, "role=toolbar", "D for the actions that start a program"),
     r("StatusBar", A, "<footer role=status>", ""),
     r("Line", A, "<div> border / inline SVG line", ""),
-    r("DateTimePicker", A, "<input type=date|time|datetime-local>", ""),
+    r("DateTimePicker", A, "<input type=text> + calendar <dialog> (a date alone) / <input type=time|datetime-local>", ""),
     r("NumericUpDown", A, "<input type=number>", ""),
     r("TreeView", A, "<ul role=tree>", ""),
     r("Splitter", A, "two panes and a drag handle", ""),

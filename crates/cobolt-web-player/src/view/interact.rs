@@ -130,6 +130,12 @@ pub enum UiOp {
     /// or refused (a key a TextBox's PICTURE does not take), and the property may already hold this text, so no
     /// redraw would bring it back. Done as the event is heard, before the next key.
     ShowValue(String),
+    /// Open the calendar of a date field on this year and month (`None`: on today's, which only the page knows).
+    CalendarOpen(Option<(i32, u32)>),
+    /// Show this year and month in the open calendar.
+    CalendarShow(i32, u32),
+    /// Close the calendar.
+    CalendarClose,
 }
 
 /// One thing to do.
@@ -262,6 +268,8 @@ pub fn on_event(cx: &ViewCtx, ctl: usize, p: &Payload) -> Vec<Act> {
         && match c.control_type() {
             Some(ControlType::MenuBar | ControlType::SideMenu | ControlType::ToolBar) => p.id.is_some(),
             Some(ControlType::Hyperlink) => true,
+            // A press on the calendar button, or anywhere in the calendar, is that part's own: not a click on the field.
+            Some(ControlType::DateTimePicker) => p.part.is_some(),
             _ => false,
         };
     // The expand icon of a card takes its own click: it is not a click on the card, nor on anything that holds the card (spec 090 R3).
@@ -398,6 +406,7 @@ fn behaviour(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
         ControlType::Slider => slider(p),
         ControlType::NumericUpDown => numeric(cx, i, p),
         ControlType::Panel | ControlType::GroupBox => expander(cx, i, p),
+        ControlType::DateTimePicker if super::datefield::is_typed(cx, i) => date_field(cx, i, p),
         ControlType::DateTimePicker => {
             if matches!(p.kind.as_str(), "input" | "change") {
                 vec![Act::Change { prop: "Value".into(), value: p.value.clone() }]
@@ -463,6 +472,67 @@ fn text_box(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
                 v.push(Act::Change { prop: "Text".into(), value: moved });
             }
             v
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A date field that is typed into (`view::datefield`). The date typed is committed when the box is left or Enter is
+/// pressed, read in the order the field shows it. The button opens the calendar, whose lists and step buttons change the
+/// month on show and whose days, Today and Clear write `Value` (always ISO) and close it. A date outside
+/// `MinimumDate`..`MaximumDate` is moved to the nearest one inside, as the desktop commits it; a text that is no date
+/// changes nothing, and the box shows the date it holds again.
+fn date_field(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
+    use super::datefield::{bounds, typed};
+    use crate::calendar::{iso, step_month, Ymd};
+    use cobolt_forms::fieldtext::{clamp_date, date_in_bounds, parse_ymd};
+    let value = cx.tree.get(i, "Value");
+    let held = parse_ymd(&value);
+    let bounds = bounds(cx, i);
+    let open = cx.ui.calendar.filter(|k| k.ctl == i);
+    let store = |v: String| Act::Change { prop: "Value".into(), value: v };
+    let close = || Act::Ui(UiOp::CalendarClose);
+    let pick = |d: Ymd| vec![store(iso(clamp_date(d, bounds))), close()];
+    let show = |(y, m): (i32, u32)| vec![Act::Ui(UiOp::CalendarShow(y, m))];
+    match (p.key.as_str(), p.kind.as_str()) {
+        ("input", "focusin") => vec![Act::Ui(UiOp::Editing(true))],
+        ("input", "focusout") => vec![Act::Ui(UiOp::Editing(false))],
+        ("input", "change") => {
+            let typed = typed(cx, i);
+            let text = p.value.trim();
+            if text.is_empty() {
+                return vec![store(String::new()), Act::Ui(UiOp::ShowValue(String::new()))];
+            }
+            match typed.read(text) {
+                Some(d) => {
+                    let d = clamp_date(d, bounds);
+                    vec![store(iso(d)), Act::Ui(UiOp::ShowValue(typed.show(d)))]
+                }
+                None => vec![Act::Ui(UiOp::ShowValue(held.map(|d| typed.show(d)).unwrap_or_else(|| value.trim().to_owned())))],
+            }
+        }
+        ("open", "click") => match open {
+            Some(_) => vec![close()],
+            None => vec![Act::Ui(UiOp::CalendarOpen(held.map(|d| (d.0, d.1))))],
+        },
+        ("cal", "cancel") => vec![close()],
+        ("cal", "keydown") if p.key_name == "Escape" => vec![Act::Prevent, close()],
+        ("cal", "change") => match (open, p.part.as_deref(), p.value.trim().parse::<i32>()) {
+            (Some(k), Some("month"), Ok(m)) if (1..=12).contains(&m) => show((k.year, m as u32)),
+            (Some(k), Some("year"), Ok(y)) if (1..=9999).contains(&y) => show((y, k.month)),
+            _ => Vec::new(),
+        },
+        ("cal", "click") => {
+            let Some(k) = open else { return Vec::new() };
+            match p.part.as_deref() {
+                Some("backdrop" | "close") => vec![close()],
+                Some("previous") => show(step_month(k.year, k.month, -1)),
+                Some("next") => show(step_month(k.year, k.month, 1)),
+                Some("day") => p.id.as_deref().and_then(parse_ymd).filter(|d| date_in_bounds(*d, bounds)).map(pick).unwrap_or_default(),
+                Some("today") => pick(k.today),
+                Some("clear") => vec![store(String::new()), close()],
+                _ => Vec::new(),
+            }
         }
         _ => Vec::new(),
     }
@@ -2368,6 +2438,84 @@ mod tests {
         // A character picture has no edited form: focus changes nothing for it.
         let (t, i) = tree_with("TextBox", "A-1", &[("Picture", "X(5)")]);
         assert!(run(&t, i, &e, Payload::new("focusin", "input")).is_empty());
+    }
+
+    #[test]
+    fn a_date_field_commits_what_is_typed_and_its_calendar_steps_jumps_picks_clears_and_closes() {
+        use crate::view::CalendarUi;
+        let mut e = Empty::default();
+        let (t, i) = tree_with(
+            "DateTimePicker",
+            "DT-1",
+            &[("Format", "Custom"), ("CustomFormat", "dd/MM/yyyy"), ("Value", "2026-11-03"), ("MinimumDate", "2026-01-01"), ("MaximumDate", "2026-12-31")],
+        );
+        let shows = |text: &str| format!("{:?}", Act::Ui(UiOp::ShowValue(text.to_owned())));
+        let closes = || format!("{:?}", Act::Ui(UiOp::CalendarClose));
+        let typed = |e: &Empty, text: &str| {
+            let mut p = Payload::new("change", "input");
+            p.value = text.to_owned();
+            names(&run(&t, i, e, p))
+        };
+        // What is typed is read in the field's order and stored as ISO; the box is told the date as it is typed.
+        assert_eq!(typed(&e, "25122026"), ["~Value=2026-12-25".to_owned(), shows("25/12/2026")]);
+        assert_eq!(typed(&e, "3/11/26"), ["~Value=2026-11-03".to_owned(), shows("03/11/2026")]);
+        // A date outside the bounds lands on the nearest one inside; what is no date changes nothing; nothing clears.
+        assert_eq!(typed(&e, "01/02/2027"), ["~Value=2026-12-31".to_owned(), shows("31/12/2026")]);
+        assert_eq!(typed(&e, "31/02/2026"), [shows("03/11/2026")]);
+        assert_eq!(typed(&e, "  "), ["~Value=".to_owned(), shows("")]);
+        // The box shows the date as it is typed while the user is in it.
+        assert_eq!(run(&t, i, &e, Payload::new("focusin", "input")), vec![Act::Ui(UiOp::Editing(true))]);
+        assert_eq!(run(&t, i, &e, Payload::new("focusout", "input")), vec![Act::Ui(UiOp::Editing(false))]);
+        // The button opens the calendar on the month of the date held, and closes an open one.
+        let press = |e: &Empty, key: &str, part: &str, id: Option<&str>| {
+            let mut p = Payload::new("click", key);
+            p.part = Some(part.to_owned());
+            p.id = id.map(str::to_owned);
+            names(&run(&t, i, e, p))
+        };
+        assert_eq!(press(&e, "open", "open", None), [format!("{:?}", Act::Ui(UiOp::CalendarOpen(Some((2026, 11)))))]);
+        assert!(press(&e, "cal", "day", Some("2026-11-20")).is_empty(), "a calendar that is not open takes no press");
+        e.ui.calendar = Some(CalendarUi { ctl: i, year: 2026, month: 12, today: (2026, 11, 11) });
+        assert_eq!(press(&e, "open", "open", None), [closes()]);
+        // The step buttons and the two lists change the month on show, across a year's end.
+        let shown = |y: i32, m: u32| vec![format!("{:?}", Act::Ui(UiOp::CalendarShow(y, m)))];
+        assert_eq!(press(&e, "cal", "previous", None), shown(2026, 11));
+        assert_eq!(press(&e, "cal", "next", None), shown(2027, 1));
+        let listed = |e: &Empty, part: &str, value: &str| {
+            let mut p = Payload::new("change", "cal");
+            p.part = Some(part.to_owned());
+            p.value = value.to_owned();
+            names(&run(&t, i, e, p))
+        };
+        assert_eq!(listed(&e, "month", "4"), shown(2026, 4));
+        assert_eq!(listed(&e, "year", "2031"), shown(2031, 12));
+        assert!(listed(&e, "month", "13").is_empty() && listed(&e, "year", "soon").is_empty());
+        // A day inside the bounds is stored and closes the calendar; one outside them, and the panel itself, do nothing.
+        assert_eq!(press(&e, "cal", "day", Some("2026-12-25")), ["~Value=2026-12-25".to_owned(), closes()]);
+        assert!(press(&e, "cal", "day", Some("2027-01-02")).is_empty());
+        assert!(press(&e, "cal", "panel", None).is_empty());
+        // Today, Clear, Close, the page behind the calendar, Escape and the browser's own cancel.
+        assert_eq!(press(&e, "cal", "today", None), ["~Value=2026-11-11".to_owned(), closes()]);
+        assert_eq!(press(&e, "cal", "clear", None), ["~Value=".to_owned(), closes()]);
+        assert_eq!(press(&e, "cal", "close", None), [closes()]);
+        assert_eq!(press(&e, "cal", "backdrop", None), [closes()]);
+        let mut escape = Payload::new("keydown", "cal");
+        escape.key_name = "Escape".into();
+        assert_eq!(names(&run(&t, i, &e, escape)), ["prevent".to_owned(), closes()]);
+        assert_eq!(names(&run(&t, i, &e, Payload::new("cancel", "cal"))), [closes()]);
+        // An empty field opens on today's month, which the page knows; a press inside the calendar is no click on the field.
+        let (empty, j) = tree_with("DateTimePicker", "DT-2", &[]);
+        let mut open = Payload::new("click", "open");
+        open.part = Some("open".into());
+        assert_eq!(run(&empty, j, &Empty::default(), open), vec![Act::Ui(UiOp::CalendarOpen(None))]);
+        let mut bubbled = Payload::new("click", "root");
+        bubbled.part = Some("day".into());
+        assert!(run(&empty, j, &Empty::default(), bubbled).is_empty(), "no onClick for a press on a day");
+        // A picker with a time in it is the browser's own field, as before: what it reports is the value.
+        let (timed, k) = tree_with("DateTimePicker", "DT-3", &[("Format", "Time")]);
+        let mut p = Payload::new("change", "input");
+        p.value = "09:30".into();
+        assert_eq!(names(&run(&timed, k, &Empty::default(), p)), ["~Value=09:30"]);
     }
 
     #[test]

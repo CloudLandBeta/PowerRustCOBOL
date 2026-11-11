@@ -1031,6 +1031,8 @@ impl Surface for Dom {
         nodes::focus_requested();
         // A tab that has just become the selected one is on show in its strip (a TabControl with more tabs than room).
         nodes::reveal_requested();
+        // A control's own pop-up the pass made (a date field's calendar) opens now, beside its control.
+        nodes::popup_requested();
         // A tab strip the pass brought in slides under the mouse's drag and the wheel.
         tabslide::wire_requested();
     }

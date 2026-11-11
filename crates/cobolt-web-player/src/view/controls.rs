@@ -220,6 +220,8 @@ fn element_of(cx: &ViewCtx, i: usize) -> VNode {
         ControlType::ProgressBar => progress_bar(cx, i),
         ControlType::Slider => slider(cx, i),
         ControlType::NumericUpDown => numeric(cx, i),
+        // A picker of a date alone is typed into and has its own calendar (`datefield`); one with a time is the browser's field.
+        ControlType::DateTimePicker if super::datefield::is_typed(cx, i) => super::datefield::date_field(cx, i),
         ControlType::DateTimePicker => date_time(cx, i),
         ControlType::Switch => switch(cx, i),
         ControlType::Line => line(cx, i),
@@ -854,7 +856,7 @@ pub fn slider(cx: &ViewCtx, i: usize) -> VNode {
 }
 
 /// A model control carrying the properties of tree control `i` that a shared formatter reads (`cobolt_forms::fieldtext`).
-fn model_for(cx: &ViewCtx, i: usize, keys: &[&str]) -> cobolt_forms::model::Control {
+pub(super) fn model_for(cx: &ViewCtx, i: usize, keys: &[&str]) -> cobolt_forms::model::Control {
     let c = cx.tree.ctl(i);
     let t = c.control_type().cloned().unwrap_or(ControlType::TextBox);
     let mut m = cobolt_forms::model::Control::new(c.name.clone(), t, 0, 0);
@@ -946,7 +948,7 @@ pub fn date_time(cx: &ViewCtx, i: usize) -> VNode {
 
 /// The calendar (`date`) or the clock the painter's text face puts before a date-time picker's text: the glyph of the font it
 /// falls back to (`NotoEmoji-Regular`, scaled to 0.81 of the text and set 0.24 of that lower), drawn as an outline, so it looks as it does there.
-fn field_glyph(date: bool) -> VNode {
+pub(super) fn field_glyph(date: bool) -> VNode {
     // In 1/1000 em of the glyph's own font, y down, origin on the baseline; the viewBox is the glyph's extent after the scale and the drop.
     let (path, view) = if date { (CALENDAR_PATH, "0 -679 1270 986") } else { (CLOCK_PATH, "0 -657 1270 1079") };
     VNode::svg("svg")

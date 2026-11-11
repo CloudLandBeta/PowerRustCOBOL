@@ -95,6 +95,35 @@ pub const BASE_CSS: &str = r#"
 .pr-glyph { display: inline-block; width: 1.0287em; overflow: visible; }
 .pr-glyph-date { height: .7987em; vertical-align: -.2487em; }
 .pr-glyph-time { height: .8741em; vertical-align: -.3418em; }
+/* A date field that is typed into, and its calendar (2.0.432): a text box and a button; the calendar is a modal dialog in the top layer, placed by the page.
+   It has two colours, a ground and an ink: the field's own when it has an opaque ground (set on the dialog), else the theme's surface and text. */
+.pr-datetimepicker.pr-dt-typed { align-items: center; gap: 4px; padding-right: 3px; }
+.pr-datetimepicker.pr-dt-typed input { opacity: 1; text-align: inherit; }
+.pr-datetimepicker.pr-dt-typed input::placeholder { color: inherit; opacity: .55; }
+.pr-dt-open { flex: none; display: flex; align-items: center; justify-content: center; height: 100%; max-height: 2.4em; aspect-ratio: 1; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.pr-dt-open:hover { background: rgba(128, 128, 128, .2); }
+.pr-dt-open .pr-glyph { width: 1.2em; height: .93em; vertical-align: 0; }
+.pr-cal { padding: 0; border: 1px solid var(--pr-cal-ink, var(--pr-text)); border-radius: 12px; background: var(--pr-cal-ground, var(--pr-surface)); color: var(--pr-cal-ink, var(--pr-text)); font: 14px/1.2 var(--pr-font); box-shadow: 0 14px 36px rgba(0, 0, 0, .4); max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; }
+.pr-cal::backdrop { background: rgba(0, 0, 0, .25); }
+.pr-cal-panel { display: grid; gap: 8px; width: 304px; max-width: 100%; padding: 12px; }
+.pr-cal-head { display: flex; align-items: center; gap: 6px; }
+.pr-cal-head select { flex: 1 1 0; min-width: 0; height: 34px; padding: 0 6px; border: 1px solid currentColor; border-radius: 8px; background: var(--pr-cal-ground, var(--pr-surface)); color: inherit; font: inherit; cursor: pointer; }
+.pr-cal-step, .pr-cal-foot button { height: 34px; border: 1px solid currentColor; border-radius: 8px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.pr-cal-step { flex: none; width: 34px; padding: 0; font-size: 20px; line-height: 1; }
+.pr-cal-week, .pr-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.pr-cal-week span { padding: 2px 0; font-size: 12px; font-weight: 700; }
+.pr-cal-day { position: relative; min-height: 38px; padding: 0; border: 2px solid transparent; border-radius: 9px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.pr-cal-day:hover:not(:disabled), .pr-cal-step:hover, .pr-cal-foot button:hover { background: rgba(128, 128, 128, .22); }
+.pr-cal-out { font-weight: 300; font-style: italic; }
+.pr-cal-day:disabled { cursor: default; text-decoration: line-through; opacity: .45; }
+.pr-cal-today { border-color: currentColor; font-weight: 700; }
+.pr-cal-held, .pr-cal-held:hover:not(:disabled) { background: var(--pr-cal-ink, var(--pr-text)); color: var(--pr-cal-ground, var(--pr-surface)); font-weight: 700; }
+.pr-cal-holy { font-weight: 700; }
+.pr-cal-holy::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: currentColor; }
+.pr-cal-names { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
+.pr-cal-names li::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
+.pr-cal-foot { display: flex; gap: 6px; }
+.pr-cal-foot button { flex: 1 1 0; padding: 0 8px; }
 .pr-checkbox, .pr-radiobutton { display: flex; align-items: center; gap: .5em; cursor: pointer; }
 .pr-checkbox input, .pr-radiobutton input { margin: 0; flex: none; }
 .pr-switch { display: block; cursor: pointer; border: 0; padding: 0; }

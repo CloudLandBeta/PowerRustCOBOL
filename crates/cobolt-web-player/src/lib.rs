@@ -17,6 +17,7 @@
 
 pub mod auth;
 pub mod base_css;
+pub mod calendar;
 pub mod css;
 pub mod grid;
 pub mod host;

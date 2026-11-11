@@ -60,6 +60,24 @@ fn request_reveal(el: &Element) {
     REVEAL.with(|r| r.borrow_mut().push(el.clone()));
 }
 
+thread_local! {
+    /// Dialogs a render pass gave a `data-pr-popup` attribute: a control's own pop-up (a date field's calendar), made by
+    /// the pass. [`popup_requested`] opens each one when the pass is done.
+    static POPUP: std::cell::RefCell<Vec<Element>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Open each pop-up the render pass made as a modal dialog beside its control (`h::show_popup`), and forget them.
+pub fn popup_requested() {
+    let wanted = POPUP.with(|p| std::mem::take(&mut *p.borrow_mut()));
+    for el in wanted.into_iter().filter(|e| e.is_connected()) {
+        h::show_popup(&el);
+    }
+}
+
+fn request_popup(el: &Element) {
+    POPUP.with(|p| p.borrow_mut().push(el.clone()));
+}
+
 fn is_input_of(el: &Element, kinds: &[&str]) -> bool {
     if !el.tag_name().eq_ignore_ascii_case("input") {
         return false;
@@ -150,6 +168,9 @@ pub fn apply_attrs(el: &Element, old: &[(String, String)], new: &[(String, Strin
             }
             if k == "data-pr-slide" {
                 super::tabslide::request(el);
+            }
+            if k == "data-pr-popup" {
+                request_popup(el);
             }
             if k == "src" && needs_cors_mode(el, v) {
                 // Set before `src`: the request mode is decided when the load starts.

@@ -33,6 +33,7 @@ pub mod controls;
 mod contract;
 pub mod data;
 pub mod datagrid;
+pub mod datefield;
 pub mod interact;
 pub mod maps;
 pub mod shell;
@@ -329,6 +330,18 @@ pub struct UiState {
     /// A chart's motion at this frame, by control (`AnimateOnLoad`'s growth, `AnimateValues`' travel; `crate::motion`):
     /// what its painter draws instead of its own `__ChartGrow` and `__ChartData` while it moves. Empty at rest.
     pub chart_frames: BTreeMap<usize, crate::motion::ChartFrame>,
+    /// The date field whose calendar is open, the month it shows and the day it is today (`datefield`).
+    pub calendar: Option<CalendarUi>,
+}
+
+/// An open calendar: whose it is, the month on show, and today, which is the page's clock read when it opened (a view
+/// has no clock of its own).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CalendarUi {
+    pub ctl: usize,
+    pub year: i32,
+    pub month: u32,
+    pub today: crate::calendar::Ymd,
 }
 
 /// Where a Mermaid diagram stands: the Mermaid part is a module of its own, loaded the first time a

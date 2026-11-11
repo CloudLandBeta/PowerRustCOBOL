@@ -119,6 +119,43 @@ pub fn focus(e: &Element) {
     }
 }
 
+/// Open a control's own pop-up (`dialog[data-pr-popup]`: a date field's calendar) as a modal dialog. The browser draws a
+/// modal dialog in its top layer, so no container clips it (a Panel hides what overflows it) and the page behind it takes
+/// no press. In a window wide enough it is placed under its control, its left edge on the control's, kept inside the
+/// window, or above the control when there is no room under it; on a phone's width, and when neither place has room, it
+/// stays where the browser puts a modal dialog, in the middle. The day the field holds, else today, takes the focus.
+pub fn show_popup(dialog: &Element) {
+    let dj: &JsValue = dialog.as_ref();
+    if Reflect::get(dj, &"open".into()).ok().and_then(|v| v.as_bool()).unwrap_or(false) {
+        return;
+    }
+    let Some(show) = Reflect::get(dj, &"showModal".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()) else { return };
+    if show.call0(dj).is_err() {
+        return;
+    }
+    if let Ok(Some(day)) = dialog.query_selector("[aria-pressed=true]:not(:disabled), [aria-current=date]:not(:disabled)") {
+        focus(&day);
+    }
+    let (Some(win), Some(owner)) = (web_sys::window(), dialog.parent_element()) else { return };
+    let size = |v: Result<JsValue, JsValue>| v.ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let (vw, vh) = (size(win.inner_width()), size(win.inner_height()));
+    if vw < 480.0 {
+        return;
+    }
+    let (field, own) = (owner.get_bounding_client_rect(), dialog.get_bounding_client_rect());
+    let top = if field.bottom() + 4.0 + own.height() <= vh - 8.0 {
+        field.bottom() + 4.0
+    } else if field.top() - 4.0 - own.height() >= 8.0 {
+        field.top() - 4.0 - own.height()
+    } else {
+        return;
+    };
+    let left = field.left().min(vw - 8.0 - own.width()).max(8.0);
+    for (name, value) in [("margin", "0".to_owned()), ("right", "auto".to_owned()), ("bottom", "auto".to_owned()), ("left", format!("{left}px")), ("top", format!("{top}px"))] {
+        css(dialog, name, &value);
+    }
+}
+
 /// Is `strip` (a TabControl's strip) one that runs down the control (a Left or Right strip)?
 pub fn strip_is_vertical(strip: &Element) -> bool {
     strip.get_attribute("aria-orientation").as_deref() == Some("vertical")

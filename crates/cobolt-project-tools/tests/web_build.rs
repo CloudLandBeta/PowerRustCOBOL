@@ -471,6 +471,33 @@ fn the_loading_effect_reaches_the_bundle_config() {
     eprintln!("loading effect: {}", seen.join("; "));
 }
 
+// ── 2.0.432: the project's locale is the page's ─────────────────────────────
+
+/// `[project] locale` reaches `config.json`'s `options.locale` and the page's `lang`: it is the language of the player's own
+/// texts and names the country whose holy days a date field's calendar marks. A project that names none stays in English.
+#[test]
+fn the_projects_locale_reaches_the_bundle_config_and_the_page() {
+    let mut seen = Vec::new();
+    for (tag, locale, want) in [("locale-none", None, "en"), ("locale-br", Some("pt-BR"), "pt-BR"), ("locale-fr", Some("fr-FR"), "fr-FR")] {
+        let manifest = project_with(tag, "[web]\nmulti_memory = true\n", &["main-form"]);
+        if let Some(l) = locale {
+            let text = std::fs::read_to_string(&manifest).unwrap();
+            assert!(text.contains("kind = \"web\"\n"));
+            std::fs::write(&manifest, text.replace("kind = \"web\"\n", &format!("kind = \"web\"\nlocale = \"{l}\"\n"))).unwrap();
+        }
+        let req = WebBuildRequest::from_manifest(&manifest).unwrap();
+        let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
+        let files = snapshot(&report.bundle_dir);
+        let config: serde_json::Value = serde_json::from_slice(&files["config.json"]).unwrap();
+        assert_eq!(config["options"]["locale"], want, "{tag}: config.json");
+        let page = String::from_utf8_lossy(&files["index.html"]).into_owned();
+        assert!(page.contains(&format!("<html lang=\"{want}\">")), "{tag}: the page's language");
+        seen.push(format!("{tag}: {want}"));
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+    }
+    eprintln!("project locale: {}", seen.join("; "));
+}
+
 // ── WASM-017 T3: `Instances` out of range refuses Check and Build ───────────
 
 #[test]

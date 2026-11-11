@@ -1141,6 +1141,16 @@ impl WebBuildBackend for GeneratorBackend {
             // One mapping, shared with the test fixtures (WASM-011 R1).
             style: AppStyle::from_name(req.web.style.as_str()).unwrap_or_default(),
             title: req.name.clone(),
+            // `[project] locale` (2.0.432): the language of the page and of the player's own texts, and the country
+            // whose holy days a date field's calendar marks. A project that names none stays in English, as before.
+            locale: {
+                let named = cobolt_compiler::project_locale(&req.manifest);
+                if named.is_empty() {
+                    BundleOptions::default().locale
+                } else {
+                    named
+                }
+            },
             isolation: match req.web.isolation {
                 Isolation::Off => cobolt_web_bundle::Isolation::Off,
                 Isolation::RequireCorp => cobolt_web_bundle::Isolation::RequireCorp,

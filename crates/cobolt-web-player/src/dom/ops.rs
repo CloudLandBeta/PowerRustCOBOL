@@ -342,6 +342,34 @@ impl Shared {
                     ui.focused = None;
                 }
             }),
+            UiOp::CalendarOpen(at) => {
+                // Today is the page's: the day of the user's own clock.
+                let now = js_sys::Date::new_0();
+                let today = (now.get_full_year() as i32, now.get_month() + 1, now.get_date());
+                let (year, month) = at.unwrap_or((today.0, today.1));
+                self.with_ui(inst, |ui| ui.calendar = Some(crate::view::CalendarUi { ctl, year, month, today }));
+            }
+            UiOp::CalendarShow(year, month) => self.with_ui(inst, |ui| {
+                if let Some(k) = ui.calendar.as_mut().filter(|k| k.ctl == ctl) {
+                    (k.year, k.month) = (year, month);
+                }
+            }),
+            UiOp::CalendarClose => {
+                self.with_ui(inst, |ui| {
+                    if ui.calendar.is_some_and(|k| k.ctl == ctl) {
+                        ui.calendar = None;
+                    }
+                });
+                // Closed by the page before the redraw takes the dialog away, so that the browser hands the focus back to
+                // where it was when the calendar opened (its button): a dialog that is only removed leaves the focus nowhere.
+                if let Some(el) = self.control_element(inst, ctl) {
+                    if let Ok(Some(dialog)) = el.query_selector("dialog.pr-cal[open]") {
+                        if let Ok(f) = js_sys::Reflect::get(&dialog, &"close".into()).and_then(|f| f.dyn_into::<js_sys::Function>()) {
+                            let _ = f.call0(&dialog);
+                        }
+                    }
+                }
+            }
             UiOp::MapDrag { x, y, lat, lng } => self.with_ui(inst, |ui| {
                 ui.map_drag.insert(ctl, (x, y, lat, lng));
             }),
