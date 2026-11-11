@@ -22,7 +22,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   build keeps it on the same bundle, and a new Mobile project starts with an application id that Project Settings edits (2.0.294). The
   example is `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1–T7, T12, T17, T18, T23. Partly done
   (what is left is named under each): T8, T9, T11, T13–T16, T19, T20, T22, T24, T25b, T25c. Not started: T10 (O9), T21, T25 (O1), T26. iOS: until 2026-11-10 it was not run
-  here (Xcode 15.2's simulators were iOS 17.2, below the iOS 18 floor). Xcode 27.2, the iOS 17.2 and 27.2 simulators and `xcodegen` 2.46.0 are in place now, and the iOS web view runs a built bundle (WASM-002 T24); the iOS package step itself is not written (Build answers `package.built: false`).
+  here (Xcode 15.2's simulators were iOS 17.2, below the iOS 18 floor). Xcode 27.2, the iOS 17.2 and 27.2 simulators and `xcodegen` 2.46.0 are in place now, and the iOS web view runs a built bundle (WASM-002 T24). **The iOS package step is written (2.0.411, `mobile_build::build_ios`):** Build on an iPhone project produces the development application for the simulator, `dist/mobile/ios/<Name>-debug.app`, run on an iPhone 18 Pro (iOS 27.2) where it shows the form (`cobolt-project-tools/tests/ios_package.rs`, `#[ignore]`d). Still not written: the release archive (refused with the reason), Run on the simulator from the IDE and the iOS device list (T16's iOS half), the Xcode native project (R16).
   The "no task commits" rule below is overridden by the operator (2026-11-06: every task is committed, merged into `2.x.x` and pushed outside the
   window).
 
@@ -446,7 +446,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 - [x] **T17 — Build wiring: the IDE continues into the mobile half** (R1, R14; AC1 driver, AC10)
   - **Done (debug):** after a Mobile project's Web build the Preview asks its `DeviceRunner` for the package (`DeviceRunner::package`, a worker
-    thread in `panels/mobile_runner.rs`); the Output shows the steps, the errors and "Package: <path> (<n> MB)"; `PackageNote` is said only for iOS.
+    thread in `panels/mobile_runner.rs`); the Output shows the steps, the errors and "Package: <path> (<n> MB)"; `PackageNote` was said only for iOS until 2.0.411, when the iOS package step
+    (`DeviceRunner::package` for every Mobile platform) replaced it; it is now said only when the project has no package step.
     Desktop and Web take their old path (`NoDeviceTools` answers `package()` with no package). The menu entries wait for T19/T21.
   - Files: `crates/cobolt-ide/src/app.rs` (`start_web` `:2715`; menu entries **Run on device…** and **Signing…**, Mobile projects only);
     `crates/cobolt-ide/src/panels/web_preview.rs` (`Note::PackageNote` `:78`/`:217`/`:730` gives way to the mobile build's notes).
@@ -462,7 +463,9 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     same one); the missing tools come back with how to get each. **Changed:** `release: true` is not refused — it builds a signed release with the
     keystore and alias named in `[mobile.signing]` and the two passwords from the environment of `rcrun` (`PRC_ANDROID_STORE_PASSWORD`,
     `PRC_ANDROID_KEY_PASSWORD`; the build hands all four to Gradle as `PRC_ANDROID_*` variables), and is refused with what is missing otherwise. A build machine has no IDE and no secret store; the environment is the
-    route D-Sign already uses, and no password is ever in a file. iOS answers `built: false` with the reason.
+    route D-Sign already uses, and no password is ever in a file. iOS answered `built: false` with the reason until 2.0.411; since then it
+    builds the simulator application (`package: {status, built, app, bytes, elapsed_s, log}`, the same 40 s wait), names each missing tool
+    with its command, and refuses `release: true` (the archive needs the Apple team, signing identity and provisioning profile).
   - Files: `crates/cobolt-project-tools/src/tools/build.rs` (the Mobile `package` answer `:126-135`, reason `:134`).
   - Do: a Mobile project builds a debug package and reports the artefacts, or the T14 missing-tool rows. A release request answers "release signing is
     from the IDE only". Off macOS, iOS keeps today's "only on macOS" reason. The device list is available as a tool output.
@@ -529,8 +532,9 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     Mobile application only"; `do_run_form` now hands a Web or Mobile project to Run (the phone or emulator, else the browser) and the
     button's tip says where it runs (`run_form_tip`, six languages; test
     `run_form_in_a_web_or_mobile_project_says_where_it_runs_in_six_languages`). Debug Form keeps the desktop window: no debugger
-    reaches the device yet. **Left:** the iOS half (with Xcode, the simulator — not run here: Xcode 15.2's simulators are iOS 17.2,
-    below the iOS 18 floor).
+    reaches the device yet. **Left:** the iOS half — the simulators are here since 2026-11-10 (Xcode 27.2, iOS 27.2) and the simulator
+    application is built (2.0.411), but listing the simulators, starting one, installing and streaming its log from the IDE is unwritten
+    (`detect(Ios)` in `panels/mobile_runner.rs` still answers an error).
   - Files: `crates/cobolt-ide/src/panels/mobile_devices.rs` (`MobileDeviceRunner`); `crates/cobolt-ide/src/panels/web_preview.rs` (the `DeviceRunner`
     seam receives the real implementation); `crates/cobolt-ide/src/app.rs` (`toggle_web_preview` `:2736`, `do_run` `:2823`: a Mobile project goes
     through `DeviceRunner`).
@@ -634,11 +638,11 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     (`config.ini`, the setting Device Manager edits) the cold boot completed in under a minute and the install and start worked at once.
     AC7 in part: the forms stand below the status bar (root 24 CSS px down,
     the strip `#f4f5f7`) and above the gesture bar; Back measured (it closes, it does not pop: the example has one form). **Not run here:** the
-    `.aab`; iOS (Xcode 15.2, simulators iOS 17.2 < floor 18); AC4 live (the operator's key); AC6 (O4); AC7's rotation and a multi-form Back;
+    `.aab`; iOS (then Xcode 15.2, simulators iOS 17.2 < floor 18; the simulator application was run on 2026-11-10, 2.0.411, see the header); AC4 live (the operator's key); AC6 (O4); AC7's rotation and a multi-form Back;
     AC8–AC9 on the device; the R3a fallback.
   - Files: `specs/WASM-PROGRESS.md` (the WASM-012 row `:41`, T/I/V columns, and a dated evidence note); the `#[ignore]` tests of T11–T16.
   - Do: run each `#[ignore]` test where the tools exist, with its exact command; record platform, command and result:
-    - **AC1:** Android `.apk` + `.aab`; the emulator shows the main form. On a Mac with Xcode: the iOS archive; the simulator shows the main form.
+    - **AC1:** Android `.apk` + `.aab`; the emulator shows the main form. On a Mac with Xcode: the iOS archive; the simulator shows the main form. *(2026-11-10, 2.0.411: the simulator application is built and shows the form on an iPhone 18 Pro; the archive is refused, it needs the Apple team, signing identity and provisioning profile.)*
     - **AC3 and R3a (WASM-008 AC13):** Preview and Run of the Mobile fixture with an emulator start it, install, show the form; an edit reloads; the
       device log and the page console reach the Output panel.
     - **R3a fallback (WASM-008 AC14):** with `ANDROID_HOME` pointed at an empty folder, Preview opens the browser at a phone width and the Output panel
