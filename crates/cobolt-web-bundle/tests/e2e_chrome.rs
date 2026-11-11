@@ -523,9 +523,20 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, effect: Loadi
     });
 
     let effect_name = effect.as_str();
-    run.with_backend(&format!("loading effect `{effect_name}` (the project's setting): a card marked LoadingEffect shows it while the call is in flight and loses it with the answer (2.0.412, 2.0.413)"), |p, b| {
+    run.with_backend(&format!("loading effect `{effect_name}` (the project's setting): a card marked LoadingEffect shows it only when the call has been out for 2 s, never for a quicker answer, and loses it with the answer (2.0.412, 2.0.413, 2.0.415)"), |p, b| {
         let b = b.as_ref().ok_or("no backend")?;
-        b.delay_ms.store(1500, Ordering::SeqCst);
+        // Records, on the page's own clock counted from `__t0`, every change of the player's busy mark and the moment the
+        // answer (`pong`) reaches the label; an earlier phase's observers are dropped first.
+        let arm = format!(
+            "(() => {{ (window.__obs || []).forEach(o => o.disconnect()); window.__busy = []; window.__ans = null; \
+             const r = __pr.root().querySelector('.pr-root'), l = __pr.ctl({m}, {o}); \
+             const mark = new MutationObserver(() => __busy.push([Math.round(performance.now() - __t0), r.getAttribute('data-pr-busy')])); \
+             mark.observe(r, {{ attributes: true, attributeFilter: ['data-pr-busy'] }}); \
+             const ans = new MutationObserver(() => {{ if (__ans === null && (l.textContent || '').includes('pong')) __ans = Math.round(performance.now() - __t0); }}); \
+             ans.observe(l, {{ childList: true, characterData: true, subtree: true }}); window.__obs = [mark, ans]; return true; }})()",
+            m = q(main),
+            o = q(LBL_OUT)
+        );
         // What the browser says about the card's overlay and about the player's busy mark (its value is the project's effect),
         // which the page's <body> also carries; `null` = no mark.
         let look = format!(
@@ -541,6 +552,26 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, effect: Loadi
         if rest["cls"] != true || rest["opacity"] != "0" || !rest["root"].is_null() {
             return Err(format!("at rest the card must carry the class with an invisible overlay and the player not be busy: {rest}"));
         }
+        // Phase 1, a quick answer: a call answered well inside the 2 s never marks the player busy, and the wait does not
+        // come back later (the page is watched for 2.6 s from the click, past the moment the effect would have been due).
+        b.delay_ms.store(300, Ordering::SeqCst);
+        p.eval("window.__t0 = performance.now(); true")?;
+        p.eval(&arm)?;
+        click(p, main, "BTN-REMOTE")?;
+        p.wait_for("__ans !== null", 20).map_err(|e| format!("the quick call was never answered: {e}"))?;
+        p.wait_for("performance.now() - __t0 > 2600", 10)?;
+        let quick = p.eval("({ ans: __ans, log: __busy })")?;
+        let quick_ans = quick["ans"].as_f64().unwrap_or(f64::MAX);
+        let quick_marks = quick["log"].as_array().map(Vec::len).unwrap_or(0);
+        // The expectation follows the answer's own time on the page's clock, so a machine too loaded to answer in 2 s does not
+        // fail what it cannot test; between 1.9 s and 2.3 s the rule is neither promised nor asserted.
+        if quick_ans < 1900.0 && quick_marks != 0 {
+            return Err(format!("the call was answered at {quick_ans} ms, inside the 2 s, and the player still marked itself busy: {}", quick["log"]));
+        }
+        // Phase 2, a slow answer: the effect comes up only after the 2 s and goes with the answer.
+        b.delay_ms.store(3500, Ordering::SeqCst);
+        p.eval("window.__t0 = performance.now(); true")?;
+        p.eval(&arm)?;
         click(p, main, "BTN-REMOTE")?;
         wait_text(p, main, LBL_OUT, "calling")?;
         // The player marks its root and the page's body with the project's effect by name, whatever the effect is...
@@ -569,9 +600,15 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, effect: Loadi
         if !after["root"].is_null() || !after["body"].is_null() {
             return Err(format!("the busy mark stayed after the answer: {after}"));
         }
+        // The effect came up no sooner than the 2 s the call had to be out (1.9 s allows for the click's own turn).
+        let times = p.eval("({ ans: __ans, on: (__busy.find(e => e[1] !== null) || [null])[0], off: (__busy.filter(e => e[1] === null).pop() || [null])[0] })")?;
+        let on = times["on"].as_f64().ok_or_else(|| format!("the player never marked itself busy, on the page's own clock: {times}"))?;
+        if on < 1900.0 {
+            return Err(format!("the effect came up {on} ms after the click; it must wait 2000 ms for the answer: {times}"));
+        }
         Ok(format!(
-            "at rest opacity {}; call out: mark `{}`, overlay opacity {} animation {}; answered: opacity {}, no busy mark",
-            rest["opacity"], busy["root"].as_str().unwrap_or("?"), busy["opacity"], busy["animation"], after["opacity"]
+            "quick call: answered at {quick_ans} ms, {quick_marks} busy marks in 2.6 s; slow call: mark `{}` at {on} ms (due 2000), removed at {} ms, answered at {} ms; overlay at rest {}, out opacity {} animation {}, answered {}",
+            busy["root"].as_str().unwrap_or("?"), times["off"], times["ans"], rest["opacity"], busy["opacity"], busy["animation"], after["opacity"]
         ))
     });
 

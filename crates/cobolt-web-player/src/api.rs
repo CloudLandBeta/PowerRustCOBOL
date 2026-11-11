@@ -522,6 +522,9 @@ pub(crate) struct Inner {
     /// The requests a Timer's `onTick` handler made and that are still in flight (2.0.413): an automatic refresh, which the
     /// loading effect does not show.
     automatic: RefCell<std::collections::HashSet<u32>>,
+    /// Holds the loading effect back for 2 s of a user's call (2.0.415) and the timer that asks again when it is due.
+    effect_gate: RefCell<net::EffectGate>,
+    effect_timer: RefCell<Option<Timeout>>,
     net_timer: RefCell<Option<Timeout>>,
     /// The connection's latest *blocked* and *unreachable* (WASM-003 R26, WASM-016 R21): what the
     /// "connecting" modal (WASM-016 R20) is drawn from; `stats()` reports them.
@@ -728,11 +731,25 @@ impl Inner {
             (c.take_out(), std::mem::take(&mut c.refresh_requested), c.next_deadline(), c.in_flight_ids())
         };
         // The loading effect shows for what the user (or the initial load) started; a call a Timer's tick made is an automatic
-        // refresh and shows nothing. Calls that ended are forgotten.
+        // refresh and shows nothing. Calls that ended are forgotten. And it starts only when the user's call has been
+        // unanswered for 2 s (2.0.415): an answer before that means it never showed, one after it dismisses it.
         let busy = net::user_call_in_flight(&in_flight, &mut self.automatic.borrow_mut());
+        let at = now_ms();
+        let show = self.effect_gate.borrow_mut().show(busy, at);
         if let Some(sf) = self.surface.borrow().as_ref() {
-            sf.net_busy(busy, &self.cfg.loading_effect_name());
+            sf.net_busy(show, &self.cfg.loading_effect_name());
         }
+        // One timer asks again when the 2 s are up (the connection's own events may all be quiet by then). It goes through the
+        // same turn as a connection tick, which is harmless when no deadline is due.
+        let due = self.effect_gate.borrow().due_in(at);
+        *self.effect_timer.borrow_mut() = due.map(|ms| {
+            let weak = Rc::downgrade(self);
+            Timeout::new(ms.min(u32::MAX as u64) as u32, move || {
+                if let Some(i) = weak.upgrade() {
+                    i.push(Inbox::Net(NetEvent::Tick));
+                }
+            })
+        });
         let mut modal_changed = false;
         for o in outs {
             match o {
@@ -1449,6 +1466,8 @@ impl Player {
             inbox: RefCell::new(VecDeque::new()),
             net: RefCell::new(None),
             automatic: RefCell::new(std::collections::HashSet::new()),
+            effect_gate: RefCell::new(net::EffectGate::default()),
+            effect_timer: RefCell::new(None),
             net_timer: RefCell::new(None),
             net_blocked: Cell::new(false),
             net_unreachable: Cell::new(false),
@@ -1868,6 +1887,7 @@ impl Player {
             }
             *inner.net.borrow_mut() = None;
             *inner.net_timer.borrow_mut() = None;
+            *inner.effect_timer.borrow_mut() = None;
             for (target, kind, cb) in inner.resume.borrow_mut().drain(..) {
                 let _ = target.remove_event_listener_with_callback(kind, cb.as_ref().unchecked_ref());
             }

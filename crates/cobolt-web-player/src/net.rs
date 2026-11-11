@@ -52,6 +52,39 @@ pub fn user_call_in_flight(in_flight: &[u32], automatic: &mut HashSet<u32>) -> b
     in_flight.iter().any(|id| !automatic.contains(id))
 }
 
+/// How long a user's call may be out before the loading effect starts (2.0.415). A call that is answered sooner never shows
+/// the effect at all, so a quick answer does not flash the stripes.
+pub const LOADING_EFFECT_DELAY_MS: u64 = 2000;
+
+/// Holds the loading effect back until a user's call has been waiting for [`LOADING_EFFECT_DELAY_MS`] (2.0.415).
+///
+/// It is asked every time the connection changes (`busy` is [`user_call_in_flight`]'s answer, `now` the clock in
+/// milliseconds). The wait is counted from the moment a user's call went out with none before it; when no user's call is out
+/// the count is dropped, so the next call waits its own 2 s, and the effect (if it was up) goes away completely.
+#[derive(Debug, Default)]
+pub struct EffectGate {
+    waiting_since: Option<u64>,
+}
+
+impl EffectGate {
+    /// Should the effect be showing at `now`?
+    pub fn show(&mut self, busy: bool, now: u64) -> bool {
+        if !busy {
+            self.waiting_since = None;
+            return false;
+        }
+        let since = *self.waiting_since.get_or_insert(now);
+        now.saturating_sub(since) >= LOADING_EFFECT_DELAY_MS
+    }
+
+    /// Milliseconds from `now` until the effect is due, while a call is waiting for it; `None` when none is waiting or the
+    /// effect is already due (nothing left to wait for).
+    pub fn due_in(&self, now: u64) -> Option<u64> {
+        let due = self.waiting_since? + LOADING_EFFECT_DELAY_MS;
+        (due > now).then(|| due - now)
+    }
+}
+
 mod transfer;
 pub use transfer::{plain_name, CHUNK_BYTES};
 
@@ -1248,6 +1281,34 @@ mod tests {
         assert!(automatic.is_empty(), "7 is forgotten once it is no longer in flight");
         assert!(user_call_in_flight(&[9], &mut automatic), "a call nobody marked is the user's (the initial load's, a grid's)");
         println!("busy: timer-only -> no, timer + user -> yes, user only -> yes, nothing -> no; ended calls forgotten");
+    }
+
+    /// 2.0.415: the effect starts only when a user's call has been out for 2 s; an answer before that means it never showed, and
+    /// the next call waits its own 2 s.
+    #[test]
+    fn the_loading_effect_waits_two_seconds_for_the_answer() {
+        let mut g = EffectGate::default();
+        let t0 = 10_000;
+        assert!(!g.show(false, t0), "nothing in flight: no effect");
+        assert_eq!(g.due_in(t0), None, "nothing is waiting");
+        // A call goes out at t0 and is answered 1.9 s later: the effect never shows, and nothing is left to dismiss.
+        assert!(!g.show(true, t0), "the call just went out: not yet");
+        assert_eq!(g.due_in(t0), Some(2000), "the effect is due in 2 s");
+        assert!(!g.show(true, t0 + 1000), "1 s: not yet");
+        assert_eq!(g.due_in(t0 + 1500), Some(500));
+        assert!(!g.show(true, t0 + 1999), "1.999 s: not yet");
+        assert!(!g.show(false, t0 + 1900), "answered at 1.9 s: still no effect");
+        assert_eq!(g.due_in(t0 + 1900), None, "the wait is dropped with the answer");
+        // The next call waits its own 2 s, counted from when it went out, not from the first.
+        assert!(!g.show(true, t0 + 2500), "a new call at 2.5 s: its own 2 s begin");
+        assert_eq!(g.due_in(t0 + 2500), Some(2000));
+        assert!(!g.show(true, t0 + 4499), "1.999 s after the new call: not yet");
+        assert!(g.show(true, t0 + 4500), "2 s after it went out and still unanswered: the effect starts");
+        assert_eq!(g.due_in(t0 + 4500), None, "it is already due");
+        assert!(g.show(true, t0 + 9000), "it stays while the call is out");
+        assert!(!g.show(false, t0 + 9100), "the answer dismisses it completely");
+        assert!(!g.show(true, t0 + 9200), "and a following call starts the wait again");
+        println!("loading effect gate: 2000 ms; answered at 1.9 s -> never shown; unanswered at 2.0 s -> shown; answer -> dismissed; next call -> new 2 s");
     }
 
     /// The client lists the ids it has in flight, in order.
