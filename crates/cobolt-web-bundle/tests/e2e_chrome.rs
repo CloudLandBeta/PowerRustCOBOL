@@ -612,6 +612,39 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, effect: Loadi
         ))
     });
 
+    run.with_backend("loading effect: once up (after 2 s) the stripes go off once, after the page shows the data the answer carried (2.0.416)", |p, b| {
+        let b = b.as_ref().ok_or("no backend")?;
+        b.delay_ms.store(3500, Ordering::SeqCst);
+        p.wait_for(&format!("getComputedStyle(__pr.ctl({m}, {card}), '::after').opacity === '0'", m = q(main), card = q(CARD)), 10)
+            .map_err(|e| format!("the stripes of the call before this one never faded: {e}"))?;
+        // One observer, so the records keep the order the page changed in: the busy mark going on or off, and the label's text.
+        p.eval(&format!(
+            "(() => {{ window.__busy = []; const r = __pr.root().querySelector('.pr-root'), l = __pr.ctl({m}, {o}), t0 = performance.now(); \
+             const o = new MutationObserver(rs => {{ for (const x of rs) __busy.push(x.type === 'attributes' ? [Math.round(performance.now() - t0), 'busy', r.hasAttribute('data-pr-busy')] : [Math.round(performance.now() - t0), 'text', l.textContent]); }}); \
+             o.observe(r, {{ attributes: true, attributeFilter: ['data-pr-busy'] }}); o.observe(l, {{ childList: true, characterData: true, subtree: true }}); return true; }})()",
+            m = q(main),
+            o = q(LBL_OUT)
+        ))?;
+        click(p, main, "BTN-REMOTE")?;
+        wait_text(p, main, LBL_OUT, "calling")?;
+        p.wait_for(&format!("(__pr.text({}, {}) || '').includes('pong')", q(main), q(LBL_OUT)), 20).map_err(|e| format!("the answer never came: {e}"))?;
+        // A flash after the answer would come within a moment of it.
+        std::thread::sleep(Duration::from_millis(800));
+        let log = p.eval("__busy")?;
+        let rec: Vec<(u64, String, String)> =
+            log.as_array().map(|a| a.iter().map(|e| (e[0].as_u64().unwrap_or(0), e[1].as_str().unwrap_or("").to_owned(), e[2].to_string())).collect()).unwrap_or_default();
+        // Wanted: the label's text "calling", busy on once the call has been out 2 s, the answer's text, busy off. The old order
+        // put "off" before the data: the stripes left when the answer reached the player and the page showed the data some moments
+        // later.
+        let busy: Vec<(u64, bool)> = rec.iter().filter(|r| r.1 == "busy").map(|r| (r.0, r.2 == "true")).collect();
+        let shown = rec.iter().position(|r| r.1 == "text" && r.2.contains("pong"));
+        let off = rec.iter().position(|r| r.1 == "busy" && r.2 == "false");
+        match (busy.as_slice(), shown, off) {
+            ([(on, true), (gone, false)], Some(s), Some(o)) if s < o && *on >= 1900 && gone - on >= 1000 => Ok(format!("busy on at {on} ms, the data shown, then off at {gone} ms: held {} ms", gone - on)),
+            _ => Err(format!("the changes were {log}; the busy mark must go on once and off once, the off after the label shows the answer")),
+        }
+    });
+
     run.with_backend(
         "backend lost: the modal blocks the application while the page retries by the policy, the call in flight ends in ON EXCEPTION when it reconnects, the modal goes and the form is as it was, a later call succeeds (AC5, AC13, WASM-003 R25)",
         |p, slot| {

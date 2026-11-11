@@ -530,6 +530,8 @@ pub(crate) struct Inner {
     /// "connecting" modal (WASM-016 R20) is drawn from; `stats()` reports them.
     net_blocked: Cell<bool>,
     net_unreachable: Cell<bool>,
+    /// What the loading effect was last told ([`Inner::update_busy`]): the surface hears of a change only.
+    busy_shown: Cell<bool>,
     /// Where the retry cycle stands (what the modal's status line shows), from the connection's latest [`Out::Net`].
     pub(crate) net_progress: RefCell<Option<crate::net::Progress>>,
     timers: RefCell<Vec<(u32, Timeout)>>,
@@ -725,31 +727,11 @@ impl Inner {
 
     /// Hand the connection's answers to the host and set the timer for its next deadline.
     fn drain_net(self: &Rc<Self>) {
-        let (outs, refresh, deadline, in_flight) = {
+        let (outs, refresh, deadline) = {
             let mut guard = self.net.borrow_mut();
             let Some(c) = guard.as_mut() else { return };
-            (c.take_out(), std::mem::take(&mut c.refresh_requested), c.next_deadline(), c.in_flight_ids())
+            (c.take_out(), std::mem::take(&mut c.refresh_requested), c.next_deadline())
         };
-        // The loading effect shows for what the user (or the initial load) started; a call a Timer's tick made is an automatic
-        // refresh and shows nothing. Calls that ended are forgotten. And it starts only when the user's call has been
-        // unanswered for 2 s (2.0.415): an answer before that means it never showed, one after it dismisses it.
-        let busy = net::user_call_in_flight(&in_flight, &mut self.automatic.borrow_mut());
-        let at = now_ms();
-        let show = self.effect_gate.borrow_mut().show(busy, at);
-        if let Some(sf) = self.surface.borrow().as_ref() {
-            sf.net_busy(show, &self.cfg.loading_effect_name());
-        }
-        // One timer asks again when the 2 s are up (the connection's own events may all be quiet by then). It goes through the
-        // same turn as a connection tick, which is harmless when no deadline is due.
-        let due = self.effect_gate.borrow().due_in(at);
-        *self.effect_timer.borrow_mut() = due.map(|ms| {
-            let weak = Rc::downgrade(self);
-            Timeout::new(ms.min(u32::MAX as u64) as u32, move || {
-                if let Some(i) = weak.upgrade() {
-                    i.push(Inbox::Net(NetEvent::Tick));
-                }
-            })
-        });
         let mut modal_changed = false;
         for o in outs {
             match o {
@@ -814,6 +796,8 @@ impl Inner {
                 }
             }
         }
+        // After the answers are the host's: one that has arrived keeps the effect on until its handler has shown it.
+        self.update_busy();
         for sub in self.host.borrow_mut().take_closed_streams() {
             if let Some(c) = self.net.borrow_mut().as_mut() {
                 c.unsubscribe(sub);
@@ -1324,7 +1308,41 @@ impl Inner {
         if let Some(sf) = self.surface.borrow().as_ref() {
             sf.render(self);
         }
+        // The handler that made a call has gone on with its answer and the page shows what it carried: the effect ends here.
+        self.update_busy();
         self.super_publish();
+    }
+
+    /// The loading effect follows the operation, not the transport: it is on from the moment a call is made until the handler
+    /// that made it has gone on with the answer and the page shows the data. A call out is busy; so is an answer that has
+    /// arrived and not yet been used; a chain of calls never lets go between one answer and the next call. The effect shows for
+    /// what the user (or the initial load) started: a call a Timer's tick made is an automatic refresh and shows nothing, and
+    /// stays one until its answer is used. Calls that ended are forgotten. The surface is told of a change only.
+    ///
+    /// The effect starts only when the operation has been unanswered for 2 s (2.0.415, [`net::EffectGate`]): a quicker one
+    /// never shows it, and once up it goes away completely when the operation ends. One timer asks again when the 2 s are up,
+    /// since the connection's own events may all be quiet by then; it goes through the same turn as a connection tick, which
+    /// is harmless when no deadline is due.
+    fn update_busy(self: &Rc<Self>) {
+        let mut outstanding = self.net.borrow().as_ref().map(|c| c.in_flight_ids()).unwrap_or_default();
+        outstanding.extend(self.host.borrow().answers_to_use());
+        let busy = net::user_call_in_flight(&outstanding, &mut self.automatic.borrow_mut());
+        let at = now_ms();
+        let show = self.effect_gate.borrow_mut().show(busy, at);
+        if self.busy_shown.replace(show) != show {
+            if let Some(sf) = self.surface.borrow().as_ref() {
+                sf.net_busy(show, &self.cfg.loading_effect_name());
+            }
+        }
+        let due = self.effect_gate.borrow().due_in(at);
+        *self.effect_timer.borrow_mut() = due.map(|ms| {
+            let weak = Rc::downgrade(self);
+            Timeout::new(ms.min(u32::MAX as u64) as u32, move || {
+                if let Some(i) = weak.upgrade() {
+                    i.push(Inbox::Net(NetEvent::Tick));
+                }
+            })
+        });
     }
 }
 
@@ -1471,6 +1489,7 @@ impl Player {
             net_timer: RefCell::new(None),
             net_blocked: Cell::new(false),
             net_unreachable: Cell::new(false),
+            busy_shown: Cell::new(false),
             net_progress: RefCell::new(None),
             timers: RefCell::new(Vec::new()),
             display_log: RefCell::new(Vec::new()),

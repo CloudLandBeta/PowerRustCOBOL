@@ -1232,6 +1232,24 @@ impl Host {
         self.tasks.values().any(|t| matches!(&t.state, TaskState::Suspended(w) if !w.ready()))
     }
 
+    /// The calls whose answer has reached the host but whose handler has not gone on with it yet, so the data is not on the
+    /// page. The loading effect keeps its stripes through this, until the handler has shown what the answer carried.
+    pub fn answers_to_use(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = self
+            .tasks
+            .values()
+            .filter_map(|t| match &t.state {
+                TaskState::Suspended(Wait::Remote { id, answer: Some(_) }) => Some(*id),
+                _ => None,
+            })
+            .collect();
+        // The answer can beat the module's own return from the suspending call (`remote_answer`).
+        if let Some(InFlight { wait: Some(Wait::Remote { id, answer: Some(_) }), .. }) = &self.inflight {
+            ids.push(*id);
+        }
+        ids
+    }
+
     pub fn is_idle(&self) -> bool {
         self.inflight.is_none() && self.work.is_empty() && self.tasks.is_empty()
     }

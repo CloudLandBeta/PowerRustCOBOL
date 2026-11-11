@@ -179,6 +179,25 @@ fn the_answer_frame_reaches_the_module_byte_for_byte() {
     });
 }
 
+/// The loading effect (2.0.413) ends when the page shows the data, not when the answer reaches the player: between the two
+/// the host reports an answer to use, and the effect stays on.
+#[test]
+fn an_answer_that_has_arrived_is_in_use_until_its_handler_has_gone_on_with_it() {
+    both(|rig| {
+        rig.start();
+        assert!(rig.host.borrow().answers_to_use().is_empty(), "nothing is out");
+        rig.click(0, "BTN-REMOTE");
+        let reqs = rig.take_requests();
+        assert!(rig.host.borrow().answers_to_use().is_empty(), "a call that is out is the connection's: no answer yet");
+        rig.host.borrow_mut().remote_answer(reqs[0].0, br#"{"id":1,"result":"pong"}"#.to_vec());
+        assert_eq!(rig.host.borrow().answers_to_use(), [reqs[0].0], "the answer is here and the handler has not gone on with it");
+        rig.drive();
+        assert!(rig.host.borrow().answers_to_use().is_empty(), "the handler went on with it and wrote the data");
+        assert_eq!(rig.get(0, LBL_OUT, "Caption"), r#"{"id":1,"result":"pong"}"#);
+        println!("answer to use: false before the call, false while out, true when it arrived, false once the handler had shown it (multi={})", rig.multi);
+    });
+}
+
 #[test]
 fn a_very_long_loop_yields_and_is_resumed_until_it_finishes() {
     both(|rig| {
