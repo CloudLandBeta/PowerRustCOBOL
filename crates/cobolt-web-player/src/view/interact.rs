@@ -485,10 +485,13 @@ fn check_or_radio(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     let radio = matches!(cx.tree.ctl(i).control_type(), Some(ControlType::RadioButton));
     let before = truthy(&cx.tree.get(i, SELECTED_PROP)) || truthy(&cx.tree.get(i, CHECKED_PROP));
     match (p.kind.as_str(), p.key.as_str()) {
-        ("change", "input") => {
-            if before == p.checked {
-                return Vec::new();
-            }
+        // The browser sets a toggle's checkedness BEFORE it raises `click`, and raises `change` after the click. The state
+        // is written here, in the click's own acts, ahead of the `onClick` that `on_event` adds after them: a handler bound
+        // to `onClick` reads what the click wrote, as on the desktop. Written on `change` (as it was until 2.0.426), a real
+        // press ran the handler first, because the browser runs the player's queued work between the two events. The
+        // `change` that follows finds the state written and raises nothing; the arrow keys of a radio group, a label's
+        // click and the space bar all raise a `click` first.
+        ("click", "input") if p.checked != before => {
             let mut v = vec![quiet(if radio { SELECTED_PROP } else { CHECKED_PROP }, b01(p.checked))];
             v.extend(toggle_events(p.checked, false));
             v
@@ -496,7 +499,7 @@ fn check_or_radio(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
         // A click on a radio that is already selected changes nothing the browser reports (no `change`), but the
         // desktop takes every click on a radio as selecting it: it writes `1` again (its siblings `0`) and raises the
         // selection's events again (`render.rs` RadioButton arm: `push_toggle_state(.., true)` on every click and
-        // space bar). A radio not yet selected is the `change` above, which follows this click.
+        // space bar). A radio not yet selected is the click above.
         ("click", "input") if radio && before => {
             let mut v = vec![quiet(SELECTED_PROP, b01(true))];
             v.extend(toggle_events(true, false));
@@ -1677,17 +1680,20 @@ mod tests {
         let t = tree();
         let e = Empty::default();
         let i = t.by_name("CHK-1").unwrap();
-        let mut p = Payload::new("change", "input");
+        let mut p = Payload::new("click", "input");
         p.checked = true;
         // Measured on the desktop's render engine (a click on `CHK-1` through `render_form`, P5a, 2026-10-28):
-        // `onChange(1) onCheck onCheckedChanged(true) onValueChanged`, dispatched in that order by the form host.
-        assert_eq!(names(&run(&t, i, &e, p.clone())), ["Checked=1", "onChange(1)", "onCheck", "onCheckedChanged(true)", "onValueChanged"]);
-        let mut off = Payload::new("change", "input");
-        off.checked = false;
-        assert!(run(&t, i, &e, off).is_empty(), "no change, no events");
-        let mut click = Payload::new("click", "input");
-        click.checked = true;
-        assert_eq!(names(&run(&t, i, &e, click)), ["onClick"], "a click on the input is the control's click");
+        // `onChange(1) onCheck onCheckedChanged(true) onValueChanged`, dispatched in that order by the form host; the
+        // control's own click comes after them (2.0.426: it used to come before the write, with the browser's `change`).
+        assert_eq!(
+            names(&run(&t, i, &e, p.clone())),
+            ["Checked=1", "onChange(1)", "onCheck", "onCheckedChanged(true)", "onValueChanged", "onClick"]
+        );
+        let off = Payload::new("click", "input");
+        assert_eq!(names(&run(&t, i, &e, off)), ["onClick"], "a click that leaves the box as it was: no change, no events, and still the control's click");
+        let mut change = Payload::new("change", "input");
+        change.checked = true;
+        assert!(run(&t, i, &e, change).is_empty(), "the browser's `change` does the click's work no second time");
     }
 
     #[test]
@@ -1695,7 +1701,7 @@ mod tests {
         let mut t = tree();
         let a = t.by_name("RAD-A").unwrap();
         let e = Empty::default();
-        let mut p = Payload::new("change", "input");
+        let mut p = Payload::new("click", "input");
         p.checked = true;
         assert!(names(&run(&t, a, &e, p)).contains(&"Selected=1".to_owned()));
         let (mut st, s) = tree_with("Switch", "SW", &[]);
@@ -1717,18 +1723,53 @@ mod tests {
         let mut t = tree();
         let a = t.by_name("RAD-A").unwrap();
         let e = Empty::default();
-        // Not selected yet: the click is followed by the browser's `change`, which does the work once.
+        // Not selected yet: the browser reports the click with the radio already checked, and the click does the work once
+        // (a click that reports it unchecked changes nothing).
         assert!(!names(&run(&t, a, &e, Payload::new("click", "input"))).iter().any(|n| n.starts_with("Selected=")));
         // Selected by the design's word, or by an earlier click: every click selects it again.
         for state in ["true", "1"] {
             t.set(a, "Selected", state);
-            let acts = names(&run(&t, a, &e, Payload::new("click", "input")));
+            let mut again = Payload::new("click", "input");
+            again.checked = true; // a click on a radio that is checked leaves it checked
+            let acts = names(&run(&t, a, &e, again));
             assert_eq!(&acts[..5], ["Selected=1", "onChange(1)", "onCheck", "onCheckedChanged(true)", "onValueChanged"], "{acts:?}");
         }
-        // A CheckBox click is its `change` (the browser always reports one): the click adds nothing of its own.
+        // A CheckBox click that leaves the box as it is (checked while it holds `1`) writes nothing.
         let c = t.by_name("CHK-1").unwrap();
         t.set(c, "Checked", "1");
-        assert!(!names(&run(&t, c, &e, Payload::new("click", "input"))).iter().any(|n| n.starts_with("Checked=")));
+        let mut same = Payload::new("click", "input");
+        same.checked = true;
+        assert!(!names(&run(&t, c, &e, same)).iter().any(|n| n.starts_with("Checked=")));
+    }
+
+    /// 2.0.426: the browser sets a toggle's checkedness BEFORE it raises `click` and raises `change` after it. A handler bound
+    /// to `onClick` that reads `Selected` or `Checked` must read what the click wrote, as on the desktop: the state first, then
+    /// `onChange` … `onValueChanged`, then `onClick`. The player wrote the state on `change`, so a real press (the browser runs
+    /// the player's queued work between the two events) ran the handler on the old state: PowerOficina's dashboard asked for
+    /// the currency it already showed and the screen waited for its Timer, 0 to 15 s. The `change` that follows adds nothing.
+    #[test]
+    fn a_click_on_a_toggle_writes_its_state_before_onclick_and_the_change_after_it_adds_nothing() {
+        let mut t = tree();
+        let e = Empty::default();
+        let a = t.by_name("RAD-A").unwrap();
+        let c = t.by_name("CHK-1").unwrap();
+        let toggle = |kind: &str, checked: bool| {
+            let mut p = Payload::new(kind, "input");
+            p.checked = checked;
+            p
+        };
+        let on = |what: &str| [what, "onChange(1)", "onCheck", "onCheckedChanged(true)", "onValueChanged", "onClick"].map(str::to_owned).to_vec();
+        let off = |what: &str| [what, "onChange(0)", "onUncheck", "onCheckedChanged(false)", "onValueChanged", "onClick"].map(str::to_owned).to_vec();
+
+        assert_eq!(names(&run(&t, a, &e, toggle("click", true))), on("Selected=1"), "a radio: the write, its events, then the click");
+        assert!(run(&t, a, &e, toggle("change", true)).is_empty(), "the change after the click raises nothing a second time");
+
+        t.set(c, "Checked", "0");
+        assert_eq!(names(&run(&t, c, &e, toggle("click", true))), on("Checked=1"), "a box ticked");
+        assert!(run(&t, c, &e, toggle("change", true)).is_empty(), "the change after the tick raises nothing a second time");
+        t.set(c, "Checked", "1");
+        assert_eq!(names(&run(&t, c, &e, toggle("click", false))), off("Checked=0"), "a box cleared");
+        assert!(run(&t, c, &e, toggle("change", false)).is_empty(), "the change after the clearing raises nothing a second time");
     }
 
     /// WASM-016 T17, ruling 2026-11-02: a press and a release on a CheckBox's or RadioButton's label are the control's own
