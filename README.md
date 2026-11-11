@@ -177,8 +177,9 @@ hoped:
 
 The full reference is the Developer's Guide chapters
 [Web and Mobile applications](docs/developers-guide-en.md#23-web-and-mobile-applications),
-[The Backend and the secure channel](docs/developers-guide-en.md#24-the-backend-and-the-secure-channel)
-and [Mobile applications: Android and iOS](docs/developers-guide-en.md#25-mobile-applications-android-and-ios).
+[The Backend and the secure channel](docs/developers-guide-en.md#24-the-backend-and-the-secure-channel),
+[Mobile applications: Android and iOS](docs/developers-guide-en.md#25-mobile-applications-android-and-ios)
+and [Graphics: Canvas 2D, Canvas 3D and the graphics objects](docs/developers-guide-en.md#26-graphics-canvas-2d-canvas-3d-and-the-graphics-objects).
 
 ## Build applications with Claude Code
 
@@ -369,7 +370,7 @@ web-view Preview), with the same COBOL-85 core underneath.
 | Which exact spelling of a statement is accepted + the NIST CCVS85 scoreboard | [Supported syntax reference](docs/cobol85-supported-syntax-en.md)                                                                    |
 | What to test for each verb                                                   | [Verb test matrix](docs/cobol85-verb-test-matrix-en.md)                                                                              |
 | How to build applications with it                                            | [Developer's guide](docs/developers-guide-en.md)                                                                                     |
-| Web and Mobile applications, the Backend (version 2)                         | [Version 2 section](#version-2-web-and-mobile-applications) · [guide chapters 23–25](docs/developers-guide-en.md#23-web-and-mobile-applications) · [WASM specs index](specs/WASM-INDEX.md) |
+| Web and Mobile applications, the Backend (version 2)                         | [Version 2 section](#version-2-web-and-mobile-applications) · [guide chapters 23–26](docs/developers-guide-en.md#23-web-and-mobile-applications) · [WASM specs index](specs/WASM-INDEX.md) |
 | Indexed files — format, internals, redb engine                              | [format](docs/indexed-file-format-en.md) · [internals](docs/indexed-file-internals-en.md) · [redb](docs/indexed-redb-engine-en.md) |
 | SQL runtime · logging and metrics                                           | [database](docs/database-runtime-en.md) · [observability](docs/observability-en.md)                                                 |
 

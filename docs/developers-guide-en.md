@@ -6,9 +6,9 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-<!-- powerrustcobol: 1.65.124 -->
+<!-- powerrustcobol: 2.0.425 -->
 
-# PowerRustCOBOL AI Developer's Guide 1.70
+# PowerRustCOBOL AI Developer's Guide 2.0
 
 <p align="center">
   <img src="../assets/images/powerrustcobol-mascot.png" alt="PowerRustCOBOL mascot" width="300">
@@ -59,6 +59,7 @@ See the LICENSE file in the project root for full license information.
 14. [Indexed files — a first-class resource](#14-indexed-files--a-first-class-resource)
 15. [SQL databases](#15-sql-databases)
     - [Embedded SQL: `EXEC SQL`](#embedded-sql-exec-sql)
+    - [`COBOL::SqlDatabase`: SQL without `EXEC SQL`](#cobolsqldatabase-sql-without-exec-sql)
 16. [HTTP / REST and AI agents](#16-http--rest-and-ai-agents)
     - [Working with a coding agent (Claude Code)](#working-with-a-coding-agent-claude-code)
 17. [The command line (rcrun)](#17-the-command-line-rcrun)
@@ -69,9 +70,13 @@ See the LICENSE file in the project root for full license information.
 20. [Appearance and internationalisation](#20-appearance-and-internationalisation)
 21. [COBOL Structure and shared data](#21-cobol-structure-and-shared-data)
 22. [The application shell and the `super` receiver](#22-the-application-shell-and-the-super-receiver)
-23. [Caveats and current limitations](#23-caveats-and-current-limitations)
-24. [Appendix A — Coming from PowerCOBOL / isCOBOL](#appendix-a--coming-from-powercobol--iscobol)
-25. [Appendix B — Glossary](#appendix-b--glossary)
+23. [Web and Mobile applications](#23-web-and-mobile-applications)
+24. [The Backend and the secure channel](#24-the-backend-and-the-secure-channel)
+25. [Mobile applications: Android and iOS](#25-mobile-applications-android-and-ios)
+26. [Graphics: Canvas 2D, Canvas 3D and the graphics objects](#26-graphics-canvas-2d-canvas-3d-and-the-graphics-objects)
+27. [Caveats and current limitations](#27-caveats-and-current-limitations)
+28. [Appendix A — Coming from PowerCOBOL / isCOBOL](#appendix-a--coming-from-powercobol--iscobol)
+29. [Appendix B — Glossary](#appendix-b--glossary)
 
 ---
 
@@ -95,7 +100,10 @@ It is a Rapid Application Development (RAD) environment where you:
 - design windows ("forms") by dragging controls onto a canvas,
 - attach **COBOL** event handlers to those controls,
 - and run, debug, and ship the result as a **single self-contained native
-  executable** — no runtime to install on the target machine.
+  executable** — no runtime to install on the target machine,
+- or, since version 2, build it as a **Web or Mobile application**: your COBOL compiled to
+  WebAssembly for the browser and the phone, with a COBOL **Backend** for what must stay on a
+  server (chapters 23 to 26).
 
 Its design goals, in plain terms:
 
@@ -1836,6 +1844,32 @@ you can **Run** straight away and then grow.
 > missing standard folders** automatically. Content under the legacy
 > `Documentation/` and `docs/` project folders is moved into `Knowledge Base/`
 > without overwriting conflicting files.
+
+### A Web or Mobile project's folders
+
+A project has a **kind** — Desktop, Web or Mobile — chosen in **File ▸ New Project** (chapter 23).
+A Desktop project is the layout above, and every project written before version 2 is one. A Web or
+Mobile project keeps its forms in `webforms/` (`.wcfrm`) or `mobileforms/` (`.mcfrm`) in place of
+`forms/`, may have a **Backend**, and is built into `dist/web/` or `dist/mobile/`:
+
+```text
+OrderApp/
+├── OrderApp.project.toml    ← manifest ([project] kind = "web" or "mobile")
+├── webforms/                ← the forms (mobileforms/ in a Mobile project)
+│   └── application.css      ← the application stylesheet; <Form>.css beside each form
+├── backend/                 ← the Backend: what must not run in a page
+│   ├── src/                 ←   its COBOL programs
+│   ├── COPYBOOKS/
+│   ├── exports.toml         ←   the programs a caller may reach, and the contract version
+│   ├── backend.toml         ←   where and how it runs
+│   ├── contract/            ←   interface.json and released contracts
+│   └── generated/           ←   programs the Build writes (never edited)
+├── Assets/  indexed/  data/ ← as in a Desktop project
+└── dist/web/                ← the Build's bundle (dist/mobile/ for Android and iOS)
+```
+
+The project tree shows a **WebForms** (or **MobileForms**) node in place of Forms, then a
+**Backend** node.
 
 ### The eight tree categories
 
@@ -7472,6 +7506,46 @@ above (a Viewer with `Layout = Streamed`, a ListBox of past conversations and a
 "New chat" button), append three or four messages so the conversation fills the
 pane, and capture the whole window — so a reader can see that the sidebar is
 the developer's own and the Viewer draws no chrome of its own.
+
+### Controls new in version 2: Hyperlink, Authentication, Canvas2D and Canvas3D
+
+**Hyperlink** is link text that opens an address, like an HTML `<a>`: a web page, an e-mail
+(`mailto:`), a phone number (`tel:`, `sms:`), a download or a `#name` on the form. `Caption` is the
+friendly text and `Url` the address. In a browser it **is** an anchor — Ctrl/⌘-click, middle-click
+and the context menu work as on any site; on a desktop form a click opens the system's default
+browser, whatever the `Target`. It is a tab stop and Enter follows it. It has the Label's
+properties, events and methods plus the link's:
+
+| Property | What it does |
+|---|---|
+| `Url` | the address: `http`, `https`, `mailto` (with `subject`, `body`, `cc`, `bcc`), `tel`, `sms`, a relative address or a `#name` on this form. `javascript:`, `vbscript:` and `data:` are **always** refused (`data:` only for a `Download`); any other scheme only when the project lists it under `[links] schemes`. A refused address is kept as written, shown in red in the Properties panel, and the link stays inert |
+| `Target` | `Self` (default), `NewTab`, `NewWindow`, `Parent`, `Top` |
+| `WindowFeatures`, `Rel`, `Download`, `HrefLang`, `MimeType`, `ReferrerPolicy` | the anchor's own attributes. An empty `Rel` on a new tab or window means `noopener noreferrer` |
+| `LinkUnderline` | `Always` (default), `Hover` or `Never` |
+| `LinkColor`, `HoverColor`, `ActiveColor`, `VisitedColor` | the link's colours; empty is the theme's |
+| `Cancel` | run time only: set it in `onClick` or `onBeforeNavigate` and the click does not navigate |
+
+A click raises `onClick`, then `onBeforeNavigate`, then navigates, and `onNavigated` follows when
+the application is still there. `SetUrl( address )` changes the address at run time (a refused one
+leaves `Url` unchanged and says why in `LastError`); `Open()` and `OpenIn( target )` act as a
+plain click.
+
+```cobol
+      *> onBeforeNavigate of LNK-1: do not leave a form with unsaved work.
+           IF WS-UNSAVED = 1
+               SET LNK-1::Cancel TO TRUE
+           END-IF
+```
+
+**Authentication** signs the application's end users in, up and out on a **Web or Mobile form
+only** — chapter 24, *Signing users in*, has the whole story: the provider (Cognito, Keycloak,
+Entra, Entra External ID) is set once in the Backend's `[identity]` settings, the control works
+through the Backend's `/auth/*` routes, tokens stay in the player, and your COBOL sees `State`,
+`UserName`, `Email` and `GetClaim( name )`, plus `SignOut()`, `Refresh()`, `GrantConsent()` and
+`DenyConsent()` and the events `onSignedIn`, `onSignedOut` and `onConsentRequired`.
+
+**Canvas2D** and **Canvas3D** are the two drawing controls, with **ImageBuffer**, **Plot**,
+**Scene3D**, **Physics2D** and **Physics3D** (non-visual) beside them — chapter 26.
 
 ---
 
@@ -13573,6 +13647,17 @@ appears only as `******`.
 > `EXEC SQL INSERT` that uses a host variable, step over it, and capture the
 > dock with the **SQL** tab selected.
 
+### `COBOL::SqlDatabase`: SQL without `EXEC SQL`
+
+A Web or Mobile page never holds a database, so the SqlDatabase control is **not in the Web and
+Mobile toolbox**: the database is the Backend's. A Backend program — or any program that runs on
+the native runtime — uses **`COBOL::SqlDatabase`**, the control's own verbs on one object every
+program has: `Open`, `Execute`, `Query`, `Fetch`, `FetchAll`, `ColumnNames`, `BeginTransaction`,
+`Commit`, `Rollback`, `Close`, with `LastError` and `StatusCode`, on SQLite, PostgreSQL and MySQL.
+No control on a form, no `EXEC SQL`, no host variables — and therefore **no parameters**: build the
+statement text yourself from values the program trusts, and never put raw user input into it. The
+verbs, their answers and a worked example are in chapter 24, *The database: `COBOL::SqlDatabase`*.
+
 ---
 
 ## 16. HTTP / REST and AI agents
@@ -16390,6 +16475,7 @@ rcrun build    <file.cbl>               # compile a single console program → b
 rcrun build    [<name>.project.toml]    # compile a project → one native binary in bin/
 rcrun package  [<name>.project.toml]    # package the project into a .zip
 rcrun mcp      [--project <path>]       # serve the coding-agent tools over stdio
+rcrun backend  <run|describe|check|release|build|auth test> [dir]   # the Backend of a Web or Mobile project
 rcrun version                           # print version
 rcrun help                              # print usage
 ```
@@ -16452,6 +16538,27 @@ A flag always wins over its environment variable.
 > 📷 **Screenshot needed — `rcrun-terminal.png`.** A terminal session showing
 > `rcrun check`, then `rcrun run`, on a small program, with the output. Helps
 > newcomers see the CLI is approachable.
+
+### The Backend commands and the coding-agent server
+
+`rcrun backend` runs, checks and builds a Web or Mobile project's **Backend** (chapter 24):
+
+```text
+rcrun backend run      [dir]    # serve the Backend for development on a loopback address; prints a development token
+        [--listen host:port]    #   default 127.0.0.1:0 (a free port)
+        [--page-origin origin]  #   the page's origin; only it may connect (default: any, with a warning)
+rcrun backend describe [dir]    # write and print interface.json
+rcrun backend check    [dir]    # check the Backend and compare its contract with the released ones
+rcrun backend release  [dir]    # record the current contract as released
+rcrun backend build    [dir]    # build the headless server → bin/<name>-backend
+        [--debug] [--accept-breaking] [--quiet]
+rcrun backend auth test [dir]   # test the [identity] provider and reCAPTCHA settings; one line per check, no value printed
+```
+
+`rcrun build` makes **native binaries** and refuses a Web or Mobile project, naming the way out:
+a Web or Mobile project is built by the IDE's **Build** button, or by the **`build` tool** of the
+coding-agent server `rcrun mcp` serves, which makes the web bundle under `dist/web/` (and the
+Android package of a Mobile project).
 
 ### Bringing card-image source across
 
@@ -16760,6 +16867,21 @@ PowerRustCOBOL"** badge to your app's **About box** (and, optionally, your READM
 
 The IDE's own **Help ▸ About** box shows the same badge, so you can see exactly how
 it looks in an application.
+
+### Building a Web or Mobile application
+
+On a Web or Mobile project the **Build** button does not make a native executable. It makes:
+
+| Project kind | Build makes | Where |
+|---|---|---|
+| Web | a static WebAssembly bundle any web server can host | `dist/web/` |
+| Mobile, Android | the bundle, then the installable package | `dist/mobile/android/<Name>-debug.apk` |
+| Mobile, iOS (on a Mac with Xcode 16 or later) | the application the iOS Simulator runs | `dist/mobile/ios/<Name>-debug.app` |
+| the Backend of either | the headless server, with `rcrun backend build` | `bin/<name>-backend` |
+
+A Web build needs no Rust toolchain — the IDE copies a prebuilt player beside your program. The
+Backend's release binary needs the same toolchain a Desktop Build needs. Chapter 23 describes the
+bundle and the Build, chapter 24 the Backend, chapter 25 the Mobile packages.
 
 ---
 
@@ -18359,7 +18481,1278 @@ whole time, with bursts coalesced when the form's event queue is busy.
 
 ---
 
-## 23. Caveats and current limitations
+## 23. Web and Mobile applications
+
+Version 2 of PowerRustCOBOL adds two **project kinds** beside the Desktop project the
+rest of this guide describes. A **Web** project builds the same forms and the same
+COBOL to a **WebAssembly** application that runs in a browser; a **Mobile** project
+builds the same bundle for a phone or a tablet (chapter 25). The language, the Form
+Designer, the control catalogue, the themes and the Properties panel are the ones you
+already know — what changes is **what Build makes**, **where each piece of your program
+runs**, and **where the secrets live** (chapter 24).
+
+### 23.1 Choosing a kind
+
+The kind is chosen once, in **File ▸ New Project**. The list on the left offers
+*Desktop*, *Web*, *Android phone and tablet* and *iOS iPhone and iPad*; the other
+platforms it lists are shown and cannot be created yet. It is recorded as `kind = "web"`
+or `kind = "mobile"` under `[project]` in the manifest, and it is **not changed by editing
+the manifest** — a Desktop project writes nothing for it, so every project written before
+kinds existed is a Desktop project and loads unchanged.
+
+| Kind | Forms live in | Form file | Project-tree node | Build makes |
+|---|---|---|---|---|
+| **Desktop** | `forms/` | `<name>.cfrm` | Forms | a native executable in `bin/` |
+| **Web** | `webforms/` | `<name>.wcfrm` | WebForms | a static WebAssembly bundle in `dist/web/` |
+| **Mobile** | `mobileforms/` | `<name>.mcfrm` | MobileForms | the same bundle, then an Android package or an iOS simulator application (chapter 25) |
+
+The three form files are one format; only the name differs, and a form named for another
+kind (a `.cfrm` in a Web project made early in version 2) still loads — Check warns about
+its name. Every kind lists its forms under `[files] forms`. A Web or Mobile project may
+also have a **Backend** — COBOL under `backend/src/` — which appears in the project tree
+after the forms node. The Backend is part of a project, not a kind of its own: it is where
+files, SQL and every secret live, because **nothing in a web bundle can be kept from
+whoever opens the page** (chapter 24). Indexed-file definitions and SQL connections stay
+project-level.
+
+The coding agent's `create_project` tool takes the same choice: `kind` is `desktop`,
+`web` or `mobile`, and for Mobile `platform` (`android`, `ios`) and `device` (`phone`,
+`tablet`).
+
+### 23.2 How a Web application is put together
+
+A Web build is **not** an interpreter running in a page. The compiler generates
+WebAssembly directly, and the application is two `.wasm` files and a host page:
+
+```mermaid
+flowchart LR
+    subgraph PAGE["The page"]
+        HP["Host page<br/>HTML, loader, manifest"]
+        PL["Player<br/>prebuilt; draws any form"]
+        PM["Program module<br/>your COBOL, compiled"]
+        HP --> PL
+        PL <-- "host API" --> PM
+    end
+    PM -- "CALL … WITH WEBSOCKET LINKAGE" --> BE["Backend (chapter 24)"]
+```
+
+- The **program module** is your COBOL — every form's handlers, Common Code and
+  copybooks — compiled to **one self-contained module for the whole project**. It carries
+  what it needs (decimal arithmetic, moves, comparisons, the form data of each open form
+  instance) and nothing else: no interpreter, no COBOL runtime in the browser. Each form
+  instance's data lives in a region that is released when the form closes.
+- The **player** is a prebuilt WebAssembly form engine (drawn with Leptos) that draws any
+  form from its description: HTML elements styled with CSS3. The IDE ships it in
+  `assets/web-player/` beside its executable and copies it into every Web and Mobile
+  bundle, so **a Web build needs no Rust toolchain**. Its *plain* variant runs everywhere;
+  its *threaded* variant runs on cross-origin-isolated pages. Mermaid diagrams, the PDF
+  reader and the Canvas 2D rasteriser are parts of it loaded the first time a form uses
+  them.
+- Each form is shipped as a versioned **JSON description**
+  (`forms/<name>.<hash>.json`) the player draws from. The form file itself is never
+  shipped, and a description holds **no handler code and no credential value**. A player
+  refuses a description format it does not read, naming both numbers.
+- The **host page** loads the player, then the program module — the multi-memory module
+  when the browser runs it, the single-memory one otherwise (the loader probes) — and
+  the bundle carries a Content-Security-Policy and integrity hashes.
+
+The bundle is a folder of static files (`dist/web/`): put it on any server that serves
+files with the right MIME types. To use the threaded player the server must send the
+cross-origin-isolation headers (`Cross-Origin-Opener-Policy` and
+`Cross-Origin-Embedder-Policy`; the project's `isolation` setting chooses `require-corp`,
+`credentialless` or `off`). The Preview's own server sends them for you.
+
+The generated module is held equal to the interpreter by conformance runs: the NIST
+CCVS85 NC, IF and IC modules all run to zero failures on the generated code (measured at
+2.0.36). Where the two still differ, `specs/WASM-PARITY.md` lists each difference and says
+who is right.
+
+### 23.3 The settings of a Web project
+
+Project Settings has a **Web** page for these (every key is optional; the defaults are
+shown). In the manifest they are the `[web]` table:
+
+```toml
+[web]
+style        = "spa"            # "spa" (single-page) or "standalone" (forms as separate pages)
+multi_memory = true             # emit the multi-memory program module
+single_memory_fallback = true   # also carry the single-memory module; false = multi-memory only
+isolation    = "require-corp"   # "off", "require-corp" or "credentialless": the COOP/COEP headers
+backend_url  = ""               # wss://…, or ws:// to this machine only (localhost, 127.0.0.1, ::1)
+max_payload_bytes = 393216      # the largest text or JSON frame between page, program and Backend (384 KB)
+call_timeout_ms = 60000         # how long a remote call waits for the Backend's answer; then TRANSPORT 1002
+loading_effect = "moving-stripes"   # what a control with LoadingEffect on shows during a Backend call
+# player     = "2.0.0"          # pin an older player this IDE keeps; absent = the player this IDE ships
+
+[web.browsers]                  # the browsers the build promises to run in; all true
+chromium = true
+firefox = true
+safari = true
+ios_webview = true
+android_webview = true
+```
+
+- **`style`** is the application style — see 23.6.
+- **`multi_memory` and `single_memory_fallback`** choose which program modules the build
+  carries: the multi-memory module whenever `multi_memory` is on; the single-memory one
+  beside it unless `single_memory_fallback = false`, and always when multi-memory is off.
+  "Multi-memory only" while the browsers include Safari or the iOS web view — engines that
+  run only the single-memory module — is **refused** by Check and Build, naming those
+  browsers.
+- **`backend_url`** is where the page finds its Backend. A `ws://` address is accepted only
+  to the same machine, and a refused address is never written to the manifest.
+- **`max_payload_bytes`** is the largest text or JSON frame that crosses between the page
+  and the program, or goes to the Backend in one call. The player refuses a larger request
+  before sending it; the Backend keeps its own limit.
+- **`call_timeout_ms`** is how long a `CALL … WITH WEBSOCKET LINKAGE` — and a bound grid's
+  read or save — waits for the Backend before it fails with class `TRANSPORT`, code 1002
+  (`ON EXCEPTION` runs; a bound grid keeps its changes for the next `Save()`). A program
+  declared `long_running` on the Backend has its own, longer limit.
+- **`loading_effect`.** A control whose `LoadingEffect` property is on shows the project's
+  effect while any call to the Backend is in flight, and loses it when the answer arrives.
+  The property chooses *which* controls show it; the setting chooses *what* they show:
+  `"moving-stripes"` (pale diagonal stripes moving over the control, its content blurred
+  behind them) or `"none"`.
+- **`player`** pins an older player the IDE keeps. A pin to a player the IDE does not keep
+  stops the Build and lists the players it keeps. A rebuild otherwise copies the player of
+  the IDE that builds.
+
+### 23.4 Controls on the web: the five classes
+
+The control catalogue (chapter 8) is reused. Every control is classified once, by where it
+can run:
+
+| Class | Meaning | Examples |
+|---|---|---|
+| **A** | becomes ordinary HTML and CSS; behaviour comes from the model | Button, TextBox, Label, Hyperlink, CheckBox, ListBox, ComboBox, Panel, TabControl, SideMenu, MenuBar, Slider, TreeView, Timer, Snackbar |
+| **B** | drawn by the desktop painter today; in a page an SVG, an `<img>` or a `<canvas>` inside its own element | the charts, Gauge, Knob, Maps, Viewer, Animator, Canvas2D, Canvas3D |
+| **C** | **works through the Backend**: it needs a disk, a database, the network or a secret | IndexedFile, RestClient, AgentObject, KnowledgeBase, WebSearch, the AWS controls, FileDropZone, a DataGrid bound to a file or a query, Authentication |
+| **D** | needs the local machine, so an operation is **not available** | a Viewer's `Print` and `Share`; the toolbar actions that start a program, open a terminal or print |
+| **E** | a client object that runs in the player with **no Backend** | ImageBuffer, Plot, Scene3D, Physics2D, Physics3D |
+
+A control has one primary class; where some operations differ, the control's entry says
+which. A DataGrid with in-memory `Rows` is class A and a grid bound to an indexed file or a
+query is class C.
+
+What this means while you design:
+
+- The **toolbox** offers the controls the kind can use. The **SqlDatabase** control is
+  *withdrawn* from the Web and Mobile toolbox: the database is the Backend's, so a program
+  reaches it with `COBOL::SqlDatabase` inside a Backend program (24.9). A form that already
+  holds one keeps loading, building and running.
+- A class C control keeps working through generated Backend programs, so its handlers read
+  as they do on the desktop (`REST-1::Get("customers")`). Chapter 24 explains what the Build
+  generates, what must be a *literal*, and the roles that guard each program.
+- A class D operation is refused by Check, at the line, with the way out — for instance
+  *use the browser's own Print command, or SaveAsPdf and let the user print the file*.
+- The Properties panel **hides** an appearance property the web cannot draw and marks an
+  *approximate* one in its tooltip: the neumorphic dual shadow is two `box-shadow`s, the
+  `Raised`/`Sunken` borders become two-tone borders, and the 3D tilt is a CSS 3D transform.
+  Everything else (colours, gradients, fonts, padding, corner radius, shadows, alignment,
+  word wrap, cursor, tooltip, borders) is drawn exactly.
+- **Layers** work as on the desktop — stacked planes above the form, hidden until the
+  program shows them — with the stacking, hit testing and clipping of an HTML page.
+
+### 23.5 What a form's COBOL can do in a page
+
+A form's handlers, Common Code and copybooks are compiled to WebAssembly, so the language
+you use is the one in chapter 13 with the arithmetic, `MOVE`, `IF`, `PERFORM`, `EVALUATE`,
+`STRING`/`UNSTRING`/`INSPECT`, tables, intrinsic functions, nested programs, local `CALL`,
+and in-memory indexed files and `SORT … INPUT/OUTPUT PROCEDURE`. Decimal arithmetic is
+exact, as on the desktop.
+
+A page cannot hold a disk, a database or a secret, so the Build **refuses, at the line,
+what cannot run in a page** and says how to get it done:
+
+- file input/output (`OPEN`, `READ`, `WRITE` of a disk file) — *it runs on the backend; call
+  a backend program with `CALL … WITH WEBSOCKET LINKAGE`*;
+- `EXEC SQL` and `COBOL::SqlDatabase` — the database is the Backend's (class `BackendOnly`);
+- a `SORT … USING/GIVING` and `MERGE`, which read files;
+- a form's `SCREEN SECTION` (*use a form*), and a few constructs the generator does not
+  cover yet (for example `FORMAT IS …` clauses, national and UTF-8 literals, some forms of
+  `PERFORM VARYING … THROUGH`) — each is named by the Build when it stops.
+
+The Build also refuses a control that holds a **secret** in one of its properties — a
+SqlDatabase's `ConnectionString`, a RestClient's `AuthToken`, an AgentObject's
+`AgentAPIKey`, a KnowledgeBase's `EmbeddingAPIKey`, a WebSearch's `ApiKey` — naming the
+control and the property, never the value. Clear it, put the value in a `[[configuration]]`
+of `backend/backend.toml`, and write that configuration's name in the control's
+**BackendConfig** (24.8).
+
+A control property can be the receiving field of `ADD`, `SUBTRACT`, `MULTIPLY`, `DIVIDE`
+and `COMPUTE` on the web as on the desktop (`ADD 1 TO NUD-1::Value`); the sum goes to the
+host as text, and `ROUNDED` is refused for such a receiver. One difference remains: a
+quotient (`DIVIDE`, or a `COMPUTE` that divides) is cut to the property's current number of
+decimals on the desktop (`8 / 2` into a property holding `0` shows `4`) and keeps the
+quotient's own scale on a page (`4.000000000`) — `specs/WASM-PARITY.md` records it.
+
+### 23.6 Navigation: single-page or standalone
+
+The application style (`[web] style`, chosen at New Project and changeable before a Build)
+is **`spa`** (the default) or **`standalone`**. The same COBOL runs in both; only what an
+opening verb shows differs.
+
+- **Single-page application (`spa`)** — one browser page. `OpenFormSync` shows the form as a
+  modal dialog and the caller waits until it is closed, as on the desktop; `OpenFormAsync`
+  shows it as a panel over the opener and the caller runs on. A **SideMenu** item loads its
+  form into the **ContentPane**, so the application shell of chapter 22 works as it does
+  on the desktop.
+- **Standalone** — every form is its own browser tab. `OpenFormSync` and `OpenFormAsync`
+  open a new tab, and an `OpenFormSync` caller waits until that tab is closed. A browser
+  that blocks the new tab is a normal failure: the caller is released, a notice tells the
+  user to allow pop-ups, and **`onPopupBlocked`** is raised on the opener's form with the
+  name of the form that was not opened. Pass the parameter **`pr-window=same`** after the
+  form's name to replace the page instead of opening a tab (`pr-window=new` is the
+  default); the form then takes this page's place, Back returns to the page's own address,
+  there is no opener and `super::` fails.
+
+`FormFormat` keeps its meaning: the Build refuses an `OpenFormSync` or `OpenFormAsync` of an
+`Embedded` form named by a literal, and a menu item that loads a `Standalone` form. A form
+named by a data item is checked when it runs: the open fails and the statement's
+`ON EXCEPTION` runs.
+
+**The address is a route.** A single-page application writes the form on top in the page's
+address as `#/form-name?name=value`, so Back closes it, Forward opens it again, and a
+bookmarked or pasted address opens the same form **with the same opening parameters**
+(`GetParam`, `GetParams`) — never the data it held, which is the program's to load again in
+`onLoad`. An address that names no form of the application leaves the main form shown, shows
+a notice, takes the address back and raises **`onRouteNotFound`** on the main form with the
+name the address gave.
+
+**Unsaved changes.** `INVOKE me::"SetUnsavedChanges"(1)` marks the form as holding work not
+yet saved, and `(0)` clears the mark (a form's mark also goes when it is destroyed). While
+any shown form is marked, closing the tab asks the browser's own question, and Back or a menu
+item that would leave the form asks *Leave* or *Stay* first. On the desktop the verb is
+accepted and does nothing.
+
+```cobol
+           INVOKE me::"SetUnsavedChanges"(1).
+           *> … the record is saved …
+           INVOKE me::"SetUnsavedChanges"(0).
+```
+
+**`super` across tabs (standalone).** A form opened in its own tab still reaches its opener
+through `super::` (chapter 22): a write and a procedure call travel to the opener's tab, and
+a **read** in a `MOVE`, an arithmetic statement, `IF`, `DISPLAY` and the like **waits for the
+opener's own answer** — the handler stops at that statement, the page stays live, and the
+statement runs when the answer comes. A read the opener does not answer within the call time
+limit (30 seconds) fails like a closed opener, and `INVOKE super::Method(…)` can carry the
+clause that meets that failure:
+
+```cobol
+           INVOKE super::GetFormState() RETURNING WS-STATE
+               ON EXCEPTION
+                   MOVE "gone" TO LBL-OUT::Caption
+               NOT ON EXCEPTION
+                   MOVE WS-STATE TO LBL-OUT::Caption
+           END-INVOKE
+```
+
+Both tabs must be the same site in the same browser profile. In a web application the clause
+is accepted only on `INVOKE super::…`.
+
+### 23.7 Styling with CSS3
+
+Two kinds of CSS file style a page; a Desktop project has neither. The **project
+stylesheet** is `[web] stylesheet` (default `webforms/application.css`; `mobileforms/` for a
+Mobile project); each **form stylesheet** is `<Form>.css` beside the form. A new project
+starts with both, a new form gets its own, a moved form takes its sheet with it, and deleting
+a form deletes an untouched sheet and asks first about an edited one.
+
+A form's sheet is generated from its theme: a banner, the theme's rules for the control
+types the form uses inside `@layer pr-theme { … }` between two marker comments, then an
+empty section that is **yours**. Switching the theme replaces the block only while it is
+untouched; otherwise the IDE asks. Your section is never rewritten. Edit a form's sheet from
+the form's **Stylesheet…** button — a code window with line numbers, colouring and the
+findings by line.
+
+**The cascade**, lowest to highest:
+
+1. the player's structure (`@layer pr-base`);
+2. the theme (`@layer pr-theme`);
+3. the control **properties** (`@layer pr-props`);
+4. the **project stylesheet** (`@layer pr-app`);
+5. the **form stylesheet** outside its generated block — unlayered, scoped to that form, and
+   including the rules that select a `CssClass` name;
+6. a control's **`CssStyle`**.
+
+Any unlayered rule beats every layered one, so **a stylesheet's plain rule beats a
+property** — *CSS wins*. `CssStyle` is one rule per control after every sheet (a real inline
+`style` attribute would break the page's Content-Security-Policy). A form sheet stays inside
+its form; one that can be kept inside neither is refused, never applied to the whole page.
+The form root and each layer element keep their `position`, `z-index`, `display` and
+`visibility`, so a sheet cannot restack, hide or disable a layer — a rule that tries is an
+error at Check and Build, with its line.
+
+Check and Build read every sheet: unbalanced braces, an unterminated string, `@import`,
+`expression(`, `javascript:`, `behavior:` and a `url()` that is neither the bundle's nor
+`data:` are **errors**; an unknown property, a value that does not parse and a vendor prefix
+outside the project's browsers are warnings.
+
+**The designer shows the page's values.** On a Web or Mobile form the canvas paints the
+colours, borders and shadows the stylesheets decide, in the colour scheme chosen by the
+toolbar's *Light / Dark* button (a view only). The Properties panel shows each property's
+value **in effect**, with a **CSS** mark that names the sheet and line that decides it; a
+rule that may apply (under `@media`, a pseudo-class …) is marked *may be overridden*.
+Changing a value a rule decides writes the new value into that declaration, keeping your
+notation, as one undo step; right-click the CSS mark for **Go to the rule** and **Remove the
+CSS declaration**. With the Preview open, **Apply** puts the sheet straight into the served
+bundle and the page takes it in place.
+
+### 23.8 Build, Run and Preview
+
+On a Web or Mobile project the **Build** button builds the bundle instead of a binary, and
+says how long it took, how big it is, how big the player and each of its parts are, how fast
+it starts and what warned. (The coding agent's `build` tool does the same; `rcrun build`
+makes native binaries.)
+
+The designer's **Preview** button builds, serves the bundle on a loopback port with the right
+MIME types and the isolation headers, and shows it in the **system web view** in a window of
+its own — a helper process, or the system browser when the helper is not installed. Its
+controls window picks a **device** (phone, tablet or desktop sizes), the **orientation**, the
+**pixel ratio**, the **colour scheme**, the **page language** and the **safe-area insets**.
+The page's console and uncaught errors reach the Output panel. A change to a form, a
+stylesheet, Common Code or the Backend builds again, and the open page takes the new program
+module, form descriptions and stylesheet **in place** — the application starts again in the
+same page, which is not reloaded. The Preview shows only its own address: a page that tries
+to open another is stopped and you are offered to open it in the browser. **Run** opens the
+same server in the system browser.
+
+**A project with a Backend.** The page calls the Backend address its Build wrote into it, so
+Run and Preview start the project's Backend first (`rcrun backend run`, its log in the Output
+panel), wait for it to say where it listens — at most 60 seconds — and only then build and
+serve the page. With `backend_url` empty the Backend listens on this machine at the port of
+`backend/backend.toml`, or on a free one; with it set, it is honoured. A Backend you started
+yourself (**Run ▸ Start Backend**) is used as it is, and **Stop**, closing the Preview, the
+project or the IDE stops the one the Run started. No token is put into the page: a page
+started this way reaches the exports marked `public = true`.
+
+### 23.9 What the Build does about security
+
+- It **scans your project's own files** — forms, Common Code and copybooks, stylesheets,
+  text assets and `backend/backend.toml` — for secrets: private keys, cloud and API keys,
+  tokens, connection strings with a password, and a property named like a secret that holds a
+  value. One it recognises stops the Build, naming the file, the line and the pattern, never
+  the value; a string that only looks like one (high entropy) is a warning. The Backend's
+  COBOL is not scanned: that is where secrets are read from the environment.
+- The bundle carries a **Content-Security-Policy** that allows exactly the origins your
+  stylesheets load from, integrity hashes, and the isolation headers.
+- A `[security]` table becomes `/.well-known/security.txt` (RFC 9116): `contact` and
+  `expires` are required, `policy` and `preferred_languages` optional. Check refuses a table
+  without them, or one whose `expires` has passed, and the Backend serves the same text at
+  the same path.
+- A `[web.unsafe]` table (`[mobile.unsafe]` on a phone) has three keys, all off by default —
+  `plain_ws`, `skip_secret_scan`, `csp_report_only`. Each weakens one protection and is a
+  **warning** in a development build and a **refusal** in a release build, which names the
+  key and asks for its removal.
+- A `[mobile.pinning]` table pins the certificates of a Mobile application's web view
+  (chapter 25).
+
+### 23.10 Examples
+
+The repository ships four projects of the new kinds, under `examples/`. Open one from
+**File ▸ Open Project** and press **Preview** or **Run**:
+
+| Example | Kind | What it shows |
+|---|---|---|
+| `PowerWebHello` | Web | the smallest Web project: a form with a side menu, and a Backend |
+| `PowerMobileHello` | Mobile | the smallest Mobile project |
+| `PowerOficina` | Web | a workshop-management application — queue, quotes, approvals, payments, reports — with a Backend over indexed files |
+| `PowerAnalyticsWeb` | Web | the look of the desktop PowerAnalytics dashboard on the web |
+---
+
+## 24. The Backend and the secure channel
+
+A web page is code that **anyone who opens it can read** — its program module, its form
+descriptions, its stylesheets. So a Web or Mobile application keeps everything that must not
+be read or tampered with — files, databases, keys, business rules that decide money — in
+the **Backend**: COBOL that runs on the **native** RustCOBOL runtime (with files, indexed
+files, SQL, HTTP and threads), on a server you control. The page reaches it with one
+statement, `CALL … WITH WEBSOCKET LINKAGE`.
+
+```mermaid
+flowchart LR
+    PG["Page: your form's COBOL<br/>WebAssembly module"] -- "CALL 'NAME' WITH WEBSOCKET LINKAGE<br/>JSON, bearer token, encrypted frames" --> BE["Backend: exported programs<br/>native runtime"]
+    BE --> DATA[("indexed files · SQL · REST · AWS")]
+    BE -- "sign-in, sign-up, reset" --> IDP["Identity provider"]
+```
+
+### 24.1 What a Backend is on disk
+
+A Web or Mobile project starts with a Backend (a project may also be made without one). Its
+files are:
+
+| Path | What it holds |
+|---|---|
+| `backend/src/` | your COBOL programs — the ones you export and the procedures they `CALL` |
+| `backend/COPYBOOKS/` | copybooks the Backend programs share |
+| `backend/exports.toml` | **the one list of programs a caller may reach**, and the contract version |
+| `backend/backend.toml` | where and how the Backend runs: address, TLS identity, allowed origins, token issuer, limits, configurations, identity provider |
+| `backend/contract/interface.json` | the Backend's interface description, written when the Backend is built — what Check compares your `CALL`s with |
+| `backend/contract/released/<version>.json` | each released contract (24.7) |
+| `backend/generated/` | programs the Build writes for you (24.8): replaced on every Build, never edited |
+
+A new project starts with `backend/exports.toml` listing `HEALTH` (public) and a development
+`backend/backend.toml` (loopback, no secret). In the IDE the **Backend** node of the project
+tree lists it, and the project's settings page (the **Web** page of a Web project, **Mobile
+application** of a Mobile one) has the *Backend address*, the *Exported programs* (they are
+written to `exports.toml`), the *Backend port (IDE run)* and the *State between calls* (24.6).
+
+### 24.2 Exporting a program
+
+A Backend program is ordinary COBOL. Here is the one the `PowerWebHello` example exports:
+
+```cobol
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. HELLO.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 LK-NAME                                PIC    X(30).
+       01 LK-GREETING                            PIC    X(40).
+       PROCEDURE DIVISION USING LK-NAME RETURNING LK-GREETING.
+           MOVE    SPACES                        TO    LK-GREETING
+           STRING  "Hello, " DELIMITED BY SIZE LK-NAME DELIMITED BY SPACE INTO LK-GREETING
+           GOBACK.
+```
+
+and its entry in `backend/exports.toml`:
+
+```toml
+[contract]
+version = "1.0.0"
+
+[[export]]
+program = "HELLO"
+public = true
+```
+
+**Only an exported program can be called**, whatever its name; every other program is an
+ordinary procedure the exported ones `CALL`. An `[[export]]` entry may say:
+
+| Key | Meaning |
+|---|---|
+| `program` | the PROGRAM-ID |
+| `roles` | the roles that may call it — any one of them is enough; empty means any authenticated caller |
+| `public` | answers with no token at all |
+| `independent` | not queued behind the caller's other calls |
+| `idempotent` | safe to send again once after a lost connection (24.6) |
+| `long_running` | may run for `long_call_timeout_ms` (10 minutes), reporting progress (24.6) |
+| `stream` | subscribed to, not called (24.6) |
+| `directions` | `in`, `out` or `inout` per parameter |
+| `deprecated` | `{ message, removal }`: the program works and carries a warning |
+| `status` | the name of a status group inside its `RETURNING` item (24.4) |
+
+Inside an exported program, `COBOL::"WS-CLAIM" ( "sub" WS-USER )` reads a claim of the
+caller's validated token — `sub`, `email`, `roles`, any scalar claim, a nested one with dotted
+names such as `realm_access.roles` — and gives spaces when the token lacks it. Use it, and
+the `roles` of the entry, to decide *who may do what*: **the boundary is the Backend's token
+check**, never the page.
+
+### 24.3 Calling it from a form
+
+```cobol
+           *> GET-CUSTOMER: asks the backend for one customer; CUSTOMER-REC carries the key and receives the record.
+           *> Uses:   CUST-ID of CUSTOMER-REC = the key to look up.
+           *> Result: CUSTOMER-REC = the record the backend sent back; RESULT-REC = the outcome.
+
+           CALL "GET-CUSTOMER" WITH WEBSOCKET LINKAGE
+               USING BY REFERENCE CUSTOMER-REC
+               RETURNING RESULT-REC
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( WS-CLASS WS-CODE WS-MESSAGE )
+                   SET LBL-STATUS::Caption TO WS-MESSAGE
+               NOT ON EXCEPTION
+                   SET LBL-STATUS::Caption TO "Found"
+           END-CALL
+```
+
+- **The arguments are groups.** Each operand of `USING`, and the `RETURNING` receiver, is a
+  data item declared in WORKING-STORAGE (or LINKAGE), written as its name — never a
+  literal, an expression, a table element or a file record. A group travels as a JSON object
+  built from its own declaration; an elementary item travels as a bare number or string.
+  `BY VALUE` sends the group and never changes your copy; `BY REFERENCE` (the default) also
+  writes the Backend's final values back into it; `RETURNING` writes the Backend's returned
+  item into the named group. There is no `BY CONTENT` here — write `BY VALUE`.
+- **Nothing else is yours.** The connection, the bearer token, the framing, the
+  correlation, the keep-alive, the reconnection and the token refresh belong to the runtime.
+  While the call is pending the form keeps repainting and its events queue up in order; the
+  statement after the `CALL` does not run until the call has finished.
+- **At Check time** the Backend's interface description is imported: the name must be a
+  program the Backend exports (an `ON EXCEPTION` does not excuse a name the contract does not
+  list), the argument count must match, and each group must fit the parameter it lands on —
+  names as declared, capacities, scale, sign and `OCCURS`.
+
+**The group-to-JSON mapping.** A member's key is its data-name **as declared**, case
+included. `FILLER`, 88-level condition-names, level-66 `RENAMES` and the redefining half of a
+`REDEFINES` are not members. Members are read **by name**, in any order; a key the answer
+leaves out leaves its item unchanged.
+
+| COBOL | JSON |
+|---|---|
+| a group | an object, members in declaration order |
+| `OCCURS n` | an array of *n* elements |
+| `OCCURS min TO max DEPENDING ON item` | an array of the current count; the count item must be an integer declared earlier inside the same group, and reading an array sets it |
+| a numeric item | a number written from its decimal text with the PICTURE's scale (`PIC S9(5)V99` holding 12.5 is `12.50`) — never through a binary float, so 38 digits survive; `COMP`, `COMP-3`, `COMP-5` and `PACKED-DECIMAL` travel as their value |
+| `PIC X(n)` | a string of at most *n* bytes of UTF-8, trailing spaces trimmed |
+| `PIC N(n)`, `PIC U(n)` | a string counted in UTF-16 units, or in characters |
+
+`COMP-1`/`COMP-2`, `INDEX`, `POINTER` and `OBJECT REFERENCE` items are refused at Check.
+**Reading is strict:** an unknown key, a value of the wrong JSON type, a number that does not
+fit its PICTURE, a string longer than its PIC or an array longer than its `OCCURS` is an
+**error naming the item**, never a truncation — and nothing is written when any part of an
+answer is refused.
+
+### 24.4 When a call fails
+
+When a call cannot be completed — no connection, a timeout, a missing or expired token, a
+refused role, a payload that does not fit, an unknown program, a version mismatch, a limit, a
+failure the Backend's program reported, or a Backend fault — `ON EXCEPTION` runs; without it
+a failed call is a run-time error. `NOT ON EXCEPTION` runs when the call succeeded.
+
+`COBOL::"WS-LAST-ERROR" ( class code message [detail] )` says why. The class is one of
+`TRANSPORT`, `AUTHENTICATION`, `AUTHORISATION`, `VALIDATION`, `NOT-FOUND`, `VERSION`, `LIMIT`,
+`APPLICATION`, `SERVER`, and the code is stable:
+
+| Code | Meaning |
+|---|---|
+| 1000 | no connection — the call was never sent |
+| 1001 | the connection was lost **after** the call was sent — it may have been received |
+| 1002 | timeout (`call_timeout_ms`) |
+| 1003 | no Backend configured |
+| 2000 – 2002 | token missing, invalid, expired |
+| 3000 | role refused |
+| 4000 | payload does not fit |
+| 5000 | unknown program |
+| 6000 – 6002 | version |
+| 7000 – 7004 | limits |
+| 9000 – 9002 | server |
+
+`RETURN-CODE` holds the same numeric code after a failed call and 0 after a successful one.
+
+**A failure the Backend program reports itself.** `COBOL::"WS-FAIL" ( 4201 "card declined"
+'{"retry":false}' )` ends the call: the caller's `ON EXCEPTION` runs with class
+`APPLICATION`, the code 4201, the message and the detail, and the parameters the program
+changed are **not** sent back. A program's own codes are 1 to 7999 (8000 is the platform's
+*cancelled*). A program backing a generated or agent-written form reports a business failure
+with `WS-FAIL` only; a hand-written program may instead declare `status = "WS-STATUS"` in its
+`[[export]]` entry, naming a group inside its `RETURNING` item laid out as a code `9(4)`, a
+message `X(200)` and a detail `X(1000)` — when the program ends with a non-zero code in it,
+the call fails like `WS-FAIL`. The declaration is part of the contract.
+
+**A lost connection.** When the connection breaks, the runtime tries again **three times**,
+waiting **10, 20 and 30 seconds**; meanwhile the application is reported as blocked, a call's
+own timeout does not run and new calls wait. When an attempt succeeds the waiting calls go
+on (a call already sent is repeated only when its program is `idempotent`, otherwise it fails
+with 1001). When the third attempt fails, every waiting call reaches `ON EXCEPTION` — 1001 if
+it had been sent, 1000 if it never was — and nothing more is tried until the application's
+next call. There is nothing to set.
+
+**In the browser** the player blocks the application while it tries: a modal over the whole
+form with the caption *Connecting to the server…* (in the page's language), which goes the
+moment a connection works and leaves the form exactly as it was. When the third attempt fails
+it says *The server could not be reached.* with a **Reload** button, and the form the page
+started with receives **`onBackendUnreachable`** — bind it to tell the user, log, or offer
+something else. On a phone the same modal draws the phone (or the tablet) in place of the
+screen; coming back from the background after the attempts gave up tries them again at once.
+The desktop draws no modal and does not raise the event yet.
+
+### 24.5 The secure channel
+
+The channel is **a WebSocket over TLS** (`wss://`; plain `ws://` is accepted only to a
+loopback address), with a bearer token (a JWT) on every request, and **encrypted again on top
+of TLS**. There is nothing to set and nothing to write: when a connection opens, the page and
+the Backend each make a fresh key pair, swap their public keys in two `hello` messages and
+agree a key for each direction (X25519, HKDF-SHA256, ChaCha20-Poly1305); every later message
+travels as an encrypted frame, so a proxy that ends TLS, or a recording of an earlier session,
+reads and replays nothing. No key is ever stored, logged or placed in the build. A page and a
+Backend built on either side of a change of the wire protocol refuse each other with a
+*version* error: rebuild both.
+
+The token is obtained from your identity provider (24.10), managed by the runtime and never
+visible to your COBOL; an expired token is exchanged for a fresh one and the call is repeated,
+once. Besides the WebSocket the Backend answers `GET /health`; every other path is 404.
+
+**Where an application finds its Backend.** A Web or Mobile project's `backend_url` (23.3).
+A desktop or built application, `rcrun run` and `rcrun run-form` read environment
+variables, once, and every form of the application shares one connection:
+
+| Variable | Holds |
+|---|---|
+| `COBOLT_BACKEND_URL` | the `wss://` address (`ws://` only to loopback) |
+| `COBOLT_BACKEND_TOKEN` | the token, or `env:NAME` / `file:PATH` |
+| `COBOLT_BACKEND_INTERFACE` | the Backend's `interface.json` |
+| `COBOLT_BACKEND_CERT` | one more trusted certificate, PEM |
+
+### 24.6 Repeating a call, long calls, streams and files
+
+- **Repeating a call.** The runtime gives every call an *idempotency key*. After a lost
+  connection a program declared `idempotent = true` is sent again once, on a new connection;
+  any other call fails with `TRANSPORT` 1001 and *may have run*. Make the same `CALL` again
+  right away and it reuses the key, so the Backend answers from what it kept (for
+  `idempotency_ttl_seconds`, 600) **without running the program a second time**; the same
+  key with other data is refused. A timeout, a limit and a cancel are not kept, so they can
+  be tried again. Calls of one connection run in the order they were made unless the program
+  is `independent`. `backend.toml`'s `[contract]` holds `idempotency_store` (`memory`, the
+  default, or `server`, which also writes each answer to a file so a repeat is recognised
+  after a restart) and `session_idle_seconds` (900).
+- **Long calls.** A program declared `long_running = true` may run for
+  `long_call_timeout_ms` (10 minutes) and reports with `COBOL::"WS-PROGRESS" ( percent
+  message )`. The caller asks to cancel; the program sees it as `COBOL::"WS-CANCELLED" ( flag
+  )` = `Y`, and `WS-PROGRESS` is a safe point where the call ends. A program that reaches no
+  safe point is stopped `cancel_grace_ms` (10 s) after the request. A cancelled call fails
+  with `APPLICATION` 8000; what the program already did is not undone.
+  `COBOL::"WS-PAUSE" ( milliseconds )` waits and ends early on a cancel. A form shows a long
+  call's progress and a Cancel button when it named them first with
+  `COBOL::"WS-SHOW-PROGRESS"`.
+- **Streams.** A program declared `stream = true` is *subscribed to*: it runs once per
+  subscription and sends each item with `COBOL::"WS-EMIT" ( group )` until it ends, the client
+  unsubscribes or disconnects. A form starts one with `COBOL::"WS-SUBSCRIBE"` and hears it
+  through `onStreamItem` and `onStreamEnd` (`COBOL::"WS-STREAM-ITEM"` reads each item). A
+  subscriber that cannot keep up is ended with a `LIMIT` error rather than buffered without
+  bound.
+- **Files.** An upload goes to a *slot* the deployment declares in `[files]` (a name, the
+  mime types it takes, the roles that may use it), in pieces, with the size and the SHA-256
+  declared first; a lost connection resumes where it stopped; the file is checked (size,
+  checksum, the first bytes of images, PDF and ZIP against the declared type) and placed under
+  the Backend's own name. `COBOL::"WS-FILE-PATH" ( file-id path status )` gives a program the
+  path of a file the *caller* uploaded; `COBOL::"WS-FILE-PUBLISH" ( path file-id status )`
+  offers a file to the caller as a short-lived address (`download_ttl_seconds`, 60) tied to
+  that caller. In the form, `COBOL::"WS-UPLOAD" ( slot path mime file-id status )` and
+  `COBOL::"WS-DOWNLOAD" ( file-id path status )` answer `OK`, `NOFILE`, `REFUSED`, `FAILED` or
+  `NOBACKEND`.
+- **Files shared between calls** wait for each other: a program that opens an indexed file
+  for output holds it exclusively until its `CLOSE`, readers share it, and an `OPEN` that
+  cannot get the file within `file_lock_wait_ms` (5000) answers file status 93. Close a file
+  as soon as the work on it is done.
+
+**State between calls** is the project's `[backend] state`. `per-call` (the default) runs every
+call in a fresh interpreter: no WORKING-STORAGE survives, and files and databases are the only
+shared state. `per-connection` keeps one run unit per exported program for the life of a
+connection, so WORKING-STORAGE carries over from one call of that connection to the next; the
+connection's calls run in turn, a connection serves only the user it first served, and nothing
+is kept when it ends.
+
+### 24.7 The contract and its versions
+
+The exported programs and their parameters are the Backend's **contract**, versioned
+`major.minor.patch` in `exports.toml`. An old page keeps working against a new Backend only
+if the new interface still accepts what the old one sent and still carries every member the
+old one reads: adding a member or a program, or widening an item that only travels *to* the
+Backend, is compatible; removing or renaming a member (in a request **or** an answer),
+changing a scale or a sign, narrowing a picture, widening an item the Backend also sends back,
+removing a program, or changing who may call it is **breaking** and needs a new major
+version.
+
+- `rcrun backend describe` writes and prints `interface.json`; `rcrun backend release`
+  records the current contract as released (`contract/released/<version>.json`);
+  `rcrun backend check` compares the contract with the released ones. A **release** build is
+  refused when it breaks the last released contract.
+- A page says the contract it was built against when it connects. The same major with a lower
+  minor is served in the shape it was built for (a member added since is not sent) and told to
+  update; a higher minor than the Backend has, or another major, is refused with an update
+  message.
+- A form hears about it: **`onBackendVersion`** (the Backend served an older or newer
+  application; read `COBOL::"WS-VERSION"`) and **`onBackendWarning`** (a deprecated program or
+  an older application; read `COBOL::"WS-WARNING"`).
+
+### 24.8 Data controls through the Backend
+
+A control of class C (23.4) works through generated Backend programs, so your handlers read
+as they do on the desktop. For each one the web Build writes programs into
+`backend/generated/`, with their `[[export]]` entries in `backend/generated/exports.toml`,
+callable by the roles the control's **BackendRoles** names (any authenticated caller by
+default, **never public**) and regenerated on every Build. **Keep nothing of your own
+there**: the Build replaces and removes the files that carry its banner and refuses to
+overwrite one that does not.
+
+- **A bound DataGrid** (to an indexed file or an SQL query) reads and writes only through two
+  programs per grid, `…-READ` (a window of rows — at most 100 rows of up to 32 cells — with the
+  total) and, for a writable binding, `…-SAVE` (the deleted, changed and added rows written as
+  **one transaction**: every change is checked first and all are undone if one fails). The
+  grid's `RefreshBinding()` asks window by window until the source is exhausted; `Save()`
+  sends the unit. **In the browser the player makes the calls**, so `RefreshBinding()` answers
+  the count the grid shows *now* and `Save()` answers `98` while the unit is on its way: handle
+  **`onSaved`** and **`onCommitError`** to learn a save's outcome on the desktop and on the web
+  alike, and do not read `Save()`'s answer as the outcome. A grid bound to a COBOL table never
+  calls the Backend; a grid bound to a REST API or an agent source does not run on the web yet.
+- **An IndexedFile control** that names a `.cidx` and whose file your form's program
+  `SELECT`s gets nine programs (`OPEN`, `CLOSE`, `START`, `READ-NEXT`, `READ-PREVIOUS`,
+  `READ-INVALID`, `WRITE`, `REWRITE`, `DELETE`); the Build turns each verb on the file into a
+  `CALL … WITH WEBSOCKET LINKAGE` in the parsed program — your source is never touched. The
+  Backend keeps nothing between calls: each program opens the file, does its verb and closes
+  it, so a write is durable when the call answers; the browser keeps the cursor. The file
+  status lands in the control's `StatusDataItem` as on the desktop, and `30` means the call
+  could not be made (the reason is in `WS-LAST-ERROR`).
+- **A class C control's method** — a call of a RestClient, AgentObject, KnowledgeBase,
+  WebSearch, Maps, SqlDatabase or AWS control (`REST-1::Get("customers")`) — becomes one
+  Backend program per call site. The Backend seeds the control with its design-time
+  properties (never one that holds a secret) and then with the `[[configuration]]` of
+  `backend/backend.toml` that the control's **BackendConfig** names:
+
+  ```toml
+  [[configuration]]
+  name = "CRM"
+  BaseURL = "https://crm.example.com/api"
+  AuthToken = "env:CRM_TOKEN"
+  ```
+
+  Any value may be `env:NAME` or `file:PATH`; none is ever printed or sent back. What the
+  browser could otherwise choose is **fixed at Build**: the SQL statement, the REST resource, a
+  function, tool or job name must be a *literal* in the handler, and Check and Build stop at its
+  line when it is not, when a call passes a connection string, or when it passes a local file.
+  After the answer, the call's value is used where the handler called the method, the
+  properties the Backend's control changed are set on the form's control, its `LastError` is
+  set, and the events it raised (`onComplete`, `onQueryComplete`, …) are raised on the form's
+  control — their handlers run **after** the running handler, as on the desktop. When the call
+  fails, `LastError` holds the reason and `onError` is raised. A call the desktop would make
+  conditionally or more than once (in a `PERFORM … UNTIL` condition, a `WHEN` of an
+  `EVALUATE`, an `AND`/`OR`) is refused: move it into a statement of its own.
+- **A FileDropZone** gets an upload slot that takes only its `AllowedExtensions` and at most its
+  `MaximumFileSizeKB`; a **Viewer** gets one for the documents a user opens, with the same two
+  properties on a web form. `SaveAs` and `SaveAsPdf` do not go through the Backend: on the web
+  they download the document to the user.
+- **The AWS controls** are class C like the others: a call of one of their routes (DynamoDB
+  `GetItem`, S3 `List`, Lambda `Invoke`, …) runs on the Backend, and the control holds only the
+  *name* of a connection, never a key.
+
+### 24.9 The database: `COBOL::SqlDatabase`
+
+The SqlDatabase control is not in the Web and Mobile toolbox. A Backend program — or any
+program that runs on the native runtime — uses **`COBOL::SqlDatabase`**, the control's own verbs
+on one object every program has: no control on a form, no `EXEC SQL`, no host variables. It
+runs on SQLite, PostgreSQL and MySQL.
+
+```cobol
+           MOVE COBOL::SqlDatabase::Open("sql-connection:SALES") TO WS-HANDLE
+           IF WS-HANDLE = 0
+               *> The connection did not open: LastError says why.
+               MOVE COBOL::SqlDatabase::LastError TO WS-MESSAGE
+           ELSE
+               MOVE COBOL::SqlDatabase::Query("SELECT id, name FROM customer ORDER BY id") TO WS-ROWS
+               PERFORM UNTIL 1 = 2
+                   MOVE COBOL::SqlDatabase::Fetch() TO WS-ROW
+                   IF WS-ROW = SPACES
+                       EXIT PERFORM
+                   END-IF
+                   *> WS-ROW holds one row, its columns separated by a TAB.
+                   PERFORM SHOW-ROW
+               END-PERFORM
+               COBOL::SqlDatabase::Close()
+           END-IF.
+```
+
+| Verb | Answers |
+|---|---|
+| `Open(connection)` | the handle, `0` when it could not connect; `Open()` with no argument connects through the `SqlConnection` property (a project SQL connection's name), else `ConnectionString` |
+| `Execute(sql)` | the rows it changed (`0` when it failed) |
+| `Query(sql)` | a SELECT's row count |
+| `Fetch()` | the NEXT row as text, its columns separated by a TAB — and SPACES once the rows run out |
+| `FetchAll()` | the row count |
+| `ColumnNames()`, `ColumnCount()`, `ColumnName(n)` | the names (TAB-separated), how many, the *n*th (1-based) |
+| `BeginTransaction()`, `Commit()`, `Rollback()` | `1` when it took effect, `0` when it could not |
+| `IsInTransaction()` | `1` or `0` |
+| `Close()` | closes the connection |
+
+`LastError` (the database's message) and `StatusCode` (`0` after a good `Open`, `1` after one
+that failed) are read like any property. The connection is named as for `EXEC SQL CONNECT TO`:
+`':memory:'`, a SQLite path, `sqlite:path`, `postgres://…`, `mysql://…`, or `sql-connection:NAME`
+for one of the project's `[[sql-connections]]`. The object holds one connection — the last one
+opened — apart from any `EXEC SQL` connection.
+
+> **No parameters.** `Execute` and `Query` take the statement *text* and nothing else: no `?`
+> markers, no host variables. Build the text with `STRING` from values the program trusts,
+> refuse a typed value that holds a single quote, and use `EXEC SQL` with host variables where
+> a statement takes input from a person. **Never put raw user input into the text.**
+
+A call is a statement at the start of a line or a value anywhere a value goes (`MOVE`, `SET`,
+`IF`, `DISPLAY`, an argument), never a receiving field. In a form of a Web or Mobile project it
+is a Build and Preview error, class `BackendOnly`, that says the way out: write a Backend
+program that uses it and `CALL "NAME" WITH WEBSOCKET LINKAGE USING …`. A built application and
+a built Backend link the SQL drivers when any of their programs names it.
+
+### 24.10 Signing users in: the Authentication control
+
+The **Authentication** control signs the application's end users in, up and out on a Web or
+Mobile form, recovers a password and answers a second factor — on its own screens (*in-app*) or
+with one button to the identity provider's page (*hosted*). It talks **only to the Backend**:
+its requests are HTTPS `POST`s to the Backend's `/auth/*` routes, and the Backend speaks to the
+provider. The page never holds a refresh token (it lives in an HttpOnly cookie), and your COBOL
+sees only `State`, `UserName`, `Email` and `GetClaim` — never a token. Failures are generic on
+purpose: a wrong user name and a wrong password read the same, and a reset request answers the
+same whether or not the account exists.
+
+The provider is set **once**, in the Backend's `[identity]` section (`backend/backend.toml`; the
+project's Web page ▸ *Identity (sign-in)* section edits it): `provider` (`cognito`, `keycloak`, `entra` or
+`entra-external`), its settings, `flow`, `origins`, `[identity.recaptcha]` and `cookie_key`.
+Every secret there is `env:NAME` or `file:PATH`, never the value. The Build writes the identity
+programs (`AUTH-SIGN-IN` … `AUTH-CAPABILITIES`) into `backend/generated/identity/`.
+
+| Operation | Cognito | Keycloak | Entra workforce | Entra External ID |
+|---|---|---|---|---|
+| Default flow (`Mode = Auto`) | in-app | hosted | hosted | hosted; in-app with `flow = "native"` |
+| Sign in, sign up, forgot / reset password | in-app | hosted | hosted | in-app (native) |
+| MFA: TOTP | in-app | hosted | hosted | hosted |
+| MFA: SMS / e-mail code | in-app | hosted | hosted | e-mail in-app; SMS hosted |
+| Refresh | yes | yes | yes | yes |
+| Sign-out | revokes | revokes | logout only | logout only |
+| Social / federated sign-in | hosted | hosted | hosted | hosted |
+
+`Mode = InApp` on a provider whose column says *hosted* is refused by Check, at the control.
+
+- **Protecting forms.** A form's `RequiresSignIn` (Properties panel, Web and Mobile forms)
+  sends a signed-out user to the sign-in form — the one `[web] sign_in_form` names, else the
+  first form holding an Authentication control — and opens the protected form after
+  `onSignedIn`; signing out closes every protected form. **This is the user's experience only:
+  the boundary is the Backend's token check** — protect the data with the `roles` of
+  `exports.toml`, never with `RequiresSignIn` alone.
+- **The page and the Backend on the same site.** The refresh cookie is `SameSite=Strict`: when
+  the page's origin and the Backend's address are on different sites, the browser never sends
+  it and a session ends when its access token expires. Check warns about each such origin.
+- **reCAPTCHA and consent.** With `[identity.recaptcha]` set, sign-in, sign-up and forgot
+  password carry a reCAPTCHA v3 token the Backend verifies. `RecaptchaConsent = Ask` loads
+  Google's script only after consent:
+
+  ```cobol
+        *> onConsentRequired of AUTH-1: show your own consent text
+           INVOKE PNL-CONSENT "Show"
+        *> onClick of BTN-ACCEPT:
+           INVOKE AUTH-1 "GrantConsent"
+           INVOKE PNL-CONSENT "Hide"
+        *> onSignedIn of AUTH-1:
+           MOVE AUTH-1::UserName TO LBL-WELCOME::Caption
+           SET WS-SUB TO AUTH-1::GetClaim( "sub" )
+  ```
+
+`rcrun backend auth test` checks the `[identity]` provider and reCAPTCHA settings, one line per
+check, never printing a value.
+
+### 24.11 Developing, running and building the Backend
+
+| Command | What it does |
+|---|---|
+| `rcrun backend run [dir]` | serves the Backend for development on a loopback address (`--listen host:port`, default `127.0.0.1:0`, a free port), prints a development token valid for that run only and each log record as it happens; `--page-origin` lets only that origin connect |
+| `rcrun backend describe [dir]` | writes and prints `interface.json` |
+| `rcrun backend check [dir]` | checks the Backend and compares its contract with the released ones |
+| `rcrun backend release [dir]` | records the current contract as released |
+| `rcrun backend build [dir]` | builds the headless server binary `bin/<name>-backend` (`--debug`, `--accept-breaking`, `--quiet`) |
+| `rcrun backend auth test [dir]` | tests the `[identity]` and reCAPTCHA settings |
+
+In the IDE, **Run ▸ Start Backend** runs the first for the open project, shows its output in the
+Output panel, and **Run ▸ Stop Backend** (or closing the project or the IDE) stops it; Run and
+Preview start it for you (23.8). `rcrun backend run` publishes the project's
+`[[sql-connections]]` as `rcrun run` does, so `EXEC SQL CONNECT TO 'NAME'` in a Backend program
+resolves.
+
+The built Backend reads `backend.toml`: address, TLS identity, token issuer, allowed origins,
+limits. **A secret is written `env:NAME` or `file:PATH`, never by value** — a release Backend
+refuses a literal secret — and the Backend refuses to start on any setting named `unsafe_…`.
+Plain `ws://` is served on a loopback address only, in every mode: on a network address give
+`backend.toml` a `[tls]` section, or put a reverse proxy that terminates TLS in front and listen
+on loopback. Name the frontend's origins (`[server] allowed_origins`) and the identity provider
+(`[auth] issuer`, `audiences`, or `[identity]`) before a release.
+---
+
+## 25. Mobile applications: Android and iOS
+
+A **Mobile** project is a Web project (chapter 23) with a phone's shell around the bundle. It
+has the same forms, the same COBOL subset, the same Backend (chapter 24) and the same
+Preview; what it adds is a package you can install on a phone or tablet, the phone's own
+features (secure storage, deep links, the status bar and the notch), and a few settings.
+The Mobile kind is chosen when the project is created — **File ▸ New Project** lists
+Android phone and tablet and iOS iPhone and iPad on its left — and is not changed by editing
+the manifest. Its forms live in `mobileforms/` as `<name>.mcfrm`, and the project tree shows
+a **MobileForms** node in place of Forms.
+
+| You build | Build makes | You need |
+|---|---|---|
+| Android phone or tablet | the web bundle, then the installable package `dist/mobile/android/<Name>-debug.apk` | the Android SDK and NDK, Java 17 to 21, the Rust target of the phone, the Tauri command line |
+| iOS iPhone or iPad | the application the **simulator** runs, `dist/mobile/ios/<Name>-debug.app` | a Mac with Xcode 16 or later |
+
+> **What is not built yet.** A release archive of an iOS application for a device or the store
+> needs your Apple developer account and is **not built**; this version makes no Xcode project
+> for an iOS project either. Browser coverage is measured in Chromium and in the system web
+> views, not yet in Safari on a Mac or in the Android web view on a physical device.
+
+### 25.1 The `[mobile]` settings
+
+Project Settings ▸ **Mobile application** edits them; the manifest keeps them under `[mobile]`:
+
+```toml
+[mobile]
+platform     = "android"           # "android" or "ios"
+device       = "phone"             # "phone" or "tablet"
+orientation  = "auto"              # "auto", "portrait" or "landscape"
+min_os       = "auto"              # the oldest supported: Android 15 (API "35") or iOS "18.0", or newer
+style        = "spa"
+multi_memory = true                # false is the iOS default; true for Android
+backend_url  = ""
+app_id       = "com.example.orders"
+features     = ["secure-storage"]  # secure-storage, open-address, deep-link
+icon         = "Assets/icon.png"   # a square PNG of at least 1024 px
+[mobile.app_name]                  # the name under the icon, per language
+en = "Orders"
+pt = "Pedidos"
+[mobile.signing]                   # the NAMES of the release signing material, never a password
+android_keystore = "/Users/me/keys/orders.jks"   # outside the project folder
+android_alias    = "orders"
+```
+
+`style`, `backend_url`, `max_payload_bytes`, `call_timeout_ms`, `loading_effect` and `player`
+mean what they mean in `[web]` (23.3). An iOS Mobile project always carries the
+single-memory program module.
+
+**The Application id** is the application's identity on the phone: reverse-DNS, two or more
+parts, each part starting with a letter and holding letters and digits only — no `_` and no
+`-`, which Android takes but the Tauri identifier and an iOS bundle id do not. A new Mobile
+project starts with `com.example.<name>` so its first Run works. **Give it your own before you
+publish:** a store takes no `com.example` id, and changing it later makes a different
+application. The settings page refuses an invalid value and keeps the saved one.
+
+**The device features** the application uses must be declared in `features`, and Check names
+every use of one that is not (the file and line). `secure-storage`, `open-address` and
+`deep-link` are the ones there are.
+
+**The icon** is a square PNG of at least 1024 pixels; without one the application carries the
+PowerRustCOBOL icon. **The name under the icon** is `[mobile.app_name]`, one entry per language;
+absent, the project's name.
+
+### 25.2 Building the Android package
+
+**Build** on a Mobile project for Android makes the web bundle and then the package, with the
+PowerRustCOBOL mobile shell (Tauri 2) around it. Before any tool runs, the Build names **every
+problem of the project at once**: no `app_id`, a version with no build number (`1.2.3` gives
+`10203`), a device feature used and not declared, an icon that is not a square PNG of at least
+1024 px. Then it names each missing tool and how to get it. Every line of the tools goes to
+`package.log` in the build folder (Settings ▸ Build Folder); the first build of a project takes
+a few minutes, a later one seconds.
+
+A **release** package is signed with **your** key. The keystore (outside the project folder)
+and the alias are named in `[mobile.signing]`; the two passwords come **only** from the
+variables `PRC_ANDROID_STORE_PASSWORD` and `PRC_ANDROID_KEY_PASSWORD` of the process that
+builds — never from a file. The coding agent's `build` tool takes `release: true` for it.
+
+### 25.3 Running on a phone or an emulator
+
+**Run** with one phone connected or one Android emulator running builds the package for that
+device, installs it, starts it as a tap on its icon would, and shows the application's log in
+the Output panel: what a `DISPLAY` writes, as the program wrote it, the shell's lines and a
+crash.
+
+- With nothing running and one emulator set up in Android Studio's Device Manager, Run starts
+  that emulator first and waits for it (a minute or two cold, seconds when it resumes a saved
+  state). It stays open afterwards.
+- With several phones or emulators running, or several set up and none running, the **Run on
+  device** window opens (also **Run ▸ Run on device…**). It lists the phones and emulators
+  running and the emulators that can be started; **Start** runs on the selected one, and every
+  later Run goes to it without asking until the IDE is closed. The choice is not saved in the
+  project. **Stop** stops the application where it was started last.
+- With no device and no emulator the Preview opens in the browser at a phone's width.
+- The form designer's **Run Form** button does what Run does in a Mobile project: it runs the
+  application **from its main form** on the phone or emulator, never in a desktop window, which
+  has none of the phone's features. **Debug Form** still runs the form in a desktop window — the
+  one place the debugger reaches today — so a device verb there ends in its exception unless the
+  call names `ON EXCEPTION`.
+- A Run that fails says why in the Output and opens nothing else. With a Backend, Run starts it
+  first (23.8).
+
+### 25.4 The Android Studio project
+
+When **New Project** creates a Mobile project for Android, a step of its own offers to create
+its **Android Studio project** too. **Create** makes it in the project's `android/` folder;
+**Not now** leaves it out. Project Settings ▸ Mobile application shows whether it is there and
+where, with **Create** (or **Create again**), so a project made without it, or whose folder was
+deleted, gets it back.
+
+Android Studio opens `android/src-tauri/gen/android`, a Gradle project named after the
+PowerRustCOBOL AI project. Every Build and every Run on a device brings it up to date with the
+same bundle, so what Android Studio runs is what the package shows. Its Gradle build compiles the
+shell through the Tauri command line, which must be running meanwhile, so open it with **Open in
+Android Studio** on the same row: the IDE brings the project up to date, starts the Tauri command
+line (`cargo tauri android build --ci --debug --apk --target aarch64 --open` in
+`android/src-tauri`), which builds the application once, opens Android Studio on the project and
+keeps running while you run and debug it there. **Stop** ends it, as do the next Open and closing
+the IDE (Android Studio then cannot build the shell until it is opened again). Its lines go to
+`android-studio.log` in the build folder. Without the IDE, run that command yourself in
+`android/src-tauri` and stop it with Ctrl+C.
+
+The folder holds the generated shell and the web bundle only — **no COBOL, no form, no secret**
+— and its `.gitignore` leaves out what the tools build and cache. Without the Android SDK, its
+NDK, Java 17 to 21 or the Tauri command line only its sources are written, and the Output names
+what is missing. The manifest records it as `[mobile.native]` `android = "android"`.
+
+### 25.5 The iOS application for the simulator
+
+On a Mac with Xcode 16 or later, the Build of an iOS Mobile project makes the application the
+iOS Simulator runs, `dist/mobile/ios/<Name>-debug.app`. The `single-memory` program module is
+always the one it carries. Nothing else about an iOS project differs in the IDE, and the forms
+and the Backend are the same ones.
+
+### 25.6 On the phone's screen
+
+The application keeps out of the **status bar, the notch and the gesture bar**: the form
+starts below the status bar, and the Preview's phone sizes show the same. In the phone's light
+appearance a light strip lies under the status bar, so its dark icons stay readable over a dark
+form; a theme or the page sets the custom property `--pr-statusbar` to choose another colour, and
+a page that is not the phone's web view gives the insets as `--pr-safe-top`, `--pr-safe-right`,
+`--pr-safe-bottom` and `--pr-safe-left`. **Back** on the first form closes the application, and
+the next start is a fresh one.
+
+> **Caveat.** The status bar icons keep the appearance the phone had when the application
+> started; switching the phone between light and dark while it runs shows them mismatched until
+> the next start.
+
+### 25.7 The phone's secure storage
+
+With the feature `secure-storage`, a secret the phone keeps in its **own** store — the Android
+Keystore or the iOS Keychain — never the page:
+
+```cobol
+           COBOL::SecureStore( "user-name" TXT-NAME::Text::Trim() )
+           IF COBOL::SecureStatus = 0
+               MOVE "Saved." TO LBL-RESULT::Caption
+           END-IF
+           COBOL::SecureLoad( "user-name" WS-SAVED-NAME )
+           COBOL::SecureDelete( "user-name" )
+```
+
+Each waits for the phone's answer, and **`COBOL::SecureStatus`** says what happened: `0` done, `1`
+nothing was there (a `SecureLoad` that found no value, a `SecureDelete` with nothing to delete),
+`-6` refused. `SecureLoad` puts the value in its second argument and in `COBOL::SecureValue`. A key
+is 1 to 128 letters, digits, `-`, `_` or `.`; a value is at most 4096 bytes. In the browser
+**Preview** the three answer `-6` at once and say why in the console, so one form runs in the
+Preview and on the phone. A Web project's Build refuses them at their line; a desktop program
+stops with a run-time error naming where they work, unless the call names `ON EXCEPTION`.
+
+### 25.8 Deep links
+
+With the feature `deep-link`, a link of the form `com.example.orders://order-form?id=7` opens
+that form with its parameters. The form reads one by name with `GetParam` (empty when absent,
+names are case-insensitive) or all of them with `GetParams` (`name=value` lines), already in its
+first handler:
+
+```cobol
+           *> onLoad of the order form: the link's id parameter picks the order to show.
+           INVOKE me::"GetParam"("id") RETURNING WS-ORDER-ID
+```
+
+### 25.9 Certificate pinning and the other security tables
+
+A Mobile project may pin the certificates its web view trusts:
+
+```toml
+[mobile.pinning]
+pins    = ["sha256/<base64>", "sha256/<base64>"]   # at least two different ones: the live key and a backup
+expires = "2027-06-30"                              # the day the pins stop being the ones to trust
+```
+
+Check and Build refuse fewer than two different pins, a pin that is not `sha256/` and the base64
+of 32 bytes, a missing or unreadable `expires`, and one that has passed; a table whose `expires`
+is less than 30 days away is a warning. A pin is named by its position in the message, never
+quoted. `[mobile.unsafe]`, `[security]` and the Build's scan of the project's own files for
+secrets work as in a Web project (23.9). **A Backend release refuses a literal secret** in
+`backend.toml` (24.11).
+
+### 25.10 What the examples show
+
+`examples/PowerMobileHello` is the smallest Mobile project. `examples/PowerOficina` — a
+workshop-management application with a Backend over indexed files — and
+`examples/PowerAnalyticsWeb` — the look of the desktop PowerAnalytics dashboard on the web — show
+what a larger application looks like; open them from **File ▸ Open Project**.
+---
+
+## 26. Graphics: Canvas 2D, Canvas 3D and the graphics objects
+
+A form that must draw something of its own — a game, a custom chart, an image tool, a 3D model
+viewer — has seven chart controls, a PictureBox and an Animator, and until version 2 had
+nothing to draw *with*. Two **controls** and five **non-visual objects** fill that gap. They are
+in the toolbox of **every project kind**, and one COBOL API drives them on **every platform**:
+the IDE, `rcrun`, a compiled binary, the browser and a phone.
+
+| Type | Kind | What it is |
+|---|---|---|
+| **Canvas2D** | control | a 2D drawing surface: the program draws with methods and the surface keeps the picture |
+| **Canvas3D** | control | a 3D view of a Scene3D, drawn on the GPU |
+| **ImageBuffer** | non-visual | pixels to load, change and save; it has no window — a Canvas2D draws it |
+| **Plot** | non-visual | a chart drawn from numbers into an ImageBuffer or onto a Canvas2D |
+| **Scene3D** | non-visual | a 3D scene — nodes, meshes, glTF models, materials, lights, cameras, picking — that a Canvas3D shows |
+| **Physics2D** | non-visual | a 2D physics world of bodies, shapes, joints and contacts, stepped by the program |
+| **Physics3D** | non-visual | the same in three dimensions |
+
+All of it is implemented **once**, in pure Rust, and the desktop host and the browser player are
+thin adapters that give it a surface and an event loop. That is why a drawing is **the same pixels
+on every host**: the browser does not use the HTML `<canvas>` to draw a Canvas2D. The seven chart
+controls, the PictureBox and the Animator stay as they are; use them when they do the job and
+the Canvas when you must draw something they cannot.
+
+`examples/PowerGraphics` has nine forms that exercise all of it: a small game
+(`game-form`), charts (`charts-form`), an image lab (`imagelab-form`), a 3D viewer
+(`viewer3d-form`), two physics pools (`pool2d-form`, `pool3d-form`) and others. Open it from
+**File ▸ Open Project**.
+
+### 26.1 Canvas2D
+
+Drop a Canvas2D on a form; its properties include `Width` and `Height` (logical pixels),
+`PixelRatio` (the device pixel ratio; `Width` and `Height` stay in form pixels), `Smoothing`,
+`BackgroundColor`, `TargetFps`, `AutoPresent` and `AccessibleLabel`. You draw by calling
+methods as you would on any control:
+
+```cobol
+           CNV-GAME::Clear( "#101820" )
+           CNV-GAME::SetFillColor( "#335577" )
+           CNV-GAME::FillRect( 0 300 480 20 )
+           CNV-GAME::BeginPath()
+           CNV-GAME::Arc( WS-X WS-Y 16 0 6.2831853 0 )
+           CNV-GAME::SetFillColor( "#E05555" )
+           CNV-GAME::Fill( 0 )
+           CNV-GAME::SetFont( "14px Ubuntu" )
+           CNV-GAME::SetFillColor( "#FFFFFF" )
+           CNV-GAME::DrawText( "Arrow keys push the yellow sprite" 10 24 0 1 )
+           CNV-GAME::Present()
+```
+
+The drawing vocabulary is the one a web developer knows, with the same names:
+
+| Group | Methods |
+|---|---|
+| State | `Save`, `Restore`, `Reset`, `Clear`, `Present`, `SetSmoothing` |
+| Paths | `BeginPath`, `MoveTo`, `LineTo`, `QuadTo`, `CubicTo`, `ArcTo`, `Arc`, `Ellipse`, `Rect`, `RoundRect`, `ClosePath`, `Fill`, `Stroke`, `Clip` |
+| Shapes | `FillRect`, `StrokeRect`, `ClearRect`, `DrawLine`, `DrawCircle`, `DrawPolygon` |
+| Paint | `SetFillColor`, `SetStrokeColor`, `SetLineWidth`, `SetLineCap`, `SetLineJoin`, `SetMiterLimit`, `SetDash`, `SetAlpha`, `SetBlendMode`, `SetLinearGradient`, `SetRadialGradient`, `SetConicGradient`, `SetPattern`, `SetShadow` |
+| Transforms | `Translate`, `Rotate`, `Scale`, `Transform`, `SetTransform`, `ResetTransform` |
+| Text | `SetFont`, `SetTextAlign`, `SetTextBaseline`, `SetTextDirection`, `DrawText`, `DrawTextBox`, `MeasureText`, `LoadFont`, `LoadFontAsset` |
+| Images | `DrawImage`, `DrawImageScaled`, `DrawImageRegion`, `DrawSprite`, `ReadPixel`, `Capture`, `GetPixel`, `ToImage` |
+| Hit tests | `HitPath`, `HitStroke`, `IsPointInPath`, `IsPointInStroke` |
+| Control | `Resize`, `SetPixelRatio`, `GetWidth`, `GetHeight`, `GetPixelRatio`, `Flush`, `Discard`, `PendingCommands`, `TakePresented`, `GetDiagnostics`, `GetHandle` |
+
+Beyond these, the System KB (Grace and the editor's completion read it) lists every method with
+its parameters, from the same table the runtime dispatches — a method cannot be listed and
+missing, or working and unlisted.
+
+**Animation and input.**
+
+- **`TargetFps`** — set it and bind **`onFrame`**: the event is raised at that rate with the elapsed
+  milliseconds. `FixedStep` gives an exact step. With `TargetFps = 0` the canvas redraws on
+  demand.
+- **`AutoPresent`** — the drawing shows at the end of every handler. Without it, call
+  `Present()`.
+- **Events** — `onPointerDown`, `onPointerMove`, `onPointerUp`, `onWheel`, `onKeyDown`,
+  `onKeyUp`, `onGamepadButton` (argument `pad button 1|0`) and `onGamepadAxis` (argument `pad axis
+  value`) are raised **only when a handler is bound**. `PointerX`, `PointerY`, `IsKeyDown( key )`,
+  `GamepadAxis( axis [pad] )` and `GamepadButton( button [pad] )` can be read **at any time**, whatever
+  handlers are bound. The game above polls the keyboard in `onFrame`:
+
+  ```cobol
+           IF      CNV-GAME::IsKeyDown( "ArrowLeft" ) = 1
+               PHY-1::ApplyImpulse( WS-WORLD, WS-BALL(1), -2000, 0 )
+           END-IF
+  ```
+
+- **A wrong call is not an exception.** It sets `LastError` and the drawing goes on.
+- **Text in a font the form names** needs the font file under `Assets/` for a Web build; the Build
+  stops and names the family that is missing.
+
+**Canvas2D compared with the HTML canvas.**
+
+| HTML canvas | Canvas2D |
+|---|---|
+| `ctx.fillRect(x, y, w, h)` | `CNV-1::FillRect( x y w h )` — the same names, called as inline methods |
+| `requestAnimationFrame` | set `TargetFps` and bind `onFrame` |
+| drawing shows at once | with `AutoPresent` the drawing shows at the end of the handler; otherwise call `Present` |
+| events on the element | raised only when a handler is bound; `PointerX`, `IsKeyDown(key)` and the gamepad reads work any time |
+| CSS pixels and `devicePixelRatio` | `PixelRatio` scales the surface; `Width` and `Height` stay in form pixels |
+| an exception on a wrong call | the call sets `LastError` and the drawing goes on |
+| `getContext("webgl2")` | a separate control, Canvas3D, showing a Scene3D |
+
+### 26.2 ImageBuffer
+
+An ImageBuffer holds pixels in memory — it has no window. Create one empty (`Create`), load one
+(`LoadAsset` from `Assets/`, `LoadFromBytes`), change it, and save it (`Save`, `Encode`):
+
+| Group | Methods |
+|---|---|
+| Make and keep | `Create`, `LoadAsset`, `LoadFromBytes`, `Encode`, `Save`, `Clone`, `GetWidth`, `GetHeight`, `GetHandle` |
+| Geometry | `Resize`, `Crop`, `Rotate`, `Flip` |
+| Pixels | `Fill`, `GetPixel`, `SetPixel`, `DrawOnto`, `Composite` |
+| Colour | `Grayscale`, `Invert`, `Brightness`, `Contrast`, `Hue`, `Saturation`, `Threshold` |
+| Filters | `BlurGaussian`, `BlurBox`, `Sharpen`, `EdgeDetect`, `Convolve`, `Dilate`, `Erode` |
+| Measure | `Histogram` |
+
+A Canvas2D draws an ImageBuffer with `DrawImage` (the game above draws its sprite so). On a
+machine with several cores the heavy operations use them, and give the **same result** on a
+platform with none.
+
+### 26.3 Plot
+
+A Plot draws a chart from numbers — series of points or values, histograms, candles, error bars,
+grids and 3D surfaces — into an ImageBuffer (`Render`), onto a Canvas2D (`RenderToCanvas`) or as SVG
+(`ToSvg`).
+
+| Group | Methods |
+|---|---|
+| Frame | `SetTitle`, `SetXLabel`, `SetYLabel`, `ShowLegend`, `ShowGrid`, `SetBackground`, `SetForeground`, `SetFont`, `SetXRange`, `SetYRange`, `ClearRanges`, `AddCategory`, `ClearCategories`, `SetHistogramBins`, `SetView3D` |
+| Series | `AddSeries`, `RemoveSeries`, `ClearSeries`, `GetSeriesCount`, `GetSeriesPoints`, `SetSeriesName`, `SetSeriesColor`, `SetSeriesLineWidth`, `SetSeriesPointSize`, `SetSeriesClosed` |
+| Data | `AddPoint`, `AddPoint3`, `AddValue`, `AddCandle`, `AddErrorPoint`, `SetSeriesGrid`, `SetSeriesSurface`, `SetSeriesFromTable` |
+| Draw | `Render`, `RenderToCanvas`, `ToSvg` |
+
+### 26.4 Canvas3D and Scene3D
+
+A **Scene3D** holds the world: **nodes** (`AddGroup`, `AddBox`, `AddSphere`, `AddPlane`,
+`AddCylinder`, `AddCone`, `AddTorus`, `AddMesh`), **models** (`LoadModel`, `LoadModelFromBytes` — glTF),
+**lights** (`AddDirectionalLight`, `AddPointLight`, `AddSpotLight`, `SetAmbient`), **cameras**
+(`AddCamera`, `AddOrthographicCamera`), **materials** (`CreateMaterial`, `SetMetallic`,
+`SetRoughness`, `SetEmissive`, `SetTexture`, `SetAlphaMode`), instancing (`SetInstances`) and
+**animations** (`PlayAnimation`, `StopAnimation`, `SetAnimationTime`), and the usual tree
+(`SetParent`, `FindNode`, `SetPosition`, `SetRotation`, `SetScale`, `LookAt`, `Update`).
+
+A **Canvas3D** shows a Scene3D, drawn on the GPU: `SetScene`, `SetCamera`, `Render`, `Pick` (what is
+under a point), `Screenshot`, `SetMsaa`, `SetShadowMapSize`, `GetStats`. It shows **only when the
+program calls `Render`** — there is no AutoPresent. `Backend` (read-only) says what draws it
+(`WebGPU`, `WebGL2`, `Vulkan`, `Metal`, `Dx12` or `Software`). On a machine with no usable
+adapter the control shows a message and `LastError` says why; the rest of the form keeps
+working.
+
+### 26.5 Physics2D and Physics3D
+
+A physics world is **stepped by the program** with a fixed time step, so the same inputs give
+the same results on every host. `CreateWorld` makes one; `AddBody`, `AddBall`, `AddBox`,
+`AddCapsule` and `AddConvexHull` (and, in 3D, `AddTrimesh`) add what is in it; `AddFixedJoint`,
+`AddRevoluteJoint` and `AddPrismaticJoint` connect bodies; `ApplyForce`, `ApplyImpulse` and
+`ApplyTorque` move them; **`Step( world seconds )`** advances time; `RayCast` asks what a ray hits;
+`TakeEvents` reads the contacts. `BindSprite` (2D) and `BindNode` (3D) tie a body to what shows it,
+and `GetStateFingerprint` gives a value that is the same on two hosts when their worlds agree.
+
+```cobol
+           PHY-1::Step( WS-WORLD 0.016667 )
+           SET     WS-POS                    TO    PHY-1::GetPosition( WS-WORLD WS-BALL(WS-I) )
+           UNSTRING WS-POS DELIMITED BY SPACE INTO WS-PX WS-PY
+           COMPUTE WS-X = FUNCTION NUMVAL( WS-PX )
+```
+
+### 26.6 Writing these calls in COBOL
+
+- A method that answers a **handle** (`GetHandle()`, `AddSeries`, `AddBody`, `Render`, …) answers a
+  whole number of up to 32 bits that grows when a slot is reused: keep it in an item with
+  `PIC 9(10)`, **never `PIC 9(4)`**.
+- A method that takes a **list of numbers** (`SetSeriesGrid`, `SetSeriesSurface`, `Convolve`,
+  `AddMesh`, `SetInstances`) takes them as **text**, separated by spaces or commas:
+  `PLT-1::SetSeriesGrid( WS-SER 3 3 "1 2 3 4 5 6 7 8 9" )`. A word that is no number is refused by
+  name in `LastError`.
+- A **table of rows** goes to `SetSeriesFromTable` as the group that holds it, with the row count,
+  the row width in bytes and the columns described once (`"0:zoned(6,0); 6:zoned(6,0)"`).
+- A Physics2D **position** answers the text `x y`: split it with `UNSTRING … DELIMITED BY SPACE`
+  and read each part with `FUNCTION NUMVAL`, as above.
+
+### 26.7 What a limit does
+
+The objects have **limits** — the canvas size, the pixels of a decoded image, the size of a model
+or a texture, the number of nodes and bodies, the length of a recorded drawing — set by the
+project with safe defaults. The defaults are chosen so a phone's browser survives them: they allow
+a 24-megapixel photograph and a 4096 × 4096 canvas. A call that would pass one is **refused** with a
+readable message in `LastError` that names the setting to raise, never a crash.
+
+---
+
+## 27. Caveats and current limitations
 
 A consolidated list so you are never surprised:
 
@@ -18408,6 +19801,29 @@ A consolidated list so you are never surprised:
   row chooses Classic, Enhanced, Neumorphic Light or Neumorphic Dark (procedural
   relief with gradient, blur, distance and rim controls); a theme that owns the
   whole look, such as Elegance or Spatial, ignores it.
+- **A web page is readable by anyone who opens it.** A Web or Mobile application's forms, its
+  program module and its stylesheets can be read and tampered with, so files, databases, keys and
+  rules that decide money live in the Backend, and the boundary is the Backend's token check — never
+  `RequiresSignIn` or any other thing the page does (chapter 24).
+- **A web form's COBOL is a subset.** File input/output, `EXEC SQL`, `COBOL::SqlDatabase`,
+  `SORT … USING/GIVING`, `MERGE` and `SCREEN SECTION` do not run in a page; the Build refuses each at
+  its line and names the way out (23.5).
+- **Web and the interpreter differ in one known place.** A quotient written to a control property
+  keeps its own scale on a page (`4.000000000`) and is cut to the property's decimals on the desktop
+  (`4`). `specs/WASM-PARITY.md` lists every recorded difference.
+- **Browser coverage.** It has been measured in Chromium and in the system web views; Safari on a Mac
+  and the Android web view on a physical device are not measured yet. Some acceptance criteria of the
+  WebAssembly specs are still open: `specs/WASM-OPEN-ACS.md` lists them.
+- **iOS.** The Build makes the application for the **simulator**; a release archive for a device or
+  the store needs your Apple developer account and is not built, and no Xcode project is made.
+- **Data controls on the web.** A DataGrid bound to a REST API or an agent source does not run on the
+  web yet (a grid bound to an indexed file, an SQL query or a COBOL table does). In a browser a bound
+  grid's `RefreshBinding()` and `Save()` return before the Backend answers: handle `onSaved` and
+  `onCommitError` (24.8).
+- **The reconnection modal is the browser's.** The desktop draws no *Connecting to the server…* modal
+  and does not raise `onBackendUnreachable` yet (24.4).
+- **`COBOL::SqlDatabase` takes no parameters.** `Execute` and `Query` take statement text only; use
+  `EXEC SQL` with host variables where a statement takes input from a person (24.9).
 
 ---
 
@@ -18426,6 +19842,7 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 | Embedded SQL / ODBC                   | `EXEC SQL … END-EXEC` with host variables, cursors, SQLCA — [Embedded SQL](#embedded-sql-exec-sql) (SQLite, PostgreSQL, MySQL); or `COBOL::"OPEN-DB"` + `COBOL::"EXEC-SQL"` (SQLite/PostgreSQL/MySQL) |
 | Building an `.exe` with a runtime DLL  | `rcrun build` → **one self-contained binary**, no runtime to install                                   |
 | Project/workspace file                | The project file (`<name>.project.toml`) + the standard folder layout                                    |
+| A browser front end                   | A **Web** or **Mobile** project (§23): the same forms and COBOL, compiled to WebAssembly, with a **Backend** (§24) for data and secrets |
 
 > ⚠️ **Do not** expect source-level, file-format, or binary compatibility with
 > any prior vendor's product. The concepts transfer; the artefacts do not.
@@ -18437,15 +19854,24 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 - **Application shell** — the one-window arrangement a **SideMenu** on the main
   form switches on: a menu pane, a breadcrumb, and a **ContentPane** that forms
   are loaded into in place (§22).
+- **Backend** — the part of a Web or Mobile project that runs on the native runtime, in `backend/`:
+  its programs, listed in `exports.toml`, are the only ones a page can `CALL … WITH WEBSOCKET
+  LINKAGE`. It holds the files, databases and secrets (§24).
 - **Block literal** — a multi-line literal fenced with backticks, taken
   verbatim. A PowerRustCOBOL extension; free format only (§13).
 - **Breadcrumb** — the frame across the top of a shell window naming the
   navigation chain. Sized and coloured by the SideMenu's `Breadcrumb*`
   properties (§22).
+- **Bundle** — what a Web Build makes: a static folder (`dist/web/`) of a WebAssembly program module,
+  the prebuilt player, the form descriptions, the host page and a manifest, hostable by any web
+  server (§23).
 - **Common Code** — your hand-written COBOL, in `src/`. Editable, and `CALL`ed
   from handlers.
 - **ContentPane** — the area of a shell window that holds the loaded form. It is
   the main form's size less the SideMenu's width and the breadcrumb's height.
+- **Contract** — a Backend's exported programs and their parameters, versioned
+  `major.minor.patch` in `exports.toml`; a release build is refused when it breaks the last released
+  one (§24).
 - **Control** — an element on a form: button, text box, chart, and so on.
 - **Data binding** — a form-level mapping from a source (indexed file, SQL,
   COBOL table, REST, AI agent) to an approved target control (§8).
@@ -18467,6 +19893,8 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
   Check.
 - **Handler** — the COBOL that runs for an event; generated as a nested program
   named `CONTROL-ID--EVENTNAME`.
+- **Idempotency key** — the key the runtime gives a Backend call so that a call repeated after a lost
+  connection is answered from what the Backend kept, without running the program twice (§24).
 - **Indexed file** — an ISAM file (`ORGANIZATION IS INDEXED`), described in the
   project by a `.cidx` definition.
 - **Knowledge Base** — the project category holding Markdown, text and PDF
@@ -18474,8 +19902,13 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 - **Main form** — the one form in a project marked as the application's entry
   point. Its generated program is what a built binary starts at.
 - **`me`** — the receiver naming the current form, as in `me::Title`.
+- **Mobile shell** — the PowerRustCOBOL Tauri 2 application that puts a Web bundle in a phone's web
+  view and gives it the phone's own features (§25).
 - **Non-visual control** — a service with no run-time appearance: Timer,
   AI Agent, REST Client, SQL Database, Indexed File, Web Search, Snackbar.
+- **Player** — the prebuilt program that runs a Web or Mobile application's forms in the browser; a
+  Web build copies it beside your COBOL so it needs no Rust toolchain (§23).
+- **Project kind** — Desktop, Web or Mobile, chosen when a project is created (§23).
 - **Project's Crates** — the project-level catalogue of third-party libraries
   registered for `EXEC RUST` blocks to use (§13).
 - **Property** — a named attribute of a control or form, read and written with
