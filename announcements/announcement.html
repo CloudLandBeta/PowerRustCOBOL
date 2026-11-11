@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>What's going on — PowerRustCOBOL AI 2</title>
+<style>
+  body { font-family: sans-serif; color: #1f2933; background: #ffffff; margin: 0; padding: 0; }
+  .band { background: #1d3557; color: #ffffff; padding: 22px 28px; }
+  .band h1 { margin: 0 0 6px 0; font-size: 28px; }
+  .band p { margin: 0; font-size: 15px; color: #dbe6f4; }
+  .wrap { padding: 18px 28px 28px 28px; }
+  h2 { color: #1d3557; font-size: 20px; margin: 22px 0 8px 0; }
+  p { line-height: 1.5; margin: 0 0 10px 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { border: 1px solid #c9d6e4; border-radius: 8px; padding: 12px 14px; background: #f6f9fc; }
+  .card h3 { margin: 0 0 6px 0; font-size: 16px; color: #0b3d91; }
+  .card p { margin: 0; font-size: 14px; }
+  code { background: #eef2f7; color: #8a1c1c; padding: 1px 4px; }
+  ol li, ul li { margin: 0 0 6px 0; line-height: 1.45; }
+  table { border-collapse: collapse; width: 100%; }
+  th { text-align: left; background: #e3ebf5; color: #1d3557; padding: 6px 10px; border: 1px solid #c9d6e4; }
+  td { padding: 6px 10px; border: 1px solid #c9d6e4; }
+  .note { border-left: 4px solid #e0a100; background: #fff8e1; padding: 8px 14px; margin: 12px 0; }
+  .small { font-size: 13px; color: #52606d; }
+</style>
+</head>
+<body>
+
+<div class="band">
+  <h1>PowerRustCOBOL AI 2: Web and Mobile</h1>
+  <p>The COBOL you already write and the Form Designer you already use, now for the browser and the phone.</p>
+</div>
+
+<div class="wrap">
+
+<p>Version 2 adds two <strong>project kinds</strong> beside the Desktop project: <strong>Web</strong> and
+<strong>Mobile</strong>. Choose one in <strong>File &#9656; New Project</strong>. Every project you wrote
+before is a Desktop project and opens unchanged. Here is what is new.</p>
+
+<h2>What you can do now</h2>
+
+<div class="grid">
+
+  <div class="card">
+    <h3>Web applications</h3>
+    <p>Build compiles your COBOL straight to <strong>WebAssembly</strong>: no interpreter in the page,
+    and no Rust toolchain needed for a Web build, because the IDE copies a prebuilt player beside your
+    program. The result is a static bundle in <code>dist/web/</code> that any web server can host.</p>
+  </div>
+
+  <div class="card">
+    <h3>Mobile applications</h3>
+    <p>Android phone and tablet, iOS iPhone and iPad. <strong>Run</strong> builds, installs and starts the
+    app on a connected phone or an Android emulator and shows its log in the Output panel; an Android
+    release is signed with your own key. For iOS the app for the <strong>simulator</strong> is built today.</p>
+  </div>
+
+  <div class="card">
+    <h3>A COBOL Backend</h3>
+    <p>Files, databases and secrets live in the project's <code>backend/</code> folder, on the native
+    runtime. The page calls the programs the Backend exports with
+    <code>CALL "NAME" WITH WEBSOCKET LINKAGE</code>: JSON over TLS with a bearer token, reconnection and
+    token refresh done for you. <code>COBOL::SqlDatabase</code> reaches SQLite, PostgreSQL and MySQL
+    without <code>EXEC SQL</code>.</p>
+  </div>
+
+  <div class="card">
+    <h3>Sign-in and links</h3>
+    <p>The <strong>Authentication</strong> control signs users in and up, recovers a password and answers
+    a second factor, through your Backend, with Cognito, Keycloak or Entra. The <strong>Hyperlink</strong>
+    control is a real link on the page.</p>
+  </div>
+
+  <div class="card">
+    <h3>CSS3 and responsive pages</h3>
+    <p>An application stylesheet and one per form style the page, and the stylesheet wins over a property.
+    A single-page application is the default; standalone form pages are the alternative.</p>
+  </div>
+
+  <div class="card">
+    <h3>Preview in a web view</h3>
+    <p>The designer's <strong>Preview</strong> shows the bundle in the system web view. Pick a phone, tablet
+    or desktop size, the orientation, the pixel ratio, the colour scheme and the page language; a change to
+    a form, a stylesheet or the Backend reaches the open page.</p>
+  </div>
+
+  <div class="card">
+    <h3>Canvas and graphics</h3>
+    <p><strong>Canvas 2D</strong>, <strong>Canvas 3D</strong> and the ImageBuffer, Plot, Scene3D, Physics2D
+    and Physics3D objects, on every platform.</p>
+  </div>
+
+  <div class="card">
+    <h3>Secure by default</h3>
+    <p>Build scans your project's own files for secrets and stops on one; the bundle carries a
+    Content-Security-Policy; a Mobile project can pin certificates; a release Backend refuses a literal
+    secret in its configuration.</p>
+  </div>
+
+  <div class="card">
+    <h3>Claude Code and Grace know the kinds</h3>
+    <p>The Claude Code plugin now has seventeen tools and thirteen skills, including ones for Web
+    applications and the Backend, and Grace, the IDE's assistant, knows them, and
+    <code>COBOL::SqlDatabase</code> too.</p>
+  </div>
+
+  <div class="card">
+    <h3>The same COBOL underneath</h3>
+    <p>The generated WebAssembly is held equal to the interpreter by the conformance runs: the NIST CCVS85
+    NC, IF and IC modules run to zero failures on it.</p>
+  </div>
+
+</div>
+
+<h2>Start here</h2>
+
+<ol>
+  <li><strong>File &#9656; New Project</strong>, and choose <em>Web</em> (or an Android or iOS device).</li>
+  <li>Open a form and press <strong>Preview</strong> to see it in a web view.</li>
+  <li>Add a Backend program, list it in <code>backend/exports.toml</code>, and <code>CALL</code> it from a handler.</li>
+  <li>Press <strong>Build</strong>.</li>
+</ol>
+
+<p>Or open an example from <strong>File &#9656; Open Project</strong>:</p>
+
+<table>
+  <tr><th>Example</th><th>What it shows</th></tr>
+  <tr><td><code>examples/PowerWebHello</code></td><td>the smallest Web project: a form with a side menu, and a Backend</td></tr>
+  <tr><td><code>examples/PowerMobileHello</code></td><td>the smallest Mobile project</td></tr>
+  <tr><td><code>examples/PowerOficina</code></td><td>a workshop-management application with a Backend over indexed files</td></tr>
+  <tr><td><code>examples/PowerAnalyticsWeb</code></td><td>the look of the desktop PowerAnalytics dashboard on the web</td></tr>
+</table>
+
+<h2>What each target needs</h2>
+
+<table>
+  <tr><th>You build</th><th>You need</th></tr>
+  <tr><td>a Web application</td><td>nothing beyond the IDE</td></tr>
+  <tr><td>a Backend release binary</td><td>the same toolchain a Desktop Build needs: Rust and the platform linker</td></tr>
+  <tr><td>an Android package</td><td>the Android SDK and NDK, Java 17 to 21, the Rust target of the phone and the Tauri command line; the Build names each one that is missing</td></tr>
+  <tr><td>an iOS app for the simulator</td><td>a Mac with Xcode 16 or later</td></tr>
+</table>
+
+<div class="note">
+  <strong>Honest scope.</strong> A release archive of an iOS app for a device or the store is
+  <strong>not built yet</strong>. Browser coverage has been measured in Chromium and in the system web
+  views; Safari on a Mac and the Android web view on a physical device are not measured yet. A web form's
+  COBOL is a subset: files, SQL and other server-side work belong in the Backend, and the Build tells you
+  the line it cannot run in a page. Some acceptance criteria of the WebAssembly specs are still open; the
+  list is in <code>specs/WASM-OPEN-ACS.md</code>.
+</div>
+
+<h2>Read more</h2>
+
+<p>The Developer's Guide has the whole story in three new chapters: <em>Web and Mobile applications</em>,
+<em>The Backend and the secure channel</em>, and <em>Mobile applications: Android and iOS</em>. Open it from
+the <strong>Documentation</strong> button in the menu bar, or read <code>docs/developers-guide-en.md</code> in the repository at
+<code>https://github.com/CloudLandBeta/PowerRustCOBOL</code>. The README there has a short tour
+under <em>Version 2: Web and Mobile applications</em>.</p>
+
+<p class="small">This window shows once for each version of this page. Close it when you are done.</p>
+
+</div>
+</body>
+</html>
