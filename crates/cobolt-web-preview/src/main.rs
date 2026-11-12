@@ -329,7 +329,29 @@ mod steps {
   wire.port1.onmessage = function () { var next = parked.shift(); if (next) next(); };
   function turn() { return new Promise(function (go) { parked.push(go); wire.port2.postMessage(0); }); }
   async function sleep(ms) { var until = performance.now() + ms; do { await turn(); } while (performance.now() < until); }
-  function settle() {
+  // A step is over when the page has been quiet for a moment and the program has answered it. The program answers a
+  // click in its own time: on a slow machine its first change to the page came later than the quiet moment, and a read
+  // found the page as it was before the handler ran (`LBL-RESULT::Text` read "" after `BTN-GREET`'s onClick, on the
+  // macOS machine of run 53 of the build workflow). So the runner also waits, at most 5 s, for the player to have
+  // nothing left to do (the handle's `settled`), then for the page to be quiet again.
+  async function settle() {
+    await quiet();
+    if (await idle()) await quiet();
+  }
+  async function idle() {
+    var el = document.getElementById('pr-app'), R = window.PowerRustCOBOL, done = false;
+    // Only an application that is already mounted (its shadow root is there): a mount from here would start another.
+    if (!el || !el.shadowRoot || !R || typeof R.mount !== 'function') return false;
+    try {
+      var app = await R.mount(el);
+      if (!app || typeof app.settled !== 'function') return false;
+      app.settled().then(function () { done = true; }, function () { done = true; });
+    } catch (e) { return false; }
+    var until = performance.now() + 5000;
+    while (!done && performance.now() < until) await turn();
+    return true;
+  }
+  function quiet() {
     return new Promise(function (resolve) {
       var last = Date.now(), t0 = last;
       var mo = new MutationObserver(function () { last = Date.now(); });
