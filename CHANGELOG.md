@@ -2,6 +2,10 @@
 
 
 
+## 2.0.449 — 2026-11-12
+
+**The isolation test waits for the page the service-worker shim reloads to finish loading before it uses the player.** A host that sends no isolation headers is made isolated by the optional shim: its worker re-serves the page with the headers and the page reloads itself once. The reloaded page is isolated from its first moment, before its scripts have run, and the test went straight from "the page is isolated" to calling `PowerRustCOBOL.mount`; when it got there before the loader had defined `PowerRustCOBOL`, the call threw and the wait ended on its first look (`AC15 a host without headers, through the service-worker shim: … ReferenceError: PowerRustCOBOL is not defined`, `embedding_isolation_and_cross_origin_resources_in_chrome`, on the Linux and Windows machines of run 52 of the build workflow and the Windows one of run 51). The test now first waits for the page to be loaded and `PowerRustCOBOL` to be defined. Checked here by slowing Chrome's processor twelve times for that case only: the test failed before the change with the runners' message and passes after it, slowed and not. Test code only; the shim and the loader are unchanged.
+
 ## 2.0.448 — 2026-11-12
 
 **The test of the canvas part in Chrome reads the scene and the answers with their line ends made `LF`, so it passes on Windows.** The page the test serves split `parity-scene.txt` and `parity-answers.txt` on `\n` only; a Windows checkout gives them `CRLF` line ends (`core.autocrlf`), so a call with no argument kept the `\r` in its name and the part refused it (`Canvas2D has no method named BeginPath`, `the_canvas_part_in_chrome_draws_the_desktops_picture_with_no_pixel_different` on the Windows machine of run 52 of the build workflow). The page now splits on `\r?\n`, and the answers golden is read with `CRLF` turned into `LF`, as the web goldens test does since 2.0.444. Checked here by rewriting the three files with `CRLF` line ends: the test failed before the change with the runner's message and passes after it (0 of 19 200 pixels and 0 of 35 answers different); the files were then put back as they were. Test code only.

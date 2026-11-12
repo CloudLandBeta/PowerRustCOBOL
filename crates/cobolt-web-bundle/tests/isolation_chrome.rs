@@ -165,6 +165,9 @@ fn shim(chrome: &Chrome) -> Outcome {
         return Err(format!("the shim never isolated the page: {e}; registrations: {regs}; console: {:?}; exceptions: {:?}; browser: {:?}", p.console, p.exceptions, p.browser_log));
     }
     let isolated_ms = t0.elapsed().as_millis();
+    // The reloaded page is isolated from its first moment, before its scripts have run: until the loader has
+    // defined `PowerRustCOBOL` that is "not yet", and a script that threw on it would end `wait_for` on its first look.
+    p.wait_for("document.readyState === 'complete' && typeof PowerRustCOBOL !== 'undefined'", 25)?;
     p.eval(HELPERS)?;
     p.wait_for("__pr.handle().then(a => Object.keys(JSON.parse(a.player.snapshot())).length > 0)", 40)?;
     let (c, iso) = choice(&mut p)?;
