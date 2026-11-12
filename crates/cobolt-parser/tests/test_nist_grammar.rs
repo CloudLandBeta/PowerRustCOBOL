@@ -283,6 +283,65 @@ fn a_literal_subject_is_not_an_abbreviation_object() {
     );
 }
 
+/// The right-hand term of an `AND`/`OR`, as a `Comparison`: `(subject, op, object)`.
+fn right_comparison(cond: &Condition) -> (&cobolt_ast::expr::Expr, cobolt_ast::expr::CmpOp, &cobolt_ast::expr::Expr) {
+    let right = match cond {
+        Condition::And(_, b, _) | Condition::Or(_, b, _) => &**b,
+        other => panic!("not AND/OR: {other:?}"),
+    };
+    match right {
+        Condition::Comparison { lhs, op, rhs, .. } => (lhs, *op, rhs),
+        other => panic!("the right-hand term is not a comparison: {other:?}"),
+    }
+}
+
+/// After `AND`/`OR`, an arithmetic expression followed by a relational operator
+/// is the **subject** of a complete relation (either side of a relation may be
+/// an arithmetic expression), not the object of an abbreviated one. Reading
+/// `A + 0.3` as the object of `A > …` left `> B` behind: "unexpected token in
+/// statement: Gt".
+#[test]
+fn an_arithmetic_subject_after_and_or_is_a_full_relation() {
+    use cobolt_ast::expr::{CmpOp, Expr};
+    let cases = [
+        ("A > 0 AND A + 0.3 > B", CmpOp::Gt),
+        ("A > 0 AND 1 + A > B", CmpOp::Gt),
+        ("A > 0 AND -1 + A < B", CmpOp::Lt),
+        ("A > 0 OR A * A + C * C < B", CmpOp::Lt),
+        ("A > 0 AND A - 1 NOT = B", CmpOp::Ne),
+        ("A > 0 AND A + 1 IS GREATER THAN B", CmpOp::Gt),
+        ("A = 1 OR 2 OR A / 2 >= B", CmpOp::Ge),
+    ];
+    for (text, want) in cases {
+        let stmts = all_stmts(&prog(&format!(
+            "MAIN.\n    IF {text}\n       CONTINUE\n    END-IF.\n    STOP RUN.\n"
+        )));
+        let (lhs, op, rhs) = right_comparison(condition_of(&stmts));
+        assert!(
+            matches!(lhs, Expr::Arithmetic { .. } | Expr::Unary { .. }),
+            "{text}: the subject is not the expression: {lhs:?}"
+        );
+        assert_eq!(op, want, "{text}");
+        assert!(matches!(rhs, Expr::Identifier(n, _) if n.eq_ignore_ascii_case("B")), "{text}: {rhs:?}");
+    }
+}
+
+/// An arithmetic expression that ends the term is still the object of an
+/// abbreviated relation: `A = B OR C - 1` is `A = B OR A = C - 1`.
+#[test]
+fn an_arithmetic_object_that_ends_the_term_is_still_an_abbreviation() {
+    use cobolt_ast::expr::{CmpOp, Expr};
+    for (text, want) in [("A = B OR C - 1", CmpOp::Eq), ("A > B AND 2 * C", CmpOp::Gt)] {
+        let stmts = all_stmts(&prog(&format!(
+            "MAIN.\n    IF {text}\n       CONTINUE\n    END-IF.\n    STOP RUN.\n"
+        )));
+        let (lhs, op, rhs) = right_comparison(condition_of(&stmts));
+        assert!(matches!(lhs, Expr::Identifier(n, _) if n.eq_ignore_ascii_case("A")), "{text}: {lhs:?}");
+        assert_eq!(op, want, "{text}");
+        assert!(matches!(rhs, Expr::Arithmetic { .. }), "{text}: {rhs:?}");
+    }
+}
+
 /// The `ELSE` of an enclosing `IF` is not swallowed by an `ON SIZE ERROR`
 /// imperative, nor by a nested `IF`'s own ELSE branch.
 #[test]

@@ -1376,6 +1376,38 @@ fn starts_arithmetic_object(p: &Parser) -> bool {
     )
 }
 
+/// `true` when the expression at the cursor is the **subject of a complete
+/// relation or sign condition**, not the object of an abbreviation: once the
+/// whole arithmetic expression is read, a relational operator, `IS`, `NOT` or a
+/// sign word follows it. An abbreviation object is always followed by `AND`,
+/// `OR` or the end of the condition, never by any of these.
+///
+/// `IF A > 0 AND A + 0.3 > B` is two full relations (COBOL-85 lets either side
+/// of a relation be an arithmetic expression). Looking only at the head of the
+/// term, `A` followed by `+`, read `A + 0.3` as the object of an abbreviated
+/// `A > …` and left `> B` behind: "unexpected token in statement: Gt". The same
+/// went for a literal head, `AND 1 + A > B`. The trial parse rewinds the
+/// diagnostics with the cursor, as the EVALUATE subject's does.
+fn starts_arithmetic_relation(p: &mut Parser) -> bool {
+    if !matches!(
+        p.peek(),
+        Token::Identifier(_)
+            | Token::IntegerLiteral(..)
+            | Token::DecimalLiteral { .. }
+            | Token::Plus
+            | Token::Minus
+    ) {
+        return false;
+    }
+    let at = p.pos;
+    let diagnostics = p.diagnostics.len();
+    let _ = parse_expr(p);
+    let full = at_relop(p) || p.at(&Token::Is) || p.at(&Token::Not) || at_class_or_sign_word(p, 0);
+    p.pos = at;
+    p.diagnostics.truncate(diagnostics);
+    full
+}
+
 /// `true` when the single-token operand at the cursor is followed by a
 /// relational operator — so it is the *subject* of a full relation, not the
 /// object of an abbreviation.
@@ -1661,6 +1693,11 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
         let sp = span.merge(inner.span());
         return Condition::Not(Box::new(inner), sp);
     }
+    // A complete relation whose subject is an expression — `… AND A + 0.3 > B`:
+    // none of the abbreviation forms below applies to it.
+    if starts_arithmetic_relation(p) {
+        return parse_condition_primary(p);
+    }
     // Literal-object abbreviation: reuse the previous subject AND operator.
     //
     // Only when the literal is the whole term. `… GREATER THAN CCON-1 AND 20
@@ -1791,6 +1828,8 @@ fn parse_condition_or(p: &mut Parser) -> Condition {
         // the `NOT` in this test it fell to the full-condition path, which has
         // no subject to put in front of the `<`.
         let negated_relop = p.at(&Token::Not) && is_relop_start(p.peek_at(1));
+        // `… OR A + 1 > B` is a complete relation, not an arithmetic object.
+        let full_relation = starts_arithmetic_relation(p);
         // `… EQUAL TO CONT-D OR -11 + CONT-F` — an *arithmetic* abbreviation
         // object. No condition may begin with a sign or continue into an
         // arithmetic operator, so this can only reuse the preceding subject;
@@ -1798,10 +1837,11 @@ fn parse_condition_or(p: &mut Parser) -> Condition {
         // demanded a relational operator the source never had.
         let rhs = if at_relop(p)
             || negated_relop
-            || at_literal_object(p)
-            || at_bare_object(p)
-            || at_negated_object(p)
-            || starts_arithmetic_object(p)
+            || (!full_relation
+                && (at_literal_object(p)
+                    || at_bare_object(p)
+                    || at_negated_object(p)
+                    || starts_arithmetic_object(p)))
         {
             // AND still binds tighter than OR, so an abbreviated OR-term keeps
             // absorbing `AND …` terms of its own: in
