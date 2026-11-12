@@ -79,6 +79,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # The one Rust release every package is built with. The platform libraries a
+  # release ships (sdk/libs/<os>/<arch>) can only be used by this very compiler,
+  # so it is pinned, never "stable": a floating stable made each release need
+  # whichever Rust happened to be current on the day it was built. It must equal
+  # `release-rust` in Cargo.toml's [workspace.metadata.powerrustcobol], which the
+  # IDE installs and names (test `the_release_rust_is_pinned_everywhere`).
+  RELEASE_RUST: "1.95.0"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
@@ -151,8 +158,9 @@ jobs:
           echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
           echo "OPENSSL_INCLUDE_DIR=/usr/include" >> "$GITHUB_ENV"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RELEASE_RUST }}
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
@@ -665,7 +673,7 @@ jobs:
                            Text="{\PrcTitle}Installation complete" />
                   <Control Id="Description" Type="Text" X="18" Y="116" Width="152" Height="114"
                            Transparent="yes" NoPrefix="yes"
-                           Text="{\PrcBody}BUILD also needs the Visual Studio Build Tools (&quot;Desktop development with C++&quot;) and Rust from https://rustup.rs.  The AI needs a model provider: Ollama is the simplest, any other will do.  Suggested: gemma4:e2b locally for Grace and the Judge, gemma4:31b in the Ollama cloud for the other agents." />
+                           Text="{\PrcBody}BUILD also needs the Visual Studio Build Tools (&quot;Desktop development with C++&quot;) and Rust ${{ env.RELEASE_RUST }} from https://rustup.rs.  The AI needs a model provider: Ollama is the simplest, any other will do.  Suggested: gemma4:e2b locally for Grace and the Judge, gemma4:31b in the Ollama cloud for the other agents." />
                   <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
                   <!-- No Back: it was always disabled on this last screen, and its
                        place on the strip now holds Install Ollama. -->
@@ -1089,7 +1097,7 @@ jobs:
           needs two more things:
 
             sudo apt install build-essential      # the linker Rust drives
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain ${{ env.RELEASE_RUST }}
 
           PowerRustCOBOL checks both the first time it starts and offers to
           install Rust for you. Installing build-essential is left to you: it is
@@ -1233,7 +1241,7 @@ jobs:
           needs two more things:
 
             sudo dnf group install "Development Tools"   # the linker Rust drives
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain ${{ env.RELEASE_RUST }}
 
           PowerRustCOBOL checks both the first time it starts and offers to
           install Rust for you. The development tools are left to you: they are
@@ -1383,8 +1391,9 @@ jobs:
             libwebkit2gtk-4.1-dev xvfb
 
       # The player build the browser tests run compiles the player for `wasm32-unknown-unknown`.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RELEASE_RUST }}
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
@@ -1476,7 +1485,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends pkg-config libssl-dev
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
 
       - uses: Swatinem/rust-cache@v2
         with:

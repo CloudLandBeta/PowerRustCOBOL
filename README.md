@@ -388,7 +388,7 @@ artifacts land, and what to do when the build fails — see
 
 | Requirement                                    | Why                                                                                                                                    | Install                                                                                      |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **Rust toolchain** (stable, **1.92 or newer**) | builds the whole workspace                                                                                                             | [rustup.rs](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+| **Rust toolchain** (stable, **1.95 or newer**) | builds the whole workspace                                                                                                             | [rustup.rs](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
 | **Git**                                        | clone the repository                                                                                                                   | [git-scm.com](https://git-scm.com/downloads)                                                 |
 | **A C toolchain + native GUI libraries**       | the platform linker Rust itself needs, two C dependencies (bundled SQLite and the Oniguruma regex engine), and the native file dialogs | see the per-OS notes below                                                                   |
 

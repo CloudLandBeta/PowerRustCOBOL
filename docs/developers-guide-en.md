@@ -228,8 +228,11 @@ exception: it compiles your project into a native application through the
 it finds a usable one, says nothing at all.
 
 When it does not, it tells you which case you are in — Rust absent, or a version
-older than the **1.92** PowerRustCOBOL requires — shows the official
-[rustup.rs](https://rustup.rs) command, and offers to run it for you. Decline
+older than the **1.95** PowerRustCOBOL requires — shows the official
+[rustup.rs](https://rustup.rs) command, and offers to run it for you. The command
+installs **Rust 1.95.0**, the exact release every PowerRustCOBOL package is built
+with (see [The libraries that come with PowerRustCOBOL](#the-libraries-that-come-with-powerrustcobol)),
+not whatever release is newest that day. Decline
 and you are asked once more, because declining has a price worth stating:
 
 
@@ -16835,11 +16838,19 @@ program.
 Two things decide whether that copy can be used:
 
 - **The Rust compiler.** A compiled library can only be used by the very compiler
-  that made it. The release records which one in `rustc.txt` beside the libraries.
-  When the Rust installed on your machine is a different version, the Output panel
-  says so, names both versions, and names the command that switches to the right
-  one (`rustup default <version>`, then start the IDE again). Until then every
-  library is compiled on your machine, once.
+  that made it, so every PowerRustCOBOL release is built with one fixed Rust
+  release, **Rust 1.95.0**, and records it in `rustc.txt` beside the libraries.
+  Install that release (the IDE's own offer to install Rust does), or switch to it
+  with:
+
+  ```text
+  rustup default 1.95.0
+  ```
+
+  then start the IDE again; the command downloads the release when it is missing.
+  When the Rust on your machine is a different version, the Output panel says so,
+  names both versions and gives the same command. Until then every library is
+  compiled on your machine, once.
 - **The crate versions.** Every program starts from the list of library versions
   the SDK was built with (the SDK's `Cargo.lock`), so that the shipped libraries
   apply to it. A machine that has never downloaded those versions downloads them

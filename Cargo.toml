@@ -54,7 +54,7 @@ resolver = "2"
 [workspace.package]
 version      = "0.2.0"
 edition      = "2021"
-rust-version = "1.92"
+rust-version = "1.95"
 license      = "Apache-2.0"
 repository   = "https://github.com/yourusername/cobolt"
 homepage     = "https://github.com/yourusername/cobolt"
@@ -62,6 +62,14 @@ keywords     = ["cobol", "ide", "interpreter", "powercobol"]
 categories   = ["development-tools", "compilers"]
 
 # ── Shared dependencies (version pinned once here) ────────────────────────────
+# The Rust release every PowerRustCOBOL release is built with (2.0.469). The
+# platform libraries a release ships can only be used by this very compiler, so
+# the release workflow pins it (RELEASE_RUST), the IDE's Rust installer installs
+# it, and a Build that finds another names it. `rust-version` above is the floor
+# the code needs (egui 0.35 needs 1.95), checked by the IDE's first-run test.
+[workspace.metadata.powerrustcobol]
+release-rust = "1.95.0"
+
 [workspace.dependencies]
 # Lexer
 logos       = "0.14"

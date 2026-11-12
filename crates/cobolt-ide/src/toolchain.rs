@@ -50,7 +50,7 @@ const WORKSPACE_MANIFEST: &str =
 /// asserts that it does, so this value is a floor and not a second opinion.
 const FALLBACK_MINIMUM: RustVersion = RustVersion {
     major: 1,
-    minor: 92,
+    minor: 95,
     patch: 0,
 };
 
@@ -59,18 +59,21 @@ const RUSTC: &str = "rustc.exe";
 #[cfg(not(windows))]
 const RUSTC: &str = "rustc";
 
-/// The official one-shot installer, exactly as rustup.rs publishes it. It is
-/// both what the dialog shows and what [`install_argv`] runs — the developer
-/// approves the command they can read, not a paraphrase of it.
+/// The official one-shot installer, exactly as rustup.rs publishes it, asked for
+/// the Rust release PowerRustCOBOL is built with
+/// ([`cobolt_compiler::warmup::release_rust`]) rather than whatever is current:
+/// the libraries a release ships can only be used by that compiler (2.0.469).
+/// It is both what the dialog shows and what [`install_argv`] runs — the
+/// developer approves the command they can read, not a paraphrase of it.
 #[cfg(not(windows))]
 const INSTALL_COMMAND: &str =
-    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y";
+    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ";
 #[cfg(all(windows, target_arch = "aarch64"))]
 const INSTALL_COMMAND: &str = "$i = \"$env:TEMP\\rustup-init.exe\"; \
-     Invoke-WebRequest -Uri https://win.rustup.rs/aarch64 -OutFile $i; & $i -y";
+     Invoke-WebRequest -Uri https://win.rustup.rs/aarch64 -OutFile $i; & $i -y --default-toolchain ";
 #[cfg(all(windows, not(target_arch = "aarch64")))]
 const INSTALL_COMMAND: &str = "$i = \"$env:TEMP\\rustup-init.exe\"; \
-     Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile $i; & $i -y";
+     Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile $i; & $i -y --default-toolchain ";
 
 // ── Versions ─────────────────────────────────────────────────────────────────
 
@@ -376,7 +379,8 @@ fn probe_link(rustc: &Path) -> Option<String> {
 
 /// The installer command, shown to the developer before they approve it.
 pub fn install_command() -> &'static str {
-    INSTALL_COMMAND
+    static COMMAND: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    COMMAND.get_or_init(|| format!("{INSTALL_COMMAND}{}", cobolt_compiler::warmup::release_rust()))
 }
 
 /// The program and arguments that run [`install_command`]. Kept as one function
@@ -385,10 +389,10 @@ pub fn install_argv() -> (&'static str, Vec<&'static str>) {
     if cfg!(windows) {
         (
             "powershell",
-            vec!["-NoProfile", "-Command", INSTALL_COMMAND],
+            vec!["-NoProfile", "-Command", install_command()],
         )
     } else {
-        ("sh", vec!["-c", INSTALL_COMMAND])
+        ("sh", vec!["-c", install_command()])
     }
 }
 
@@ -668,13 +672,13 @@ mod tests {
         // And when PATH holds nothing, the rustup home is still found — the
         // case a Finder-launched app hits on a machine that does have Rust.
         let only_cargo_home = detect_with(&cands, |p| {
-            (p == cargo_home).then(|| "rustc 1.92.0 (bbbb 2026-01-01)".to_owned())
+            (p == cargo_home).then(|| "rustc 1.96.0 (bbbb 2026-06-01)".to_owned())
         });
         assert_eq!(
             only_cargo_home,
             Status::Ok {
                 path: cargo_home,
-                version: v(1, 92, 0)
+                version: v(1, 96, 0)
             }
         );
     }
@@ -728,6 +732,12 @@ mod tests {
         assert!(
             install_command().contains("rustup.rs"),
             "only the official installer: {}",
+            install_command()
+        );
+        // 2.0.469 — it installs the Rust release PowerRustCOBOL is built with, not whatever is current.
+        assert!(
+            install_command().ends_with(&format!("-y --default-toolchain {}", cobolt_compiler::warmup::release_rust())),
+            "{}",
             install_command()
         );
     }

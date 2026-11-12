@@ -44,6 +44,26 @@ const RELEASES_URL: &str = "https://github.com/CloudLandBeta/PowerRustCOBOL/rele
 
 static CURRENT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// The workspace manifest this compiler was built from. `cobolt-compiler` is not one of the
+/// crates the SDK ships, so reading it here costs an installed SDK nothing.
+const WORKSPACE_MANIFEST: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.toml"));
+
+/// The Rust release every PowerRustCOBOL release is built with — `release-rust` under
+/// `[workspace.metadata.powerrustcobol]` in the workspace manifest, and the release workflow's
+/// `RELEASE_RUST` (2.0.469). The libraries a release ships can only be used by this compiler, so
+/// the IDE installs it and the Build names it. `"stable"` only if the manifest stops saying,
+/// which a test forbids.
+pub fn release_rust() -> &'static str {
+    static PINNED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PINNED.get_or_init(|| pinned_rust(WORKSPACE_MANIFEST).unwrap_or_else(|| "stable".to_owned()))
+}
+
+fn pinned_rust(manifest: &str) -> Option<String> {
+    let doc: toml::Value = toml::from_str(manifest).ok()?;
+    let pinned = doc.get("workspace")?.get("metadata")?.get("powerrustcobol")?.get("release-rust")?;
+    pinned.as_str().map(str::to_owned)
+}
+
 /// Name the running PowerRustCOBOL version (the IDE does, once, at start). With it
 /// set, a full build REPAIRS the shared libraries ([`repair_libs`]) instead of
 /// purging them; without it (`rcrun build --full`) it purges as it always did.
@@ -289,8 +309,9 @@ fn other_compiler(theirs: &str, ours: Option<&str>) -> String {
     format!(
         "   ⚠️  The shipped libraries were made by {made_by}, and this machine has {here}. Cargo cannot \
          use libraries another compiler made, so they are compiled here instead: the first build takes \
-         as long as a build from nothing (on a modest machine, an hour or more). To use them, run \
-         `rustup default {release}` and start PowerRustCOBOL again."
+         as long as a build from nothing (on a modest machine, an hour or more). PowerRustCOBOL is \
+         built with Rust {release}: to use them, run `rustup default {release}` (it installs that \
+         release when it is missing) and start PowerRustCOBOL again."
     )
 }
 
@@ -590,6 +611,31 @@ mod tests {
         assert_eq!(bare, format!("{RELEASES_URL}/2.0.102/{name}"));
         assert_eq!(with_v, format!("{RELEASES_URL}/v2.0.102/{name}"));
         assert!(name.contains(std::env::consts::ARCH));
+    }
+
+    /// **2.0.469 — one Rust release, pinned in one place and obeyed everywhere.** The manifest names it,
+    /// the release workflow builds every package with it (never a floating `stable`), its installer
+    /// texts name it, and the code's own floor (`rust-version`) is no higher than it.
+    #[test]
+    fn the_release_rust_is_pinned_everywhere() {
+        let pinned = release_rust();
+        let parts: Vec<u32> = pinned.split('.').map(|p| p.parse().expect("a numbered release")).collect();
+        assert_eq!(parts.len(), 3, "a full release number, not {pinned}");
+        let workflow = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.github/workflows/build-all-platforms.yml"));
+        assert!(workflow.contains(&format!("RELEASE_RUST: \"{pinned}\"")), "the workflow does not pin {pinned}");
+        assert!(!workflow.contains("rust-toolchain@stable"), "a job still builds with a floating stable");
+        let uses = workflow.matches("dtolnay/rust-toolchain@").count();
+        let pinned_uses = workflow.matches("toolchain: ${{ env.RELEASE_RUST }}").count();
+        assert_eq!(uses, pinned_uses, "every toolchain step names RELEASE_RUST");
+        assert!(!workflow.contains("sh.rustup.rs | sh\n"), "an installer text installs an unpinned Rust");
+        let floor = WORKSPACE_MANIFEST
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("rust-version"))
+            .and_then(|l| l.split('"').nth(1))
+            .expect("the workspace declares rust-version");
+        let floor: Vec<u32> = floor.split('.').map(|p| p.parse().unwrap()).collect();
+        assert!(floor[..] <= parts[..floor.len()], "rust-version {floor:?} is above the pinned {pinned}");
+        assert_eq!(pinned_rust("[workspace]\nmembers = []\n"), None);
     }
 
     /// 2.0.467 — the log names both compilers, the cost, and the command that makes the libraries usable.
