@@ -724,8 +724,14 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, effect: Loadi
                 Ok(v.as_str().unwrap_or("").to_owned())
             };
             p.wait_for(&format!("(() => {{ const d = {MODAL}; if (!d) return false; const c = [...d.querySelectorAll('.pr-netmodal-cell')].find((c) => c.querySelector('dt').textContent === 'Attempt'); return !!c && c.querySelector('dd').textContent === '2/3'; }})()"), 20)?;
+            // The count turns to 2/3 when attempt 2 starts to connect; its refusal comes a moment later, and a slow
+            // machine looks before it (run 53, macOS: `now "connecting"`). Give the refusal its moment; the check below
+            // still fails, with what the status said, when it never comes.
+            let _ = p.wait_for(&format!("(() => {{ const d = {MODAL}; if (!d) return false; const c = [...d.querySelectorAll('.pr-netmodal-cell')].find((c) => c.querySelector('dt').textContent === 'Now'); return !!c && c.querySelector('dd').textContent.startsWith('failed, waiting'); }})()"), 5);
             let (attempt, last, now) = (cell(p, "Attempt")?, cell(p, "Last")?, cell(p, "Now")?);
             if last != "no connection" || !now.starts_with("failed, waiting") {
+                // Put the backend back first, so this failure is not also the next scenario's (`no backend`).
+                *slot = Some(Backend::start(port, 0, calls));
                 return Err(format!("in attempt 2 the status said attempt {attempt}, last {last:?}, now {now:?}"));
             }
             // The backend returns while the page is waiting for attempt 3 (at 30 s).

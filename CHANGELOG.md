@@ -2,6 +2,10 @@
 
 
 
+## 2.0.464 — 2026-11-12
+
+**The browser test of a backend restarted mid-cycle gives attempt 2's refusal a moment to arrive before it reads the status, and puts the backend back when the check fails.** The scenario stops the backend, waits for the network status to count `Attempt 2/3`, and then expects `Last: no connection` and `Now: failed, waiting …`. The count turns to 2/3 when attempt 2 starts to connect, and its refusal comes a moment later. The macOS machine of run 53 of the build workflow read the status inside that moment (`now "connecting"`), and because the scenario returned with the backend still stopped, the next scenario failed too (`no backend`). The test now waits up to 5 s for `failed, waiting` before it reads the cells; when the refusal never comes, the check fails as before with what the status said, after restarting the backend. Test code only.
+
 ## 2.0.463 — 2026-11-12
 
 **The test of the web tests' skip helper no longer prints `skipped:` lines, so the build workflow's check for skipped tests no longer fails on it.** The web-test step of the build workflow fails when any line of its log says `skipped: ` and is not about Chrome; it is how a test that quietly skipped is caught on a machine that must run it. The helper's own test (`the_gate_runs_skips_or_fails`, `cobolt-web-tests`) checks that an absent need skips, and in doing so printed `skipped: the web view (t)` and `skipped: a built player (t)`. Run 53 was the first run on which every web test passed on Linux and Windows, so the step reached that check for the first time and failed there (exit 1, no failed test). The rule of the helper is now a function of its own, `decide`, which the test calls for the absent cases; `gate_with` calls it and prints the skip line as before. Checked here: the crate's tests pass and their output holds no `skipped:` line. Test code only.
