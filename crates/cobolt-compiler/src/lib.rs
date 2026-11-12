@@ -2652,6 +2652,16 @@ fn build_core(
     };
 
     log(&format!("🏠 Workspace root: {}", workspace_root.display()));
+    let missing = missing_sdk_paths(&workspace_root);
+    if !missing.is_empty() {
+        let list = missing.iter().map(|rel| format!("\n  · {rel}")).collect::<String>();
+        return Err(CompilerError::Workspace(format!(
+            "the Platform SDK at {} is incomplete — it lacks:{list}\nA build against it would compile \
+             for a long time and then fail. Install PowerRustCOBOL again, or copy each one named \
+             above from the installation folder into the same place in the SDK folder.",
+            workspace_root.display()
+        )));
+    }
 
     // ── 7. Create build staging directory ────────────────────────────────────
     report(0.50, "Packaging solution…");
@@ -2961,8 +2971,16 @@ fn build_core(
         let full_clean = opts.full && repair_mode.is_none();
         if full_clean || !platform_check.stale.is_empty() {
             let mut graph = build_cache::sdk_crates_in_graph(&build_dir, &cache);
+            // Offline, a machine whose crate cache has not yet downloaded what the
+            // SDK's lock pins cannot list the graph. That is no reason to drop the
+            // lock: ask again online first, which downloads exactly those versions.
+            if graph.is_err() && seeded {
+                log("🌐 This machine's crate cache lacks some of the crates this program needs — downloading them");
+                graph = build_cache::sdk_crates_in_graph_online(&build_dir, &cache);
+            }
             if graph.is_err() && seeded {
                 log("🔓 The SDK's Cargo.lock cannot be used on this machine — resolving this program's crate versions as before");
+                log("   ⚠️  Crate versions other than the SDK's do not match the shared libraries: this build compiles them all, which can take a long time");
                 let _ = std::fs::remove_file(build_dir.join("Cargo.lock"));
                 seeded = false;
                 graph = build_cache::sdk_crates_in_graph(&build_dir, &cache);
@@ -3153,29 +3171,30 @@ fn build_core(
                 .and_then(|h| h.join().ok())
                 .unwrap_or_default();
 
-            // The SDK's lock is a preference. When this machine cannot supply a
-            // version it pins, resolution fails with nothing compiled — and
-            // without the word `--offline`, so the retry below would not see it.
-            // Drop the seed and resolve as this program always has.
-            if seeded && !status.success() && compiled == 0 {
-                log("🔓 The SDK's Cargo.lock cannot be used on this machine — resolving this program's crate versions as before");
-                let _ = std::fs::remove_file(build_dir.join("Cargo.lock"));
-                seeded = false;
-                continue;
-            }
-
-            // A cold cache fails RESOLUTION (before anything compiled) and
-            // cargo's error names the flag. Fetch online and rebuild; a
-            // failure with compiled crates is the developer's, not the
-            // cache's, and must surface as-is rather than build twice.
-            if attempt_offline
-                && !status.success()
-                && compiled == 0
-                && captured.contains("--offline")
-            {
-                report(0.60, "Fetching dependencies…");
-                attempt_offline = false;
-                continue;
+            match build_cache::after_cargo_attempt(seeded, status.success(), compiled, attempt_offline, &captured) {
+                // A cold cache fails RESOLUTION (before anything compiled) and
+                // cargo's error names the flag. Fetch online and rebuild — with
+                // the SDK's lock still in place, so the versions it pins are the
+                // ones downloaded. A failure with compiled crates is the
+                // developer's, not the cache's, and must surface as-is rather
+                // than build twice.
+                build_cache::NextAttempt::Online => {
+                    log("🌐 This machine's crate cache lacks some of the crates this program needs — downloading them");
+                    report(0.60, "Fetching dependencies…");
+                    attempt_offline = false;
+                    continue;
+                }
+                // The SDK's lock is a preference. When even the network cannot
+                // supply a version it pins, resolution fails with nothing
+                // compiled. Drop the seed and resolve as this program always has.
+                build_cache::NextAttempt::DropSeed => {
+                    log("🔓 The SDK's Cargo.lock cannot be used on this machine — resolving this program's crate versions as before");
+                    log("   ⚠️  Crate versions other than the SDK's do not match the shared libraries: this build compiles them all, which can take a long time");
+                    let _ = std::fs::remove_file(build_dir.join("Cargo.lock"));
+                    seeded = false;
+                    continue;
+                }
+                build_cache::NextAttempt::Done => {}
             }
             break (status, captured, json, compiled);
         }
@@ -3870,8 +3889,30 @@ pub const SDK_CRATES: [&str; 21] = [
 ///   form asks for; without them a project themed Cobalt Steel or Neumorphic
 ///   still builds, but silently falls back to procedural Liquid Glass, which
 ///   is a design the developer did not choose.
-pub const SDK_EXTRA_PATHS: [&str; 2] =
-    ["assets/images/powerrustcobol-icon.png", "assets/themes"];
+/// * `assets/web-fonts` — `cobolt-runtime` bakes in `Ubuntu-Light.ttf` (its
+///   `graphics` feature, `interpreter/graphics.rs`), and its licence travels
+///   with it. Left out until 2.0.467, which made every program that draws on a
+///   Canvas fail at the very end of a long build on an installed SDK.
+pub const SDK_EXTRA_PATHS: [&str; 3] =
+    ["assets/images/powerrustcobol-icon.png", "assets/themes", "assets/web-fonts"];
+
+/// Each file a platform crate reads at compile time from OUTSIDE its own folder
+/// (`include_bytes!` / `include_str!`), with the crate that reads it. Staging
+/// ships them (an [`SDK_EXTRA_PATHS`] entry covers each), and the shared
+/// cache's freshness hash counts each as one of that crate's files
+/// (`build_cache::crate_state`). `sdk_covers_every_compile_time_asset` keeps the
+/// list complete.
+pub const SDK_COMPILE_TIME_INCLUDES: [(&str, &str); 2] = [
+    ("cobolt-form-host", "assets/images/powerrustcobol-icon.png"),
+    ("cobolt-runtime", "assets/web-fonts/Ubuntu-Light.ttf"),
+];
+
+/// The [`SDK_EXTRA_PATHS`] entries missing from the SDK at `root`. A build
+/// against an SDK that lacks one compiles for as long as a cold build takes and
+/// then fails on the one crate that reads it, so the build asks first.
+pub fn missing_sdk_paths(root: &Path) -> Vec<&'static str> {
+    SDK_EXTRA_PATHS.iter().copied().filter(|rel| !root.join(rel).exists()).collect()
+}
 
 /// Does `root` look like something we can build against?
 ///
@@ -15020,23 +15061,21 @@ mod sdk_tests {
     #[test]
     fn sdk_covers_every_compile_time_asset() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
-
-        let mut escaping = Vec::new();
-        for name in SDK_CRATES {
-            collect_escaping_includes(&root.join("crates").join(name), &mut escaping);
-        }
+        let escaping = escaping_includes_of_sdk_crates(root);
         assert!(
-            !escaping.is_empty(),
-            "the scanner found nothing — it has stopped testing anything"
+            escaping.iter().any(|(_, rel)| rel.starts_with("assets/")),
+            "the scanner found nothing outside crates/ — it has stopped testing anything"
         );
 
-        for rel in &escaping {
-            let covered = SDK_EXTRA_PATHS
-                .iter()
-                .any(|extra| rel == extra || rel.starts_with(&format!("{extra}/")));
+        for (name, rel) in &escaping {
+            let in_a_shipped_crate = SDK_CRATES.iter().any(|c| rel.starts_with(&format!("crates/{c}/")));
+            let covered = in_a_shipped_crate
+                || SDK_EXTRA_PATHS
+                    .iter()
+                    .any(|extra| rel == extra || rel.starts_with(&format!("{extra}/")));
             assert!(
                 covered,
-                "{rel} is read at compile time by an SDK crate but no SDK_EXTRA_PATHS \
+                "{rel} is read at compile time by {name} but no SDK_EXTRA_PATHS \
                  entry ships it — a staged SDK would fail to build"
             );
             assert!(
@@ -15046,27 +15085,91 @@ mod sdk_tests {
         }
     }
 
+    /// **2.0.467 — the include that broke the installed SDK is seen.** 2.0.452's scanner read only the
+    /// `concat!(env!("CARGO_MANIFEST_DIR"), "/../../…")` spelling, so `cobolt-runtime`'s plain
+    /// `include_bytes!("../../../../assets/web-fonts/Ubuntu-Light.ttf")` went unseen, the SDK shipped
+    /// without the font, and a Canvas program failed on a customer's machine after an hour of compiling.
+    #[test]
+    fn the_scanner_reads_a_plain_relative_include() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
+        let escaping = escaping_includes_of_sdk_crates(root);
+        assert!(
+            escaping.contains(&("cobolt-runtime", "assets/web-fonts/Ubuntu-Light.ttf".to_owned())),
+            "{escaping:?}"
+        );
+        assert!(
+            escaping.contains(&("cobolt-form-host", "assets/images/powerrustcobol-icon.png".to_owned())),
+            "{escaping:?}"
+        );
+    }
+
+    /// **2.0.467 — every file a shipped crate bakes in is where that crate looks for it in a STAGED SDK**,
+    /// which is laid out differently from this source tree (`<install>/sdk/crates`, with the install's
+    /// own `assets/` one level above `sdk/`). Staging is the only thing that puts a file there.
+    #[test]
+    fn a_staged_sdk_holds_every_file_its_crates_bake_in() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
+        let dest = std::env::temp_dir().join(format!("prc-sdk-includes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dest);
+        stage_sdk(root, &dest).expect("stage the SDK");
+        let missing: Vec<String> = escaping_includes_of_sdk_crates(root)
+            .into_iter()
+            .filter(|(_, rel)| !dest.join(rel).exists())
+            .map(|(name, rel)| format!("{name}: {rel}"))
+            .collect();
+        let incomplete = missing_sdk_paths(&dest);
+        let _ = std::fs::remove_dir_all(&dest);
+        assert!(missing.is_empty(), "a staged SDK lacks what its crates bake in: {missing:?}");
+        assert!(incomplete.is_empty(), "a staged SDK reports itself incomplete: {incomplete:?}");
+    }
+
+    /// **2.0.467 — a build asks the SDK first.** An SDK without one of the paths a build reads is named
+    /// with what it lacks, before a single crate is compiled.
+    #[test]
+    fn an_sdk_without_the_fonts_is_reported_incomplete() {
+        let dest = std::env::temp_dir().join(format!("prc-sdk-incomplete-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dest);
+        for rel in SDK_EXTRA_PATHS {
+            std::fs::create_dir_all(dest.join(rel)).unwrap();
+        }
+        assert!(missing_sdk_paths(&dest).is_empty());
+        std::fs::remove_dir_all(dest.join("assets/web-fonts")).unwrap();
+        let missing = missing_sdk_paths(&dest);
+        let _ = std::fs::remove_dir_all(&dest);
+        assert_eq!(missing, vec!["assets/web-fonts"]);
+    }
+
     /// **Spec 101 — the shared cache's freshness check sees every file a platform
-    /// crate is compiled from.** It hashes each crate's folder plus the one icon
-    /// `cobolt-form-host` bakes in (`SDK_EXTRA_PATHS[0]`). A compile-time include
-    /// from anywhere else would change a compiled crate without changing its
-    /// hash, and a stale unit would go unseen.
+    /// crate is compiled from.** It hashes each crate's folder plus the files the
+    /// crate bakes in from outside it (`SDK_COMPILE_TIME_INCLUDES`). A compile-time
+    /// include from anywhere else would change a compiled crate without changing
+    /// its hash, and a stale unit would go unseen.
     #[test]
     fn the_platform_hash_covers_every_compile_time_asset() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
-        let mut escaping = Vec::new();
-        for name in SDK_CRATES {
-            collect_escaping_includes(&root.join("crates").join(name), &mut escaping);
-        }
-        assert!(!escaping.is_empty(), "the scanner found nothing — it has stopped testing anything");
-        for rel in &escaping {
-            assert_eq!(
-                rel, SDK_EXTRA_PATHS[0],
-                "{rel} is read at compile time from outside its crate but the freshness check \
-                 (build_cache::crate_state) does not hash it"
+        let outside: Vec<(&str, String)> = escaping_includes_of_sdk_crates(root)
+            .into_iter()
+            .filter(|(_, rel)| !rel.starts_with("crates/"))
+            .collect();
+        assert!(!outside.is_empty(), "the scanner found nothing — it has stopped testing anything");
+        for (name, rel) in &outside {
+            assert!(
+                SDK_COMPILE_TIME_INCLUDES.contains(&(*name, rel.as_str())),
+                "{rel} is read at compile time by {name} from outside its crate but the freshness check \
+                 (build_cache::crate_state) does not hash it — add it to SDK_COMPILE_TIME_INCLUDES"
             );
         }
-        println!("freshness hash: {} compile-time include(s) outside the crates, all hashed", escaping.len());
+        // Each listed file is hashed with its crate: the same crate folder without it hashes differently.
+        for (name, rel) in SDK_COMPILE_TIME_INCLUDES {
+            let with = build_cache::crate_state(root, name).unwrap().unwrap();
+            let dir = std::env::temp_dir().join(format!("prc-hash-{}-{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            copy_crate_source(&root.join("crates").join(name), &dir.join("crates").join(name)).unwrap();
+            let without = build_cache::crate_state(&dir, name).unwrap().unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            assert_ne!(with.hash, without.hash, "{name}'s hash ignores {rel}, so it is not hashed");
+        }
+        println!("freshness hash: {} compile-time include(s) outside the crates, all hashed", outside.len());
     }
 
     /// **Spec 101 R4 — a shipped SDK carries the lock new programs start from.**
@@ -15093,17 +15196,55 @@ mod sdk_tests {
         }
     }
 
-    /// Gather workspace-relative paths that a crate's sources pull in at
-    /// compile time from *outside* the crate, i.e. through `CARGO_MANIFEST_DIR`
-    /// followed by a `../..` climb to the workspace root.
-    fn collect_escaping_includes(dir: &Path, out: &mut Vec<String>) {
+    /// Every file an SDK crate reads at compile time from outside its own folder, as
+    /// `(crate, path relative to the workspace root)`. Both spellings are read: a literal
+    /// relative to the source file (`include_bytes!("../../../../assets/…")`, how rustc
+    /// resolves it) and `concat!(env!("CARGO_MANIFEST_DIR"), "/../../…")`. A crate's own
+    /// `tests/`, `examples/` and `benches/` are not compiled into a program and are skipped.
+    fn escaping_includes_of_sdk_crates(root: &Path) -> Vec<(&'static str, String)> {
+        let mut out = Vec::new();
+        for name in SDK_CRATES {
+            let dir = root.join("crates").join(name);
+            let mut found = Vec::new();
+            collect_escaping_includes(&dir, &dir, true, &mut found);
+            for path in found {
+                let rel = path.strip_prefix(root).unwrap_or_else(|_| panic!("{} reaches outside the workspace", path.display()));
+                let rel = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
+                if !out.contains(&(name, rel.clone())) {
+                    out.push((name, rel));
+                }
+            }
+        }
+        out
+    }
+
+    /// `path` with `.` and `..` worked out on the text alone, as rustc does for an include.
+    fn lexical(path: &Path) -> PathBuf {
+        let mut out = PathBuf::new();
+        for part in path.components() {
+            match part {
+                std::path::Component::ParentDir => {
+                    out.pop();
+                }
+                std::path::Component::CurDir => {}
+                other => out.push(other),
+            }
+        }
+        out
+    }
+
+    fn collect_escaping_includes(crate_dir: &Path, dir: &Path, top: bool, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                collect_escaping_includes(&path, out);
+                let name = entry.file_name();
+                let skipped = name == "target" || (top && ["tests", "examples", "benches"].iter().any(|s| name == *s));
+                if !skipped {
+                    collect_escaping_includes(crate_dir, &path, false, out);
+                }
                 continue;
             }
             if path.extension().and_then(|e| e.to_str()) != Some("rs") {
@@ -15112,20 +15253,25 @@ mod sdk_tests {
             let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            // `include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../<rel>"))`
-            for (idx, _) in text.match_indices("CARGO_MANIFEST_DIR") {
-                let tail = &text[idx..];
-                let Some(open) = tail.find("\"/../../") else {
-                    continue;
-                };
-                // Only when the literal follows closely — otherwise we are
-                // looking at an unrelated later line.
-                if open > 40 {
-                    continue;
+            let here = path.parent().unwrap();
+            for mac in ["include_bytes!(", "include_str!("] {
+                for (idx, _) in text.match_indices(mac) {
+                    let arg = text[idx + mac.len()..].trim_start();
+                    let (base, literal) = if let Some(rest) = arg.strip_prefix('"') {
+                        (here, rest)
+                    } else if arg.starts_with("concat!") && arg[..arg.len().min(80)].contains("CARGO_MANIFEST_DIR") {
+                        let after = &arg[arg.find("CARGO_MANIFEST_DIR").unwrap() + "CARGO_MANIFEST_DIR\"".len()..];
+                        let Some(open) = after.find('"') else { continue };
+                        (crate_dir, after[open + 1..].trim_start_matches('/'))
+                    } else {
+                        continue;
+                    };
+                    let Some(end) = literal.find('"') else { continue };
+                    let target = lexical(&base.join(&literal[..end]));
+                    if !target.starts_with(crate_dir) {
+                        out.push(target);
+                    }
                 }
-                let rest = &tail[open + "\"/../../".len()..];
-                let Some(end) = rest.find('"') else { continue };
-                out.push(rest[..end].to_owned());
             }
         }
     }

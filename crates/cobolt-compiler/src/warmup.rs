@@ -143,7 +143,7 @@ pub fn warm_platform_cache(
                 copy_tree(&shipped, &cache).map_err(|e| format!("cannot copy the shipped libraries: {e}"))?;
                 outcome.seeded_from_libs = true;
             }
-            _ => log("   the shipped libraries were made by another Rust compiler — compiling here instead"),
+            ours => log(&other_compiler(&theirs, ours.as_deref())),
         }
     }
 
@@ -268,6 +268,28 @@ fn absolute(path: &Path) -> Result<PathBuf, String> {
     std::path::absolute(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// What the log says when the shipped libraries cannot be used: which compiler made them, which one is
+/// here, what that costs, and the one command that makes them usable.
+fn other_compiler(theirs: &str, ours: Option<&str>) -> String {
+    let made_by = theirs.lines().next().unwrap_or("").trim();
+    let here = ours.and_then(|o| o.lines().next()).map(str::trim).unwrap_or("no rustc on the PATH");
+    let release = made_by.split_whitespace().nth(1).unwrap_or("");
+    format!(
+        "   ⚠️  The shipped libraries were made by {made_by}, and this machine has {here}. Cargo cannot \
+         use libraries another compiler made, so they are compiled here instead: the first build takes \
+         as long as a build from nothing (on a modest machine, an hour or more). To use them, run \
+         `rustup default {release}` and start PowerRustCOBOL again."
+    )
+}
+
+/// The addresses [`libs_asset_name`] is tried at, in order. A release's tag is typed when it is
+/// published, and both spellings are in use: `2.0.452` (every release so far) and the workflow's
+/// default `v2.0.452`. Until 2.0.467 only the second was tried, and every download answered 404.
+pub fn libs_asset_urls(version: &str) -> [String; 2] {
+    let name = libs_asset_name(version);
+    [format!("{RELEASES_URL}/{version}/{name}"), format!("{RELEASES_URL}/v{version}/{name}")]
+}
+
 /// `PowerRustCOBOL-<version>-<os>-<arch>-libs.tar.gz`: the release attachment that holds
 /// this machine's `libs/<os>/<arch>/target`.
 pub fn libs_asset_name(version: &str) -> String {
@@ -383,12 +405,25 @@ pub fn repair_libs(sdk_root: &Path, version: &str, log: &mut dyn FnMut(&str)) ->
         log(&format!("   all {} shared libraries are intact", entries.len()));
         return Ok(0);
     }
-    let url = format!("{RELEASES_URL}/v{version}/{}", libs_asset_name(version));
-    log(&format!("   {} of {} shared libraries are missing or changed — downloading them from {url}", bad.len(), entries.len()));
+    // Libraries another compiler made are of no use here: cargo would compile every one of them again.
+    // Downloading them would only add the wait for the download.
+    let theirs = std::fs::read_to_string(libs_dir(sdk_root).join(RUSTC_STAMP)).unwrap_or_default();
+    let ours = rustc_version();
+    if ours.as_deref().map(str::trim) != Some(theirs.trim()) {
+        log(&other_compiler(&theirs, ours.as_deref()));
+        return Ok(0);
+    }
+    let urls = libs_asset_urls(version);
+    log(&format!("   {} of {} shared libraries are missing or changed — downloading them from {}", bad.len(), entries.len(), urls[0]));
     let archive = build_root.join(format!("_repair-{}.tar.gz", std::process::id()));
     let list = build_root.join(format!("_repair-{}.txt", std::process::id()));
     let result = (|| {
-        run("curl", &["--fail", "--location", "--silent", "--show-error", "--proto", "=https", "--tlsv1.2", "-o", &archive.to_string_lossy(), &url])?;
+        let path = archive.to_string_lossy();
+        let fetch = |url: &str| run("curl", &["--fail", "--location", "--silent", "--show-error", "--proto", "=https", "--tlsv1.2", "-o", &path, url]);
+        if let Err(first) = fetch(&urls[0]) {
+            log(&format!("   not there ({first}) — trying {}", urls[1]));
+            fetch(&urls[1])?;
+        }
         std::fs::write(&list, bad.join("\n")).map_err(|e| e.to_string())?;
         run("tar", &["-xzf", &archive.to_string_lossy(), "-C", &cache.to_string_lossy(), "-T", &list.to_string_lossy()])?;
         let still = damaged(&cache, &entries, &mut seen);
@@ -524,7 +559,22 @@ mod tests {
     fn the_release_attachment_is_named_for_the_version_system_and_processor() {
         let name = libs_asset_name("2.0.102");
         assert!(name.starts_with("PowerRustCOBOL-2.0.102-") && name.ends_with("-libs.tar.gz"), "{name}");
+        // 2.0.467 — the tag every release has used comes first; the workflow's default `v` spelling second.
+        let [bare, with_v] = libs_asset_urls("2.0.102");
+        assert_eq!(bare, format!("{RELEASES_URL}/2.0.102/{name}"));
+        assert_eq!(with_v, format!("{RELEASES_URL}/v2.0.102/{name}"));
         assert!(name.contains(std::env::consts::ARCH));
+    }
+
+    /// 2.0.467 — the log names both compilers, the cost, and the command that makes the libraries usable.
+    #[test]
+    fn libraries_from_another_compiler_are_explained_with_the_fix() {
+        let theirs = "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\nhost: x86_64-pc-windows-msvc\n";
+        let said = other_compiler(theirs, Some("rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc\n"));
+        assert!(said.contains("made by rustc 1.95.0 (59807616e 2026-04-14)"), "{said}");
+        assert!(said.contains("this machine has rustc 1.93.1"), "{said}");
+        assert!(said.contains("`rustup default 1.95.0`"), "{said}");
+        assert!(other_compiler(theirs, None).contains("no rustc on the PATH"));
     }
 
     #[test]

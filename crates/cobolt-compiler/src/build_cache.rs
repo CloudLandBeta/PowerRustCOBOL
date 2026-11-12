@@ -86,8 +86,8 @@ fn collect_files(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> std
 }
 
 /// The state of one platform crate under `workspace_root`, or `None` when the
-/// SDK does not carry it. The icon `cobolt-form-host` bakes in lives outside
-/// the crates (see [`crate::SDK_EXTRA_PATHS`]) and counts as one of its files.
+/// SDK does not carry it. A file the crate bakes in from outside its folder
+/// ([`crate::SDK_COMPILE_TIME_INCLUDES`]) counts as one of its files.
 pub(crate) fn crate_state(
     workspace_root: &Path,
     name: &'static str,
@@ -98,10 +98,10 @@ pub(crate) fn crate_state(
     }
     let mut files = Vec::new();
     collect_files(&dir, "", &mut files)?;
-    if name == "cobolt-form-host" {
-        let icon = workspace_root.join(crate::SDK_EXTRA_PATHS[0]);
-        if icon.is_file() {
-            files.push((format!("@{}", crate::SDK_EXTRA_PATHS[0]), icon));
+    for (owner, rel) in crate::SDK_COMPILE_TIME_INCLUDES {
+        let path = workspace_root.join(rel);
+        if owner == name && path.is_file() {
+            files.push((format!("@{rel}"), path));
         }
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
@@ -279,6 +279,44 @@ pub(crate) fn seed_lock(workspace_root: &Path, build_dir: &Path) -> bool {
     false
 }
 
+/// What a program's build does after one `cargo build` attempt ([`after_cargo_attempt`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NextAttempt {
+    /// Keep this attempt's outcome.
+    Done,
+    /// Run cargo again with the network allowed, the lock untouched.
+    Online,
+    /// Drop the lock seeded from the SDK's and run cargo again.
+    DropSeed,
+}
+
+/// The rule after a `cargo build` attempt. A failure with something compiled is
+/// the program's own and stands. One that failed RESOLUTION offline, naming
+/// `--offline`, is a crate cache that has not downloaded the pinned versions
+/// yet — the normal state of a machine's first build — and is retried online
+/// with the SDK's lock kept, so the versions downloaded are the ones the shared
+/// libraries were compiled with. Only a seeded lock that still cannot be
+/// resolved after that is dropped. (Until 2.0.467 the seed was dropped first, on
+/// the offline failure itself, and every first build on a new machine
+/// re-resolved all its crates to their newest versions and compiled them all.)
+pub(crate) fn after_cargo_attempt(
+    seeded: bool,
+    succeeded: bool,
+    compiled: usize,
+    offline: bool,
+    stderr: &str,
+) -> NextAttempt {
+    if succeeded || compiled > 0 {
+        NextAttempt::Done
+    } else if offline && stderr.contains("--offline") {
+        NextAttempt::Online
+    } else if seeded {
+        NextAttempt::DropSeed
+    } else {
+        NextAttempt::Done
+    }
+}
+
 // ── Cargo's own words ────────────────────────────────────────────────────────
 
 /// Whether `line` of cargo's stderr says it is waiting for another cargo to
@@ -325,8 +363,22 @@ fn tail(stderr: &[u8]) -> String {
 /// switch which crate on; as a side effect it prunes the program's lock to what
 /// the program uses. Nothing is compiled and nothing is deleted.
 pub(crate) fn sdk_crates_in_graph(build_dir: &Path, cache: &Path) -> Result<Vec<&'static str>, String> {
+    crates_in_graph(build_dir, cache, true)
+}
+
+/// [`sdk_crates_in_graph`] with the network allowed: cargo downloads what the
+/// program's lock pins and this machine's crate cache lacks, and keeps the lock.
+pub(crate) fn sdk_crates_in_graph_online(build_dir: &Path, cache: &Path) -> Result<Vec<&'static str>, String> {
+    crates_in_graph(build_dir, cache, false)
+}
+
+fn crates_in_graph(build_dir: &Path, cache: &Path, offline: bool) -> Result<Vec<&'static str>, String> {
+    let mut args = vec!["tree", "--prefix", "none", "-e", "normal,build", "-f", "{p}"];
+    if offline {
+        args.insert(1, "--offline");
+    }
     let out = Command::new("cargo")
-        .args(["tree", "--offline", "--prefix", "none", "-e", "normal,build", "-f", "{p}"])
+        .args(&args)
         .current_dir(build_dir)
         .env("CARGO_TARGET_DIR", cache)
         .output()
@@ -372,6 +424,23 @@ pub(crate) fn clean_platform(build_dir: &Path, cache: &Path, crates: &[&str]) ->
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    /// **2.0.467 — a machine's first build keeps the SDK's lock.** The sequence a new Windows install
+    /// went through: the seeded lock, offline, a crate cache that holds none of the pinned versions. The
+    /// first attempt must go online WITH the lock; only a lock that still fails online is dropped.
+    #[test]
+    fn a_cold_crate_cache_goes_online_before_the_seeded_lock_is_dropped() {
+        let cold = "error: failed to download `flate2 v1.1.2`\n\nCaused by:\n  attempting to make an HTTP request, but --offline was specified";
+        assert_eq!(after_cargo_attempt(true, false, 0, true, cold), NextAttempt::Online);
+        assert_eq!(after_cargo_attempt(false, false, 0, true, cold), NextAttempt::Online);
+        let pinned = "error: failed to verify the checksum of `flate2 v1.0.28`";
+        assert_eq!(after_cargo_attempt(true, false, 0, false, pinned), NextAttempt::DropSeed);
+        assert_eq!(after_cargo_attempt(true, false, 0, true, pinned), NextAttempt::DropSeed);
+        assert_eq!(after_cargo_attempt(false, false, 0, false, pinned), NextAttempt::Done);
+        // A failure after compiling is the program's own, and success is success.
+        assert_eq!(after_cargo_attempt(true, false, 3, true, cold), NextAttempt::Done);
+        assert_eq!(after_cargo_attempt(true, true, 0, true, ""), NextAttempt::Done);
+    }
 
     fn temp_dir(tag: &str) -> PathBuf {
         let nanos = SystemTime::now()

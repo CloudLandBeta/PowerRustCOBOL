@@ -16820,6 +16820,56 @@ POWERRUSTCOBOL_BUILD_DIR=/data/builds rcrun build myapp.project.toml
      source line, the two buttons. Capture it once with the default, and once after
      choosing a folder (the source line then says "This folder was chosen here."). -->
 
+### The libraries that come with PowerRustCOBOL
+
+The other vendors' libraries are not left for your first Build to compile. Each
+release compiles them once, on its build machines, and the installation carries
+the result in the Platform SDK, under `sdk/libs/<system>/<processor>` (on macOS,
+inside the application bundle). The first time the IDE starts it copies them into
+the shared cache, and from then on a Build of a small application compiles only
+PowerRustCOBOL's own parts and your program.
+
+Two things decide whether that copy can be used:
+
+- **The Rust compiler.** A compiled library can only be used by the very compiler
+  that made it. The release records which one in `rustc.txt` beside the libraries.
+  When the Rust installed on your machine is a different version, the Output panel
+  says so, names both versions, and names the command that switches to the right
+  one (`rustup default <version>`, then start the IDE again). Until then every
+  library is compiled on your machine, once.
+- **The crate versions.** Every program starts from the list of library versions
+  the SDK was built with (the SDK's `Cargo.lock`), so that the shipped libraries
+  apply to it. A machine that has never downloaded those versions downloads them
+  on the first Build (the Output panel says *downloading them*). Only when one of
+  them cannot be had at all does the Build fall back to the newest versions, and
+  then it says that it will compile them all.
+
+A full build checks every shipped library against the record the installation
+carries and, when one is missing or changed, downloads the release's copy from
+the PowerRustCOBOL releases page on GitHub and puts back only those files.
+
+Before it compiles anything, a Build also checks that the Platform SDK holds every
+file PowerRustCOBOL's parts are compiled with (the window icon, the form themes and
+the fonts). An SDK that lacks one is named in the error, with what it lacks.
+
+> ⚠️ **Caveat.** When the Output panel says the shipped libraries were made by
+> another Rust compiler, or that crate versions other than the SDK's are being
+> used, the Build that follows is a long one: on a modest machine, an hour or more.
+> It happens once; the shared cache keeps the result for every later Build.
+
+```mermaid
+flowchart TD
+    A[First IDE start] --> B{Installed Rust = the release's?}
+    B -- yes --> C[Shipped libraries copied into shared-target]
+    B -- no --> D[Output panel names both versions and the rustup command]
+    C --> E[Build: SDK's Cargo.lock, offline]
+    D --> E
+    E --> F{Pinned versions on this machine?}
+    F -- yes --> G[Compile PowerRustCOBOL's parts and the program]
+    F -- no --> H[Download those versions, keep the lock]
+    H --> G
+```
+
 ### Full builds and the recorded version
 
 A project records the PowerRustCOBOL version that last **fully** built it. When
