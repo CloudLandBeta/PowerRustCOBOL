@@ -2,6 +2,10 @@
 
 
 
+## 2.0.444 — 2026-11-11
+
+**The web goldens test reads a golden file with its line ends made `LF`, so it passes on Windows.** On a Windows machine git checks text files out with `CRLF` (`core.autocrlf`); the test turned what the build produced into `LF` but compared it with the golden as it was read, so all ten goldens were different (`web goldens: 0 match, 10 different`, run 51 of the build workflow, first differences at lines 26, 212, 677, …). The golden is now read with `CRLF` turned into `LF` as well. Checked here by rewriting the ten files with `CRLF` line ends: ten match; the files were then put back as they were. Test code only.
+
 ## 2.0.443 — 2026-11-11
 
 **The browser tests give every page the motion preference they are written for, so the animation tests no longer depend on the machine's accessibility setting.** The player plays no animation when the operating system asks for reduced motion (`prefers-reduced-motion: reduce`, 2.0.3xx). The build workflow's macOS and Windows machines do ask for it, and every test that looks for a running animation failed there: `page_motion_p4` (`OnFormLoad: the label fades in with the form`), `page_motion_p4b` and `page_grid_first_show` (`waited 5 s … anims().length > 0`). They passed on the Linux machine and on a developer's Mac, which do not. The Chrome harness (`support/cdp.rs`, shared by the three web crates' tests) now sets `prefers-reduced-motion: no-preference` on every page it opens. Checked by starting Chrome with reduced motion forced: the three tests fail without the change, with the same message as the runners', and pass with it. The workflow's own machines have not been seen to confirm it yet. Test code only; the player is unchanged.

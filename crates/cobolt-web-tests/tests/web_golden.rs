@@ -128,7 +128,8 @@ fn the_web_build_outputs_match_their_goldens() {
             same.push(*name);
             continue;
         }
-        match std::fs::read_to_string(&path) {
+        // A golden checked out on Windows can carry CRLF line ends (git's `autocrlf`); what was built never does.
+        match std::fs::read_to_string(&path).map(|g| g.replace("\r\n", "\n")) {
             Err(_) => missing.push(*name),
             Ok(g) if g == text => same.push(*name),
             Ok(g) => {
