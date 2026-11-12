@@ -120,6 +120,17 @@ const LIB: &str = r#"
   const box = id => { const r = el(id).getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, cx: r.x + r.width / 2, cy: r.y + r.height / 2 }; };
   const form = () => root.querySelector('[data-pr-inst]');
   const anims = () => form().getAnimations({ subtree: true });
+  // What `read` finds in each picture the page draws in the next `ms` milliseconds, with the time of the frame the picture
+  // is drawn for. The player draws a chart in its own requestAnimationFrame step and an observer of the form runs right
+  // after that step, in the same frame. A requestAnimationFrame callback of the test's own can run BEFORE the player's and
+  // read the picture of the frame before: where frames come unevenly (100 ms, then 16.7 ms, on a slow machine), that
+  // picture's time is then wrong by up to the long gap.
+  const drawn = (ms, read) => new Promise(done => {
+    const out = [];
+    const o = new MutationObserver(() => { const v = read(); if (v !== null && (!out.length || out[out.length - 1][1] !== v)) out.push([document.timeline.currentTime, v]); });
+    o.observe(form(), { subtree: true, childList: true, attributes: true, characterData: true });
+    setTimeout(() => { o.disconnect(); done(out); }, ms);
+  });
 "#;
 
 fn js(body: &str) -> String {
@@ -254,13 +265,13 @@ fn the_page_moves_as_the_desktop_moves_and_tells_the_program_its_size() {
     page.wait_for(&js("return el('BTN-SHOW').getAnimations().length > 0;"), 5).unwrap_or_else(|e| panic!("OnClick played nothing: {e}"));
     let samples = page
         .eval(&js(
-            "const t0 = performance.now(); const out = []; while (performance.now() - t0 < 2200) { await new Promise(r => requestAnimationFrame(r)); const c = el('CH-BAR'); if (!c || !c.checkVisibility()) continue; let h = 0; for (const r of c.querySelectorAll('rect[fill]')) h = Math.max(h, r.getBBox().height); out.push([performance.now(), h]); } return out;",
+            "return await drawn(2200, () => { const c = el('CH-BAR'); if (!c || !c.checkVisibility()) return null; let h = 0; for (const r of c.querySelectorAll('rect[fill]')) h = Math.max(h, r.getBBox().height); return h; });",
         ))
         .unwrap();
     let samples: Vec<(f64, f64)> = samples.as_array().unwrap().iter().map(|p| (p[0].as_f64().unwrap(), p[1].as_f64().unwrap())).collect();
     let full = samples.last().unwrap().1;
     assert!(full > 20.0, "the tallest bar at rest: {full}");
-    // Each height h at time t gives the instant the growth started: t − 1500·(1 − ∛(1 − h/H)).
+    // Each height h drawn for the frame at time t gives the instant the growth started: t − 1500·(1 − ∛(1 − h/H)).
     let starts: Vec<f64> = samples.iter().filter(|(_, h)| *h > 0.02 * full && *h < 0.98 * full).map(|(t, h)| t - 1500.0 * (1.0 - (1.0 - h / full).cbrt())).collect();
     support::assert_timing(starts.len() >= 20, || format!("the chart grew over many frames, not at once: {} frames in motion", starts.len()));
     let mean = starts.iter().sum::<f64>() / starts.len() as f64;
@@ -274,7 +285,7 @@ fn the_page_moves_as_the_desktop_moves_and_tells_the_program_its_size() {
     click(&mut page, "BTN-DATA");
     let travel = page
         .eval(&js(
-            "const t0 = performance.now(); const out = []; while (performance.now() - t0 < 2000) { await new Promise(r => requestAnimationFrame(r)); const bars = [...el('CH-BAR').querySelectorAll('rect[fill]')].map(r => r.getBBox()).filter(b => b.height > 0).sort((a, b) => a.x - b.x); if (bars.length === 3) out.push([performance.now(), bars[1].height / bars[2].height]); } return out;",
+            "return await drawn(2000, () => { const bars = [...el('CH-BAR').querySelectorAll('rect[fill]')].map(r => r.getBBox()).filter(b => b.height > 0).sort((a, b) => a.x - b.x); return bars.length === 3 ? bars[1].height / bars[2].height : null; });",
         ))
         .unwrap();
     let travel: Vec<(f64, f64)> = travel.as_array().unwrap().iter().map(|p| (p[0].as_f64().unwrap(), p[1].as_f64().unwrap())).collect();
