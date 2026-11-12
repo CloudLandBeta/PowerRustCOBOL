@@ -210,7 +210,7 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
         .unwrap();
     let w_after = worst["w"].as_f64().unwrap();
     assert!(w_after < w_before - 50.0, "the second card took room from the first: {w_before} -> {w_after}");
-    assert!(worst["moving"].as_u64().unwrap() > 20, "still in its intro after the re-flow: {worst}");
+    support::assert_timing(worst["moving"].as_u64().unwrap() > 20, || format!("still in its intro after the re-flow, over more than 20 frames: {}", worst["moving"]));
     let painted: Vec<f64> = worst["painted"].as_array().unwrap().iter().filter_map(|v| v.as_f64()).collect();
     assert!(painted.len() >= 2, "the size watch saw the re-flow: {worst}");
     assert!(painted.iter().all(|d| *d < 1.0), "the frame of the re-flow is painted with the card and its label about their laid-out centres: {worst}");
@@ -219,7 +219,8 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
     // later instant its script runs: before, that one frame was held ahead on the curve, by up to 0.064 on a heavy page).
     let fit = worst["fit"].as_f64().unwrap();
     let curve_off: Vec<f64> = worst["curve_off"].as_array().unwrap().iter().filter_map(|v| v.as_f64()).collect();
-    assert!(worst["n_fit"].as_u64().unwrap() > 20 && fit < 0.003, "the frames after the re-flow follow ZoomOut on Elastic: {worst}");
+    assert!(fit < 0.003, "the frames after the re-flow follow ZoomOut on Elastic: {worst}");
+    support::assert_timing(worst["n_fit"].as_u64().unwrap() > 20, || format!("more than 20 frames after the re-flow to fit ZoomOut on Elastic: {}", worst["n_fit"]));
     assert!(!curve_off.is_empty() && curve_off.iter().all(|e| *e < 0.003), "the frame of the re-flow is on that curve: {worst}");
     println!(
         "re-flow mid-intro, scale: the requestAnimationFrame samples within {fit:.4} of ZoomOut on Elastic; the painted frame(s) of the re-flow within {:.4}",
@@ -256,7 +257,8 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
     let r_off: Vec<f64> = rs["curve_off"].as_array().unwrap().iter().filter_map(|v| v.as_f64()).collect();
     let r_drift: Vec<f64> = rs["drift"].as_array().unwrap().iter().filter_map(|v| v.as_f64()).collect();
     assert!(rs["w1"].as_f64().unwrap() < rs["w0"].as_f64().unwrap() - 20.0, "the resize re-flowed the card: {rs}");
-    assert!(rs["n_fit"].as_u64().unwrap() > 20 && rs["fit"].as_f64().unwrap() < 0.003, "the frames around the resize follow ZoomOut on Elastic: {rs}");
+    assert!(rs["fit"].as_f64().unwrap() < 0.003, "the frames around the resize follow ZoomOut on Elastic: {rs}");
+    support::assert_timing(rs["n_fit"].as_u64().unwrap() > 20, || format!("more than 20 frames around the resize to fit ZoomOut on Elastic: {}", rs["n_fit"]));
     assert!(r_off.len() >= 2 && r_off.iter().all(|e| *e < 0.003), "the frame painted at the resize is on that curve: {rs}");
     assert!(r_drift.iter().all(|d| *d < 1.0), "and about the laid-out centres: {rs}");
     println!(
@@ -286,7 +288,8 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
         ))
         .unwrap();
     let s_off: Vec<f64> = stall["first"].as_array().unwrap().iter().filter_map(|v| v.as_f64()).collect();
-    assert!(stall["n_fit"].as_u64().unwrap() > 20 && stall["fit"].as_f64().unwrap() < 0.003, "the frames after the stall follow ZoomOut on Elastic: {stall}");
+    assert!(stall["fit"].as_f64().unwrap() < 0.003, "the frames after the stall follow ZoomOut on Elastic: {stall}");
+    support::assert_timing(stall["n_fit"].as_u64().unwrap() > 20, || format!("more than 20 frames after the stall to fit ZoomOut on Elastic: {}", stall["n_fit"]));
     assert!(s_off.len() == 4 && s_off.iter().all(|e| *e < 0.01), "the first frames after a 450 ms stall are on that curve (not held at the end of the short plan): {stall}");
     println!("resize mid-intro, then a 450 ms stall: the first four frames after it within {:.4} of the curve (the later ones within {:.4})", s_off.iter().cloned().fold(0.0, f64::max), stall["fit"].as_f64().unwrap());
     page.resize(1100, 700).unwrap();
@@ -307,7 +310,7 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
         let distinct = v.windows(2).filter(|w| (w[0] - w[1]).abs() > 0.05).count();
         assert!(last > 10.0, "{k}: drawn at rest ({last})");
         assert!(v.iter().any(|x| *x < 0.5 * last), "{k}: starts well below its size at rest: {v:?}");
-        assert!(distinct >= 15, "{k}: grows over many frames ({distinct} changes): {v:?}");
+        support::assert_timing(distinct >= 15, || format!("{k}: grows over many frames ({distinct} changes, at least 15 wanted)"));
         println!("AnimateOnLoad {k}: {} frames, {distinct} of them a new picture, from {:.1} to {last:.1}", v.len(), v.iter().cloned().fold(f64::INFINITY, f64::min));
     }
 

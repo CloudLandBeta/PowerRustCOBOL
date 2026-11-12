@@ -292,7 +292,9 @@ fn run_cell(chrome: &Chrome, url: &str, cell: Cell) -> Result<String, String> {
     let y = p.eval("__m.stopTicker()")?;
     let gap = y["longest_main_thread_gap_ms"].as_f64().unwrap_or(f64::MAX);
     if gap >= 50.0 {
-        return Err(format!("the main thread was held for {gap} ms: {y}"));
+        // the caller names the cell in an error; a warning names it itself
+        let m = format!("the main thread was held for {gap} ms: {y}");
+        support::timing_missed(format!("{}: {m}", cell.name())).map_err(|_| m)?;
     }
 
     // a trap and a COBOL error are reported and the application goes on
@@ -308,7 +310,8 @@ fn run_cell(chrome: &Chrome, url: &str, cell: Cell) -> Result<String, String> {
     // 4.5 ms and the 100 cycles took 1 000 ms on the plain player; as messages they take about 140 ms.
     let cycles_ms = disposal["ms"].as_u64().unwrap_or(u64::MAX);
     if cycles_ms >= 700 {
-        return Err(format!("100 forms opened and closed took {cycles_ms} ms (about 140 ms with message turns, about 1 000 with timer turns)"));
+        let m = format!("100 forms opened and closed took {cycles_ms} ms (about 140 ms with message turns, about 1 000 with timer turns)");
+        support::timing_missed(format!("{}: {m}", cell.name())).map_err(|_| m)?;
     }
 
     // the player's memory grows when the text box takes 40 MB, and the next read is right

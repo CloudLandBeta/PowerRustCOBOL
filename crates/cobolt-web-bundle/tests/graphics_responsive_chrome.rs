@@ -130,7 +130,7 @@ fn a_24_megapixel_blur_runs_off_the_page_thread_and_gives_the_same_pixel() {
     assert_eq!(inline.pixel, away.pixel, "the same pixel after the blur, in place and in the worker");
     assert_eq!(inline.width, away.width);
     assert!(inline.longest_gap_ms > 500.0, "in place the blur holds the page's thread for most of a second: longest gap {} ms", inline.longest_gap_ms);
-    assert!(away.longest_gap_ms < 400.0, "with the blur in a worker the page keeps ticking: longest gap {} ms", away.longest_gap_ms);
+    support::assert_timing(away.longest_gap_ms < 400.0, || format!("with the blur in a worker the page keeps ticking: longest gap {} ms", away.longest_gap_ms));
     println!(
         "T30 24 MP Gaussian blur (Chrome): {} in place: total {} ms, page frozen up to {:.0} ms ({} ticks); {} in a worker: total {} ms, page frozen up to {:.0} ms ({} ticks); pixel {} on both",
         inline.player, inline.total_ms, inline.longest_gap_ms, inline.ticks, away.player, away.total_ms, away.longest_gap_ms, away.ticks, inline.pixel

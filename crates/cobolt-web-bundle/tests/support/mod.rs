@@ -42,6 +42,37 @@ pub fn require_node(test: &str) -> bool {
     false
 }
 
+/// Is a missed timing limit only a warning on this machine? `PRC_TIMING_ADVISORY=1` says so. The build workflow sets
+/// it for its web-test cells: their shared machines run these pages several times slower than a developer's (run 52:
+/// the main thread held 54 to 118 ms where a Mac holds it 16 to 22 ms, about ten frames a second where a Mac draws
+/// thirty). Everywhere else a missed timing limit fails the test. Only limits on speed are advisory: what a page
+/// computes, draws or refuses is checked the same on every machine.
+pub fn timing_is_advisory() -> bool {
+    std::env::var("PRC_TIMING_ADVISORY").is_ok_and(|v| v == "1")
+}
+
+/// A timing limit was missed: `Err(message)`, or, where timing is advisory, the message printed as a warning (a
+/// workflow annotation, so it shows on the run's page) and `Ok(())`, so the test goes on.
+pub fn timing_missed(message: String) -> Result<(), String> {
+    if !timing_is_advisory() {
+        return Err(message);
+    }
+    let text = message.replace('%', "%25").replace('\r', "%0D").replace('\n', "%0A");
+    // a line of its own: the runner reads `::warning` only at the start of a line, and the test runner has
+    // written `test <name> ... ` before the test's first output
+    println!("\n::warning title=Timing limit missed (advisory on this machine)::{text}");
+    Ok(())
+}
+
+/// `assert!` for a timing limit: a failure, unless timing is advisory here (see [`timing_missed`]).
+pub fn assert_timing(ok: bool, message: impl FnOnce() -> String) {
+    if !ok {
+        if let Err(m) = timing_missed(message()) {
+            panic!("{m}");
+        }
+    }
+}
+
 fn newest(dir: &Path) -> SystemTime {
     let mut t = SystemTime::UNIX_EPOCH;
     if let Ok(rd) = std::fs::read_dir(dir) {

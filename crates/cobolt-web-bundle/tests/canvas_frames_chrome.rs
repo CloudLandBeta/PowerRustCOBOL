@@ -110,7 +110,10 @@ fn on_frame_runs_at_the_target_rate_and_a_hidden_tab_raises_none() {
     println!(
         "T30 AC12 browser (Chrome): onFrame at TargetFps 30: {visible} frames in {secs:.2} s visible = {rate:.1}/s; hidden for 0.8 s: {hidden} frames; visible again for 1 s: {resumed} frames (last elapsed values {texts})"
     );
-    assert!(rate >= 15.0 && rate <= 36.0, "a frame rate near the target: {rate}/s");
+    // Too many frames is the page's doing on any machine; too few can be the machine's.
+    assert!(rate <= 36.0, "a frame rate near the target: {rate}/s");
+    support::assert_timing(rate >= 15.0, || format!("a frame rate near the target: {rate}/s"));
     assert_eq!(hidden, 0, "a hidden tab raises no frame");
-    assert!((10..=36).contains(&resumed), "the frames resume at the target rate and not as a burst: {resumed} in a second");
+    assert!(resumed <= 36, "the frames resume at the target rate and not as a burst: {resumed} in a second");
+    support::assert_timing(resumed >= 10, || format!("the frames resume at the target rate: {resumed} in a second"));
 }

@@ -1358,6 +1358,11 @@ jobs:
     env:
       PRC_REQUIRE_WEBVIEW: "1"
       PRC_REQUIRE_NODE: "1"
+      # The shared runners draw these pages several times slower than a developer's machine (run 52: about
+      # ten frames a second on macOS, the main thread held up to 118 ms, a worker's blur pausing the page
+      # 415 ms on Linux). A missed limit on speed is a warning here (an annotation on the run's page);
+      # what a page computes, draws or refuses still fails. Without this variable every limit fails.
+      PRC_TIMING_ADVISORY: "1"
       # The three crates hold about ninety test files, and each one is a binary of its own that links
       # the whole dependency graph (wasmtime, wgpu, the AWS SDK). With debug info in every one of them
       # the first run of this job died in the linker: `ld terminated with signal 7 [Bus error]` on three

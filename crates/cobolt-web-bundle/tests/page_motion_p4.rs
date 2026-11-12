@@ -262,7 +262,7 @@ fn the_page_moves_as_the_desktop_moves_and_tells_the_program_its_size() {
     assert!(full > 20.0, "the tallest bar at rest: {full}");
     // Each height h at time t gives the instant the growth started: t − 1500·(1 − ∛(1 − h/H)).
     let starts: Vec<f64> = samples.iter().filter(|(_, h)| *h > 0.02 * full && *h < 0.98 * full).map(|(t, h)| t - 1500.0 * (1.0 - (1.0 - h / full).cbrt())).collect();
-    assert!(starts.len() >= 20, "the chart grew over many frames, not at once: {} frames in motion", starts.len());
+    support::assert_timing(starts.len() >= 20, || format!("the chart grew over many frames, not at once: {} frames in motion", starts.len()));
     let mean = starts.iter().sum::<f64>() / starts.len() as f64;
     let spread = starts.iter().map(|s| (s - mean).abs()).fold(0.0, f64::max);
     assert!(spread < 25.0, "every frame agrees on one start (the desktop's ease-out over 1500 ms): spread {spread:.1} ms");
@@ -281,7 +281,7 @@ fn the_page_moves_as_the_desktop_moves_and_tells_the_program_its_size() {
     let ks: Vec<(f64, f64)> = travel.iter().map(|(t, r)| (*t, (40.0 * r - 20.0) / (20.0 + 20.0 * r))).collect();
     assert!((ks.last().unwrap().1 - 1.0).abs() < 0.01, "it lands on the new data: k {}", ks.last().unwrap().1);
     let moving: Vec<f64> = ks.iter().filter(|(_, k)| *k > 0.02 && *k < 0.98).map(|(t, k)| t - 1500.0 * (1.0 - (1.0 - k).cbrt())).collect();
-    assert!(moving.len() >= 20, "the data travelled over many frames: {}", moving.len());
+    support::assert_timing(moving.len() >= 20, || format!("the data travelled over many frames: {}", moving.len()));
     let mean = moving.iter().sum::<f64>() / moving.len() as f64;
     let spread = moving.iter().map(|s| (s - mean).abs()).fold(0.0, f64::max);
     assert!(spread < 25.0, "every frame agrees on one start of the travel: spread {spread:.1} ms");
