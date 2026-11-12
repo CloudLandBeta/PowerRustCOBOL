@@ -221,6 +221,11 @@ fn build_variant(
 /// machine cannot use (incremental state, build-script scratch space) and
 /// the `rustc.txt` that [`warm_platform_cache`] checks before copying it.
 pub fn produce_libs(sdk_root: &Path, log: &mut dyn FnMut(&str)) -> Result<u64, String> {
+    // The build runs in a scratch folder under the SDK, and cargo reads a relative `CARGO_TARGET_DIR` from its own
+    // working directory: the workflow's `dist/<package>/sdk` put the libraries in `_scratch/forms/dist/...`, which
+    // is deleted below, left `target` empty, and on Windows made paths longer than the 260 characters its linker takes.
+    let sdk_root = absolute(sdk_root)?;
+    let sdk_root = sdk_root.as_path();
     let out = libs_dir(sdk_root);
     let target = out.join("target");
     std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
@@ -256,6 +261,11 @@ pub fn produce_libs(sdk_root: &Path, log: &mut dyn FnMut(&str)) -> Result<u64, S
     let manifest = manifest_text(&target).map_err(|e| e.to_string())?;
     std::fs::write(out.join(MANIFEST), manifest).map_err(|e| e.to_string())?;
     Ok(dir_bytes(&target))
+}
+
+/// `path` under the current directory when it is relative; the path itself otherwise. It touches no file.
+fn absolute(path: &Path) -> Result<PathBuf, String> {
+    std::path::absolute(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// `PowerRustCOBOL-<version>-<os>-<arch>-libs.tar.gz`: the release attachment that holds
@@ -438,6 +448,22 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_relative_sdk_folder_is_made_absolute_before_cargo_is_given_a_target_in_it() {
+        // The release workflow passes `dist/<package>/sdk`; cargo reads a relative target folder from the
+        // scratch folder it runs in, so the libraries must be asked for at a path that does not depend on it.
+        let relative = Path::new("dist").join("PowerRustCOBOL-0.0.0-test").join("sdk");
+        let made = absolute(&relative).unwrap();
+        assert!(made.is_absolute(), "{}", made.display());
+        assert!(made.starts_with(std::env::current_dir().unwrap()), "{}", made.display());
+        assert!(made.ends_with(&relative), "{}", made.display());
+        let there = std::env::temp_dir();
+        assert_eq!(absolute(&there).unwrap(), there, "an absolute folder stays as it is");
+        // What the compile is given: the target is under the SDK folder, not under the scratch folder.
+        let target = libs_dir(&made).join("target");
+        assert!(target.is_absolute() && !target.starts_with(libs_dir(&made).join("_scratch")));
+    }
 
     #[test]
     fn the_two_stand_ins_share_everything_but_sql() {
