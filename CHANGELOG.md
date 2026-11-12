@@ -2,6 +2,10 @@
 
 
 
+## 2.0.473 — 2026-11-12
+
+**The graphics engine's dependency guard reads the workspace's Rust floor instead of a fixed 1.92, so it passes again after 2.0.469 raised that floor to 1.95.** `cobolt-graphics --test dependency_guard` (WASM-018 R4) refuses any crate in the graphics tree whose minimum Rust is above a ceiling, and the ceiling was the constant 1.92, the workspace's floor when the spec was written. 2.0.469 raised the workspace's `rust-version` to 1.95 (egui and its companions in the lock file need it), and `cobolt-graphics` inherits it, so the guard reported the graphics crate itself: "cobolt-graphics needs Rust 1.95, above 1.92". It was found by the session that fixed the Canvas3D start-up abort. The ceiling is now the workspace manifest's own `rust-version`, so a graphics crate may need no newer Rust than every other part of the platform and the two can no longer drift apart; the guard's self-test builds its too-new package from that ceiling plus one. The WASM-018 spec and plan say the same. Measured: the guard's five tests pass (the graphics tree has no crate above 1.95). Test and spec text only; nothing that is built changes, so the Developer's Guide is unchanged.
+
 ## 2.0.472 — 2026-11-12
 
 **The build-cache tests run on Linux, Windows and macOS in the all-platforms workflow.** The rules 2.0.471 changed (a full build compiles the program again and a PowerRustCOBOL part only when its sources changed; a stale part is cleaned alone) were run on macOS and, in a Docker container, on Linux; on Windows they were only compile-checked. `build-all-platforms.yml` now has a `build-cache-tests` job on `ubuntu-22.04`, `windows-latest` and `macos-latest`. It runs the `build_cache::` and `warmup::` unit tests and `a_stale_platform_crate_is_compiled_again_alone`, which stages an SDK and builds a program with that runner's own cargo, paths and file times. The job fails unless that test prints its result line (`SPEC101 AC3/AC5/AC14`). It uses the pinned Rust (`RELEASE_RUST`), builds without debug info, and prints the disk left at the end. Like the web tests, `release` does not wait for it.

@@ -370,7 +370,7 @@ thread-comparison tests compile out).
 | lib (unit) | 196 | display list encode/decode/builder/dynamic equivalence, canvas internals, text, imagebuf, plot, physics, scene3d maths, `Value`, registry |
 | `api` | 15 | every documented method dispatches; rustdoc tables equal the rows; ten thousand shapes are **one** host call; `ToImage` after drawing; image identical on 1 and N threads; 100,000-value table in one call; every chart kind into image, canvas, SVG; limits named; 20,000 random-call iterations never panic |
 | `canvas` | 24 | reference scene matches golden; bands = one surface; threads do not change it; clipping, composite, blend, shadow, sprites, pixel ratio 2 |
-| `dependency_guard` | 4 | no denied package, no C-compiling build script, permissive licences, MSRV ≤ 1.92; a stub `font-kit` makes it fail |
+| `dependency_guard` | 4 | no denied package, no C-compiling build script, permissive licences, MSRV ≤ the workspace's `rust-version` (1.95 since 2.0.469); a stub `font-kit` makes it fail |
 | `display_list_robustness` | 5 | 200,000 arbitrary inputs, 30,000 mutated lists, 1,500 executed: no panic, no hang; re-encode equality |
 | `imagebuf` | 6 | filters and encoders 1 = N threads; decompression bomb refused from header; damaged-file fuzz |
 | `lifecycle` | 2 | AC9 at library level: 100 forms opened and closed leave memory at baseline |

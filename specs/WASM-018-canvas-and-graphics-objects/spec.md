@@ -63,7 +63,7 @@ heavy parts wherever threads exist.
 
 **100 % Rust**
 - **R4 (constraint):** A crate enters only if: it is written in Rust; **no build script of its default feature set compiles C or C++** or links a system library (`cc`, `cmake`, `bindgen`, `pkg-config`), the browser and the operating system's graphics APIs excepted, which `wgpu` reaches through Rust bindings; its licence is permissive and compatible with Apache-2.0; it has had a release in the last twelve months; it supports `wasm32`; its minimum Rust version
-  is at most 1.92 (the threaded player's nightly excepted, WASM-017 R16); and it passes the dependency guards of WASM-013 R9 (no `ring`, no `aws-lc-rs`). A **dependency-guard test** over `cobolt-graphics`'s tree shall fail on any package of a deny list (`font-kit`, `freetype-sys`, `harfbuzz-sys`, `skia-safe`, `cairo-sys-rs`, `libwebp-sys`, `mozjpeg-sys` and the like).
+  is at most the workspace's own `rust-version` (1.92 when this was written; 1.95 since 2.0.469, which egui needs) (the threaded player's nightly excepted, WASM-017 R16); and it passes the dependency guards of WASM-013 R9 (no `ring`, no `aws-lc-rs`). A **dependency-guard test** over `cobolt-graphics`'s tree shall fail on any package of a deny list (`font-kit`, `freetype-sys`, `harfbuzz-sys`, `skia-safe`, `cairo-sys-rs`, `libwebp-sys`, `mozjpeg-sys` and the like).
 - **R5 (ubiquitous):** The crates shall be, unless the plan shows one fails R4 (the plan records the exact versions):
 
   | Purpose | Crate | Note |
@@ -141,7 +141,7 @@ heavy parts wherever threads exist.
 - **Generated-code contract:** the methods are generated as inline calls and as display-list commands by the generator and the interpreter; the display-list encoding is generated from one definition.
 - **System KB:** **required** — two controls, five objects, every property, event and method, the differences from the HTML canvas; regenerate `chunked.data`. The closed method vocabulary must list every method (a test checks each against the interpreter and the generator).
 - **Interpreter/binary parity:** the interpreter, the egui host in its three uses, the compiled binary, the generated module and the player.
-- **Tech steering:** MSRV 1.92 except the threaded player; the dependency guards, licence and supply-chain rules of WASM-013 R9 apply to every new crate; footprint is reported (R18).
+- **Tech steering:** MSRV = the workspace's `rust-version` (1.95 since 2.0.469) except the threaded player; the dependency guards, licence and supply-chain rules of WASM-013 R9 apply to every new crate; footprint is reported (R18).
 - **Docs:** `docs/` untouched on 2.x.x; the chapter is written at release.
 - **Fix vs feature:** **feature** (`features-2x`).
 

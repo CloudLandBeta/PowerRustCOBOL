@@ -9,6 +9,9 @@
 //! "A crate enters only if it is written in Rust, no build script of its default feature set
 //! compiles C or C++, its licence is permissive and compatible with Apache-2.0, its minimum Rust
 //! version is at most 1.92, and it passes the dependency guards (no `ring`, no `aws-lc-rs`)."
+//! The 1.92 of that sentence is the workspace's own floor at the time; since 2.0.473 the guard
+//! reads the floor from the workspace manifest (`rust-version`, 1.95 since 2.0.469, which egui
+//! needs), so a graphics crate may need no newer Rust than every other part of the platform.
 //!
 //! This test walks the **whole dependency tree of `cobolt-graphics`** - normal and build
 //! dependencies, for every target platform and the default feature set, as cargo itself
@@ -19,7 +22,8 @@
 //! * a package whose **build script** has a C compiler or a system-library finder among its
 //!   build dependencies (`cc`, `cmake`, `bindgen`, `pkg-config`, `vcpkg`, ...), which is what
 //!   a build script that compiles C or links a system library needs;
-//! * a licence outside the permissive set, or a minimum Rust version above 1.92.
+//! * a licence outside the permissive set, or a minimum Rust version above the workspace's
+//!   `rust-version`.
 //!
 //! The guard is a function over data, and **it is tested to fail**: with a package of the deny
 //! list added to a real cargo project (a stub `font-kit`, so nothing is downloaded) the same
@@ -88,7 +92,19 @@ const ALLOWED_LICENCES: &[&str] = &[
     "Ubuntu-font-1.0",
 ];
 
-const MAX_MSRV: (u32, u32) = (1, 92);
+/// The highest minimum Rust a package may declare: the workspace's own `rust-version`. A
+/// constant here went stale when the workspace moved to 1.95 (2.0.469) and failed on
+/// `cobolt-graphics` itself, which inherits the workspace's floor.
+fn max_msrv() -> (u32, u32) {
+    let text = std::fs::read_to_string(workspace_manifest()).expect("the workspace manifest");
+    let declared = text
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("rust-version"))
+        .and_then(|l| l.split('"').nth(1))
+        .expect("the workspace declares rust-version");
+    let mut it = declared.split('.').map(|p| p.parse::<u32>().expect("a numbered rust-version"));
+    (it.next().unwrap(), it.next().unwrap())
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Pkg {
@@ -197,7 +213,7 @@ fn licence_ok(expr: &str) -> bool {
 fn msrv_ok(v: &str) -> bool {
     let mut it = v.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
     let (major, minor) = (it.next().unwrap_or(0), it.next().unwrap_or(0));
-    (major, minor) <= MAX_MSRV
+    (major, minor) <= max_msrv()
 }
 
 /// The guard: what is wrong with this tree. Empty means clean.
@@ -222,7 +238,7 @@ fn violations(tree: &[Pkg], meta: &BTreeMap<(String, String), MetaPkg>) -> Vec<S
             }
             if let Some(v) = &m.rust_version {
                 if !msrv_ok(v) {
-                    bad.push(format!("{} {} needs Rust {v}, above 1.{}", p.name, p.version, MAX_MSRV.1));
+                    bad.push(format!("{} {} needs Rust {v}, above 1.{}", p.name, p.version, max_msrv().1));
                 }
             }
         }
@@ -272,15 +288,16 @@ fn the_guard_fails_on_a_denied_package_a_c_build_script_a_bad_licence_and_a_new_
         Pkg { name: "cc".into(), version: "1.0.0".into(), license: "MIT OR Apache-2.0".into(), features: BTreeSet::new() },
     ];
     let mut meta = BTreeMap::new();
+    let newer = format!("1.{}", max_msrv().1 + 1);
     meta.insert(("sneaky-sys".to_string(), "0.1.0".to_string()), MetaPkg { has_build_script: true, build_deps: ["cc".to_string()].into(), rust_version: None });
-    meta.insert(("shiny".to_string(), "3.0.0".to_string()), MetaPkg { has_build_script: false, build_deps: BTreeSet::new(), rust_version: Some("1.95".into()) });
+    meta.insert(("shiny".to_string(), "3.0.0".to_string()), MetaPkg { has_build_script: false, build_deps: BTreeSet::new(), rust_version: Some(newer.clone()) });
     meta.insert(("script-only".to_string(), "1.0.0".to_string()), MetaPkg { has_build_script: true, build_deps: ["autocfg".to_string()].into(), rust_version: Some("1.60.0".into()) });
     let bad = violations(&tree, &meta);
     let text = bad.join("\n");
     assert!(text.contains("font-kit 0.14.0 is on the deny list"), "{text}");
     assert!(text.contains("sneaky-sys") && text.contains("compiles C"), "{text}");
     assert!(text.contains("gpl-thing") && text.contains("GPL-3.0-only"), "{text}");
-    assert!(text.contains("shiny") && text.contains("1.95"), "{text}");
+    assert!(text.contains("shiny") && text.contains(&newer), "{text}");
     assert!(!text.contains("fine 1.0.0") && !text.contains("script-only"), "a build script that only probes the compiler is not C: {text}");
     assert_eq!(bad.len(), 4, "{text}");
     // A clean tree passes.
