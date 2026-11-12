@@ -2,6 +2,10 @@
 
 
 
+## 2.0.439 — 2026-11-11
+
+**The desktop-against-Chrome comparison test lists the RadioButton's click order among its documented differences, so it passes again.** Since 2.0.426 a click on a radio button or a check box runs its `onClick` after the state events (`onCheckedChanged`, `onValueChanged`), so a handler sees the state the click wrote; the desktop raises `onClick` before them. The comparison already listed that difference for `CHK-A` and `SWT-A`, but not for `RAD-A`, so `the_reference_form_on_the_desktop_and_in_chrome` failed with `differences outside the documented ones` (left 1, right 0); it was red on the developer's machine, and run 50 of the build workflow showed it too. `RAD-A` is listed now, with that reason. The page's behaviour is unchanged; no other difference of the comparison moved.
+
 ## 2.0.438 — 2026-11-11
 
 **The golden of the web build's `config.json` lists the `loading_effect` setting, so the web golden test passes again.** The setting (`None` / `Moving stripes`, 2.0.318 and 2.0.414) writes `"loading_effect": "moving-stripes"` into the `config.json` of every web bundle. The golden of that file dates from 2.0.246 and never had the line, so `the_web_build_outputs_match_their_goldens` failed with `config.json (first difference at line 51)`. Run 50 of the build workflow showed it on Linux and macOS, and it failed the same way on the developer's machine. The golden was rewritten with `UPDATE_GOLDEN=1`; the only difference is that one line. The test's other nine artefacts still match.

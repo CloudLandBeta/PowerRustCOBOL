@@ -72,6 +72,7 @@ const DOCUMENTED: &[(&str, &str, &str)] = &[
     ("BTN-A", "events", FOCUS),
     ("TXT-A", "events", "a typed key: the desktop raises onChange/onTextChanged before onKeyDown, the page after onKeyPress (the browser's order)"),
     ("CHK-A", "events", "the desktop's list repeats TXT-A onLostFocus (headless render_form, no host); the mouse events now match"),    ("SWT-A", "events", "focus as BTN-A; the page raises onCheckedChanged before onClick, the desktop after"),
+    ("RAD-A", "events", "as SWT-A and CHK-A: since 2.0.426 the page runs onClick after the state events (onCheckedChanged, onValueChanged), so a handler sees the state the click wrote; the desktop raises onClick before them"),
     ("LST-A", "events", "focus as BTN-A; the page selects on the click, after onMouseUp, where the desktop selects on the press; each raises the selection change twice in the script (the click, then the Down arrow), so nothing is duplicated"),
     ("CMB-A", "events", "focus as BTN-A; the page raises a second onMouseUp after onClick (the <select> picker)"),
     ("NUD-A", "events", "focus as BTN-A; the desktop raises onKeyPress for the Down arrow, the page (a non-character key) does not"),
