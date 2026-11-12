@@ -278,20 +278,32 @@ pub const APPLICATION_RULES: [(&str, &str); 15] = [
          carries a meaning (the accent action, an on/off state) keeps its own colour. Every text the \
          operator reads contrasts strongly with what it sits on: on Spatial's dark glass that is white \
          text — set `ForegroundColor` `#FFFFFFFF` on every TextBox, ComboBox, ListBox and other \
-         data-entry control too, never their default black.",
+         data-entry control too, never their default black, and a light `foreground_color` on every \
+         column of a DataGrid's `AdvancedGrid` (its cells ignore the grid's `ForegroundColor`).",
     ),
     (
         "contrast",
         "High-contrast text — always, in EVERY theme (Spatial, Elegance, Liquid Glass, Neumorphic, any \
-         asset pack). Never leave a text colour to the theme or to a control's default: every control \
-         that shows text MUST carry an explicit ink that contrasts strongly with the surface it actually \
-         sits on — `ForegroundColor` on every Label, Button, CheckBox, RadioButton, GroupBox, TextBox, \
-         ComboBox, ListBox, NumericUpDown, DateTimePicker, TreeView, DataGrid and Snackbar, plus the \
-         control's other inks: `HeaderForegroundColor` and `FilterForegroundColor` on a DataGrid, \
-         `ActiveTabForegroundColor` and `InactiveTabForegroundColor` on a TabControl, `SelectedFgColor` \
-         and `HighlightFgColor` on a SideMenu or MenuBar. Light ink (`#FFFFFFFF`, `#F8FAFCFF`) on a dark \
-         surface, dark ink (`#0F172AFF`, `#000000FF`) on a light one; at least WCAG AA — 4.5:1 for body \
-         text, 3:1 for large text — and never grey on grey, dark on dark or light on light. Verify every \
+         asset pack). Never leave a text colour to the theme or to a control's default: in EVERY \
+         control, every text the operator reads — its caption, its label, its headers AND the values it \
+         shows (typed text, list items, grid cells, a date, a number) — MUST carry an explicit ink that \
+         contrasts strongly with the surface it actually sits on — `ForegroundColor` on every Label, \
+         Button, CheckBox, RadioButton, GroupBox, TextBox, ComboBox, ListBox, NumericUpDown, \
+         DateTimePicker, TreeView, DataGrid and Snackbar, plus the control's other inks: \
+         `HeaderForegroundColor` and `FilterForegroundColor` on a DataGrid, `ActiveTabForegroundColor` \
+         and `InactiveTabForegroundColor` on a TabControl, `SelectedFgColor` and `HighlightFgColor` on a \
+         SideMenu or MenuBar. Light ink (`#FFFFFFFF`, `#F8FAFCFF`) on a dark surface, dark ink \
+         (`#0F172AFF`, `#000000FF`) on a light one; at least WCAG AA — 4.5:1 for body text, 3:1 for \
+         large text — and never grey on grey, dark on dark or light on light. A DataGrid's cells are \
+         the trap: they do NOT take the grid's `ForegroundColor`. Each column draws its cells in its own \
+         `foreground_color`, inside the grid's `AdvancedGrid` property (the JSON \"Edit DataGrid \
+         settings…\" writes), and that is `#000000` unless set — on a grid with no `AdvancedGrid` too, \
+         whose columns are made from `Columns` with the same black. So a dark grid shows black rows on \
+         black until EVERY column's `foreground_color` is a light ink (`#F0F2F6`): write `AdvancedGrid` \
+         whole, every field of every column as a saved grid holds it (one missing field makes the JSON \
+         unreadable and every column black again), set `HeaderForegroundColor`, and give a value-style \
+         rule or a cell frame that sets its own `foreground_color` a light one too — it replaces the \
+         column's on the cells it styles. Verify every \
          screen with `render_form` AND with `run_form` once data is in it (grid rows, list items, values \
          in boxes, disabled controls, hint text): text the operator has to squint at is a defect, and the \
          screen is not done until it is fixed.",
@@ -745,8 +757,11 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("Lay it out and dress it by the steps of `powerrustcobol-layout-and-themes`: form \
                    coordinates in multiples of 8, no two controls overlapping or touching, \
                    nothing under 12 points, gaps from the scale 4, 8, 12, 16, 24, 32, 40, the \
-                   Spatial faces with one soft shadow from the south-east, one accent. Look at \
-                   it with `render_form` and fix what the picture shows before the next step."),
+                   Spatial faces with one soft shadow from the south-east, one accent, and every \
+                   caption, label and displayed value in an explicit high-contrast ink (the \
+                   contrast rule — a DataGrid's cells take each column's `foreground_color`, not \
+                   the grid's). Look at it with `render_form` and fix what the picture shows \
+                   before the next step."),
                 s("Call `validate` with the path: the file must load."),
                 s("Call `add_to_project` with the path. Never add it to the manifest yourself."),
                 s("Call `regenerate` with the path, then `check` with the path, and fix every error \
@@ -773,7 +788,11 @@ fn skills(version: &str) -> Vec<Skill> {
                    and never overlap or touch one."),
                 s("Write only the properties you need as `<Property name=\"…\">value</Property>`; a \
                    property left out takes its default. A control that shows text always sets \
-                   `FontSize` (14, never under 12) and an explicit `ForegroundColor`; a Button, \
+                   `FontSize` (14, never under 12) and an explicit high-contrast ink for its \
+                   caption and every value it shows — `ForegroundColor`, its other inks, and on a \
+                   DataGrid a light `foreground_color` on every column of `AdvancedGrid` plus \
+                   `HeaderForegroundColor`, since its cells ignore the grid's `ForegroundColor` \
+                   (the contrast rule); a Button, \
                    Panel or GroupBox that shows a face carries the Spatial face block, and a \
                    TextBox the input well, both as the example of `powerrustcobol-layout-and-themes` \
                    writes them. Copy the values of the controls of the same class already on the \
@@ -1119,7 +1138,12 @@ fn skills(version: &str) -> Vec<Skill> {
                    same dark ink. An input is a well — `BackgroundColor` `#12131CFF`, \
                    `BorderStyle` `Single`, `BorderColor` `#FFFFFF33`, ink `#FFFFFFFF`. Every ink \
                    still meets the contrast rule: 4.5:1 for body text, 3:1 from 18 points; \
-                   never grey on grey, and never an ink the theme picked. After a theme change, \
+                   never grey on grey, and never an ink the theme picked. That is every text of \
+                   every control — caption, label, header and every value it shows. A DataGrid's \
+                   cells do not take its `ForegroundColor`: each column's `foreground_color` in \
+                   `AdvancedGrid` inks them, black unless set, so on a dark grid give every \
+                   column a light one (`#F0F2F6`) and set `HeaderForegroundColor` — the contrast \
+                   rule says how. After a theme change, \
                    check every ink against its new surface. No second accent, no rainbow of \
                    button colours, no gradient but the Spatial face's own."),
                 s("Depth is one soft shadow from one light, and nothing else: no outline to \
@@ -1358,7 +1382,9 @@ fn reviewer() -> Reviewer {
                controls on screen together overlap or touch, every child is inside its parent, all \
                `x`, `y`, `w`, `h` are in form coordinates and multiples of 8; no text under 12 \
                points and `FontName` unset; gaps from the scale 4, 8, 12, 16, 24, 32, 40, equal for \
-               equal roles; one accent, ink that passes the contrast rule; every shadow \
+               equal roles; one accent, ink that passes the contrast rule on every caption, \
+               label and displayed value (a DataGrid's every column carries a `foreground_color` \
+               that reads on the grid); every shadow \
                `SouthEast`, black, `ShadowOpacity` 4 to 8, `ShadowDistance` 4 to 10, blurred, and \
                only on a Panel, GroupBox or Button; controls of one class share height, radius and \
                ink; none of the older-style tells (`Fixed3D`, `Raised` or `Sunken` borders, the \
