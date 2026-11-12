@@ -2,6 +2,10 @@
 
 
 
+## 2.0.438 — 2026-11-11
+
+**The golden of the web build's `config.json` lists the `loading_effect` setting, so the web golden test passes again.** The setting (`None` / `Moving stripes`, 2.0.318 and 2.0.414) writes `"loading_effect": "moving-stripes"` into the `config.json` of every web bundle. The golden of that file dates from 2.0.246 and never had the line, so `the_web_build_outputs_match_their_goldens` failed with `config.json (first difference at line 51)`. Run 50 of the build workflow showed it on Linux and macOS, and it failed the same way on the developer's machine. The golden was rewritten with `UPDATE_GOLDEN=1`; the only difference is that one line. The test's other nine artefacts still match.
+
 ## 2.0.437 — 2026-11-11
 
 **On Linux, the headless web view helper can take its picture, so `render_form` of a web form works there.** The helper (`prc-web-preview`) opens its window hidden. macOS and Windows draw a hidden window; WebKitGTK does not size its view until the window is mapped, so on Linux the view stayed 0 × 0 and the picture failed with `WebKitGTK: There was an error creating the snapshot`. Run 49 of the build workflow, the first to run the helper's tests on a Linux machine, failed `a_render_is_the_viewport_at_the_asked_pixel_ratio` with it, and run 50 did again. On Linux the helper now shows its window when it opens, at the off-screen position it already had (`ready` still says `visible: false`, the window's state when it opened). This is the cause the code points to, not one seen in a Linux debugger: the Linux build of the helper has not been run here, and the workflow has to be dispatched to prove it. The software-rendering variables 2.0.436 gave that step (`WEBKIT_DISABLE_COMPOSITING_MODE`, `WEBKIT_DISABLE_DMABUF_RENDERER`, `LIBGL_ALWAYS_SOFTWARE`) did not change the failure and are taken out again.

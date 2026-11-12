@@ -48,6 +48,7 @@
     },
     "image_origins": [],
     "link_schemes": [],
+    "loading_effect": "moving-stripes",
     "locale": "en",
     "recaptcha_site_key": "",
     "stack": false,
