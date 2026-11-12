@@ -742,7 +742,9 @@ fn render_form_and_run_form_draw_a_web_form_with_the_system_web_view_008() {
     let keys = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<String>>();
     let desktop_render: std::collections::BTreeSet<String> = ["form", "width", "height", "scale", "note", "project"].map(String::from).into();
     let mut expected = desktop_render.clone();
+    // The web answer also names the engine and the colour scheme it drew with (`color_scheme`, 2.0.369).
     expected.insert("engine".into());
+    expected.insert("color_scheme".into());
     assert_eq!(keys(&meta), expected, "{meta}");
     assert_eq!(meta["engine"], cobolt_project_tools::tools::web_form::ENGINE);
     assert!(!folder.join("dist/web").exists(), "the call built into a folder of its own, not dist/web");

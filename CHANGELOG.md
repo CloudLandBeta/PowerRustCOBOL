@@ -2,6 +2,10 @@
 
 
 
+## 2.0.442 — 2026-11-11
+
+**The test of `render_form` on a web form expects the answer it gives.** Since 2.0.369 the answer of a web form's `render_form` carries `color_scheme` (`light` or `dark`) next to `engine`; the test (`render_form_and_run_form_draw_a_web_form_with_the_system_web_view`) still expected only `engine` and failed with the two key lists printed side by side, on any machine where the system web view runs: it was hidden on those where it does not, and run 51 of the build workflow, the first to run it on Linux and macOS, showed it. The expected list now holds `color_scheme`. Test code only.
+
 ## 2.0.441 — 2026-11-11
 
 **The platform libraries the release workflow compiles now end up in the package, and the Windows build no longer stops on a path that is too long.** `prebuild_libs` (the "Compile the platform libraries" step) is given the SDK folder as `dist/<package>/sdk`, a relative path. It builds in a scratch folder under that SDK, and cargo reads a relative `CARGO_TARGET_DIR` from the folder it runs in, so the libraries were written to `_scratch/forms/dist/<package>/sdk/libs/<os>/<arch>/target`: a second copy of the path inside the scratch folder, which the step deletes when it is done. On Windows that path went past the 260 characters the linker takes (`LINK : fatal error LNK1104: cannot open file '…\_scratch\forms\dist\PowerRustCOBOL-2.0.440-windows-x86_64\sdk\libs\windows\x86_64\target\release\build\libm-…\build_script_build-….exe'`, 264 characters) and the step failed; on Linux the build passed, `libs/<os>/<arch>/target` stayed empty, and "Archive the platform libraries" stopped on `tar` refusing to make an empty archive. Run 51 of the build workflow showed both. `produce_libs` now makes the SDK folder absolute first, so the libraries are built into, and kept in, the folder the package ships. The IDE passes an absolute folder and was never affected.
