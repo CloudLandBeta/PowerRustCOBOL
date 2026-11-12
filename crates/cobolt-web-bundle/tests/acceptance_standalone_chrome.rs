@@ -54,16 +54,22 @@ fn serve_app(app: &App) -> Server {
     .unwrap()
 }
 
-/// The main page, open on the application, once the form has written its label.
-fn open_main(chrome: &Chrome, server: &Server, first_caption: &str) -> Page {
-    open_main_with(chrome, server, first_caption, None)
+/// The label's caption is one of `texts`.
+fn caption_in(texts: &[&str]) -> String {
+    format!("(() => {{ const r = document.getElementById('pr-app') && document.getElementById('pr-app').shadowRoot; const l = r && r.querySelector('[data-name=\"LBL-OUT\"]'); return !!l && {texts:?}.includes(l.textContent); }})()")
 }
 
-/// As [`open_main`], with a script that runs in the page before any of its own.
+/// The main page, open on the application, once the form has written its label.
+fn open_main(chrome: &Chrome, server: &Server, first_caption: &str) -> Page {
+    open_main_with(chrome, server, &[first_caption], None)
+}
+
+/// As [`open_main`], with a script that runs in the page before any of its own; the label may already have moved
+/// on to any of `first_captions` by the first look.
 fn open_main_with(
     chrome: &Chrome,
     server: &Server,
-    first_caption: &str,
+    first_captions: &[&str],
     before: Option<&str>,
 ) -> Page {
     let mut page = chrome.new_page().unwrap_or_else(|e| panic!("{e}"));
@@ -77,7 +83,7 @@ fn open_main_with(
     }
     page.navigate(&format!("{}/index.html", server.url()))
         .unwrap();
-    page.wait_for(&caption_is(first_caption), 40)
+    page.wait_for(&caption_in(first_captions), 40)
         .unwrap_or_else(|e| panic!("the application did not start: {e}"));
     page
 }
@@ -291,10 +297,12 @@ fn ac4_a_blocked_popup_releases_the_caller_shows_the_hint_and_raises_on_popup_bl
     // and with or without `--block-new-web-contents` (probed in Chrome 157). What a blocker does, as far as a page can
     // tell, is make `window.open` answer `null` (HTML, "the rules for choosing a navigable"); the page is given that
     // answer before any of its own scripts run. The blocker's own notice in the address bar is not seen here.
+    // The timer's first tick comes 400 ms after the form has loaded and moves the label on from `ready` to
+    // `released`: a machine busy enough to look later than that (run 52, Windows) finds the second.
     let mut main = open_main_with(
         &chrome,
         &server,
-        "ready",
+        &["ready", "released"],
         Some("window.open = function () { return null; };"),
     );
     let agent = main.eval("navigator.userAgent").unwrap();

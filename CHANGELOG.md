@@ -2,6 +2,10 @@
 
 
 
+## 2.0.451 — 2026-11-12
+
+**The test of a blocked popup takes the application for started when its label has already moved on from `ready`.** The application of that test writes `ready` when its form loads and, 400 ms later, its timer opens a form the browser refuses and writes `released`. The test waited for `ready` to call the application started; a machine that first looked more than 400 ms after the form loaded found `released` instead and waited its 40 s for a caption that had come and gone (`the application did not start: waited 40 s for …`, `ac4_a_blocked_popup_releases_the_caller_shows_the_hint_and_raises_on_popup_blocked`, on the Windows machine of run 52 of the build workflow; it passed there in run 51). The page opener of that test now accepts either caption; an application that writes neither still fails the same way, and the next step still waits for `released`, the hint and `onPopupBlocked`. Checked here by making the test look 900 ms late: it failed before the change with the runner's message and passes after it. Test code only.
+
 ## 2.0.450 — 2026-11-12
 
 **The test of a project's font tells the bundled face from the system's on a sample long enough to differ.** The test proves a Label is lettered in the font the project bundles, not in a fallback, by measuring text in each face. It measured the Label's own text, `loaded`, six letters, and asked the bundled face and the system's sans-serif to differ by more than half a pixel; on the Windows machine of run 52 of the build workflow (and of run 51) the two came out 61.20 px and 60.77 px, and the test failed (`not in the fallback`, `page_fonts_a_label_is_lettered_in_the_bundled_family`), though the bundled face was loaded and the Label's text was exactly as wide in it as in the stand-in. The check against the system's face now measures a 54-character sample (`The quick brown fox jumps over the lazy dog 0123456789`); the check that the Label's text is as wide as in the stand-in face is unchanged. On a Mac the sample is 512.6 px in the bundled face and 508.7 px in the system's; Windows has not been seen yet. The failure message now gives both widths. Test code only.
