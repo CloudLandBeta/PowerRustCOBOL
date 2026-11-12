@@ -389,6 +389,15 @@ fn crates_in_graph(build_dir: &Path, cache: &Path, offline: bool) -> Result<Vec<
     Ok(sdk_crates_in_tree_output(&String::from_utf8_lossy(&out.stdout)))
 }
 
+/// The platform crates a build cleans out of the cache: the stale ones this program uses, and nothing
+/// else. Cargo compiles each again and, because it changed, what depends on it; every other platform
+/// crate is reused. A full build adds nothing to this list: it discards the program's own staging
+/// folder, so only the program is compiled again from its sources (2.0.471). Until then a full build
+/// from `rcrun build --full` cleaned every platform crate in the graph, and one stale crate did too.
+pub(crate) fn stale_in_graph(stale: &[&'static str], graph: &[&'static str]) -> Vec<&'static str> {
+    stale.iter().copied().filter(|c| graph.contains(c)).collect()
+}
+
 /// Drop every compiled unit of `crates` from the cache, in both profiles,
 /// through `cargo clean -p` run in the program's own folder. `crates` must all
 /// be in that program's graph ([`sdk_crates_in_graph`]) or cargo refuses.
@@ -424,6 +433,25 @@ pub(crate) fn clean_platform(build_dir: &Path, cache: &Path, crates: &[&str]) ->
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    /// **2.0.471 — a build cleans only the platform crates whose sources changed.** One stale crate
+    /// in a program's graph is cleaned alone (cargo compiles what depends on it); a stale crate the
+    /// program does not use is left for a program that does; nothing stale, nothing cleaned — and
+    /// there is no "full" input: a full build recompiles only the program.
+    #[test]
+    fn only_the_stale_platform_crates_a_program_uses_are_cleaned() {
+        let graph = ["cobolt-ast", "cobolt-lexer", "cobolt-parser", "cobolt-runtime", "cobolt-graphics", "cobolt-form-host"];
+        let one = stale_in_graph(&["cobolt-graphics"], &graph);
+        let elsewhere = stale_in_graph(&["cobolt-mobile-shell"], &graph);
+        let none = stale_in_graph(&[], &graph);
+        println!(
+            "2.0.471 platform cleaning, {} crates in the graph: one stale -> cleaned {one:?}; stale elsewhere -> {elsewhere:?}; nothing stale -> {none:?}",
+            graph.len()
+        );
+        assert_eq!(one, vec!["cobolt-graphics"], "only the changed crate, never the whole graph");
+        assert!(elsewhere.is_empty(), "a crate this program does not use is not its business");
+        assert!(none.is_empty(), "an unchanged platform is reused");
+    }
 
     /// **2.0.467 — a machine's first build keeps the SDK's lock.** The sequence a new Windows install
     /// went through: the seeded lock, offline, a crate cache that holds none of the pinned versions. The

@@ -2,6 +2,18 @@
 
 
 
+## 2.0.471 — 2026-11-12
+
+**A full build compiles your program again, and PowerRustCOBOL's own parts only where their sources changed.** A full build (`rcrun build --full`, `--clean`) ran `cargo clean` on every PowerRustCOBOL part the program uses before compiling, whether or not any had changed. Measured on this machine (Apple M3 Pro, release, warm shared cache, nothing changed since the previous build): PowerCobolCraft's `rcrun build --full` took 112 s and compiled 19 parts again (cobolt-ast, -decimal, -docs, -form-host, -format, -forms, -graphics, -graphics-wire, -indexed, -kb, -lexer, -mcp, -media, -numedit, -os-blur, -parser, -runtime, -semantic, -wire). An ordinary build of the same project took 0.66 s. And one stale part (its sources differ from what the cache compiled while its files look older, as after a PowerRustCOBOL copy put back from an older one) cleaned the same whole list.
+
+Each part's real need is already known before a build: the shared cache keeps a fingerprint (a hash of its sources) of every part as compiled, and `check_platform` compares it with the part as installed. Now:
+
+- A full build discards the program's own staging folder, so the program is compiled again from its sources, and cleans no PowerRustCOBOL part. An unchanged part is reused from the shared cache, full build or not. The Output panel says so (*Full build: PowerRustCOBOL's own parts are compiled again only where their sources changed*).
+- A stale part is cleaned alone. Cargo compiles it and what depends on it, and every other part is reused. The rule is one function, `build_cache::stale_in_graph`.
+- The IDE's full build already kept unchanged parts (it repairs the shipped libraries instead of purging); its 19:40 build of PowerCobolCraft compiled `cobolt-graphics`, `cobolt-runtime` and `cobolt-form-host` because 2.0.470 had changed them. What changes there is its text: the stale-build prompt (`stale_build_body`, all six languages) no longer says a full build recompiles PowerRustCOBOL's own parts.
+
+Covered by `only_the_stale_platform_crates_a_program_uses_are_cleaned` and by `a_stale_platform_crate_is_compiled_again_alone` (renamed from `a_stale_platform_crate_forces_a_full_build`), run on a staged SDK (91 s): cold 240 crates; unchanged 0; a stale `cobolt-lexer` 9 (the lexer, the seven parts that depend on it and the program, with `cobolt-decimal` reused, where it used to be the whole graph); an explicit full build with nothing changed 1, the program alone (it used to be every part). `rcrun build --full` on the shared cache of this machine was not measured after the change. The Developer's Guide ("Full builds and the recorded version", the `rcrun build --full` note) and `rcrun`'s help say what a full build compiles.
+
 ## 2.0.470 — 2026-11-12
 
 **A form whose Canvas3D draws in `onLoad` starts instead of closing at once; a 3D picture that cannot be shown is skipped, never fatal.** The PowerCobolCraft example's title form closed as soon as it started (`rcrun run-form` from the IDE, macOS 27.2.1 on Apple silicon): wgpu panicked with *Cannot get non-existent resource TextureViewId(15,1)* inside winit's `app_did_finish_launching`, a callback that cannot unwind, so the process aborted (`EXC_CRASH (SIGABRT)`, *abort() called*). The cause, in the source:

@@ -16529,9 +16529,11 @@ today does not have, so they stop with "manifest not found": name the file.
 > **Note.** Reach for `rcrun build --full` when a build behaves oddly after a
 > PowerRustCOBOL upgrade. The generated sources are rewritten on every build,
 > but cargo's own artefacts survive, so an incremental build can link objects
-> produced by an older version. A full build compiles PowerRustCOBOL's own parts
-> and your program again; the libraries from other vendors stay in the shared
-> cache (see [Where your builds are kept](#where-your-builds-are-kept-settings--build-folder)).
+> produced by an older version. A full build compiles your program again from
+> its sources. PowerRustCOBOL's own parts are compiled again only where their
+> sources changed since the shared cache compiled them; the unchanged ones, and the
+> libraries from other vendors, are reused from the shared cache (see
+> [Where your builds are kept](#where-your-builds-are-kept-settings--build-folder)).
 
 **Environment variables** — the same settings, handy in CI:
 
@@ -16889,22 +16891,24 @@ flowchart TD
 A project records the PowerRustCOBOL version that last **fully** built it. When
 you open a project that was last fully built by an **older** PowerRustCOBOL — or
 that has never been fully built at all — the **Build** button performs a **full**
-build: the program's working folder is discarded first, and PowerRustCOBOL's own
-parts and your program are compiled again from source, so nothing produced by the
-older version can survive into the new executable. The libraries from other
-vendors are not compiled again — they stay in the shared cache, because nothing
-about PowerRustCOBOL can have changed them. It takes longer than an ordinary
-build, and the Output panel says why it is doing so.
+build: the program's working folder is discarded first and your program is
+compiled again from its sources, so nothing produced by the older version can
+survive into the new executable. PowerRustCOBOL's own parts are compiled again
+only where the upgrade changed their sources, together with the parts that depend
+on them; every part the upgrade left unchanged is reused from the shared cache, and
+so are the libraries from other vendors. It takes longer than an ordinary build
+only by what really has to be compiled, and the Output panel says why it is doing
+so.
 
 Once that build succeeds the version is recorded, and later Build clicks are
 ordinary incremental builds again — the long build happens **once per upgrade**,
 not once per click. Pressing **Run** on a project that still needs one offers you
 the same full build before it starts anything.
 
-A Build can also turn itself into a full one. Before every Build, PowerRustCOBOL
-compares each of its own parts, as installed, with the copy last compiled in the
-shared cache. If one differs while its files do not look newer than the cache's
-record, the Build becomes a full one and the Output panel names the part. That
+Every Build, full or not, also checks PowerRustCOBOL's own parts. It compares each
+part, as installed, with the copy last compiled in the shared cache. If one differs
+while its files do not look newer than the cache's record, that part is compiled
+again, with the parts that depend on it, and the Output panel names it. That
 happens when PowerRustCOBOL was put back from an older copy: its files carry older
 dates, which would fool the compiler into reusing code compiled from a different
 source. You do nothing; it happens once per such change.
@@ -16912,13 +16916,20 @@ source. You do nothing; it happens once per such change.
 From the command line:
 
 ```text
-rcrun build --full  [<name>.project.toml]   # recompile our parts and the program from source, then build
+rcrun build --full  [<name>.project.toml]   # recompile the program from source; our parts only where they changed
 rcrun build --clean [<name>.project.toml]   # same thing, spelled the other way
 ```
 
 > ⚠️ **Caveat.** Only a full build updates the recorded version, and that is
 > deliberate: an ordinary incremental build cannot promise that nothing compiled
 > by the earlier version is still linked into the result.
+
+> **Note.** How PowerRustCOBOL knows a part changed: the shared cache keeps a
+> fingerprint of the sources each part was compiled from, and every Build compares
+> it with the part as installed. A part whose fingerprint matches is reused, even
+> by a full build. Before 2.0.471, `rcrun build --full` compiled every part again
+> (19 parts for a form application with graphics, almost two minutes on an
+> Apple M3 Pro) even when none had changed.
 
 > **Note.** Forms are loaded **lazily** inside the binary: a 20-form application
 > starts instantly even if the user only ever opens one form.

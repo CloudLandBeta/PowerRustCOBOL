@@ -1859,8 +1859,11 @@ pub struct BuildOptions {
     /// on that operating system. The option exists so that request can be
     /// *refused clearly* rather than silently producing a host binary.
     pub target: Option<String>,
-    /// Discard the program's staging directory first, and compile the platform
-    /// crates and the program again from their sources.
+    /// Discard the program's staging directory first, and compile the program
+    /// again from its sources. A platform crate is compiled again only when its
+    /// sources really changed (its content hash differs from what the cache
+    /// compiled, `build_cache::check_platform`), with what depends on it; an
+    /// unchanged one is reused, full build or not (2.0.471).
     ///
     /// The scaffold in the temp build directory (`Cargo.toml`, `main.rs`,
     /// `exec_rust_blocks.rs`) is regenerated every build, but `cargo`'s own
@@ -1873,8 +1876,8 @@ pub struct BuildOptions {
     ///
     /// Third-party crates are not recompiled: they live in the cache every
     /// program shares (spec 101), nothing about PowerRustCOBOL can have changed
-    /// them, and recompiling ~500 of them is what made this slow. A build also
-    /// becomes a full one by itself when a platform crate in that cache is stale
+    /// them, and recompiling ~500 of them is what made this slow. A platform
+    /// crate that is stale in that cache is cleaned by any build, full or not
     /// (see `BuildResult::forced_full`).
     pub full: bool,
     /// The folder builds are staged in (`<build_dir>/cobolt-build-<name>`), overriding the
@@ -1947,8 +1950,8 @@ pub struct BuildResult {
     /// program shares (`<build folder>/shared-target`), or — when that could not
     /// be used — `<build_dir>/target`, as before (spec 101).
     pub target_dir: PathBuf,
-    /// The platform crates that were stale in the cache and so made this build a
-    /// full one (spec 101 R15). Empty in the ordinary case.
+    /// The platform crates that were stale in the cache and so were compiled again
+    /// (spec 101 R15), with what depends on them. Empty in the ordinary case.
     pub forced_full: Vec<String>,
 }
 
@@ -2949,27 +2952,30 @@ fn build_core(
         seeded = true;
         log("🔒 Starting this program's Cargo.lock from the SDK's, so every program uses the same crate versions");
     }
-    // Spec 101 R15 — a platform crate that is stale in the cache, or an
-    // explicit full build, cleans the platform crates THIS program uses out of
-    // the cache. Third-party crates stay: nothing about PowerRustCOBOL can
-    // have changed them.
+    // Spec 101 R15 — a platform crate that is stale in the cache (its sources
+    // differ from what was compiled, though its files do not look newer, so cargo
+    // would reuse it) is cleaned out of the cache, and only that crate: cargo then
+    // compiles it and what depends on it. A full build cleans nothing more — an
+    // unchanged platform crate is reused (2.0.471; until then a full build from
+    // `rcrun build --full` cleaned every platform crate the program uses, and one
+    // stale crate cleaned them all). Third-party crates stay: nothing about
+    // PowerRustCOBOL can have changed them.
     let mut forced_full: Vec<String> = Vec::new();
     if let Some(cache) = shared.clone() {
         // The IDE names its version, and then a full build REPAIRS the shared libraries
         // the release shipped — what is missing or changed comes back from the release
-        // on GitHub — instead of purging and recompiling the platform for every
-        // project's first build. The platform crates come from the SDK's own sources:
-        // a changed one is caught by its marker (`check_platform`), never by a purge.
-        // Without a named version (`rcrun build --full`) a full build purges as before.
-        let repair_mode = warmup::current_version();
-        if let (true, Some(version)) = (opts.full, repair_mode) {
+        // on GitHub. The platform crates come from the SDK's own sources: a changed one
+        // is caught by its marker (`check_platform`), never by a purge.
+        if let (true, Some(version)) = (opts.full, warmup::current_version()) {
             log("🔧 Full build: checking the shared libraries");
             if let Err(why) = warmup::repair_libs(&workspace_root, version, &mut |l| log(l)) {
                 log(&format!("⚠️  Could not repair the shared libraries from GitHub ({why}) — compiling what is missing here"));
             }
         }
-        let full_clean = opts.full && repair_mode.is_none();
-        if full_clean || !platform_check.stale.is_empty() {
+        if opts.full {
+            log("♻️  Full build: PowerRustCOBOL's own parts are compiled again only where their sources changed");
+        }
+        if !platform_check.stale.is_empty() {
             let mut graph = build_cache::sdk_crates_in_graph(&build_dir, &cache);
             // Offline, a machine whose crate cache has not yet downloaded what the
             // SDK's lock pins cannot list the graph. That is no reason to drop the
@@ -2986,37 +2992,27 @@ fn build_core(
                 graph = build_cache::sdk_crates_in_graph(&build_dir, &cache);
             }
             let outcome = graph.and_then(|graph| {
-                let stale_here: Vec<&str> = platform_check
-                    .stale
-                    .iter()
-                    .copied()
-                    .filter(|c| graph.contains(c))
-                    .collect();
-                if !full_clean && stale_here.is_empty() {
+                let stale_here = build_cache::stale_in_graph(&platform_check.stale, &graph);
+                if stale_here.is_empty() {
                     // Stale elsewhere (a crate this program does not use): not
                     // this build's business; a program that uses it will find it.
                     return Ok(());
                 }
-                if !stale_here.is_empty() {
-                    log(&format!(
-                        "🧹 Stale platform crate(s) in the compiled-crate cache: {}. Their sources differ \
-                         from what was compiled, but their files do not look newer, so cargo would \
-                         not notice — making this a full build",
-                        stale_here.join(", ")
-                    ));
-                    forced_full = stale_here.iter().map(|c| c.to_string()).collect();
-                }
-                build_cache::clean_platform(&build_dir, &cache, &graph)?;
+                log(&format!(
+                    "🧹 Stale platform crate(s) in the compiled-crate cache: {}. Their sources differ \
+                     from what was compiled, but their files do not look newer, so cargo would \
+                     not notice — compiling them again, with what depends on them",
+                    stale_here.join(", ")
+                ));
+                forced_full = stale_here.iter().map(|c| c.to_string()).collect();
+                build_cache::clean_platform(&build_dir, &cache, &stale_here)?;
                 for (name, hash) in &platform_check.hashes {
-                    if graph.contains(name) {
+                    if stale_here.contains(name) {
                         build_cache::write_marker(&cache, name, hash)
                             .map_err(|e| format!("cannot record {name}: {e}"))?;
                     }
                 }
-                log(&format!(
-                    "   {} platform crate(s) will be compiled again; third-party crates stay cached",
-                    graph.len()
-                ));
+                log("   the other platform crates and the third-party crates stay cached");
                 Ok(())
             });
             if let Err(why) = outcome {
@@ -14734,15 +14730,17 @@ generated = ["generated/inner-form1.cbl"]
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// **AC3, AC5, AC14, R15 — a stale platform crate forces a full build.**
+    /// **AC3, AC5, AC14, R15 — a stale platform crate is compiled again, and only it.**
     ///
     /// A platform crate edited so cargo sees a NEWER file is rebuilt by cargo
-    /// alone (with what depends on it), never as a forced full build. The same
-    /// edit with a file time OLDER than the cache's record is what cargo would
-    /// believe fresh: the build is made a full one, names the crate, and
-    /// compiles the platform crates and the program but no third-party crate.
+    /// alone (with what depends on it). The same edit with a file time OLDER than
+    /// the cache's record is what cargo would believe fresh: the build names the
+    /// crate and cleans it alone, so it and what depends on it are compiled, a
+    /// platform crate that does not depend on it is reused, and no third-party
+    /// crate is compiled. An explicit full build with nothing changed compiles the
+    /// program and nothing else (2.0.471; it used to compile every platform crate).
     #[test]
-    fn a_stale_platform_crate_forces_a_full_build() {
+    fn a_stale_platform_crate_is_compiled_again_alone() {
         let _heavy = heavy_build_guard();
         let _state = BuildRootState::clean();
         let dir = temp_dir("cache-stale");
@@ -14771,9 +14769,14 @@ generated = ["generated/inner-form1.cbl"]
         let stale = cached_build(&dir, name, "v1", &root, &sdk, false);
         assert_eq!(stale.result.forced_full, vec!["cobolt-lexer".to_owned()], "the stale crate was not found");
         assert!(stale.log.iter().any(|l| l.contains("Stale platform crate")), "the log did not say why: {:?}", stale.log);
-        for must in ["cobolt-ast", "cobolt-lexer", "cobolt-runtime", name] {
+        for must in ["cobolt-lexer", "cobolt-ast", "cobolt-runtime", name] {
             assert!(stale.compiled.iter().any(|c| c == must), "{must} was not compiled again: {:?}", stale.compiled);
         }
+        assert!(
+            !stale.compiled.iter().any(|c| c == "cobolt-decimal"),
+            "cobolt-decimal does not depend on the stale crate and was compiled anyway: {:?}",
+            stale.compiled
+        );
         assert!(only_ours(&stale), "a third-party crate was compiled: {:?}", stale.compiled);
         assert!(run_binary(&dir.join("bin").join(installed_binary_name(name, true))).contains("v1"));
 
@@ -14782,11 +14785,10 @@ generated = ["generated/inner-form1.cbl"]
         assert_eq!(settled.result.crates_compiled, 0);
         assert!(settled.result.forced_full.is_empty());
 
-        // An explicit full build: ours again, third-party kept, not "forced".
+        // An explicit full build with nothing changed: the program alone.
         let full = cached_build(&dir, name, "v1", &root, &sdk, true);
         assert!(full.result.forced_full.is_empty());
-        assert!(full.compiled.iter().any(|c| c == "cobolt-runtime"), "{:?}", full.compiled);
-        assert!(only_ours(&full), "a third-party crate was compiled by a full build: {:?}", full.compiled);
+        assert_eq!(full.compiled, vec![name.to_owned()], "a full build compiled more than the program: {:?}", full.compiled);
 
         // The cache is disposable: delete it and the next build is a cold one.
         fs::remove_dir_all(root.join("shared-target")).unwrap();
