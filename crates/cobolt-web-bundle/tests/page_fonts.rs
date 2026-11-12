@@ -7,8 +7,8 @@
 //! **A project's font in a real browser** (WASM-004 T24, Q5). The fixture's output Label names `Brand Sans`, a family the
 //! project supplies as `Assets/BrandSans.ttf` (the stand-in face's bytes under another name, so that its width is known):
 //! headless Chrome reports the Label's computed `font-family` with that family first, the page's face of that family
-//! loaded, and the Label's text exactly as wide as the same text in the stand-in face — and not as wide as in the
-//! system's sans-serif, which is what a fallback would letter it in.
+//! loaded, and the Label's text exactly as wide as the same text in the stand-in face — and a longer sample in that
+//! family not as wide as in the system's sans-serif, which is what a fallback would letter it in.
 //!
 //! With no Chrome on the machine (`CHROME` names one) the test says it was skipped, and why.
 
@@ -56,20 +56,26 @@ fn page_fonts_a_label_is_lettered_in_the_bundled_family() {
               const l = root.querySelector('[data-name=\"{LBL_OUT}\"]');
               const cs = getComputedStyle(l);
               const faces = [...document.fonts].map(f => [f.family.replace(/\"/g, ''), f.status]);
-              const width = family => {{ const s = document.createElement('span'); s.style.font = cs.fontSize + ' ' + family; s.style.position = 'absolute'; s.style.whiteSpace = 'pre'; s.textContent = l.textContent; root.appendChild(s); const w = s.getBoundingClientRect().width; s.remove(); return w; }};
+              const width = (family, text) => {{ const s = document.createElement('span'); s.style.font = cs.fontSize + ' ' + family; s.style.position = 'absolute'; s.style.whiteSpace = 'pre'; s.textContent = text; root.appendChild(s); const w = s.getBoundingClientRect().width; s.remove(); return w; }};
+              // Six letters can come out within half a pixel in two different faces (`loaded` in Ubuntu Light and in
+              // Windows' Segoe UI: 61.20 and 60.77 px): the fallback is told apart on a longer sample.
+              const sample = 'The quick brown fox jumps over the lazy dog 0123456789';
               return {{ family: cs.fontFamily, size: cs.fontSize, faces,
-                        brand: width('\"Brand Sans\"'), stand_in: width('\"PR Ubuntu Light\"'), system: width('system-ui, sans-serif') }};
+                        brand: width('\"Brand Sans\"', l.textContent), stand_in: width('\"PR Ubuntu Light\"', l.textContent),
+                        brand_sample: width('\"Brand Sans\"', sample), system_sample: width('system-ui, sans-serif', sample) }};
             }})()"
         ))
         .unwrap();
     println!("Chrome ({}): Label {LBL_OUT} font-family {} at {}", exe.display(), r["family"], r["size"]);
     println!("  page faces {}", r["faces"]);
-    println!("  text width: Brand Sans {} px, stand-in {} px, system sans-serif {} px", r["brand"], r["stand_in"], r["system"]);
+    println!("  text width: Brand Sans {} px, stand-in {} px", r["brand"], r["stand_in"]);
+    println!("  sample width: Brand Sans {} px, system sans-serif {} px", r["brand_sample"], r["system_sample"]);
     assert!(r["family"].as_str().unwrap().starts_with("\"Brand Sans\""), "the form's family first: {}", r["family"]);
     let faces = r["faces"].as_array().unwrap();
     assert!(faces.iter().any(|f| f[0] == "Brand Sans" && f[1] == "loaded"), "the bundled face was loaded: {faces:?}");
-    let (brand, stand_in, system) = (r["brand"].as_f64().unwrap(), r["stand_in"].as_f64().unwrap(), r["system"].as_f64().unwrap());
+    let (brand, stand_in) = (r["brand"].as_f64().unwrap(), r["stand_in"].as_f64().unwrap());
+    let (brand_sample, system_sample) = (r["brand_sample"].as_f64().unwrap(), r["system_sample"].as_f64().unwrap());
     assert!((brand - stand_in).abs() < 0.01, "lettered in the bundled file's face");
-    assert!((brand - system).abs() > 0.5, "not in the fallback");
+    assert!((brand_sample - system_sample).abs() > 0.5, "not in the fallback: the sample is {brand_sample} px in Brand Sans and {system_sample} px in the system's sans-serif");
     drop(server);
 }
