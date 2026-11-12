@@ -14,12 +14,13 @@
 //!    cache a release build produced ([`produce_libs`]). The first time it is
 //!    needed the folder is copied into the cache — when the compiler that made
 //!    it is the compiler installed here, since another `rustc` cannot read it.
-//! 2. **Warm-up.** Two stand-in programs (a form application, and one that also
-//!    reaches SQL) are built against the SDK, which compiles whatever the
-//!    shipped libraries did not cover — the platform crates, whose cargo
-//!    identity includes the folder the SDK is installed in.
+//! 2. **Warm-up.** Three stand-in programs (a form application, one that also
+//!    reaches SQL, and one that draws on a Canvas) are built against the SDK,
+//!    which compiles whatever the shipped libraries did not cover — the
+//!    platform crates, whose cargo identity includes the folder the SDK is
+//!    installed in.
 //!
-//! `warm/<version>` in the cache records that both are done, so the next start
+//! `warm/<version>` in the cache records that all three are done, so the next start
 //! of the same version does nothing.
 
 use std::path::{Path, PathBuf};
@@ -63,12 +64,23 @@ pub(crate) fn mark_current_warm(cache: &Path) {
     }
 }
 
-/// The two stand-in programs: what a form application links without a
-/// database, and with one. Every other program differs from these only in
-/// `audio` or the semantic model, which are compiled on demand.
-fn variants() -> [(&'static str, RuntimeFeatures); 2] {
+/// The three stand-in programs: what a form application links without a
+/// database, with one, and with a graphics control (Canvas2D, Canvas3D,
+/// ImageBuffer, Plot, Scene3D, Physics2D, Physics3D). The graphics stand-in
+/// (2.0.468) carries `cobolt-graphics` and the hundred-odd libraries under it
+/// (wgpu, naga, rapier, parry, nalgebra, the text shaper); without it the first
+/// Build of a program that draws compiled all of them, the slowest part of the
+/// platform, while every other first Build took seconds. Every other program
+/// differs from these only in `audio`, the semantic model, or SQL and graphics
+/// together, whose own platform crates are compiled on demand over libraries
+/// these already compiled.
+fn variants() -> [(&'static str, RuntimeFeatures); 3] {
     let forms = RuntimeFeatures::default().shared_platform(true);
-    [("forms", forms), ("forms-sql", RuntimeFeatures { sql: true, ..forms })]
+    [
+        ("forms", forms),
+        ("forms-sql", RuntimeFeatures { sql: true, ..forms }),
+        ("forms-graphics", RuntimeFeatures { graphics: true, ..forms }),
+    ]
 }
 
 /// `libs/<os>/<arch>` under the SDK: `macos`, `linux`, `windows`, `android` or
@@ -501,13 +513,27 @@ mod tests {
     }
 
     #[test]
-    fn the_two_stand_ins_share_everything_but_sql() {
-        let [(a, plain), (b, sql)] = variants();
-        assert_eq!((a, b), ("forms", "forms-sql"));
+    fn the_stand_ins_share_everything_but_sql_or_graphics() {
+        let [(a, plain), (b, sql), (c, graphics)] = variants();
+        assert_eq!((a, b, c), ("forms", "forms-sql", "forms-graphics"));
         assert!(!plain.sql && sql.sql);
         assert!(plain.aws && plain.maps && plain.pdf && plain.office && plain.http && plain.images);
-        assert!(!plain.audio && !plain.kb_semantic);
+        assert!(!plain.audio && !plain.kb_semantic && !plain.graphics);
         assert_eq!(RuntimeFeatures { sql: false, ..sql }, plain);
+        // 2.0.468 — a Canvas program's first Build finds the graphics libraries compiled.
+        assert!(graphics.graphics && !graphics.sql);
+        assert_eq!(RuntimeFeatures { graphics: false, ..graphics }, plain);
+    }
+
+    /// 2.0.468 — the stand-in is what a form with a Canvas actually links: the build's own
+    /// reading of such a form turns `graphics` on, and the shared feature set keeps it.
+    #[test]
+    fn a_canvas_form_links_what_the_graphics_stand_in_compiled() {
+        let mut form = cobolt_forms::Form::new("F", "F", 800, 600);
+        form.controls = vec![cobolt_forms::Control::new("CNV-1", cobolt_forms::ControlType::from_str("Canvas2D"), 0, 0)];
+        let needs = crate::runtime_features::scan_forms([&form]).shared_platform(true);
+        let [_, _, (_, graphics)] = variants();
+        assert_eq!(needs, graphics);
     }
 
     #[test]

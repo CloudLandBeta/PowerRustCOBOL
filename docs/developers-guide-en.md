@@ -16826,8 +16826,11 @@ The other vendors' libraries are not left for your first Build to compile. Each
 release compiles them once, on its build machines, and the installation carries
 the result in the Platform SDK, under `sdk/libs/<system>/<processor>` (on macOS,
 inside the application bundle). The first time the IDE starts it copies them into
-the shared cache, and from then on a Build of a small application compiles only
-PowerRustCOBOL's own parts and your program.
+the shared cache and, in the background, compiles PowerRustCOBOL's own parts
+three ways: for a form application, for one that reaches a database, and for one
+that draws (a Canvas2D, Canvas3D, ImageBuffer, Plot, Scene3D, Physics2D or
+Physics3D). From then on a Build of a small application compiles only your
+program.
 
 Two things decide whether that copy can be used:
 
