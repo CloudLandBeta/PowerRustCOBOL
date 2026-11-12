@@ -793,7 +793,9 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, effect: Loadi
         let dir = run.dir.to_path_buf();
         run.scenario("preview: a new stylesheet, description and module are each taken in place, the page and the player stay (R16, AC11)", |p, _| {
             write_preview_edits(&dir);
-            p.eval("(async () => { window.__noReload = 1; const a = await __pr.handle(); a.player.__same = 1; return true; })()")?;
+            // The application restarts in the same player: it does not end, so the page must not try to close its window
+            // (WebKitGTK closes it, and its web process with it). The call is counted here, whatever the browser does.
+            p.eval("(async () => { window.__noReload = 1; window.__closed = 0; window.close = () => { window.__closed++; }; const a = await __pr.handle(); a.player.__same = 1; return true; })()")?;
             let step = |p: &mut Page, edit: &str| p.eval(&format!("(async () => {{ const a = await __pr.handle(); const next = JSON.parse(JSON.stringify(a.config)); {edit}; return a.update(next); }})()"));
             // The stylesheet: a computed style changes.
             let r1 = step(p, "next.stylesheet = { url: 'preview/stylesheet.v2.css', integrity: '' }")?;
@@ -818,11 +820,14 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, effect: Loadi
             wait_text(p, main, LBL_OUT, "loaded v2")?;
             click(p, main, "BTN-GO")?;
             wait_text(p, main, LBL_OUT, GREETING)?;
-            let kept = p.eval("(async () => { const a = await __pr.handle(); return { page: window.__noReload === 1, player: a.player.__same === 1, navigations: performance.getEntriesByType('navigation').length, forms: __pr.root().querySelectorAll('[data-pr-form]').length, instances: JSON.parse(a.player.stats()).instances }; })()")?;
+            let kept = p.eval("(async () => { const a = await __pr.handle(); return { page: window.__noReload === 1, player: a.player.__same === 1, navigations: performance.getEntriesByType('navigation').length, forms: __pr.root().querySelectorAll('[data-pr-form]').length, instances: JSON.parse(a.player.stats()).instances, closed: window.__closed }; })()")?;
             if kept["page"] != true || kept["player"] != true || kept["navigations"] != 1 || kept["forms"] != 1 || kept["instances"] != 1 {
                 return Err(format!("not in place: {kept}"));
             }
-            Ok(format!("update answered {r1}, {r2}, {r3}; letter-spacing 3px; {form_sheet}; BTN-GO at x 300, \"loaded v2\"; same page and player, one form on the page"))
+            if kept["closed"] != 0 {
+                return Err(format!("the update asked the browser to close the window {} time(s): the application was taken for ended while it restarted", kept["closed"]));
+            }
+            Ok(format!("update answered {r1}, {r2}, {r3}; letter-spacing 3px; {form_sheet}; BTN-GO at x 300, \"loaded v2\"; same page and player, one form on the page; window.close never called"))
         });
     }
 

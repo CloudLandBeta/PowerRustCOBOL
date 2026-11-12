@@ -538,6 +538,8 @@ pub(crate) struct Inner {
     pub(crate) display_log: RefCell<Vec<String>>,
     pub(crate) errors: RefCell<Vec<crate::host::RunError>>,
     dead: Cell<bool>,
+    /// `reset` is taking one program out and the next in: the forms it closes do not end the application.
+    pub(crate) restarting: Cell<bool>,
     weak: RefCell<std::rc::Weak<Inner>>,
     /// The session's token epoch the connection was last given (see `Host::auth_epoch`).
     auth_epoch_seen: Cell<u64>,
@@ -1495,6 +1497,7 @@ impl Player {
             display_log: RefCell::new(Vec::new()),
             errors: RefCell::new(Vec::new()),
             dead: Cell::new(false),
+            restarting: Cell::new(false),
             weak: RefCell::new(std::rc::Weak::new()),
             auth_epoch_seen: Cell::new(0),
             auth_timer: RefCell::new(None),
@@ -1868,6 +1871,7 @@ impl Player {
             wait_until(IN_FLIGHT_WAIT_MS, || !inner.driving.get()).await;
             // Nothing the old program asked for may reach the new one.
             inner.driving.set(true);
+            inner.restarting.set(true);
             let calls = inner.host.borrow_mut().teardown();
             inner.inbox.borrow_mut().clear();
             inner.timers.borrow_mut().clear();
@@ -1883,6 +1887,7 @@ impl Player {
             install_gfx_sync(&inner);
             *inner.link.borrow_mut() = None;
             inner.inbox.borrow_mut().clear();
+            inner.restarting.set(false);
             inner.driving.set(false);
             let closed = calls.iter().filter(|c| matches!(c, ModuleCall::CloseForm { .. })).count();
             Ok(JsValue::from_str(&serde_json::json!({"closed": closed}).to_string()))
