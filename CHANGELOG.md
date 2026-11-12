@@ -2,6 +2,12 @@
 
 
 
+## 2.0.472 — 2026-11-12
+
+**The build-cache tests run on Linux, Windows and macOS in the all-platforms workflow.** The rules 2.0.471 changed (a full build compiles the program again and a PowerRustCOBOL part only when its sources changed; a stale part is cleaned alone) were run on macOS and, in a Docker container, on Linux; on Windows they were only compile-checked. `build-all-platforms.yml` now has a `build-cache-tests` job on `ubuntu-22.04`, `windows-latest` and `macos-latest`. It runs the `build_cache::` and `warmup::` unit tests and `a_stale_platform_crate_is_compiled_again_alone`, which stages an SDK and builds a program with that runner's own cargo, paths and file times. The job fails unless that test prints its result line (`SPEC101 AC3/AC5/AC14`). It uses the pinned Rust (`RELEASE_RUST`), builds without debug info, and prints the disk left at the end. Like the web tests, `release` does not wait for it.
+
+Caveat: the workflow runs only when someone starts it (`workflow_dispatch`), so the job has not run yet on GitHub's runners.
+
 ## 2.0.471 — 2026-11-12
 
 **A full build compiles your program again, and PowerRustCOBOL's own parts only where their sources changed.** A full build (`rcrun build --full`, `--clean`) ran `cargo clean` on every PowerRustCOBOL part the program uses before compiling, whether or not any had changed. Measured on this machine (Apple M3 Pro, release, warm shared cache, nothing changed since the previous build): PowerCobolCraft's `rcrun build --full` took 112 s and compiled 19 parts again (cobolt-ast, -decimal, -docs, -form-host, -format, -forms, -graphics, -graphics-wire, -indexed, -kb, -lexer, -mcp, -media, -numedit, -os-blur, -parser, -runtime, -semantic, -wire). An ordinary build of the same project took 0.66 s. And one stale part (its sources differ from what the cache compiled while its files look older, as after a PowerRustCOBOL copy put back from an older one) cleaned the same whole list.
