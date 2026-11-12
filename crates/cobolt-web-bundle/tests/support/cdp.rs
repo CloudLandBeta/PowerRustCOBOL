@@ -117,6 +117,10 @@ impl Chrome {
         let mut page = Page { ws, next: 1, console: Vec::new(), exceptions: Vec::new(), browser_log: Vec::new(), dialogs: Vec::new(), dialog_accept: None };
         page.call("Runtime.enable", json!({}))?;
         page.call("Page.enable", json!({}))?;
+        // The player plays no animation under `prefers-reduced-motion: reduce`, the operating system's own setting, and
+        // the build workflow's macOS and Windows machines have it on: every test that looks at a running animation failed
+        // there. A page is given the preference the tests are written for, whatever the machine's.
+        page.call("Emulation.setEmulatedMedia", json!({"features": [{"name": "prefers-reduced-motion", "value": "no-preference"}]}))?;
         Ok(page)
     }
 }

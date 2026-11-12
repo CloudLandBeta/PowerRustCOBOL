@@ -2,6 +2,10 @@
 
 
 
+## 2.0.443 — 2026-11-11
+
+**The browser tests give every page the motion preference they are written for, so the animation tests no longer depend on the machine's accessibility setting.** The player plays no animation when the operating system asks for reduced motion (`prefers-reduced-motion: reduce`, 2.0.3xx). The build workflow's macOS and Windows machines do ask for it, and every test that looks for a running animation failed there: `page_motion_p4` (`OnFormLoad: the label fades in with the form`), `page_motion_p4b` and `page_grid_first_show` (`waited 5 s … anims().length > 0`). They passed on the Linux machine and on a developer's Mac, which do not. The Chrome harness (`support/cdp.rs`, shared by the three web crates' tests) now sets `prefers-reduced-motion: no-preference` on every page it opens. Checked by starting Chrome with reduced motion forced: the three tests fail without the change, with the same message as the runners', and pass with it. The workflow's own machines have not been seen to confirm it yet. Test code only; the player is unchanged.
+
 ## 2.0.442 — 2026-11-11
 
 **The test of `render_form` on a web form expects the answer it gives.** Since 2.0.369 the answer of a web form's `render_form` carries `color_scheme` (`light` or `dark`) next to `engine`; the test (`render_form_and_run_form_draw_a_web_form_with_the_system_web_view`) still expected only `engine` and failed with the two key lists printed side by side, on any machine where the system web view runs: it was hidden on those where it does not, and run 51 of the build workflow, the first to run it on Linux and macOS, showed it. The expected list now holds `color_scheme`. Test code only.
