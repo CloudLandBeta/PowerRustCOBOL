@@ -138,7 +138,9 @@ fn a_sql_connection_definition_is_written_into_the_project_file_and_nothing_else
     let dir = fixture("sql");
     let manifest = dir.join("CheckDemo.project.toml");
     let original = std::fs::read_to_string(&manifest).unwrap();
-    let with_sql = format!("# the developer's note\n{original}\n[[sql-connections]]\nname = \"SALES\"\npath = \"data/sales.db\"\ndefault = true\n");
+    // The fixture is checked out with the machine's line ends (git's `autocrlf`: `CRLF` on Windows); what is added follows them.
+    let nl = if original.contains("\r\n") { "\r\n" } else { "\n" };
+    let with_sql = format!("# the developer's note{nl}{original}{nl}[[sql-connections]]{nl}name = \"SALES\"{nl}path = \"data/sales.db\"{nl}default = true{nl}");
     std::fs::write(&manifest, &with_sql).unwrap();
     let mut tools = ProjectTools::new(HeadlessHost::new(&dir, "test"));
 
@@ -146,9 +148,9 @@ fn a_sql_connection_definition_is_written_into_the_project_file_and_nothing_else
     let r = call(&mut tools, "set_definition", json!({ "path": "CheckDemo.project.toml", "element": "sql-connection", "id": "sales", "text": text })).unwrap();
     assert_eq!(r["thin"], false);
     let written = std::fs::read_to_string(&manifest).unwrap();
-    assert!(written.starts_with("# the developer's note\n"), "the developer's comment stays");
+    assert!(written.starts_with(&format!("# the developer's note{nl}")), "the developer's comment stays");
     assert!(written.contains(&format!("definition = \"{text}\"")));
-    assert_eq!(written.replace(&format!("definition = \"{text}\"\n"), ""), with_sql, "only the one key was added");
+    assert_eq!(written.replace(&format!("definition = \"{text}\"{nl}"), ""), with_sql, "only the one key was added");
 
     let overview = call(&mut tools, "describe", json!({})).unwrap();
     assert_eq!(overview["sql_connections"][0]["name"], "SALES");
@@ -159,4 +161,32 @@ fn a_sql_connection_definition_is_written_into_the_project_file_and_nothing_else
     let e = call(&mut tools, "set_definition", json!({ "path": "CheckDemo.project.toml", "element": "sql-connection", "id": "NOPE", "text": "x" })).unwrap_err();
     assert!(e.contains("no SQL connection 'NOPE'"));
     println!("sql-connection definition: written, comment kept, described, cleared, unknown name refused");
+}
+
+#[test]
+fn a_project_file_with_crlf_line_ends_keeps_them_when_a_definition_is_written() {
+    // A project file kept with `CRLF` all through (Windows) is written back with `CRLF` all through, on every system.
+    let dir = fixture("crlf");
+    let manifest = dir.join("CheckDemo.project.toml");
+    let lf = std::fs::read_to_string(&manifest).unwrap().replace("\r\n", "\n");
+    let with_sql = format!("# the developer's note\n{lf}\n[[sql-connections]]\nname = \"SALES\"\npath = \"data/sales.db\"\ndefault = true\n").replace('\n', "\r\n");
+    std::fs::write(&manifest, &with_sql).unwrap();
+    let mut tools = ProjectTools::new(HeadlessHost::new(&dir, "test"));
+
+    let text = "The sales database: one row per invoice line.";
+    call(&mut tools, "set_definition", json!({ "path": "CheckDemo.project.toml", "element": "sql-connection", "id": "SALES", "text": text })).unwrap();
+    let written = std::fs::read_to_string(&manifest).unwrap();
+    assert!(written.contains(&format!("definition = \"{text}\"\r\n")), "{written:?}");
+    assert_eq!(written.matches('\n').count(), written.matches("\r\n").count(), "no line end was turned into a bare LF: {written:?}");
+    assert_eq!(written.replace(&format!("definition = \"{text}\"\r\n"), ""), with_sql, "only the one key was added");
+
+    call(&mut tools, "set_definition", json!({ "path": "CheckDemo.project.toml", "element": "sql-connection", "id": "SALES", "text": "" })).unwrap();
+    assert_eq!(std::fs::read_to_string(&manifest).unwrap(), with_sql, "an empty text clears it, the line ends as they were");
+
+    // An LF file stays LF.
+    let lf_file = with_sql.replace("\r\n", "\n");
+    std::fs::write(&manifest, &lf_file).unwrap();
+    call(&mut tools, "set_definition", json!({ "path": "CheckDemo.project.toml", "element": "sql-connection", "id": "SALES", "text": text })).unwrap();
+    assert!(!std::fs::read_to_string(&manifest).unwrap().contains('\r'), "an LF project file stays LF");
+    println!("project file line ends: CRLF kept, LF kept, the one key added and cleared");
 }

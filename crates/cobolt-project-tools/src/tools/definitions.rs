@@ -352,7 +352,12 @@ fn set_sql_definition(root: &ProjectRoot, id: Option<&str>, text: &str) -> Resul
     } else {
         entry["definition"] = value(text.clone());
     }
-    std::fs::write(manifest, doc.to_string()).map_err(|e| format!("the project file cannot be written ({e})"))?;
+    let written = doc.to_string();
+    // `toml_edit` hands the text back with `LF` line ends. A project file that is `CRLF` all through (the usual one on
+    // Windows) is written back as it was; one that mixes the two keeps what `toml_edit` gives.
+    let all_crlf = source.contains("\r\n") && !source.replace("\r\n", "").contains('\n');
+    let written = if all_crlf { written.replace("\r\n", "\n").replace('\n', "\r\n") } else { written };
+    std::fs::write(manifest, written).map_err(|e| format!("the project file cannot be written ({e})"))?;
     Ok(json!({ "element": "sql-connection", "id": name, "definition": text, "thin": is_thin(&text) }))
 }
 

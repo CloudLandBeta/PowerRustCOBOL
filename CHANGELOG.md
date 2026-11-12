@@ -2,6 +2,10 @@
 
 
 
+## 2.0.445 — 2026-11-11
+
+**Writing the definition of a SQL connection keeps the line ends of the developer's project file.** `set_definition` on a `sql-connection` goes through `toml_edit`, which hands the text back with `LF` line ends, so a project file kept with `CRLF` (the usual one on Windows) was rewritten whole with `LF`, against what the function promises (every other byte written back as it was). A project file that is `CRLF` all through is now written back `CRLF` all through; an `LF` file stays `LF`. Run 51 of the build workflow showed it on Windows, where the test fixture is checked out with `CRLF` (`a_sql_connection_definition_is_written_into_the_project_file_and_nothing_else_moves`); the same test, on a Mac with the fixture made `CRLF`, failed the same way before the change and passes after it. A new test (`a_project_file_with_crlf_line_ends_keeps_them_when_a_definition_is_written`) builds the `CRLF` file itself, so it checks this on every system. The definitions test now adds its own lines with the line end its fixture has.
+
 ## 2.0.444 — 2026-11-11
 
 **The web goldens test reads a golden file with its line ends made `LF`, so it passes on Windows.** On a Windows machine git checks text files out with `CRLF` (`core.autocrlf`); the test turned what the build produced into `LF` but compared it with the golden as it was read, so all ten goldens were different (`web goldens: 0 match, 10 different`, run 51 of the build workflow, first differences at lines 26, 212, 677, …). The golden is now read with `CRLF` turned into `LF` as well. Checked here by rewriting the ten files with `CRLF` line ends: ten match; the files were then put back as they were. Test code only.
