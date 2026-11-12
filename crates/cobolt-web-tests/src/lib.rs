@@ -38,13 +38,22 @@ pub fn gate(test: &str, need: Need, available: bool, what: &str) -> bool {
 
 /// [`gate`] with the variable's value given, so a test can pin both rules without touching the environment.
 pub fn gate_with(test: &str, need: Need, available: bool, what: &str, required: Option<&str>) -> bool {
+    let run = decide(test, need, available, what, required);
+    if !run {
+        println!("skipped: {what} ({test})");
+    }
+    run
+}
+
+/// The rule of [`gate_with`] without its `skipped:` line, so the helper's own test prints no skip that the
+/// build workflow, which fails on any skip line, would take for a real one.
+fn decide(test: &str, need: Need, available: bool, what: &str, required: Option<&str>) -> bool {
     if available {
         return true;
     }
     if required == Some("1") {
         panic!("{test}: {what} is required ({}=1) and is not available", need.variable());
     }
-    println!("skipped: {what} ({test})");
     false
 }
 
@@ -66,9 +75,9 @@ mod tests {
     #[test]
     fn the_gate_runs_skips_or_fails() {
         assert!(gate_with("t", Need::WebView, true, "the web view", None));
-        assert!(!gate_with("t", Need::WebView, false, "the web view", None));
-        assert!(!gate_with("t", Need::WebE2e, false, "a built player", Some("0")));
-        let failed = std::panic::catch_unwind(|| gate_with("t", Need::WebE2e, false, "a built player", Some("1")));
+        assert!(!decide("t", Need::WebView, false, "the web view", None));
+        assert!(!decide("t", Need::WebE2e, false, "a built player", Some("0")));
+        let failed = std::panic::catch_unwind(|| decide("t", Need::WebE2e, false, "a built player", Some("1")));
         let msg = failed.unwrap_err().downcast::<String>().unwrap();
         assert!(msg.contains("PRC_WEB_E2E=1"), "{msg}");
         assert_eq!(summary(3, 0), "→ 3 passed, 0 failed");

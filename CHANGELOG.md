@@ -2,6 +2,10 @@
 
 
 
+## 2.0.463 — 2026-11-12
+
+**The test of the web tests' skip helper no longer prints `skipped:` lines, so the build workflow's check for skipped tests no longer fails on it.** The web-test step of the build workflow fails when any line of its log says `skipped: ` and is not about Chrome; it is how a test that quietly skipped is caught on a machine that must run it. The helper's own test (`the_gate_runs_skips_or_fails`, `cobolt-web-tests`) checks that an absent need skips, and in doing so printed `skipped: the web view (t)` and `skipped: a built player (t)`. Run 53 was the first run on which every web test passed on Linux and Windows, so the step reached that check for the first time and failed there (exit 1, no failed test). The rule of the helper is now a function of its own, `decide`, which the test calls for the absent cases; `gate_with` calls it and prints the skip line as before. Checked here: the crate's tests pass and their output holds no `skipped:` line. Test code only.
+
 ## 2.0.462 — 2026-11-12
 
 **A control's method call on the line after a `CALL ... USING` with no `END-CALL` runs as a statement of its own; it was taken for one more argument of the CALL.** In the PowerCobolCraft example a procedure called a subprogram and created its ImageBuffer on the next line:
