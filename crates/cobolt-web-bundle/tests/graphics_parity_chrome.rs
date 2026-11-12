@@ -30,7 +30,8 @@ try {
   await m.default('./parts/canvas/canvas_bg.wasm');
   const g = new m.Graphics();
   g.add_font(new Uint8Array(await (await fetch('./Ubuntu-Light.ttf')).arrayBuffer()));
-  const scene = (await (await fetch('./parity-scene.txt')).text()).split('\n').filter(l => l.trim());
+  // A Windows checkout gives the golden text CRLF line ends; a `\r` left on a method's name makes it unknown.
+  const scene = (await (await fetch('./parity-scene.txt')).text()).split(/\r?\n/).filter(l => l.trim());
   g.make(1, 'Canvas2D', 160, 120, 1);
   const t0 = performance.now();
   for (const line of scene) {
@@ -44,7 +45,7 @@ try {
   R.calls = scene.length;
 
   // The answers: text measurements and a settled stack of boxes, one line per call (`Method: answer`).
-  const script = (await (await fetch('./parity-answers.txt')).text()).split('\n').filter(l => l.trim());
+  const script = (await (await fetch('./parity-answers.txt')).text()).split(/\r?\n/).filter(l => l.trim());
   const canvasPart = new m.Graphics();
   canvasPart.add_font(new Uint8Array(await (await fetch('./Ubuntu-Light.ttf')).arrayBuffer()));
   const gm = await import('./parts/graphics/graphics.js');
@@ -133,7 +134,7 @@ fn the_canvas_part_in_chrome_draws_the_desktops_picture_with_no_pixel_different(
     assert_eq!(differing, 0, "{differing} pixels differ between the desktop's picture and the canvas part's");
 
     // AC3 and AC6: the same measurements, the same settled stack, the same state fingerprint as the desktop's registry.
-    let want = std::fs::read_to_string(golden.join("parity-answers.golden")).unwrap();
+    let want = std::fs::read_to_string(golden.join("parity-answers.golden")).unwrap().replace("\r\n", "\n");
     let got = r["answers"].as_str().expect("the answers");
     let differing_lines = want.lines().zip(got.lines()).filter(|(a, b)| a != b).count() + want.lines().count().abs_diff(got.lines().count());
     println!(
