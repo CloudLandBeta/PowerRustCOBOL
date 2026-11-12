@@ -172,12 +172,6 @@ jobs:
         shell: bash
         env:
           PRC_REQUIRE_WEBVIEW: "1"
-          # The first run of this step on GitHub (run 49) failed one test on Linux with `WebKitGTK:
-          # There was an error creating the snapshot`: Xvfb has no graphics card, so WebKitGTK is told
-          # to draw in software. (Read by the Linux cell only; the other systems ignore them.)
-          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
-          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
-          LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
           set -euo pipefail
           if [ "$RUNNER_OS" = "Linux" ]; then run="xvfb-run -a"; else run=""; fi
@@ -1370,11 +1364,6 @@ jobs:
       # binaries at once, which is what a full disk looks like to a memory-mapped output file. The tests
       # read no debug info, so the job builds without it. The `df` step at the end prints what is left.
       CARGO_PROFILE_DEV_DEBUG: "0"
-      # WebKitGTK under Xvfb has no graphics card: it draws in software or takes no snapshot.
-      # (Read by the Linux cell only; the other systems ignore them.)
-      WEBKIT_DISABLE_COMPOSITING_MODE: "1"
-      WEBKIT_DISABLE_DMABUF_RENDERER: "1"
-      LIBGL_ALWAYS_SOFTWARE: "1"
     steps:
       - uses: actions/checkout@v7
 

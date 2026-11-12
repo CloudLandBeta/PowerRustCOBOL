@@ -1023,8 +1023,14 @@ mod snapshot {
 
     pub const ENGINE: &str = "WebKitGTK";
 
-    /// Nothing to do on Linux: the view fills the window's GTK box, at the viewport's size.
-    pub fn prepare(_window: &tao::window::Window, _view: &WebView, _w: f64, _h: f64, _dpr: f64) {}
+    /// WebKitGTK gives its view a size when the window is mapped. The window is made hidden, so the view
+    /// stayed 0 x 0 and a snapshot of it failed with `There was an error creating the snapshot` (the
+    /// first run of the helper's tests on GitHub's Linux runner, run 49). The window is shown, where no
+    /// one sees it: it sits at `OFF_SCREEN`, and `ready` still says `visible: false` (that is the
+    /// window's state when it opened). macOS and Windows draw a hidden window and need nothing.
+    pub fn prepare(window: &tao::window::Window, _view: &WebView, _w: f64, _h: f64, _dpr: f64) {
+        window.set_visible(true);
+    }
 
     pub fn take(view: &WebView, w: f64, h: f64, dpr: f64, path: String, answer: impl Fn(String) + 'static) {
         view.webview().snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&webkit2gtk::gio::Cancellable>, move |result| {
