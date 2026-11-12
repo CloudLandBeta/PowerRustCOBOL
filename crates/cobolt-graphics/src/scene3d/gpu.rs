@@ -111,6 +111,8 @@ pub struct Gpu {
     uniform_align: u64,
     /// When the host owns the device and its window: the drawing waiting for the host's thread to submit it.
     deferred: Option<Arc<Mutex<Vec<wgpu::CommandBuffer>>>>,
+    /// Which device this is (see [`Gpu::serial`]).
+    serial: u64,
 }
 
 impl std::fmt::Debug for Gpu {
@@ -194,6 +196,10 @@ impl Gpu {
             lost,
             uniform_align,
             deferred: None,
+            serial: {
+                static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            },
         }
     }
 
@@ -247,6 +253,14 @@ impl Gpu {
     /// What it is.
     pub fn info(&self) -> &GpuInfo {
         &self.info
+    }
+
+    /// Which device this is: the same number for every clone, a new one for every device opened or adopted.
+    /// `wgpu::Device ==` cannot tell devices of two `wgpu::Instance`s apart (it compares the id inside one
+    /// instance, and each instance numbers its devices from the start), and a texture of one instance used
+    /// with another instance's device is fatal, so a host checks this before it draws a target.
+    pub fn serial(&self) -> u64 {
+        self.serial
     }
 
     /// The `wgpu` device, for a host that shares it (the egui host with a wgpu renderer).

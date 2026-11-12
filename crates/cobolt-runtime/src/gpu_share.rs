@@ -56,6 +56,8 @@ pub struct Canvas3dFrame {
     pub width: u32,
     pub height: u32,
     pub generation: u64,
+    /// The [`Gpu::serial`] of the device the target lives on.
+    pub device: u64,
 }
 
 type Slots = HashMap<(u64, String), Arc<Canvas3dFrame>>;
@@ -77,6 +79,14 @@ pub fn take_frame(canvas: &str, token: &str) -> Option<Arc<Canvas3dFrame>> {
     let (inst, _gen) = token.trim().split_once(':')?;
     let instance: u64 = inst.parse().ok()?;
     slots().lock().ok()?.get(&(instance, canvas.trim().to_ascii_uppercase())).cloned()
+}
+
+/// Whether `frame` was drawn on the device the host published: only such a target may be handed to the
+/// window's renderer. A canvas that drew before the window had a device drew on one of its own (another
+/// `wgpu` instance), and the window's renderer cannot even look such a texture up: wgpu panics, and inside
+/// the windowing system's start-up callback that panic aborted the process.
+pub fn is_on_window_device(frame: &Canvas3dFrame) -> bool {
+    current_gpu().is_some_and(|(_, gpu)| gpu.serial() == frame.device)
 }
 
 /// A form's end: its targets go.

@@ -31,7 +31,7 @@ fn render_state_key() -> egui::Id {
 pub(crate) fn share_window_device(ctx: &egui::Context, frame: &eframe::Frame) {
     let Some(rs) = frame.wgpu_render_state() else { return };
     // What the 3D views drew is submitted here, on the window's thread, never while it reconfigures a surface.
-    gpu_share::submit_pending();
+    guarded("submitting a 3D view's drawing", gpu_share::submit_pending);
     let same = ctx.data(|d| d.get_temp::<eframe::egui_wgpu::RenderState>(render_state_key())).is_some_and(|old| old.device == rs.device);
     if same {
         return;
@@ -47,12 +47,37 @@ pub(crate) fn apply_canvas3d_frame(ctx: &egui::Context, u: &StateUpdate) -> bool
         return false;
     }
     // The picture's drawing goes to the GPU before the window draws the picture (both on this thread).
-    gpu_share::submit_pending();
+    guarded("submitting a 3D view's drawing", gpu_share::submit_pending);
     let Some(frame) = gpu_share::take_frame(&u.ctrl_id, &u.value) else { return true };
     let Some(rs) = ctx.data(|d| d.get_temp::<eframe::egui_wgpu::RenderState>(render_state_key())) else { return true };
     let mut renderer = rs.renderer.write();
-    register_target(ctx, &rs.device, &mut renderer, &u.ctrl_id, &frame);
+    show_target(ctx, &rs.device, &mut renderer, &u.ctrl_id, &frame);
     true
+}
+
+/// Hand a Canvas3D's target to the window's renderer, or skip this picture, saying why on stderr: a target
+/// drawn on another device (the canvas drew before the window had one; the next picture is drawn on the
+/// window's device), or a graphics failure. Never fatal: this runs inside the windowing system's callbacks,
+/// where a panic cannot unwind and aborted the whole program (rcrun, the built binary, the IDE's run).
+/// Answers whether the target was registered.
+fn show_target(ctx: &egui::Context, device: &eframe::wgpu::Device, renderer: &mut eframe::egui_wgpu::Renderer, canvas: &str, frame: &gpu_share::Canvas3dFrame) -> bool {
+    if !gpu_share::is_on_window_device(frame) {
+        eprintln!("[prc][canvas3d] {}: picture {} skipped: drawn on another graphics device than the window's", canvas.trim(), frame.generation);
+        return false;
+    }
+    guarded("showing a 3D view's picture", || register_target(ctx, device, renderer, canvas, frame)).is_some()
+}
+
+/// Run a graphics step of the window's frame; a panic in it is logged and the step skipped (`None`).
+fn guarded<R>(what: &str, step: impl FnOnce() -> R) -> Option<R> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(step)) {
+        Ok(r) => Some(r),
+        Err(e) => {
+            let why = e.downcast_ref::<String>().map(String::as_str).or_else(|| e.downcast_ref::<&str>().copied()).unwrap_or("a graphics failure");
+            eprintln!("[prc][canvas3d] {what} failed and was skipped: {why}");
+            None
+        }
+    }
 }
 
 /// Register (or update, when the canvas's target was made again) a Canvas3D's render target as an egui
@@ -127,6 +152,68 @@ mod tests {
         canvas_frames::forget(inst);
     }
 
+    /// The PowerCobolCraft abort (2.0.470): a Canvas3D that rendered in `onLoad`, before the window had a
+    /// device, drew on a device of its own (another `wgpu` instance), and the window's renderer, asked to show
+    /// that target, panicked inside winit's start-up callback ("Cannot get non-existent resource
+    /// TextureViewId"), which aborted the process. On a real adapter, without a window: the foreign target is
+    /// refused (no panic, nothing registered); the same panic still happens when the guard is bypassed (the
+    /// cause, pinned); and a target on the published device is shown. SKIPS without an adapter.
+    #[test]
+    fn a_target_from_another_device_is_skipped_never_fatal() {
+        use cobolt_graphics::scene3d::{Canvas3D, Gpu, Scene3D};
+        use cobolt_graphics::Limits;
+        use eframe::wgpu;
+
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+            assert!(std::env::var("GRAPHICS_REQUIRE_GPU").map(|v| v != "1").unwrap_or(true), "GRAPHICS_REQUIRE_GPU=1 but there is no graphics adapter");
+            eprintln!("SKIPPED (no graphics adapter)");
+            return;
+        };
+        let _gpu = gpu_lock();
+        let started = std::time::Instant::now();
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let mut egui_renderer = eframe::egui_wgpu::Renderer::new(&device, wgpu::TextureFormat::Rgba8Unorm, Default::default());
+        gpu_share::publish_shared_device(device.clone(), queue, &adapter.get_info());
+        let (_, window) = gpu_share::current_gpu().expect("the window's device");
+
+        // What `onLoad` did: the canvas opened its own device and drew on it.
+        let draw = |gpu: Gpu, generation: u64| {
+            let mut canvas = Canvas3D::new(64, 48, Limits::default()).unwrap();
+            canvas.connect_with(gpu);
+            let mut scene = Scene3D::new(Limits::default());
+            scene.add_sphere(1.0, 8).unwrap();
+            canvas.render(&mut scene).unwrap();
+            let r = canvas.renderer().expect("connected");
+            gpu_share::Canvas3dFrame { texture: r.color_texture().cloned().expect("a target"), width: 64, height: 48, generation, device: r.gpu().serial() }
+        };
+        let own = Gpu::new().expect("a second device on the same adapter");
+        let foreign = draw(own, 1);
+        let ctx = egui::Context::default();
+        let refused = !show_target(&ctx, &device, &mut egui_renderer, "CNV-DIORAMA", &foreign);
+        let nothing_registered = cobolt_forms::paint::canvas_texture(&ctx, "CNV-DIORAMA").is_none();
+        let bypassed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| register_target(&ctx, &device, &mut egui_renderer, "CNV-DIORAMA", &foreign)));
+        let cause = bypassed.err().and_then(|e| e.downcast_ref::<String>().cloned()).unwrap_or_default();
+
+        // The next picture, drawn on the window's device, is shown.
+        let shown = show_target(&ctx, &device, &mut egui_renderer, "CNV-DIORAMA", &draw(window.clone(), 2));
+        let id = cobolt_forms::paint::canvas_texture(&ctx, "CNV-DIORAMA");
+        gpu_share::withdraw_gpu();
+        println!(
+            "Canvas3D foreign target: refused {refused}, nothing registered {nothing_registered}, unguarded registration panics with {cause:?}; window-device target shown {shown} as {id:?}; {} ms",
+            started.elapsed().as_millis()
+        );
+        assert!(refused && nothing_registered, "a target of another device never reaches the window's renderer");
+        assert!(cause.contains("TextureViewId"), "the cause: wgpu cannot look a foreign view up ({cause:?})");
+        assert!(shown && id.is_some(), "a target on the window's device is shown");
+    }
+
+    /// The device slot is one per process: tests that publish a device take turns.
+    fn gpu_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// WASM-018 T18 on a real adapter, without a window: the device the "window" owns is published, a
     /// Canvas3D draws on it, its render target is registered with egui as a native texture - the same id after
     /// a second Render - and the picture it shows is the one the canvas drew. With no adapter it SKIPS loudly
@@ -143,6 +230,7 @@ mod tests {
             eprintln!("SKIPPED (no graphics adapter)");
             return;
         };
+        let _gpu = gpu_lock();
         let info = adapter.get_info();
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
         let mut egui_renderer = eframe::egui_wgpu::Renderer::new(&device, wgpu::TextureFormat::Rgba8Unorm, Default::default());
@@ -172,7 +260,8 @@ mod tests {
         let share = |canvas: &Canvas3D, generation: u64| {
             let texture = canvas.renderer().and_then(|r| r.color_texture().cloned()).expect("a render target");
             let (w, h) = canvas.size();
-            gpu_share::publish_frame(inst, "VIEW-1", gpu_share::Canvas3dFrame { texture, width: w, height: h, generation });
+            let device = canvas.renderer().expect("connected").gpu().serial();
+            gpu_share::publish_frame(inst, "VIEW-1", gpu_share::Canvas3dFrame { texture, width: w, height: h, generation, device });
             gpu_share::take_frame("VIEW-1", &format!("{inst}:{generation}")).expect("the frame")
         };
         let frame = share(&canvas, 1);

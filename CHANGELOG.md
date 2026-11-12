@@ -2,6 +2,22 @@
 
 
 
+## 2.0.470 — 2026-11-12
+
+**A form whose Canvas3D draws in `onLoad` starts instead of closing at once; a 3D picture that cannot be shown is skipped, never fatal.** The PowerCobolCraft example's title form closed as soon as it started (`rcrun run-form` from the IDE, macOS 27.2.1 on Apple silicon): wgpu panicked with *Cannot get non-existent resource TextureViewId(15,1)* inside winit's `app_did_finish_launching`, a callback that cannot unwind, so the process aborted (`EXC_CRASH (SIGABRT)`, *abort() called*). The cause, in the source:
+
+- `onLoad` runs before the window exists, and the title form's `onLoad` ends with `CNV-DIORAMA::Render()`. With no window device published yet, the canvas's first `Render` opened a graphics device of its own (`Gpu::new`, a new `wgpu::Instance`) and handed that device's render target to the host.
+- The host registered the target with the window's egui renderer, whose device belongs to another `wgpu::Instance`. Each instance keeps its own resource table, so the window's could not find the texture view. wgpu panics there, on the window's first frame.
+- When the window then published its device, only a *replaced* device moved the canvases (`graphics_sync_gpu` skipped the first publish), so every later `Render` would have drawn on the private device too.
+
+`wgpu::Device ==` cannot tell two instances' devices apart (it compares the id inside one instance), so every graphics device now carries a serial (`Gpu::serial`), and a shared picture records the serial of the device it was drawn on (`Canvas3dFrame::device`). Now:
+
+- When the window's device is published, every Canvas3D that already had a renderer is connected to it and, when it has a scene, draws again there. This happens at the next event the form receives (the window raises `onOpened` and `onShow` on its own) or at the next method called on the canvas. A scene drawn only in `onLoad` shows, and `LastError` stays empty. Only a replaced device is reported, as before.
+- The host hands the window's renderer only a picture drawn on the window's device (`gpu_share::is_on_window_device`), and skips any other with a `[prc][canvas3d]` line on stderr.
+- The host's two graphics steps run under a guard: submitting the views' drawing, and registering a picture. A panic in either is logged and that picture skipped, so a graphics failure can no longer abort the program from inside the windowing system's callbacks.
+
+`rcrun run-form`, a built application (`run_form_app`) and the forms embedded in a shell all go through the same interpreter and the same host functions, so all are fixed by this one change. The web player is not affected: in the browser a canvas never opens a device of its own and waits for the page's. Covered by `a_canvas3d_that_drew_before_the_window_had_a_device_moves_to_it_and_draws_again` (cobolt-runtime) and `a_target_from_another_device_is_skipped_never_fatal` (cobolt-form-host). The second test also pins the cause: the same `TextureViewId` panic when the guard is bypassed, on a real adapter. The Developer's Guide (26.4) says `Render` in `onLoad` is supported and what a skipped picture looks like.
+
 ## 2.0.469 — 2026-11-12
 
 **Every PowerRustCOBOL release is built with one fixed Rust release, Rust 1.95.0, and the IDE installs that release and names it, so the libraries a release ships can be used on every machine that follows the instructions.** The libraries a release compiles and ships can only be used by the compiler that made them. The release workflow took whatever `stable` was on the day it ran (`dtolnay/rust-toolchain@stable`), and the IDE's offer to install Rust installed whatever `stable` was on the day the developer accepted it, so the two matched only by luck; when they did not, the first Build compiled every library on the developer's machine (an hour on the machine of the 2.0.452 report). Now:

@@ -19786,6 +19786,27 @@ program calls `Render`** — there is no AutoPresent. `Backend` (read-only) says
 adapter the control shows a message and `LastError` says why; the rest of the form keeps
 working.
 
+You may call `Render` in the form's `onLoad`. `onLoad` runs before the window is on the screen,
+so that first picture is drawn on a graphics device of the canvas's own. When the window opens,
+the canvas moves to the window's device and draws the scene again, at the form's next event (the
+window raises `onOpened` and `onShow` on its own) or at the next method you call on the canvas,
+whichever comes first. A scene drawn only in `onLoad` therefore still shows. `LastError` stays
+empty, because nothing went wrong.
+
+```cobol
+       PROCEDURE DIVISION.
+      *> onLoad: build the scene and draw it once.
+           CNV-VIEW::SetScene( SCN-1::GetHandle() )
+           CNV-VIEW::Render()
+```
+
+> **Note:** A picture that cannot be shown — drawn on another device, or refused by the
+> graphics driver — is skipped with a line in the Output panel that starts with
+> `[prc][canvas3d]`. The program and its window keep running, and the next `Render` shows.
+
+> **Caveat:** Before 2.0.470, a form that called `Render` in `onLoad` closed as soon as it
+> started (macOS reported `abort() called`). Rebuild such an application with 2.0.470 or later.
+
 ### 26.5 Physics2D and Physics3D
 
 A physics world is **stepped by the program** with a fixed time step, so the same inputs give
