@@ -2,6 +2,10 @@
 
 
 
+## 2.0.440 — 2026-11-11
+
+**The shell acceptance test waits for the page to mount after a reload instead of failing on the first look.** `ac1_a_menu_entry_loads_its_form_…_and_a_reload_reopens_it` reloads the page and waits for the form at the address to come back. Its helper read the page's shadow root without checking it exists, and right after a reload the root is not there until the player has mounted; the script threw, and the wait ended on that first look with the error instead of polling on. It passed on a fast machine and failed on the build workflow's Linux and macOS runners (run 50). The helper now says "not yet" while the root is missing. Test code only; the page is unchanged.
+
 ## 2.0.439 — 2026-11-11
 
 **The desktop-against-Chrome comparison test lists the RadioButton's click order among its documented differences, so it passes again.** Since 2.0.426 a click on a radio button or a check box runs its `onClick` after the state events (`onCheckedChanged`, `onValueChanged`), so a handler sees the state the click wrote; the desktop raises `onClick` before them. The comparison already listed that difference for `CHK-A` and `SWT-A`, but not for `RAD-A`, so `the_reference_form_on_the_desktop_and_in_chrome` failed with `differences outside the documented ones` (left 1, right 0); it was red on the developer's machine, and run 50 of the build workflow showed it too. `RAD-A` is listed now, with that reason. The page's behaviour is unchanged; no other difference of the comparison moved.

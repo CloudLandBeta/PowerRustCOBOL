@@ -36,8 +36,10 @@ const LOOK: &str = r#"(() => {
   return { forms, hash: location.hash, caption, current: cur ? cur.textContent : null };
 })()"#;
 
+/// Until the player has mounted (right after a reload) the page has no shadow root yet: that is "not yet", and
+/// `wait_for` keeps polling; a script that threw on it would end the wait on the first look.
 fn has_form(name: &str, present: bool) -> String {
-    format!("(() => {{ const r = document.getElementById('pr-app').shadowRoot; return !!r.querySelector('[data-pr-form=\"{name}\"]') === {present}; }})()")
+    format!("(() => {{ const r = document.getElementById('pr-app')?.shadowRoot; return !!r && (!!r.querySelector('[data-pr-form=\"{name}\"]') === {present}); }})()")
 }
 
 /// The rectangle of the menu entry labelled `label`.
