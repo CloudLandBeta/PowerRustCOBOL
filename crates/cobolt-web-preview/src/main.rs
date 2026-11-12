@@ -321,7 +321,14 @@ mod steps {
   window.addEventListener('unhandledrejection', function (e) { errs.push(String(e.reason && e.reason.message || e.reason)); });
   function scope() { var a = document.getElementById('pr-app'); return (a && a.shadowRoot) || document; }
   function active() { var s = scope(); return (s === document ? document.activeElement : s.activeElement) || null; }
-  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  // The window is hidden (no window on show), and an engine throttles a hidden page's timers: they fire once a second
+  // and, as they keep firing, a little later each time, up to half a minute. A step that waited with `setTimeout` took a
+  // second, a script of a few steps overran its limit, and the one running when the throttle was at its worst never
+  // answered. The runner waits with messages, which are not throttled: a step takes the time it needs.
+  var wire = new MessageChannel(), parked = [];
+  wire.port1.onmessage = function () { var next = parked.shift(); if (next) next(); };
+  function turn() { return new Promise(function (go) { parked.push(go); wire.port2.postMessage(0); }); }
+  async function sleep(ms) { var until = performance.now() + ms; do { await turn(); } while (performance.now() < until); }
   function settle() {
     return new Promise(function (resolve) {
       var last = Date.now(), t0 = last;
@@ -331,7 +338,7 @@ mod steps {
       if (scope() !== document) mo.observe(scope(), o);
       (function tick() {
         var now = Date.now();
-        if (now - last >= 50 || now - t0 >= 2000) { mo.disconnect(); resolve(); } else { setTimeout(tick, 10); }
+        if (now - last >= 50 || now - t0 >= 2000) { mo.disconnect(); resolve(); } else { turn().then(tick); }
       })();
     });
   }
