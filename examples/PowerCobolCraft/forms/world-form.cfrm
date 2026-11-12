@@ -1,0 +1,2596 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="WORLD-FORM" title="PowerCobolCraft" width="1280" height="760" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" definition="The world of PowerCobolCraft: a flat voxel world drawn by a Canvas3D, after CobolCraft's flat world (stone up to Y 62, grass at Y 63), with oak trees, blocks to break and place, a hotbar, health, day and night with the sun, the moon, stars and clouds, and CobolCraft's server console with its commands." index-base="1" responsive="true">
+  <working-storage><![CDATA[      *> Who plays, in which language, and how the world starts: handed over by TITLE-FORM.
+       01 WS-PLAYER-NAME                         GLOBAL    PIC X(16)       VALUE "Player".
+       01 WS-LANGUAGE                            GLOBAL    PIC 9           VALUE 1.
+       01 WS-WORLD-MODE                          GLOBAL    PIC X(4)        VALUE "NEW".
+       01 WS-HANDED                              GLOBAL    PIC X(80).
+       01 WS-TEXT-ID                             GLOBAL    PIC 99.
+       01 WS-TEXT                                GLOBAL    PIC X(240).
+
+      *> The world: 48 by 48 columns of 24 blocks, one character a block, bottom first.
+      *> Column (i k) stands at x = i - 25, z = k - 25; block j of it at y = j + 55 (Y 56 to 79).
+      *> " " air, G grass, D dirt, S stone, C cobblestone, P oak planks, L oak log, E oak leaves,
+      *> W glass, B bricks. Outside the 48 by 48 the ground goes on, flat, up to Y 63.
+       01 WS-WORLD                               GLOBAL.
+           05 WS-WORLD-ROW                               OCCURS 48.
+               10 WS-COLUMN                      PIC X(24)       OCCURS 48.
+       01 WS-BLOCK-CODES                         GLOBAL    PIC X(9)        VALUE "GDSCPLEWB".
+       01 WS-TYPE-OF-TABLE                       GLOBAL.
+           05 WS-TYPE-OF                         PIC 9           OCCURS 256.
+
+      *> The tiles each block type wears on its top, its sides and its bottom (CRAFT-TILE numbers).
+       01 WS-FACE-TILE-DATA                      GLOBAL    PIC X(54)       VALUE
+           "010203030303040404050505060606070807090909101010111111".
+       01 WS-FACE-TILES REDEFINES WS-FACE-TILE-DATA GLOBAL.
+           05 WS-FACE-TILE                               OCCURS 9.
+               10 WS-TOP-TILE                    PIC 99.
+               10 WS-SIDE-TILE                   PIC 99.
+               10 WS-BOTTOM-TILE                 PIC 99.
+
+      *> Seconds a hand takes to break each type in survival, and what the block drops
+      *> (grass gives dirt, stone gives cobblestone, leaves and glass give nothing).
+       01 WS-BREAK-TIME-DATA                     GLOBAL    PIC X(27)       VALUE
+           "060050160200120120025035200".
+       01 WS-BREAK-TIMES REDEFINES WS-BREAK-TIME-DATA GLOBAL.
+           05 WS-BREAK-TIME                      PIC 9V99        OCCURS 9.
+       01 WS-DROP-DATA                           GLOBAL    PIC X(9)        VALUE "DDCCPL  B".
+       01 WS-PARTICLE-COLOR-DATA                 GLOBAL    PIC X(81)       VALUE
+           "#6AA84FFF#8B5E3CFF#7F7F7FFF#6E6E6EFF#A8814FFF#6B5034FF#3E7A2EFF#CFE8F0FF#964B3BFF".
+       01 WS-PARTICLE-COLORS REDEFINES WS-PARTICLE-COLOR-DATA GLOBAL.
+           05 WS-PARTICLE-COLOR                  PIC X(9)        OCCURS 9.
+
+      *> The server's state, as CRAFT-COMMAND keeps it: the player, the world's clock in ticks
+      *> (24000 a day), the game mode (1 survival, 2 creative, 3 adventure, 4 spectator) and
+      *> the whitelist.
+       01 WS-SERVER                              GLOBAL.
+           05 WS-SERVER-PLAYER                   PIC X(16).
+           05 WS-WORLD-TIME                      PIC 9(5).
+           05 WS-GAME-MODE                       PIC 9.
+           05 WS-WHITELIST-ON                    PIC 9.
+           05 WS-WHITELIST-COUNT                 PIC 99.
+           05 WS-WHITELIST-NAME                  PIC X(16)       OCCURS 20.
+       01 WS-COMMAND-LINE                        GLOBAL    PIC X(200).
+       01 WS-REPLY                               GLOBAL.
+           05 WS-REPLY-ACTION                    PIC X(8).
+           05 WS-REPLY-COUNT                     PIC 99.
+           05 WS-REPLY-LINE                      PIC X(160)      OCCURS 12.
+       01 WS-REPLY-INDEX                         GLOBAL    PIC 99.
+       01 WS-TICKS                               GLOBAL    PIC 9(6)V9(4).
+       01 WS-DAY                                 GLOBAL    PIC 9(5)        VALUE 1.
+
+      *> The saved world's first line, as CRAFT-WORLD-FILE writes it.
+       01 WS-SAVE                                GLOBAL.
+           05 WS-SAVE-MAGIC                      PIC X(12).
+           05 WS-SAVE-PLAYER                     PIC X(16).
+           05 WS-SAVE-TIME                       PIC 9(5).
+           05 WS-SAVE-DAY                        PIC 9(5).
+           05 WS-SAVE-MODE                       PIC 9.
+           05 WS-SAVE-X                          PIC S9(4)V9(4).
+           05 WS-SAVE-Y                          PIC S9(4)V9(4).
+           05 WS-SAVE-Z                          PIC S9(4)V9(4).
+           05 WS-SAVE-YAW                        PIC S9(3)V9(4).
+           05 WS-SAVE-PITCH                      PIC S9(3)V9(4).
+           05 WS-SAVE-HEALTH                     PIC 99.
+           05 WS-SAVE-SLOT                       PIC 9.
+           05 WS-SAVE-COUNT                      PIC 999         OCCURS 9.
+           05 WS-SAVE-WHITELIST-ON               PIC 9.
+           05 WS-SAVE-WHITELIST-COUNT            PIC 99.
+           05 WS-SAVE-WHITELIST-NAME             PIC X(16)       OCCURS 20.
+           05 WS-SAVE-AT                         PIC X(16).
+       01 WS-SAVE-ACTION                         GLOBAL    PIC X(4).
+       01 WS-SAVE-STATUS                         GLOBAL    PIC 9.
+
+      *> The sky at the world's time, as CRAFT-SKY answers it.
+       01 WS-SKY-TIME                            GLOBAL    PIC 9(5).
+       01 WS-SKY                                 GLOBAL.
+           05 WS-SKY-TOP                         PIC X(9).
+           05 WS-SKY-BOTTOM                      PIC X(9).
+           05 WS-FOG-RED                         PIC 9V9(4).
+           05 WS-FOG-GREEN                       PIC 9V9(4).
+           05 WS-FOG-BLUE                        PIC 9V9(4).
+           05 WS-SUN-ANGLE                       PIC S9(3)V9(4).
+           05 WS-DAYLIGHT                        PIC 9V9(4).
+           05 WS-LIGHT-INTENSITY                 PIC 9V9(4).
+           05 WS-LIGHT-RED                       PIC 9V9(4).
+           05 WS-LIGHT-GREEN                     PIC 9V9(4).
+           05 WS-LIGHT-BLUE                      PIC 9V9(4).
+           05 WS-AMBIENT                         PIC 9V9(4).
+           05 WS-STARS                           PIC 9V9(4).
+       01 WS-SKY-FRAMES                          GLOBAL    PIC 99          VALUE 0.
+
+      *> One tile's pixels, as CRAFT-TILE paints them, and the images made from the tiles.
+       01 WS-TILE-NUMBER                         GLOBAL    PIC 99.
+       01 WS-TILE-PIXELS                         GLOBAL.
+           05 WS-TILE-PIXEL                      PIC X(9)        OCCURS 256.
+       01 WS-TILE-IMAGES                         GLOBAL.
+           05 WS-TILE-IMAGE                      PIC 9(10)       OCCURS 24.
+       01 WS-TYPE-MATERIALS                      GLOBAL.
+           05 WS-TYPE-MATERIAL                   PIC 9(10)       OCCURS 9.
+
+      *> The meshes: a unit cube whose faces take the top, side and bottom thirds of a block's
+      *> texture strip, and the ground that goes on around the 48 by 48 (texture repeated a block).
+       01 WS-CUBE-POSITIONS                      GLOBAL.
+           05 FILLER                     PIC    X(56)    VALUE
+               "0 1 0 0 1 1 1 1 1 1 1 0 0 0 1 0 0 0 1 0 0 1 0 1 0 1 1 0 ".
+           05 FILLER                     PIC    X(56)    VALUE
+               "0 1 1 0 1 1 1 1 1 1 0 1 0 0 0 0 0 0 1 0 1 1 1 1 0 1 1 0 ".
+           05 FILLER                     PIC    X(32)    VALUE
+               "0 1 1 0 0 1 0 0 0 0 0 0 1 0 1 1 ".
+       01 WS-CUBE-NORMALS                        GLOBAL.
+           05 FILLER                     PIC    X(56)    VALUE
+               "0 1 0 0 1 0 0 1 0 0 1 0 0 -1 0 0 -1 0 0 -1 0 0 -1 0 0 0 ".
+           05 FILLER                     PIC    X(56)    VALUE
+               "1 0 0 1 0 0 1 0 0 1 0 0 -1 0 0 -1 0 0 -1 0 0 -1 1 0 0 1 ".
+           05 FILLER                     PIC    X(44)    VALUE
+               "0 0 1 0 0 1 0 0 -1 0 0 -1 0 0 -1 0 0 -1 0 0 ".
+       01 WS-CUBE-UVS                            GLOBAL.
+           05 FILLER                     PIC    X(52)    VALUE
+               "0.002 0 0.002 1 0.3313 1 0.3313 0 0.6687 0 0.6687 1 ".
+           05 FILLER                     PIC    X(52)    VALUE
+               "0.998 1 0.998 0 0.3353 0 0.3353 1 0.6647 1 0.6647 0 ".
+           05 FILLER                     PIC    X(54)    VALUE
+               "0.3353 0 0.3353 1 0.6647 1 0.6647 0 0.3353 0 0.3353 1 ".
+           05 FILLER                     PIC    X(54)    VALUE
+               "0.6647 1 0.6647 0 0.3353 0 0.3353 1 0.6647 1 0.6647 0 ".
+       01 WS-CUBE-INDICES                        GLOBAL.
+           05 FILLER                     PIC    X(54)    VALUE
+               "0 1 2 0 2 3 4 5 6 4 6 7 8 9 10 8 10 11 12 13 14 12 14 ".
+           05 FILLER                     PIC    X(39)    VALUE
+               "15 16 17 18 16 18 19 20 21 22 20 22 23 ".
+       01 WS-GROUND-POSITIONS                    GLOBAL.
+           05 FILLER                     PIC    X(56)    VALUE
+               "-200 64 -200 -200 64 -24 200 64 -24 200 64 -200 -200 64 ".
+           05 FILLER                     PIC    X(56)    VALUE
+               "24 -200 64 200 200 64 200 200 64 24 -200 64 -24 -200 64 ".
+           05 FILLER                     PIC    X(53)    VALUE
+               "24 -24 64 24 -24 64 -24 24 64 -24 24 64 24 200 64 24 ".
+           05 FILLER                     PIC    X(11)    VALUE
+               "200 64 -24 ".
+       01 WS-GROUND-NORMALS                      GLOBAL.
+           05 FILLER                     PIC    X(56)    VALUE
+               "0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 ".
+           05 FILLER                     PIC    X(40)    VALUE
+               "1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 ".
+       01 WS-GROUND-UVS                          GLOBAL.
+           05 FILLER                     PIC    X(53)    VALUE
+               "-200 -200 -200 -24 200 -24 200 -200 -200 24 -200 200 ".
+           05 FILLER                     PIC    X(54)    VALUE
+               "200 200 200 24 -200 -24 -200 24 -24 24 -24 -24 24 -24 ".
+           05 FILLER                     PIC    X(21)    VALUE
+               "24 24 200 24 200 -24 ".
+       01 WS-GROUND-INDICES                      GLOBAL.
+           05 FILLER                     PIC    X(54)    VALUE
+               "0 1 2 0 2 3 4 5 6 4 6 7 8 9 10 8 10 11 12 13 14 12 14 ".
+           05 FILLER                     PIC    X(3)    VALUE
+               "15 ".
+
+      *> The nodes of the scene.
+       01 WS-CAMERA                              GLOBAL    PIC 9(10).
+       01 WS-SKY-GROUP                           GLOBAL    PIC 9(10).
+       01 WS-SUN                                 GLOBAL    PIC 9(10).
+       01 WS-MOON                                GLOBAL    PIC 9(10).
+       01 WS-STAR-NODE                           GLOBAL    PIC 9(10).
+       01 WS-STAR-MATERIAL                       GLOBAL    PIC 9(10).
+       01 WS-LIGHT                               GLOBAL    PIC 9(10).
+       01 WS-CLOUD-GROUP                         GLOBAL    PIC 9(10).
+       01 WS-CLOUD-NODE                          GLOBAL    PIC 9(10).
+       01 WS-CLOUD-DRIFT                         GLOBAL    PIC 9(3)V9(4)   VALUE 0.
+       01 WS-GROUND                              GLOBAL    PIC 9(10).
+       01 WS-HIGHLIGHT                           GLOBAL    PIC 9(10).
+       01 WS-OUTLINE-MATERIAL                    GLOBAL    PIC 9(10).
+       01 WS-CRACK                               GLOBAL    PIC 9(10).
+       01 WS-CRACK-MATERIAL                      GLOBAL    PIC 9(10).
+       01 WS-PARTICLE-NODE                       GLOBAL    PIC 9(10).
+       01 WS-PARTICLE-MATERIAL                   GLOBAL    PIC 9(10).
+       01 WS-NODE                                GLOBAL    PIC 9(10).
+       01 WS-MATERIAL                            GLOBAL    PIC 9(10).
+
+      *> What is drawn: one instanced cube node per chunk (16 by 16 columns, nine of them) and
+      *> block type, list = (chunk - 1) * 9 + type. Every visible block - one with air, leaves or
+      *> glass beside it - is an entry of its list, chained both ways; WS-MAP tells which entry a
+      *> block has. A list is rebuilt into its node's instances only when it changed.
+       01 WS-LISTS                               GLOBAL.
+           05 WS-LIST                                    OCCURS 81.
+               10 WS-LIST-NODE                   PIC 9(10).
+               10 WS-LIST-HEAD                   PIC 9(5).
+               10 WS-LIST-SIZE                   PIC 9(5).
+               10 WS-LIST-DIRTY                  PIC 9.
+       01 WS-POOL                                GLOBAL.
+           05 WS-ENTRY                                   OCCURS 9000.
+               10 WS-ENTRY-NEXT                  PIC 9(5).
+               10 WS-ENTRY-PREV                  PIC 9(5).
+               10 WS-ENTRY-LIST                  PIC 99.
+               10 WS-ENTRY-TEXT                  PIC X(40).
+       01 WS-FREE-HEAD                           GLOBAL    PIC 9(5).
+       01 WS-MAP                                 GLOBAL.
+           05 WS-MAP-ROW                                 OCCURS 48.
+               10 WS-MAP-COLUMN                          OCCURS 48.
+                   15 WS-MAP-ENTRY               PIC 9(5)        OCCURS 24.
+       01 WS-INSTANCES                           GLOBAL    PIC X(64000).
+       01 WS-POINTER                             GLOBAL    PIC 9(5).
+
+      *> The block CRAFT-REFRESH-BLOCK looks at, and the block CRAFT-SET-BLOCK changes.
+       01 WS-R-I                                 GLOBAL    PIC S9(4).
+       01 WS-R-J                                 GLOBAL    PIC S9(4).
+       01 WS-R-K                                 GLOBAL    PIC S9(4).
+       01 WS-R-CHAR                              GLOBAL    PIC X.
+       01 WS-R-VISIBLE                           GLOBAL    PIC 9.
+       01 WS-R-LIST                              GLOBAL    PIC 99.
+       01 WS-SET-I                               GLOBAL    PIC S9(4).
+       01 WS-SET-J                               GLOBAL    PIC S9(4).
+       01 WS-SET-K                               GLOBAL    PIC S9(4).
+       01 WS-SET-CHAR                            GLOBAL    PIC X.
+
+      *> A kind of column CRAFT-SCAN-ALL has seen, and which of its blocks show.
+       01 WS-SAME-COLUMN                         GLOBAL    PIC X(24).
+       01 WS-SAME-COUNT                          GLOBAL    PIC 99.
+       01 WS-SAME-LIST                           GLOBAL.
+           05 WS-SAME-J                          PIC 99          OCCURS 24.
+       01 WS-SAME-INDEX                          GLOBAL    PIC 99.
+       01 WS-SAME-FAST                           GLOBAL    PIC 9.
+       01 WS-SAME-SEE-THROUGH                    GLOBAL    PIC 99.
+
+      *> Counters and numbers being worked.
+       01 WS-I                                   GLOBAL    PIC S9(4).
+       01 WS-J                                   GLOBAL    PIC S9(4).
+       01 WS-K                                   GLOBAL    PIC S9(4).
+       01 WS-T                                   GLOBAL    PIC 99.
+       01 WS-L                                   GLOBAL    PIC 99.
+       01 WS-E                                   GLOBAL    PIC 9(5).
+       01 WS-X                                   GLOBAL    PIC 99.
+       01 WS-Y                                   GLOBAL    PIC 99.
+       01 WS-PIXEL-INDEX                         GLOBAL    PIC 999.
+       01 WS-SHOW-X                              GLOBAL    PIC -(3)9.
+       01 WS-SHOW-Y                              GLOBAL    PIC -(3)9.
+       01 WS-SHOW-Z                              GLOBAL    PIC -(3)9.
+       01 WS-ANGLE                               GLOBAL    PIC S9(4)V9(6).
+       01 WS-LEVEL                               GLOBAL    PIC S9(4)V9(6).
+       01 WS-MX                                  GLOBAL    PIC S9(4)V9(4).
+       01 WS-MY                                  GLOBAL    PIC S9(4)V9(4).
+       01 WS-MZ                                  GLOBAL    PIC S9(4)V9(4).
+       01 WS-SHOW-F                              GLOBAL    PIC -(4)9.99.
+       01 WS-MATRIX                              GLOBAL.
+           05 WS-MATRIX-CELL                     PIC ----9.9999  OCCURS 16.
+       01 WS-CELL-INDEX                          GLOBAL    PIC 99.
+
+      *> The player: feet at WS-PLAYER-X/Y/Z, eyes 1.62 m above them, a box 0.6 wide and 1.8 tall.
+       01 WS-PLAYER-X                            GLOBAL    PIC S9(4)V9(4).
+       01 WS-PLAYER-Y                            GLOBAL    PIC S9(4)V9(4).
+       01 WS-PLAYER-Z                            GLOBAL    PIC S9(4)V9(4).
+       01 WS-VEL-X                               GLOBAL    PIC S9(3)V9(4).
+       01 WS-VEL-Y                               GLOBAL    PIC S9(3)V9(4).
+       01 WS-VEL-Z                               GLOBAL    PIC S9(3)V9(4).
+       01 WS-YAW                                 GLOBAL    PIC S9(3)V9(4)  VALUE 0.
+       01 WS-PITCH                               GLOBAL    PIC S9(3)V9(4)  VALUE -8.
+       01 WS-ON-GROUND                           GLOBAL    PIC 9           VALUE 0.
+       01 WS-FLYING                              GLOBAL    PIC 9           VALUE 0.
+       01 WS-FALL-TOP                            GLOBAL    PIC S9(4)V9(4).
+       01 WS-HEALTH                              GLOBAL    PIC 99          VALUE 20.
+       01 WS-DAMAGE                              GLOBAL    PIC 99.
+       01 WS-DEAD                                GLOBAL    PIC 9           VALUE 0.
+       01 WS-HURT-FRAMES                         GLOBAL    PIC 99          VALUE 0.
+       01 WS-SLOT                                GLOBAL    PIC 9           VALUE 1.
+       01 WS-COUNTS                              GLOBAL.
+           05 WS-COUNT                           PIC 999         OCCURS 9.
+       01 WS-SPEED                               GLOBAL    PIC S9(3)V9(4).
+       01 WS-FORWARD-X                           GLOBAL    PIC S9V9(6).
+       01 WS-FORWARD-Z                           GLOBAL    PIC S9V9(6).
+       01 WS-WISH-F                              GLOBAL    PIC S9.
+       01 WS-WISH-S                              GLOBAL    PIC S9.
+       01 WS-WISH-X                              GLOBAL    PIC S9V9(6).
+       01 WS-WISH-Z                              GLOBAL    PIC S9V9(6).
+       01 WS-NEW                                 GLOBAL    PIC S9(4)V9(4).
+       01 WS-EYE-Y                               GLOBAL    PIC S9(4)V9(4).
+
+      *> A box CRAFT-BOX-BLOCKED tests: centre of its base, half its width, its height.
+       01 WS-BOX-X                               GLOBAL    PIC S9(4)V9(4).
+       01 WS-BOX-Y                               GLOBAL    PIC S9(4)V9(4).
+       01 WS-BOX-Z                               GLOBAL    PIC S9(4)V9(4).
+       01 WS-BOX-HALF                            GLOBAL    PIC 9V9(4)      VALUE 0.3.
+       01 WS-BOX-HEIGHT                          GLOBAL    PIC 9V9(4)      VALUE 1.8.
+       01 WS-BLOCKED                             GLOBAL    PIC 9.
+       01 WS-FROM-X                              GLOBAL    PIC S9(4).
+       01 WS-TO-X                                GLOBAL    PIC S9(4).
+       01 WS-FROM-Y                              GLOBAL    PIC S9(4).
+       01 WS-TO-Y                                GLOBAL    PIC S9(4).
+       01 WS-FROM-Z                              GLOBAL    PIC S9(4).
+       01 WS-TO-Z                                GLOBAL    PIC S9(4).
+       01 WS-CX                                  GLOBAL    PIC S9(4).
+       01 WS-CY                                  GLOBAL    PIC S9(4).
+       01 WS-CZ                                  GLOBAL    PIC S9(4).
+       01 WS-SI                                  GLOBAL    PIC S9(4).
+       01 WS-SJ                                  GLOBAL    PIC S9(4).
+       01 WS-SK                                  GLOBAL    PIC S9(4).
+
+      *> Input: whether the world has been clicked yet, the pointer, the keys pressed this frame.
+       01 WS-PLAYING                             GLOBAL    PIC 9           VALUE 0.
+       01 WS-PAUSED                              GLOBAL    PIC 9           VALUE 0.
+       01 WS-CONSOLE-OPEN                        GLOBAL    PIC 9           VALUE 0.
+       01 WS-POINTER-X                           GLOBAL    PIC S9(5).
+       01 WS-POINTER-Y                           GLOBAL    PIC S9(5).
+       01 WS-LAST-POINTER-X                      GLOBAL    PIC S9(5).
+       01 WS-LAST-POINTER-Y                      GLOBAL    PIC S9(5).
+       01 WS-LOOK-READY                          GLOBAL    PIC 9           VALUE 0.
+       01 WS-VIEW-WIDTH                          GLOBAL    PIC 9(5).
+       01 WS-VIEW-HEIGHT                         GLOBAL    PIC 9(5).
+       01 WS-JUMP-HELD                           GLOBAL    PIC 9           VALUE 0.
+       01 WS-JUMP-PRESSED                        GLOBAL    PIC 9           VALUE 0.
+       01 WS-TAP-FRAMES                          GLOBAL    PIC 99          VALUE 0.
+       01 WS-ESCAPE-HELD                         GLOBAL    PIC 9           VALUE 0.
+       01 WS-CONSOLE-KEY-HELD                    GLOBAL    PIC 9           VALUE 0.
+       01 WS-KEY-NAME                            GLOBAL    PIC X(8).
+       01 WS-MINING                              GLOBAL    PIC 9           VALUE 0.
+       01 WS-MINE-COOLDOWN                       GLOBAL    PIC 99          VALUE 0.
+       01 WS-MINE-I                              GLOBAL    PIC S9(4).
+       01 WS-MINE-J                              GLOBAL    PIC S9(4).
+       01 WS-MINE-K                              GLOBAL    PIC S9(4).
+       01 WS-MINE-PROGRESS                       GLOBAL    PIC 9V9(4)      VALUE 0.
+       01 WS-MINE-STAGE                          GLOBAL    PIC 9           VALUE 0.
+
+      *> The block under the crosshair (Pick at the middle of the view) and where a block would go.
+       01 WS-ANSWER                              GLOBAL    PIC X(400).
+       01 WS-FIELDS                              GLOBAL.
+           05 WS-FIELD                           PIC X(40)       OCCURS 9.
+       01 WS-HIT-DISTANCE                        GLOBAL    PIC 9(4)V9(4).
+       01 WS-HIT-X                               GLOBAL    PIC S9(4)V9(4).
+       01 WS-HIT-Y                               GLOBAL    PIC S9(4)V9(4).
+       01 WS-HIT-Z                               GLOBAL    PIC S9(4)V9(4).
+       01 WS-NORMAL-X                            GLOBAL    PIC S9.
+       01 WS-NORMAL-Y                            GLOBAL    PIC S9.
+       01 WS-NORMAL-Z                            GLOBAL    PIC S9.
+       01 WS-TARGET-FOUND                        GLOBAL    PIC 9           VALUE 0.
+       01 WS-TARGET-I                            GLOBAL    PIC S9(4).
+       01 WS-TARGET-J                            GLOBAL    PIC S9(4).
+       01 WS-TARGET-K                            GLOBAL    PIC S9(4).
+       01 WS-REACH                               GLOBAL    PIC 9V9         VALUE 4.5.
+
+      *> Dropped items: small spinning blocks that fall to the ground and are picked up nearby.
+       01 WS-ITEMS                               GLOBAL.
+           05 WS-ITEM                                    OCCURS 16.
+               10 WS-ITEM-TYPE                   PIC 9.
+               10 WS-ITEM-X                      PIC S9(4)V9(4).
+               10 WS-ITEM-Y                      PIC S9(4)V9(4).
+               10 WS-ITEM-Z                      PIC S9(4)V9(4).
+               10 WS-ITEM-VY                     PIC S9(3)V9(4).
+               10 WS-ITEM-AGE                    PIC 9(5).
+       01 WS-ITEM-NODES                          GLOBAL.
+           05 WS-ITEM-NODE                       PIC 9(10)       OCCURS 9.
+           05 WS-ITEM-SHOWN                      PIC 9           OCCURS 9.
+       01 WS-ITEM-INDEX                          GLOBAL    PIC 99.
+       01 WS-ITEM-ALIVE                          GLOBAL    PIC 99          VALUE 0.
+       01 WS-DROP-TYPE                           GLOBAL    PIC 9.
+       01 WS-COS                                 GLOBAL    PIC S9V9(6).
+       01 WS-SIN                                 GLOBAL    PIC S9V9(6).
+
+      *> The pieces a broken block bursts into.
+       01 WS-PARTICLES                           GLOBAL.
+           05 WS-PARTICLE                                OCCURS 12.
+               10 WS-PART-X                      PIC S9(4)V9(4).
+               10 WS-PART-Y                      PIC S9(4)V9(4).
+               10 WS-PART-Z                      PIC S9(4)V9(4).
+               10 WS-PART-VX                     PIC S9(3)V9(4).
+               10 WS-PART-VY                     PIC S9(3)V9(4).
+               10 WS-PART-VZ                     PIC S9(3)V9(4).
+       01 WS-PART-FRAMES                         GLOBAL    PIC 99          VALUE 0.
+       01 WS-PART-INDEX                          GLOBAL    PIC 99.
+       01 WS-BURST-I                             GLOBAL    PIC S9(4).
+       01 WS-BURST-J                             GLOBAL    PIC S9(4).
+       01 WS-BURST-K                             GLOBAL    PIC S9(4).
+       01 WS-BURST-TYPE                          GLOBAL    PIC 9.
+
+      *> The HUD: redrawn only when something on it changed.
+       01 WS-HUD-DIRTY                           GLOBAL    PIC 9           VALUE 1.
+       01 WS-HUD-IMAGE                           GLOBAL    PIC 9(10).
+       01 WS-SLOT-X                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-ICON-X                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-ICON-Y                              GLOBAL    PIC S9(4)V9(4).
+       01 WS-ICON-TOP                            GLOBAL    PIC S9(4)V9(4).
+       01 WS-ICON-MID                            GLOBAL    PIC S9(4)V9(4).
+       01 WS-DIGITS                              GLOBAL    PIC ZZ9.
+       01 WS-DIGIT-INDEX                         GLOBAL    PIC 9.
+       01 WS-DIGIT-X                             GLOBAL    PIC S9(4)V9(4).
+       01 WS-HEART-X                             GLOBAL    PIC S9(4)V9(4).
+       01 WS-HEART-TILE                          GLOBAL    PIC 99.
+
+      *> Frames: the info line, the hint, the chat, the autosave (every five minutes).
+       01 WS-FRAME                               GLOBAL    PIC 9(9)        VALUE 0.
+       01 WS-HINT-FRAMES                         GLOBAL    PIC 9(4)        VALUE 450.
+       01 WS-AUTOSAVE-FRAMES                     GLOBAL    PIC 9(5)        VALUE 0.
+       01 WS-SHOW-DAY                            GLOBAL    PIC Z(4)9.
+       01 WS-CLOCK                               GLOBAL    PIC 99.
+       01 WS-CLOCK-MINUTES                       GLOBAL    PIC 99.
+       01 WS-SHOW-POS-X                          GLOBAL    PIC -(4)9.9.
+       01 WS-SHOW-POS-Y                          GLOBAL    PIC -(4)9.9.
+       01 WS-SHOW-POS-Z                          GLOBAL    PIC -(4)9.9.
+       01 WS-MODE-TEXT                           GLOBAL    PIC X(80).
+       01 WS-DAY-TEXT                            GLOBAL    PIC X(40).
+
+      *> The server console: its lines, newest first, and the chat shown over the world.
+       01 WS-LOG-MESSAGE                         GLOBAL    PIC X(200).
+       01 WS-LOG-CHAT                            GLOBAL    PIC 9           VALUE 0.
+       01 WS-LOG-ROWS                            GLOBAL.
+           05 WS-LOG-ROW                         PIC X(210)      OCCURS 80.
+       01 WS-LOG-INDEX                           GLOBAL    PIC 99.
+       01 WS-LOG-TEXT                            GLOBAL    PIC X(17000).
+       01 WS-NOW                                 GLOBAL    PIC X(21).
+       01 WS-CHAT-LINES                          GLOBAL.
+           05 WS-CHAT-LINE                       PIC X(160)      OCCURS 4.
+       01 WS-CHAT-FRAMES                         GLOBAL    PIC 9(4)        VALUE 0.
+       01 WS-CHAT-TEXT                           GLOBAL    PIC X(700).
+       01 WS-WHY                                 GLOBAL    PIC X(80).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="WORLD-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           *> What the title screen handed over: the player, the game mode, the language, and
+           *> whether to start a new world or continue the saved one.
+           INVOKE    super::GetProperty("PlayerName") RETURNING WS-HANDED
+           IF    WS-HANDED NOT = SPACES
+               SET     WS-PLAYER-NAME                TO    WS-HANDED
+           END-IF
+           INVOKE    super::GetProperty("GameMode") RETURNING WS-HANDED
+           SET     WS-GAME-MODE                  TO    1
+           IF    WS-HANDED(1:1) >= "1" AND WS-HANDED(1:1) <= "4"
+               SET     WS-GAME-MODE                  TO    WS-HANDED(1:1)
+           END-IF
+           INVOKE    super::GetProperty("Language") RETURNING WS-HANDED
+           IF    WS-HANDED(1:1) >= "1" AND WS-HANDED(1:1) <= "6"
+               SET     WS-LANGUAGE                   TO    WS-HANDED(1:1)
+           END-IF
+           INVOKE    super::GetProperty("WorldMode") RETURNING WS-HANDED
+           IF    WS-HANDED(1:4) = "LOAD"
+               SET     WS-WORLD-MODE                 TO    "LOAD"
+           END-IF
+           SET     WS-SERVER-PLAYER              TO    WS-PLAYER-NAME
+           INITIALIZE WS-LOG-ROWS WS-CHAT-LINES WS-ITEMS WS-MAP WS-COUNTS
+           INVOKE    super::SetProperty("WorldResult", "QUIT")
+
+           *> Puts the captions of the world's labels and buttons in the player's language.
+           *> Uses: WS-LANGUAGE and CRAFT-TEXT.
+           *> Result: the panels, the hint and the message speak that language.
+           CALL "CRAFT-TEXTS"
+
+           *> CobolCraft's start, line by line, in the server console.
+           SET     WS-LOG-MESSAGE                TO    "Starting PowerCobolCraft (after CobolCraft for v1.21.4)"
+           *> Writes the line into the console with the time.
+           *> Uses: WS-LOG-MESSAGE (set just above), WS-LOG-CHAT 0.
+           *> Result: DG-LOG shows it first.
+           CALL "CRAFT-LOG"
+           SET     WS-LOG-MESSAGE                TO    "Loading blocks..."
+           *> Writes the line into the console.
+           *> Uses: WS-LOG-MESSAGE.
+           *> Result: DG-LOG shows it first.
+           CALL "CRAFT-LOG"
+
+           *> The two image buffers get their first size here, in the form's own load event:
+           *> made for the first time inside a procedure, they stay one pixel wide.
+           IMG-TILE::Create( 16 16 )
+           IMG-STRIP::Create( 48 16 )
+
+           *> Paints the 24 tiles and makes the nine block materials from them.
+           *> Uses: CRAFT-TILE, IMG-TILE and IMG-STRIP, SCN-1.
+           *> Result: WS-TILE-IMAGE(1..24) and WS-TYPE-MATERIAL(1..9); WS-TYPE-OF knows each block code.
+           CALL "CRAFT-TEXTURES"
+           SET     WS-LOG-MESSAGE                TO    "Registering commands... done"
+           *> Writes the line into the console.
+           *> Uses: WS-LOG-MESSAGE.
+           *> Result: DG-LOG shows it first.
+           CALL "CRAFT-LOG"
+
+           *> Builds the scene: camera, sun, moon, stars, clouds, light, ground, the 81 block
+           *> nodes, the item nodes, the outline, the crack and the particles.
+           *> Uses: SCN-1, WS-TYPE-MATERIAL, the cube and ground meshes.
+           *> Result: every node handle above is set; the pool of entries is chained free.
+           CALL "CRAFT-BUILD-SCENE"
+
+           SET     WS-LOG-MESSAGE                TO    "Loading world..."
+           *> Writes the line into the console.
+           *> Uses: WS-LOG-MESSAGE.
+           *> Result: DG-LOG shows it first.
+           CALL "CRAFT-LOG"
+           SET     WS-SAVE-STATUS                TO    1
+           IF    WS-WORLD-MODE = "LOAD"
+               SET     WS-SAVE-ACTION                TO    "LOAD"
+               *> Reads the saved world.
+               *> Uses: WS-SAVE-ACTION "LOAD" and data/world.dat.
+               *> Result: WS-SAVE and WS-WORLD hold it; WS-SAVE-STATUS 0, or 1 when there is none.
+               CALL "CRAFT-WORLD-FILE" USING WS-SAVE-ACTION WS-SAVE WS-WORLD WS-SAVE-STATUS
+           END-IF
+           IF    WS-SAVE-STATUS = 0
+               SET     WS-PLAYER-NAME                TO    WS-SAVE-PLAYER
+               SET     WS-SERVER-PLAYER              TO    WS-SAVE-PLAYER
+               SET     WS-WORLD-TIME                 TO    WS-SAVE-TIME
+               SET     WS-DAY                        TO    WS-SAVE-DAY
+               SET     WS-GAME-MODE                  TO    WS-SAVE-MODE
+               SET     WS-PLAYER-X                   TO    WS-SAVE-X
+               SET     WS-PLAYER-Y                   TO    WS-SAVE-Y
+               SET     WS-PLAYER-Z                   TO    WS-SAVE-Z
+               SET     WS-YAW                        TO    WS-SAVE-YAW
+               SET     WS-PITCH                      TO    WS-SAVE-PITCH
+               SET     WS-HEALTH                     TO    WS-SAVE-HEALTH
+               SET     WS-SLOT                       TO    WS-SAVE-SLOT
+               SET     WS-WHITELIST-ON               TO    WS-SAVE-WHITELIST-ON
+               SET     WS-WHITELIST-COUNT            TO    WS-SAVE-WHITELIST-COUNT
+               PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+                   SET     WS-COUNT(WS-T)                TO    WS-SAVE-COUNT(WS-T)
+               END-PERFORM
+               PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 20
+                   SET     WS-WHITELIST-NAME(WS-T)       TO    WS-SAVE-WHITELIST-NAME(WS-T)
+               END-PERFORM
+               IF    WS-HEALTH = 0
+                   SET     WS-HEALTH                     TO    20
+               END-IF
+           ELSE
+               *> Makes CobolCraft's flat world (stone up to Y 62, grass at Y 63) with oak trees.
+               *> Uses: WS-WORLD.
+               *> Result: WS-WORLD holds the new world; the player stands at the spawn, 06:00 on day 1.
+               CALL "CRAFT-NEW-WORLD"
+           END-IF
+
+           *> Finds every visible block and fills the block nodes with them.
+           *> Uses: WS-WORLD.
+           *> Result: WS-MAP, the lists and the 81 nodes' instances.
+           CALL "CRAFT-SCAN-ALL"
+
+           *> Brings the rules of the game mode into play.
+           *> Uses: WS-GAME-MODE.
+           *> Result: WS-FLYING and WS-REACH set; the hearts shown or not.
+           CALL "CRAFT-APPLY-MODE"
+
+           SET     WS-LOG-MESSAGE                TO    "Starting server..."
+           *> Writes the line into the console.
+           *> Uses: WS-LOG-MESSAGE.
+           *> Result: DG-LOG shows it first.
+           CALL "CRAFT-LOG"
+           SET     WS-LOG-MESSAGE                TO    'Done! For help, type "help"'
+           *> Writes the line into the console.
+           *> Uses: WS-LOG-MESSAGE.
+           *> Result: DG-LOG shows it first.
+           CALL "CRAFT-LOG"
+
+           CNV-3D::SetMsaa( 4 )
+           CNV-3D::SetShadowMapSize( 2048 )
+           CNV-3D::SetScene( SCN-1::GetHandle() )
+           CNV-3D::SetCamera( WS-CAMERA )
+           CNV-HUD::SetSmoothing( 0 )
+
+           *> Paints the sky for the world's time.
+           *> Uses: WS-WORLD-TIME, CRAFT-SKY.
+           *> Result: background, fog, sun, moon, stars and light match the time.
+           CALL "CRAFT-SKY-UPDATE"
+
+           *> Plays the first frame.
+           *> Uses: the player's place and view.
+           *> Result: the camera, the HUD and the info line are ready.
+           CALL "CRAFT-STEP"
+           CNV-3D::Render()
+]]></Event>
+    <Event name="onClose" paragraph="WORLD-FORM--ONCLOSE"><![CDATA[       PROCEDURE DIVISION.
+           *> Saves the world when the window closes, as CobolCraft saves when it stops.
+           *> Uses: the world, the player and the server state.
+           *> Result: data/world.dat holds them.
+           CALL "CRAFT-SAVE"
+]]></Event>
+  </form-events>
+  <user-procedures>
+    <Event name="CRAFT-TEXTS" paragraph="CRAFT-TEXTS"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-TEXT-ID                    TO    20
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 20 (Game menu).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-PAUSE-TITLE::Caption      TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    21
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 21 (Back to game).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     BTN-RESUME::Caption           TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    22
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 22 (Save world).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     BTN-SAVE::Caption             TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    18
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 18 (Server console).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     BTN-CONSOLE::Caption          TO    WS-TEXT::Trim()
+           SET     LBL-CONSOLE-TITLE::Caption    TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    23
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 23 (Save and quit to title).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     BTN-QUIT::Caption             TO    WS-TEXT::Trim()
+           SET     BTN-DEATH-QUIT::Caption       TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    24
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 24 (You died!).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-DEATH::Caption            TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    25
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 25 (Respawn).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     BTN-RESPAWN::Caption          TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    26
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 26 (the controls).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-HINT::Caption             TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    27
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 27 (Click the world to play).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-MESSAGE::Caption          TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    19
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 19 (the command hint).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     TXT-COMMAND::HintText         TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    29
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 29 (Send).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     BTN-SEND::Caption             TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    30
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 30 (Close).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     BTN-CONSOLE-CLOSE::Caption    TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    28
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 28 (Day).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     WS-DAY-TEXT                   TO    WS-TEXT
+]]></Event>
+    <Event name="CRAFT-LOG" paragraph="CRAFT-LOG"><![CDATA[       PROCEDURE DIVISION.
+           *> The console keeps 80 lines, newest first: each line moves down one row.
+           PERFORM VARYING WS-LOG-INDEX FROM 80 BY -1 UNTIL WS-LOG-INDEX < 2
+               SET     WS-LOG-ROW(WS-LOG-INDEX)      TO    WS-LOG-ROW(WS-LOG-INDEX - 1)
+           END-PERFORM
+           SET     WS-NOW                        TO    FUNCTION CURRENT-DATE
+           SET     WS-LOG-ROW(1)                 TO    SPACES
+           STRING    WS-NOW(9:2) ":" WS-NOW(11:2) ":" WS-NOW(13:2) X"09" WS-LOG-MESSAGE::Trim()
+               DELIMITED BY SIZE INTO WS-LOG-ROW(1)
+
+           *> The grid shows them all: one row a line, the time and the message apart.
+           SET     WS-LOG-TEXT                   TO    SPACES
+           SET     WS-POINTER                    TO    1
+           PERFORM VARYING WS-LOG-INDEX FROM 1 BY 1 UNTIL WS-LOG-INDEX > 80
+               IF    WS-LOG-ROW(WS-LOG-INDEX) NOT = SPACES
+                   IF    WS-LOG-INDEX > 1
+                       STRING    X"0A" DELIMITED BY SIZE INTO WS-LOG-TEXT WITH POINTER WS-POINTER
+                   END-IF
+                   STRING    WS-LOG-ROW(WS-LOG-INDEX)::Trim() DELIMITED BY SIZE INTO WS-LOG-TEXT WITH POINTER WS-POINTER
+               END-IF
+           END-PERFORM
+           SET     DG-LOG::Rows                  TO    WS-LOG-TEXT
+
+           *> Chat and the answers to commands also show over the world for ten seconds.
+           IF    WS-LOG-CHAT = 1
+               SET     WS-CHAT-LINE(1)               TO    WS-CHAT-LINE(2)
+               SET     WS-CHAT-LINE(2)               TO    WS-CHAT-LINE(3)
+               SET     WS-CHAT-LINE(3)               TO    WS-CHAT-LINE(4)
+               SET     WS-CHAT-LINE(4)               TO    WS-LOG-MESSAGE
+               SET     WS-CHAT-TEXT                  TO    SPACES
+               SET     WS-POINTER                    TO    1
+               PERFORM VARYING WS-LOG-INDEX FROM 1 BY 1 UNTIL WS-LOG-INDEX > 4
+                   IF    WS-CHAT-LINE(WS-LOG-INDEX) NOT = SPACES
+                       IF    WS-POINTER > 1
+                           STRING    X"0A" DELIMITED BY SIZE INTO WS-CHAT-TEXT WITH POINTER WS-POINTER
+                       END-IF
+                       STRING    WS-CHAT-LINE(WS-LOG-INDEX)::Trim() DELIMITED BY SIZE
+                           INTO WS-CHAT-TEXT WITH POINTER WS-POINTER
+                   END-IF
+               END-PERFORM
+               SET     LBL-CHAT::Caption             TO    WS-CHAT-TEXT
+               LBL-CHAT::Show()
+               SET     WS-CHAT-FRAMES                TO    300
+           END-IF
+           SET     WS-LOG-CHAT                   TO    0
+]]></Event>
+    <Event name="CRAFT-TEXTURES" paragraph="CRAFT-TEXTURES"><![CDATA[       PROCEDURE DIVISION.
+           *> Each block code's type number, looked up by the code's ordinal.
+           INITIALIZE WS-TYPE-OF-TABLE
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+               SET     WS-TYPE-OF(FUNCTION ORD( WS-BLOCK-CODES(WS-T:1) ))    TO    WS-T
+           END-PERFORM
+
+           *> The 24 tiles, 16 by 16 pixels each.
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 24
+               SET     WS-TILE-NUMBER                TO    WS-T
+               *> Paints one tile.
+               *> Uses: WS-TILE-NUMBER (1 to 24).
+               *> Result: WS-TILE-PIXEL(1..256), row by row from the top-left.
+               CALL "CRAFT-TILE" USING WS-TILE-NUMBER WS-TILE-PIXELS
+               IMG-TILE::Create( 16 16 )
+               SET     WS-PIXEL-INDEX                TO    1
+               PERFORM VARYING WS-Y FROM 0 BY 1 UNTIL WS-Y > 15
+                   PERFORM VARYING WS-X FROM 0 BY 1 UNTIL WS-X > 15
+                       IMG-TILE::SetPixel( WS-X WS-Y WS-TILE-PIXEL(WS-PIXEL-INDEX) )
+                       ADD     1                             TO    WS-PIXEL-INDEX
+                   END-PERFORM
+               END-PERFORM
+               SET     WS-TILE-IMAGE(WS-T)           TO    IMG-TILE::Clone()
+           END-PERFORM
+
+           *> A strip per block type - top, side, bottom - blown up eight times without smoothing,
+           *> so the pixels stay sharp on the faces.
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+               IMG-STRIP::Create( 48 16 )
+               IMG-STRIP::Composite( WS-TILE-IMAGE(WS-TOP-TILE(WS-T)) 0 0 )
+               IMG-STRIP::Composite( WS-TILE-IMAGE(WS-SIDE-TILE(WS-T)) 16 0 )
+               IMG-STRIP::Composite( WS-TILE-IMAGE(WS-BOTTOM-TILE(WS-T)) 32 0 )
+               IMG-STRIP::Resize( 384 128 "nearest" )
+               SET     WS-TYPE-MATERIAL(WS-T)        TO    SCN-1::CreateMaterial()
+               SCN-1::SetTexture( WS-TYPE-MATERIAL(WS-T) 0 IMG-STRIP::Clone() )
+               SCN-1::SetRoughness( WS-TYPE-MATERIAL(WS-T) 1 )
+
+               *> Leaves and glass let the light through their holes.
+               IF    WS-T = 7 OR WS-T = 8
+                   SCN-1::SetAlphaMode( WS-TYPE-MATERIAL(WS-T) 1 0.5 )
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="CRAFT-BUILD-SCENE" paragraph="CRAFT-BUILD-SCENE"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-CAMERA                     TO    SCN-1::AddCamera( 70 0.05 400 )
+           SCN-1::SetAmbient( 0.86 0.9 1 0.5 )
+
+           *> The ground that goes on around the 48 by 48, grass repeated a block at a time.
+           IMG-STRIP::Create( 16 16 )
+           IMG-STRIP::Composite( WS-TILE-IMAGE(1) 0 0 )
+           IMG-STRIP::Resize( 128 128 "nearest" )
+           SET     WS-GROUND                     TO    SCN-1::AddMesh( WS-GROUND-POSITIONS WS-GROUND-INDICES WS-GROUND-NORMALS WS-GROUND-UVS )
+           SET     WS-MATERIAL                   TO    SCN-1::CreateMaterial()
+           SCN-1::SetTexture( WS-MATERIAL 0 IMG-STRIP::Clone() )
+           SCN-1::SetRoughness( WS-MATERIAL 1 )
+           SCN-1::SetMaterial( WS-GROUND WS-MATERIAL )
+
+           *> The sky turns about the player: the sun on one side, the moon on the other, the stars
+           *> all round, and the light of whichever is up. CRAFT-CAMERA keeps it at the eyes;
+           *> CRAFT-SKY-UPDATE turns it with the time.
+           SET     WS-SKY-GROUP                  TO    SCN-1::AddGroup()
+           SET     WS-SUN                        TO    SCN-1::AddBox( 4.6 4.6 0.05 )
+           SCN-1::SetParent( WS-SUN WS-SKY-GROUP )
+           SCN-1::SetPosition( WS-SUN 0 0 -26 )
+           SET     WS-MATERIAL                   TO    SCN-1::GetMaterial( WS-SUN )
+           SCN-1::SetMaterialColor( WS-MATERIAL "#FFF4C2FF" )
+           SCN-1::SetUnlit( WS-MATERIAL 1 )
+           SET     WS-MOON                       TO    SCN-1::AddBox( 3.2 3.2 0.05 )
+           SCN-1::SetParent( WS-MOON WS-SKY-GROUP )
+           SCN-1::SetPosition( WS-MOON 0 0 26 )
+           SET     WS-MATERIAL                   TO    SCN-1::GetMaterial( WS-MOON )
+           SCN-1::SetMaterialColor( WS-MATERIAL "#E6EBF5FF" )
+           SCN-1::SetUnlit( WS-MATERIAL 1 )
+           SET     WS-LIGHT                      TO    SCN-1::AddDirectionalLight( 1 0.96 0.88 2 1 )
+           SCN-1::SetParent( WS-LIGHT WS-SKY-GROUP )
+
+           *> 160 stars on a sphere 27 m round, scattered by a seeded random sequence.
+           SET     WS-STAR-NODE                  TO    SCN-1::AddBox( 0.12 0.12 0.12 )
+           SCN-1::SetParent( WS-STAR-NODE WS-SKY-GROUP )
+           SET     WS-STAR-MATERIAL              TO    SCN-1::GetMaterial( WS-STAR-NODE )
+           SCN-1::SetMaterialColor( WS-STAR-MATERIAL "#FFFFFFFF" )
+           SCN-1::SetUnlit( WS-STAR-MATERIAL 1 )
+           COMPUTE WS-LEVEL = FUNCTION RANDOM( 1979 )
+           SET     WS-INSTANCES                  TO    SPACES
+           SET     WS-POINTER                    TO    1
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 160
+               COMPUTE WS-ANGLE = FUNCTION RANDOM * 6.2831853
+               COMPUTE WS-LEVEL = FUNCTION RANDOM * 2 - 1
+               COMPUTE WS-MX = FUNCTION SQRT( 1 - WS-LEVEL * WS-LEVEL ) * FUNCTION COS( WS-ANGLE ) * 27
+               COMPUTE WS-MY = FUNCTION SQRT( 1 - WS-LEVEL * WS-LEVEL ) * FUNCTION SIN( WS-ANGLE ) * 27
+               COMPUTE WS-MZ = WS-LEVEL * 27
+               *> Adds one copy at WS-MX, WS-MY, WS-MZ to the instance list.
+               *> Uses: WS-MX, WS-MY, WS-MZ, WS-INSTANCES at WS-POINTER.
+               *> Result: WS-INSTANCES grows by one translation matrix; WS-POINTER moves on.
+               CALL "CRAFT-ADD-TRANSLATION"
+           END-PERFORM
+           SCN-1::SetInstances( WS-STAR-NODE WS-INSTANCES )
+
+           *> Clouds: flat 8 by 8 m slabs at Y 84 on a 96 m pattern laid three by three, so the
+           *> group can slide by a whole pattern without a seam.
+           SET     WS-CLOUD-GROUP                TO    SCN-1::AddGroup()
+           SET     WS-CLOUD-NODE                 TO    SCN-1::AddBox( 8 1.2 8 )
+           SCN-1::SetParent( WS-CLOUD-NODE WS-CLOUD-GROUP )
+           SET     WS-MATERIAL                   TO    SCN-1::GetMaterial( WS-CLOUD-NODE )
+           SCN-1::SetMaterialColor( WS-MATERIAL "#FFFFFFD8" )
+           SCN-1::SetRoughness( WS-MATERIAL 1 )
+           SCN-1::SetEmissive( WS-MATERIAL 0.35 0.35 0.38 )
+           SCN-1::SetAlphaMode( WS-MATERIAL 2 )
+           COMPUTE WS-LEVEL = FUNCTION RANDOM( 2024 )
+           SET     WS-INSTANCES                  TO    SPACES
+           SET     WS-POINTER                    TO    1
+           PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 11
+               PERFORM VARYING WS-K FROM 0 BY 1 UNTIL WS-K > 11
+                   IF    FUNCTION RANDOM < 0.3
+                       PERFORM VARYING WS-J FROM -1 BY 1 UNTIL WS-J > 1
+                           PERFORM VARYING WS-T FROM 0 BY 1 UNTIL WS-T > 2
+                               COMPUTE WS-MX = WS-I * 8 + 4 - 48 + WS-J * 96
+                               SET     WS-MY                         TO    84
+                               COMPUTE WS-MZ = WS-K * 8 + 4 - 48 + ( WS-T - 1 ) * 96
+                               *> Adds one cloud slab to the instance list.
+                               *> Uses: WS-MX, WS-MY, WS-MZ, WS-INSTANCES at WS-POINTER.
+                               *> Result: WS-INSTANCES grows by one translation matrix.
+                               CALL "CRAFT-ADD-TRANSLATION"
+                           END-PERFORM
+                       END-PERFORM
+                   END-IF
+               END-PERFORM
+           END-PERFORM
+           SCN-1::SetInstances( WS-CLOUD-NODE WS-INSTANCES )
+
+           *> The block nodes: one cube mesh per chunk and type, hidden until a list fills it.
+           PERFORM VARYING WS-L FROM 1 BY 1 UNTIL WS-L > 81
+               SET     WS-LIST-NODE(WS-L)            TO    SCN-1::AddMesh( WS-CUBE-POSITIONS WS-CUBE-INDICES WS-CUBE-NORMALS WS-CUBE-UVS )
+               COMPUTE WS-T = FUNCTION MOD( WS-L - 1, 9 ) + 1
+               SCN-1::SetMaterial( WS-LIST-NODE(WS-L) WS-TYPE-MATERIAL(WS-T) )
+               SCN-1::SetVisible( WS-LIST-NODE(WS-L) 0 )
+               SET     WS-LIST-HEAD(WS-L)            TO    0
+               SET     WS-LIST-SIZE(WS-L)            TO    0
+               SET     WS-LIST-DIRTY(WS-L)           TO    0
+           END-PERFORM
+
+           *> Every entry of the pool starts free, chained one to the next.
+           PERFORM VARYING WS-E FROM 1 BY 1 UNTIL WS-E > 9000
+               COMPUTE WS-ENTRY-NEXT(WS-E) = WS-E + 1
+               SET     WS-ENTRY-PREV(WS-E)           TO    0
+               SET     WS-ENTRY-LIST(WS-E)           TO    0
+           END-PERFORM
+           SET     WS-ENTRY-NEXT(9000)           TO    0
+           SET     WS-FREE-HEAD                  TO    1
+
+           *> The dropped items: the same cube, small, one node per type.
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+               SET     WS-ITEM-NODE(WS-T)            TO    SCN-1::AddMesh( WS-CUBE-POSITIONS WS-CUBE-INDICES WS-CUBE-NORMALS WS-CUBE-UVS )
+               SCN-1::SetMaterial( WS-ITEM-NODE(WS-T) WS-TYPE-MATERIAL(WS-T) )
+               SCN-1::SetVisible( WS-ITEM-NODE(WS-T) 0 )
+               SET     WS-ITEM-SHOWN(WS-T)           TO    0
+           END-PERFORM
+
+           *> The outline of the block under the crosshair: twelve thin dark edges.
+           SET     WS-HIGHLIGHT                  TO    SCN-1::AddGroup()
+           SET     WS-OUTLINE-MATERIAL           TO    SCN-1::CreateMaterial()
+           SCN-1::SetMaterialColor( WS-OUTLINE-MATERIAL "#101010C0" )
+           SCN-1::SetUnlit( WS-OUTLINE-MATERIAL 1 )
+           SCN-1::SetAlphaMode( WS-OUTLINE-MATERIAL 2 )
+           PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 1
+               PERFORM VARYING WS-J FROM 0 BY 1 UNTIL WS-J > 1
+                   SET     WS-NODE                       TO    SCN-1::AddBox( 1.006 0.012 0.012 )
+                   SCN-1::SetParent( WS-NODE WS-HIGHLIGHT )
+                   SCN-1::SetPosition( WS-NODE 0.5 WS-I WS-J )
+                   SCN-1::SetMaterial( WS-NODE WS-OUTLINE-MATERIAL )
+                   SET     WS-NODE                       TO    SCN-1::AddBox( 0.012 1.006 0.012 )
+                   SCN-1::SetParent( WS-NODE WS-HIGHLIGHT )
+                   SCN-1::SetPosition( WS-NODE WS-I 0.5 WS-J )
+                   SCN-1::SetMaterial( WS-NODE WS-OUTLINE-MATERIAL )
+                   SET     WS-NODE                       TO    SCN-1::AddBox( 0.012 0.012 1.006 )
+                   SCN-1::SetParent( WS-NODE WS-HIGHLIGHT )
+                   SCN-1::SetPosition( WS-NODE WS-I WS-J 0.5 )
+                   SCN-1::SetMaterial( WS-NODE WS-OUTLINE-MATERIAL )
+               END-PERFORM
+           END-PERFORM
+           SCN-1::SetVisible( WS-HIGHLIGHT 0 )
+
+           *> The shadow that darkens a block as a hand breaks it.
+           SET     WS-CRACK                      TO    SCN-1::AddBox( 1.012 1.012 1.012 )
+           SET     WS-CRACK-MATERIAL             TO    SCN-1::GetMaterial( WS-CRACK )
+           SCN-1::SetMaterialColor( WS-CRACK-MATERIAL "#00000030" )
+           SCN-1::SetUnlit( WS-CRACK-MATERIAL 1 )
+           SCN-1::SetAlphaMode( WS-CRACK-MATERIAL 2 )
+           SCN-1::SetVisible( WS-CRACK 0 )
+
+           *> The pieces of a broken block.
+           SET     WS-PARTICLE-NODE              TO    SCN-1::AddBox( 0.13 0.13 0.13 )
+           SET     WS-PARTICLE-MATERIAL          TO    SCN-1::GetMaterial( WS-PARTICLE-NODE )
+           SCN-1::SetRoughness( WS-PARTICLE-MATERIAL 1 )
+           SCN-1::SetVisible( WS-PARTICLE-NODE 0 )
+]]></Event>
+    <Event name="CRAFT-ADD-TRANSLATION" paragraph="CRAFT-ADD-TRANSLATION"><![CDATA[       PROCEDURE DIVISION.
+           *> One copy moved to WS-MX, WS-MY, WS-MZ: the identity matrix with that translation.
+           STRING    "1 0 0 0 0 1 0 0 0 0 1 0 " DELIMITED BY SIZE INTO WS-INSTANCES WITH POINTER WS-POINTER
+           SET     WS-SHOW-F                     TO    WS-MX
+           STRING    WS-SHOW-F::Trim() " " DELIMITED BY SIZE INTO WS-INSTANCES WITH POINTER WS-POINTER
+           SET     WS-SHOW-F                     TO    WS-MY
+           STRING    WS-SHOW-F::Trim() " " DELIMITED BY SIZE INTO WS-INSTANCES WITH POINTER WS-POINTER
+           SET     WS-SHOW-F                     TO    WS-MZ
+           STRING    WS-SHOW-F::Trim() " 1 " DELIMITED BY SIZE INTO WS-INSTANCES WITH POINTER WS-POINTER
+]]></Event>
+    <Event name="CRAFT-ADD-MATRIX" paragraph="CRAFT-ADD-MATRIX"><![CDATA[       PROCEDURE DIVISION.
+           *> One copy placed by the sixteen numbers of WS-MATRIX (column by column).
+           PERFORM VARYING WS-CELL-INDEX FROM 1 BY 1 UNTIL WS-CELL-INDEX > 16
+               STRING    WS-MATRIX-CELL(WS-CELL-INDEX) " " DELIMITED BY SIZE INTO WS-INSTANCES WITH POINTER WS-POINTER
+           END-PERFORM
+]]></Event>
+    <Event name="CRAFT-NEW-WORLD" paragraph="CRAFT-NEW-WORLD"><![CDATA[       PROCEDURE DIVISION.
+           *> CobolCraft's flat world: stone from Y 56 to Y 62, grass at Y 63, air above.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 48
+               PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 48
+                   SET     WS-COLUMN(WS-I WS-K)          TO    "SSSSSSSG"
+               END-PERFORM
+           END-PERFORM
+
+           *> Seven oak trees, away from the spawn and from the edges: a trunk five logs tall,
+           *> two wide layers of leaves, a narrower one and a cross on top.
+           SET     WS-ANSWER                     TO    "1210331512331939360929382643"
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 7
+               COMPUTE WS-CX = FUNCTION NUMVAL( WS-ANSWER(( WS-T - 1 ) * 4 + 1:2) )
+               COMPUTE WS-CZ = FUNCTION NUMVAL( WS-ANSWER(( WS-T - 1 ) * 4 + 3:2) )
+               PERFORM VARYING WS-I FROM -2 BY 1 UNTIL WS-I > 2
+                   PERFORM VARYING WS-K FROM -2 BY 1 UNTIL WS-K > 2
+                       IF    FUNCTION ABS( WS-I ) + FUNCTION ABS( WS-K ) < 4
+                           SET     WS-COLUMN(WS-CX + WS-I WS-CZ + WS-K)(12:2)    TO    "EE"
+                       END-IF
+                       IF    FUNCTION ABS( WS-I ) < 2 AND FUNCTION ABS( WS-K ) < 2
+                           SET     WS-COLUMN(WS-CX + WS-I WS-CZ + WS-K)(14:1)    TO    "E"
+                       END-IF
+                       IF    FUNCTION ABS( WS-I ) + FUNCTION ABS( WS-K ) < 2
+                           SET     WS-COLUMN(WS-CX + WS-I WS-CZ + WS-K)(15:1)    TO    "E"
+                       END-IF
+                   END-PERFORM
+               END-PERFORM
+               SET     WS-COLUMN(WS-CX WS-CZ)(9:5)   TO    "LLLLL"
+           END-PERFORM
+
+           SET     WS-WORLD-TIME                 TO    1000
+           SET     WS-DAY                        TO    1
+           SET     WS-HEALTH                     TO    20
+           SET     WS-SLOT                       TO    1
+           *> Puts the player on the spawn, on top of the middle column.
+           *> Uses: WS-WORLD.
+           *> Result: WS-PLAYER-X/Y/Z on the ground at x 0.5, z 0.5, facing north.
+           CALL "CRAFT-SPAWN"
+]]></Event>
+    <Event name="CRAFT-SPAWN" paragraph="CRAFT-SPAWN"><![CDATA[       PROCEDURE DIVISION.
+           *> The spawn: the middle of the world, standing on the highest block there.
+           SET     WS-PLAYER-X                   TO    0.5
+           SET     WS-PLAYER-Z                   TO    0.5
+           SET     WS-PLAYER-Y                   TO    57
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 24
+               IF    WS-COLUMN(25 25)(WS-J:1) NOT = SPACE
+                   COMPUTE WS-PLAYER-Y = WS-J + 56
+               END-IF
+           END-PERFORM
+           SET     WS-FALL-TOP                   TO    WS-PLAYER-Y
+           SET     WS-VEL-X                      TO    0
+           SET     WS-VEL-Y                      TO    0
+           SET     WS-VEL-Z                      TO    0
+           SET     WS-YAW                        TO    0
+           SET     WS-PITCH                      TO    -8
+]]></Event>
+    <Event name="CRAFT-SCAN-ALL" paragraph="CRAFT-SCAN-ALL"><![CDATA[       PROCEDURE DIVISION.
+           *> Every block is looked at once and the lists are then drawn. A column inside the edge
+           *> ring with the same blocks as its four neighbours, and no leaves or glass, shows only
+           *> the blocks with air above or below them; most columns are alike, so which blocks those
+           *> are is worked out once per kind of column and kept in WS-SAME-*.
+           SET     WS-SAME-COLUMN                TO    HIGH-VALUES
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 48
+               PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 48
+                   SET     WS-SAME-FAST                  TO    0
+                   IF    WS-I > 1 AND WS-I < 48 AND WS-K > 1 AND WS-K < 48
+                       SET     WS-SAME-SEE-THROUGH           TO    0
+                       INSPECT WS-COLUMN(WS-I WS-K) TALLYING WS-SAME-SEE-THROUGH FOR ALL "E" "W"
+                       IF      WS-SAME-SEE-THROUGH = 0
+                           AND WS-COLUMN(WS-I - 1 WS-K) = WS-COLUMN(WS-I WS-K)
+                           AND WS-COLUMN(WS-I + 1 WS-K) = WS-COLUMN(WS-I WS-K)
+                           AND WS-COLUMN(WS-I WS-K - 1) = WS-COLUMN(WS-I WS-K)
+                           AND WS-COLUMN(WS-I WS-K + 1) = WS-COLUMN(WS-I WS-K)
+                           SET     WS-SAME-FAST                  TO    1
+                       END-IF
+                   END-IF
+                   IF    WS-SAME-FAST = 1
+                       IF    WS-COLUMN(WS-I WS-K) NOT = WS-SAME-COLUMN
+                           SET     WS-SAME-COLUMN                TO    WS-COLUMN(WS-I WS-K)
+                           SET     WS-SAME-COUNT                 TO    0
+                           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 24
+                               IF    WS-SAME-COLUMN(WS-J:1) NOT = SPACE
+                                   SET     WS-R-VISIBLE                  TO    0
+                                   IF    WS-J = 24
+                                       SET     WS-R-VISIBLE                  TO    1
+                                   ELSE
+                                       IF    WS-SAME-COLUMN(WS-J + 1:1) = SPACE
+                                           SET     WS-R-VISIBLE                  TO    1
+                                       END-IF
+                                   END-IF
+                                   IF    WS-J > 1
+                                       IF    WS-SAME-COLUMN(WS-J - 1:1) = SPACE
+                                           SET     WS-R-VISIBLE                  TO    1
+                                       END-IF
+                                   END-IF
+                                   IF    WS-R-VISIBLE = 1
+                                       ADD     1                             TO    WS-SAME-COUNT
+                                       SET     WS-SAME-J(WS-SAME-COUNT)      TO    WS-J
+                                   END-IF
+                               END-IF
+                           END-PERFORM
+                       END-IF
+                       PERFORM VARYING WS-SAME-INDEX FROM 1 BY 1 UNTIL WS-SAME-INDEX > WS-SAME-COUNT
+                           SET     WS-R-I                        TO    WS-I
+                           SET     WS-R-J                        TO    WS-SAME-J(WS-SAME-INDEX)
+                           SET     WS-R-K                        TO    WS-K
+                           *> Puts the block in its list.
+                           *> Uses: WS-R-I, WS-R-J, WS-R-K (a block of a column like its neighbours).
+                           *> Result: WS-MAP-ENTRY and its list updated; the list marked dirty.
+                           CALL "CRAFT-REFRESH-BLOCK"
+                       END-PERFORM
+                   ELSE
+                       PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 24
+                           IF    WS-COLUMN(WS-I WS-K)(WS-J:1) NOT = SPACE
+                               SET     WS-R-I                        TO    WS-I
+                               SET     WS-R-J                        TO    WS-J
+                               SET     WS-R-K                        TO    WS-K
+                               *> Puts the block in its list when it can be seen.
+                               *> Uses: WS-R-I, WS-R-J, WS-R-K (the block), WS-WORLD.
+                               *> Result: WS-MAP-ENTRY and its list updated; the list marked dirty.
+                               CALL "CRAFT-REFRESH-BLOCK"
+                           END-IF
+                       END-PERFORM
+                   END-IF
+               END-PERFORM
+           END-PERFORM
+           *> Draws the lists that changed.
+           *> Uses: WS-LIST-DIRTY.
+           *> Result: the instances of those nodes.
+           CALL "CRAFT-FLUSH"
+]]></Event>
+    <Event name="CRAFT-REFRESH-BLOCK" paragraph="CRAFT-REFRESH-BLOCK"><![CDATA[       PROCEDURE DIVISION.
+           IF    WS-R-I < 1 OR WS-R-I > 48 OR WS-R-K < 1 OR WS-R-K > 48 OR WS-R-J < 1 OR WS-R-J > 24
+               EXIT PROGRAM
+           END-IF
+           SET     WS-R-CHAR                     TO    WS-COLUMN(WS-R-I WS-R-K)(WS-R-J:1)
+           SET     WS-R-VISIBLE                  TO    0
+
+           *> A block shows when air, leaves or glass is beside it. Above the top is air; below the
+           *> bottom is solid; past the edge the ground is solid up to Y 63 (j 8) and air above.
+           IF    WS-R-CHAR NOT = SPACE
+               EVALUATE TRUE
+                   WHEN WS-R-J = 24
+                       SET     WS-R-VISIBLE                  TO    1
+                   WHEN WS-COLUMN(WS-R-I WS-R-K)(WS-R-J + 1:1) = " " OR "E" OR "W"
+                       SET     WS-R-VISIBLE                  TO    1
+                   WHEN WS-R-J > 1 AND WS-COLUMN(WS-R-I WS-R-K)(WS-R-J - 1:1) = " " OR "E" OR "W"
+                       SET     WS-R-VISIBLE                  TO    1
+                   WHEN WS-R-CHAR = "E" OR "W"
+                       SET     WS-R-VISIBLE                  TO    1
+               END-EVALUATE
+               IF    WS-R-VISIBLE = 0
+                   IF    WS-R-I = 1 OR WS-R-I = 48 OR WS-R-K = 1 OR WS-R-K = 48
+                       IF    WS-R-J > 8
+                           SET     WS-R-VISIBLE                  TO    1
+                       END-IF
+                   END-IF
+               END-IF
+               IF    WS-R-VISIBLE = 0 AND WS-R-I > 1
+                   IF    WS-COLUMN(WS-R-I - 1 WS-R-K)(WS-R-J:1) = " " OR "E" OR "W"
+                       SET     WS-R-VISIBLE                  TO    1
+                   END-IF
+               END-IF
+               IF    WS-R-VISIBLE = 0 AND WS-R-I < 48
+                   IF    WS-COLUMN(WS-R-I + 1 WS-R-K)(WS-R-J:1) = " " OR "E" OR "W"
+                       SET     WS-R-VISIBLE                  TO    1
+                   END-IF
+               END-IF
+               IF    WS-R-VISIBLE = 0 AND WS-R-K > 1
+                   IF    WS-COLUMN(WS-R-I WS-R-K - 1)(WS-R-J:1) = " " OR "E" OR "W"
+                       SET     WS-R-VISIBLE                  TO    1
+                   END-IF
+               END-IF
+               IF    WS-R-VISIBLE = 0 AND WS-R-K < 48
+                   IF    WS-COLUMN(WS-R-I WS-R-K + 1)(WS-R-J:1) = " " OR "E" OR "W"
+                       SET     WS-R-VISIBLE                  TO    1
+                   END-IF
+               END-IF
+           END-IF
+
+           *> The list it belongs in: its chunk (three by three of 16 by 16 columns) and its type.
+           SET     WS-R-LIST                     TO    0
+           IF    WS-R-VISIBLE = 1
+               COMPUTE WS-R-LIST = FUNCTION INTEGER( ( WS-R-I - 1 ) / 16 ) * 27
+                                 + FUNCTION INTEGER( ( WS-R-K - 1 ) / 16 ) * 9
+                                 + WS-TYPE-OF(FUNCTION ORD( WS-R-CHAR ))
+           END-IF
+           SET     WS-E                          TO    WS-MAP-ENTRY(WS-R-I WS-R-K WS-R-J)
+           IF    WS-E > 0 AND WS-ENTRY-LIST(WS-E) = WS-R-LIST
+               EXIT PROGRAM
+           END-IF
+
+           *> Out of the list it was in, back to the free entries.
+           IF    WS-E > 0
+               SET     WS-L                          TO    WS-ENTRY-LIST(WS-E)
+               IF    WS-ENTRY-PREV(WS-E) > 0
+                   SET     WS-ENTRY-NEXT(WS-ENTRY-PREV(WS-E))    TO    WS-ENTRY-NEXT(WS-E)
+               ELSE
+                   SET     WS-LIST-HEAD(WS-L)            TO    WS-ENTRY-NEXT(WS-E)
+               END-IF
+               IF    WS-ENTRY-NEXT(WS-E) > 0
+                   SET     WS-ENTRY-PREV(WS-ENTRY-NEXT(WS-E))    TO    WS-ENTRY-PREV(WS-E)
+               END-IF
+               SUBTRACT 1                            FROM  WS-LIST-SIZE(WS-L)
+               SET     WS-LIST-DIRTY(WS-L)           TO    1
+               SET     WS-ENTRY-LIST(WS-E)           TO    0
+               SET     WS-ENTRY-PREV(WS-E)           TO    0
+               SET     WS-ENTRY-NEXT(WS-E)           TO    WS-FREE-HEAD
+               SET     WS-FREE-HEAD                  TO    WS-E
+               SET     WS-MAP-ENTRY(WS-R-I WS-R-K WS-R-J)    TO    0
+           END-IF
+
+           *> Into its new list, at the head, with the matrix that moves the cube to the block.
+           IF    WS-R-LIST > 0 AND WS-FREE-HEAD > 0
+               SET     WS-E                          TO    WS-FREE-HEAD
+               SET     WS-FREE-HEAD                  TO    WS-ENTRY-NEXT(WS-E)
+               SET     WS-ENTRY-LIST(WS-E)           TO    WS-R-LIST
+               SET     WS-ENTRY-PREV(WS-E)           TO    0
+               SET     WS-ENTRY-NEXT(WS-E)           TO    WS-LIST-HEAD(WS-R-LIST)
+               IF    WS-LIST-HEAD(WS-R-LIST) > 0
+                   SET     WS-ENTRY-PREV(WS-LIST-HEAD(WS-R-LIST))    TO    WS-E
+               END-IF
+               SET     WS-LIST-HEAD(WS-R-LIST)       TO    WS-E
+               ADD     1                             TO    WS-LIST-SIZE(WS-R-LIST)
+               SET     WS-LIST-DIRTY(WS-R-LIST)      TO    1
+               SET     WS-MAP-ENTRY(WS-R-I WS-R-K WS-R-J)    TO    WS-E
+               COMPUTE WS-SHOW-X = WS-R-I - 25
+               COMPUTE WS-SHOW-Y = WS-R-J + 55
+               COMPUTE WS-SHOW-Z = WS-R-K - 25
+               SET     WS-ENTRY-TEXT(WS-E)           TO    SPACES
+               STRING    "1 0 0 0 0 1 0 0 0 0 1 0 " WS-SHOW-X::Trim() " " WS-SHOW-Y::Trim() " "
+                   WS-SHOW-Z::Trim() " 1" DELIMITED BY SIZE INTO WS-ENTRY-TEXT(WS-E)
+           END-IF
+]]></Event>
+    <Event name="CRAFT-FLUSH" paragraph="CRAFT-FLUSH"><![CDATA[       PROCEDURE DIVISION.
+           *> Each list that changed becomes its node's instances again; an empty one is hidden.
+           PERFORM VARYING WS-L FROM 1 BY 1 UNTIL WS-L > 81
+               IF    WS-LIST-DIRTY(WS-L) = 1
+                   SET     WS-LIST-DIRTY(WS-L)           TO    0
+                   IF    WS-LIST-SIZE(WS-L) = 0
+                       SCN-1::SetVisible( WS-LIST-NODE(WS-L) 0 )
+                   ELSE
+                       SET     WS-INSTANCES                  TO    SPACES
+                       SET     WS-POINTER                    TO    1
+                       SET     WS-E                          TO    WS-LIST-HEAD(WS-L)
+                       PERFORM UNTIL WS-E = 0 OR WS-POINTER > 63900
+                           STRING    WS-ENTRY-TEXT(WS-E) DELIMITED BY "  " " " DELIMITED BY SIZE
+                               INTO WS-INSTANCES WITH POINTER WS-POINTER
+                           SET     WS-E                          TO    WS-ENTRY-NEXT(WS-E)
+                       END-PERFORM
+                       SCN-1::SetInstances( WS-LIST-NODE(WS-L) WS-INSTANCES(1:WS-POINTER) )
+                       SCN-1::SetVisible( WS-LIST-NODE(WS-L) 1 )
+                   END-IF
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="CRAFT-SET-BLOCK" paragraph="CRAFT-SET-BLOCK"><![CDATA[       PROCEDURE DIVISION.
+           *> Changes one block and looks again at it and at its six neighbours.
+           SET     WS-COLUMN(WS-SET-I WS-SET-K)(WS-SET-J:1)    TO    WS-SET-CHAR
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 7
+               SET     WS-R-I                        TO    WS-SET-I
+               SET     WS-R-J                        TO    WS-SET-J
+               SET     WS-R-K                        TO    WS-SET-K
+               EVALUATE WS-T
+                   WHEN 2
+                       ADD     1                             TO    WS-R-I
+                   WHEN 3
+                       SUBTRACT 1                            FROM  WS-R-I
+                   WHEN 4
+                       ADD     1                             TO    WS-R-J
+                   WHEN 5
+                       SUBTRACT 1                            FROM  WS-R-J
+                   WHEN 6
+                       ADD     1                             TO    WS-R-K
+                   WHEN 7
+                       SUBTRACT 1                            FROM  WS-R-K
+               END-EVALUATE
+               *> Puts the block in its list when it can be seen, or takes it out.
+               *> Uses: WS-R-I, WS-R-J, WS-R-K, WS-WORLD.
+               *> Result: WS-MAP-ENTRY and the lists it touched, marked dirty.
+               CALL "CRAFT-REFRESH-BLOCK"
+           END-PERFORM
+           *> Draws the lists that changed.
+           *> Uses: WS-LIST-DIRTY.
+           *> Result: the instances of those nodes.
+           CALL "CRAFT-FLUSH"
+]]></Event>
+    <Event name="CRAFT-APPLY-MODE" paragraph="CRAFT-APPLY-MODE"><![CDATA[       PROCEDURE DIVISION.
+           *> Survival and adventure walk; creative may fly; spectator always flies through blocks.
+           EVALUATE WS-GAME-MODE
+               WHEN 2
+                   SET     WS-REACH                      TO    5
+               WHEN 4
+                   SET     WS-FLYING                     TO    1
+                   SET     WS-REACH                      TO    0
+               WHEN OTHER
+                   SET     WS-FLYING                     TO    0
+                   SET     WS-REACH                      TO    4.5
+           END-EVALUATE
+           SET     WS-TEXT-ID                    TO    WS-GAME-MODE
+           ADD     6                             TO    WS-TEXT-ID
+           *> Answers the mode's name in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 7 to 10 (Survival, Creative, Adventure, Spectator).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     WS-MODE-TEXT                  TO    WS-TEXT
+           SET     WS-HUD-DIRTY                  TO    1
+]]></Event>
+    <Event name="CRAFT-STEP" paragraph="CRAFT-STEP"><![CDATA[       PROCEDURE DIVISION.
+           ADD     1                             TO    WS-FRAME
+           *> The canvas follows the window: when its size changed, so does its picture.
+           COMPUTE WS-VIEW-WIDTH = CNV-3D::Width
+           COMPUTE WS-VIEW-HEIGHT = CNV-3D::Height
+           IF      WS-VIEW-WIDTH > 63 AND WS-VIEW-HEIGHT > 63
+               AND ( WS-VIEW-WIDTH NOT = CNV-3D::GetWidth() OR WS-VIEW-HEIGHT NOT = CNV-3D::GetHeight() )
+               CNV-3D::Resize( WS-VIEW-WIDTH WS-VIEW-HEIGHT )
+           END-IF
+
+           *> The server's clock: 20 ticks a second, two thirds of a tick a frame; a new day at 24000.
+           IF    WS-PAUSED = 0
+               COMPUTE WS-TICKS = WS-TICKS + 0.6667
+               IF    WS-TICKS >= 1
+                   ADD     FUNCTION INTEGER( WS-TICKS )  TO    WS-WORLD-TIME
+                   COMPUTE WS-TICKS = WS-TICKS - FUNCTION INTEGER( WS-TICKS )
+               END-IF
+               IF    WS-WORLD-TIME >= 24000
+                   SUBTRACT 24000                        FROM  WS-WORLD-TIME
+                   ADD     1                             TO    WS-DAY
+               END-IF
+               ADD     1                             TO    WS-SKY-FRAMES
+               IF    WS-SKY-FRAMES >= 15
+                   *> Paints the sky for the time.
+                   *> Uses: WS-WORLD-TIME, CRAFT-SKY.
+                   *> Result: background, fog, sun, moon, stars and light updated.
+                   CALL "CRAFT-SKY-UPDATE"
+               END-IF
+           END-IF
+
+           *> CobolCraft saves the world every five minutes, without a word.
+           ADD     1                             TO    WS-AUTOSAVE-FRAMES
+           IF    WS-AUTOSAVE-FRAMES >= 9000
+               *> Saves the world.
+               *> Uses: the world, the player and the server state.
+               *> Result: data/world.dat holds them; WS-AUTOSAVE-FRAMES back to 0.
+               CALL "CRAFT-SAVE"
+           END-IF
+
+           IF    WS-PAUSED = 0 AND WS-CONSOLE-OPEN = 0 AND WS-DEAD = 0
+               *> Reads the keys and the mouse.
+               *> Uses: the keys held on CNV-3D, its pointer.
+               *> Result: WS-YAW, WS-PITCH, WS-SLOT, WS-JUMP-PRESSED; Escape pauses, T opens the console.
+               CALL "CRAFT-READ-INPUT"
+           END-IF
+           IF    WS-PAUSED = 0 AND WS-DEAD = 0
+               *> Walks, jumps, flies and falls, stopped by the blocks.
+               *> Uses: W A S D, Space, C, WS-YAW, WS-GAME-MODE, WS-FLYING, the world.
+               *> Result: WS-PLAYER-X/Y/Z and the speeds; fall damage taken on landing.
+               CALL "CRAFT-MOVE-PLAYER"
+           END-IF
+
+           *> Places the camera at the eyes and the sky and the clouds about it.
+           *> Uses: WS-PLAYER-X/Y/Z, WS-YAW, WS-PITCH, WS-CLOUD-DRIFT.
+           *> Result: WS-CAMERA, WS-SKY-GROUP and WS-CLOUD-GROUP placed.
+           CALL "CRAFT-CAMERA"
+
+           IF    WS-PAUSED = 0 AND WS-DEAD = 0
+               *> Finds the block under the crosshair and outlines it.
+               *> Uses: CNV-3D::Pick at the middle of the view, WS-REACH.
+               *> Result: WS-TARGET-FOUND, WS-TARGET-I/J/K and the normals; WS-HIGHLIGHT placed or hidden.
+               CALL "CRAFT-TARGET"
+               *> Breaks the block under the crosshair while the left button is held.
+               *> Uses: WS-MINING, WS-TARGET-*, WS-GAME-MODE.
+               *> Result: WS-MINE-PROGRESS, the crack; a block broken when it is done.
+               CALL "CRAFT-MINE"
+           END-IF
+
+           IF    WS-ITEM-ALIVE > 0
+               *> Drops, spins and picks up the dropped items.
+               *> Uses: WS-ITEMS, the player's place.
+               *> Result: the items moved and drawn; WS-COUNT grows by what was picked up.
+               CALL "CRAFT-ITEMS"
+           END-IF
+           IF    WS-PART-FRAMES > 0
+               *> Flies the pieces of a broken block.
+               *> Uses: WS-PARTICLES, WS-PART-FRAMES.
+               *> Result: the pieces moved and drawn, hidden when done.
+               CALL "CRAFT-PARTICLES"
+           END-IF
+
+           *> Fades the red flash of a hurt, the chat and the hint.
+           IF    WS-HURT-FRAMES > 0
+               SUBTRACT 1                            FROM  WS-HURT-FRAMES
+               IF    WS-HURT-FRAMES = 0
+                   LBL-DAMAGE::Hide()
+               END-IF
+           END-IF
+           IF    WS-CHAT-FRAMES > 0
+               SUBTRACT 1                            FROM  WS-CHAT-FRAMES
+               IF    WS-CHAT-FRAMES = 0
+                   LBL-CHAT::Hide()
+               END-IF
+           END-IF
+           IF    WS-HINT-FRAMES > 0 AND WS-PLAYING = 1
+               SUBTRACT 1                            FROM  WS-HINT-FRAMES
+               IF    WS-HINT-FRAMES = 0
+                   LBL-HINT::Hide()
+               END-IF
+           END-IF
+
+           IF    WS-HUD-DIRTY = 1
+               *> Draws the hotbar and the hearts.
+               *> Uses: WS-SLOT, WS-COUNT, WS-HEALTH, WS-GAME-MODE, WS-TILE-IMAGE.
+               *> Result: CNV-HUD shows them.
+               CALL "CRAFT-HUD"
+           END-IF
+           IF    FUNCTION MOD( WS-FRAME, 10 ) = 1
+               *> Writes the line at the top: day, time, position, mode.
+               *> Uses: WS-DAY, WS-WORLD-TIME, WS-PLAYER-X/Y/Z, WS-MODE-TEXT, WS-FLYING.
+               *> Result: LBL-INFO::Caption.
+               CALL "CRAFT-INFO"
+           END-IF
+]]></Event>
+    <Event name="CRAFT-READ-INPUT" paragraph="CRAFT-READ-INPUT"><![CDATA[       PROCEDURE DIVISION.
+           *> Mouse look: the pointer's movement turns the view; near the left or right edge it
+           *> keeps turning. The arrow keys turn it too.
+           COMPUTE WS-POINTER-X = CNV-3D::PointerX
+           COMPUTE WS-POINTER-Y = CNV-3D::PointerY
+           IF    WS-LOOK-READY = 1 AND WS-PLAYING = 1
+               COMPUTE WS-YAW = WS-YAW - ( WS-POINTER-X - WS-LAST-POINTER-X ) * 0.18
+               COMPUTE WS-PITCH = WS-PITCH - ( WS-POINTER-Y - WS-LAST-POINTER-Y ) * 0.15
+               IF    WS-POINTER-X > 0 AND WS-POINTER-X < 90
+                   COMPUTE WS-YAW = WS-YAW + ( 90 - WS-POINTER-X ) * 0.03
+               END-IF
+               IF    WS-POINTER-X > WS-VIEW-WIDTH - 90
+                   COMPUTE WS-YAW = WS-YAW - ( WS-POINTER-X - WS-VIEW-WIDTH + 90 ) * 0.03
+               END-IF
+           END-IF
+           SET     WS-LOOK-READY                 TO    1
+           SET     WS-LAST-POINTER-X             TO    WS-POINTER-X
+           SET     WS-LAST-POINTER-Y             TO    WS-POINTER-Y
+           IF    CNV-3D::IsKeyDown( "ArrowLeft" ) = 1
+               ADD     3                             TO    WS-YAW
+           END-IF
+           IF    CNV-3D::IsKeyDown( "ArrowRight" ) = 1
+               SUBTRACT 3                            FROM  WS-YAW
+           END-IF
+           IF    CNV-3D::IsKeyDown( "ArrowUp" ) = 1
+               ADD     2                             TO    WS-PITCH
+           END-IF
+           IF    CNV-3D::IsKeyDown( "ArrowDown" ) = 1
+               SUBTRACT 2                            FROM  WS-PITCH
+           END-IF
+           IF    WS-PITCH > 89
+               SET     WS-PITCH                      TO    89
+           END-IF
+           IF    WS-PITCH < -89
+               SET     WS-PITCH                      TO    -89
+           END-IF
+           IF    WS-YAW > 360
+               SUBTRACT 360                          FROM  WS-YAW
+           END-IF
+           IF    WS-YAW < -360
+               ADD     360                           TO    WS-YAW
+           END-IF
+
+           *> 1 to 9 pick a slot of the hotbar.
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+               SET     WS-KEY-NAME                   TO    SPACES
+               STRING    "Num" WS-T(2:1) DELIMITED BY SIZE INTO WS-KEY-NAME
+               IF    CNV-3D::IsKeyDown( WS-KEY-NAME ) = 1 AND WS-SLOT NOT = WS-T
+                   SET     WS-SLOT                       TO    WS-T
+                   SET     WS-HUD-DIRTY                  TO    1
+               END-IF
+           END-PERFORM
+
+           *> Space acts once per press: a jump, and in creative two quick presses start or stop flying.
+           SET     WS-JUMP-PRESSED               TO    0
+           IF    CNV-3D::IsKeyDown( "Space" ) = 1
+               IF    WS-JUMP-HELD = 0
+                   SET     WS-JUMP-PRESSED               TO    1
+               END-IF
+               SET     WS-JUMP-HELD                  TO    1
+           ELSE
+               SET     WS-JUMP-HELD                  TO    0
+           END-IF
+           IF    WS-TAP-FRAMES > 0
+               SUBTRACT 1                            FROM  WS-TAP-FRAMES
+           END-IF
+           IF    WS-JUMP-PRESSED = 1 AND WS-GAME-MODE = 2
+               IF    WS-TAP-FRAMES > 0
+                   COMPUTE WS-FLYING = 1 - WS-FLYING
+                   SET     WS-VEL-Y                      TO    0
+                   SET     WS-TAP-FRAMES                 TO    0
+               ELSE
+                   SET     WS-TAP-FRAMES                 TO    8
+               END-IF
+           END-IF
+
+           *> Escape opens the game menu; T opens the server console.
+           IF    CNV-3D::IsKeyDown( "Escape" ) = 1
+               IF    WS-ESCAPE-HELD = 0
+                   SET     WS-PAUSED                     TO    1
+                   SET     WS-MINING                     TO    0
+                   PNL-PAUSE::Show()
+                   BTN-RESUME::SetFocus()
+               END-IF
+               SET     WS-ESCAPE-HELD                TO    1
+           ELSE
+               SET     WS-ESCAPE-HELD                TO    0
+           END-IF
+           IF    CNV-3D::IsKeyDown( "T" ) = 1
+               IF    WS-CONSOLE-KEY-HELD = 0
+                   *> Opens the server console beside the world.
+                   *> Uses: PNL-CONSOLE, TXT-COMMAND.
+                   *> Result: WS-CONSOLE-OPEN 1; the command box has the keyboard.
+                   CALL "CRAFT-OPEN-CONSOLE"
+               END-IF
+               SET     WS-CONSOLE-KEY-HELD           TO    1
+           ELSE
+               SET     WS-CONSOLE-KEY-HELD           TO    0
+           END-IF
+]]></Event>
+    <Event name="CRAFT-MOVE-PLAYER" paragraph="CRAFT-MOVE-PLAYER"><![CDATA[       PROCEDURE DIVISION.
+           *> Where W A S D point: forward along the view, sideways to the right of it.
+           COMPUTE WS-ANGLE = WS-YAW * 0.01745329
+           COMPUTE WS-FORWARD-X = 0 - FUNCTION SIN( WS-ANGLE )
+           COMPUTE WS-FORWARD-Z = 0 - FUNCTION COS( WS-ANGLE )
+           SET     WS-WISH-F                     TO    0
+           SET     WS-WISH-S                     TO    0
+           IF    WS-CONSOLE-OPEN = 0
+               IF    CNV-3D::IsKeyDown( "W" ) = 1
+                   ADD     1                             TO    WS-WISH-F
+               END-IF
+               IF    CNV-3D::IsKeyDown( "S" ) = 1
+                   SUBTRACT 1                            FROM  WS-WISH-F
+               END-IF
+               IF    CNV-3D::IsKeyDown( "D" ) = 1
+                   ADD     1                             TO    WS-WISH-S
+               END-IF
+               IF    CNV-3D::IsKeyDown( "A" ) = 1
+                   SUBTRACT 1                            FROM  WS-WISH-S
+               END-IF
+           END-IF
+           COMPUTE WS-WISH-X = WS-WISH-F * WS-FORWARD-X - WS-WISH-S * WS-FORWARD-Z
+           COMPUTE WS-WISH-Z = WS-WISH-F * WS-FORWARD-Z + WS-WISH-S * WS-FORWARD-X
+           IF    WS-WISH-F NOT = 0 AND WS-WISH-S NOT = 0
+               COMPUTE WS-WISH-X = WS-WISH-X * 0.7071
+               COMPUTE WS-WISH-Z = WS-WISH-Z * 0.7071
+           END-IF
+
+           *> Walking at 4.3 m/s, flying at 10.9; full control on the ground and in flight, a little in the air.
+           IF    WS-FLYING = 1
+               SET     WS-SPEED                      TO    10.9
+           ELSE
+               SET     WS-SPEED                      TO    4.317
+           END-IF
+           IF    WS-ON-GROUND = 1 OR WS-FLYING = 1
+               COMPUTE WS-VEL-X = WS-WISH-X * WS-SPEED
+               COMPUTE WS-VEL-Z = WS-WISH-Z * WS-SPEED
+           ELSE
+               COMPUTE WS-VEL-X = WS-VEL-X + ( WS-WISH-X * WS-SPEED - WS-VEL-X ) * 0.18
+               COMPUTE WS-VEL-Z = WS-VEL-Z + ( WS-WISH-Z * WS-SPEED - WS-VEL-Z ) * 0.18
+           END-IF
+
+           *> Up and down: Space and C while flying; otherwise gravity (32 m/s2) and the jump.
+           IF    WS-FLYING = 1
+               SET     WS-VEL-Y                      TO    0
+               IF    WS-CONSOLE-OPEN = 0 AND CNV-3D::IsKeyDown( "Space" ) = 1
+                   SET     WS-VEL-Y                      TO    7.5
+               END-IF
+               IF    WS-CONSOLE-OPEN = 0 AND CNV-3D::IsKeyDown( "C" ) = 1
+                   SET     WS-VEL-Y                      TO    -7.5
+               END-IF
+               SET     WS-FALL-TOP                   TO    WS-PLAYER-Y
+           ELSE
+               COMPUTE WS-VEL-Y = WS-VEL-Y - 32 / 30
+               IF    WS-VEL-Y < -60
+                   SET     WS-VEL-Y                      TO    -60
+               END-IF
+               IF    WS-ON-GROUND = 1 AND WS-JUMP-HELD = 1 AND WS-CONSOLE-OPEN = 0
+                   SET     WS-VEL-Y                      TO    8.7
+                   SET     WS-ON-GROUND                  TO    0
+               END-IF
+           END-IF
+
+           *> The spectator goes through everything.
+           IF    WS-GAME-MODE = 4
+               COMPUTE WS-PLAYER-X = WS-PLAYER-X + WS-VEL-X / 30
+               COMPUTE WS-PLAYER-Y = WS-PLAYER-Y + WS-VEL-Y / 30
+               COMPUTE WS-PLAYER-Z = WS-PLAYER-Z + WS-VEL-Z / 30
+               EXIT PROGRAM
+           END-IF
+
+           *> Up or down first: landing stops the fall on the block's top.
+           SET     WS-BOX-HALF                   TO    0.3
+           SET     WS-BOX-HEIGHT                 TO    1.8
+           SET     WS-BOX-X                      TO    WS-PLAYER-X
+           SET     WS-BOX-Z                      TO    WS-PLAYER-Z
+           COMPUTE WS-NEW = WS-PLAYER-Y + WS-VEL-Y / 30
+           SET     WS-BOX-Y                      TO    WS-NEW
+           *> Tests the player's box at the new height.
+           *> Uses: WS-BOX-X/Y/Z, WS-BOX-HALF 0.3, WS-BOX-HEIGHT 1.8, the world.
+           *> Result: WS-BLOCKED 1 when a block or the edge of the world is in the way.
+           CALL "CRAFT-BOX-BLOCKED"
+           IF    WS-BLOCKED = 1
+               IF    WS-VEL-Y < 0
+                   COMPUTE WS-PLAYER-Y = FUNCTION INTEGER( WS-NEW ) + 1
+                   IF    WS-ON-GROUND = 0 AND WS-FLYING = 0
+                       *> Hurts the player who fell more than three blocks.
+                       *> Uses: WS-FALL-TOP, WS-PLAYER-Y, WS-GAME-MODE.
+                       *> Result: WS-HEALTH lower; the player may die.
+                       CALL "CRAFT-LANDED"
+                   END-IF
+                   SET     WS-ON-GROUND                  TO    1
+                   IF    WS-FLYING = 1 AND WS-GAME-MODE = 2
+                       SET     WS-FLYING                     TO    0
+                   END-IF
+               END-IF
+               SET     WS-VEL-Y                      TO    0
+           ELSE
+               SET     WS-PLAYER-Y                   TO    WS-NEW
+               IF    WS-VEL-Y NOT = 0
+                   SET     WS-ON-GROUND                  TO    0
+               END-IF
+           END-IF
+           IF    WS-ON-GROUND = 1
+               SET     WS-FALL-TOP                   TO    WS-PLAYER-Y
+           END-IF
+           IF    WS-PLAYER-Y > WS-FALL-TOP
+               SET     WS-FALL-TOP                   TO    WS-PLAYER-Y
+           END-IF
+
+           *> Then along x, then along z: a wall stops the one it blocks, so the player slides.
+           SET     WS-BOX-Y                      TO    WS-PLAYER-Y
+           COMPUTE WS-NEW = WS-PLAYER-X + WS-VEL-X / 30
+           SET     WS-BOX-X                      TO    WS-NEW
+           *> Tests the player's box one step along x.
+           *> Uses: WS-BOX-X/Y/Z, the world.
+           *> Result: WS-BLOCKED.
+           CALL "CRAFT-BOX-BLOCKED"
+           IF    WS-BLOCKED = 1
+               SET     WS-VEL-X                      TO    0
+               SET     WS-BOX-X                      TO    WS-PLAYER-X
+           ELSE
+               SET     WS-PLAYER-X                   TO    WS-NEW
+           END-IF
+           COMPUTE WS-NEW = WS-PLAYER-Z + WS-VEL-Z / 30
+           SET     WS-BOX-Z                      TO    WS-NEW
+           *> Tests the player's box one step along z.
+           *> Uses: WS-BOX-X/Y/Z, the world.
+           *> Result: WS-BLOCKED.
+           CALL "CRAFT-BOX-BLOCKED"
+           IF    WS-BLOCKED = 1
+               SET     WS-VEL-Z                      TO    0
+           ELSE
+               SET     WS-PLAYER-Z                   TO    WS-NEW
+           END-IF
+]]></Event>
+    <Event name="CRAFT-BOX-BLOCKED" paragraph="CRAFT-BOX-BLOCKED"><![CDATA[       PROCEDURE DIVISION.
+           *> Every block cell the box touches; any solid one blocks it. Past the 48 by 48 the
+           *> ground is solid below Y 64, and a border 96 blocks out stops everything.
+           SET     WS-BLOCKED                    TO    0
+           COMPUTE WS-FROM-X = FUNCTION INTEGER( WS-BOX-X - WS-BOX-HALF )
+           COMPUTE WS-TO-X = FUNCTION INTEGER( WS-BOX-X + WS-BOX-HALF - 0.0001 )
+           COMPUTE WS-FROM-Y = FUNCTION INTEGER( WS-BOX-Y )
+           COMPUTE WS-TO-Y = FUNCTION INTEGER( WS-BOX-Y + WS-BOX-HEIGHT - 0.0001 )
+           COMPUTE WS-FROM-Z = FUNCTION INTEGER( WS-BOX-Z - WS-BOX-HALF )
+           COMPUTE WS-TO-Z = FUNCTION INTEGER( WS-BOX-Z + WS-BOX-HALF - 0.0001 )
+           PERFORM VARYING WS-CX FROM WS-FROM-X BY 1 UNTIL WS-CX > WS-TO-X OR WS-BLOCKED = 1
+               PERFORM VARYING WS-CY FROM WS-FROM-Y BY 1 UNTIL WS-CY > WS-TO-Y OR WS-BLOCKED = 1
+                   PERFORM VARYING WS-CZ FROM WS-FROM-Z BY 1 UNTIL WS-CZ > WS-TO-Z OR WS-BLOCKED = 1
+                       COMPUTE WS-SI = WS-CX + 25
+                       COMPUTE WS-SJ = WS-CY - 55
+                       COMPUTE WS-SK = WS-CZ + 25
+                       EVALUATE TRUE
+                           WHEN WS-CX > 95 OR WS-CX < -96 OR WS-CZ > 95 OR WS-CZ < -96
+                               SET     WS-BLOCKED                    TO    1
+                           WHEN WS-SI < 1 OR WS-SI > 48 OR WS-SK < 1 OR WS-SK > 48
+                               IF    WS-CY < 64
+                                   SET     WS-BLOCKED                    TO    1
+                               END-IF
+                           WHEN WS-SJ < 1
+                               SET     WS-BLOCKED                    TO    1
+                           WHEN WS-SJ > 24
+                               CONTINUE
+                           WHEN WS-COLUMN(WS-SI WS-SK)(WS-SJ:1) NOT = SPACE
+                               SET     WS-BLOCKED                    TO    1
+                       END-EVALUATE
+                   END-PERFORM
+               END-PERFORM
+           END-PERFORM
+]]></Event>
+    <Event name="CRAFT-LANDED" paragraph="CRAFT-LANDED"><![CDATA[       PROCEDURE DIVISION.
+           *> Minecraft's rule: a fall of more than three blocks costs a half heart a block more.
+           IF    WS-GAME-MODE = 1 OR WS-GAME-MODE = 3
+               COMPUTE WS-NEW = WS-FALL-TOP - WS-PLAYER-Y - 3
+               IF    WS-NEW > 0
+                   COMPUTE WS-DAMAGE = 0 - FUNCTION INTEGER( 0 - WS-NEW )
+                   SET     WS-WHY                        TO    " hit the ground too hard"
+                   *> Takes the damage.
+                   *> Uses: WS-DAMAGE, WS-WHY (how a death would be told).
+                   *> Result: WS-HEALTH lower, the red flash; at 0 the player dies.
+                   CALL "CRAFT-HURT"
+               END-IF
+           END-IF
+           SET     WS-FALL-TOP                   TO    WS-PLAYER-Y
+]]></Event>
+    <Event name="CRAFT-HURT" paragraph="CRAFT-HURT"><![CDATA[       PROCEDURE DIVISION.
+           IF    WS-DAMAGE >= WS-HEALTH
+               SET     WS-HEALTH                     TO    0
+           ELSE
+               SUBTRACT WS-DAMAGE                    FROM  WS-HEALTH
+           END-IF
+           SET     WS-HUD-DIRTY                  TO    1
+           SET     WS-HURT-FRAMES                TO    6
+           LBL-DAMAGE::Show()
+           COBOL::"AUDIO-PLAY" ( "Assets/sounds/hurt.wav" )
+           IF    WS-HEALTH = 0
+               SET     WS-LOG-MESSAGE                TO    SPACES
+               STRING    WS-PLAYER-NAME::Trim() WS-WHY::Trim() DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+               IF    WS-WHY(1:1) = SPACE
+                   SET     WS-LOG-MESSAGE                TO    SPACES
+                   STRING    WS-PLAYER-NAME::Trim() " " WS-WHY::Trim() DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+               END-IF
+               *> Shows the death screen and tells the console how the player died.
+               *> Uses: WS-LOG-MESSAGE (the cause).
+               *> Result: WS-DEAD 1, PNL-DEATH shown.
+               CALL "CRAFT-DIE"
+           END-IF
+]]></Event>
+    <Event name="CRAFT-DIE" paragraph="CRAFT-DIE"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-DEAD                       TO    1
+           SET     WS-HEALTH                     TO    0
+           LBL-MESSAGE::Hide()
+           SET     WS-MINING                     TO    0
+           SET     WS-HUD-DIRTY                  TO    1
+           SET     LBL-DEATH-WHY::Caption        TO    WS-LOG-MESSAGE::Trim()
+           SET     WS-LOG-CHAT                   TO    1
+           *> Tells the console and the chat how the player died.
+           *> Uses: WS-LOG-MESSAGE, WS-LOG-CHAT 1.
+           *> Result: DG-LOG and LBL-CHAT show it.
+           CALL "CRAFT-LOG"
+           SCN-1::SetVisible( WS-HIGHLIGHT 0 )
+           SCN-1::SetVisible( WS-CRACK 0 )
+           PNL-DEATH::Show()
+           BTN-RESPAWN::SetFocus()
+]]></Event>
+    <Event name="CRAFT-CAMERA" paragraph="CRAFT-CAMERA"><![CDATA[       PROCEDURE DIVISION.
+           *> The eyes, 1.62 m above the feet; a dead player sees the world from the ground.
+           IF    WS-DEAD = 1
+               COMPUTE WS-EYE-Y = WS-PLAYER-Y + 0.3
+               SCN-1::SetRotation( WS-CAMERA WS-PITCH WS-YAW 70 )
+           ELSE
+               COMPUTE WS-EYE-Y = WS-PLAYER-Y + 1.62
+               SCN-1::SetRotation( WS-CAMERA WS-PITCH WS-YAW 0 )
+           END-IF
+           SCN-1::SetPosition( WS-CAMERA WS-PLAYER-X WS-EYE-Y WS-PLAYER-Z )
+
+           *> The sky goes with the eyes, so the sun, the moon and the stars never come closer.
+           SCN-1::SetPosition( WS-SKY-GROUP WS-PLAYER-X WS-EYE-Y WS-PLAYER-Z )
+
+           *> The clouds drift west and are laid again around the player every 96 m.
+           IF    WS-PAUSED = 0
+               COMPUTE WS-CLOUD-DRIFT = FUNCTION MOD( WS-CLOUD-DRIFT + 0.03, 96 )
+           END-IF
+           COMPUTE WS-MX = FUNCTION INTEGER( ( WS-PLAYER-X + WS-CLOUD-DRIFT ) / 96 ) * 96 - WS-CLOUD-DRIFT
+           COMPUTE WS-MZ = FUNCTION INTEGER( WS-PLAYER-Z / 96 ) * 96
+           SCN-1::SetPosition( WS-CLOUD-GROUP WS-MX 0 WS-MZ )
+]]></Event>
+    <Event name="CRAFT-SKY-UPDATE" paragraph="CRAFT-SKY-UPDATE"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-SKY-FRAMES                 TO    0
+           SET     WS-SKY-TIME                   TO    WS-WORLD-TIME
+           *> Works out the sky for the time of day.
+           *> Uses: WS-SKY-TIME (ticks, 0 sunrise, 6000 noon, 18000 midnight).
+           *> Result: WS-SKY: the two sky colours, the fog, the sun's angle, the light, the ambient, the stars.
+           CALL "CRAFT-SKY" USING WS-SKY-TIME WS-SKY
+           SCN-1::SetBackgroundGradient( WS-SKY-TOP WS-SKY-BOTTOM )
+           SCN-1::SetFog( WS-FOG-RED WS-FOG-GREEN WS-FOG-BLUE 30 62 )
+           SCN-1::SetAmbient( 0.86 0.9 1 WS-AMBIENT )
+
+           *> The sky turns about the east-west line: the sun rises in the east (+x) at tick 0.
+           SCN-1::SetRotation( WS-SKY-GROUP WS-SUN-ANGLE -90 0 )
+
+           *> The light comes from the sun while it is up, from the moon at night.
+           IF    WS-SUN-ANGLE > -3 AND WS-SUN-ANGLE < 183
+               SCN-1::SetRotation( WS-LIGHT 0 180 0 )
+           ELSE
+               SCN-1::SetRotation( WS-LIGHT 0 0 0 )
+           END-IF
+           SCN-1::SetLight( WS-LIGHT WS-LIGHT-RED WS-LIGHT-GREEN WS-LIGHT-BLUE WS-LIGHT-INTENSITY 0 )
+
+           *> Stars come out as the sky darkens.
+           EVALUATE TRUE
+               WHEN WS-STARS < 0.15
+                   SCN-1::SetVisible( WS-STAR-NODE 0 )
+               WHEN WS-STARS < 0.5
+                   SCN-1::SetMaterialColor( WS-STAR-MATERIAL "#9AA4B8FF" )
+                   SCN-1::SetVisible( WS-STAR-NODE 1 )
+               WHEN OTHER
+                   SCN-1::SetMaterialColor( WS-STAR-MATERIAL "#FFFFFFFF" )
+                   SCN-1::SetVisible( WS-STAR-NODE 1 )
+           END-EVALUATE
+]]></Event>
+    <Event name="CRAFT-TARGET" paragraph="CRAFT-TARGET"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-TARGET-FOUND               TO    0
+           IF    WS-REACH = 0 OR WS-PLAYING = 0
+               SCN-1::SetVisible( WS-HIGHLIGHT 0 )
+               EXIT PROGRAM
+           END-IF
+
+           *> Pick sees only the blocks: the outline, the crack, the pieces and the items step aside.
+           SCN-1::SetVisible( WS-HIGHLIGHT 0 )
+           SCN-1::SetVisible( WS-CRACK 0 )
+           SCN-1::SetVisible( WS-PARTICLE-NODE 0 )
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+               IF    WS-ITEM-SHOWN(WS-T) = 1
+                   SCN-1::SetVisible( WS-ITEM-NODE(WS-T) 0 )
+               END-IF
+           END-PERFORM
+           COMPUTE WS-MX = CNV-3D::GetWidth() / 2
+           COMPUTE WS-MY = CNV-3D::GetHeight() / 2
+           *> Pick answers: node, instance, distance, point x y z, normal x y z.
+           SET     WS-ANSWER                     TO    CNV-3D::Pick( WS-MX WS-MY )
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+               IF    WS-ITEM-SHOWN(WS-T) = 1
+                   SCN-1::SetVisible( WS-ITEM-NODE(WS-T) 1 )
+               END-IF
+           END-PERFORM
+           IF    WS-PART-FRAMES > 0
+               SCN-1::SetVisible( WS-PARTICLE-NODE 1 )
+           END-IF
+
+           SET     WS-FIELDS                     TO    SPACES
+           UNSTRING WS-ANSWER DELIMITED BY ALL SPACE
+               INTO WS-FIELD(1) WS-FIELD(2) WS-FIELD(3) WS-FIELD(4) WS-FIELD(5) WS-FIELD(6) WS-FIELD(7) WS-FIELD(8) WS-FIELD(9)
+           END-UNSTRING
+           IF    WS-FIELD(1) = SPACES OR WS-FIELD(1) = "0"
+               EXIT PROGRAM
+           END-IF
+           COMPUTE WS-HIT-DISTANCE = FUNCTION NUMVAL( WS-FIELD(3) )
+           IF    WS-HIT-DISTANCE > WS-REACH
+               EXIT PROGRAM
+           END-IF
+           COMPUTE WS-HIT-X = FUNCTION NUMVAL( WS-FIELD(4) )
+           COMPUTE WS-HIT-Y = FUNCTION NUMVAL( WS-FIELD(5) )
+           COMPUTE WS-HIT-Z = FUNCTION NUMVAL( WS-FIELD(6) )
+           COMPUTE WS-NORMAL-X ROUNDED = FUNCTION NUMVAL( WS-FIELD(7) )
+           COMPUTE WS-NORMAL-Y ROUNDED = FUNCTION NUMVAL( WS-FIELD(8) )
+           COMPUTE WS-NORMAL-Z ROUNDED = FUNCTION NUMVAL( WS-FIELD(9) )
+
+           *> The block hit is half a block behind the face that was hit.
+           COMPUTE WS-TARGET-I = FUNCTION INTEGER( WS-HIT-X - WS-NORMAL-X * 0.5 ) + 25
+           COMPUTE WS-TARGET-J = FUNCTION INTEGER( WS-HIT-Y - WS-NORMAL-Y * 0.5 ) - 55
+           COMPUTE WS-TARGET-K = FUNCTION INTEGER( WS-HIT-Z - WS-NORMAL-Z * 0.5 ) + 25
+           IF    WS-TARGET-I < 1 OR WS-TARGET-I > 48 OR WS-TARGET-K < 1 OR WS-TARGET-K > 48
+                 OR WS-TARGET-J < 1 OR WS-TARGET-J > 24
+               EXIT PROGRAM
+           END-IF
+           IF    WS-COLUMN(WS-TARGET-I WS-TARGET-K)(WS-TARGET-J:1) = SPACE
+               EXIT PROGRAM
+           END-IF
+           SET     WS-TARGET-FOUND               TO    1
+           COMPUTE WS-MX = WS-TARGET-I - 25
+           COMPUTE WS-MY = WS-TARGET-J + 55
+           COMPUTE WS-MZ = WS-TARGET-K - 25
+           SCN-1::SetPosition( WS-HIGHLIGHT WS-MX WS-MY WS-MZ )
+           SCN-1::SetVisible( WS-HIGHLIGHT 1 )
+]]></Event>
+    <Event name="CRAFT-MINE" paragraph="CRAFT-MINE"><![CDATA[       PROCEDURE DIVISION.
+           IF    WS-MINE-COOLDOWN > 0
+               SUBTRACT 1                            FROM  WS-MINE-COOLDOWN
+           END-IF
+
+           *> Nothing to break: not holding the button, nothing in reach, or a mode that does not break.
+           IF    WS-MINING = 0 OR WS-TARGET-FOUND = 0 OR WS-GAME-MODE > 2
+               SET     WS-MINE-PROGRESS              TO    0
+               SCN-1::SetVisible( WS-CRACK 0 )
+               EXIT PROGRAM
+           END-IF
+
+           *> The bottom layer and the outer ring hold the world together: they do not break.
+           IF    WS-TARGET-J = 1 OR WS-TARGET-I = 1 OR WS-TARGET-I = 48 OR WS-TARGET-K = 1 OR WS-TARGET-K = 48
+               SCN-1::SetVisible( WS-CRACK 0 )
+               EXIT PROGRAM
+           END-IF
+
+           *> Creative breaks at once, a block every fifth of a second while the button is held.
+           IF    WS-GAME-MODE = 2
+               IF    WS-MINE-COOLDOWN = 0
+                   *> Breaks the block under the crosshair.
+                   *> Uses: WS-TARGET-I/J/K, WS-GAME-MODE.
+                   *> Result: the block is air; pieces fly; in survival it drops an item.
+                   CALL "CRAFT-BREAK"
+                   SET     WS-MINE-COOLDOWN              TO    6
+               END-IF
+               EXIT PROGRAM
+           END-IF
+
+           *> Survival: the hand takes its time, darker and darker, then the block gives.
+           IF    WS-TARGET-I NOT = WS-MINE-I OR WS-TARGET-J NOT = WS-MINE-J OR WS-TARGET-K NOT = WS-MINE-K
+               SET     WS-MINE-I                     TO    WS-TARGET-I
+               SET     WS-MINE-J                     TO    WS-TARGET-J
+               SET     WS-MINE-K                     TO    WS-TARGET-K
+               SET     WS-MINE-PROGRESS              TO    0
+               SET     WS-MINE-STAGE                 TO    9
+           END-IF
+           SET     WS-T                          TO    WS-TYPE-OF(FUNCTION ORD( WS-COLUMN(WS-TARGET-I WS-TARGET-K)(WS-TARGET-J:1) ))
+           COMPUTE WS-MINE-PROGRESS = WS-MINE-PROGRESS + 1 / ( 30 * WS-BREAK-TIME(WS-T) )
+           IF    WS-MINE-PROGRESS >= 1
+               SET     WS-MINE-PROGRESS              TO    0
+               SCN-1::SetVisible( WS-CRACK 0 )
+               *> Breaks the block under the crosshair.
+               *> Uses: WS-TARGET-I/J/K, WS-GAME-MODE.
+               *> Result: the block is air; pieces fly; it drops an item.
+               CALL "CRAFT-BREAK"
+               SET     WS-MINE-I                     TO    0
+               EXIT PROGRAM
+           END-IF
+           COMPUTE WS-MX = WS-TARGET-I - 24.5
+           COMPUTE WS-MY = WS-TARGET-J + 55.5
+           COMPUTE WS-MZ = WS-TARGET-K - 24.5
+           SCN-1::SetPosition( WS-CRACK WS-MX WS-MY WS-MZ )
+           SCN-1::SetVisible( WS-CRACK 1 )
+           COMPUTE WS-L = FUNCTION INTEGER( WS-MINE-PROGRESS * 4 ) + 1
+           IF    WS-L NOT = WS-MINE-STAGE
+               SET     WS-MINE-STAGE                 TO    WS-L
+               EVALUATE WS-L
+                   WHEN 1
+                       SCN-1::SetMaterialColor( WS-CRACK-MATERIAL "#00000026" )
+                   WHEN 2
+                       SCN-1::SetMaterialColor( WS-CRACK-MATERIAL "#00000048" )
+                   WHEN 3
+                       SCN-1::SetMaterialColor( WS-CRACK-MATERIAL "#0000006A" )
+                   WHEN OTHER
+                       SCN-1::SetMaterialColor( WS-CRACK-MATERIAL "#0000008C" )
+               END-EVALUATE
+           END-IF
+]]></Event>
+    <Event name="CRAFT-BREAK" paragraph="CRAFT-BREAK"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-BURST-TYPE                 TO    WS-TYPE-OF(FUNCTION ORD( WS-COLUMN(WS-TARGET-I WS-TARGET-K)(WS-TARGET-J:1) ))
+           SET     WS-BURST-I                    TO    WS-TARGET-I
+           SET     WS-BURST-J                    TO    WS-TARGET-J
+           SET     WS-BURST-K                    TO    WS-TARGET-K
+           SET     WS-SET-I                      TO    WS-TARGET-I
+           SET     WS-SET-J                      TO    WS-TARGET-J
+           SET     WS-SET-K                      TO    WS-TARGET-K
+           SET     WS-SET-CHAR                   TO    SPACE
+           *> Turns the block into air and redraws what it uncovers.
+           *> Uses: WS-SET-I/J/K, WS-SET-CHAR " ".
+           *> Result: WS-WORLD changed; the lists of the block and its neighbours redrawn.
+           CALL "CRAFT-SET-BLOCK"
+           SET     WS-TARGET-FOUND               TO    0
+           SCN-1::SetVisible( WS-HIGHLIGHT 0 )
+           COBOL::"AUDIO-PLAY" ( "Assets/sounds/dig.wav" )
+
+           *> Twelve pieces burst from the middle of the block.
+           SCN-1::SetMaterialColor( WS-PARTICLE-MATERIAL WS-PARTICLE-COLOR(WS-BURST-TYPE) )
+           PERFORM VARYING WS-PART-INDEX FROM 1 BY 1 UNTIL WS-PART-INDEX > 12
+               COMPUTE WS-PART-X(WS-PART-INDEX) = WS-BURST-I - 24.5 + ( FUNCTION RANDOM - 0.5 ) * 0.6
+               COMPUTE WS-PART-Y(WS-PART-INDEX) = WS-BURST-J + 55.5 + ( FUNCTION RANDOM - 0.5 ) * 0.6
+               COMPUTE WS-PART-Z(WS-PART-INDEX) = WS-BURST-K - 24.5 + ( FUNCTION RANDOM - 0.5 ) * 0.6
+               COMPUTE WS-PART-VX(WS-PART-INDEX) = ( FUNCTION RANDOM - 0.5 ) * 4
+               COMPUTE WS-PART-VY(WS-PART-INDEX) = FUNCTION RANDOM * 4 + 1
+               COMPUTE WS-PART-VZ(WS-PART-INDEX) = ( FUNCTION RANDOM - 0.5 ) * 4
+           END-PERFORM
+           SET     WS-PART-FRAMES                TO    18
+
+           *> In survival the block drops what it gives: grass gives dirt, stone cobblestone.
+           IF    WS-GAME-MODE = 1 AND WS-DROP-DATA(WS-BURST-TYPE:1) NOT = SPACE
+               SET     WS-DROP-TYPE                  TO    WS-TYPE-OF(FUNCTION ORD( WS-DROP-DATA(WS-BURST-TYPE:1) ))
+               PERFORM VARYING WS-ITEM-INDEX FROM 1 BY 1 UNTIL WS-ITEM-INDEX > 16
+                   IF    WS-ITEM-TYPE(WS-ITEM-INDEX) = 0
+                       SET     WS-ITEM-TYPE(WS-ITEM-INDEX)   TO    WS-DROP-TYPE
+                       COMPUTE WS-ITEM-X(WS-ITEM-INDEX) = WS-BURST-I - 24.5
+                       COMPUTE WS-ITEM-Y(WS-ITEM-INDEX) = WS-BURST-J + 55.3
+                       COMPUTE WS-ITEM-Z(WS-ITEM-INDEX) = WS-BURST-K - 24.5
+                       SET     WS-ITEM-VY(WS-ITEM-INDEX)     TO    3
+                       SET     WS-ITEM-AGE(WS-ITEM-INDEX)    TO    0
+                       ADD     1                             TO    WS-ITEM-ALIVE
+                       SET     WS-ITEM-INDEX                 TO    16
+                   END-IF
+               END-PERFORM
+           END-IF
+]]></Event>
+    <Event name="CRAFT-PLACE" paragraph="CRAFT-PLACE"><![CDATA[       PROCEDURE DIVISION.
+           *> A block goes against the face under the crosshair, in survival and creative only.
+           IF    WS-TARGET-FOUND = 0 OR WS-GAME-MODE > 2 OR WS-PAUSED = 1 OR WS-DEAD = 1
+               EXIT PROGRAM
+           END-IF
+           IF    WS-GAME-MODE = 1 AND WS-COUNT(WS-SLOT) = 0
+               EXIT PROGRAM
+           END-IF
+           COMPUTE WS-SET-I = WS-TARGET-I + WS-NORMAL-X
+           COMPUTE WS-SET-J = WS-TARGET-J + WS-NORMAL-Y
+           COMPUTE WS-SET-K = WS-TARGET-K + WS-NORMAL-Z
+           IF    WS-SET-I < 2 OR WS-SET-I > 47 OR WS-SET-K < 2 OR WS-SET-K > 47 OR WS-SET-J < 2 OR WS-SET-J > 24
+               EXIT PROGRAM
+           END-IF
+           IF    WS-COLUMN(WS-SET-I WS-SET-K)(WS-SET-J:1) NOT = SPACE
+               EXIT PROGRAM
+           END-IF
+
+           *> Never inside the player: the block's middle closer than 0.8 across, and the block
+           *> between the feet and the top of the head.
+           COMPUTE WS-MX = FUNCTION ABS( WS-PLAYER-X - WS-SET-I + 24.5 )
+           COMPUTE WS-MY = WS-PLAYER-Y - WS-SET-J - 55
+           COMPUTE WS-MZ = FUNCTION ABS( WS-PLAYER-Z - WS-SET-K + 24.5 )
+           IF    WS-GAME-MODE NOT = 4 AND WS-MX < 0.8 AND WS-MZ < 0.8 AND WS-MY > -1.8 AND WS-MY < 1
+               EXIT PROGRAM
+           END-IF
+           SET     WS-SET-CHAR                   TO    WS-BLOCK-CODES(WS-SLOT:1)
+           *> Puts the block of the slot in hand into the world.
+           *> Uses: WS-SET-I/J/K, WS-SET-CHAR.
+           *> Result: WS-WORLD changed; the lists of the block and its neighbours redrawn.
+           CALL "CRAFT-SET-BLOCK"
+           IF    WS-GAME-MODE = 1
+               SUBTRACT 1                            FROM  WS-COUNT(WS-SLOT)
+               SET     WS-HUD-DIRTY                  TO    1
+           END-IF
+           COBOL::"AUDIO-PLAY" ( "Assets/sounds/place.wav" )
+]]></Event>
+    <Event name="CRAFT-ITEMS" paragraph="CRAFT-ITEMS"><![CDATA[       PROCEDURE DIVISION.
+           *> Each item falls to the ground, bobs and turns, and flies to the player within 1.5 m.
+           SET     WS-ITEM-ALIVE                 TO    0
+           PERFORM VARYING WS-ITEM-INDEX FROM 1 BY 1 UNTIL WS-ITEM-INDEX > 16
+               IF    WS-ITEM-TYPE(WS-ITEM-INDEX) > 0
+                   ADD     1                             TO    WS-ITEM-AGE(WS-ITEM-INDEX)
+                   COMPUTE WS-ITEM-VY(WS-ITEM-INDEX) = WS-ITEM-VY(WS-ITEM-INDEX) - 20 / 30
+                   COMPUTE WS-NEW = WS-ITEM-Y(WS-ITEM-INDEX) + WS-ITEM-VY(WS-ITEM-INDEX) / 30
+                   SET     WS-BOX-X                      TO    WS-ITEM-X(WS-ITEM-INDEX)
+                   SET     WS-BOX-Y                      TO    WS-NEW
+                   SET     WS-BOX-Z                      TO    WS-ITEM-Z(WS-ITEM-INDEX)
+                   SET     WS-BOX-HALF                   TO    0.12
+                   SET     WS-BOX-HEIGHT                 TO    0.25
+                   *> Tests the item's small box at its new height.
+                   *> Uses: WS-BOX-X/Y/Z, WS-BOX-HALF 0.12, WS-BOX-HEIGHT 0.25.
+                   *> Result: WS-BLOCKED.
+                   CALL "CRAFT-BOX-BLOCKED"
+                   IF    WS-BLOCKED = 1
+                       IF    WS-ITEM-VY(WS-ITEM-INDEX) < 0
+                           COMPUTE WS-ITEM-Y(WS-ITEM-INDEX) = FUNCTION INTEGER( WS-NEW ) + 1
+                       END-IF
+                       SET     WS-ITEM-VY(WS-ITEM-INDEX)     TO    0
+                   ELSE
+                       SET     WS-ITEM-Y(WS-ITEM-INDEX)      TO    WS-NEW
+                   END-IF
+                   COMPUTE WS-MX = WS-ITEM-X(WS-ITEM-INDEX) - WS-PLAYER-X
+                   COMPUTE WS-MY = WS-ITEM-Y(WS-ITEM-INDEX) - WS-PLAYER-Y - 0.8
+                   COMPUTE WS-MZ = WS-ITEM-Z(WS-ITEM-INDEX) - WS-PLAYER-Z
+                   COMPUTE WS-LEVEL = WS-MX * WS-MX + WS-MY * WS-MY + WS-MZ * WS-MZ
+                   IF    WS-ITEM-AGE(WS-ITEM-INDEX) > 12 AND WS-DEAD = 0 AND WS-LEVEL < 2.25
+                       SET     WS-T                          TO    WS-ITEM-TYPE(WS-ITEM-INDEX)
+                       IF    WS-COUNT(WS-T) < 999
+                           ADD     1                             TO    WS-COUNT(WS-T)
+                       END-IF
+                       SET     WS-ITEM-TYPE(WS-ITEM-INDEX)   TO    0
+                       SET     WS-HUD-DIRTY                  TO    1
+                       COBOL::"AUDIO-PLAY" ( "Assets/sounds/pop.wav" )
+                   END-IF
+                   *> Five minutes on the ground and it is gone.
+                   IF    WS-ITEM-AGE(WS-ITEM-INDEX) > 9000
+                       SET     WS-ITEM-TYPE(WS-ITEM-INDEX)   TO    0
+                   END-IF
+                   IF    WS-ITEM-TYPE(WS-ITEM-INDEX) > 0
+                       ADD     1                             TO    WS-ITEM-ALIVE
+                   END-IF
+               END-IF
+           END-PERFORM
+           SET     WS-BOX-HALF                   TO    0.3
+           SET     WS-BOX-HEIGHT                 TO    1.8
+
+           *> Drawn per type: a quarter-size cube turned about its middle, bobbing.
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+               SET     WS-INSTANCES                  TO    SPACES
+               SET     WS-POINTER                    TO    1
+               PERFORM VARYING WS-ITEM-INDEX FROM 1 BY 1 UNTIL WS-ITEM-INDEX > 16
+                   IF    WS-ITEM-TYPE(WS-ITEM-INDEX) = WS-T
+                       COMPUTE WS-ANGLE = WS-ITEM-AGE(WS-ITEM-INDEX) * 0.05
+                       COMPUTE WS-COS = FUNCTION COS( WS-ANGLE )
+                       COMPUTE WS-SIN = FUNCTION SIN( WS-ANGLE )
+                       COMPUTE WS-MATRIX-CELL(1) = WS-COS * 0.25
+                       SET     WS-MATRIX-CELL(2)             TO    0
+                       COMPUTE WS-MATRIX-CELL(3) = 0 - WS-SIN * 0.25
+                       SET     WS-MATRIX-CELL(4)             TO    0
+                       SET     WS-MATRIX-CELL(5)             TO    0
+                       SET     WS-MATRIX-CELL(6)             TO    0.25
+                       SET     WS-MATRIX-CELL(7)             TO    0
+                       SET     WS-MATRIX-CELL(8)             TO    0
+                       COMPUTE WS-MATRIX-CELL(9) = WS-SIN * 0.25
+                       SET     WS-MATRIX-CELL(10)            TO    0
+                       COMPUTE WS-MATRIX-CELL(11) = WS-COS * 0.25
+                       SET     WS-MATRIX-CELL(12)            TO    0
+                       COMPUTE WS-MATRIX-CELL(13) = WS-ITEM-X(WS-ITEM-INDEX) - ( WS-COS + WS-SIN ) * 0.125
+                       COMPUTE WS-MATRIX-CELL(14) = WS-ITEM-Y(WS-ITEM-INDEX) + 0.12
+                                                   + FUNCTION SIN( WS-ANGLE * 1.6 ) * 0.06
+                       COMPUTE WS-MATRIX-CELL(15) = WS-ITEM-Z(WS-ITEM-INDEX) - ( WS-COS - WS-SIN ) * 0.125
+                       SET     WS-MATRIX-CELL(16)            TO    1
+                       *> Adds the item's matrix to the instance list.
+                       *> Uses: WS-MATRIX, WS-INSTANCES at WS-POINTER.
+                       *> Result: WS-INSTANCES grows by one matrix.
+                       CALL "CRAFT-ADD-MATRIX"
+                   END-IF
+               END-PERFORM
+               IF    WS-POINTER > 1
+                   SCN-1::SetInstances( WS-ITEM-NODE(WS-T) WS-INSTANCES(1:WS-POINTER) )
+                   SCN-1::SetVisible( WS-ITEM-NODE(WS-T) 1 )
+                   SET     WS-ITEM-SHOWN(WS-T)           TO    1
+               ELSE
+                   IF    WS-ITEM-SHOWN(WS-T) = 1
+                       SCN-1::SetVisible( WS-ITEM-NODE(WS-T) 0 )
+                       SET     WS-ITEM-SHOWN(WS-T)           TO    0
+                   END-IF
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="CRAFT-PARTICLES" paragraph="CRAFT-PARTICLES"><![CDATA[       PROCEDURE DIVISION.
+           SUBTRACT 1                            FROM  WS-PART-FRAMES
+           IF    WS-PART-FRAMES = 0
+               SCN-1::SetVisible( WS-PARTICLE-NODE 0 )
+               EXIT PROGRAM
+           END-IF
+           SET     WS-INSTANCES                  TO    SPACES
+           SET     WS-POINTER                    TO    1
+           PERFORM VARYING WS-PART-INDEX FROM 1 BY 1 UNTIL WS-PART-INDEX > 12
+               COMPUTE WS-PART-VY(WS-PART-INDEX) = WS-PART-VY(WS-PART-INDEX) - 24 / 30
+               COMPUTE WS-PART-X(WS-PART-INDEX) = WS-PART-X(WS-PART-INDEX) + WS-PART-VX(WS-PART-INDEX) / 30
+               COMPUTE WS-PART-Y(WS-PART-INDEX) = WS-PART-Y(WS-PART-INDEX) + WS-PART-VY(WS-PART-INDEX) / 30
+               COMPUTE WS-PART-Z(WS-PART-INDEX) = WS-PART-Z(WS-PART-INDEX) + WS-PART-VZ(WS-PART-INDEX) / 30
+               SET     WS-MX                         TO    WS-PART-X(WS-PART-INDEX)
+               SET     WS-MY                         TO    WS-PART-Y(WS-PART-INDEX)
+               SET     WS-MZ                         TO    WS-PART-Z(WS-PART-INDEX)
+               *> Adds one piece to the instance list.
+               *> Uses: WS-MX, WS-MY, WS-MZ, WS-INSTANCES at WS-POINTER.
+               *> Result: WS-INSTANCES grows by one translation matrix.
+               CALL "CRAFT-ADD-TRANSLATION"
+           END-PERFORM
+           SCN-1::SetInstances( WS-PARTICLE-NODE WS-INSTANCES(1:WS-POINTER) )
+           SCN-1::SetVisible( WS-PARTICLE-NODE 1 )
+]]></Event>
+    <Event name="CRAFT-HUD" paragraph="CRAFT-HUD"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-HUD-DIRTY                  TO    0
+           CNV-HUD::Clear( "#00000000" )
+           CNV-HUD::ResetTransform()
+
+           *> Hearts, in survival and adventure: full, half or empty, two points a heart.
+           IF    WS-GAME-MODE = 1 OR WS-GAME-MODE = 3
+               PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 10
+                   EVALUATE TRUE
+                       WHEN WS-HEALTH >= WS-T * 2
+                           SET     WS-HEART-TILE                 TO    12
+                       WHEN WS-HEALTH = WS-T * 2 - 1
+                           SET     WS-HEART-TILE                 TO    14
+                       WHEN OTHER
+                           SET     WS-HEART-TILE                 TO    13
+                   END-EVALUATE
+                   COMPUTE WS-HEART-X = 4 + ( WS-T - 1 ) * 18
+                   CNV-HUD::DrawImageRegion( WS-TILE-IMAGE(WS-HEART-TILE) 0 0 9 8 WS-HEART-X 2 18 16 )
+               END-PERFORM
+           END-IF
+
+           *> The hotbar: nine slots, the one in hand framed in white.
+           CNV-HUD::SetFillColor( "#000000A6" )
+           CNV-HUD::BeginPath()
+           CNV-HUD::RoundRect( 0 22 392 48 8 8 8 8 )
+           CNV-HUD::Fill( 0 )
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+               COMPUTE WS-SLOT-X = 4 + ( WS-T - 1 ) * 43
+               CNV-HUD::SetFillColor( "#FFFFFF14" )
+               CNV-HUD::FillRect( WS-SLOT-X 26 40 40 )
+               IF    WS-T = WS-SLOT
+                   CNV-HUD::SetStrokeColor( "#FFFFFFFF" )
+                   CNV-HUD::SetLineWidth( 3 )
+                   COMPUTE WS-ICON-X = WS-SLOT-X - 1
+                   CNV-HUD::StrokeRect( WS-ICON-X 25 42 42 )
+               END-IF
+
+               *> The block as a little cube: top, left and right faces, the sides shaded.
+               IF    WS-GAME-MODE NOT = 1 OR WS-COUNT(WS-T) > 0
+                   COMPUTE WS-ICON-X = WS-SLOT-X + 20
+                   SET     WS-ICON-Y                     TO    46
+                   COMPUTE WS-ICON-TOP = WS-ICON-Y - 13
+                   COMPUTE WS-ICON-MID = WS-ICON-Y - 6.5
+                   CNV-HUD::SetTransform( 0.8125 0.40625 -0.8125 0.40625 WS-ICON-X WS-ICON-TOP )
+                   CNV-HUD::DrawImage( WS-TILE-IMAGE(WS-TOP-TILE(WS-T)) 0 0 )
+                   COMPUTE WS-ICON-X = WS-SLOT-X + 7
+                   CNV-HUD::SetTransform( 0.8125 0.40625 0 0.8125 WS-ICON-X WS-ICON-MID )
+                   CNV-HUD::DrawImage( WS-TILE-IMAGE(WS-SIDE-TILE(WS-T)) 0 0 )
+                   CNV-HUD::SetFillColor( "#00000038" )
+                   CNV-HUD::FillRect( 0 0 16 16 )
+                   COMPUTE WS-ICON-X = WS-SLOT-X + 20
+                   CNV-HUD::SetTransform( 0.8125 -0.40625 0 0.8125 WS-ICON-X WS-ICON-Y )
+                   CNV-HUD::DrawImage( WS-TILE-IMAGE(WS-SIDE-TILE(WS-T)) 0 0 )
+                   CNV-HUD::SetFillColor( "#00000066" )
+                   CNV-HUD::FillRect( 0 0 16 16 )
+                   CNV-HUD::ResetTransform()
+               END-IF
+
+               *> In survival, how many: pixel digits in the bottom-right corner, from 2 up.
+               IF    WS-GAME-MODE = 1 AND WS-COUNT(WS-T) > 1
+                   SET     WS-DIGITS                     TO    WS-COUNT(WS-T)
+                   COMPUTE WS-DIGIT-X = WS-SLOT-X + 31
+                   PERFORM VARYING WS-DIGIT-INDEX FROM 3 BY -1 UNTIL WS-DIGIT-INDEX < 1
+                       IF    WS-DIGITS(WS-DIGIT-INDEX:1) NOT = SPACE
+                           COMPUTE WS-HEART-TILE = FUNCTION NUMVAL( WS-DIGITS(WS-DIGIT-INDEX:1) ) + 15
+                           CNV-HUD::DrawImageRegion( WS-TILE-IMAGE(WS-HEART-TILE) 0 0 4 6 WS-DIGIT-X 52 8 12 )
+                           SUBTRACT 7                            FROM  WS-DIGIT-X
+                       END-IF
+                   END-PERFORM
+               END-IF
+           END-PERFORM
+           CNV-HUD::Present()
+]]></Event>
+    <Event name="CRAFT-INFO" paragraph="CRAFT-INFO"><![CDATA[       PROCEDURE DIVISION.
+           *> The clock: tick 0 is six in the morning, a thousand ticks an hour.
+           COMPUTE WS-CLOCK = FUNCTION MOD( FUNCTION INTEGER( WS-WORLD-TIME / 1000 ) + 6, 24 )
+           COMPUTE WS-CLOCK-MINUTES = FUNCTION INTEGER( FUNCTION MOD( WS-WORLD-TIME, 1000 ) * 60 / 1000 )
+           SET     WS-SHOW-DAY                   TO    WS-DAY
+           SET     WS-SHOW-POS-X                 TO    WS-PLAYER-X
+           SET     WS-SHOW-POS-Y                 TO    WS-PLAYER-Y
+           SET     WS-SHOW-POS-Z                 TO    WS-PLAYER-Z
+           SET     LBL-INFO::Caption             TO    SPACES
+           STRING    "PowerCobolCraft   " WS-DAY-TEXT::Trim() " " WS-SHOW-DAY::Trim() "  "
+                     WS-CLOCK ":" WS-CLOCK-MINUTES "   XYZ " WS-SHOW-POS-X::Trim() " / "
+                     WS-SHOW-POS-Y::Trim() " / " WS-SHOW-POS-Z::Trim() "   " WS-MODE-TEXT::Trim()
+               DELIMITED BY SIZE INTO LBL-INFO::Caption
+           IF    WS-FLYING = 1 AND WS-GAME-MODE = 2
+               SET     WS-TEXT-ID                    TO    33
+               *> Answers "Flying" in the player's language.
+               *> Uses: WS-LANGUAGE, WS-TEXT-ID 33.
+               *> Result: WS-TEXT.
+               CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+               SET     WS-ANSWER                     TO    LBL-INFO::Caption
+               SET     LBL-INFO::Caption             TO    SPACES
+               STRING    WS-ANSWER::Trim() "  (" WS-TEXT::Trim() ")" DELIMITED BY SIZE INTO LBL-INFO::Caption
+           END-IF
+]]></Event>
+    <Event name="CRAFT-SAVE" paragraph="CRAFT-SAVE"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-AUTOSAVE-FRAMES            TO    0
+           SET     WS-SAVE-PLAYER                TO    WS-PLAYER-NAME
+           SET     WS-SAVE-TIME                  TO    WS-WORLD-TIME
+           SET     WS-SAVE-DAY                   TO    WS-DAY
+           SET     WS-SAVE-MODE                  TO    WS-GAME-MODE
+           SET     WS-SAVE-X                     TO    WS-PLAYER-X
+           SET     WS-SAVE-Y                     TO    WS-PLAYER-Y
+           SET     WS-SAVE-Z                     TO    WS-PLAYER-Z
+           SET     WS-SAVE-YAW                   TO    WS-YAW
+           SET     WS-SAVE-PITCH                 TO    WS-PITCH
+           SET     WS-SAVE-HEALTH                TO    WS-HEALTH
+           SET     WS-SAVE-SLOT                  TO    WS-SLOT
+           SET     WS-SAVE-WHITELIST-ON          TO    WS-WHITELIST-ON
+           SET     WS-SAVE-WHITELIST-COUNT       TO    WS-WHITELIST-COUNT
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+               SET     WS-SAVE-COUNT(WS-T)           TO    WS-COUNT(WS-T)
+           END-PERFORM
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 20
+               SET     WS-SAVE-WHITELIST-NAME(WS-T)  TO    WS-WHITELIST-NAME(WS-T)
+           END-PERFORM
+           SET     WS-SAVE-ACTION                TO    "SAVE"
+           *> Writes the world to its file.
+           *> Uses: WS-SAVE-ACTION "SAVE", WS-SAVE (filled above), WS-WORLD.
+           *> Result: data/world.dat written; WS-SAVE-STATUS 0 when it worked.
+           CALL "CRAFT-WORLD-FILE" USING WS-SAVE-ACTION WS-SAVE WS-WORLD WS-SAVE-STATUS
+]]></Event>
+    <Event name="CRAFT-OPEN-CONSOLE" paragraph="CRAFT-OPEN-CONSOLE"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-CONSOLE-OPEN               TO    1
+           SET     WS-MINING                     TO    0
+           PNL-CONSOLE::Show()
+           SET     TXT-COMMAND::Text             TO    SPACES
+           TXT-COMMAND::SetFocus()
+]]></Event>
+    <Event name="CRAFT-CLOSE-CONSOLE" paragraph="CRAFT-CLOSE-CONSOLE"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-CONSOLE-OPEN               TO    0
+           PNL-CONSOLE::Hide()
+           SET     WS-LOOK-READY                 TO    0
+           CNV-3D::SetFocus()
+]]></Event>
+    <Event name="CRAFT-RUN-COMMAND" paragraph="CRAFT-RUN-COMMAND"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-COMMAND-LINE               TO    TXT-COMMAND::Text
+           SET     TXT-COMMAND::Text             TO    SPACES
+           IF    WS-COMMAND-LINE = SPACES
+               EXIT PROGRAM
+           END-IF
+           *> Runs the line as CobolCraft runs it: a command, or a chat message.
+           *> Uses: WS-COMMAND-LINE, WS-SERVER (player, time, mode, whitelist).
+           *> Result: WS-SERVER changed by the command; WS-REPLY-ACTION and the lines to print.
+           CALL "CRAFT-COMMAND" USING WS-COMMAND-LINE WS-SERVER WS-REPLY
+
+           *> The stop is told before the world is saved and the window closes.
+           IF    WS-REPLY-ACTION = "STOP"
+               SET     WS-LOG-MESSAGE                TO    "Stopping server"
+               *> Writes the line into the console.
+               *> Uses: WS-LOG-MESSAGE.
+               *> Result: DG-LOG shows it first.
+               CALL "CRAFT-LOG"
+           END-IF
+           PERFORM VARYING WS-REPLY-INDEX FROM 1 BY 1 UNTIL WS-REPLY-INDEX > WS-REPLY-COUNT
+               SET     WS-LOG-MESSAGE                TO    WS-REPLY-LINE(WS-REPLY-INDEX)
+               SET     WS-LOG-CHAT                   TO    1
+               *> Prints one line of the answer in the console and over the world.
+               *> Uses: WS-LOG-MESSAGE, WS-LOG-CHAT 1.
+               *> Result: DG-LOG and LBL-CHAT show it.
+               CALL "CRAFT-LOG"
+           END-PERFORM
+
+           EVALUATE WS-REPLY-ACTION
+               WHEN "KILL"
+                   IF    WS-DEAD = 0
+                       SET     WS-LOG-MESSAGE                TO    SPACES
+                       STRING    WS-PLAYER-NAME::Trim() " was killed" DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+                       *> Kills the player at once.
+                       *> Uses: WS-LOG-MESSAGE (the cause).
+                       *> Result: WS-DEAD 1, PNL-DEATH shown.
+                       CALL "CRAFT-DIE"
+                   END-IF
+               WHEN "SAVE"
+                   *> Saves the world.
+                   *> Uses: the world, the player and the server state.
+                   *> Result: data/world.dat holds them.
+                   CALL "CRAFT-SAVE"
+                   SET     WS-LOG-MESSAGE                TO    "World saved"
+                   SET     WS-LOG-CHAT                   TO    1
+                   *> Tells that the world was saved.
+                   *> Uses: WS-LOG-MESSAGE, WS-LOG-CHAT 1.
+                   *> Result: DG-LOG and LBL-CHAT show it.
+                   CALL "CRAFT-LOG"
+               WHEN "TIME"
+                   SET     WS-TICKS                      TO    0
+                   *> Paints the sky for the new time at once.
+                   *> Uses: WS-WORLD-TIME.
+                   *> Result: background, fog, sun, moon, stars and light updated.
+                   CALL "CRAFT-SKY-UPDATE"
+               WHEN "MODE"
+                   *> Brings the new game mode into play.
+                   *> Uses: WS-GAME-MODE.
+                   *> Result: WS-FLYING, WS-REACH, the hearts and the info line.
+                   CALL "CRAFT-APPLY-MODE"
+               WHEN "STOP"
+                   *> Saves the world before the server stops.
+                   *> Uses: the world, the player and the server state.
+                   *> Result: data/world.dat holds them.
+                   CALL "CRAFT-SAVE"
+                   INVOKE    super::SetProperty("WorldResult", "STOP")
+                   INVOKE    ME::Close()
+           END-EVALUATE
+]]></Event>
+  </user-procedures>
+  <Control id="CNV-3D" type="Canvas3D" x="0" y="0" w="1280" h="760" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">Top,Bottom,Left,Right</Property>
+    <Property name="Definition">The world: a 3D view that fills the window, drawn thirty times a second. Click it to play; the mouse looks, W A S D walk, Space jumps, the left button breaks the block under the crosshair and the right button places the block in hand.</Property>
+    <Property name="Width">1280</Property>
+    <Property name="Height">760</Property>
+    <Property name="TargetFps">30</Property>
+    <Property name="FixedStep">True</Property>
+    <Property name="Cursor">Crosshair</Property>
+    <Property name="AccessibleLabel">A first-person view of a world of blocks: the mouse or the arrow keys turn the view, W A S D walk, Space jumps, the left button breaks a block, the right button places one, 1 to 9 pick a block, T opens the server console, Escape the game menu</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Event name="onFrame" paragraph="CNV-3D--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
+           *> Plays one frame of the world.
+           *> Uses: the keys held on CNV-3D, the pointer, WS-MINING.
+           *> Result: the player, the blocks, the items, the sky and the HUD are up to date.
+           CALL "CRAFT-STEP"
+           CNV-3D::Render()
+]]></Event>
+    <Event name="onPointerDown" paragraph="CNV-3D--ONPOINTERDOWN"><![CDATA[       PROCEDURE DIVISION.
+           *> The first click takes the world; after that the left button breaks blocks.
+           IF    WS-PLAYING = 0
+               SET     WS-PLAYING                    TO    1
+               SET     WS-LOOK-READY                 TO    0
+               LBL-MESSAGE::Hide()
+           ELSE
+               SET     WS-MINING                     TO    1
+           END-IF
+]]></Event>
+    <Event name="onPointerUp" paragraph="CNV-3D--ONPOINTERUP"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-MINING                     TO    0
+           SET     WS-MINE-COOLDOWN              TO    0
+]]></Event>
+    <Event name="onRightClick" paragraph="CNV-3D--ONRIGHTCLICK"><![CDATA[       PROCEDURE DIVISION.
+           *> Places the block in hand against the face under the crosshair.
+           *> Uses: WS-TARGET-*, the normals, WS-SLOT, WS-COUNT, WS-GAME-MODE.
+           *> Result: the block is in the world; in survival one fewer in hand.
+           CALL "CRAFT-PLACE"
+]]></Event>
+  </Control>
+  <Control id="SCN-1" type="Scene3D" x="1100" y="728" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">Bottom,Right</Property>
+    <Property name="Definition">The 3D scene of the world: the blocks, the ground, the sky, the items and the camera.</Property>
+  </Control>
+  <Control id="IMG-TILE" type="ImageBuffer" x="1164" y="728" w="50" h="24" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">Bottom,Right</Property>
+    <Property name="Definition">Where each 16 by 16 tile is painted, pixel by pixel, before it is kept.</Property>
+  </Control>
+  <Control id="IMG-STRIP" type="ImageBuffer" x="1218" y="728" w="50" h="24" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">Bottom,Right</Property>
+    <Property name="Definition">Where the tiles of a block type are laid side by side (top, side, bottom) and blown up into its texture.</Property>
+  </Control>
+  <Control id="LBL-INFO" type="Label" x="16" y="12" w="880" h="30" tab-order="4" z-order="1" visible="true" enabled="true">
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">The day, the time, where the player stands and the game mode.</Property>
+    <Property name="Caption">PowerCobolCraft</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#000000A8</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="Padding">6</Property>
+  </Control>
+  <Control id="LBL-HINT" type="Label" x="16" y="48" w="1000" h="28" tab-order="5" z-order="1" visible="true" enabled="true">
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">The controls, shown for the first fifteen seconds of play.</Property>
+    <Property name="Caption">W A S D walk</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="ForegroundColor">#F2F5FAFF</Property>
+    <Property name="BackgroundColor">#000000A0</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="Padding">6</Property>
+  </Control>
+  <Control id="LBL-CROSS" type="Label" x="620" y="360" w="40" h="40" tab-order="6" z-order="1" visible="true" enabled="true">
+    <Property name="Definition">The crosshair in the middle of the view: the block under it is the one broken or built against.</Property>
+    <Property name="Caption">+</Property>
+    <Property name="FontSize">28</Property>
+    <Property name="ForegroundColor">#FFFFFFE0</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="LBL-MESSAGE" type="Label" x="360" y="250" w="560" h="56" tab-order="7" z-order="1" visible="true" enabled="true">
+    <Property name="Definition">Asks to click the world to start playing.</Property>
+    <Property name="Caption">Click the world to play</Property>
+    <Property name="FontSize">22</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BackgroundColor">#000000A0</Property>
+    <Property name="CornerRadius">14</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="LBL-CHAT" type="Label" x="16" y="520" w="620" h="112" tab-order="8" z-order="1" visible="false" enabled="true">
+    <Property name="Anchor">Bottom,Left</Property>
+    <Property name="Definition">The last chat messages and command answers, over the world for ten seconds.</Property>
+    <Property name="Caption"> </Property>
+    <Property name="FontSize">15</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BackgroundColor">#00000099</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="Padding">8</Property>
+  </Control>
+  <Control id="LBL-DAMAGE" type="Label" x="0" y="0" w="1280" h="760" tab-order="9" z-order="1" visible="false" enabled="true">
+    <Property name="Anchor">Top,Bottom,Left,Right</Property>
+    <Property name="Definition">The red flash over the whole view when the player is hurt.</Property>
+    <Property name="Caption"> </Property>
+    <Property name="BackgroundColor">#C0000040</Property>
+  </Control>
+  <Control id="CNV-HUD" type="Canvas2D" x="444" y="664" w="392" h="72" tab-order="10" z-order="1" visible="true" enabled="true">
+    <Property name="Anchor">Bottom</Property>
+    <Property name="Definition">The hotbar with the nine blocks and, in survival and adventure, the hearts above it.</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="AccessibleLabel">The hotbar: nine blocks, the one in hand framed; the hearts show the player's health</Property>
+  </Control>
+  <Control id="PNL-PAUSE" type="Panel" x="470" y="200" w="340" h="320" tab-order="11" z-order="2" visible="false" enabled="true">
+    <Property name="Definition">The game menu Escape opens: back to the game, save, the server console, or save and quit to the title.</Property>
+    <Property name="CornerRadius">24</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#1A1C24E6</Property>
+  </Control>
+  <Control id="LBL-PAUSE-TITLE" type="Label" x="494" y="220" w="292" h="36" tab-order="0" z-order="3" visible="true" enabled="true" parent="PNL-PAUSE">
+    <Property name="Definition">The title of the game menu.</Property>
+    <Property name="Caption">Game menu</Property>
+    <Property name="FontSize">22</Property>
+    <Property name="Bold">true</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="BTN-RESUME" type="Button" x="494" y="272" w="292" h="48" tab-order="1" z-order="3" visible="true" enabled="true" parent="PNL-PAUSE">
+    <Property name="Definition">Closes the game menu and goes back to playing.</Property>
+    <Property name="Caption">Back to game</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="CornerRadius">24</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#0A84FFFF</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Event name="onClick" paragraph="BTN-RESUME--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-PAUSED                     TO    0
+           SET     WS-LOOK-READY                 TO    0
+           PNL-PAUSE::Hide()
+           CNV-3D::SetFocus()
+]]></Event>
+  </Control>
+  <Control id="BTN-SAVE" type="Button" x="494" y="332" w="292" h="48" tab-order="2" z-order="3" visible="true" enabled="true" parent="PNL-PAUSE">
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Definition">Saves the world now, as the /save command does.</Property>
+    <Property name="Caption">Save world</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="CornerRadius">24</Property>
+    <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-LOG-MESSAGE                TO    "Saving world"
+           *> Writes the line into the console.
+           *> Uses: WS-LOG-MESSAGE.
+           *> Result: DG-LOG shows it first.
+           CALL "CRAFT-LOG"
+           *> Saves the world.
+           *> Uses: the world, the player and the server state.
+           *> Result: data/world.dat holds them.
+           CALL "CRAFT-SAVE"
+           SET     WS-LOG-MESSAGE                TO    "World saved"
+           SET     WS-LOG-CHAT                   TO    1
+           *> Tells that the world was saved.
+           *> Uses: WS-LOG-MESSAGE, WS-LOG-CHAT 1.
+           *> Result: DG-LOG and LBL-CHAT show it.
+           CALL "CRAFT-LOG"
+]]></Event>
+  </Control>
+  <Control id="BTN-CONSOLE" type="Button" x="494" y="392" w="292" h="48" tab-order="3" z-order="3" visible="true" enabled="true" parent="PNL-PAUSE">
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Definition">Opens the server console beside the world.</Property>
+    <Property name="Caption">Server console</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="CornerRadius">24</Property>
+    <Event name="onClick" paragraph="BTN-CONSOLE--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-PAUSED                     TO    0
+           PNL-PAUSE::Hide()
+           *> Opens the server console beside the world.
+           *> Uses: PNL-CONSOLE, TXT-COMMAND.
+           *> Result: WS-CONSOLE-OPEN 1; the command box has the keyboard.
+           CALL "CRAFT-OPEN-CONSOLE"
+]]></Event>
+  </Control>
+  <Control id="BTN-QUIT" type="Button" x="494" y="452" w="292" h="48" tab-order="4" z-order="3" visible="true" enabled="true" parent="PNL-PAUSE">
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Definition">Saves the world and goes back to the title screen.</Property>
+    <Property name="Caption">Save and quit to title</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="CornerRadius">24</Property>
+    <Event name="onClick" paragraph="BTN-QUIT--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           *> Saves the world before going back to the title (onClose saves again, harmlessly).
+           *> Uses: the world, the player and the server state.
+           *> Result: data/world.dat holds them.
+           CALL "CRAFT-SAVE"
+           INVOKE    super::SetProperty("WorldResult", "QUIT")
+           INVOKE    ME::Close()
+]]></Event>
+  </Control>
+  <Control id="PNL-DEATH" type="Panel" x="420" y="220" w="440" h="260" tab-order="12" z-order="2" visible="false" enabled="true">
+    <Property name="Definition">The death screen: how the player died, respawn, or save and quit to the title.</Property>
+    <Property name="CornerRadius">24</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#3A0C0CE6</Property>
+  </Control>
+  <Control id="LBL-DEATH" type="Label" x="444" y="240" w="392" h="52" tab-order="0" z-order="3" visible="true" enabled="true" parent="PNL-DEATH">
+    <Property name="Definition">The title of the death screen.</Property>
+    <Property name="Caption">You died!</Property>
+    <Property name="FontSize">32</Property>
+    <Property name="Bold">true</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="LBL-DEATH-WHY" type="Label" x="444" y="296" w="392" h="32" tab-order="1" z-order="3" visible="true" enabled="true" parent="PNL-DEATH">
+    <Property name="Definition">How the player died, as the server console told it.</Property>
+    <Property name="Caption"> </Property>
+    <Property name="FontSize">15</Property>
+    <Property name="ForegroundColor">#F0D0D0</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="BTN-RESPAWN" type="Button" x="444" y="348" w="392" h="48" tab-order="2" z-order="3" visible="true" enabled="true" parent="PNL-DEATH">
+    <Property name="Definition">Brings the player back on the spawn with full health.</Property>
+    <Property name="Caption">Respawn</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="CornerRadius">24</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#0A84FFFF</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Event name="onClick" paragraph="BTN-RESPAWN--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           *> Back on the spawn with full health.
+           *> Uses: WS-WORLD (the middle column).
+           *> Result: WS-PLAYER-X/Y/Z on the spawn, the speeds at rest.
+           CALL "CRAFT-SPAWN"
+           SET     WS-HEALTH                     TO    20
+           SET     WS-DEAD                       TO    0
+           SET     WS-HUD-DIRTY                  TO    1
+           SET     WS-LOOK-READY                 TO    0
+           PNL-DEATH::Hide()
+           CNV-3D::SetFocus()
+]]></Event>
+  </Control>
+  <Control id="BTN-DEATH-QUIT" type="Button" x="444" y="408" w="392" h="48" tab-order="3" z-order="3" visible="true" enabled="true" parent="PNL-DEATH">
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Definition">Saves the world and goes back to the title screen from the death screen.</Property>
+    <Property name="Caption">Save and quit to title</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="CornerRadius">24</Property>
+    <Event name="onClick" paragraph="BTN-DEATH-QUIT--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           *> Saves the world before going back to the title.
+           *> Uses: the world, the player and the server state.
+           *> Result: data/world.dat holds them.
+           CALL "CRAFT-SAVE"
+           INVOKE    super::SetProperty("WorldResult", "QUIT")
+           INVOKE    ME::Close()
+]]></Event>
+  </Control>
+  <Control id="PNL-CONSOLE" type="Panel" x="728" y="88" w="536" h="560" tab-order="13" z-order="2" visible="false" enabled="true">
+    <Property name="Anchor">Top,Bottom,Right</Property>
+    <Property name="Definition">CobolCraft's server console: every line the server printed, newest first, and a box to type a command or a chat message.</Property>
+    <Property name="CornerRadius">24</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#14161CEB</Property>
+  </Control>
+  <Control id="LBL-CONSOLE-TITLE" type="Label" x="748" y="104" w="380" h="32" tab-order="0" z-order="3" visible="true" enabled="true" parent="PNL-CONSOLE">
+    <Property name="Definition">The title of the server console panel.</Property>
+    <Property name="Caption">Server console</Property>
+    <Property name="FontSize">20</Property>
+    <Property name="Bold">true</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+  </Control>
+  <Control id="BTN-CONSOLE-CLOSE" type="Button" x="1144" y="100" w="100" h="40" tab-order="4" z-order="3" visible="true" enabled="true" parent="PNL-CONSOLE">
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Definition">Closes the server console and gives the keyboard back to the world.</Property>
+    <Property name="Anchor">Top,Right</Property>
+    <Property name="Caption">Close</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="CornerRadius">20</Property>
+    <Event name="onClick" paragraph="BTN-CONSOLE-CLOSE--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           *> Closes the console and gives the keyboard back to the world.
+           *> Uses: PNL-CONSOLE.
+           *> Result: WS-CONSOLE-OPEN 0; CNV-3D has the focus.
+           CALL "CRAFT-CLOSE-CONSOLE"
+]]></Event>
+  </Control>
+  <Control id="DG-LOG" type="DataGrid" x="748" y="152" w="496" h="408" tab-order="1" z-order="3" visible="true" enabled="true" parent="PNL-CONSOLE">
+    <Property name="Definition">Every line the server printed, newest first: the time and the message.</Property>
+    <Property name="Anchor">Top,Bottom,Left,Right</Property>
+    <Property name="Columns">Col-Time:string
+Col-Message:string</Property>
+    <Property name="AdvancedGrid">{&quot;schema_version&quot;:1,&quot;columns&quot;:[{&quot;id&quot;:&quot;Col-Time&quot;,&quot;title&quot;:&quot;Time&quot;,&quot;source_name&quot;:&quot;Col-Time&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:84.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:13,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#8FA3BF&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;Col-Message&quot;,&quot;title&quot;:&quot;Message&quot;,&quot;source_name&quot;:&quot;Col-Message&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:410.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:13,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#F0F2F6&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]}],&quot;frozen_columns&quot;:0,&quot;frozen_rows&quot;:0,&quot;row_height&quot;:22,&quot;row_overrides&quot;:[],&quot;filters&quot;:[],&quot;csv_export_mode&quot;:&quot;Filtered&quot;,&quot;csv_delimiter&quot;:&quot;,&quot;,&quot;grid_line_style&quot;:&quot;Solid&quot;,&quot;selectable_text&quot;:true}</Property>
+    <Property name="Rows"></Property>
+    <Property name="FontSize">13</Property>
+    <Property name="RowHeight">22</Property>
+    <Property name="BackgroundColor">#0E0F15FF</Property>
+    <Property name="ForegroundColor">#F0F2F6FF</Property>
+    <Property name="HeaderBackgroundColor">#232633FF</Property>
+    <Property name="HeaderForegroundColor">#8FD3FFFF</Property>
+    <Property name="GridLineColor">#FFFFFF1A</Property>
+    <Property name="AlternatingRowColor">#FFFFFF</Property>
+    <Property name="AlternatingRowOpacity">4</Property>
+    <Property name="AllowSorting">false</Property>
+    <Property name="AllowCellEditing">false</Property>
+    <Property name="AutoFitColumns">true</Property>
+    <Property name="AllowColumnReorder">false</Property>
+    <Property name="ShowCSVExportButton">false</Property>
+    <Property name="ExportCSV">false</Property>
+    <Property name="CornerRadius">12</Property>
+  </Control>
+  <Control id="TXT-COMMAND" type="TextBox" x="748" y="580" w="380" h="44" tab-order="2" z-order="3" visible="true" enabled="true" parent="PNL-CONSOLE">
+    <Property name="Definition">Where a command (help, gamemode, kill, save, say, stop, time, whitelist) or a chat message is typed.</Property>
+    <Property name="Anchor">Bottom,Left,Right</Property>
+    <Property name="HintText">A command (try help) or a chat message, then Enter</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="CornerRadius">12</Property>
+    <Property name="BackgroundColor">#12131CFF</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BorderColor">#FFFFFF33</Property>
+    <Property name="EnterAsTab">false</Property>
+    <Event name="onEnterPressed" paragraph="TXT-COMMAND--ONENTERPRESSED"><![CDATA[       PROCEDURE DIVISION.
+           *> Runs what was typed: a command, or a chat message.
+           *> Uses: TXT-COMMAND::Text, WS-SERVER.
+           *> Result: the answer in the console and over the world; the command done.
+           CALL "CRAFT-RUN-COMMAND"
+]]></Event>
+  </Control>
+  <Control id="BTN-SEND" type="Button" x="1136" y="580" w="108" h="44" tab-order="3" z-order="3" visible="true" enabled="true" parent="PNL-CONSOLE">
+    <Property name="Definition">Runs the command or sends the chat message typed in the box.</Property>
+    <Property name="Anchor">Bottom,Right</Property>
+    <Property name="Caption">Send</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#0A84FFFF</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Event name="onClick" paragraph="BTN-SEND--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           *> Runs what was typed: a command, or a chat message.
+           *> Uses: TXT-COMMAND::Text, WS-SERVER.
+           *> Result: the answer in the console and over the world; the command done.
+           CALL "CRAFT-RUN-COMMAND"
+           TXT-COMMAND::SetFocus()
+]]></Event>
+  </Control>
+</Form>

@@ -49,6 +49,8 @@ examples/*/temp/
 examples/*/data/*.redb
 # PowerSpatial keeps the operator's language here when it runs.
 examples/PowerSpatial/data/settings.idx
+# PowerCobolCraft's saved world and the player's settings, written when it runs.
+examples/PowerCobolCraft/data/
 examples/*/data/*.sqlite
 examples/*/data/*chunked.data
 # PowerCloud's resized copies of the photos it uploads — the developer's own pictures,

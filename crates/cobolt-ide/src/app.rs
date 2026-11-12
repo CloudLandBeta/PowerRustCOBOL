@@ -2030,7 +2030,7 @@ impl Example {
 
 /// The examples Help → Examples offers, in menu order (operator, 2026-09-25:
 /// one entry per example instead of a single one).
-pub const EXAMPLES: [Example; 11] = [
+pub const EXAMPLES: [Example; 12] = [
     Example { project: "PowerChat", manifest: "PowerChat.project.toml", kind: ExampleKind::Desktop },
     Example { project: "PowerDemo3", manifest: "PowerDemo3.project.toml", kind: ExampleKind::Desktop },
     // The Spatial theme, and a group of docked windows (operator, 2026-10-04).
@@ -2043,6 +2043,8 @@ pub const EXAMPLES: [Example; 11] = [
     Example { project: "PowerGraphics", manifest: "PowerGraphics.project.toml", kind: ExampleKind::Desktop },
     // A mini first-person shooter on a Canvas3D: a ruined city, two weapons, tanks, helicopters and drones (operator, 2026-11-09).
     Example { project: "PowerCallOfDuty", manifest: "PowerCallOfDuty.project.toml", kind: ExampleKind::Desktop },
+    // A voxel world after meyfa/CobolCraft on a Canvas3D: blocks to dig and place, day and night, a server console (2026-11-12).
+    Example { project: "PowerCobolCraft", manifest: "PowerCobolCraft.project.toml", kind: ExampleKind::Desktop },
     // The Web and Mobile examples, under their own submenus (operator, 2026-11-09).
     Example { project: "PowerWebHello", manifest: "PowerWebHello.project.toml", kind: ExampleKind::Web },
     Example { project: "PowerAnalyticsWeb", manifest: "PowerAnalyticsWeb.project.toml", kind: ExampleKind::Web },
@@ -13598,6 +13600,7 @@ impl CoboltApp {
                                     "PowerCloud" => Some(tr.examples_powercloud_about),
                                     "PowerGraphics" => Some(tr.examples_powergraphics_about),
                                     "PowerCallOfDuty" => Some(tr.examples_powercallofduty_about),
+                                    "PowerCobolCraft" => Some(tr.examples_powercobolcraft_about),
                                     "PowerWebHello" => Some(tr.examples_powerwebhello_about),
                                     "PowerAnalyticsWeb" => Some(tr.examples_poweranalyticsweb_about),
                                     "PowerOficina" => Some(tr.examples_poweroficina_about),

@@ -1,0 +1,825 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="TITLE-FORM" title="PowerCobolCraft" width="1280" height="760" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" definition="The title screen of PowerCobolCraft: a little floating island of blocks turning in the sky, a card to name the player, pick the game mode and the language and start a new world or continue the saved one, and the credits to CobolCraft by Fabian Meyer (meyfa), whose Minecraft server written in COBOL this application follows." index-base="1" responsive="true" main-form="true">
+  <working-storage><![CDATA[      *> The player's choices, kept between runs by CRAFT-SETTINGS (data/settings.idx).
+       01 WS-PLAYER-NAME                         GLOBAL    PIC X(16)       VALUE "Player".
+       01 WS-GAME-MODE                           GLOBAL    PIC 9           VALUE 1.
+       01 WS-LANGUAGE                            GLOBAL    PIC 9           VALUE 1.
+       01 WS-SETTING-ACTION                      GLOBAL    PIC X(3).
+       01 WS-SETTING-NAME                        GLOBAL    PIC X(20).
+       01 WS-SETTING-VALUE                       GLOBAL    PIC X(80).
+       01 WS-READY                               GLOBAL    PIC 9           VALUE 0.
+
+      *> One text in the player's language, as CRAFT-TEXT answers it.
+       01 WS-TEXT-ID                             GLOBAL    PIC 99.
+       01 WS-TEXT                                GLOBAL    PIC X(240).
+       01 WS-MODE-ITEMS                          GLOBAL    PIC X(400).
+       01 WS-POINTER                             GLOBAL    PIC 9(5).
+
+      *> What the world form hands back when it closes: QUIT (back to the title) or STOP.
+       01 WS-WORLD-RESULT                        GLOBAL    PIC X(8).
+       01 WS-WORLD-MODE                          GLOBAL    PIC X(4).
+
+      *> The saved world's first line, as CRAFT-WORLD-FILE reads it ("INFO"); the rows are not read.
+       01 WS-SAVE                                GLOBAL.
+           05 WS-SAVE-MAGIC                      PIC X(12).
+           05 WS-SAVE-PLAYER                     PIC X(16).
+           05 WS-SAVE-TIME                       PIC 9(5).
+           05 WS-SAVE-DAY                        PIC 9(5).
+           05 WS-SAVE-MODE                       PIC 9.
+           05 WS-SAVE-X                          PIC S9(4)V9(4).
+           05 WS-SAVE-Y                          PIC S9(4)V9(4).
+           05 WS-SAVE-Z                          PIC S9(4)V9(4).
+           05 WS-SAVE-YAW                        PIC S9(3)V9(4).
+           05 WS-SAVE-PITCH                      PIC S9(3)V9(4).
+           05 WS-SAVE-HEALTH                     PIC 99.
+           05 WS-SAVE-SLOT                       PIC 9.
+           05 WS-SAVE-COUNT                      PIC 999         OCCURS 9.
+           05 WS-SAVE-WHITELIST-ON               PIC 9.
+           05 WS-SAVE-WHITELIST-COUNT            PIC 99.
+           05 WS-SAVE-WHITELIST-NAME             PIC X(16)       OCCURS 20.
+           05 WS-SAVE-AT                         PIC X(16).
+       01 WS-WORLD                               GLOBAL.
+           05 WS-WORLD-ROW                               OCCURS 48.
+               10 WS-COLUMN                      PIC X(24)       OCCURS 48.
+       01 WS-SAVE-ACTION                         GLOBAL    PIC X(4).
+       01 WS-SAVE-STATUS                         GLOBAL    PIC 9.
+       01 WS-SHOW-DAY                            GLOBAL    PIC Z(4)9.
+
+      *> The blocks: the codes, their tiles (top, side, bottom), the tiles and the materials.
+       01 WS-BLOCK-CODES                         GLOBAL    PIC X(9)        VALUE "GDSCPLEWB".
+       01 WS-FACE-TILE-DATA                      GLOBAL    PIC X(54)       VALUE
+           "010203030303040404050505060606070807090909101010111111".
+       01 WS-FACE-TILES REDEFINES WS-FACE-TILE-DATA GLOBAL.
+           05 WS-FACE-TILE                               OCCURS 9.
+               10 WS-TOP-TILE                    PIC 99.
+               10 WS-SIDE-TILE                   PIC 99.
+               10 WS-BOTTOM-TILE                 PIC 99.
+       01 WS-TILE-NUMBER                         GLOBAL    PIC 99.
+       01 WS-TILE-PIXELS                         GLOBAL.
+           05 WS-TILE-PIXEL                      PIC X(9)        OCCURS 256.
+       01 WS-TILE-IMAGES                         GLOBAL.
+           05 WS-TILE-IMAGE                      PIC 9(10)       OCCURS 11.
+       01 WS-TYPE-MATERIALS                      GLOBAL.
+           05 WS-TYPE-MATERIAL                   PIC 9(10)       OCCURS 9.
+       01 WS-PIXEL-INDEX                         GLOBAL    PIC 999.
+
+      *> A unit cube whose faces take the top, side and bottom thirds of a block's texture strip.
+       01 WS-CUBE-POSITIONS                      GLOBAL.
+           05 FILLER                     PIC    X(56)    VALUE
+               "0 1 0 0 1 1 1 1 1 1 1 0 0 0 1 0 0 0 1 0 0 1 0 1 0 1 1 0 ".
+           05 FILLER                     PIC    X(56)    VALUE
+               "0 1 1 0 1 1 1 1 1 1 0 1 0 0 0 0 0 0 1 0 1 1 1 1 0 1 1 0 ".
+           05 FILLER                     PIC    X(32)    VALUE
+               "0 1 1 0 0 1 0 0 0 0 0 0 1 0 1 1 ".
+       01 WS-CUBE-NORMALS                        GLOBAL.
+           05 FILLER                     PIC    X(56)    VALUE
+               "0 1 0 0 1 0 0 1 0 0 1 0 0 -1 0 0 -1 0 0 -1 0 0 -1 0 0 0 ".
+           05 FILLER                     PIC    X(56)    VALUE
+               "1 0 0 1 0 0 1 0 0 1 0 0 -1 0 0 -1 0 0 -1 0 0 -1 1 0 0 1 ".
+           05 FILLER                     PIC    X(44)    VALUE
+               "0 0 1 0 0 1 0 0 -1 0 0 -1 0 0 -1 0 0 -1 0 0 ".
+       01 WS-CUBE-UVS                            GLOBAL.
+           05 FILLER                     PIC    X(52)    VALUE
+               "0.002 0 0.002 1 0.3313 1 0.3313 0 0.6687 0 0.6687 1 ".
+           05 FILLER                     PIC    X(52)    VALUE
+               "0.998 1 0.998 0 0.3353 0 0.3353 1 0.6647 1 0.6647 0 ".
+           05 FILLER                     PIC    X(54)    VALUE
+               "0.3353 0 0.3353 1 0.6647 1 0.6647 0 0.3353 0 0.3353 1 ".
+           05 FILLER                     PIC    X(54)    VALUE
+               "0.6647 1 0.6647 0 0.3353 0 0.3353 1 0.6647 1 0.6647 0 ".
+       01 WS-CUBE-INDICES                        GLOBAL.
+           05 FILLER                     PIC    X(54)    VALUE
+               "0 1 2 0 2 3 4 5 6 4 6 7 8 9 10 8 10 11 12 13 14 12 14 ".
+           05 FILLER                     PIC    X(39)    VALUE
+               "15 16 17 18 16 18 19 20 21 22 20 22 23 ".
+
+      *> The island: 9 by 9 columns of 11 blocks (Y -4 to 6), one character a block as in the world.
+       01 WS-ISLAND                              GLOBAL.
+           05 WS-ISLAND-ROW                              OCCURS 9.
+               10 WS-ISLAND-COLUMN               PIC X(11)       OCCURS 9.
+       01 WS-ISLAND-SPOTS                        GLOBAL    PIC X(40)       VALUE
+           "0605070407060403030508050505040305070606".
+
+      *> The scene: camera, island, clouds.
+       01 WS-CAMERA                              GLOBAL    PIC 9(10).
+       01 WS-ISLAND-GROUP                        GLOBAL    PIC 9(10).
+       01 WS-CLOUD-GROUP                         GLOBAL    PIC 9(10).
+       01 WS-NODE                                GLOBAL    PIC 9(10).
+       01 WS-MATERIAL                            GLOBAL    PIC 9(10).
+       01 WS-LIGHT                               GLOBAL    PIC 9(10).
+       01 WS-INSTANCES                           GLOBAL    PIC X(16000).
+       01 WS-SPIN                                GLOBAL    PIC S9(3)V9(4)  VALUE 25.
+       01 WS-FRAME                               GLOBAL    PIC 9(9)        VALUE 0.
+       01 WS-BOB                                 GLOBAL    PIC S9(3)V9(4).
+       01 WS-DRIFT                               GLOBAL    PIC S9(3)V9(4).
+       01 WS-VIEW-WIDTH                          GLOBAL    PIC 9(5).
+       01 WS-VIEW-HEIGHT                         GLOBAL    PIC 9(5).
+
+      *> Counters and numbers being worked.
+       01 WS-I                                   GLOBAL    PIC S9(4).
+       01 WS-J                                   GLOBAL    PIC S9(4).
+       01 WS-K                                   GLOBAL    PIC S9(4).
+       01 WS-T                                   GLOBAL    PIC 99.
+       01 WS-X                                   GLOBAL    PIC 99.
+       01 WS-Y                                   GLOBAL    PIC 99.
+       01 WS-RADIUS                              GLOBAL    PIC 9(3).
+       01 WS-MX                                  GLOBAL    PIC S9(4)V9(4).
+       01 WS-MY                                  GLOBAL    PIC S9(4)V9(4).
+       01 WS-MZ                                  GLOBAL    PIC S9(4)V9(4).
+       01 WS-SHOW-F                              GLOBAL    PIC -(4)9.99.
+
+      *> The "Built with PowerRustCOBOL AI" line: where each part starts.
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="TITLE-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           *> The choices made last time: player name, game mode and language.
+           SET     WS-SETTING-ACTION             TO    "GET"
+           SET     WS-SETTING-NAME               TO    "player"
+           *> Reads one kept setting.
+           *> Uses: WS-SETTING-ACTION "GET", WS-SETTING-NAME "player".
+           *> Result: WS-SETTING-VALUE, spaces when it was never kept.
+           CALL "CRAFT-SETTINGS" USING WS-SETTING-ACTION WS-SETTING-NAME WS-SETTING-VALUE
+           IF    WS-SETTING-VALUE NOT = SPACES
+               SET     WS-PLAYER-NAME                TO    WS-SETTING-VALUE
+           END-IF
+           SET     WS-SETTING-NAME               TO    "mode"
+           *> Reads one kept setting.
+           *> Uses: WS-SETTING-ACTION "GET", WS-SETTING-NAME "mode".
+           *> Result: WS-SETTING-VALUE "1" to "4", or spaces.
+           CALL "CRAFT-SETTINGS" USING WS-SETTING-ACTION WS-SETTING-NAME WS-SETTING-VALUE
+           IF    WS-SETTING-VALUE(1:1) >= "1" AND WS-SETTING-VALUE(1:1) <= "4"
+               SET     WS-GAME-MODE                  TO    WS-SETTING-VALUE(1:1)
+           END-IF
+           SET     WS-SETTING-NAME               TO    "language"
+           *> Reads one kept setting.
+           *> Uses: WS-SETTING-ACTION "GET", WS-SETTING-NAME "language".
+           *> Result: WS-SETTING-VALUE "1" to "6", or spaces.
+           CALL "CRAFT-SETTINGS" USING WS-SETTING-ACTION WS-SETTING-NAME WS-SETTING-VALUE
+           IF    WS-SETTING-VALUE(1:1) >= "1" AND WS-SETTING-VALUE(1:1) <= "6"
+               SET     WS-LANGUAGE                   TO    WS-SETTING-VALUE(1:1)
+           END-IF
+           SET     TXT-PLAYER::Text              TO    WS-PLAYER-NAME
+           SET     CMB-LANGUAGE::SelectedIndex   TO    WS-LANGUAGE
+
+           *> Puts every caption in the player's language.
+           *> Uses: WS-LANGUAGE, WS-GAME-MODE.
+           *> Result: the labels, buttons, the game modes and the credits in that language.
+           CALL "CRAFT-TITLE-TEXTS"
+           *> Looks for a saved world.
+           *> Uses: data/world.dat.
+           *> Result: BTN-CONTINUE enabled and LBL-SAVED telling whose world and which day, or disabled.
+           CALL "CRAFT-SAVED-INFO"
+
+           *> The two image buffers get their first size here, in the form's own load event:
+           *> made for the first time inside a procedure, they stay one pixel wide.
+           IMG-TILE::Create( 16 16 )
+           IMG-STRIP::Create( 48 16 )
+           *> Paints the block tiles and makes the nine block materials.
+           *> Uses: CRAFT-TILE, IMG-TILE, IMG-STRIP, SCN-1.
+           *> Result: WS-TILE-IMAGE(1..11) and WS-TYPE-MATERIAL(1..9).
+           CALL "CRAFT-TEXTURES"
+           *> Builds the floating island, the clouds, the light and the camera.
+           *> Uses: SCN-1, WS-TYPE-MATERIAL, the cube mesh.
+           *> Result: WS-ISLAND-GROUP and WS-CLOUD-GROUP ready to turn and drift.
+           CALL "CRAFT-BUILD-DIORAMA"
+           CNV-DIORAMA::SetMsaa( 4 )
+           CNV-DIORAMA::SetShadowMapSize( 2048 )
+           CNV-DIORAMA::SetScene( SCN-1::GetHandle() )
+           CNV-DIORAMA::SetCamera( WS-CAMERA )
+           CNV-DIORAMA::Render()
+           SET     WS-READY                      TO    1
+]]></Event>
+  </form-events>
+  <user-procedures>
+    <Event name="CRAFT-TITLE-TEXTS" paragraph="CRAFT-TITLE-TEXTS"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-TEXT-ID                    TO    11
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 11 (the subtitle).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-SUBTITLE::Caption         TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    4
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 4 (Player name).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-PLAYER::Caption           TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    5
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 5 (Game mode).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-MODE::Caption             TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    6
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 6 (Language).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-LANGUAGE::Caption         TO    WS-TEXT::Trim()
+
+           *> The four game modes, one item a line, and the one chosen.
+           SET     WS-MODE-ITEMS                 TO    SPACES
+           SET     WS-POINTER                    TO    1
+           PERFORM VARYING WS-TEXT-ID FROM 7 BY 1 UNTIL WS-TEXT-ID > 10
+               *> Answers a game mode's name in the player's language.
+               *> Uses: WS-LANGUAGE, WS-TEXT-ID 7 to 10 (Survival, Creative, Adventure, Spectator).
+               *> Result: WS-TEXT.
+               CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+               IF    WS-POINTER > 1
+                   STRING    X"0A" DELIMITED BY SIZE INTO WS-MODE-ITEMS WITH POINTER WS-POINTER
+               END-IF
+               STRING    WS-TEXT::Trim() DELIMITED BY SIZE INTO WS-MODE-ITEMS WITH POINTER WS-POINTER
+           END-PERFORM
+           SET     CMB-MODE::Items               TO    WS-MODE-ITEMS
+           SET     CMB-MODE::SelectedIndex       TO    WS-GAME-MODE
+
+           SET     WS-TEXT-ID                    TO    1
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 1 (Play a new world).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     BTN-PLAY::Caption             TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    2
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 2 (Continue the saved world).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     BTN-CONTINUE::Caption         TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    3
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 3 (Quit).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     BTN-QUIT::Caption             TO    WS-TEXT::Trim()
+
+           *> The credits.
+           SET     WS-TEXT-ID                    TO    12
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 12 (Credits).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-CREDITS-TITLE::Caption    TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    13
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 13 (based on CobolCraft by Fabian Meyer).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-CREDIT-ORIGIN::Caption    TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    14
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 14 (the MIT License and the copyright).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-CREDIT-LICENSE::Caption   TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    15
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 15 (the trademark notice).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-CREDIT-TRADEMARK::Caption TO    WS-TEXT::Trim()
+           SET     WS-TEXT-ID                    TO    16
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 16 (textures and sounds made by the program).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     LBL-CREDIT-ASSETS::Caption    TO    WS-TEXT::Trim()
+
+           *> Draws "Built with PowerRustCOBOL AI" in the player's language.
+           *> Uses: WS-LANGUAGE.
+           *> Result: LBL-BUILT-WITH says "Built with" in that language.
+           CALL "CRAFT-BRAND"
+]]></Event>
+    <Event name="CRAFT-BRAND" paragraph="CRAFT-BRAND"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-TEXT-ID                    TO    17
+           *> Answers one text in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 17 (Built with).
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+
+           *> "Built with" sits right-aligned against the product's name, so the line holds
+           *> together in every language; "PowerRustCOBOL" and the cyan "AI" never change.
+           SET     LBL-BUILT-WITH::Caption       TO    WS-TEXT::Trim()
+]]></Event>
+    <Event name="CRAFT-SAVED-INFO" paragraph="CRAFT-SAVED-INFO"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-SAVE-ACTION                TO    "INFO"
+           *> Reads the first line of the saved world.
+           *> Uses: WS-SAVE-ACTION "INFO", data/world.dat.
+           *> Result: WS-SAVE filled and WS-SAVE-STATUS 0, or 1 when there is no saved world.
+           CALL "CRAFT-WORLD-FILE" USING WS-SAVE-ACTION WS-SAVE WS-WORLD WS-SAVE-STATUS
+           IF    WS-SAVE-STATUS NOT = 0
+               BTN-CONTINUE::Disable()
+               SET     LBL-SAVED::Caption            TO    SPACES
+               EXIT PROGRAM
+           END-IF
+           BTN-CONTINUE::Enable()
+           SET     WS-TEXT-ID                    TO    28
+           *> Answers "Day" in the player's language.
+           *> Uses: WS-LANGUAGE, WS-TEXT-ID 28.
+           *> Result: WS-TEXT.
+           CALL "CRAFT-TEXT" USING WS-LANGUAGE WS-TEXT-ID WS-TEXT
+           SET     WS-SHOW-DAY                   TO    WS-SAVE-DAY
+           SET     LBL-SAVED::Caption            TO    SPACES
+           STRING    WS-SAVE-PLAYER::Trim() "  ·  " WS-TEXT::Trim() " " WS-SHOW-DAY::Trim()
+                     "  ·  " WS-SAVE-AT
+               DELIMITED BY SIZE INTO LBL-SAVED::Caption
+]]></Event>
+    <Event name="CRAFT-TEXTURES" paragraph="CRAFT-TEXTURES"><![CDATA[       PROCEDURE DIVISION.
+           *> The eleven block tiles, 16 by 16 pixels each.
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 11
+               SET     WS-TILE-NUMBER                TO    WS-T
+               *> Paints one tile.
+               *> Uses: WS-TILE-NUMBER (1 to 11).
+               *> Result: WS-TILE-PIXEL(1..256), row by row from the top-left.
+               CALL "CRAFT-TILE" USING WS-TILE-NUMBER WS-TILE-PIXELS
+               IMG-TILE::Create( 16 16 )
+               SET     WS-PIXEL-INDEX                TO    1
+               PERFORM VARYING WS-Y FROM 0 BY 1 UNTIL WS-Y > 15
+                   PERFORM VARYING WS-X FROM 0 BY 1 UNTIL WS-X > 15
+                       IMG-TILE::SetPixel( WS-X WS-Y WS-TILE-PIXEL(WS-PIXEL-INDEX) )
+                       ADD     1                             TO    WS-PIXEL-INDEX
+                   END-PERFORM
+               END-PERFORM
+               SET     WS-TILE-IMAGE(WS-T)           TO    IMG-TILE::Clone()
+           END-PERFORM
+
+           *> A strip per block type - top, side, bottom - blown up eight times without smoothing.
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+               IMG-STRIP::Create( 48 16 )
+               IMG-STRIP::Composite( WS-TILE-IMAGE(WS-TOP-TILE(WS-T)) 0 0 )
+               IMG-STRIP::Composite( WS-TILE-IMAGE(WS-SIDE-TILE(WS-T)) 16 0 )
+               IMG-STRIP::Composite( WS-TILE-IMAGE(WS-BOTTOM-TILE(WS-T)) 32 0 )
+               IMG-STRIP::Resize( 384 128 "nearest" )
+               SET     WS-TYPE-MATERIAL(WS-T)        TO    SCN-1::CreateMaterial()
+               SCN-1::SetTexture( WS-TYPE-MATERIAL(WS-T) 0 IMG-STRIP::Clone() )
+               SCN-1::SetRoughness( WS-TYPE-MATERIAL(WS-T) 1 )
+               IF    WS-T = 7 OR WS-T = 8
+                   SCN-1::SetAlphaMode( WS-TYPE-MATERIAL(WS-T) 1 0.5 )
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="CRAFT-BUILD-DIORAMA" paragraph="CRAFT-BUILD-DIORAMA"><![CDATA[       PROCEDURE DIVISION.
+           *> A clear day: the sky's gradient, the sun high in the south-west, soft daylight around.
+           SCN-1::SetBackgroundGradient( "#4F86DEFF" "#BBD7FFFF" )
+           SCN-1::SetAmbient( 0.86 0.9 1 0.55 )
+           SET     WS-LIGHT                      TO    SCN-1::AddDirectionalLight( 1 0.96 0.88 2.2 1 )
+           SCN-1::SetRotation( WS-LIGHT -55 35 0 )
+           SET     WS-CAMERA                     TO    SCN-1::AddCamera( 40 0.1 300 )
+           SCN-1::SetPosition( WS-CAMERA 0 5.2 22 )
+           SCN-1::SetRotation( WS-CAMERA -11 0 0 )
+
+           *> The island, column (i k) at x = i - 5, z = k - 5, block j at y = j - 5.
+           *> Grass on top, dirt under it, a cone of stone hanging below.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 9
+               PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 9
+                   COMPUTE WS-RADIUS = ( WS-I - 5 ) * ( WS-I - 5 ) + ( WS-K - 5 ) * ( WS-K - 5 )
+                   SET     WS-ISLAND-COLUMN(WS-I WS-K)   TO    SPACES
+                   IF    WS-RADIUS <= 17
+                       SET     WS-ISLAND-COLUMN(WS-I WS-K)(5:1)    TO    "G"
+                   END-IF
+                   IF    WS-RADIUS <= 13
+                       SET     WS-ISLAND-COLUMN(WS-I WS-K)(4:1)    TO    "D"
+                   END-IF
+                   IF    WS-RADIUS <= 8
+                       SET     WS-ISLAND-COLUMN(WS-I WS-K)(3:1)    TO    "S"
+                   END-IF
+                   IF    WS-RADIUS <= 4
+                       SET     WS-ISLAND-COLUMN(WS-I WS-K)(2:1)    TO    "S"
+                   END-IF
+                   IF    WS-RADIUS <= 1
+                       SET     WS-ISLAND-COLUMN(WS-I WS-K)(1:1)    TO    "S"
+                   END-IF
+               END-PERFORM
+           END-PERFORM
+
+           *> An oak at column (3 4): four logs, two wide layers of leaves, a narrow one, a cross on top.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 5
+               PERFORM VARYING WS-K FROM 2 BY 1 UNTIL WS-K > 6
+                   IF    FUNCTION ABS( WS-I - 3 ) + FUNCTION ABS( WS-K - 4 ) < 4
+                       SET     WS-ISLAND-COLUMN(WS-I WS-K)(8:2)    TO    "EE"
+                   END-IF
+                   IF    FUNCTION ABS( WS-I - 3 ) < 2 AND FUNCTION ABS( WS-K - 4 ) < 2
+                       SET     WS-ISLAND-COLUMN(WS-I WS-K)(10:1)   TO    "E"
+                   END-IF
+                   IF    FUNCTION ABS( WS-I - 3 ) + FUNCTION ABS( WS-K - 4 ) < 2
+                       SET     WS-ISLAND-COLUMN(WS-I WS-K)(11:1)   TO    "E"
+                   END-IF
+               END-PERFORM
+           END-PERFORM
+           SET     WS-ISLAND-COLUMN(3 4)(6:4)    TO    "LLLL"
+
+           *> A little house on columns 6 to 8 by 5 to 7: log corners, plank walls, a glass window,
+           *> an open door to the front (k 7), a brick roof, and a cobblestone step before the door.
+           PERFORM VARYING WS-I FROM 6 BY 1 UNTIL WS-I > 8
+               PERFORM VARYING WS-K FROM 5 BY 1 UNTIL WS-K > 7
+                   IF    WS-I = 7 AND WS-K = 6
+                       SET     WS-ISLAND-COLUMN(WS-I WS-K)(6:3)    TO    "  B"
+                   ELSE
+                       IF    WS-I NOT = 7 AND WS-K NOT = 6
+                           SET     WS-ISLAND-COLUMN(WS-I WS-K)(6:3)    TO    "LLB"
+                       ELSE
+                           SET     WS-ISLAND-COLUMN(WS-I WS-K)(6:3)    TO    "PWB"
+                       END-IF
+                   END-IF
+               END-PERFORM
+           END-PERFORM
+           SET     WS-ISLAND-COLUMN(7 7)(6:2)    TO    "  "
+           SET     WS-ISLAND-COLUMN(8 6)(6:2)    TO    "PP"
+           SET     WS-ISLAND-COLUMN(7 8)(5:1)    TO    "C"
+           SET     WS-ISLAND-COLUMN(7 9)(5:1)    TO    "C"
+
+           *> One instanced cube node per block type, all in the island's group so it turns as one.
+           SET     WS-ISLAND-GROUP               TO    SCN-1::AddGroup()
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 9
+               SET     WS-INSTANCES                  TO    SPACES
+               SET     WS-POINTER                    TO    1
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 9
+                   PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 9
+                       PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > 11
+                           IF    WS-ISLAND-COLUMN(WS-I WS-K)(WS-J:1) = WS-BLOCK-CODES(WS-T:1)
+                               COMPUTE WS-MX = WS-I - 5.5
+                               COMPUTE WS-MY = WS-J - 5
+                               COMPUTE WS-MZ = WS-K - 5.5
+                               *> Adds one block to the type's instance list.
+                               *> Uses: WS-MX, WS-MY, WS-MZ, WS-INSTANCES at WS-POINTER.
+                               *> Result: WS-INSTANCES grows by one translation matrix.
+                               CALL "CRAFT-ADD-TRANSLATION"
+                           END-IF
+                       END-PERFORM
+                   END-PERFORM
+               END-PERFORM
+               IF    WS-POINTER > 1
+                   SET     WS-NODE                       TO    SCN-1::AddMesh( WS-CUBE-POSITIONS WS-CUBE-INDICES WS-CUBE-NORMALS WS-CUBE-UVS )
+                   SCN-1::SetMaterial( WS-NODE WS-TYPE-MATERIAL(WS-T) )
+                   SCN-1::SetParent( WS-NODE WS-ISLAND-GROUP )
+                   SCN-1::SetInstances( WS-NODE WS-INSTANCES(1:WS-POINTER) )
+               END-IF
+           END-PERFORM
+
+           *> Clouds: flat white slabs behind and below the island, laid twice over 60 m so the group
+           *> can slide by 60 m without a seam.
+           SET     WS-CLOUD-GROUP                TO    SCN-1::AddGroup()
+           SET     WS-NODE                       TO    SCN-1::AddBox( 7 1 5 )
+           SCN-1::SetParent( WS-NODE WS-CLOUD-GROUP )
+           SET     WS-MATERIAL                   TO    SCN-1::GetMaterial( WS-NODE )
+           SCN-1::SetMaterialColor( WS-MATERIAL "#FFFFFFE0" )
+           SCN-1::SetEmissive( WS-MATERIAL 0.4 0.4 0.42 )
+           SCN-1::SetRoughness( WS-MATERIAL 1 )
+           SCN-1::SetAlphaMode( WS-MATERIAL 2 )
+           SET     WS-INSTANCES                  TO    SPACES
+           SET     WS-POINTER                    TO    1
+           PERFORM VARYING WS-T FROM 1 BY 1 UNTIL WS-T > 10
+               PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 1
+                   COMPUTE WS-MX = FUNCTION NUMVAL( WS-ISLAND-SPOTS(WS-T * 4 - 3:2) ) * 6 - 30 + WS-I * 60
+                   COMPUTE WS-MY = FUNCTION NUMVAL( WS-ISLAND-SPOTS(WS-T * 4 - 1:2) ) * 1.6 - 9
+                   COMPUTE WS-MZ = -14 - FUNCTION MOD( WS-T * 7, 12 )
+                   *> Adds one cloud slab to the instance list.
+                   *> Uses: WS-MX, WS-MY, WS-MZ, WS-INSTANCES at WS-POINTER.
+                   *> Result: WS-INSTANCES grows by one translation matrix.
+                   CALL "CRAFT-ADD-TRANSLATION"
+               END-PERFORM
+           END-PERFORM
+           SCN-1::SetInstances( WS-NODE WS-INSTANCES(1:WS-POINTER) )
+]]></Event>
+    <Event name="CRAFT-ADD-TRANSLATION" paragraph="CRAFT-ADD-TRANSLATION"><![CDATA[       PROCEDURE DIVISION.
+           *> One copy moved to WS-MX, WS-MY, WS-MZ: the identity matrix with that translation.
+           STRING    "1 0 0 0 0 1 0 0 0 0 1 0 " DELIMITED BY SIZE INTO WS-INSTANCES WITH POINTER WS-POINTER
+           SET     WS-SHOW-F                     TO    WS-MX
+           STRING    WS-SHOW-F::Trim() " " DELIMITED BY SIZE INTO WS-INSTANCES WITH POINTER WS-POINTER
+           SET     WS-SHOW-F                     TO    WS-MY
+           STRING    WS-SHOW-F::Trim() " " DELIMITED BY SIZE INTO WS-INSTANCES WITH POINTER WS-POINTER
+           SET     WS-SHOW-F                     TO    WS-MZ
+           STRING    WS-SHOW-F::Trim() " 1 " DELIMITED BY SIZE INTO WS-INSTANCES WITH POINTER WS-POINTER
+]]></Event>
+    <Event name="CRAFT-START-WORLD" paragraph="CRAFT-START-WORLD"><![CDATA[       PROCEDURE DIVISION.
+           *> The player's name as typed (a blank one plays as "Player"), the mode and the language,
+           *> kept for next time and handed to the world.
+           SET     WS-PLAYER-NAME                TO    TXT-PLAYER::Text::Trim()
+           IF    WS-PLAYER-NAME = SPACES
+               SET     WS-PLAYER-NAME                TO    "Player"
+           END-IF
+           SET     WS-GAME-MODE                  TO    CMB-MODE::SelectedIndex
+           IF    WS-GAME-MODE < 1 OR WS-GAME-MODE > 4
+               SET     WS-GAME-MODE                  TO    1
+           END-IF
+           SET     WS-SETTING-ACTION             TO    "PUT"
+           SET     WS-SETTING-NAME               TO    "player"
+           SET     WS-SETTING-VALUE              TO    WS-PLAYER-NAME
+           *> Keeps the player's name.
+           *> Uses: WS-SETTING-ACTION "PUT", WS-SETTING-NAME "player", WS-SETTING-VALUE the name.
+           *> Result: data/settings.idx holds it.
+           CALL "CRAFT-SETTINGS" USING WS-SETTING-ACTION WS-SETTING-NAME WS-SETTING-VALUE
+           SET     WS-SETTING-NAME               TO    "mode"
+           SET     WS-SETTING-VALUE              TO    WS-GAME-MODE
+           *> Keeps the game mode.
+           *> Uses: WS-SETTING-ACTION "PUT", WS-SETTING-NAME "mode", WS-SETTING-VALUE "1" to "4".
+           *> Result: data/settings.idx holds it.
+           CALL "CRAFT-SETTINGS" USING WS-SETTING-ACTION WS-SETTING-NAME WS-SETTING-VALUE
+
+           INVOKE    ME::SetProperty("PlayerName", WS-PLAYER-NAME)
+           INVOKE    ME::SetProperty("GameMode", WS-GAME-MODE)
+           INVOKE    ME::SetProperty("Language", WS-LANGUAGE)
+           INVOKE    ME::SetProperty("WorldMode", WS-WORLD-MODE)
+           INVOKE    ME::SetProperty("WorldResult", "QUIT")
+           INVOKE    ME::OpenFormSync("WORLD-FORM")
+           INVOKE    ME::GetProperty("WorldResult") RETURNING WS-WORLD-RESULT
+
+           *> /stop stops the server: the application ends with it.
+           IF    WS-WORLD-RESULT = "STOP"
+               INVOKE    ME::Close()
+               EXIT PROGRAM
+           END-IF
+           *> Looks again for the saved world, which the world has just written.
+           *> Uses: data/world.dat.
+           *> Result: BTN-CONTINUE and LBL-SAVED up to date.
+           CALL "CRAFT-SAVED-INFO"
+]]></Event>
+  </user-procedures>
+  <Control id="CNV-DIORAMA" type="Canvas3D" x="0" y="0" w="1280" h="760" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">Top,Bottom,Left,Right</Property>
+    <Property name="Definition">The title screen's backdrop: a little floating island of grass, dirt and stone with an oak and a small house, slowly turning in a blue sky among drifting clouds.</Property>
+    <Property name="Width">1280</Property>
+    <Property name="Height">760</Property>
+    <Property name="TargetFps">30</Property>
+    <Property name="FixedStep">True</Property>
+    <Property name="AccessibleLabel">A floating island of blocks with a tree and a little house, turning slowly in the sky</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Event name="onFrame" paragraph="CNV-DIORAMA--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
+           *> The canvas follows the window.
+           COMPUTE WS-VIEW-WIDTH = CNV-DIORAMA::Width
+           COMPUTE WS-VIEW-HEIGHT = CNV-DIORAMA::Height
+           IF      WS-VIEW-WIDTH > 63 AND WS-VIEW-HEIGHT > 63
+               AND ( WS-VIEW-WIDTH NOT = CNV-DIORAMA::GetWidth() OR WS-VIEW-HEIGHT NOT = CNV-DIORAMA::GetHeight() )
+               CNV-DIORAMA::Resize( WS-VIEW-WIDTH WS-VIEW-HEIGHT )
+           END-IF
+
+           *> The island turns a full round a minute and bobs; the clouds drift by.
+           ADD     1                             TO    WS-FRAME
+           COMPUTE WS-SPIN = FUNCTION MOD( WS-SPIN + 0.2, 360 )
+           COMPUTE WS-BOB = FUNCTION SIN( WS-FRAME * 0.035 ) * 0.25
+           SCN-1::SetRotation( WS-ISLAND-GROUP 0 WS-SPIN 0 )
+           SCN-1::SetPosition( WS-ISLAND-GROUP 0 WS-BOB 0 )
+           COMPUTE WS-DRIFT = FUNCTION MOD( WS-FRAME * 0.02, 60 )
+           SCN-1::SetPosition( WS-CLOUD-GROUP WS-DRIFT 0 0 )
+           CNV-DIORAMA::Render()
+]]></Event>
+  </Control>
+  <Control id="SCN-1" type="Scene3D" x="1100" y="728" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">Bottom,Right</Property>
+    <Property name="Definition">The 3D scene of the title screen: the floating island, the clouds, the sun and the camera.</Property>
+  </Control>
+  <Control id="IMG-TILE" type="ImageBuffer" x="1164" y="728" w="50" h="24" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">Bottom,Right</Property>
+    <Property name="Definition">Where each 16 by 16 block tile is painted, pixel by pixel, before it is kept.</Property>
+  </Control>
+  <Control id="IMG-STRIP" type="ImageBuffer" x="1218" y="728" w="50" h="24" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">Bottom,Right</Property>
+    <Property name="Definition">Where the tiles of a block type are laid side by side (top, side, bottom) and blown up into its texture.</Property>
+  </Control>
+  <Control id="LBL-TITLE" type="Label" x="64" y="40" w="720" h="84" tab-order="4" z-order="1" visible="true" enabled="true">
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">The application's name, large, over the sky.</Property>
+    <Property name="Caption">PowerCobolCraft</Property>
+    <Property name="FontSize">64</Property>
+    <Property name="Bold">true</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+  </Control>
+  <Control id="LBL-SUBTITLE" type="Label" x="64" y="126" w="640" h="36" tab-order="5" z-order="1" visible="true" enabled="true">
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Definition">One line saying what the application is: a voxel world in the spirit of CobolCraft, written in RustCOBOL.</Property>
+    <Property name="Caption">A flat voxel world in the spirit of CobolCraft, written in RustCOBOL</Property>
+    <Property name="FontSize">17</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#10131CA8</Property>
+    <Property name="CornerRadius">16</Property>
+    <Property name="Padding">10</Property>
+  </Control>
+  <Control id="PNL-PLAY" type="Panel" x="64" y="184" w="400" h="500" tab-order="6" z-order="2" visible="true" enabled="true">
+    <Property name="Anchor">Top,Bottom,Left</Property>
+    <Property name="Definition">The play card: the player's name, the game mode, the language, and the buttons to start a new world, continue the saved one or quit.</Property>
+    <Property name="CornerRadius">28</Property>
+    <Property name="VScroll">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#10131CD0</Property>
+  </Control>
+  <Control id="LBL-PLAYER" type="Label" x="92" y="208" w="344" h="22" tab-order="0" z-order="3" visible="true" enabled="true" parent="PNL-PLAY">
+    <Property name="Definition">Names the box below: the player's name in the world and in the chat.</Property>
+    <Property name="Caption">Player name</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="ForegroundColor">#DDE3EEFF</Property>
+  </Control>
+  <Control id="TXT-PLAYER" type="TextBox" x="92" y="234" w="344" h="44" tab-order="1" z-order="3" visible="true" enabled="true" parent="PNL-PLAY">
+    <Property name="Definition">The player's name, up to 16 characters, as the world and the chat show it.</Property>
+    <Property name="Text">Player</Property>
+    <Property name="MaximumLength">16</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="CornerRadius">12</Property>
+    <Property name="BackgroundColor">#1C2030FF</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#FFFFFF33</Property>
+  </Control>
+  <Control id="LBL-MODE" type="Label" x="92" y="292" w="344" h="22" tab-order="2" z-order="3" visible="true" enabled="true" parent="PNL-PLAY">
+    <Property name="Definition">Names the list below: the game mode the world starts in.</Property>
+    <Property name="Caption">Game mode</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="ForegroundColor">#DDE3EEFF</Property>
+  </Control>
+  <Control id="CMB-MODE" type="ComboBox" x="92" y="318" w="344" h="44" tab-order="3" z-order="3" visible="true" enabled="true" parent="PNL-PLAY">
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#1C2030FF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#FFFFFF40</Property>
+    <Property name="ActiveItemColor">#0A84FFFF</Property>
+    <Property name="Definition">The game mode: Survival, Creative, Adventure or Spectator, as CobolCraft's /gamemode command names them.</Property>
+    <Property name="Items">Survival
+Creative
+Adventure
+Spectator</Property>
+    <Property name="SelectedIndex">1</Property>
+    <Property name="DropDownStyle">DropDownList</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="CornerRadius">12</Property>
+  </Control>
+  <Control id="LBL-LANGUAGE" type="Label" x="92" y="376" w="344" h="22" tab-order="4" z-order="3" visible="true" enabled="true" parent="PNL-PLAY">
+    <Property name="Definition">Names the list below: the language of the screens.</Property>
+    <Property name="Caption">Language</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="ForegroundColor">#DDE3EEFF</Property>
+  </Control>
+  <Control id="CMB-LANGUAGE" type="ComboBox" x="92" y="402" w="344" h="44" tab-order="5" z-order="3" visible="true" enabled="true" parent="PNL-PLAY">
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#1C2030FF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#FFFFFF40</Property>
+    <Property name="ActiveItemColor">#0A84FFFF</Property>
+    <Property name="Definition">The language of the title screen and of the world's menus, each written in its own language.</Property>
+    <Property name="Items">English
+Português (Brasil)
+Español
+Français
+日本語
+中文</Property>
+    <Property name="SelectedIndex">1</Property>
+    <Property name="DropDownStyle">DropDownList</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="CornerRadius">12</Property>
+    <Event name="onSelectedIndexChanged" paragraph="CMB-LANGUAGE--ONSELECTEDINDEXCHANGED"><![CDATA[       PROCEDURE DIVISION.
+           IF    WS-READY = 0 OR CMB-LANGUAGE::SelectedIndex < 1
+               EXIT PROGRAM
+           END-IF
+           SET     WS-LANGUAGE                   TO    CMB-LANGUAGE::SelectedIndex
+           SET     WS-GAME-MODE                  TO    CMB-MODE::SelectedIndex
+           SET     WS-SETTING-ACTION             TO    "PUT"
+           SET     WS-SETTING-NAME               TO    "language"
+           SET     WS-SETTING-VALUE              TO    WS-LANGUAGE
+           *> Keeps the language for next time.
+           *> Uses: WS-SETTING-ACTION "PUT", WS-SETTING-NAME "language", WS-SETTING-VALUE "1" to "6".
+           *> Result: data/settings.idx holds it.
+           CALL "CRAFT-SETTINGS" USING WS-SETTING-ACTION WS-SETTING-NAME WS-SETTING-VALUE
+           *> Puts every caption in the language just chosen.
+           *> Uses: WS-LANGUAGE, WS-GAME-MODE (kept selected).
+           *> Result: the labels, buttons, the game modes and the credits in that language.
+           CALL "CRAFT-TITLE-TEXTS"
+           *> Writes the saved world's line again, its "Day" in the new language.
+           *> Uses: data/world.dat, WS-LANGUAGE.
+           *> Result: LBL-SAVED and BTN-CONTINUE up to date.
+           CALL "CRAFT-SAVED-INFO"
+]]></Event>
+  </Control>
+  <Control id="BTN-PLAY" type="Button" x="92" y="472" w="344" h="50" tab-order="6" z-order="3" visible="true" enabled="true" parent="PNL-PLAY">
+    <Property name="Definition">Starts a new flat world, as CobolCraft generates one, and opens it.</Property>
+    <Property name="Caption">Play a new world</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="CornerRadius">25</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#0A84FFFF</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Event name="onClick" paragraph="BTN-PLAY--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-WORLD-MODE                 TO    "NEW"
+           *> Keeps the choices and opens a new world.
+           *> Uses: TXT-PLAYER, CMB-MODE, WS-LANGUAGE, WS-WORLD-MODE "NEW".
+           *> Result: WORLD-FORM played until it closes; the application ends on /stop.
+           CALL "CRAFT-START-WORLD"
+]]></Event>
+  </Control>
+  <Control id="BTN-CONTINUE" type="Button" x="92" y="532" w="344" h="50" tab-order="7" z-order="3" visible="true" enabled="true" parent="PNL-PLAY">
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Definition">Opens the saved world where it was left; disabled when there is none.</Property>
+    <Property name="Caption">Continue the saved world</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="CornerRadius">25</Property>
+    <Event name="onClick" paragraph="BTN-CONTINUE--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-WORLD-MODE                 TO    "LOAD"
+           *> Keeps the choices and opens the saved world.
+           *> Uses: TXT-PLAYER, CMB-MODE, WS-LANGUAGE, WS-WORLD-MODE "LOAD".
+           *> Result: WORLD-FORM played until it closes; the application ends on /stop.
+           CALL "CRAFT-START-WORLD"
+]]></Event>
+  </Control>
+  <Control id="LBL-SAVED" type="Label" x="92" y="586" w="344" h="22" tab-order="8" z-order="3" visible="true" enabled="true" parent="PNL-PLAY">
+    <Property name="Definition">Whose world is saved, which day it has reached and when it was saved.</Property>
+    <Property name="Caption"> </Property>
+    <Property name="FontSize">12</Property>
+    <Property name="ForegroundColor">#DDE3EEFF</Property>
+    <Property name="TextAlignment">Center</Property>
+  </Control>
+  <Control id="BTN-QUIT" type="Button" x="92" y="618" w="344" h="44" tab-order="9" z-order="3" visible="true" enabled="true" parent="PNL-PLAY">
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Definition">Closes PowerCobolCraft.</Property>
+    <Property name="Caption">Quit</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="CornerRadius">22</Property>
+    <Event name="onClick" paragraph="BTN-QUIT--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::Close()
+]]></Event>
+  </Control>
+  <Control id="PNL-CREDITS" type="Panel" x="824" y="184" w="392" h="500" tab-order="7" z-order="2" visible="true" enabled="true">
+    <Property name="Anchor">Top,Bottom,Right</Property>
+    <Property name="Definition">The credits card: CobolCraft by Fabian Meyer (meyfa), its licence, the trademark notice, and what PowerCobolCraft is built with.</Property>
+    <Property name="CornerRadius">28</Property>
+    <Property name="VScroll">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#10131CD0</Property>
+  </Control>
+  <Control id="LBL-CREDITS-TITLE" type="Label" x="852" y="208" w="336" h="32" tab-order="0" z-order="3" visible="true" enabled="true" parent="PNL-CREDITS">
+    <Property name="Definition">The title of the credits card.</Property>
+    <Property name="Caption">Credits</Property>
+    <Property name="FontSize">22</Property>
+    <Property name="Bold">true</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+  </Control>
+  <Control id="LBL-CREDIT-ORIGIN" type="Label" x="852" y="250" w="336" h="66" tab-order="1" z-order="3" visible="true" enabled="true" parent="PNL-CREDITS">
+    <Property name="Definition">Names the original: CobolCraft by Fabian Meyer (meyfa), a Minecraft server written in COBOL.</Property>
+    <Property name="Caption">Based on CobolCraft by Fabian Meyer (meyfa), a Minecraft server written in COBOL.</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="ForegroundColor">#F0F2F6</Property>
+  </Control>
+  <Control id="LNK-COBOLCRAFT" type="Hyperlink" x="852" y="320" w="336" h="26" tab-order="2" z-order="3" visible="true" enabled="true" parent="PNL-CREDITS">
+    <Property name="Definition">Opens CobolCraft's repository on GitHub in the browser.</Property>
+    <Property name="Caption">github.com/meyfa/CobolCraft</Property>
+    <Property name="Url">https://github.com/meyfa/CobolCraft</Property>
+    <Property name="Target">NewTab</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="LinkColor">#8FD3FF</Property>
+    <Property name="HoverColor">#C4E8FF</Property>
+    <Property name="LinkUnderline">Hover</Property>
+  </Control>
+  <Control id="LBL-CREDIT-LICENSE" type="Label" x="852" y="360" w="336" h="48" tab-order="3" z-order="3" visible="true" enabled="true" parent="PNL-CREDITS">
+    <Property name="Definition">CobolCraft's licence and copyright notice.</Property>
+    <Property name="Caption">CobolCraft is released under the MIT License. Copyright (c) 2024 - 2025 Fabian Meyer.</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="ForegroundColor">#D8DEE8</Property>
+  </Control>
+  <Control id="LNK-LICENSE" type="Hyperlink" x="852" y="410" w="336" h="24" tab-order="4" z-order="3" visible="true" enabled="true" parent="PNL-CREDITS">
+    <Property name="Definition">Opens CobolCraft's MIT License on GitHub in the browser.</Property>
+    <Property name="Caption">MIT License</Property>
+    <Property name="Url">https://github.com/meyfa/CobolCraft/blob/main/LICENSE</Property>
+    <Property name="Target">NewTab</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="LinkColor">#8FD3FF</Property>
+    <Property name="HoverColor">#C4E8FF</Property>
+    <Property name="LinkUnderline">Hover</Property>
+  </Control>
+  <Control id="LBL-CREDIT-TRADEMARK" type="Label" x="852" y="448" w="336" h="66" tab-order="5" z-order="3" visible="true" enabled="true" parent="PNL-CREDITS">
+    <Property name="Definition">The trademark notice: Minecraft belongs to Mojang, which neither project is affiliated with.</Property>
+    <Property name="Caption">Minecraft is a trademark of Mojang Synergies AB. Neither CobolCraft nor PowerCobolCraft is affiliated with or endorsed by Mojang.</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="ForegroundColor">#DDE3EEFF</Property>
+  </Control>
+  <Control id="LBL-CREDIT-ASSETS" type="Label" x="852" y="520" w="336" h="66" tab-order="6" z-order="3" visible="true" enabled="true" parent="PNL-CREDITS">
+    <Property name="Definition">Says the textures and sounds are made by the program itself, not taken from Minecraft.</Property>
+    <Property name="Caption">Every texture is drawn by this program as it starts and every sound is synthesized: no Minecraft assets are used.</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="ForegroundColor">#DDE3EEFF</Property>
+  </Control>
+  <Control id="LBL-BUILT-WITH" type="Label" x="852" y="626" w="150" h="32" tab-order="7" z-order="3" visible="true" enabled="true" parent="PNL-CREDITS">
+    <Property name="Definition">"Built with", in the player's language, right before the product's name.</Property>
+    <Property name="Caption">Built with</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="TextAlignment">Right</Property>
+    <Property name="ForegroundColor">#DDE3EEFF</Property>
+  </Control>
+  <Control id="LBL-BRAND-NAME" type="Label" x="1006" y="626" w="136" h="32" tab-order="8" z-order="3" visible="true" enabled="true" parent="PNL-CREDITS">
+    <Property name="Definition">The product's name, PowerRustCOBOL, in white.</Property>
+    <Property name="Caption">PowerRustCOBOL</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">true</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+  </Control>
+  <Control id="LBL-BRAND-AI" type="Label" x="1133" y="626" w="40" h="32" tab-order="9" z-order="3" visible="true" enabled="true" parent="PNL-CREDITS">
+    <Property name="Definition">"AI", in the brand's cyan, closing the product's name.</Property>
+    <Property name="Caption">AI</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">true</Property>
+    <Property name="ForegroundColor">#70F3FCFF</Property>
+  </Control>
+</Form>
