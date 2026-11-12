@@ -2,6 +2,17 @@
 
 
 
+## 2.0.462 — 2026-11-12
+
+**A control's method call on the line after a `CALL ... USING` with no `END-CALL` runs as a statement of its own; it was taken for one more argument of the CALL.** In the PowerCobolCraft example a procedure called a subprogram and created its ImageBuffer on the next line:
+
+```cobol
+           CALL "CRAFT-TILE" USING WS-TILE-NUMBER WS-TILE-PIXELS
+           IMG-TILE::Create( 16 16 )
+```
+
+The `USING` list read `IMG-TILE::Create( 16 16 )` as a third argument passed BY REFERENCE, so `Create` never ran and the buffer stayed one pixel wide; the example worked around it by creating both buffers in the form's load event. A BY REFERENCE argument must be a data item the called program can write into, and a method's answer is not one, so in that mode a method call now ends the list, as it already ended a `MOVE`'s receiver list. BY CONTENT and BY VALUE may pass a method's answer (`CALL "P" USING BY CONTENT LST-1::GetCount()`), so there a method call ends the list only when it begins a new line. PowerCobolCraft no longer needs the workaround: it is removed, and all 24 tiles are painted 16 pixels wide. Covered by a parser test (five CALL shapes) and `test_image_buffer_after_call.rs`, which runs the subprogram and the buffer with and without `END-CALL`. NIST CCVS85: compilation 420 of 420 in scope unchanged; execution unchanged in every finished module (NC 95, SQ 85, IX 41, RL 34, IF 45, IC 25, ST 39, SM 16 programs, all with 0 failures). The Developer's Guide does not describe where a CALL's argument list ends, so it is unchanged.
+
 ## 2.0.461 — 2026-11-12
 
 **After `AND` or `OR`, a relation whose subject is an arithmetic expression is read as a complete relation, so `IF A > 0 AND A + 0.3 > B` compiles.** COBOL-85 lets either side of a relation condition be an arithmetic expression. After `AND` or `OR` the parser read an operand that began with an identifier or a number as the object of an abbreviated relation (`A > 0 AND B` meaning `A > 0 AND A > B`), so `A + 0.3` was taken as that object and the `>` after it stopped the statement: "unexpected token in statement: Gt". It was found while writing the PowerCobolCraft example. The parser now tries the operand as an arithmetic expression; when a relational operator, `IS`, `NOT` or a sign or class word follows it, the term is a full relation, otherwise it is still the object of an abbreviation, so `A = B OR C - 1` keeps meaning `A = B OR A = C - 1` and `A > B AND 2 * C` keeps meaning `A > B AND A > 2 * C`. Covered: identifier, literal and signed subjects, `+ - * /` with mixed precedence, `NOT =`, `IS GREATER THAN`, three-term chains, `PERFORM UNTIL` and `EVALUATE TRUE` (`tests/cobol/conditionals/test-arith-relation-after-and.cbl`, 14 cases, and two parser tests). NIST CCVS85: compilation 420 of 420 in scope unchanged; execution unchanged in every finished module (NC 95, SQ 85, IX 41, RL 34, IF 45, IC 25, ST 39, SM 16 programs, all with 0 failures). The Developer's Guide does not describe condition abbreviations, so it is unchanged.

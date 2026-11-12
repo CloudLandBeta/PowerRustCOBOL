@@ -170,10 +170,6 @@
            *> Result: BTN-CONTINUE enabled and LBL-SAVED telling whose world and which day, or disabled.
            CALL "CRAFT-SAVED-INFO"
 
-           *> The two image buffers get their first size here, in the form's own load event:
-           *> made for the first time inside a procedure, they stay one pixel wide.
-           IMG-TILE::Create( 16 16 )
-           IMG-STRIP::Create( 48 16 )
            *> Paints the block tiles and makes the nine block materials.
            *> Uses: CRAFT-TILE, IMG-TILE, IMG-STRIP, SCN-1.
            *> Result: WS-TILE-IMAGE(1..11) and WS-TYPE-MATERIAL(1..9).

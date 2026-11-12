@@ -462,11 +462,6 @@
            *> Result: DG-LOG shows it first.
            CALL "CRAFT-LOG"
 
-           *> The two image buffers get their first size here, in the form's own load event:
-           *> made for the first time inside a procedure, they stay one pixel wide.
-           IMG-TILE::Create( 16 16 )
-           IMG-STRIP::Create( 48 16 )
-
            *> Paints the 24 tiles and makes the nine block materials from them.
            *> Uses: CRAFT-TILE, IMG-TILE and IMG-STRIP, SCN-1.
            *> Result: WS-TILE-IMAGE(1..24) and WS-TYPE-MATERIAL(1..9); WS-TYPE-OF knows each block code.

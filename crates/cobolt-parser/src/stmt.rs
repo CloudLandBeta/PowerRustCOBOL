@@ -3263,6 +3263,18 @@ fn parse_call(p: &mut Parser) -> Stmt {
             if !is_expr_start(p) {
                 break;
             }
+            // A control's method call (`IMG-1::Create( 16 16 )`) is a statement
+            // of its own when it follows a CALL without END-CALL. Taken as one
+            // more argument, it was passed BY REFERENCE and never ran: an
+            // ImageBuffer created on the line after a CALL stayed one pixel
+            // wide. A BY REFERENCE argument must be a data item the callee can
+            // write into, which a method's answer is not, so in that mode a
+            // method call ends the list — exactly as it ends a MOVE's receiver
+            // list. BY CONTENT and BY VALUE may pass a method's answer, so
+            // there the call ends the list only when it opens a new line.
+            if at_method_call(p) && (mode == reference || p.at_line_start(0)) {
+                break;
+            }
             let arg = parse_expr(p);
             using.push(if mode == value {
                 CallArg::ByValue(arg)

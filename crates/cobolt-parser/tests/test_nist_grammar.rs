@@ -342,6 +342,39 @@ fn an_arithmetic_object_that_ends_the_term_is_still_an_abbreviation() {
     }
 }
 
+// ── CALL ... USING ───────────────────────────────────────────────────────────
+
+/// A control's method call on the line after a `CALL` with no `END-CALL` is
+/// the next statement, not one more `USING` argument. Swallowed, it never ran:
+/// an ImageBuffer created there stayed one pixel wide. A BY CONTENT argument
+/// written on the CALL's own line may still be a method's answer.
+#[test]
+fn a_method_call_after_call_using_is_the_next_statement() {
+    use cobolt_ast::stmt::CallArg;
+    let cases = [
+        ("CALL \"SUB\" USING WS-N\n    IMG-1::Create( 16 16 )", 1, true),
+        ("CALL \"SUB\" USING BY REFERENCE WS-N WS-M\n    IMG-1::Create( 16 16 )", 2, true),
+        ("CALL \"SUB\" USING WS-N IMG-1::Create( 16 16 )", 1, true),
+        ("CALL \"SUB\" USING BY CONTENT WS-N\n    IMG-1::Create( 16 16 )", 1, true),
+        ("CALL \"SUB\" USING BY CONTENT LST-1::GetCount()", 1, false),
+    ];
+    for (text, want_args, want_next) in cases {
+        let stmts = all_stmts(&prog(&format!("MAIN.\n    {text}\n    STOP RUN.\n")));
+        let Some(Stmt::Call { using, .. }) = stmts.first() else {
+            panic!("{text}: first statement is not a CALL: {stmts:?}");
+        };
+        assert_eq!(using.len(), want_args, "{text}: {using:?}");
+        if !want_next {
+            assert!(matches!(using[0], CallArg::ByContent(_)), "{text}: {using:?}");
+        }
+        assert_eq!(
+            matches!(stmts.get(1), Some(Stmt::InvokeExpr { .. })),
+            want_next,
+            "{text}: {stmts:?}"
+        );
+    }
+}
+
 /// The `ELSE` of an enclosing `IF` is not swallowed by an `ON SIZE ERROR`
 /// imperative, nor by a nested `IF`'s own ELSE branch.
 #[test]
