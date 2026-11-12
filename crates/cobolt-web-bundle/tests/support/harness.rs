@@ -36,6 +36,15 @@ const MIME = { wasm: 'application/wasm', js: 'text/javascript', json: 'applicati
 function check(cond, msg) {
   if (!cond) throw new Error(msg);
 }
+// A limit on speed. It fails like `check`, except where the build workflow makes timing advisory
+// (PRC_TIMING_ADVISORY=1, its shared machines): there the miss goes into the report, the Rust test prints it
+// as a warning, and the scenario goes on.
+const timingMissed = [];
+function checkTiming(cond, msg) {
+  if (cond) return;
+  if (process.env.PRC_TIMING_ADVISORY === '1') timingMissed.push(msg);
+  else throw new Error(msg);
+}
 function eq(a, b, msg) {
   if (a !== b) throw new Error(`${msg}: expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
 }
@@ -336,9 +345,10 @@ async function coreBody(program, mode, src, player) {
   const y1 = stats(app);
   out.yield = { iterations: src.spins, resumes: y1.yields - y0.yields, longest_main_thread_gap_ms: Math.round(maxGap * 100) / 100, loop_ms: Math.round(loopMs) };
   if (mode === 'main' && src.yields) eq(y1.yields - y0.yields, src.yields, 'the main-thread host saw each yield');
-  check(maxGap < 50, `the main thread was never blocked for ${maxGap} ms`);
+  const cell = `${program}/${mode} (${player}${src === FIXTURE ? '' : ', generated'})`;
+  checkTiming(maxGap < 50, `${cell}: the main thread was never blocked for ${maxGap} ms`);
   // the frame deadline: one 16 ms frame plus the slice the module may run (YIELD_BUDGET_MS, WASM-017 Q2 first half)
-  check(maxGap < 16 + YIELD_BUDGET_MS, `every gap is under the deadline: ${maxGap} ms against ${16 + YIELD_BUDGET_MS} ms`);
+  checkTiming(maxGap < 16 + YIELD_BUDGET_MS, `${cell}: every gap is under the deadline: ${maxGap} ms against ${16 + YIELD_BUDGET_MS} ms`);
   out.yield.deadline_ms = 16 + YIELD_BUDGET_MS;
 
   // a trap is reported and the application goes on
@@ -671,7 +681,7 @@ await scenario('panic: a forced panic (test bundle) calls onPanic and raises the
   return { message: said.slice(0, 60), events: events.length, thrown: thrown.slice(0, 40) };
 });
 
-console.log(JSON.stringify({ results, metrics }));
+console.log(JSON.stringify({ results, metrics, timing_missed: timingMissed }));
 process.exit(0);
 "####;
 

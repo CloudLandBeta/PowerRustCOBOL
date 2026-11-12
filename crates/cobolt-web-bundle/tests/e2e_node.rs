@@ -75,6 +75,10 @@ fn the_loader_the_player_and_the_program_run_together_under_node() {
             failed.push(format!("{name}: {}", r["error"].as_str().unwrap_or("?")));
         }
     }
+    // The limits on speed the harness let pass because timing is advisory on this machine: each one a warning.
+    for m in report["timing_missed"].as_array().into_iter().flatten() {
+        support::timing_missed(m.as_str().unwrap_or("?").to_owned()).unwrap_or_else(|e| panic!("{e}"));
+    }
     println!("end-to-end scenarios: {passed} passed, {} failed", failed.len());
     for (name, m) in report["metrics"].as_object().unwrap() {
         println!("  {name}: {m}");

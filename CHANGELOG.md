@@ -2,6 +2,10 @@
 
 
 
+## 2.0.465 — 2026-11-12
+
+**The `node` end-to-end test's limits on the main thread's longest pause follow the build workflow's timing switch, as the browser tests' limits have done since 2.0.452.** The harness of `the_loader_the_player_and_the_program_run_together_under_node` checks, in each cell of variant and mode, that the main thread was never held more than 50 ms or past the frame deadline (16 ms plus the module's slice). On the macOS machine of run 53 of the build workflow one cell missed it, and the whole test failed. The harness now runs these two checks through `checkTiming`: with `PRC_TIMING_ADVISORY=1` a miss goes into the report's `timing_missed` list, which the Rust test prints as workflow warnings, and the scenario goes on; without the variable it fails as before. Each message now names its cell (program, mode, player, fixture or generated). Checked here: as written, 28 scenarios pass; with the limit forced low, 12 fail with their cell's message without the variable, and with it all pass and print the warnings. Test code only.
+
 ## 2.0.464 — 2026-11-12
 
 **The browser test of a backend restarted mid-cycle gives attempt 2's refusal a moment to arrive before it reads the status, and puts the backend back when the check fails.** The scenario stops the backend, waits for the network status to count `Attempt 2/3`, and then expects `Last: no connection` and `Now: failed, waiting …`. The count turns to 2/3 when attempt 2 starts to connect, and its refusal comes a moment later. The macOS machine of run 53 of the build workflow read the status inside that moment (`now "connecting"`), and because the scenario returned with the backend still stopped, the next scenario failed too (`no backend`). The test now waits up to 5 s for `failed, waiting` before it reads the cells; when the refusal never comes, the check fails as before with what the status said, after restarting the backend. Test code only.
