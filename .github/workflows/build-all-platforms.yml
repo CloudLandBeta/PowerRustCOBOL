@@ -97,7 +97,10 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
+    # The Intel Mac is the slow one. Run 53 took 106 min there (build 46, staging 43). Since 2.0.468 the staging step
+    # pre-compiles the platform libraries a third way, for programs that draw (on Apple silicon staging went from 20 to
+    # 36 min), and a new Rust release starts the cache cold: run 55 was cancelled twice at 120 min, still staging.
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:

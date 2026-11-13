@@ -2,6 +2,10 @@
 
 
 
+## 2.0.477 — 2026-11-13
+
+**The release build has 180 minutes per system instead of 120, so the Intel Mac package finishes.** Run 53 took 106 min on the Intel Mac runner (`macos-15-intel`): the build took 46 min and staging 43. Since 2.0.468 the staging step pre-compiles the platform libraries a third way, for programs that draw; on Apple silicon that took staging from 20 to 36 min. Pinning a new Rust release (2.0.469) also started the build cache cold. Run 55's Intel job was cancelled at 120 min twice, both times still in *Stage the application bundle* (builds 46 and 54 min, staging 72 and 64 min). The `build` job's `timeout-minutes` is now 180.
+
 ## 2.0.476 — 2026-11-13
 
 **Four web tests no longer fail because a shared runner is slow.** Runs 54 and 55 of the all-platforms workflow each failed a different web test, and none of the failures was a defect in the product:
