@@ -13434,6 +13434,10 @@ rcrun help                              # print usage
 
 标志总是优先于它的环境变量。
 
+> **注意。** 构建会读取 cargo 打印的内容，因此无论您的设置如何，它都要求 cargo 输出纯文本。许多 CI 环境导出的
+> `CARGO_TERM_COLOR=always`，或 cargo 配置中的 `term.color = "always"`，不再使进度条停住，
+> 也不再让编译失败的程序用最新版本的 crate 重新开始。2.0.475 之前，这两种情况都会发生。
+
 > 📷 **需要截图 — `rcrun-terminal.png`。**一次终端会话，显示在一个小程序上
 > 先 `rcrun check`，再 `rcrun run`，并带有输出。帮助
 > 新手看到 CLI 平易近人。

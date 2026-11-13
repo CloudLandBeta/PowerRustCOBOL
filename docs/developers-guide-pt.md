@@ -16536,6 +16536,12 @@ hoje não tem, de modo que param com "manifest not found": nomeie o arquivo.
 
 Uma flag sempre vence a sua variável de ambiente.
 
+> **Nota.** Um build lê o que o cargo imprime, então pede ao cargo texto simples, seja
+> qual for a sua configuração. `CARGO_TERM_COLOR=always`, que muitos ambientes de CI
+> exportam, ou `term.color = "always"` em uma configuração do cargo, não congela mais a
+> barra de progresso nem faz um programa que não compila recomeçar com as versões mais
+> novas dos crates. Antes da 2.0.475 fazia as duas coisas.
+
 > 📷 **Captura de tela necessária — `rcrun-terminal.png`.** Uma sessão de terminal mostrando
 > `rcrun check`, depois `rcrun run`, em um programa pequeno, com a saída. Ajuda
 > os iniciantes a ver que a CLI é acessível.

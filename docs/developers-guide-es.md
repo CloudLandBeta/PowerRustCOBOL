@@ -16514,6 +16514,12 @@ hoy no tiene, de modo que se detienen con «manifest not found»: nombre el arch
 
 Una opción siempre prevalece sobre su variable de entorno.
 
+> **Nota.** Una compilación lee lo que imprime cargo, así que le pide texto sin formato
+> diga lo que diga su configuración. `CARGO_TERM_COLOR=always`, que exportan muchos
+> entornos de CI, o `term.color = "always"` en una configuración de cargo, ya no congela
+> la barra de progreso ni hace que un programa que no compila vuelva a empezar con las
+> versiones más recientes de los crates. Antes de 2.0.475 hacía ambas cosas.
+
 > 📷 **Captura de pantalla necesaria: `rcrun-terminal.png`.** Una sesión de terminal mostrando
 > `rcrun check`, y después `rcrun run`, sobre un programa pequeño, con la salida. Ayuda a los
 > recién llegados a ver que la CLI es accesible.

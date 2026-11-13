@@ -16551,6 +16551,12 @@ today does not have, so they stop with "manifest not found": name the file.
 
 A flag always wins over its environment variable.
 
+> **Note.** A build reads what cargo prints, so it asks cargo for plain text whatever
+> your settings say. `CARGO_TERM_COLOR=always`, which many CI setups export, or
+> `term.color = "always"` in a cargo config, no longer freezes the progress bar or
+> makes a program that fails to compile start over with the newest crate versions.
+> Before 2.0.475 it did both.
+
 > 📷 **Screenshot needed — `rcrun-terminal.png`.** A terminal session showing
 > `rcrun check`, then `rcrun run`, on a small program, with the output. Helps
 > newcomers see the CLI is approachable.

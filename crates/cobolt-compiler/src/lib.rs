@@ -3114,7 +3114,7 @@ fn build_core(
             if attempt_offline {
                 args.push("--offline");
             }
-            let mut child = std::process::Command::new("cargo")
+            let mut child = build_cache::cargo()
                 .args(&args)
                 .current_dir(&build_dir)
                 // The binary is installed from `build_dir/target` (step 11);

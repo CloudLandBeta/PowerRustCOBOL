@@ -2,6 +2,23 @@
 
 
 
+## 2.0.475 — 2026-11-12
+
+**A build reads cargo correctly when cargo is set to colour its output.** With `CARGO_TERM_COLOR=always` in the environment, or `term.color = "always"` in a cargo config, cargo wraps its lines in terminal colour codes even when its output goes to a pipe (`ESC[1mESC[92m   Compiling ESC[0m cobolt-lexer …`). A build recognises a compiled crate by a line that starts with `Compiling `, so it counted none:
+- The progress bar never moved past *Compiling…*, and the build reported 0 crates compiled.
+- A build seeded with the SDK's `Cargo.lock` decides what to try next from that count. A program that failed to compile looked like a resolution failure, so the build dropped the SDK's lock and resolved every crate to its newest version. The build then compiled again and failed again.
+
+Run 54 of the all-platforms workflow found it: `dtolnay/rust-toolchain` exports `CARGO_TERM_COLOR=always` on every runner, and the new build-cache job failed on Linux, Windows and macOS with `the edited crate was not compiled: []`.
+
+Every cargo the compiler runs and reads now runs through one helper, `build_cache::cargo()`, which sets `CARGO_TERM_COLOR=never`. A variable outranks any cargo config. That covers the program's build, `cargo tree`, `cargo clean -p`, the warm-up build, and the Backend's build and `cargo metadata`.
+
+Tests:
+- New: `cargo_writes_plain_text_even_when_set_to_colour`. It builds a one-file crate whose cargo config says `term.color = "always"`. Plain `cargo` colours its output there; the helper's has no escape code and has its `Compiling` line.
+- Run on macOS with `CARGO_TERM_COLOR=always` exported, as on the runners: `build_cache::`, `warmup::` and `a_stale_platform_crate_is_compiled_again_alone` all passed, 23 of 23 in 63.7 s. The heavy test printed: cold 240 crates; unchanged 0; newer edit 9; old-looking edit 9 with `cobolt-lexer` cleaned alone; explicit full build 1.
+- The whole `cobolt-compiler` library suite under the same setting: 254 passed, 0 failed, 1 ignored (555 s).
+
+The Developer's Guide carries a Note under the build's environment variables in all six languages.
+
 ## 2.0.474 — 2026-11-12
 
 **The Developer's Guide is back in Spanish, Portuguese, French, Japanese and Chinese, up to date with the English.** 2.0.467 changed the English guide and, under the translation rule, deleted the five translations 2.0.429 had shipped. The operator waived the rule for this release, so they are restored from 2.0.429 and given every English change since:

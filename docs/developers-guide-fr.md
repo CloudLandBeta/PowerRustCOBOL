@@ -16990,6 +16990,13 @@ aujourd'hui n'a pas ; ils s'arrêtent donc avec "manifest not found" : nommez le
 
 Une option l'emporte toujours sur sa variable d'environnement.
 
+> **Remarque.** Une compilation lit ce qu'affiche cargo : elle lui demande donc du texte
+> brut, quels que soient vos réglages. `CARGO_TERM_COLOR=always`, que beaucoup
+> d'environnements de CI exportent, ou `term.color = "always"` dans une configuration de
+> cargo, ne fige plus la barre de progression et ne fait plus recommencer un programme qui
+> ne compile pas avec les versions les plus récentes des crates. Avant 2.0.475, il faisait
+> les deux.
+
 > 📷 **Capture d'écran requise — `rcrun-terminal.png`.** Une session de terminal
 > montrant `rcrun check`, puis `rcrun run`, sur un petit programme, avec la sortie.
 > Aide les nouveaux venus à voir que la ligne de commande est abordable.

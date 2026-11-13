@@ -286,7 +286,7 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     let target_dir = build_dir.join("target");
     let mut attempt_offline = true;
     loop {
-        let mut cmd = std::process::Command::new("cargo");
+        let mut cmd = crate::build_cache::cargo();
         cmd.arg("build");
         if !opts.debug {
             cmd.arg("--release");
@@ -337,7 +337,7 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     // once, as the build above does, if even the crates of this platform are not all there.
     let mut metadata_offline = true;
     let meta = loop {
-        let out = std::process::Command::new("cargo")
+        let out = crate::build_cache::cargo()
             .args(metadata_args(Some(&host), metadata_offline))
             .current_dir(&build_dir)
             .output()

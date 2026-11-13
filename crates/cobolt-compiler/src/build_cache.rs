@@ -319,6 +319,18 @@ pub(crate) fn after_cargo_attempt(
 
 // ── Cargo's own words ────────────────────────────────────────────────────────
 
+/// `cargo`, made to write plain text whatever the developer's settings. A build reads cargo's words:
+/// it counts the `Compiling` lines, recognises the lock-wait line and an offline failure, and shows
+/// the end of an error. `CARGO_TERM_COLOR=always`, or `term.color = "always"` in a cargo config,
+/// wraps those words in terminal colour codes even through a pipe, so a build saw nothing compiled:
+/// the progress stood still, and a seeded build whose program failed to compile dropped the SDK's
+/// `Cargo.lock` and resolved every crate afresh (2.0.475). The variable outranks any config file.
+pub(crate) fn cargo() -> Command {
+    let mut command = Command::new("cargo");
+    command.env("CARGO_TERM_COLOR", "never");
+    command
+}
+
 /// Whether `line` of cargo's stderr says it is waiting for another cargo to
 /// release a lock. Cargo 1.95 names the folder `artifact directory`; older
 /// ones said `build directory`, so only the start of the sentence is matched.
@@ -377,7 +389,7 @@ fn crates_in_graph(build_dir: &Path, cache: &Path, offline: bool) -> Result<Vec<
     if offline {
         args.insert(1, "--offline");
     }
-    let out = Command::new("cargo")
+    let out = cargo()
         .args(&args)
         .current_dir(build_dir)
         .env("CARGO_TARGET_DIR", cache)
@@ -408,7 +420,7 @@ pub(crate) fn clean_platform(build_dir: &Path, cache: &Path, crates: &[&str]) ->
         return Ok(());
     }
     for release in [false, true] {
-        let mut command = Command::new("cargo");
+        let mut command = cargo();
         command.arg("clean");
         for name in crates {
             command.args(["-p", name]);
@@ -679,5 +691,40 @@ cobolt-forms-extra v1.0.0
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&build_root);
         println!("check: new -> recorded (2), unchanged -> nothing, old-looking change -> stale (1), newer change -> recorded (1)");
+    }
+
+    /// **2.0.475 — a build reads cargo's words however the developer's cargo is set to colour them.**
+    /// A crate whose cargo config says `term.color = "always"` (as `CARGO_TERM_COLOR=always` does on
+    /// every GitHub runner set up by `dtolnay/rust-toolchain`) makes plain `cargo` wrap `Compiling` in
+    /// colour codes even through a pipe, and the build counted nothing compiled. [`cargo`] writes
+    /// plain text there; the plain command is run too, to show the case is real on this machine.
+    #[test]
+    fn cargo_writes_plain_text_even_when_set_to_colour() {
+        let dir = temp_dir("colour");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join(".cargo")).unwrap();
+        std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"colourcheck\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n").unwrap();
+        std::fs::write(dir.join("src").join("main.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(dir.join(".cargo").join("config.toml"), "[term]\ncolor = \"always\"\n").unwrap();
+        let run = |mut command: Command, target: &str| {
+            let out = command
+                .args(["build", "--offline"])
+                .current_dir(&dir)
+                .env("CARGO_TARGET_DIR", dir.join(target))
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8_lossy(&out.stderr).into_owned()
+        };
+        let compiling = |stderr: &str| stderr.lines().any(|l| l.trim_start().starts_with("Compiling colourcheck"));
+
+        let coloured = run(Command::new("cargo"), "t1");
+        assert!(coloured.contains('\u{1b}') && !compiling(&coloured), "this cargo did not colour its output: {coloured}");
+
+        let plain = run(cargo(), "t2");
+        assert!(!plain.contains('\u{1b}'), "colour codes reached the build: {plain:?}");
+        assert!(compiling(&plain), "no `Compiling` line: {plain}");
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("2.0.475 cargo output under term.color=always: plain cargo coloured, the build's cargo plain with its Compiling line");
     }
 }

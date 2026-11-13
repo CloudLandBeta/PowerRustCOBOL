@@ -227,7 +227,7 @@ fn build_variant(
     }
 
     for offline in [true, false] {
-        let mut cmd = Command::new("cargo");
+        let mut cmd = build_cache::cargo();
         cmd.args(["build", "--release"]);
         if offline {
             cmd.arg("--offline");
