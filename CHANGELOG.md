@@ -2,6 +2,43 @@
 
 
 
+## 2.0.480 — 2026-11-13
+
+**Spec WASM-037: the operator accepted its four assumptions as written, so nothing in it is open before `/plan`.**
+- **A1:** a project setting, and an `rcrun build` option, choose the Cargo path on purpose, even when the WebAssembly path would accept the project.
+- **A2:** the 30 s Build time is a goal, not a limit, on every supported platform, Linux and Windows included. The timing test reports and never fails.
+- **A3:** the plan chooses the baseline CPU the Build's machine code is made for, per platform.
+- **A4:** `rcrun build` prints how to install Rust when the Cargo path needs it, and installs nothing itself.
+
+Recorded in the spec's §7, in decision D24 of `WASM-INDEX.md` and in the spec's row of `WASM-PROGRESS.md`. No code changed; nothing was built or run.
+
+## 2.0.479 — 2026-11-13
+
+**Spec WASM-037 clarified: the operator answered its ten questions, and the WebAssembly path becomes the default Desktop Build.** At `/clarify` the operator took the recommendation on five questions and decided otherwise on five; one question was new. Recorded as decision D24 in `WASM-INDEX.md`.
+- **The 30 s criterion is a goal, not a limit, on all four supported platforms:** Linux x86-64, Windows x86-64, macOS Apple silicon and macOS Intel, each with 4 cores, an SSD and 16 GB. A Build over 30 s is reported with its slowest phase and recorded as a gap; it fails nothing. It is measured on every project under `examples/` without `EXEC RUST` and on a generated project ten times the largest.
+- **The WebAssembly path is the default now,** with the Cargo path as the fallback for `EXEC RUST`, external crates and any construct the generator refuses. Conformance is measured on every release, not a precondition. The spec states the consequence: a known divergence between the two engines (`WASM-PARITY.md`) can reach a program built by default until conformance passes.
+- **With no Rust toolchain installed** and a project that needs the Cargo path, the Build stops before compiling, names the construct and its line, and offers the Rust install the IDE already provides.
+- **The Build makes machine code by default,** and a setting turns it off. It is made for the platform's baseline CPU, never the build machine's own, and the runner remakes it from the module whenever it does not fit.
+- **Every module ever built runs on every later runner;** no ABI version is ever dropped, and a corpus of modules from every release is kept for ever.
+- **The other choices:** the engine is wasmtime; forms are drawn by the egui form engine every desktop surface uses; peak memory is reported with no ceiling.
+- **Four assumptions are listed for the operator to overrule before `/plan`:**
+  - A1: a project setting chooses the Cargo path on purpose.
+  - A2: "goal, not limit" covers every platform.
+  - A3: the plan picks the baseline CPU.
+  - A4: `rcrun` prints how to install Rust but installs nothing.
+
+The spec now has 26 requirements and 18 acceptance criteria, with nothing open. No code changed; nothing was built or run.
+
+## 2.0.478 — 2026-11-13
+
+**Spec WASM-037 (draft): the WebAssembly module as the portable program format, and a prebuilt native runner, so a Desktop Build needs no Rust toolchain.** The operator asked for an intermediate format for a built program that does not depend on the Rust release, needs no recompile and can be turned into native code, and asked whether WebAssembly could be it. It can, and most of the pieces exist: a built Desktop program today is the interpreter plus the AST, linked by `cargo build --release` (a cold Build compiled 240 crates in the test of 2.0.475), while `cobolt-wasm` already generates a self-contained module with no `rustc` involved, and a `wasmtime` host already runs it for the NIST gate.
+- **What it specifies (24 requirements, 16 acceptance criteria):** the module plus its manifest as the format, byte-identical across Rust releases and operating systems; a capability list in the manifest, so a host that lacks one refuses to start and says which; a prebuilt runner per platform; a Build that starts no `cargo`; native code as a cache that can always be made again; a compatibility promise inside one ABI major version; the IL path opt-in until it passes NIST and the `tests/cobol` corpus.
+- **The operator's criterion, added the same day:** a Build takes **no more than 30 s** on a Linux box and on a Windows box, each with 16 GB of RAM, with no cache, for every reference project (R17, AC6), with each phase's time and the peak memory reported.
+- **What it does not claim:** no wall-clock figure exists today for the native Build or for generating a module (WASM-PROGRESS, WASM-010 and the benchmarks page have none), so the 30 s limit has no baseline; measuring one is the plan's first task (R19). The generator is also a browser subset today (no disk files, no SQL, no `EXEC RUST`), and there is no native host for the ABI that draws forms; the spec makes both requirements.
+- **Open, each with a recommendation (Q1–Q9):** the cores of the reference box, the reference projects and their size, whether native code is made in the Build, `EXEC RUST` (recommended: stays on the Cargo path), when the IL path becomes the default, how long a runner accepts an old module, the engine, the memory ceiling, and the runner's form engine.
+
+No code changed: the spec, a row in `WASM-INDEX.md` and one in `WASM-PROGRESS.md`. Nothing was built or run.
+
 ## 2.0.477 — 2026-11-13
 
 **The release build has 180 minutes per system instead of 120, so the Intel Mac package finishes.** Run 53 took 106 min on the Intel Mac runner (`macos-15-intel`): the build took 46 min and staging 43. Since 2.0.468 the staging step pre-compiles the platform libraries a third way, for programs that draw; on Apple silicon that took staging from 20 to 36 min. Pinning a new Rust release (2.0.469) also started the build cache cold. Run 55's Intel job was cancelled at 120 min twice, both times still in *Stage the application bundle* (builds 46 and 54 min, staging 72 and 64 min). The `build` job's `timeout-minutes` is now 180.
