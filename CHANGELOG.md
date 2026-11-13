@@ -2,6 +2,16 @@
 
 
 
+## 2.0.474 — 2026-11-12
+
+**The Developer's Guide is back in Spanish, Portuguese, French, Japanese and Chinese, up to date with the English.** 2.0.467 changed the English guide and, under the translation rule, deleted the five translations 2.0.429 had shipped. The operator waived the rule for this release, so they are restored from 2.0.429 and given every English change since:
+- Rust **1.95** is the floor, and the installer offers **Rust 1.95.0**.
+- A new section, *The libraries that come with PowerRustCOBOL*, covers the libraries shipped in the Platform SDK, the fixed Rust release, the SDK's `Cargo.lock` and its flowchart.
+- Full builds now compile PowerRustCOBOL's own parts again only where their sources changed (2.0.471), in the upgrade note, *Full builds and the recorded version* and the `rcrun build --full` line, with the new Note on fingerprints.
+- 26.4 explains calling `Render` in `onLoad` (2.0.470).
+
+Each translation has 333 headings, as the English does, and carries the English stamp (2.0.425) and the `.<<` end mark. Its COBOL example is the English one byte for byte, and its new links point to its own headings. Each file keeps its own habit for `rcrun` comments and mermaid labels: French, Portuguese and Japanese keep `rcrun` comments in English, and Japanese also keeps mermaid labels in English.
+
 ## 2.0.473 — 2026-11-12
 
 **The graphics engine's dependency guard reads the workspace's Rust floor instead of a fixed 1.92, so it passes again after 2.0.469 raised that floor to 1.95.** `cobolt-graphics --test dependency_guard` (WASM-018 R4) refuses any crate in the graphics tree whose minimum Rust is above a ceiling, and the ceiling was the constant 1.92, the workspace's floor when the spec was written. 2.0.469 raised the workspace's `rust-version` to 1.95 (egui and its companions in the lock file need it), and `cobolt-graphics` inherits it, so the guard reported the graphics crate itself: "cobolt-graphics needs Rust 1.95, above 1.92". It was found by the session that fixed the Canvas3D start-up abort. The ceiling is now the workspace manifest's own `rust-version`, so a graphics crate may need no newer Rust than every other part of the platform and the two can no longer drift apart; the guard's self-test builds its too-new package from that ceiling plus one. The WASM-018 spec and plan say the same. Measured: the guard's five tests pass (the graphics tree has no crate above 1.95). Test and spec text only; nothing that is built changes, so the Developer's Guide is unchanged.
