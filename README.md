@@ -376,6 +376,60 @@ web-view Preview), with the same COBOL-85 core underneath.
 
 ![PowerRustCOBOL AI Agentic AI assistant architecture](docs/AI_Assistant_Architecture.jpg)
 
+## Install a release
+
+> ⚠️ **PowerRustCOBOL needs Rust 1.95.0: exactly that release, not a newer one and not
+> an older one.** Every package is built with Rust 1.95.0 and carries libraries already
+> compiled by it, which only that same compiler can use; with any other Rust release,
+> your machine has to compile them all again. For now, a desktop application also takes
+> a long time to compile the first time (later builds use the cache and are fast). This
+> will be resolved in an upcoming release.
+
+Download the package for your system from the
+**[releases page](https://github.com/CloudLandBeta/PowerRustCOBOL/releases/latest)**
+(currently [2.0.477](https://github.com/CloudLandBeta/PowerRustCOBOL/releases/tag/2.0.477)):
+
+| System | Package |
+| ------ | ------- |
+| Windows x86_64 | `.msi` or `.zip` |
+| macOS, Apple silicon (`aarch64`) or Intel (`x86_64`) | `.dmg` or `.tar.gz` |
+| Linux x86_64 | `.deb`, `.rpm` or `.tar.gz` |
+
+`SHA256SUMS` holds the checksum of every file. The files whose names end in
+`-libs.tar.gz` need not be downloaded: a full build downloads them by itself when it
+has to put back a library.
+
+### Set Rust to 1.95.0
+
+- **No Rust yet:** on its first start the IDE offers to install it, and installs exactly
+  Rust 1.95.0. To install it yourself from [rustup.rs](https://rustup.rs), ask for that
+  release:
+
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain 1.95.0
+  ```
+
+  On Windows, run the rustup installer the same way:
+
+  ```powershell
+  rustup-init.exe --default-toolchain 1.95.0
+  ```
+
+- **Another Rust release already installed:** select 1.95.0 (the command downloads it
+  when it is missing), then start the IDE again:
+
+  ```bash
+  rustup default 1.95.0
+  ```
+
+- **Check:** `rustc --version` must show `1.95.0`. When it does not, the IDE's
+  **Output** panel says so, names both releases and gives the same command.
+- Building a desktop application also needs the operating system's linker: see
+  [Install the requirements](#1-install-the-requirements) below for each platform.
+- A **Web** application needs no Rust: its player comes prebuilt. A Backend release
+  binary and an Android package do need it (see
+  [What each target needs](#what-each-target-needs)).
+
 ## Getting started
 
 Get from a clean machine to the running IDE in four steps. For the full per-OS
@@ -388,7 +442,7 @@ artifacts land, and what to do when the build fails — see
 
 | Requirement                                    | Why                                                                                                                                    | Install                                                                                      |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **Rust toolchain** (stable, **1.95 or newer**) | builds the whole workspace                                                                                                             | [rustup.rs](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+| **Rust toolchain**, **1.95.0** exactly          | builds the whole workspace; every release is built with exactly this one                                                              | [rustup.rs](https://rustup.rs), pinned as in [Set Rust to 1.95.0](#set-rust-to-1950)         |
 | **Git**                                        | clone the repository                                                                                                                   | [git-scm.com](https://git-scm.com/downloads)                                                 |
 | **A C toolchain + native GUI libraries**       | the platform linker Rust itself needs, two C dependencies (bundled SQLite and the Oniguruma regex engine), and the native file dialogs | see the per-OS notes below                                                                   |
 
@@ -417,10 +471,10 @@ Install the **Xcode Command Line Tools**:
 xcode-select --install
 ```
 
-Then install Rust from [rustup.rs](https://rustup.rs):
+Then install Rust 1.95.0 from [rustup.rs](https://rustup.rs):
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain 1.95.0
 ```
 
 Nothing else is needed — the Command Line Tools carry both the linker and the C
@@ -441,8 +495,12 @@ This single workload provides:
 
 **2. Install Rust**
 
-Install Rust from [rustup.rs](https://rustup.rs). It selects the MSVC toolchain
-automatically.
+Install Rust from [rustup.rs](https://rustup.rs), asking for Rust 1.95.0. It selects
+the MSVC toolchain automatically:
+
+```powershell
+rustup-init.exe --default-toolchain 1.95.0
+```
 
 Nothing else needs to be downloaded.
 
@@ -475,10 +533,10 @@ sudo apt update && sudo apt install -y \
 - `alsa-lib-devel`
 - `@development-tools`
 
-**Then, on either — install Rust** from [rustup.rs](https://rustup.rs):
+**Then, on either — install Rust 1.95.0** from [rustup.rs](https://rustup.rs):
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain 1.95.0
 ```
 
 `build-essential` / `@development-tools` is what provides `cc`, the linker Rust
