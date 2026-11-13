@@ -245,6 +245,28 @@ impl Page {
         }
     }
 
+    /// [`Self::wait_for`] across a navigation the page started itself (`location.reload()`, an address typed in a
+    /// script): while the old document goes and the new one comes, an evaluation can fail in the browser (its
+    /// context is gone, or the new document has nothing mounted yet). That is "not yet" here, until `secs` pass;
+    /// the last such error is in the answer. `wait_for` ends at the first one, which made a reload test fail at
+    /// once on a slow runner (run 54 on Linux, `acceptance_spa_chrome`).
+    pub fn wait_through_navigation(&mut self, expr: &str, secs: u64) -> Result<Value, String> {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        let mut last = String::new();
+        loop {
+            match self.eval(expr) {
+                Ok(v) if !(v.is_null() || v == json!(false) || v == json!("") || v == json!(0)) => return Ok(v),
+                Ok(_) => {}
+                Err(e) => last = e,
+            }
+            if Instant::now() > deadline {
+                let why = if last.is_empty() { String::new() } else { format!(" (last error: {last})") };
+                return Err(format!("waited {secs} s for `{}`{why}", short(expr)));
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
     pub fn navigate(&mut self, url: &str) -> Result<(), String> {
         self.call("Page.navigate", json!({"url": url}))?;
         self.wait_for("document.readyState === 'complete'", 30)?;

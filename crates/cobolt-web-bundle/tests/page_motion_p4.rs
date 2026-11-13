@@ -204,7 +204,10 @@ fn the_page_moves_as_the_desktop_moves_and_tells_the_program_its_size() {
         .unwrap();
     assert!(fade.is_object(), "OnFormLoad: the label fades in with the form");
     let (ft, fo) = (fade["t"].as_f64().unwrap(), fade["o"].as_f64().unwrap());
-    assert!((fo - ft / 4000.0).abs() < 0.02, "FadeIn / Linear: opacity {fo} at {ft} ms, the desktop's {}", ft / 4000.0);
+    // Read before the animation's first frame (a slow runner: -276 ms in run 55 on macOS), the label is at the line's start,
+    // opacity 0, as on the desktop: the line is clamped to 0..1, never extended below its start.
+    let line = (ft / 4000.0).clamp(0.0, 1.0);
+    assert!((fo - line).abs() < 0.02, "FadeIn / Linear: opacity {fo} at {ft} ms, the desktop's {line}");
 
     // ── PlayAnimation("intro") on the card and on the label inside it ────────────────────────────────────────────
     let before = page.eval(&js("return { card: box('PNL-CARD'), lbl: box('LBL-IN') };")).unwrap();

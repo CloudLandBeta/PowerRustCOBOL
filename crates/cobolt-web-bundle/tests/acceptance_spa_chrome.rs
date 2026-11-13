@@ -180,11 +180,13 @@ fn ac1_a_menu_entry_loads_its_form_and_changes_the_address_back_returns_and_a_re
     page.wait_for(&has_form("reports-form", true), 20)
         .unwrap_or_else(|e| panic!("{e}; {}", page.eval(LOOK).unwrap()));
     page.eval("location.reload()").unwrap();
-    page.wait_for(&has_form("reports-form", true), 40)
+    // The page is being replaced: a look can fail until the new one has mounted, and so can the look the
+    // message takes when the wait ends.
+    page.wait_through_navigation(&has_form("reports-form", true), 40)
         .unwrap_or_else(|e| {
             panic!(
                 "the reload did not reopen the form at the address: {e}; {}",
-                page.eval(LOOK).unwrap()
+                page.eval(LOOK).map(|v| v.to_string()).unwrap_or_else(|e| e)
             )
         });
     let reloaded = page.eval(LOOK).unwrap();
