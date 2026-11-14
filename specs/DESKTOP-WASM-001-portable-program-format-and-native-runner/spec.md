@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program
 
-- **Status:** planned, 2026-11-13. Drafted 2.0.478; the operator answered Q1–Q10 at `/clarify` the same day (2.0.479) and accepted assumptions A1–A4 as written (2.0.480), §7. Planned 2.0.481 (`./plan.md`): at `/plan` the operator added the pixel-perfect criterion (R27, R28, AC19, AC20), and the plan corrected the spec to the code where marked "(plan, 2.0.481)". Not tasked. Nothing in it is implemented.
+- **Status:** planned, 2026-11-13. Drafted 2.0.478; the operator answered Q1–Q10 at `/clarify` the same day (2.0.479) and accepted assumptions A1–A4 as written (2.0.480), §7. Planned 2.0.481 (`./plan.md`): at `/plan` the operator added the pixel-perfect criterion (R27, R28, AC19, AC20), and the plan corrected the spec to the code where marked "(plan, 2.0.481)". Tasked 2.0.482, 2026-11-14 (`./tasks.md`). Nothing in it is implemented.
 - **Folder:** specs/DESKTOP-WASM-001-portable-program-format-and-native-runner/
 - **Name:** numbered WASM-037 at 2.0.478–2.0.480; renamed **DESKTOP-WASM-001** by the operator on 2026-11-13 (2.0.481). The CHANGELOG entries of 2.0.478–2.0.480 keep the old name.
 - **Author:** Emerson Lopes (design) · drafted with Claude   **Date:** 2026-11-13

@@ -2,6 +2,26 @@
 
 
 
+## 2.0.482 — 2026-11-14
+
+**Spec DESKTOP-WASM-001 is broken into tasks (`tasks.md`).** There are 54 ordered tasks, each naming its files, the requirements it serves and the exact test or command that checks it. Every acceptance criterion maps to at least one task.
+- **First, two fixes on their own branch (F1–F3).** The generator writes ALTER targets in a fixed order, and `SET` pointer is classified as it is really compiled. One question for the operator comes before F1: how the fixes reach this already-pushed branch. The recommendation keeps every step a fast-forward.
+- **M0 (T1–T8): the measurements come before any change.**
+  - The Web module of PowerAnalyticsWeb is pinned by hash first.
+  - Then the Build's phase report, the ten-times project, the timing harness, and the test-only clock and seed.
+  - Then the headless steps `shot`, `size` and `answer`, and the pixel-parity harness with the first golden hashes.
+- **M1 to M6 (T9–T51)** follow the plan's milestones. Each closes with a pixel-parity run, a timing run, the NIST measurement and an updated Developer's Guide.
+- **Closing (T52–T54):** the translation check, the System KB and the guide, and the final test sweep.
+
+Five points the plan left open are settled from the code:
+- **Golden hashes:** they are recorded for the forms whose frames already repeat before the form host's clock is reworked; the others are recorded after it.
+- **Check scripts:** the five reference projects have none, so each form gets a generated one.
+- **Console comparison:** it uses console fixtures, because all five reference projects have forms.
+- **The 30 s goal:** it can first be judged at M2.
+- **The Developer's Guide:** it changes with each milestone, now that `main` carries 2.x.
+
+Next: `/implement`, from F1. No product code changed; nothing was built or run beyond `cargo check`.
+
 ## 2.0.481 — 2026-11-13
 
 **Spec DESKTOP-WASM-001 (until now WASM-037) is planned, and a program built as WebAssembly must now look exactly like the one built today.** The operator reviewed the first draft of the plan and asked for two changes.
