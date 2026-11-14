@@ -2,6 +2,15 @@
 
 
 
+## 2.0.484 — 2026-11-14
+
+**Fix: the table of what a WebAssembly module can compile no longer lists `SET` of a pointer as supported** (DESKTOP-WASM-001 C13, fix F2). The generator has never compiled `SET ptr TO ADDRESS OF item` or `SET ADDRESS OF item TO ptr`. Until now a program using either was refused with the generic "not yet supported by the WebAssembly generator", while the table, and the System KB built from it, said "yes".
+- **Now the table and the refusal agree:** `SET (pointer)` is marked as running on the Backend.
+- **The refusal gives its reason and what to do:** pointers and ADDRESS OF are not compiled into a module, so call a Backend program with `CALL … WITH WEBSOCKET LINKAGE`, as MERGE and the file verbs already say.
+- **No program that built before changes:** it was refused before and is refused now, at the same line.
+- **Tests:** `subset_table` gains a `SET` pointer case, so 7 of 7 constructs are refused at their line with the alternative. `compile_determinism` stays at 126 of 126.
+- **The System KB** is regenerated (4 348 records from 8 documents), and `prebuilt_chunked_kb_matches_the_published_documentation` is green.
+
 ## 2.0.483 — 2026-11-14
 
 **Fix: a program that uses ALTER now compiles to the same WebAssembly module every time.** The generator stored each altered paragraph's starting target in an order that changed from one compile to the next. The module ran the same, but its bytes differed, so two Builds of one project could not be compared (DESKTOP-WASM-001 R2, fix F1).

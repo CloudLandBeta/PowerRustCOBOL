@@ -32,6 +32,9 @@ pub enum Support {
 pub const DISK_FILES: &str = "only an INDEXED file declared STORAGE IS MEMORY (without WITH PERSISTENCE) is held in a browser module; other files are on the backend: call a backend program with CALL … WITH WEBSOCKET LINKAGE";
 /// What a `SORT` with `USING` or `GIVING` is told.
 pub const SORT_FILES: &str = "a browser module sorts records given by an INPUT PROCEDURE and returned to an OUTPUT PROCEDURE; USING and GIVING name files, which are on the backend";
+/// What `SET` a pointer, or `SET ADDRESS OF`, is told: the generator does not
+/// lower it (DESKTOP-WASM-001 C13); the backend's interpreter runs it.
+pub const POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
 
 pub fn support(s: &Stmt) -> Support {
     use Support::*;
@@ -70,7 +73,6 @@ pub fn support(s: &Stmt) -> Support {
         | Stmt::InvokeExpr { .. }
         | Stmt::WindowOp { .. }
         | Stmt::ControlSet { .. }
-        | Stmt::SetPointer { .. }
         | Stmt::TryCatch { .. }
         | Stmt::Throw { .. }
         | Stmt::Accept { .. } => Module,
@@ -89,6 +91,9 @@ pub fn support(s: &Stmt) -> Support {
         // OUTPUT PROCEDURE sorts in memory; USING and GIVING name files.
         Stmt::Sort { .. } | Stmt::Release { .. } | Stmt::Return { .. } => MemoryFiles(SORT_FILES),
         Stmt::Merge { .. } => BackendOnly("MERGE reads files, which are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"),
+        // Nothing lowers it (DESKTOP-WASM-001 C13): it used to be classed as
+        // compiled, and was refused with the generic "not yet supported".
+        Stmt::SetPointer { .. } => BackendOnly(POINTERS),
         Stmt::Unlock { .. } | Stmt::Commit { .. } | Stmt::Rollback { .. } => {
             BackendOnly("file input/output runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE")
         }
@@ -359,7 +364,7 @@ pub const STATEMENT_TABLE: &[(&str, Support)] = &[
     ("REWRITE", Support::MemoryFiles(DISK_FILES)),
     ("ROLLBACK", Support::BackendOnly(BACKEND_FILES)),
     ("SEARCH", Support::Module),
-    ("SET (pointer)", Support::Module),
+    ("SET (pointer)", Support::BackendOnly(POINTERS)),
     ("SORT", Support::MemoryFiles(SORT_FILES)),
     ("START", Support::MemoryFiles(DISK_FILES)),
     ("STOP", Support::Module),

@@ -114,7 +114,10 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - Every corpus module without `ALTER` is byte-identical to its hash from before the change.
     - The `nist_wasm` census for NC, IF and IC gives the counts recorded in `WASM-PROGRESS.md`.
 
-- [ ] **F2 — `SET` pointer is classified as it is compiled** (C13)
+- [x] **F2 — `SET` pointer is classified as it is compiled** (C13)
+  - *Done 2026-11-14 (2.0.484):*
+    - **Before:** a program using it was refused at its line with the generic "not yet supported by the WebAssembly generator" (the `stmt` fallback arm), while the table said `Module`. Nothing was miscompiled.
+    - **Now:** `BackendOnly(POINTERS)` in both `support()` and `STATEMENT_TABLE`. `subset_table` gives 7 of 7 refusals, the KB is regenerated (4 348 records), and `prebuilt_chunked_kb_matches_the_published_documentation` is green.
   - Files: `crates/cobolt-wasm/src/support.rs` (the `SET` pointer entry), `crates/cobolt-wasm/tests/subset_table.rs`.
   - Do:
     - Record what a program using `SET` pointer does today under the generator: compiled, silently skipped, or wrong code.
