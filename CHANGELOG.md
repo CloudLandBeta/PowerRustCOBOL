@@ -2,6 +2,33 @@
 
 
 
+## 2.0.481 — 2026-11-13
+
+**Spec DESKTOP-WASM-001 (until now WASM-037) is planned, and a program built as WebAssembly must now look exactly like the one built today.** The operator reviewed the first draft of the plan and asked for two changes.
+- **The new name.** The spec's folder is now `specs/DESKTOP-WASM-001-portable-program-format-and-native-runner/`, and the index (`WASM-INDEX.md`, decision D24) and the ledger (`WASM-PROGRESS.md`) use the new name. The entries for 2.0.478 to 2.0.480 below keep the old name, as written at the time.
+- **Pixel-perfect parity, a new success criterion.** A program built on the WebAssembly path must draw every frame identical, in every pixel, to the same program built on the Cargo path, with equal values read and the same console output byte for byte (R27, AC19).
+  - **How it is checked:** every form of every reference project, run headless under both builds, with a frame after every step at three window sizes. One differing pixel fails.
+  - **What makes it checkable:** a test-only mode with a virtual clock and a pinned date, time and random seed, plus headless steps that take a picture and resize the window (R28, AC20). It is never on by default.
+  - **A guard on today's path:** the frames of today's build are recorded as hashes before anything changes, so no refactor of the form host can move a pixel on the existing path either.
+- **The plan (`plan.md`).** Seven milestones:
+  - M0: the timing baseline, the deterministic mode and the recorded hashes.
+  - M1: console programs, with the WebAssembly path on by default.
+  - M2: forms, where pixel parity is first judged.
+  - M3: disk files and SORT/MERGE.
+  - M4: SQL and HTTP.
+  - M5: national data.
+  - M6: the non-visual controls, likely as large as M2–M5 together.
+
+  Anything the WebAssembly path cannot build yet keeps building on the Cargo path, which names the reason. A project counts as moved only when it also passes the pixel check.
+- **The plan corrected the spec to the code in thirteen places, marked in `spec.md`.** For example:
+  - the form designs and settings travel inside the one `.wasm` file, as custom sections;
+  - a runner accepts every ABI version up to its own;
+  - WHEN-COMPILED becomes a Build input, so two Builds give the same bytes;
+  - the IDE's Debug Build stays on the Cargo path.
+- **Two fixes come first, on their own branch:** the generator emits ALTER targets in an order that can change between runs, and `SET` pointer is classed as supported but never compiled.
+
+The spec now has 28 requirements and 20 acceptance criteria, with nothing open. Next: `/tasks`. No product code changed; nothing was built or run beyond `cargo check`.
+
 ## 2.0.480 — 2026-11-13
 
 **Spec WASM-037: the operator accepted its four assumptions as written, so nothing in it is open before `/plan`.**
