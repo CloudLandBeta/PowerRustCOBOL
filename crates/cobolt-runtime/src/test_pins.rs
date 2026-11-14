@@ -75,6 +75,11 @@ pub fn now() -> DateTime<FixedOffset> {
     pins().clock.unwrap_or_else(|| chrono::Local::now().fixed_offset())
 }
 
+/// Whether the clock is pinned: a headless run is then deterministic (T6).
+pub fn clock_pinned() -> bool {
+    pins().clock.is_some()
+}
+
 /// The pinned first state of `FUNCTION RANDOM`, if one is pinned.
 pub fn seed() -> Option<u64> {
     pins().seed

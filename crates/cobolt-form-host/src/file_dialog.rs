@@ -79,6 +79,31 @@ impl DialogSpec {
     }
 }
 
+/// The answers a headless script queued (DESKTOP-WASM-001 R28, the `answer` step): each dialog
+/// that opens takes the next one instead of showing a panel, so a scripted run never waits on a
+/// person. `None` is a cancel.
+fn scripted() -> &'static Mutex<std::collections::VecDeque<Option<PathBuf>>> {
+    static S: OnceLock<Mutex<std::collections::VecDeque<Option<PathBuf>>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(std::collections::VecDeque::new()))
+}
+
+/// Queues `answer` for the next dialog to open: a path picked, or `None` for a cancel.
+pub fn queue_answer(answer: Option<PathBuf>) {
+    scripted().lock().unwrap_or_else(|e| e.into_inner()).push_back(answer);
+}
+
+/// Drops the queued answers no dialog took, and says how many there were.
+pub fn clear_answers() -> usize {
+    let mut q = scripted().lock().unwrap_or_else(|e| e.into_inner());
+    let left = q.len();
+    q.clear();
+    left
+}
+
+fn next_answer() -> Option<Option<PathBuf>> {
+    scripted().lock().unwrap_or_else(|e| e.into_inner()).pop_front()
+}
+
 /// Whether a dialog started under `key` is still open (awaiting the user).
 pub fn is_open(key: &str) -> bool {
     pending().lock().unwrap().contains_key(key)
@@ -112,6 +137,15 @@ pub fn begin(ctx: &egui::Context, key: &str, spec: DialogSpec) {
         );
     }
     let (tx, rx) = std::sync::mpsc::channel();
+    if let Some(answer) = next_answer() {
+        if trace {
+            eprintln!("[prc] file dialog {key}: answered by the script ({answer:?})");
+        }
+        let _ = tx.send(answer);
+        pending().lock().unwrap().insert(key.to_owned(), rx);
+        ctx.request_repaint();
+        return;
+    }
     let ctx = ctx.clone();
     let traced_key = key.to_owned();
     std::thread::spawn(move || {
@@ -208,6 +242,10 @@ pub fn answer_program(
     reply: std::sync::mpsc::Sender<Option<String>>,
 ) {
     use cobolt_runtime::form_host::FileDialogKind;
+    if let Some(answer) = next_answer() {
+        let _ = reply.send(answer.map(|p| p.to_string_lossy().into_owned()));
+        return;
+    }
     std::thread::spawn(move || {
         let mut dlg = rfd::AsyncFileDialog::new();
         if !title.is_empty() {

@@ -5086,11 +5086,14 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // results. Only when `PRC_HEADLESS_SCRIPT` names a script.
     if let Ok(script) = std::env::var("PRC_HEADLESS_SCRIPT") {
         let limit = std::env::var("PRC_HEADLESS_LIMIT").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(60);
+        // DESKTOP-WASM-001 R28: the folder the script's `shot` steps write their pictures to.
+        let shots = std::env::var_os("PRC_HEADLESS_SHOTS").map(std::path::PathBuf::from);
         cobolt_form_host::headless::run_script_file(
             host_config,
             shell_mode.then_some(root_menu),
             std::path::Path::new(&script),
             limit,
+            shots.as_deref(),
         );
         std::process::exit(0);
     }

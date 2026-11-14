@@ -2,6 +2,29 @@
 
 
 
+## 2.0.490 — 2026-11-14
+
+**DESKTOP-WASM-001 T6: the headless run takes pictures, resizes the window and answers file dialogs, and keeps virtual time when the clock is pinned** (R28, the headless half). This is the second half of the deterministic test mode pixel parity is judged under. A scripted run of a form, under `rcrun run-form --headless` or a built application with `PRC_HEADLESS_SCRIPT`, can now:
+- **take a picture**, in a built application: `{"shot": "after-save"}` writes the frame as it is to `after-save.png`, in the folder `PRC_HEADLESS_SHOTS` names. A name with a folder in it is refused. `rcrun run-form --headless` has no folder for pictures, so there the step reports that it was not done.
+- **resize the window:** `{"size": [640, 360]}` lays the form out at that size, from the next frame on.
+- **answer a file dialog:** `{"answer": {"path": "/tmp/out.csv"}}` or `{"answer": {"cancel": true}}`, put before the step that opens the dialog. It answers the next one that opens: a program's `OPEN-FILE-DIALOG`, `SAVE-FILE-DIALOG` or `FOLDER-DIALOG`, or a Viewer's Save As. No panel appears, so the run never waits on a person.
+- **The message-box part of the plan does not apply:** a Desktop form has no message box. `MessageBox`, `Alert`, `Confirm` and `InputBox` exist only in the Web player.
+- **Deterministic mode:** with `PRC_TEST_CLOCK` set, frames are drawn at a virtual time in 1/60 s ticks.
+  - Only a wait moves that time: `wait_ms`, and the wait while the form opens. A frame that only waits for the program does not, so how fast the program runs cannot move the time.
+  - For now a wait still lets the same real time pass, because the host's own timers and its opening hold read the real clock. T8 makes them follow the virtual time.
+- **The run's report** adds `virtual_ms` in deterministic mode and `answers_unused` when an answer was left over. Otherwise it is unchanged.
+- **Agents' `run_form` does not offer the three steps.** They serve the pixel-parity harness.
+- **Measured:** `headless_shots` passed 11 of 11 checks.
+  - Pictures at 420 × 200, 640 × 360 and 320 × 240, each the size asked for.
+  - The open dialog took the scripted path, the save dialog the scripted cancel, and a Viewer-style Save As panel its queued answer.
+  - The clock moved by the opening wait only (600 ms).
+  - `headless_dump` and `headless_pointer_click` are green and unchanged.
+  - **The `cobolt-form-host` sweep:**
+    - the library passed 189 and failed 1;
+    - the seven integration targets are green, 28 tests;
+    - the built-binary `side_menu_rows_hosts` passed.
+    - The one red, `corpus_golden` on `PowerChat/chat-form.cfrm`, is the known red from the 2.x merge sweep, not this change.
+
 ## 2.0.489 — 2026-11-14
 
 **DESKTOP-WASM-001 T5: the run clock and the random seed can be pinned for tests** (R28, the program half). This is the first half of the deterministic test mode that pixel parity (R27) is judged under: two runs of the same program now see the same date, time and random values.

@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3 and T1–T5 are done (2.0.483–2.0.489); T4's CI dispatch is owed until its workflow is on `main`.
+- **Status:** implementing since 2026-11-14. F1–F3 and T1–T6 are done (2.0.483–2.0.490); T4's CI dispatch is owed until its workflow is on `main`.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -274,7 +274,31 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - `cargo test -p cobolt-runtime` green.
     - The compiled binary takes the pins through the same crate. A Cargo-built fixture run with `PRC_TEST_CLOCK` set prints the pinned date (interpreter-binary parity).
 
-- [ ] **T6 — The deterministic headless loop, and the steps `shot`, `size` and `answer`** (R28, the headless half)
+- [x] **T6 — The deterministic headless loop, and the steps `shot`, `size` and `answer`** (R28, the headless half)
+  - *Done 2026-11-14 (2.0.490):*
+    - **Deterministic mode:** with `PRC_TEST_CLOCK` set (`test_pins::clock_pinned`), frames are drawn at a virtual time counted in 1/60 s ticks.
+      - **Refinement:** only a wait adds ticks (`wait_ms` and the opening wait). A frame that only waits for the program adds none. Otherwise the number of those frames, which depends on how fast the interpreter thread runs, would move the time, and two runs would draw at different times.
+      - **Deviation until T8:** a wait still lets the same real time pass. `host.rs`'s timers, its 450 ms opening hold and `onShow` read the real clock, and skipping the real time would change what a script sees. T8 removes the sleep when `HostClock` follows the virtual time.
+    - **The steps:**
+      - `{"shot": "<name>"}` writes the frame to `<folder>/<name>.png` with the CPU rasteriser; a name with a folder in it is refused;
+      - `{"size": [w, h]}` resizes, each side from 1 to 8 192, then settles;
+      - `{"answer": {"path": …}}` and `{"answer": {"cancel": true}}` queue the answer for the next file dialog.
+    - **The API:** `run_headless_with` takes the folder for pictures. `run_headless` keeps its signature, so its callers are unchanged. `run_script_file` takes the folder, and the generated `main.rs` passes `PRC_HEADLESS_SHOTS`.
+    - **The report** adds `virtual_ms` in deterministic mode and `answers_unused` when an answer was left; otherwise it is what it was.
+    - **Correction: a Desktop form has no message box.** `MessageBox`, `Alert`, `Confirm` and `InputBox` exist only in the Web player, so `answer` answers the dialogs a Desktop program can raise:
+      - the program's `OPEN-FILE-DIALOG`, `SAVE-FILE-DIALOG` and `FOLDER-DIALOG` (`file_dialog::answer_program`);
+      - the host's own panels, a Viewer's Save As and a grid's export (`file_dialog::begin`).
+    - **The agents' `run_form` script** (`cobolt-project-tools/src/script.rs`) does not offer the three steps. They serve the parity harness, and `shot` needs a folder `run_form` does not give.
+    - **`headless_shots`:** 11 of 11 checks, 12 steps in 2 117 ms (virtual 600 ms).
+      - Shots at 420 × 200 (6 523 bytes), 640 × 360 (9 930 bytes) and 320 × 240 (6 231 bytes).
+      - The open dialog took its scripted path, the save dialog its scripted cancel, and a host Save As panel its queued answer.
+      - `../outside` was refused; no answer was left unused.
+    - `headless_dump` and `headless_pointer_click` are unchanged and green.
+    - **Sweep of `cobolt-form-host`** (debug, `--no-fail-fast`, every `test result:` read):
+      - the library: 189 passed, 1 failed;
+      - the integration targets, each green: `backend_events` 1, `headless_dump` 1, `headless_pointer_click` 1, `headless_shots` 1, `progress_cancel` 1, `remote_call_pending` 1, `snackbar_stack` 21;
+      - the built binary, `side_menu_rows_hosts --ignored`: 1 passed in 60.5 s.
+      - **The one red is not T6's:** `host::parity::corpus_golden` differs on `PowerChat/chat-form.cfrm` (SideMenu-1 at 594 px high, golden 792). It is the known red already named in the 2.x merge sweep. T6 touches neither `host.rs` nor the render path.
   - Files:
     - `crates/cobolt-form-host/src/headless.rs`: the loop at :130–162 and the step table at :20–27;
     - `crates/cobolt-form-host/src/file_dialog.rs` and the message-box path: scripted answers;

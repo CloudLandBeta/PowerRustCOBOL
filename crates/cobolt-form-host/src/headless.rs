@@ -25,13 +25,23 @@
 //! | `{"read": {"control": "LBL-TOTAL", "property": "Caption"}}` | the live value |
 //! | `{"dump": true}` | every control's live state at that point, in the step's `state` (`{"BTN-OK": {"visible": true, "enabled": true, "props": {…}}, …}`): the designed properties and what the program wrote (a property the program wrote is spelled as COBOL spells it, `CAPTION`, and replaces the designed `Caption`) |
 //! | `{"open_form": "ORDERS-FORM"}` | a shell application: load a form into the ContentPane, as its menu item would |
+//! | `{"size": [800, 600]}` | resizes the window: the next frames lay the form out at that size |
+//! | `{"shot": "after-save"}` | writes the frame as it is now to `after-save.png` in the folder for pictures (`PRC_HEADLESS_SHOTS` in a built application) |
+//! | `{"answer": {"path": "/tmp/out.csv"}}`, `{"answer": {"cancel": true}}` | queues the answer for the next file dialog (a program's open, save or folder dialog, a Viewer's Save As), which then shows no panel: put it before the step that opens the dialog |
 //!
 //! `set`, `event` and `read` act on the form on screen: in a shell, the form
-//! in the ContentPane. After every `set`, `event` (unless `"wait": false`) and `open_form` the form is
+//! in the ContentPane. After every `set`, `event` (unless `"wait": false`), `open_form` and `size` the form is
 //! run until the program has handled everything sent to it (or the time limit
 //! runs out).
+//!
+//! **Deterministic mode** (DESKTOP-WASM-001 R28): when `PRC_TEST_CLOCK` pins the clock, frames
+//! are drawn at a virtual time that moves only when the script waits. `wait_ms` and the opening
+//! wait move it by 1/60 s per frame; a frame that only waits for the program does not move it. So
+//! the same script draws its frames at the same times in every run. Until the host's own clocks
+//! follow that time (DESKTOP-WASM-001 T8), a wait still lets the same real time pass.
 
-use std::path::Path;
+use std::cell::Cell;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -80,18 +90,20 @@ pub const RESULT_MARKER: &str = "@RUN-FORM-RESULT ";
 /// prove a compiled binary behaves as Run Form does without opening a window.
 ///
 /// Child processes the run started (an AWS control's server) are stopped
-/// before returning; the caller ends the process.
+/// before returning; the caller ends the process. The `shot` steps' pictures
+/// go into `shots`.
 pub fn run_script_file(
     config: FormHostConfig,
     shell: Option<Option<(String, cobolt_forms::menu::MenuDefinition)>>,
     script_path: &Path,
     limit_secs: u64,
+    shots: Option<&Path>,
 ) {
     let script: Vec<Value> = std::fs::read_to_string(script_path)
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
-    let report = run_headless(config, shell, &script, Duration::from_secs(limit_secs.clamp(1, 600)), None);
+    let report = run_headless_with(config, shell, &script, Duration::from_secs(limit_secs.clamp(1, 600)), None, shots);
     println!("{RESULT_MARKER}{report}");
     use std::io::Write as _;
     let _ = std::io::stdout().flush();
@@ -109,6 +121,31 @@ pub fn run_headless(
     limit: Duration,
     png_out: Option<&Path>,
 ) -> Value {
+    run_headless_with(config, shell, script, limit, png_out, None)
+}
+
+/// Where the picture of a `shot` step goes: `<shots>/<name>.png`, `name` a plain file name.
+fn picture_path(shots: Option<&Path>, name: &str) -> Result<PathBuf, String> {
+    let Some(dir) = shots else {
+        return Err("no folder for pictures: a built application takes it from PRC_HEADLESS_SHOTS".into());
+    };
+    let name = name.trim();
+    if name.is_empty() || name.starts_with('.') || name.contains(['/', '\\']) {
+        return Err(format!("{name:?} is not a plain file name"));
+    }
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    Ok(dir.join(format!("{name}.png")))
+}
+
+/// [`run_headless`], with the pictures of the `shot` steps written into the folder `shots`.
+pub fn run_headless_with(
+    config: FormHostConfig,
+    shell: Option<Option<(String, cobolt_forms::menu::MenuDefinition)>>,
+    script: &[Value],
+    limit: Duration,
+    png_out: Option<&Path>,
+    shots: Option<&Path>,
+) -> Value {
     let started = Instant::now();
     let deadline = started + limit;
     let (mut host, size) = match shell {
@@ -123,21 +160,39 @@ pub fn run_headless(
             (Driven::Plain(host), size)
         }
     };
+    let size = Cell::new(size);
+    // DESKTOP-WASM-001 R28: with the clock pinned, frames are drawn at a virtual time, counted in
+    // 1/60 s ticks that only a wait adds.
+    let deterministic = cobolt_runtime::test_pins::clock_pinned();
+    let ticks = Cell::new(0u64);
+    let now = || if deterministic { ticks.get() as f64 / 60.0 } else { started.elapsed().as_secs_f64() };
+    // Answers an earlier run in this process left are not this script's.
+    crate::file_dialog::clear_answers();
     let ctx = egui::Context::default();
     ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
     let mut raster = cobolt_forms::raster::Rasterizer::new();
 
     let frame = |host: &mut Driven, raster: &mut cobolt_forms::raster::Rasterizer| {
-        let t = started.elapsed().as_secs_f64();
-        cobolt_forms::raster::advance_frame(&ctx, raster, size, t, |ui| host.frame(ui));
+        cobolt_forms::raster::advance_frame(&ctx, raster, size.get(), now(), |ui| host.frame(ui));
     };
     // One frame that receives the pointer `events`.
     let frame_with = |host: &mut Driven, raster: &mut cobolt_forms::raster::Rasterizer, events: Vec<egui::Event>| {
-        let t = started.elapsed().as_secs_f64();
-        cobolt_forms::raster::advance_frame_with(&ctx, raster, size, t, events, |ui| host.frame(ui));
+        cobolt_forms::raster::advance_frame_with(&ctx, raster, size.get(), now(), events, |ui| host.frame(ui));
     };
-    // Run frames for `ms` of real time (the host's clocks are real ones).
+    // Run frames for `ms` (the host's clocks are real ones). In deterministic mode each frame also
+    // adds a tick; the real time still passes until the host's clocks follow the virtual one (T8).
     let run_for = |host: &mut Driven, raster: &mut cobolt_forms::raster::Rasterizer, ms: u64| {
+        if deterministic {
+            for _ in 0..(ms * 60).div_ceil(1000) {
+                if Instant::now() >= deadline {
+                    break;
+                }
+                frame(host, raster);
+                ticks.set(ticks.get() + 1);
+                std::thread::sleep(Duration::from_millis(16));
+            }
+            return;
+        }
         let until = (Instant::now() + Duration::from_millis(ms)).min(deadline);
         while Instant::now() < until {
             frame(host, raster);
@@ -241,8 +296,39 @@ pub fn run_headless(
                     steps.push(json!({"step": i, "done": false, "why": "open_form needs a main form with a SideMenu (an application shell)"}));
                 }
             }
+        } else if let Some(wh) = step.get("size").and_then(Value::as_array) {
+            let dim = |k: usize| wh.get(k).and_then(Value::as_f64).filter(|v| (1.0..=8192.0).contains(v));
+            match (dim(0), dim(1)) {
+                (Some(w), Some(h)) if wh.len() == 2 => {
+                    size.set(egui::vec2(w as f32, h as f32));
+                    timed_out = !settle(&mut host, &mut raster);
+                    steps.push(json!({"step": i, "done": !timed_out, "size": [w, h]}));
+                }
+                _ => steps.push(json!({"step": i, "done": false, "why": "size takes [width, height], each from 1 to 8192"})),
+            }
+        } else if let Some(name) = step.get("shot").and_then(Value::as_str) {
+            match picture_path(shots, name) {
+                Err(why) => steps.push(json!({"step": i, "done": false, "why": why})),
+                Ok(path) => {
+                    let img = cobolt_forms::raster::render_frame(&ctx, &mut raster, size.get(), egui::Color32::TRANSPARENT, now(), |ui| host.frame(ui));
+                    match cobolt_forms::raster::to_png(&img).and_then(|png| std::fs::write(&path, png).map_err(|e| e.to_string())) {
+                        Ok(()) => steps.push(json!({"step": i, "done": true, "shot": name, "width": img.size[0], "height": img.size[1]})),
+                        Err(e) => steps.push(json!({"step": i, "done": false, "why": format!("{}: {e}", path.display())})),
+                    }
+                }
+            }
+        } else if let Some(ans) = step.get("answer") {
+            if ans.get("cancel").and_then(Value::as_bool) == Some(true) {
+                crate::file_dialog::queue_answer(None);
+                steps.push(json!({"step": i, "done": true, "answer": "cancel"}));
+            } else if let Some(p) = ans.get("path").and_then(Value::as_str) {
+                crate::file_dialog::queue_answer(Some(PathBuf::from(p)));
+                steps.push(json!({"step": i, "done": true, "answer": p}));
+            } else {
+                steps.push(json!({"step": i, "done": false, "why": "answer takes {\"path\": \"…\"} or {\"cancel\": true}"}));
+            }
         } else {
-            steps.push(json!({"step": i, "done": false, "why": "unknown step: use set, event, wait_ms, read, dump or open_form"}));
+            steps.push(json!({"step": i, "done": false, "why": "unknown step: use set, event, click, wait_ms, read, dump, open_form, size, shot or answer"}));
         }
         timed_out |= Instant::now() >= deadline;
     }
@@ -250,15 +336,15 @@ pub fn run_headless(
     // The picture of where the script left the form.
     let mut picture = None;
     if let Some(out) = png_out {
-        let t = started.elapsed().as_secs_f64();
-        let img = cobolt_forms::raster::render_frame(&ctx, &mut raster, size, egui::Color32::TRANSPARENT, t, |ui| host.frame(ui));
+        let img = cobolt_forms::raster::render_frame(&ctx, &mut raster, size.get(), egui::Color32::TRANSPARENT, now(), |ui| host.frame(ui));
         if let Ok(png) = cobolt_forms::raster::to_png(&img) {
             if std::fs::write(out, png).is_ok() {
                 picture = Some(json!({"width": img.size[0], "height": img.size[1]}));
             }
         }
     }
-    json!({
+    let unused_answers = crate::file_dialog::clear_answers();
+    let mut report = json!({
         "steps": steps,
         "reads": reads,
         "program_ended": host.host().script_finished(),
@@ -269,5 +355,13 @@ pub fn run_headless(
         "timed_out": timed_out,
         "elapsed_ms": started.elapsed().as_millis() as u64,
         "picture": picture,
-    })
+    });
+    // Only when they apply, so a run without them reports what it always did.
+    if deterministic {
+        report["virtual_ms"] = json!(ticks.get() * 1000 / 60);
+    }
+    if unused_answers > 0 {
+        report["answers_unused"] = json!(unused_answers);
+    }
+    report
 }
