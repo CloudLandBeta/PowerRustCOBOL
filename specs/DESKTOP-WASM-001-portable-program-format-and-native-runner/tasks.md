@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3, T1 and T2 are done (2.0.483–2.0.486).
+- **Status:** implementing since 2026-11-14. F1–F3 and T1–T3 are done (2.0.483–2.0.487).
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -170,7 +170,13 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - The three existing build tests of plan §6 are green.
     - `cargo build -p cobolt-ide -p cobolt-project-tools -p cobolt-cli` succeeds.
 
-- [ ] **T3 — The ten-times reference project** (R26; AC18 generation)
+- [x] **T3 — The ten-times reference project** (R26; AC18 generation)
+  - *Done 2026-11-14 (2.0.487):*
+    - **COBOL lines** means the non-blank lines of every program a Build compiles, counted after regenerating a copy as a Build does.
+    - **The five references:** PowerGraphics is the largest in forms (9) and in lines (6 655); none has an indexed file. So the target is 90 forms, 66 550 lines and 10 indexed files.
+    - **The generated project hits the target exactly.** The Common Code is sized so that the total comes out right. It is byte-identical across two generations (`232c5720…`), and `check` reports 0 errors and 0 warnings, in 137 s.
+    - **The test passed 5 of 5 checks,** with the same numbers from a clean checkout.
+    - **Why the targets are computed, not written down:** they come from the examples each time the test runs, as R17 defines them. T4 records the targets and the hash with each run.
   - Files: new `crates/cobolt-bench/src/ten_times.rs`, with its tests in the same file.
   - Do:
     - **Measure the five reference projects** (C7): forms, COBOL lines and indexed files.

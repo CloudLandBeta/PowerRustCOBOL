@@ -2,6 +2,35 @@
 
 
 
+## 2.0.487 — 2026-11-14
+
+**DESKTOP-WASM-001 T3: the ten-times reference project** (R26; how AC18's project is made). The 30 s Build goal is judged on the five Desktop examples without `EXEC RUST` or an external crate, and on one generated project ten times the largest of them. `cobolt-bench` now writes that project. T4's `build-goal` builds it.
+- **How the five are measured.** Each one is copied and regenerated as a Build regenerates it, then counted:
+  - **forms:** the forms its manifest lists;
+  - **COBOL lines:** the non-blank lines of every program a Build compiles (generated programs and indexed-file facades, Common Code, copybooks);
+  - **indexed files:** the `.cidx` files its manifest lists.
+
+  | Project | Forms | COBOL lines | Indexed files |
+  |---|---|---|---|
+  | PowerCallOfDuty | 1 | 2 579 | 0 |
+  | PowerCloud | 5 | 4 070 | 0 |
+  | PowerCobolCraft | 2 | 4 881 | 0 |
+  | PowerGraphics | 9 | 6 655 | 0 |
+  | PowerSpatial | 5 | 3 353 | 0 |
+  | **Target** (ten times the largest; at least 10 indexed files) | **90** | **66 550** | **10** |
+
+- **What the project holds:**
+  - **90 forms.** Each has a title, a text box, a result label and a Run button; its handler works through 40 statements, then calls `CALC-ALL`. The first ten forms also each keep one of the **10 indexed files**: a Save button writes a record, reads it back and closes the file.
+  - **Common Code:** `CALC-ALL` and the programs it calls. They are sized so the total comes to exactly the target line count.
+  - **Only standard verbs** and the Label, TextBox and Button controls. Every element has its Definition for AI.
+- **Deterministic:** fixed names and order, `/` in every path, and no clock or random source. Two generations give the same tree, sha256 `232c5720…`.
+- **Measured** by `ten_times_project_is_ten_times_and_deterministic`, which passed 5 of 5 checks:
+  - the generated project equals the target in all three dimensions;
+  - the two generations are byte-identical;
+  - the project tools' `check` reports 0 errors and 0 warnings.
+  - The same numbers and hash come from a clean checkout of 2.0.486. The uncommitted edits to the examples' project files do not change them.
+- **Found, not changed:** `check` takes 137 s on this project in a debug build, about 1.5 s per form. Worth a look when the Build goal is judged; it does not count toward the goal.
+
 ## 2.0.486 — 2026-11-14
 
 **DESKTOP-WASM-001 T2: a Build reports the time of each phase and its peak memory** (R18, R20; the harness for AC7). So a Build that is over the 30 s goal can name the phase that took the time.

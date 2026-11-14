@@ -30,4 +30,16 @@ cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-runtime  = { path = "../cobolt-runtime" }
 redb            = "4.3"
+# DESKTOP-WASM-001 T3 (R26): the ten-times reference project is written as forms and indexed
+# files, and measured after regenerating them as a Build does.
+cobolt-forms    = { path = "../cobolt-forms" }
+cobolt-codegen  = { path = "../cobolt-codegen" }
+serde           = { workspace = true }
+toml            = { workspace = true }
+sha2            = { workspace = true }
 cobolt-wasm     = { path = "../cobolt-wasm", optional = true }
+
+[dev-dependencies]
+# T3: the ten-times project is checked by the project tools, as an agent checks a project.
+cobolt-project-tools = { path = "../cobolt-project-tools" }
+serde_json           = { workspace = true }

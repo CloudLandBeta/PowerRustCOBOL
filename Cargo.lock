@@ -2074,12 +2074,19 @@ name = "cobolt-bench"
 version = "0.2.0"
 dependencies = [
  "cobolt-ast",
+ "cobolt-codegen",
+ "cobolt-forms",
  "cobolt-lexer",
  "cobolt-parser",
+ "cobolt-project-tools",
  "cobolt-runtime",
  "cobolt-semantic",
  "cobolt-wasm",
  "redb 4.3.0",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "toml 0.8.23",
 ]
 
 [[package]]

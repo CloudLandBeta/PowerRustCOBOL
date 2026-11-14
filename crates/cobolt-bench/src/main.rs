@@ -37,6 +37,9 @@
 //! between platforms; ratios and allocation counts travel fine.
 
 mod counting_alloc;
+// DESKTOP-WASM-001 T3: the ten-times reference project; T4's `build-goal` mode builds it.
+#[cfg_attr(not(test), allow(dead_code))]
+mod ten_times;
 
 use counting_alloc::{reset_peak, Counters};
 use std::time::{Duration, Instant};
