@@ -37,8 +37,9 @@
 //! between platforms; ratios and allocation counts travel fine.
 
 mod counting_alloc;
-// DESKTOP-WASM-001 T3: the ten-times reference project; T4's `build-goal` mode builds it.
-#[cfg_attr(not(test), allow(dead_code))]
+// DESKTOP-WASM-001 T3 and T4: the ten-times reference project, and the `build-goal` mode that
+// builds it with the five reference examples.
+mod build_goal;
 mod ten_times;
 
 use counting_alloc::{reset_peak, Counters};
@@ -429,6 +430,14 @@ fn report(rows: &[Row]) {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // DESKTOP-WASM-001 T4: the Build-time goal, a mode of its own rather than a workload.
+    if args.first().map(String::as_str) == Some("build-goal") {
+        if let Err(e) = build_goal::run(&args[1..]) {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let filter = args.first().cloned();
     let scale: f64 = std::env::var("PRC_BENCH_SCALE")
         .ok()

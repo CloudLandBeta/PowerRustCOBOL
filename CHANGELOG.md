@@ -2,6 +2,40 @@
 
 
 
+## 2.0.488 — 2026-11-14
+
+**DESKTOP-WASM-001 T4: `cobolt-bench build-goal`, and the first baseline of the 30 s Build goal** (R17, R19, R20; the harness of AC6, AC7 and AC18). Before the WebAssembly path exists, this records how long a Desktop Build takes today, phase by phase, so each later milestone can be measured against it.
+- **What `build-goal` does:**
+  - copies the five reference projects and the ten-times project (T3) into a scratch folder; no example is built in place;
+  - builds each one five times with no cache: every Build gets a fresh build folder, deleted afterwards;
+  - reports the slowest Build of each project against 30 s, with each phase, the peak memory, the path taken and the ten-times project's hash.
+- **The generator is timed on its own** where it accepts a project. It gets the project as the WebAssembly path will: every form's program with its Common Code linked, in one module, with each form's controls and bound events. Where it refuses, the first refusal is named, with its form, handler and line, and the count of the others.
+- **Flags:**
+  - `--runs N` sets the Builds per project (default 5);
+  - `--runs 0` times the generator alone and builds nothing;
+  - `--record` writes the platform's entry in `specs/WASM-BUILD-GOAL.json`. It needs at least one Build.
+- **A Build over the goal fails nothing.** R17 is a goal, and R20 only reports.
+- **The first baseline,** on this machine: macOS arm64, Apple M3 Pro, 11 cores, 18 GB. **This is not a reference box** (4 cores, SSD, 16 GB). 30 of 30 Builds succeeded, in 89.3 min. Every Build took the Cargo path.
+
+  | Project | Forms | COBOL lines | Slowest Build | Front end | Cargo | Peak memory | Generator |
+  |---|---|---|---|---|---|---|---|
+  | PowerCallOfDuty | 1 | 2 579 | 190.7 s | 20.0 ms | 190.6 s | 4 635 MB | accepted, 5.1 ms |
+  | PowerCloud | 5 | 4 070 | 156.4 s | 41.9 ms | 156.3 s | 4 616 MB | refused: `COBOL::"AWS-SET-CREDENTIALS"` (and 37 more) |
+  | PowerCobolCraft | 2 | 4 881 | 198.5 s | 47.3 ms | 198.3 s | 4 373 MB | refused: a statement reads more than four properties (and 18 more) |
+  | PowerGraphics | 9 | 6 655 | 198.7 s | 61.1 ms | 198.6 s | 4 200 MB | accepted, 9 forms in 45.8 ms |
+  | PowerSpatial | 5 | 3 353 | 163.3 s | 36.0 ms | 163.2 s | 4 086 MB | refused: `ACCEPT FROM Environment` (and 10 more) |
+  | TenTimes | 90 | 66 550 | 191.8 s | 30 409.5 ms | 160.2 s | 5 754 MB | refused: an INDEXED file on disk (and 7 more) |
+
+  - **All six are over the goal.** With no cache, Cargo compiles the whole dependency tree every time, which takes 156–199 s.
+  - **The ten-times project's hash** is `232c5720…`, the same as T3's.
+- **Found, not changed:** the ten-times project's front end takes **30.4 s**, which alone is over the goal. The WebAssembly path runs the same front end, so this has to be dealt with before the goal is judged at M2.
+  - Not profiled yet. The likely place is the loop at `cobolt-compiler/src/lib.rs:2777–2830`: for each of the 89 forms after the main one, it links the whole Common Code into the form's program, then serializes it and compresses it at the best level.
+- **The CI workflow, `.github/workflows/build-goal.yml`:**
+  - runs the same command on the four platforms, on a tag and on dispatch, and uploads each platform's JSON;
+  - the hosted macOS arm64 runner is smaller than the reference box, so its record says "not a reference box": that is the deviation C9 records.
+  - **The dispatch is owed:** GitHub dispatches a workflow only from the default branch, and this one is not on `main` yet. Its four results, and AC18's four equal hashes, are recorded once the workflow is on `main`.
+- **`cobolt-bench`** now depends on `cobolt-compiler`, `cobolt-wasm` (without its host), `sysinfo` and `serde_json`. Its interpreter rows are unchanged.
+
 ## 2.0.487 — 2026-11-14
 
 **DESKTOP-WASM-001 T3: the ten-times reference project** (R26; how AC18's project is made). The 30 s Build goal is judged on the five Desktop examples without `EXEC RUST` or an external crate, and on one generated project ten times the largest of them. `cobolt-bench` now writes that project. T4's `build-goal` builds it.

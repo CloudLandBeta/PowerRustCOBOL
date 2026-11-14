@@ -1,0 +1,92 @@
+# DESKTOP-WASM-001 T4 (R17, R19, R20; AC6, AC7, AC18): the Build-time goal, measured on the four
+# supported platforms.
+#
+# Each job runs `cobolt-bench build-goal --record`. That builds a copy of every reference project
+# (the five Desktop examples without EXEC RUST or an external crate, and the ten-times project)
+# five times each, with no cache: every Build gets a fresh build folder. The job reports the slowest
+# Build of each project against the 30 s goal, with each phase's time and the peak memory. A Build
+# over the goal fails nothing: R17 is a goal, and R20 reports only.
+#
+# Each job uploads its `specs/WASM-BUILD-GOAL.json` entry. AC18 asks that the four ten-times hashes
+# in those entries be equal.
+#
+# The hosted macOS arm64 runner is smaller than the reference box (4 cores, SSD, 16 GB; C9). Its
+# result block and its record say "not a reference box", which is the deviation AC6 asks to be
+# recorded.
+#
+# A dispatch needs this file on the default branch (GitHub runs workflow_dispatch from there).
+
+name: Build goal (DESKTOP-WASM-001)
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Builds per project (the goal is judged on the slowest of them)
+        default: "5"
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: build-goal-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Rust release the packages are built with (see build-all-platforms.yml).
+  RELEASE_RUST: "1.95.0"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+
+jobs:
+  build-goal:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    # Thirty Builds with no cache, six projects five times each. The Intel Mac is the slow one.
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+          - name: windows-x86_64
+            os: windows-latest
+          - name: macos-aarch64
+            os: macos-latest
+          - name: macos-x86_64
+            os: macos-15-intel
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The same packages the release build installs: a Build links the program the way the IDE does.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libxkbcommon-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libasound2-dev
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+
+      # Caches the bench's own build only. The Builds it measures each use a fresh folder.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: build-goal
+
+      - name: Measure the Build goal
+        shell: bash
+        run: cargo run -p cobolt-bench --release --locked -- build-goal --record --runs "${{ inputs.runs || '5' }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: build-goal-${{ matrix.name }}
+          path: specs/WASM-BUILD-GOAL.json

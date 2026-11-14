@@ -21,7 +21,7 @@ path = "src/main.rs"
 [features]
 # The WebAssembly module rows (WASM-015 T14). Off by default: it pulls in the host (`wasmtime`), which the
 # interpreter baseline has no use for.
-wasm = ["dep:cobolt-wasm"]
+wasm = ["cobolt-wasm/host"]
 
 [dependencies]
 cobolt-lexer    = { path = "../cobolt-lexer" }
@@ -37,9 +37,14 @@ cobolt-codegen  = { path = "../cobolt-codegen" }
 serde           = { workspace = true }
 toml            = { workspace = true }
 sha2            = { workspace = true }
-cobolt-wasm     = { path = "../cobolt-wasm", optional = true }
+# The generator, timed on its own by `build-goal` (DESKTOP-WASM-001 T4); its host (`wasmtime`) only
+# with the `wasm` feature.
+cobolt-wasm     = { path = "../cobolt-wasm", default-features = false }
+# T4: `build-goal` builds each reference project as the IDE does, and reads the machine it runs on.
+cobolt-compiler = { path = "../cobolt-compiler" }
+sysinfo         = { workspace = true }
+serde_json      = { workspace = true }
 
 [dev-dependencies]
 # T3: the ten-times project is checked by the project tools, as an agent checks a project.
 cobolt-project-tools = { path = "../cobolt-project-tools" }
-serde_json           = { workspace = true }

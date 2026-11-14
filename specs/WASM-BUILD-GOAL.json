@@ -1,0 +1,164 @@
+{
+  "macos-aarch64": {
+    "goal_ms": 30000.0,
+    "machine": {
+      "cores": 11,
+      "cpu": "Apple M3 Pro",
+      "memory_gb": 18.0,
+      "physical_cores": 11,
+      "reference_box": false
+    },
+    "projects": [
+      {
+        "builds": 5,
+        "cobol_lines": 2579,
+        "failed": null,
+        "forms": 1,
+        "generator": {
+          "accepted": true,
+          "forms": 1,
+          "ms": 5.1
+        },
+        "indexed_files": 0,
+        "over_goal": true,
+        "path": "cargo",
+        "peak_mb": 4635.0,
+        "phases_ms": {
+          "cargo": 190642.1,
+          "front end": 20.0,
+          "install": 9.0,
+          "regenerate": 2.6
+        },
+        "project": "PowerCallOfDuty",
+        "slowest_ms": 190686.1
+      },
+      {
+        "builds": 5,
+        "cobol_lines": 4070,
+        "failed": null,
+        "forms": 5,
+        "generator": {
+          "accepted": false,
+          "at": "generated/main-form.cbl:2125 (MAIN-FORM ▸ Btn-Connect ▸ onClick, line 16)",
+          "construct": "COBOL::\"AWS-SET-CREDENTIALS\" runs on the backend, not in a browser module: keys and model providers stay on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE",
+          "more_refusals": 37
+        },
+        "indexed_files": 0,
+        "over_goal": true,
+        "path": "cargo",
+        "peak_mb": 4616.4,
+        "phases_ms": {
+          "cargo": 156325.8,
+          "front end": 41.9,
+          "install": 26.7,
+          "regenerate": 17.4
+        },
+        "project": "PowerCloud",
+        "slowest_ms": 156424.0
+      },
+      {
+        "builds": 5,
+        "cobol_lines": 4881,
+        "failed": null,
+        "forms": 2,
+        "generator": {
+          "accepted": false,
+          "at": "generated/world-form.cbl:2853 (WORLD-FORM ▸ CRAFT-INFO, line 12)",
+          "construct": "this statement reads more than four properties or character-valued functions; split it into statements that read at most four",
+          "more_refusals": 18
+        },
+        "indexed_files": 0,
+        "over_goal": true,
+        "path": "cargo",
+        "peak_mb": 4373.4,
+        "phases_ms": {
+          "cargo": 198336.5,
+          "front end": 47.3,
+          "install": 22.3,
+          "regenerate": 9.1
+        },
+        "project": "PowerCobolCraft",
+        "slowest_ms": 198456.0
+      },
+      {
+        "builds": 5,
+        "cobol_lines": 6655,
+        "failed": null,
+        "forms": 9,
+        "generator": {
+          "accepted": true,
+          "forms": 9,
+          "ms": 45.8
+        },
+        "indexed_files": 0,
+        "over_goal": true,
+        "path": "cargo",
+        "peak_mb": 4199.9,
+        "phases_ms": {
+          "cargo": 198600.0,
+          "front end": 61.1,
+          "install": 34.8,
+          "regenerate": 19.9
+        },
+        "project": "PowerGraphics",
+        "slowest_ms": 198732.1
+      },
+      {
+        "builds": 5,
+        "cobol_lines": 3353,
+        "failed": null,
+        "forms": 5,
+        "generator": {
+          "accepted": false,
+          "at": "generated/main-form.cbl:39 (MAIN-FORM ▸ REPOSITORY, line 16)",
+          "construct": "ACCEPT FROM Environment(\"POWERSPATIAL_DATA\") is not supported in a WebAssembly module",
+          "more_refusals": 10
+        },
+        "indexed_files": 0,
+        "over_goal": true,
+        "path": "cargo",
+        "peak_mb": 4086.4,
+        "phases_ms": {
+          "cargo": 163208.6,
+          "front end": 36.0,
+          "install": 51.1,
+          "regenerate": 16.3
+        },
+        "project": "PowerSpatial",
+        "slowest_ms": 163334.2
+      },
+      {
+        "builds": 5,
+        "cobol_lines": 66550,
+        "failed": null,
+        "forms": 90,
+        "generator": {
+          "accepted": false,
+          "at": "generated/form-001.cbl:268 (FORM-001 ▸ BTN-SAVE ▸ onClick, line 4)",
+          "construct": "file IDX-01-FILE is not available in a browser module: only an INDEXED file declared STORAGE IS MEMORY (without WITH PERSISTENCE) is held in a browser module; other files are on the backend: call a backend program with CALL … WITH WEBSOCKET LINKAGE",
+          "more_refusals": 7
+        },
+        "indexed_files": 10,
+        "over_goal": true,
+        "path": "cargo",
+        "peak_mb": 5753.6,
+        "phases_ms": {
+          "cargo": 160200.2,
+          "front end": 30409.5,
+          "install": 3.2,
+          "regenerate": 36.0
+        },
+        "project": "TenTimes",
+        "slowest_ms": 191750.7
+      }
+    ],
+    "runs_per_project": 5,
+    "ten_times": {
+      "cobol_lines": 66550,
+      "forms": 90,
+      "indexed_files": 10,
+      "sha256": "232c57201015321b369e5f346fe5cdcdcc9a5bfb4c710901ba567527a2befc5a"
+    },
+    "version": "2.0.487"
+  }
+}

@@ -97,6 +97,12 @@ fn line_count(path: &Path) -> usize {
 /// Measures the project in `dir`, regenerating its forms and indexed files there first, as a
 /// Build does. `dir` is written to: measure a copy (see [`copy_project`]).
 pub fn measure(dir: &Path) -> Result<Dimensions, String> {
+    regenerate(dir).map(|(d, _)| d)
+}
+
+/// Regenerates the project in `dir` as a Build does, and gives its dimensions and its forms, as
+/// paths from `dir` in the manifest's order.
+pub fn regenerate(dir: &Path) -> Result<(Dimensions, Vec<String>), String> {
     let manifest = manifest_of(dir)?;
     let text = std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
     let Manifest { mut files } = toml::from_str(&text).map_err(|e| format!("{}: {e}", manifest.display()))?;
@@ -119,11 +125,12 @@ pub fn measure(dir: &Path) -> Result<Dimensions, String> {
     compiled.extend(extra.iter());
     compiled.sort();
     compiled.dedup();
-    Ok(Dimensions {
+    let dims = Dimensions {
         forms: files.forms.len(),
         cobol_lines: compiled.iter().map(|rel| line_count(&dir.join(rel))).sum(),
         indexed: files.indexed.len(),
-    })
+    };
+    Ok((dims, files.forms))
 }
 
 /// Ten times the largest of each dimension, with at least [`INDEXED_FLOOR`] indexed files.

@@ -2075,6 +2075,7 @@ version = "0.2.0"
 dependencies = [
  "cobolt-ast",
  "cobolt-codegen",
+ "cobolt-compiler",
  "cobolt-forms",
  "cobolt-lexer",
  "cobolt-parser",
@@ -2086,6 +2087,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sysinfo",
  "toml 0.8.23",
 ]
 

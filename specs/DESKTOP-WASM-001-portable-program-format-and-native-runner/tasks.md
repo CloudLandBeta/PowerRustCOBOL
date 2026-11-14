@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3 and T1–T3 are done (2.0.483–2.0.487).
+- **Status:** implementing since 2026-11-14. F1–F3 and T1–T4 are done (2.0.483–2.0.488); T4's CI dispatch is owed until its workflow is on `main`.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -191,7 +191,24 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - the sha256 of the whole tree, equal across two generations.
     - `check` on the generated project reports no error.
 
-- [ ] **T4 — `cobolt-bench build-goal`, and the baseline** (R17, R19, R20; AC6 and AC7 harness, AC18 hash)
+- [x] **T4 — `cobolt-bench build-goal`, and the baseline** (R17, R19, R20; AC6 and AC7 harness, AC18 hash)
+  - *Done 2026-11-14 (2.0.488):*
+    - **This machine's baseline** is recorded in `specs/WASM-BUILD-GOAL.json` (`macos-aarch64`): Apple M3 Pro, 11 cores, 18 GB, **not a reference box**. 30 of 30 Builds succeeded in 89.3 min, all on the Cargo path, and all six projects are over the goal.
+      - **Slowest Builds:** PowerCallOfDuty 190.7 s, PowerCloud 156.4 s, PowerCobolCraft 198.5 s, PowerGraphics 198.7 s, PowerSpatial 163.3 s, TenTimes 191.8 s.
+      - **Where the time goes:** Cargo takes 156–199 s, because with no cache it compiles the whole dependency tree. Regeneration takes under 40 ms and install under 52 ms.
+      - **Peak memory:** 4 086–5 754 MB.
+    - **The front end** takes 20–61 ms on the five examples and **30 409.5 ms on TenTimes**, alone over the goal. Not profiled. The likely place is the per-form loop at `cobolt-compiler/src/lib.rs:2777–2830`, which links the whole Common Code into each of the 89 other forms' programs, then serializes the program and compresses it at the best level. It must be dealt with before the goal is judged at M2, since the WebAssembly path runs the same front end.
+    - **The generator** takes the project as the WebAssembly path will: one module, each form with its controls and bound events. Until T16 gives Desktop its own form descriptions, the bench builds them as the Web Build's `form_specs` does, without the Web lowering.
+      - **Accepted:** PowerCallOfDuty (5.1 ms) and PowerGraphics (9 forms, 45.8 ms).
+      - **Refused**, each at the developer's line:
+        - PowerCloud at `COBOL::"AWS-SET-CREDENTIALS"`, and 37 more;
+        - PowerCobolCraft at a statement that reads more than four properties, and 18 more;
+        - PowerSpatial at `ACCEPT FROM Environment`, and 10 more;
+        - TenTimes at an INDEXED file on disk, and 7 more.
+      - **A first version compiled each program alone.** That gave false refusals ("SCN-1 is not defined"), because a form's controls are unknown without its form description. It was corrected and the whole baseline run again; only the second run is recorded.
+    - **The ten-times hash** is `232c5720…`, equal to T3's.
+    - **Owed: the CI dispatch.** `build-goal.yml` is written for the four platforms, but GitHub dispatches only from the default branch, and the workflow is not on `main`. The four result blocks and AC18's four equal hashes are recorded at the first dispatch after the workflow reaches `main`, or at the first `v*` tag. The macOS arm64 job runs on the hosted runner, and its record says "not a reference box" (C9).
+    - **Flags:** `--runs 0` times the generator alone and builds nothing; `--record` refuses it.
   - Files:
     - `crates/cobolt-bench/src/main.rs`: a `build-goal` mode, dispatched before the existing filter;
     - new `crates/cobolt-bench/src/build_goal.rs`;
