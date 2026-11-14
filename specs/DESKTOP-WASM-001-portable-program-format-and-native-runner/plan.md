@@ -7,7 +7,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 - **Status:** accepted by the operator, 2026-11-13 (2.0.481). Broken into tasks 2026-11-14 (2.0.482, `./tasks.md`), which refines §1.2's order and §7's guide item.
 - **Spec:** ./spec.md   **Date:** 2026-11-13
-- **Branch:** `features-2x-wasm-program-format` (2.x)
+- **Branch:** `features-2x-desktop-wasm` (2.x), cut from `main` at 2.0.484. The plan was written on `features-2x-wasm-program-format`.
 - **Ground truth:** read 2026-11-13 at `8142a5ad` (2.0.480). File:line references are to that tree.
 - **Name:** this spec and plan were numbered WASM-037 until 2.0.480; the operator renamed them DESKTOP-WASM-001 when reviewing the first draft of this plan.
 - **Added at review (operator, 2026-11-13):** *"add as the success criteria the pixel perfect behavior before/after wasm"*. It becomes R27, R28, AC19 and AC20 in the spec, and §1.2 below.

@@ -2705,6 +2705,7 @@ dependencies = [
  "cobolt-web-bundle",
  "png 0.17.16",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "tungstenite 0.28.0",

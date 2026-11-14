@@ -26,3 +26,5 @@ tempfile             = "3"
 tungstenite          = { version = "0.28", default-features = false, features = ["handshake"] }
 png                  = "0.17"
 base64               = "0.22"
+# DESKTOP-WASM-001 T1 (AC16): the Web module of PowerAnalyticsWeb is pinned by its sha256.
+sha2                 = { workspace = true }

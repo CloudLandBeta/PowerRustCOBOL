@@ -2,6 +2,20 @@
 
 
 
+## 2.0.485 — 2026-11-14
+
+**DESKTOP-WASM-001 T1: the Web module of PowerAnalyticsWeb is pinned by its sha256 before the feature changes anything** (AC16). The feature reworks the generator, the ABI manifest and the form descriptions for Desktop programs. The new test proves that a Web project's module does not move while that happens.
+- **The test, `cobolt-web-tests/tests/desktop_wasm_unchanged.rs`:** it copies `examples/PowerAnalyticsWeb` into a scratch folder (the example is never built in place), regenerates and builds it as the IDE does, and compares three files with the pins:
+  - the multi-memory module, `program.wasm`: 729 228 bytes;
+  - the single-memory module, `program.single.wasm`: 729 244 bytes;
+  - the manifest: 27 320 bytes.
+- **The pins** are in `tests/fixtures/power-analytics-web.sha256`. A change that moves these bytes on purpose must say so in its CHANGELOG entry and re-record them with `UPDATE_PIN=1`.
+- **Measured:**
+  - 3 of 3 artefacts match, in four runs: one recording and two checks in this tree, and one from a clean checkout of `main` at 2.0.484.
+  - The clean checkout shows that the uncommitted edits to the example's project file (its Backend copybook list and its AI settings) do not reach the module.
+  - The regeneration and Build take 9.6 s.
+- **Branch:** the feature continues on `features-2x-desktop-wasm`, cut from `main` at 2.0.484 after the fixes F1 and F2 landed there (F3 done).
+
 ## 2.0.484 — 2026-11-14
 
 **Fix: the table of what a WebAssembly module can compile no longer lists `SET` of a pointer as supported** (DESKTOP-WASM-001 C13, fix F2). The generator has never compiled `SET ptr TO ADDRESS OF item` or `SET ADDRESS OF item TO ptr`. Until now a program using either was refused with the generic "not yet supported by the WebAssembly generator", while the table, and the System KB built from it, said "yes".

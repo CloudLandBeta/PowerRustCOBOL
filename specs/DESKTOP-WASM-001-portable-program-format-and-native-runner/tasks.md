@@ -5,9 +5,9 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** tasked, 2026-11-14 (2.0.482). No task started.
+- **Status:** implementing since 2026-11-14. F1–F3 and T1 are done (2.0.483–2.0.485).
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
-- **Branch:** `features-2x-wasm-program-format` (feature). The two fixes F1 and F2 go on `fixes-2x-wasm-emit-order`, cut from `main`.
+- **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
 These are small, ordered tasks that can each be checked on their own. Each one names:
 - the files it touches;
@@ -127,7 +127,11 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - `cargo test -p cobolt-wasm --test subset_table` green.
     - The System KB text that reads the table is regenerated, and `prebuilt_chunked_kb_matches_the_published_documentation` is green.
 
-- [ ] **F3 — Land the fixes, and bring them to this branch**
+- [x] **F3 — Land the fixes, and bring them to this branch**
+  - *Done 2026-11-14:*
+    - `main` could not take the spec branch as a fast-forward, because it held a commit of its own (README). So the operator chose to copy the spec commits onto `main` and continue on a new branch.
+    - `main` now holds the spec commits (2.0.478–2.0.482), then F1 (`f72c3d03`) and F2 (`dd88944e`), all fast-forwards.
+    - `features-2x-desktop-wasm` was cut from that `main`, so it carries both fixes, and `compile_determinism` is green on it.
   - Do:
     - Commit F1 and F2 separately on `fixes-2x-wasm-emit-order`. Each takes the next `z` not used on any open branch: this branch holds 2.0.478 onwards.
     - Push outside the window, and ask the operator to merge them into `main`.
@@ -136,7 +140,14 @@ The code says five things the plan did not settle. Each is applied in the tasks 
 
 ## Phase M0 — The baseline, the deterministic mode and the golden hashes (the WebAssembly path is off)
 
-- [ ] **T1 — The Web module's hash, recorded before anything changes** (R24; AC16)
+- [x] **T1 — The Web module's hash, recorded before anything changes** (R24; AC16)
+  - *Done 2026-11-14 (2.0.485):*
+    - **Pinned:** three files, not two. The single-memory module is pinned too, because the Build writes both variants.
+      - `program.wasm`: 729 228 bytes, `f7fec25a…`;
+      - `program.single.wasm`: 729 244 bytes, `289e75c5…`;
+      - the manifest: 27 320 bytes, `d3b8c806…`.
+    - **Runs:** 3 of 3 match in four runs: one recording, two checks, and one from a clean checkout at 2.0.484. The uncommitted edits to the example's project file do not reach the module.
+    - **Timing:** the Build takes 9.6 s. `UPDATE_PIN=1` re-records the pins.
   - Files: new `crates/cobolt-web-tests/tests/desktop_wasm_unchanged.rs`; its fixture `crates/cobolt-web-tests/tests/fixtures/power-analytics-web.sha256`.
   - Do: build the Web module of `examples/PowerAnalyticsWeb` (from a copy, never in place), and pin the sha256 of `program.wasm` and of its manifest.
   - Verify: `cargo test -p cobolt-web-tests --test desktop_wasm_unchanged -- --nocapture` prints both hashes and passes. It stays green through every later task.

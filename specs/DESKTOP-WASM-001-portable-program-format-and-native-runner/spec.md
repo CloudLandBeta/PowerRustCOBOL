@@ -9,7 +9,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - **Folder:** specs/DESKTOP-WASM-001-portable-program-format-and-native-runner/
 - **Name:** numbered WASM-037 at 2.0.478–2.0.480; renamed **DESKTOP-WASM-001** by the operator on 2026-11-13 (2.0.481). The CHANGELOG entries of 2.0.478–2.0.480 keep the old name.
 - **Author:** Emerson Lopes (design) · drafted with Claude   **Date:** 2026-11-13
-- **Branch:** `features-2x-wasm-program-format` (version line 2.x). First spec of the DESKTOP-WASM series (desktop programs built as WebAssembly); listed in `specs/WASM-INDEX.md`, on which it builds.
+- **Branch:** `features-2x-desktop-wasm` (version line 2.x), cut from `main` at 2.0.484. The spec was written on `features-2x-wasm-program-format`. First spec of the DESKTOP-WASM series (desktop programs built as WebAssembly); listed in `specs/WASM-INDEX.md`, on which it builds.
 - **Origin:** the operator, 2026-11-13: *"we need an IL format for the binary of powerrustcobol that is not affected by rust version, nor need recompile and can be used to generate native code. what if we generate WASM instead the current lexer?"*
   - The same day the operator added: *"the compilation must take no more than 30s in a Linux/Windows box with 16GB RAM"*. At `/clarify` the operator made it **a goal, not a limit**, on **all supported platforms** (Q1b): R17, AC6.
   - "Instead of the current lexer" is read as *instead of the current back end*: the lexer, the parser and the semantic pass stay and still produce the AST; what changes is what is made from it.
