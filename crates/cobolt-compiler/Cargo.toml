@@ -40,6 +40,8 @@ bincode   = { workspace = true }
 flate2    = { workspace = true }
 thiserror = { workspace = true }
 tracing   = { workspace = true }
+# DESKTOP-WASM-001 R20: a Build's peak memory, sampled every 25 ms.
+sysinfo   = { workspace = true }
 
 # Test-only (spec 044 e2e): the tests vendor fixture crates exactly as the
 # IDE does — download + unpack. The SHIPPED compiler stays network-free;

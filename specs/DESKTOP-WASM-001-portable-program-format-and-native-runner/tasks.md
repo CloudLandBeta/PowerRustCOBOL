@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3 and T1 are done (2.0.483–2.0.485).
+- **Status:** implementing since 2026-11-14. F1–F3, T1 and T2 are done (2.0.483–2.0.486).
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -152,7 +152,12 @@ The code says five things the plan did not settle. Each is applied in the tasks 
   - Do: build the Web module of `examples/PowerAnalyticsWeb` (from a copy, never in place), and pin the sha256 of `program.wasm` and of its manifest.
   - Verify: `cargo test -p cobolt-web-tests --test desktop_wasm_unchanged -- --nocapture` prints both hashes and passes. It stays green through every later task.
 
-- [ ] **T2 — The Build reports its phases and its peak memory** (R18, R20; AC7 harness)
+- [x] **T2 — The Build reports its phases and its peak memory** (R18, R20; AC7 harness)
+  - *Done 2026-11-14 (2.0.486):*
+    - **Phase order:** the enum is declared in the order a Build runs its phases. Regenerate comes before front end, because the forms' COBOL is written before it is parsed. The toolchain check counts as `Cargo`; T16 moves it after classification (C8).
+    - **What the peak covers:** the Build's own process plus every process it started after the Build began. On the Cargo path that is where the memory goes, in `rustc`.
+    - **The new `path` field** has one variant, `Cargo`. T16 adds the WebAssembly one.
+    - **Measured by `build_reports_phases_and_peak`,** a one-form project on the shared cache: regenerate 2.2 ms, front end 7.6 ms, cargo 7 498.8 ms, install 1.5 ms. The sum is 7 510.1 ms against 7 524.5 ms of wall time, the peak 860.2 MB, and 6 of 6 checks passed.
   - Files:
     - `crates/cobolt-compiler/src/lib.rs`:
       - `BuildProgress` (:1834) gains `phase: BuildPhase` and `elapsed`;

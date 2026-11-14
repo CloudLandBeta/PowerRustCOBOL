@@ -2,6 +2,29 @@
 
 
 
+## 2.0.486 — 2026-11-14
+
+**DESKTOP-WASM-001 T2: a Build reports the time of each phase and its peak memory** (R18, R20; the harness for AC7). So a Build that is over the 30 s goal can name the phase that took the time.
+- **The phases,** in the order a Build runs them: regenerate, front end, classify, generate, machine code, assemble, cargo, install.
+  - The Cargo path runs four of them: regenerate, front end, cargo and install. The Rust toolchain check counts as the Cargo path's.
+  - A phase that did not run is not reported.
+  - Every progress update now names its phase and the time since the Build started.
+- **The peak memory** is sampled every 25 ms. It is the memory of the Build's own process plus every process the Build started (`cargo`, `rustc`); a program the IDE started earlier is left out.
+  - It is reported only: no Build or test fails on it.
+- **The Build's result** also names its path, which is always Cargo for now.
+- **Nothing a developer sees changes yet:** the IDE and `rcrun` show what they showed before. Showing phases and peak memory to the developer comes with T18 and T19.
+- **Measured** by the new test `build_reports_phases_and_peak`: a one-form project built on the Cargo path, into the shared cache, 1 crate compiled.
+
+  | Phase | Time |
+  |---|---|
+  | regenerate | 2.2 ms |
+  | front end | 7.6 ms |
+  | cargo | 7 498.8 ms |
+  | install | 1.5 ms |
+  | **Sum** | **7 510.1 ms** (the wall time was 7 524.5 ms) |
+
+  The peak was 860.2 MB, and 6 of 6 checks passed.
+
 ## 2.0.485 — 2026-11-14
 
 **DESKTOP-WASM-001 T1: the Web module of PowerAnalyticsWeb is pinned by its sha256 before the feature changes anything** (AC16). The feature reworks the generator, the ABI manifest and the form descriptions for Desktop programs. The new test proves that a Web project's module does not move while that happens.

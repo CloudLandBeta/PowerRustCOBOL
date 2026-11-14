@@ -1840,6 +1840,196 @@ pub struct BuildProgress {
     /// `true` for a supplementary log detail (file counts, sizes) that
     /// belongs in a build log, not on the progress bar.
     pub detail: bool,
+    /// The phase the Build was in when it sent this update (DESKTOP-WASM-001 R18).
+    pub phase: BuildPhase,
+    /// Time since the Build started.
+    pub elapsed: std::time::Duration,
+}
+
+/// A phase of a Build, in the order a Build runs them (DESKTOP-WASM-001 R18).
+///
+/// A Build reports the time it spent in each phase that ran, so a slow Build
+/// names the phase that took the time. The Cargo path runs `Regenerate`,
+/// `FrontEnd`, `Cargo` and `Install`; the other four belong to the WebAssembly
+/// path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildPhase {
+    /// The forms' and indexed files' generated COBOL is written again.
+    Regenerate,
+    /// The sources are read, parsed and checked, and the form programs compiled.
+    FrontEnd,
+    /// The Build decides which path the program takes.
+    Classify,
+    /// The WebAssembly module is generated.
+    Generate,
+    /// The module is compiled to machine code.
+    MachineCode,
+    /// The runner and the program are put together into one executable.
+    Assemble,
+    /// The Cargo path: the toolchain is checked, the Rust project is staged and
+    /// `cargo` compiles it.
+    Cargo,
+    /// The executable is copied into `bin/` and the destination folder.
+    Install,
+}
+
+impl BuildPhase {
+    /// The phase's name in a build log and a result block (not translated: the
+    /// IDE shows its own six-language label).
+    pub fn name(self) -> &'static str {
+        match self {
+            BuildPhase::Regenerate => "regenerate",
+            BuildPhase::FrontEnd => "front end",
+            BuildPhase::Classify => "classify",
+            BuildPhase::Generate => "generate",
+            BuildPhase::MachineCode => "machine code",
+            BuildPhase::Assemble => "assemble",
+            BuildPhase::Cargo => "cargo",
+            BuildPhase::Install => "install",
+        }
+    }
+}
+
+/// The way a Build made its executable (DESKTOP-WASM-001). Only the Cargo path
+/// exists so far; the WebAssembly path joins it when the Build can take it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BuildPath {
+    /// The program was compiled to a Rust project and built with `cargo`.
+    Cargo,
+}
+
+/// Times the phases of one Build (DESKTOP-WASM-001 R18).
+///
+/// One phase is current at any moment. Entering another closes the current
+/// span and adds it to that phase's total, so a phase entered twice is
+/// reported once.
+struct PhaseClock {
+    started: std::time::Instant,
+    current: std::cell::Cell<(BuildPhase, std::time::Instant)>,
+    spent: std::cell::RefCell<Vec<(BuildPhase, std::time::Duration)>>,
+}
+
+impl PhaseClock {
+    fn new(first: BuildPhase) -> Self {
+        let now = std::time::Instant::now();
+        PhaseClock { started: now, current: std::cell::Cell::new((first, now)), spent: Default::default() }
+    }
+
+    fn phase(&self) -> BuildPhase {
+        self.current.get().0
+    }
+
+    fn elapsed(&self) -> std::time::Duration {
+        self.started.elapsed()
+    }
+
+    fn close_current(&self) {
+        let (phase, since) = self.current.get();
+        let took = since.elapsed();
+        let mut spent = self.spent.borrow_mut();
+        match spent.iter_mut().find(|(p, _)| *p == phase) {
+            Some((_, total)) => *total += took,
+            None => spent.push((phase, took)),
+        }
+    }
+
+    fn enter(&self, phase: BuildPhase) {
+        if phase != self.phase() {
+            self.close_current();
+            self.current.set((phase, std::time::Instant::now()));
+        }
+    }
+
+    /// The time spent in each phase that ran, in the order phases run.
+    fn finish(&self) -> Vec<(BuildPhase, std::time::Duration)> {
+        self.close_current();
+        self.current.set((self.phase(), std::time::Instant::now()));
+        let mut spent = self.spent.borrow().clone();
+        spent.sort_by_key(|(p, _)| *p);
+        spent
+    }
+}
+
+/// Samples the resident memory of a Build every 25 ms and keeps the highest
+/// value (DESKTOP-WASM-001 R20). Report only: nothing fails on it.
+///
+/// What is summed is this process and every process it started after the Build
+/// began (the `cargo` and `rustc` of the Cargo path), which is where the
+/// Build's memory goes. A program the IDE started earlier is left out.
+struct PeakSampler {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<Option<u64>>>,
+}
+
+impl PeakSampler {
+    const EVERY: std::time::Duration = std::time::Duration::from_millis(25);
+
+    fn start() -> Self {
+        use std::sync::atomic::Ordering;
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = stop.clone();
+        let thread = std::thread::Builder::new()
+            .name("build-peak-memory".into())
+            .spawn(move || {
+                let me = sysinfo::get_current_pid().ok()?;
+                // Process start times are in whole seconds: one second of slack.
+                let since = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs().saturating_sub(1))
+                    .unwrap_or(0);
+                let mut sys = sysinfo::System::new();
+                let mut peak = 0u64;
+                loop {
+                    let last = flag.load(Ordering::Relaxed);
+                    sys.refresh_processes_specifics(
+                        sysinfo::ProcessesToUpdate::All,
+                        sysinfo::ProcessRefreshKind::new().with_memory(),
+                    );
+                    peak = peak.max(Self::tree_memory(&sys, me, since));
+                    if last {
+                        break;
+                    }
+                    std::thread::sleep(Self::EVERY);
+                }
+                (peak > 0).then_some(peak)
+            })
+            .ok();
+        PeakSampler { stop, thread }
+    }
+
+    /// The resident memory of `root` and of its descendants started at `since`
+    /// (seconds since the epoch) or later.
+    fn tree_memory(sys: &sysinfo::System, root: sysinfo::Pid, since: u64) -> u64 {
+        let processes = sys.processes();
+        let in_build = |mut pid: sysinfo::Pid| {
+            let mut started_in_build = true;
+            for _ in 0..64 {
+                if pid == root {
+                    return started_in_build;
+                }
+                let Some(p) = processes.get(&pid) else { return false };
+                started_in_build &= p.start_time() >= since;
+                match p.parent() {
+                    Some(parent) => pid = parent,
+                    None => return false,
+                }
+            }
+            false
+        };
+        processes.iter().filter(|(pid, _)| in_build(**pid)).map(|(_, p)| p.memory()).sum()
+    }
+
+    /// Stops sampling and gives the peak, in bytes; `None` where it could not be read.
+    fn finish(mut self) -> Option<u64> {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.thread.take().and_then(|t| t.join().ok()).flatten()
+    }
+}
+
+impl Drop for PeakSampler {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// Options controlling the build.
@@ -1953,6 +2143,13 @@ pub struct BuildResult {
     /// The platform crates that were stale in the cache and so were compiled again
     /// (spec 101 R15), with what depends on them. Empty in the ordinary case.
     pub forced_full: Vec<String>,
+    /// The way this Build made the executable (DESKTOP-WASM-001).
+    pub path: BuildPath,
+    /// The time spent in each phase that ran, in the order phases run (R18).
+    pub phases: Vec<(BuildPhase, std::time::Duration)>,
+    /// The highest resident memory of the Build, in bytes, sampled every 25 ms
+    /// (R20); `None` where the operating system did not tell.
+    pub peak_rss: Option<u64>,
 }
 
 /// Compile a Cobolt project into a single native binary.
@@ -2188,6 +2385,10 @@ fn build_core(
     // External Crates, a lone `.cbl` that external crates require a project.
     has_project: bool,
 ) -> Result<BuildResult, CompilerError> {
+    // DESKTOP-WASM-001 R18, R20: each phase's time and the peak memory. The
+    // toolchain check that opens a Build belongs to the Cargo path.
+    let clock = PhaseClock::new(BuildPhase::Cargo);
+    let sampler = PeakSampler::start();
     // Detail lines (file counts, sizes) stream to the UI too, flagged so
     // they land in the build-details log rather than on the progress bar.
     let log = |msg: &str| {
@@ -2199,6 +2400,8 @@ fn build_core(
                 fraction: -1.0,
                 message: msg.trim().to_string(),
                 detail: true,
+                phase: clock.phase(),
+                elapsed: clock.elapsed(),
             });
         }
     };
@@ -2212,6 +2415,8 @@ fn build_core(
                 fraction,
                 message: msg.to_string(),
                 detail: false,
+                phase: clock.phase(),
+                elapsed: clock.elapsed(),
             });
         }
     };
@@ -2231,6 +2436,7 @@ fn build_core(
         }
     }
 
+    clock.enter(BuildPhase::FrontEnd);
     report(0.05, "Reading project…");
     // The system documentation is NOT published here. It describes the
     // platform, not this project, so it belongs to the machine-level System
@@ -2251,6 +2457,7 @@ fn build_core(
     // manifest on disk is not rewritten: a newly generated file is tracked for
     // this build, and the IDE records it the next time it regenerates.
     if has_project && opts.regenerate_forms {
+        clock.enter(BuildPhase::Regenerate);
         report(0.07, "Regenerating the forms' COBOL…");
         let done = cobolt_codegen::project::regenerate_project(
             &project_dir,
@@ -2267,6 +2474,7 @@ fn build_core(
     }
 
     // ── 2. Collect all source files ───────────────────────────────────────────
+    clock.enter(BuildPhase::FrontEnd);
     report(0.10, "Collecting source files…");
     let mut sources: Vec<(String, String)> = Vec::new(); // (rel_path, source_text)
 
@@ -2631,6 +2839,7 @@ fn build_core(
     }
 
     // ── 6. Locate workspace root (where the cobolt-* crates live) ────────────
+    clock.enter(BuildPhase::Cargo);
     let workspace_root = resolve_workspace_root(opts.workspace_root.clone());
 
     let workspace_root = match workspace_root {
@@ -3240,6 +3449,7 @@ fn build_core(
     }
 
     // ── 11. Copy binary to bin/ ───────────────────────────────────────────────
+    clock.enter(BuildPhase::Install);
     report(0.97, "Copying binary…");
     let bin_dir = project_dir.join("bin");
     create_dir(&bin_dir)?;
@@ -3451,6 +3661,7 @@ fn build_core(
     }
 
     report(1.0, "Done");
+    let phases = clock.finish();
     Ok(BuildResult {
         binary_path: dst_bin,
         source_count: sources.len(),
@@ -3460,6 +3671,9 @@ fn build_core(
         build_dir,
         target_dir,
         forced_full,
+        path: BuildPath::Cargo,
+        phases,
+        peak_rss: sampler.finish(),
     })
 }
 
@@ -13072,6 +13286,79 @@ function_prefix = "sales-"
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// **DESKTOP-WASM-001 R18, R20 (T2)** — a Build reports the time of each phase that ran
+    /// and its peak memory. One real Build of a one-form project on the Cargo path, into the
+    /// default build folder (the shared cache, as the IDE builds): the phases are
+    /// `regenerate`, `front end`, `cargo` and `install`, in that order; their sum is at most
+    /// the wall time; the peak is above zero; and every progress update names its phase, with
+    /// a time since the start that never goes back.
+    #[test]
+    fn build_reports_phases_and_peak() {
+        let _heavy = heavy_build_guard();
+        let _state = BuildRootState::clean();
+        let dir = temp_dir("phases");
+        fs::create_dir_all(dir.join("forms")).unwrap();
+        let mut form = cobolt_forms::Form::new("MAIN", "Main", 400, 300);
+        form.main_form = true;
+        form.controls.push(cobolt_forms::Control::new("LBL-HELLO", cobolt_forms::ControlType::Label, 10, 10));
+        cobolt_forms::save_form(&form, &dir.join("forms/main.cfrm")).unwrap();
+        let manifest = dir.join("prcphases.project.toml");
+        fs::write(
+            &manifest,
+            "[project]\nname = \"prcphases\"\nversion = \"0.1.0\"\nmain = \"\"\n\n[files]\nforms = [\"forms/main.cfrm\"]\n",
+        )
+        .unwrap();
+        remove_build_staging("prcphases");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let opts = BuildOptions {
+            verbose: false,
+            workspace_root: Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).map(Path::to_path_buf),
+            progress: Some(tx),
+            ..Default::default()
+        };
+        let t = std::time::Instant::now();
+        let built = build_project(&manifest, &opts);
+        let wall = t.elapsed();
+        drop(opts);
+        let updates: Vec<BuildProgress> = rx.try_iter().collect();
+        remove_build_staging("prcphases");
+        let _ = fs::remove_dir_all(&dir);
+        let built = built.expect("the one-form project builds on the Cargo path");
+
+        let sum: std::time::Duration = built.phases.iter().map(|(_, d)| *d).sum();
+        let names: Vec<BuildPhase> = built.phases.iter().map(|(p, _)| *p).collect();
+        let expected = [BuildPhase::Regenerate, BuildPhase::FrontEnd, BuildPhase::Cargo, BuildPhase::Install];
+        let backwards = updates.windows(2).filter(|w| w[1].elapsed < w[0].elapsed).count();
+        let mut seen: Vec<BuildPhase> = updates.iter().map(|u| u.phase).collect();
+        seen.sort();
+        seen.dedup();
+        let peak_mb = built.peak_rss.map(|b| b as f64 / (1024.0 * 1024.0));
+
+        let checks = [
+            ("path is Cargo", built.path == BuildPath::Cargo),
+            ("phases are regenerate, front end, cargo, install", names == expected),
+            ("sum of phases <= wall time", sum <= wall),
+            ("peak memory > 0", built.peak_rss.is_some_and(|b| b > 0)),
+            ("updates name the four phases", seen == expected),
+            ("elapsed never goes back", backwards == 0),
+        ];
+        println!("== build_reports_phases_and_peak (DESKTOP-WASM-001 T2, R18, R20) ==");
+        println!("project: one form (MAIN, one Label), Cargo path, release, default build folder");
+        for (phase, took) in &built.phases {
+            println!("  {:<10} {:>9.1} ms", phase.name(), took.as_secs_f64() * 1000.0);
+        }
+        println!("  sum        {:>9.1} ms of {:.1} ms wall", sum.as_secs_f64() * 1000.0, wall.as_secs_f64() * 1000.0);
+        println!("  peak       {} (this process and what it started, sampled every 25 ms)", peak_mb.map_or("not read".into(), |m| format!("{m:.1} MB")));
+        println!("  progress updates: {}; crates compiled: {}", updates.len(), built.crates_compiled);
+        let passed = checks.iter().filter(|(_, ok)| *ok).count();
+        for (what, ok) in &checks {
+            println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
+        }
+        println!("result: {passed} of {} checks passed", checks.len());
+        assert_eq!(passed, checks.len(), "phases {names:?}, sum {sum:?}, wall {wall:?}, peak {:?}, seen {seen:?}, backwards {backwards}", built.peak_rss);
     }
 
     // ── Build profile: the button chooses, not the project ────────────────────
