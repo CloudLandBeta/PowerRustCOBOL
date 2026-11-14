@@ -19012,12 +19012,8 @@ impl Interpreter {
                     50
                 };
                 let cur_year = {
-                    use std::time::{SystemTime, UNIX_EPOCH};
-                    let days = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                        / 86400;
+                    // The UTC year, as before; the clock is pinned in a test run (R28).
+                    let days = crate::test_pins::now().timestamp().max(0) as u64 / 86400;
                     ymd_from_days(days).0 as i64
                 };
                 let max_year = cur_year + window;
@@ -21035,10 +21031,11 @@ fn path_display(path: &[PathSeg]) -> String {
 
 // ── Date / time utilities (no external crate dependency) ─────────────────────
 
-/// Return the current date as `YYYYMMDD` (8 chars).
+/// Return the current date as `YYYYMMDD` (8 chars). Every date and time below is read through
+/// [`crate::test_pins::now`], the local clock unless a test run pins it (R28).
 fn runtime_date() -> String {
     use chrono::Datelike;
-    let now = chrono::Local::now();
+    let now = crate::test_pins::now();
     format!(
         "{:04}{:02}{:02}",
         now.year(),
@@ -21050,7 +21047,7 @@ fn runtime_date() -> String {
 /// Return the current time as `HHMMSScc` (8 chars, cc = centiseconds).
 fn runtime_time() -> String {
     use chrono::Timelike;
-    let now = chrono::Local::now();
+    let now = crate::test_pins::now();
     // COBOL-85 TIME is HHMMSSss where `ss` is HUNDREDTHS of a second
     // (centiseconds, 00–99) — the standard's finest resolution, not
     // milliseconds. Populate it for real so `ACCEPT … FROM TIME` (and the
@@ -21150,14 +21147,14 @@ fn day_of_integer(n: i64) -> i64 {
 /// Return Julian day as `YYDDD` (5 chars).
 fn runtime_julian_day() -> String {
     use chrono::Datelike;
-    let now = chrono::Local::now();
+    let now = crate::test_pins::now();
     format!("{:02}{:03}", now.year() % 100, now.ordinal())
 }
 
 /// Return day-of-week as `i64`: 1 = Monday … 7 = Sunday (ISO 8601).
 fn runtime_day_of_week() -> i64 {
     use chrono::Datelike;
-    chrono::Local::now()
+    crate::test_pins::now()
         .weekday()
         .number_from_monday()
         .clamp(1, 7) as i64
@@ -21171,7 +21168,7 @@ fn runtime_day_of_week() -> i64 {
 fn current_date_string() -> String {
     let offset_secs = {
         use chrono::Offset;
-        chrono::Local::now().offset().fix().local_minus_utc()
+        crate::test_pins::now().offset().fix().local_minus_utc()
     };
     let sign = if offset_secs < 0 { '-' } else { '+' };
     let abs = offset_secs.abs();
@@ -21243,8 +21240,28 @@ fn days_to_ymd(days: u64) -> String {
 
 // ── Pseudo-random number generator ───────────────────────────────────────────
 
-static RANDOM_STATE: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(6364136223846793005);
+/// The generator's first state when no seed is pinned.
+const RANDOM_FIRST_STATE: u64 = 6364136223846793005;
+
+static RANDOM_STATE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(RANDOM_FIRST_STATE);
+static RANDOM_STARTED: std::sync::Once = std::sync::Once::new();
+
+/// The first state: from `PRC_TEST_SEED` when a test run pins it (R28), as `FUNCTION
+/// RANDOM(seed)` would seed it, else the fixed state it has always had.
+fn random_first_state() -> u64 {
+    crate::test_pins::seed().map_or(RANDOM_FIRST_STATE, mix_seed)
+}
+
+/// Gives the generator its first state, once, before its first use.
+fn start_random() {
+    RANDOM_STARTED.call_once(|| RANDOM_STATE.store(random_first_state(), std::sync::atomic::Ordering::Relaxed));
+}
+
+/// Starts the generator again from its first state ([`crate::test_pins::set_for_test`]).
+pub(crate) fn restart_random() {
+    start_random();
+    RANDOM_STATE.store(random_first_state(), std::sync::atomic::Ordering::Relaxed);
+}
 
 /// One step of the PCG-style LCG: returns `(next_state, value)` where `value`
 /// is in `[0, 1)`. Pure — no shared state — so it is deterministically testable.
@@ -21266,12 +21283,14 @@ fn mix_seed(seed: u64) -> u64 {
 /// (Re)seed the generator. `FUNCTION RANDOM(seed)` calls this; the same seed
 /// always reproduces the same sequence (COBOL-85 semantics).
 fn seed_random(seed: u64) {
+    start_random();
     RANDOM_STATE.store(mix_seed(seed), std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Return the next pseudo-random `f64` in `[0, 1)`.
 fn pseudo_random() -> f64 {
     use std::sync::atomic::Ordering;
+    start_random();
     let s = RANDOM_STATE.load(Ordering::Relaxed);
     let (next, v) = lcg_step(s);
     RANDOM_STATE.store(next, Ordering::Relaxed);

@@ -12600,6 +12600,11 @@ function_prefix = "sales-"
     /// `main.rs`, `cargo build`, execute — so a green result means a compiled
     /// block really ran inside a built binary.
     fn build_and_run_cobol(bin: &str, cobol: &str) -> String {
+        build_and_run_cobol_with_env(bin, cobol, &[])
+    }
+
+    /// [`build_and_run_cobol`], with `envs` set for the run of the binary only.
+    fn build_and_run_cobol_with_env(bin: &str, cobol: &str, envs: &[(&str, &str)]) -> String {
         use cobolt_lexer::{tokenize, SourceFormat};
         use cobolt_parser::parse;
 
@@ -12683,6 +12688,7 @@ function_prefix = "sales-"
 
         let exe = target_dir.join("debug").join(bin);
         let run = std::process::Command::new(&exe)
+            .envs(envs.iter().copied())
             .output()
             .unwrap_or_else(|e| panic!("failed to run {}: {e}", exe.display()));
         let stdout = String::from_utf8_lossy(&run.stdout).to_string();
@@ -12695,6 +12701,54 @@ function_prefix = "sales-"
 
         let _ = fs::remove_dir_all(&dir);
         stdout
+    }
+
+    /// **DESKTOP-WASM-001 T5 (R28), interpreter-binary parity:** a Cargo-built program takes the
+    /// clock and the seed pins from `PRC_TEST_CLOCK` and `PRC_TEST_SEED`, through the runtime it
+    /// links, as `rcrun` does.
+    #[test]
+    fn a_built_program_takes_the_clock_and_seed_pins() {
+        const CLOCK: &str = "2026-01-02T03:04:05.67-03:00";
+        const SEED: u64 = 20_261_114;
+        let t = std::time::Instant::now();
+        let out = build_and_run_cobol_with_env(
+            "prcpinned",
+            r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PINNED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NOW PIC X(21).
+       01 WS-R   PIC 9V9(9).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE FUNCTION CURRENT-DATE TO WS-NOW
+           COMPUTE WS-R = FUNCTION RANDOM
+           DISPLAY WS-NOW
+           DISPLAY WS-R
+           STOP RUN.
+"#,
+            &[("PRC_TEST_CLOCK", CLOCK), ("PRC_TEST_SEED", &SEED.to_string())],
+        );
+        let took = t.elapsed();
+        let lines: Vec<&str> = out.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        // The first value after `FUNCTION RANDOM(SEED)`, as the runtime's generator makes it.
+        let step = |s: u64| s.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        let expected = (step(step(SEED)) >> 11) as f64 / (1u64 << 53) as f64;
+        let shown = lines.get(1).and_then(|l| l.parse::<u64>().ok()).map_or(f64::NAN, |n| n as f64 / 1e9);
+        let checks = [
+            ("CURRENT-DATE is the pinned instant", lines.first() == Some(&"2026010203040567-0300")),
+            ("RANDOM starts from the pinned seed", (shown - expected).abs() < 1e-9),
+        ];
+        println!("== a_built_program_takes_the_clock_and_seed_pins (DESKTOP-WASM-001 T5, R28) ==");
+        println!("built with Cargo (debug) and run with PRC_TEST_CLOCK={CLOCK} PRC_TEST_SEED={SEED}, in {:.1} s", took.as_secs_f64());
+        println!("output: {lines:?}; expected RANDOM {expected:.9}");
+        let passed = checks.iter().filter(|(_, ok)| *ok).count();
+        for (what, ok) in &checks {
+            println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
+        }
+        println!("checks: {passed} of {} passed", checks.len());
+        assert_eq!(passed, checks.len(), "a check failed: see the result block");
     }
 
     /// **AC1, AC2 and AC10 together**, in one built binary:

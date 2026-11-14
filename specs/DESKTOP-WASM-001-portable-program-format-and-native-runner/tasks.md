@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3 and T1–T4 are done (2.0.483–2.0.488); T4's CI dispatch is owed until its workflow is on `main`.
+- **Status:** implementing since 2026-11-14. F1–F3 and T1–T5 are done (2.0.483–2.0.489); T4's CI dispatch is owed until its workflow is on `main`.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -231,7 +231,33 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - The numbers from this machine go into `WASM-PROGRESS.md` with its cores and memory, named as "not a reference box" where it is not one.
     - The CI job is dispatched once, outside the window. Its four result blocks are recorded, and the four ten-times hashes are equal (AC18).
 
-- [ ] **T5 — The run clock and the random seed, pinned for tests** (R28, the program half)
+- [x] **T5 — The run clock and the random seed, pinned for tests** (R28, the program half)
+  - *Done 2026-11-14 (2.0.489):*
+    - **`cobolt-runtime/src/test_pins.rs`** reads `PRC_TEST_CLOCK` (RFC 3339) and `PRC_TEST_SEED` (u64) once.
+      - The offset written in the pinned value is the program's time zone, so a pinned run shows the same date on every machine.
+      - A value that cannot be read is named on stderr and pins nothing.
+      - `set_for_test` and `clear_for_test` pin for the whole process without touching the environment, and restart the generator.
+    - **The audit:** every clock or random read a program can see now goes through the pins:
+      - `ACCEPT … FROM DATE`, `TIME`, `DAY` and `DAY-OF-WEEK`;
+      - `FUNCTION CURRENT-DATE` and `WHEN-COMPILED`;
+      - `YEAR-TO-YYYY`, which keeps its UTC year;
+      - the first state of `FUNCTION RANDOM`, which a pinned seed sets as `FUNCTION RANDOM(seed)` would.
+    - **The other reads never give a program a value,** and are listed in the module's documentation:
+      - timeouts and progress of asynchronous operations;
+      - the waits of file locks, `WS-PAUSE` and the AWS pool;
+      - the frame clock of animation sequences, which is T8's;
+      - AWS signing and credential expiry, which need the real time;
+      - indexed-file log stamps, key-file nonces and temporary names;
+      - measurements inside tests.
+      - `cobolt-stdlib`'s intrinsic table has its own `CURRENT-DATE`, but no code calls the table, so it is left as it is.
+    - **`pinned_clock_and_seed`:** 7 of 7 checks.
+      - The clock, pinned at `2026-01-02T03:04:05.67-03:00`, gives CURRENT-DATE `2026010203040567-0300`, DATE `260102` (YYMMDD in a PIC 9(6)), DAY `26002`, DAY-OF-WEEK `5` and TIME `03040567`, the same in two runs.
+      - RANDOM, pinned at seed 20 261 114, gives the same 1 000 values in two runs (1 000 distinct, about 72 000 values/s), equal to what `FUNCTION RANDOM(20261114)` gives with nothing pinned.
+      - Unpinned, the first value is still 0.485917337.
+      - `test_local_clock` (unpinned, 3 of 3) is unchanged.
+    - **Interpreter-binary parity:** the new compiler test `a_built_program_takes_the_clock_and_seed_pins` builds a console fixture with Cargo and runs it with both variables set. It prints `2026010203040567-0300` and `0198382315`, the interpreter's first value for that seed (2 of 2, 41.4 s).
+    - **`cargo test -p cobolt-runtime`:** all 210 targets ok, 1 674 passed, 0 failed, 29 ignored. It was run one target at a time, freeing each binary after its run: each of the 208 test binaries takes about 228 MB, about 47 GB if all are linked at once.
+    - **The pinned clock does not move yet.** T8 makes it follow the host's virtual time.
   - Files:
     - new `crates/cobolt-runtime/src/test_pins.rs`: read once from `PRC_TEST_CLOCK` (RFC 3339) and `PRC_TEST_SEED` (u64), with a `set_for_test` for tests, which never touch the environment;
     - `crates/cobolt-runtime/src/interpreter.rs`: the clock sites at :19016 and :21041–21174;

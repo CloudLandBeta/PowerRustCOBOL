@@ -2,6 +2,27 @@
 
 
 
+## 2.0.489 — 2026-11-14
+
+**DESKTOP-WASM-001 T5: the run clock and the random seed can be pinned for tests** (R28, the program half). This is the first half of the deterministic test mode that pixel parity (R27) is judged under: two runs of the same program now see the same date, time and random values.
+- **Two variables turn it on.** Nothing sets them by default:
+  - `PRC_TEST_CLOCK=<RFC 3339>`, for example `2026-01-02T03:04:05.67-03:00`, pins the date and time a program sees. The offset in the value is the program's time zone, so a pinned run shows the same date on every machine.
+  - `PRC_TEST_SEED=<whole number>` gives `FUNCTION RANDOM` its first state, as `FUNCTION RANDOM(seed)` would.
+  - A value that cannot be read is named on stderr and pins nothing.
+- **What the pins reach:** `ACCEPT … FROM DATE`, `TIME`, `DAY` and `DAY-OF-WEEK`; `FUNCTION CURRENT-DATE`, `WHEN-COMPILED` and `YEAR-TO-YYYY`; and `FUNCTION RANDOM`.
+  - The runtime's other reads of the time never become a value a program sees: timeouts, waits, AWS signing, log stamps. They are listed in `cobolt-runtime/src/test_pins.rs`.
+- **Every host of the interpreter takes the pins,** because they live in the runtime: `rcrun`, Run Form, and a program built with Cargo. The WebAssembly runner's `now` and `random` imports will read the same two variables once the runner exists.
+- **With neither variable set, nothing changes.** The clock is the local clock, and RANDOM starts from the same state as before.
+- **For now, the pinned clock stays at the pinned instant.** Making it follow the form host's virtual time comes with T8.
+- **Measured:**
+  - `pinned_clock_and_seed` passed 7 of 7 checks:
+    - every register is the pinned instant: DATE `260102`, DAY `26002`, DAY-OF-WEEK `5`, TIME `03040567`, CURRENT-DATE `2026010203040567-0300`, the same in two runs;
+    - 1 000 RANDOM values are the same in two runs and equal those of `FUNCTION RANDOM(seed)`;
+    - the unpinned first value is unchanged.
+  - `test_local_clock`, which runs unpinned, passed 3 of 3, unchanged.
+  - The whole runtime suite is green: 210 targets, 1 674 passed, 0 failed, 29 ignored.
+  - The new compiler test `a_built_program_takes_the_clock_and_seed_pins` builds a console program with Cargo and runs it with both variables set. It prints the pinned date, and the same first RANDOM value as the interpreter, `0198382315` (2 of 2).
+
 ## 2.0.488 — 2026-11-14
 
 **DESKTOP-WASM-001 T4: `cobolt-bench build-goal`, and the first baseline of the 30 s Build goal** (R17, R19, R20; the harness of AC6, AC7 and AC18). Before the WebAssembly path exists, this records how long a Desktop Build takes today, phase by phase, so each later milestone can be measured against it.
