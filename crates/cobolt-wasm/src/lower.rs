@@ -29,7 +29,7 @@ use cobolt_wasm_rt::arith::{OP_ADD, OP_DIV, OP_MUL, OP_NEG, OP_POW, OP_SUB, ST_P
 use cobolt_wasm_rt::cmp::{CLASS_ALPHABETIC, CLASS_LOWER, CLASS_NUMERIC, CLASS_UPPER, OP_EQ, OP_GE, OP_GT, OP_LE, OP_LT, OP_NE};
 use cobolt_wasm_rt::cmp::{SIGN_NEGATIVE, SIGN_POSITIVE, SIGN_ZERO};
 use cobolt_wasm_rt::opd::{FIG_HIGH, FIG_LOW, FIG_NULL, FIG_QUOTE, FIG_SPACE, FIG_ZERO};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use wasm_encoder::Instruction as I;
 
 /// Where the `PERFORM` stack lies inside the region: each instance of a form
@@ -206,7 +206,7 @@ pub(crate) struct UnitState<'a> {
     ends: Vec<BlockId>,
     program_end: BlockId,
     files: HashMap<String, FileInfo>,
-    alter_slots: HashMap<usize, u32>,
+    alter_slots: BTreeMap<usize, u32>,
     prologue: BlockId,
     /// Paragraphs before the declaratives' (which are entered only by a USE).
     body_len: usize,
@@ -256,7 +256,9 @@ pub struct Lower<'a, 'b> {
     /// The `WHEN-COMPILED` text of this build (21 characters).
     pub(crate) when_compiled: String,
     /// Paragraphs that are `ALTER` targets -> the region offset of their slot.
-    pub(crate) alter_slots: HashMap<usize, u32>,
+    /// Ordered: `init_alter_slots` emits one store per entry while walking it,
+    /// so the module's bytes follow this order (DESKTOP-WASM-001 R2).
+    pub(crate) alter_slots: BTreeMap<usize, u32>,
     /// Every program unit of the module, indexed by unit number (0 = main).
     pub(crate) units: Vec<UnitInfo>,
     /// Unit names (upper case) -> unit number.
@@ -441,7 +443,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             ctemp_next: 0,
             super_reads: HashMap::new(),
             when_compiled,
-            alter_slots: HashMap::new(),
+            alter_slots: BTreeMap::new(),
             unit_by_name: units.iter().enumerate().map(|(i, u)| (u.name.clone(), i)).collect(),
             units,
             cur_unit: 0,

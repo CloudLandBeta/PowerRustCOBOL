@@ -90,7 +90,13 @@ The code says five things the plan did not settle. Each is applied in the tasks 
   3. Once the fixes are on `main`, this branch follows with `git merge --ff-only main`.
 - **Otherwise:** the fixes wait on their branch. Only T22 (determinism across Rust releases) needs them; every other task can go ahead.
 
-- [ ] **F1 — The generator emits in a fixed order** (R2; plan §4.9)
+- [x] **F1 — The generator emits in a fixed order** (R2; plan §4.9)
+  - *Done 2026-11-14 (2.0.483):*
+    - **Fixed:** `alter_slots` is a `BTreeMap`.
+    - **The audit:** about 50 maps and sets, of which 13 iteration sites were read. One other order-dependent walk was found: `sort_file_names`' `records.iter().find` (lower_idx.rs:101). It is unreachable, because a record name shared by two files is refused at `build_files` ("has no record description"), and the second fixture pins that.
+    - **The test:** `compile_determinism` failed on the unfixed tree (the ALTER fixture differed at compile 2 of 20, in both variants). After the fix, 126 of 126 variants give the same outcome every time (38 identical modules, 88 identical refusals; 2 520 compiles in 24.9 s).
+    - **Unchanged:** the 18 corpus modules are byte-identical to before. The census gives NC 95/95, IF 45/45, IC 47/47 members.
+    - **Reds outside the fix:** the crate's other tests are green except two. `corpus` fails on a timing line its clock filter misses (`conditionals/test-arith-relation-after-and.cbl`). `dependency_guard` expects Rust 1.92 at most, while the workspace has declared 1.95 since 2.0.469.
   - Files:
     - `crates/cobolt-wasm/src/lower.rs`: `alter_slots` becomes a `BTreeMap` (:259), walked by `init_alter_slots` (:1084);
     - every other `HashMap` or `HashSet` walked while emitting, in `crates/cobolt-wasm/src/*.rs`;

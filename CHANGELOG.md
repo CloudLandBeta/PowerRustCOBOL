@@ -2,6 +2,16 @@
 
 
 
+## 2.0.483 — 2026-11-14
+
+**Fix: a program that uses ALTER now compiles to the same WebAssembly module every time.** The generator stored each altered paragraph's starting target in an order that changed from one compile to the next. The module ran the same, but its bytes differed, so two Builds of one project could not be compared (DESKTOP-WASM-001 R2, fix F1).
+- **The cause:** the generator walked an unordered map of the altered paragraphs while it wrote their set-up code. That map is now ordered by paragraph.
+- **The audit:** every unordered map and set in the generator was checked for a walk that reaches the emitted bytes. Only one other walk depends on its map's order: finding which file a RELEASEd record belongs to. It matters only when two files declare the same record name, and the generator refuses such a program before using the answer, the same way every time.
+- **The new test, `compile_determinism`:** it compiles each program 20 times in both memory variants: an ALTER fixture with eight altered paragraphs, a fixture with one record name in two sort files, and the 61 programs of `tests/cobol` that parse. Before the fix the ALTER fixture differed from the second compile on. After it, all 126 variants give the same outcome every time: 38 identical modules, and 88 refusals with the same text. That is 2 520 compiles in 24.9 s.
+- **Nothing else moved:** the 18 `tests/cobol` modules the generator accepts are byte-identical to before. The NIST compile census is unchanged: NC 95 of 95, IF 45 of 45, IC 47 of 47 members.
+
+Found while checking, and not changed here: the `corpus` test fails on one program that prints a timing line ("evaluations in … ms"), which its clock filter does not skip. And `dependency_guard` expects Rust 1.92 at most, while the workspace has declared 1.95 since 2.0.469. Neither involves code this fix touches.
+
 ## 2.0.482 — 2026-11-14
 
 **Spec DESKTOP-WASM-001 is broken into tasks (`tasks.md`).** There are 54 ordered tasks, each naming its files, the requirements it serves and the exact test or command that checks it. Every acceptance criterion maps to at least one task.
