@@ -1,0 +1,184 @@
+{
+  "comment": "Base script (DESKTOP-WASM-001 T7), written by `cobolt-bench pixel-parity --write-scripts`: every bound event raised once, in the order of the file, with a frame after each. Raised without waiting, as they open a form modally: Btn-User.onClick. Last, as they end the form (without waiting too when a modal form is open): none. Answered with cancel, as they open a file dialog: none. Not raised, as they reach the network: none.",
+  "form": "MAIN-FORM",
+  "steps": [
+    {
+      "shot": "00-open"
+    },
+    {
+      "event": {
+        "control": "Sw-AC",
+        "name": "onCheckedChanged"
+      }
+    },
+    {
+      "shot": "01-Sw-AC-onCheckedChanged"
+    },
+    {
+      "event": {
+        "control": "Knb-AC",
+        "name": "onValueChanged"
+      }
+    },
+    {
+      "shot": "02-Knb-AC-onValueChanged"
+    },
+    {
+      "event": {
+        "control": "Btn-AC-Power",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "03-Btn-AC-Power-onClick"
+    },
+    {
+      "event": {
+        "control": "Sld-Fan",
+        "name": "onValueChanged"
+      }
+    },
+    {
+      "shot": "04-Sld-Fan-onValueChanged"
+    },
+    {
+      "event": {
+        "control": "Sld-Swing",
+        "name": "onValueChanged"
+      }
+    },
+    {
+      "shot": "05-Sld-Swing-onValueChanged"
+    },
+    {
+      "event": {
+        "control": "Btn-Bell",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "06-Btn-Bell-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Prev",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "07-Btn-Prev-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Play",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "08-Btn-Play-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Next",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "09-Btn-Next-onClick"
+    },
+    {
+      "event": {
+        "control": "Tmr-Wave",
+        "name": "onTick"
+      }
+    },
+    {
+      "shot": "10-Tmr-Wave-onTick"
+    },
+    {
+      "event": {
+        "control": "Btn-Thermostat-Cast",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "11-Btn-Thermostat-Cast-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Thermostat-Plug",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "12-Btn-Thermostat-Plug-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Lighting-Cast",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "13-Btn-Lighting-Cast-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Lighting-Plug",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "14-Btn-Lighting-Plug-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Speaker-Cast",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "15-Btn-Speaker-Cast-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Speaker-Plug",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "16-Btn-Speaker-Plug-onClick"
+    },
+    {
+      "event": {
+        "control": "Tmr-Clock",
+        "name": "onTick"
+      }
+    },
+    {
+      "shot": "17-Tmr-Clock-onTick"
+    },
+    {
+      "event": {
+        "control": "Tmr-Lang",
+        "name": "onTick"
+      }
+    },
+    {
+      "shot": "18-Tmr-Lang-onTick"
+    },
+    {
+      "event": {
+        "control": "Btn-User",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "19-Btn-User-onClick"
+    }
+  ]
+}

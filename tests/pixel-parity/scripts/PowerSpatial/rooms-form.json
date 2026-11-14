@@ -1,0 +1,63 @@
+{
+  "comment": "Base script (DESKTOP-WASM-001 T7), written by `cobolt-bench pixel-parity --write-scripts`: every bound event raised once, in the order of the file, with a frame after each. Raised without waiting, as they open a form modally: none. Last, as they end the form (without waiting too when a modal form is open): none. Answered with cancel, as they open a file dialog: none. Not raised, as they reach the network: none.",
+  "form": "ROOMS-FORM",
+  "steps": [
+    {
+      "shot": "00-open"
+    },
+    {
+      "event": {
+        "control": "Btn-Living",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "01-Btn-Living-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Bed",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "02-Btn-Bed-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Kitchen",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "03-Btn-Kitchen-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Dining",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "04-Btn-Dining-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Play",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "05-Btn-Play-onClick"
+    },
+    {
+      "event": {
+        "control": "Tmr-Lang",
+        "name": "onTick"
+      }
+    },
+    {
+      "shot": "06-Tmr-Lang-onTick"
+    }
+  ]
+}

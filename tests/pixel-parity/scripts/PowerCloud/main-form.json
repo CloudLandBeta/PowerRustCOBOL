@@ -1,0 +1,100 @@
+{
+  "comment": "Base script (DESKTOP-WASM-001 T7), written by `cobolt-bench pixel-parity --write-scripts`: every bound event raised once, in the order of the file, with a frame after each. Raised without waiting, as they open a form modally: none. Last, as they end the form (without waiting too when a modal form is open): Btn-Close.onClick. Answered with cancel, as they open a file dialog: Btn-Save.onClick, Lbl-Link.onClick. Not raised, as they reach the network: Cmb-Language.onSelectedIndexChanged, Tab-Main.onTabChanged, Tmr-Stack.onTick, Cmb-Region.onSelectedIndexChanged, Btn-Connect.onClick, Btn-Deploy.onClick, Tmr-Thumbs.onTick, Btn-CreateTable.onClick, Btn-NewPet.onClick, Btn-Reload.onClick, Dg-Pets.onCellClick, Cmb-Bucket.onSelectedIndexChanged, Btn-S3Reload.onClick, Btn-LamTry.onClick, Btn-Speak.onClick, Cmb-Ec2Region.onSelectedIndexChanged, Btn-Ec2Reload.onClick, Dg-Ec2.onCellEdited, Tmr-Ec2.onTick, Btn-Recognize.onClick.",
+  "form": "MAIN-FORM",
+  "steps": [
+    {
+      "shot": "00-open"
+    },
+    {
+      "answer": {
+        "cancel": true
+      }
+    },
+    {
+      "event": {
+        "control": "Btn-Save",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "01-Btn-Save-onClick"
+    },
+    {
+      "answer": {
+        "cancel": true
+      }
+    },
+    {
+      "event": {
+        "control": "Lbl-Link",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "02-Lbl-Link-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-ClearFilters",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "03-Btn-ClearFilters-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Play",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "04-Btn-Play-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Pause",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "05-Btn-Pause-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Stop",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "06-Btn-Stop-onClick"
+    },
+    {
+      "event": {
+        "control": "Tmr-Player",
+        "name": "onTick"
+      }
+    },
+    {
+      "shot": "07-Tmr-Player-onTick"
+    },
+    {
+      "event": {
+        "control": "Drp-Rek",
+        "name": "onFilesDropped"
+      }
+    },
+    {
+      "shot": "08-Drp-Rek-onFilesDropped"
+    },
+    {
+      "event": {
+        "control": "Btn-Close",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "09-Btn-Close-onClick"
+    }
+  ]
+}

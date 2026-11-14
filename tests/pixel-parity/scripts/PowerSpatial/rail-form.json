@@ -1,0 +1,76 @@
+{
+  "comment": "Base script (DESKTOP-WASM-001 T7), written by `cobolt-bench pixel-parity --write-scripts`: every bound event raised once, in the order of the file, with a frame after each. Raised without waiting, as they open a form modally: Btn-Settings.onClick. Last, as they end the form (without waiting too when a modal form is open): none. Answered with cancel, as they open a file dialog: none. Not raised, as they reach the network: none.",
+  "form": "RAIL-FORM",
+  "steps": [
+    {
+      "shot": "00-open"
+    },
+    {
+      "event": {
+        "control": "Btn-Home",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "01-Btn-Home-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Rooms",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "02-Btn-Rooms-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Security",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "03-Btn-Security-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Cameras",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "04-Btn-Cameras-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Energy",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "05-Btn-Energy-onClick"
+    },
+    {
+      "event": {
+        "control": "Tmr-Lang",
+        "name": "onTick"
+      }
+    },
+    {
+      "shot": "06-Tmr-Lang-onTick"
+    },
+    {
+      "event": {
+        "control": "Btn-Settings",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "07-Btn-Settings-onClick"
+    }
+  ]
+}

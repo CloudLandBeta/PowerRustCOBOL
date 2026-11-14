@@ -1,0 +1,131 @@
+{
+  "comment": "Base script (DESKTOP-WASM-001 T7), written by `cobolt-bench pixel-parity --write-scripts`: every bound event raised once, in the order of the file, with a frame after each. Raised without waiting, as they open a form modally: BTN-CHARTS.onClick, BTN-IMAGES.onClick, BTN-VIEWER.onClick, BTN-PITFALL.onClick, BTN-BRIDGE.onClick, BTN-POOL2D.onClick, BTN-POOL3D.onClick, BTN-RUNNER.onClick. Last, as they end the form (without waiting too when a modal form is open): none. Answered with cancel, as they open a file dialog: none. Not raised, as they reach the network: none.",
+  "form": "GAME-FORM",
+  "steps": [
+    {
+      "shot": "00-open"
+    },
+    {
+      "event": {
+        "control": "CNV-GAME",
+        "name": "onFrame"
+      }
+    },
+    {
+      "shot": "01-CNV-GAME-onFrame"
+    },
+    {
+      "event": {
+        "control": "BTN-RESET",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "02-BTN-RESET-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-CHARTS",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "03-BTN-CHARTS-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-IMAGES",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "04-BTN-IMAGES-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-VIEWER",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "05-BTN-VIEWER-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-PITFALL",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "06-BTN-PITFALL-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-BRIDGE",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "07-BTN-BRIDGE-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-POOL2D",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "08-BTN-POOL2D-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-POOL3D",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "09-BTN-POOL3D-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-RUNNER",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "10-BTN-RUNNER-onClick"
+    }
+  ]
+}

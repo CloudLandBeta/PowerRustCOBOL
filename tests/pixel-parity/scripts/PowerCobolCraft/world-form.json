@@ -1,0 +1,126 @@
+{
+  "comment": "Base script (DESKTOP-WASM-001 T7), written by `cobolt-bench pixel-parity --write-scripts`: every bound event raised once, in the order of the file, with a frame after each. Raised without waiting, as they open a form modally: none. Last, as they end the form (without waiting too when a modal form is open): BTN-QUIT.onClick, BTN-DEATH-QUIT.onClick, TXT-COMMAND.onEnterPressed, BTN-SEND.onClick. Answered with cancel, as they open a file dialog: none. Not raised, as they reach the network: none.",
+  "form": "WORLD-FORM",
+  "steps": [
+    {
+      "shot": "00-open"
+    },
+    {
+      "event": {
+        "control": "CNV-3D",
+        "name": "onFrame"
+      }
+    },
+    {
+      "shot": "01-CNV-3D-onFrame"
+    },
+    {
+      "event": {
+        "control": "CNV-3D",
+        "name": "onPointerDown"
+      }
+    },
+    {
+      "shot": "02-CNV-3D-onPointerDown"
+    },
+    {
+      "event": {
+        "control": "CNV-3D",
+        "name": "onPointerUp"
+      }
+    },
+    {
+      "shot": "03-CNV-3D-onPointerUp"
+    },
+    {
+      "event": {
+        "control": "CNV-3D",
+        "name": "onRightClick"
+      }
+    },
+    {
+      "shot": "04-CNV-3D-onRightClick"
+    },
+    {
+      "event": {
+        "control": "BTN-RESUME",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "05-BTN-RESUME-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-SAVE",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "06-BTN-SAVE-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-CONSOLE",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "07-BTN-CONSOLE-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-RESPAWN",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "08-BTN-RESPAWN-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-CONSOLE-CLOSE",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "09-BTN-CONSOLE-CLOSE-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-QUIT",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "10-BTN-QUIT-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-DEATH-QUIT",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "11-BTN-DEATH-QUIT-onClick"
+    },
+    {
+      "event": {
+        "control": "TXT-COMMAND",
+        "name": "onEnterPressed"
+      }
+    },
+    {
+      "shot": "12-TXT-COMMAND-onEnterPressed"
+    },
+    {
+      "event": {
+        "control": "BTN-SEND",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "13-BTN-SEND-onClick"
+    }
+  ]
+}

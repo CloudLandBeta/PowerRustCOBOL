@@ -1,0 +1,97 @@
+# DESKTOP-WASM-001 T7 (R27, R28; AC19's second guard, AC20): pixel parity on the four supported
+# platforms.
+#
+# Each job runs `cobolt-bench pixel-parity --cargo`. That builds the five reference projects as
+# committed, on the Cargo path, and runs every form's base script (`tests/pixel-parity/scripts/`)
+# at three window sizes, twice each, under the pinned clock and seed. No run can reach the network:
+# the copies' AWS connections lead nowhere, and each run gets an empty home folder and a proxy that
+# refuses connections.
+#
+# - On a tag, every frame must equal its golden in `tests/pixel-parity/golden/<platform>.toml`;
+#   one differing pixel fails the job.
+# - On a dispatch, the job records instead (`--record`) and uploads its golden file, to be
+#   committed from the artefact.
+#
+# Either way the job uploads `target/pixel-parity/`: both frames and a picture of the differing
+# pixels, for every frame that differs between two runs or from its golden.
+#
+# A dispatch needs this file on the default branch (GitHub runs workflow_dispatch from there).
+
+name: Pixel parity (DESKTOP-WASM-001)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: pixel-parity-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Rust release the packages are built with (see build-all-platforms.yml).
+  RELEASE_RUST: "1.95.0"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+
+jobs:
+  pixel-parity:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+          - name: windows-x86_64
+            os: windows-latest
+          - name: macos-aarch64
+            os: macos-latest
+          - name: macos-x86_64
+            os: macos-15-intel
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The same packages the release build installs: a Build links the program the way the IDE does.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libxkbcommon-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libasound2-dev
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: pixel-parity
+
+      - name: Compare every frame with its golden
+        if: github.event_name != 'workflow_dispatch'
+        shell: bash
+        run: cargo run -p cobolt-bench --release --locked -- pixel-parity --cargo
+
+      - name: Record the goldens
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: cargo run -p cobolt-bench --release --locked -- pixel-parity --cargo --record
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: pixel-parity-${{ matrix.name }}
+          path: |
+            tests/pixel-parity/golden/
+            target/pixel-parity/
+          if-no-files-found: ignore

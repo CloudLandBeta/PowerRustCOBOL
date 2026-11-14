@@ -44,6 +44,9 @@ cobolt-wasm     = { path = "../cobolt-wasm", default-features = false }
 cobolt-compiler = { path = "../cobolt-compiler" }
 sysinfo         = { workspace = true }
 serde_json      = { workspace = true }
+# T7: `pixel-parity` hashes each frame's RGBA bytes and pictures the pixels two runs disagree on
+# (the version `cobolt-forms` already links, PNG only).
+image           = { version = "0.25", default-features = false, features = ["png"] }
 
 [dev-dependencies]
 # T3: the ten-times project is checked by the project tools, as an agent checks a project.

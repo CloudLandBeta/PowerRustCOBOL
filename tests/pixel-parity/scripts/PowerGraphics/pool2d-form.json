@@ -1,0 +1,54 @@
+{
+  "comment": "Base script (DESKTOP-WASM-001 T7), written by `cobolt-bench pixel-parity --write-scripts`: every bound event raised once, in the order of the file, with a frame after each. Raised without waiting, as they open a form modally: none. Last, as they end the form (without waiting too when a modal form is open): BTN-BACK.onClick. Answered with cancel, as they open a file dialog: none. Not raised, as they reach the network: none.",
+  "form": "POOL2D-FORM",
+  "steps": [
+    {
+      "shot": "00-open"
+    },
+    {
+      "event": {
+        "control": "CNV-POOL",
+        "name": "onPointerMove"
+      }
+    },
+    {
+      "shot": "01-CNV-POOL-onPointerMove"
+    },
+    {
+      "event": {
+        "control": "CNV-POOL",
+        "name": "onPointerDown"
+      }
+    },
+    {
+      "shot": "02-CNV-POOL-onPointerDown"
+    },
+    {
+      "event": {
+        "control": "CNV-POOL",
+        "name": "onFrame"
+      }
+    },
+    {
+      "shot": "03-CNV-POOL-onFrame"
+    },
+    {
+      "event": {
+        "control": "BTN-NEW",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "04-BTN-NEW-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-BACK",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "05-BTN-BACK-onClick"
+    }
+  ]
+}

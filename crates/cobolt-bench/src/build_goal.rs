@@ -39,19 +39,19 @@ use crate::ten_times::{self, Dimensions};
 const GOAL: Duration = Duration::from_secs(30);
 
 /// The product version, read from the one place it is kept.
-fn product_version() -> String {
+pub(crate) fn product_version() -> String {
     let text = include_str!("../../cobolt-ide/src/version.rs");
     text.lines()
         .find_map(|l| l.trim().strip_prefix("pub const VERSION: &str = \"")?.strip_suffix("\";").map(str::to_owned))
         .unwrap_or_else(|| "unknown".into())
 }
 
-fn repo_root() -> PathBuf {
+pub(crate) fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).expect("the bench lives in crates/").to_path_buf()
 }
 
 /// The platform's name in the record: `<os>-<arch>`, as the CI matrix names it.
-fn platform() -> String {
+pub(crate) fn platform() -> String {
     format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 

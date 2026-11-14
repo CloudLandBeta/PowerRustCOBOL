@@ -41,6 +41,8 @@ mod counting_alloc;
 // builds it with the five reference examples.
 mod build_goal;
 mod ten_times;
+// T7: the `pixel-parity` mode, the harness of R27.
+mod pixel_parity;
 
 use counting_alloc::{reset_peak, Counters};
 use std::time::{Duration, Instant};
@@ -433,6 +435,13 @@ fn main() {
     // DESKTOP-WASM-001 T4: the Build-time goal, a mode of its own rather than a workload.
     if args.first().map(String::as_str) == Some("build-goal") {
         if let Err(e) = build_goal::run(&args[1..]) {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if args.first().map(String::as_str) == Some("pixel-parity") {
+        if let Err(e) = pixel_parity::run(&args[1..]) {
             eprintln!("{e}");
             std::process::exit(1);
         }

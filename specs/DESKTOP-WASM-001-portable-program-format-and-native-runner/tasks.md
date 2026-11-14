@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3 and T1–T6 are done (2.0.483–2.0.490); T4's CI dispatch is owed until its workflow is on `main`.
+- **Status:** implementing since 2026-11-14. F1–F3 and T1–T7 are done (2.0.483–2.0.491); the CI dispatches of T4 and T7 are owed until their workflows are on `main`.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -317,7 +317,31 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - a file dialog takes its scripted path.
     - With the variables unset, `headless_dump` and `headless_pointer_click` are green and unchanged.
 
-- [ ] **T7 — The pixel-parity harness, Cargo only; the base scripts; the first golden hashes** (R27 harness; AC19 second guard, AC20 per form; AC1 check scripts)
+- [x] **T7 — The pixel-parity harness, Cargo only; the base scripts; the first golden hashes** (R27 harness; AC19 second guard, AC20 per form; AC1 check scripts)
+  - *Done 2026-11-14 (2.0.491):*
+    - **`crates/cobolt-bench/src/pixel_parity.rs`**, the `pixel-parity` mode, with `--write-scripts`, `--cargo`, `--record` and `--project <name>`.
+    - **Refinements and decisions:**
+      - **The projects are taken as committed** (`git ls-tree` and `git show` of `HEAD`), never from the working tree, so a golden recorded on one machine is the one a clean checkout compares with. The operator's working tree differs from `HEAD` in some of them (for example `war-form.cfrm` binds 40 events there, 2 at `HEAD`).
+      - **No product change.** A built program already opens at any of its embedded forms with `COBOLT_DESIGNER_FORM`, and the headless variables still apply, so each form's script runs against the project's own binary.
+      - **The network is cut off rather than stubbed.** The copy's AWS connections are routed to a server that does not exist. Each run gets an empty home folder, no AWS variables, and `HTTP(S)_PROXY`/`ALL_PROXY` set to a port that refuses connections. Handlers that would reach a model, a web service, a database or AWS are not raised, and the script's comment names them.
+      - **The script format:** `{"comment", "form", "steps"}`. A `shot` once the form is open and after every step. A dialog handler gets `{"answer": {"cancel": true}}` before it.
+      - **A handler that opens a form modally** (`OpenFormSync`) is checked before one that ends the form, because a handler can do both (PowerCobolCraft's BTN-PLAY opens the world and then closes the title). It is raised without waiting (`"wait": false`), then given 500 ms. Once one has run, the ending handlers are raised without waiting too; otherwise the run waits on a program the modal form holds up, until the time limit.
+      - **Each size is its own run of the program**, with `{"size": [w, h]}` first for 800 and 480 wide, so a run at one size cannot leave state for the next. `data/` is restored from a pristine copy before every run.
+      - **Three runs to record, two to check.** In the first full recording two runs of PowerGraphics' bridge form matched by chance, and the check then found 6 of its frames different. With three runs, a form that fails to repeat is far less likely to be recorded.
+      - **Audio plays during a run** (the reference projects play sounds); nothing in a frame depends on it.
+    - **Measured** (macOS arm64, release build):
+      - **`--cargo --record`:** 5 projects, 22 forms, 22 scripts, 263 steps, 369 frames, three runs each, in 18.5 min.
+        - Per project, forms / steps / frames / identical in all three runs / build s / runs s:
+          - PowerCallOfDuty 1 / 5 / 9 / 0 / 273.2 / 15.4;
+          - PowerCloud 5 / 39 / 57 / 25 / 104.6 / 74.7;
+          - PowerCobolCraft 2 / 41 / 60 / 4 / 7.2 / 78.6;
+          - PowerGraphics 9 / 95 / 120 / 108 / 137.8 / 174.7;
+          - PowerSpatial 5 / 83 / 123 / 56 / 69.7 / 170.0.
+        - 193 of 369 frames identical; **6 of 22 forms repeatable** (PowerGraphics: charts, imagelab, pitfall, pool2d, pool3d, viewer3d), **75 golden frames** written.
+      - **The second run without `--record`** (PowerGraphics, twice, two runs each): **75 of 75 golden frames matched both times**, 0 differing (6.1 and 5.6 min, exit 0). The golden frames are all PowerGraphics', so the other projects had nothing to match.
+      - **The unit test** `cargo test -p cobolt-bench pixel_parity` (`base_script_orders_and_names_the_handlers`): 9 of 9 checks. A fixture of 7 controls and 8 handlers gives the 14 expected steps, and the comment names its modal, ending, dialog and network handlers. It also checks a form's file stem, the CALLs a handler makes, and a frame's hash. (Found while writing it: an AgentObject written as a self-closed `<Control …/>` was not among the loaded form's controls, and no error said so. The reference forms never write one. Noted for the operator, not changed here.)
+    - **Not repeatable before `HostClock`, 16 forms** (frames that differ between runs): PowerCallOfDuty war-form 9 of 9; PowerCloud main-form 2 of 27, pet-form 12 of 12, view-form 3 of 3, confirm-form 9 of 9, working-form 6 of 6; PowerCobolCraft world-form 38 of 42, title-form 18 of 18; PowerGraphics game-form 9 of 33, bridge-form 2 of 6, runner-form 1 of 6; PowerSpatial main-form 7 of 60, toolbar-form 9 of 9, rail-form 22 of 24, rooms-form 21 of 21, settings-form 8 of 9. The causes, read from the code: the entrance and exit effects (MatrixRain is seeded from the form's name and size, but its progress reads the real clock), snackbars, timers, the 450 ms opening hold, and canvas `onFrame` events handled while the next frame is drawn. T8 removes them.
+    - **Owed:** the CI dispatch on four platforms, and the three other platforms' golden files from its artefacts. GitHub runs `workflow_dispatch` only from the default branch, and `main` is not touched while the feature is on its branch.
   - Files:
     - new `crates/cobolt-bench/src/pixel_parity.rs` (a `pixel-parity` mode);
     - new `tests/pixel-parity/scripts/<project>/<form>.json` for the five reference projects;

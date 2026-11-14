@@ -2083,6 +2083,7 @@ dependencies = [
  "cobolt-runtime",
  "cobolt-semantic",
  "cobolt-wasm",
+ "image 0.25.10",
  "redb 4.3.0",
  "serde",
  "serde_json",

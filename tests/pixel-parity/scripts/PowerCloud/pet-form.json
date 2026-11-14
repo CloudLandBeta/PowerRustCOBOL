@@ -1,0 +1,36 @@
+{
+  "comment": "Base script (DESKTOP-WASM-001 T7), written by `cobolt-bench pixel-parity --write-scripts`: every bound event raised once, in the order of the file, with a frame after each. Raised without waiting, as they open a form modally: none. Last, as they end the form (without waiting too when a modal form is open): Btn-Save.onClick, Btn-Cancel.onClick. Answered with cancel, as they open a file dialog: none. Not raised, as they reach the network: none.",
+  "form": "PET-FORM",
+  "steps": [
+    {
+      "shot": "00-open"
+    },
+    {
+      "event": {
+        "control": "Drp-Photo",
+        "name": "onFilesDropped"
+      }
+    },
+    {
+      "shot": "01-Drp-Photo-onFilesDropped"
+    },
+    {
+      "event": {
+        "control": "Btn-Save",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "02-Btn-Save-onClick"
+    },
+    {
+      "event": {
+        "control": "Btn-Cancel",
+        "name": "onClick"
+      }
+    },
+    {
+      "shot": "03-Btn-Cancel-onClick"
+    }
+  ]
+}

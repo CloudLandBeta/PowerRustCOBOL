@@ -1,0 +1,66 @@
+{
+  "comment": "Base script (DESKTOP-WASM-001 T7), written by `cobolt-bench pixel-parity --write-scripts`: every bound event raised once, in the order of the file, with a frame after each. Raised without waiting, as they open a form modally: BTN-PLAY.onClick, BTN-CONTINUE.onClick. Last, as they end the form (without waiting too when a modal form is open): BTN-QUIT.onClick. Answered with cancel, as they open a file dialog: none. Not raised, as they reach the network: none.",
+  "form": "TITLE-FORM",
+  "steps": [
+    {
+      "shot": "00-open"
+    },
+    {
+      "event": {
+        "control": "CNV-DIORAMA",
+        "name": "onFrame"
+      }
+    },
+    {
+      "shot": "01-CNV-DIORAMA-onFrame"
+    },
+    {
+      "event": {
+        "control": "CMB-LANGUAGE",
+        "name": "onSelectedIndexChanged"
+      }
+    },
+    {
+      "shot": "02-CMB-LANGUAGE-onSelectedIndexChanged"
+    },
+    {
+      "event": {
+        "control": "BTN-PLAY",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "03-BTN-PLAY-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-CONTINUE",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "04-BTN-CONTINUE-onClick"
+    },
+    {
+      "event": {
+        "control": "BTN-QUIT",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "05-BTN-QUIT-onClick"
+    }
+  ]
+}

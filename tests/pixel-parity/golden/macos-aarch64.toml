@@ -1,0 +1,141 @@
+# DESKTOP-WASM-001 T7 (R27, AC19's second guard): the hash of every frame the Cargo-built reference
+# projects draw under their base scripts, on this platform, with the pinned clock and seed below.
+# A hash is the sha256 of the frame's width and height (little-endian u32) and its RGBA bytes.
+# Written by `cobolt-bench pixel-parity --cargo --record`. Re-recorded only by a change that moves
+# a pixel on purpose, named in the CHANGELOG. A form is recorded only when three runs of the same
+# binary draw every frame the same; `not_repeatable` lists the others, whose hashes cannot be
+# recorded yet.
+
+version = "2.0.491"
+commit = "6694dce1"
+clock = "2026-01-02T03:04:05-03:00"
+seed = 20261114
+
+[not_repeatable]
+"PowerCallOfDuty/war-form" = "9 of 9 frames differ between runs"
+"PowerCloud/confirm-form" = "9 of 9 frames differ between runs"
+"PowerCloud/main-form" = "2 of 27 frames differ between runs"
+"PowerCloud/pet-form" = "12 of 12 frames differ between runs"
+"PowerCloud/view-form" = "3 of 3 frames differ between runs"
+"PowerCloud/working-form" = "6 of 6 frames differ between runs"
+"PowerCobolCraft/title-form" = "18 of 18 frames differ between runs"
+"PowerCobolCraft/world-form" = "38 of 42 frames differ between runs"
+"PowerGraphics/bridge-form" = "2 of 6 frames differ between runs"
+"PowerGraphics/game-form" = "9 of 33 frames differ between runs"
+"PowerGraphics/runner-form" = "1 of 6 frames differ between runs"
+"PowerSpatial/main-form" = "7 of 60 frames differ between runs"
+"PowerSpatial/rail-form" = "22 of 24 frames differ between runs"
+"PowerSpatial/rooms-form" = "21 of 21 frames differ between runs"
+"PowerSpatial/settings-form" = "8 of 9 frames differ between runs"
+"PowerSpatial/toolbar-form" = "9 of 9 frames differ between runs"
+
+[frames.PowerGraphics.charts-form.compact]
+00-open = "ba52b476a6d3017fdffbaba1c02d07445bbcf4c784f5ef9cee86472c3d94c3af"
+01-BTN-NEXT-onClick = "cf289f812480c30731dd669e03423941fefce5f2ab3d328a31e79299cffe98d1"
+02-BTN-BIG-onClick = "a6b296e7de0d18010a7ca3f12bb1aaffe575969938dcf2bbdf66d11cb689d0b8"
+
+[frames.PowerGraphics.charts-form.designed]
+00-open = "9ad76d10941084a572c5fddffc9616b8fbb54f55ebd1b4e35f242bd4343ca96f"
+01-BTN-NEXT-onClick = "1965ecde5b1d0e58403296944613dcb162f855fac21544c5b9d98bf0205afc5d"
+02-BTN-BIG-onClick = "b321609e3375204fb1e8858629b3e4426a04c55b9f88843a5feab95d6368b774"
+
+[frames.PowerGraphics.charts-form.medium]
+00-open = "a42b94ec98734d2cdf4d36c0156985ecc8a2fb0911d666d2b1a6d047b91b8c10"
+01-BTN-NEXT-onClick = "598fcdd60b5e7b4706f7393d4b4ea4cf8290804427c24b7bdc7a37984758a17f"
+02-BTN-BIG-onClick = "1dd60a07fa7cce20df85861435c37b8eaf0ce54716e68f635ac5fa128cfb566a"
+
+[frames.PowerGraphics.imagelab-form.compact]
+00-open = "874eb33a8306f538168cf837ef9e49bfbe812ebbdd4d97b8dd2d3e9da87f4ae3"
+01-BTN-GRAY-onClick = "9559594dc654595dccdd852bd458435cfac7ce25be5024951c5b04ecbf8518e3"
+02-BTN-INV-onClick = "48d7a87df11de78962e18d10e85c3c36baf60be0edd9b26de3ff47337b131cc2"
+03-BTN-BLUR-onClick = "062fca202b963a39378148195ff5705fe98c73f6b50a70b93cfcb5079e6cf1c8"
+04-BTN-SHARP-onClick = "b853992ea2a8408a512e24f70d3420b0b88c2be8bec9a6e2ea848c7b6476eea2"
+05-BTN-EDGE-onClick = "0be17d97fbd42c3553626af2853ed37883f3a6642ad72559af55cea2f6500da8"
+
+[frames.PowerGraphics.imagelab-form.designed]
+00-open = "e2e3a9921cb4d2c0c035566ccdc2904dfea1d22b7f7d5c7d5795df5ffafd6c97"
+01-BTN-GRAY-onClick = "cde3a904252056e194f96157d868b3a8ff9902d9061728b85a2e305386c962fe"
+02-BTN-INV-onClick = "3f59a285ab644631d95c061fd0dd917c7d3f2d052c4dbf885260a398f527b9c5"
+03-BTN-BLUR-onClick = "f29ffe12655ec617feca24dea3734d83a4f1647cfde35aea29c2272e04b2a252"
+04-BTN-SHARP-onClick = "1c9b9733c1e385ef2bd45edfb663b6398391a829739f72a723ae2dbaa6fafb2f"
+05-BTN-EDGE-onClick = "7461e0a8ef48fc883830a8975d0b5df3d5dc94329b61e6b4447fb614d835e2b8"
+
+[frames.PowerGraphics.imagelab-form.medium]
+00-open = "c266bb96857629cab016b2793da2217799d5a5994271bb358910bf4b1e00e1e0"
+01-BTN-GRAY-onClick = "bb0127aba29982dacd3a3ef62fd09396384720815060c39be4160357eb45f524"
+02-BTN-INV-onClick = "bce8585e8f55f131856aab088b92e3b1ec00701575492c5caa5dee72484c7b2a"
+03-BTN-BLUR-onClick = "dc82e41e5547c5eef6147ce0541f289cfe95c62342b444322a14c02c3cd597f1"
+04-BTN-SHARP-onClick = "8f2b91dd893384d43de105deaf36aff9fc3c995437bd914b442a6f34db7e8d0e"
+05-BTN-EDGE-onClick = "d428300a9fcd4e256d39f049eebc4aba6e70542ba957027f87340ef65fe4b0c1"
+
+[frames.PowerGraphics.pitfall-form.compact]
+00-open = "9ad9a1fc4e40835866c824029d980ad2249a3873651f954e3139c322fb78309b"
+01-CNV-PIT-onFrame = "9ad9a1fc4e40835866c824029d980ad2249a3873651f954e3139c322fb78309b"
+
+[frames.PowerGraphics.pitfall-form.designed]
+00-open = "868e7d0b93b03fc20a863cbdb3bd02e8ea9419eaee6598a5a1aab49f062e531b"
+01-CNV-PIT-onFrame = "868e7d0b93b03fc20a863cbdb3bd02e8ea9419eaee6598a5a1aab49f062e531b"
+
+[frames.PowerGraphics.pitfall-form.medium]
+00-open = "9ed6b028eaee9df1845d81f19c62ecd7f7808d01b32639dbe94fda3e32aec160"
+01-CNV-PIT-onFrame = "9ed6b028eaee9df1845d81f19c62ecd7f7808d01b32639dbe94fda3e32aec160"
+
+[frames.PowerGraphics.pool2d-form.compact]
+00-open = "abcb00dfddcf38811fc1acd2c2f76ecd960f5a4d9452664dd8fb647e912dca7f"
+01-CNV-POOL-onPointerMove = "abcb00dfddcf38811fc1acd2c2f76ecd960f5a4d9452664dd8fb647e912dca7f"
+02-CNV-POOL-onPointerDown = "abcb00dfddcf38811fc1acd2c2f76ecd960f5a4d9452664dd8fb647e912dca7f"
+03-CNV-POOL-onFrame = "17346aa89200bd804d7f40f43c10ddb523449581fc05797edb4fda08472b872d"
+04-BTN-NEW-onClick = "17346aa89200bd804d7f40f43c10ddb523449581fc05797edb4fda08472b872d"
+
+[frames.PowerGraphics.pool2d-form.designed]
+00-open = "a0f1ce2963f571f6b47bab5a43fbb383b7855c56831feda76f2079d60c945fc2"
+01-CNV-POOL-onPointerMove = "a0f1ce2963f571f6b47bab5a43fbb383b7855c56831feda76f2079d60c945fc2"
+02-CNV-POOL-onPointerDown = "a0f1ce2963f571f6b47bab5a43fbb383b7855c56831feda76f2079d60c945fc2"
+03-CNV-POOL-onFrame = "bbbe630701d8f15400c6b34b7cf92a1087e9d242de680f21c233ecf4de36a276"
+04-BTN-NEW-onClick = "bbbe630701d8f15400c6b34b7cf92a1087e9d242de680f21c233ecf4de36a276"
+
+[frames.PowerGraphics.pool2d-form.medium]
+00-open = "14fbf37ba9345008210819dbd97ee34dcb454c6c728b38b18ebc37ed2108a7cb"
+01-CNV-POOL-onPointerMove = "14fbf37ba9345008210819dbd97ee34dcb454c6c728b38b18ebc37ed2108a7cb"
+02-CNV-POOL-onPointerDown = "14fbf37ba9345008210819dbd97ee34dcb454c6c728b38b18ebc37ed2108a7cb"
+03-CNV-POOL-onFrame = "722fa4cc2bcadcfecd41c602faa8d5a5a78a69858fc7d73431858ce0943cc7aa"
+04-BTN-NEW-onClick = "722fa4cc2bcadcfecd41c602faa8d5a5a78a69858fc7d73431858ce0943cc7aa"
+
+[frames.PowerGraphics.pool3d-form.compact]
+00-open = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
+01-CNV-3D-onPointerDown = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
+02-CNV-3D-onPointerUp = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
+03-CNV-3D-onPointerMove = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
+04-CNV-3D-onFrame = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
+05-BTN-MODE-onClick = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
+06-BTN-NEW-onClick = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
+
+[frames.PowerGraphics.pool3d-form.designed]
+00-open = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
+01-CNV-3D-onPointerDown = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
+02-CNV-3D-onPointerUp = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
+03-CNV-3D-onPointerMove = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
+04-CNV-3D-onFrame = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
+05-BTN-MODE-onClick = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
+06-BTN-NEW-onClick = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
+
+[frames.PowerGraphics.pool3d-form.medium]
+00-open = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
+01-CNV-3D-onPointerDown = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
+02-CNV-3D-onPointerUp = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
+03-CNV-3D-onPointerMove = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
+04-CNV-3D-onFrame = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
+05-BTN-MODE-onClick = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
+06-BTN-NEW-onClick = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
+
+[frames.PowerGraphics.viewer3d-form.compact]
+00-open = "9be44c7b561840fda6973cf830abcc30934147fc5bac86c62df4bc1216151456"
+01-CNV-3D-onFrame = "9be44c7b561840fda6973cf830abcc30934147fc5bac86c62df4bc1216151456"
+
+[frames.PowerGraphics.viewer3d-form.designed]
+00-open = "66cc4d240e8c34a2ff6a371be8762711c378b5f8af0f71676f30419aa01c4561"
+01-CNV-3D-onFrame = "66cc4d240e8c34a2ff6a371be8762711c378b5f8af0f71676f30419aa01c4561"
+
+[frames.PowerGraphics.viewer3d-form.medium]
+00-open = "d5216c4b5eff5a216937b380476aec265fc7966d2c927c1746babe63cf0aa94b"
+01-CNV-3D-onFrame = "d5216c4b5eff5a216937b380476aec265fc7966d2c927c1746babe63cf0aa94b"

@@ -1,0 +1,44 @@
+{
+  "comment": "Base script (DESKTOP-WASM-001 T7), written by `cobolt-bench pixel-parity --write-scripts`: every bound event raised once, in the order of the file, with a frame after each. Raised without waiting, as they open a form modally: Cmb-Language.onSelectedIndexChanged. Last, as they end the form (without waiting too when a modal form is open): Btn-Close.onClick. Answered with cancel, as they open a file dialog: none. Not raised, as they reach the network: none.",
+  "form": "SETTINGS-FORM",
+  "steps": [
+    {
+      "shot": "00-open"
+    },
+    {
+      "event": {
+        "control": "Tmr-Lang",
+        "name": "onTick"
+      }
+    },
+    {
+      "shot": "01-Tmr-Lang-onTick"
+    },
+    {
+      "event": {
+        "control": "Cmb-Language",
+        "name": "onSelectedIndexChanged"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "02-Cmb-Language-onSelectedIndexChanged"
+    },
+    {
+      "event": {
+        "control": "Btn-Close",
+        "name": "onClick"
+      },
+      "wait": false
+    },
+    {
+      "wait_ms": 500
+    },
+    {
+      "shot": "03-Btn-Close-onClick"
+    }
+  ]
+}

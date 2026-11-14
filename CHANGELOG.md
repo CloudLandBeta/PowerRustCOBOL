@@ -2,6 +2,33 @@
 
 
 
+## 2.0.491 — 2026-11-14
+
+**DESKTOP-WASM-001 T7: `cobolt-bench pixel-parity`, the base scripts of the five reference projects, and the first golden hashes** (the harness of R27; AC19's second guard; AC20 for each form). Pixel parity will be judged by running the same scripts under the Cargo-built and the WebAssembly-built program and comparing every frame. This task builds the harness on the Cargo path alone, writes the scripts, and records the hashes of today's frames, before T8 changes the form host's clocks.
+- **What `pixel-parity` does:**
+  - copies the five reference projects **as committed** (from `HEAD`, never the working tree), regenerates them and builds each on the Cargo path, in a scratch folder;
+  - runs every form's base script under the pinned clock and seed, at three window sizes: the designed size, 800 wide and 480 wide (AC19's Medium and Compact widths), the height kept. Each size is a separate run of the built program, opened at that form with `COBOLT_DESIGNER_FORM`, from a fresh copy of the project's `data/`;
+  - hashes every frame: the sha256 of its width and height (each a little-endian u32) and its RGBA bytes;
+  - counts a frame as repeatable only when every run draws it the same. For a frame that differs, between runs or from its golden, both pictures and a picture of the differing pixels go under `target/pixel-parity/`.
+- **No run reaches the network.** In the copy, every AWS connection is routed to a server that does not exist. Each run gets an empty home folder, no AWS variables, and a proxy that refuses connections.
+- **The base script** (`--write-scripts`, into `tests/pixel-parity/scripts/<project>/<form>.json`, 22 scripts):
+  - a picture once the form is open and after every step;
+  - every bound event raised once, in document order. A handler's text is read together with the procedures it CALLs;
+  - a handler that opens a file dialog gets a cancel answer first;
+  - a handler that opens a form modally is raised without waiting, then given 500 ms;
+  - a handler that closes the form or ends the program goes last. Once a modal one has run, these are raised without waiting too, because the modal form holds their program up;
+  - a handler that would reach a model, a web service, a database or AWS is not raised;
+  - the script's comment names the handlers in each of these groups.
+- **The golden hashes** (`--record`, into `tests/pixel-parity/golden/macos-aarch64.toml`): a form is recorded only when three runs draw every frame the same; the others are listed as not repeatable yet. A check runs each form twice and compares every recorded frame with its golden. One differing pixel fails it.
+- **Flags:** `--write-scripts`, `--cargo`, `--record` (needs `--cargo`), and `--project <name>` for one project.
+- **CI:** `.github/workflows/pixel-parity.yml` runs it on the four supported platforms. A tag compares; a dispatch records and uploads the golden file. GitHub runs a dispatch only from the default branch, so the other three platforms' goldens are owed until the workflow is on `main`.
+- **No product code changed:** a built program already opens at any of its forms with `COBOLT_DESIGNER_FORM`.
+- **Measured** (macOS arm64, Apple M3 Pro, release build):
+  - **The recording:** 5 projects, 22 forms, 22 scripts, 263 steps, 369 frames at three sizes, three runs each, in 18.5 min. 193 frames were the same in all three runs. **6 of 22 forms repeat**, all in PowerGraphics: charts, imagelab, pitfall, pool2d, pool3d and viewer3d, **75 golden frames**. Builds took 7.2–273.2 s per project; the runs, 15.4–174.7 s.
+  - **The check:** PowerGraphics run twice more, two runs each: **75 of 75 golden frames matched both times**, 0 differing, in 6.1 and 5.6 min.
+  - **The unit test** `pixel_parity::base_script_orders_and_names_the_handlers` passed 9 of 9 checks: the order of the steps, the four groups the comment names, a form's file stem, the CALLs a handler makes, and a frame's hash.
+- **Not repeatable yet, 16 forms** (frames that differ between runs): PowerCallOfDuty war-form 9 of 9; PowerCloud main-form 2 of 27, pet-form 12 of 12, view-form 3 of 3, confirm-form 9 of 9, working-form 6 of 6; PowerCobolCraft world-form 38 of 42, title-form 18 of 18; PowerGraphics game-form 9 of 33, bridge-form 2 of 6, runner-form 1 of 6; PowerSpatial main-form 7 of 60, toolbar-form 9 of 9, rail-form 22 of 24, rooms-form 21 of 21, settings-form 8 of 9. The host still times its entrance and exit effects, snackbars, timers and opening hold on the real clock, and handles canvas frames while the next frame is drawn. T8 puts the host on the run's virtual clock and records the forms that then repeat.
+
 ## 2.0.490 — 2026-11-14
 
 **DESKTOP-WASM-001 T6: the headless run takes pictures, resizes the window and answers file dialogs, and keeps virtual time when the clock is pinned** (R28, the headless half). This is the second half of the deterministic test mode pixel parity is judged under. A scripted run of a form, under `rcrun run-form --headless` or a built application with `PRC_HEADLESS_SCRIPT`, can now:
