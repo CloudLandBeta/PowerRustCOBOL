@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3 and T1–T9 are done (2.0.483–2.0.494, with the fix 2.0.492 found by T8): every task of M0, and the first of M1. The CI dispatches of T4 and T7 are owed until their workflows are on `main`.
+- **Status:** implementing since 2026-11-14. F1–F3 and T1–T10 are done (2.0.483–2.0.495, with the fix 2.0.492 found by T8): every task of M0, and the first two of M1. The CI dispatches of T4 and T7 are owed until their workflows are on `main`.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -474,7 +474,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
         - plain 4 129 791 → 4 130 450 bytes, threaded 3 944 236 → 3 944 904, the graphics3d part 8 471 405 → 8 471 516; the other parts unchanged.
         - `freshness` 6 of 6; `cobolt-web-bundle` 146 of 146 again with the new player.
 
-- [ ] **T10 — The native column of the subset table** (R12; AC10)
+- [x] **T10 — The native column of the subset table** (R12; AC10)
   - Files:
     - `crates/cobolt-wasm/src/support.rs`: every entry of `STATEMENT_TABLE` and `BUILTIN_TABLE` gains `native: Native { Module, Host(Cap), Cargo(&'static str) }`;
     - `crates/cobolt-wasm/tests/subset_table.rs`;
@@ -484,6 +484,28 @@ The code says five things the plan did not settle. Each is applied in the tasks 
   - Verify:
     - `every_statement_and_builtin_has_a_native_class` and a planted-unknown twin green.
     - The KB is regenerated, and `prebuilt_chunked_kb_matches_the_published_documentation` is green.
+  - *Done 2026-11-14 (2.0.495):*
+    - **`support.rs`:**
+      - `Native { Module, Host(&'static str), Cargo(&'static str) }`; `Host` carries a name of `cap` (A27, T9);
+      - `STATEMENT_TABLE` is now `(name, Support, Native)`, and `BuiltinClass` gains `native`; `statement_native(name)` reads a statement's class, as `builtin_entry(name).native` reads a built-in's;
+      - one reason per group, each naming the milestone that moves it: forms, controls and the application object (M2); dialogs (M2); files on disk, the file and image built-ins, SORT with USING or GIVING, MERGE, COMMIT, ROLLBACK and UNLOCK (M3); SQL and HTTP (M4); pointers (M5); the non-visual controls, keys, model lists, audio, animation sequences, layouts, the phone's secure storage, remote calls and identity (M6); EXEC RUST never moves.
+    - **The classes at M1:**
+      - 53 statements: 31 in the module; 3 through the runner (`ACCEPT` → `console`, `STOP` and `GOBACK` → `env`); 19 on the Cargo path.
+      - 83 built-ins, all on the Cargo path. Each one drives a form, a file, a database, a model, a key or the network, so a console program needs none.
+    - **Decisions:**
+      - **The remote calls name M6.** R11's end state leaves only EXEC RUST, crates and Debug on the Cargo path, and the plan's milestone table does not list them elsewhere.
+      - **`SECURESTORE`, `SECURELOAD` and `SECUREDELETE` have their own reason.** They are Mobile built-ins, at which a desktop program stops (`builtins.rs`). That stop is what the WebAssembly path must reproduce at M6.
+      - **For T21:** a file verb's class is `Cargo`, with a reason that says an INDEXED file declared `STORAGE IS MEMORY` is compiled into the module, and so is a SORT with an INPUT and an OUTPUT PROCEDURE (RELEASE and RETURN are `Module`). A row names a statement, not its file, so the Cargo class of `OPEN`, `READ`, `WRITE`, `REWRITE`, `DELETE`, `START`, `CLOSE` and `SORT` applies to a file on disk. Whether a file is in memory is the generator's own check, the one that writes `MemoryFiles` for a browser module. T21 should take the refusal from there, not from the row, or M1 would send a program with only in-memory files to the Cargo path.
+    - **`browser_subset_doc`:** both tables gain **On the Desktop** and **Why**, with a paragraph saying that every Desktop Build still takes the Cargo path today. The KB is regenerated: 4 389 records from 8 documents, 15 372 288 → 15 544 320 bytes.
+    - **Measured:**
+      - `cargo test -p cobolt-wasm --test subset_table`: 8 of 8. New:
+        - `every_statement_and_builtin_has_a_native_class`: 136 entries (53 + 83), 0 faults, 0 Cargo reasons without a milestone, 5 of 5 fixed points of M1 (EXEC RUST, ACCEPT, STOP, GOBACK, MOVE), 1.3 ms;
+        - `a_planted_entry_with_no_native_class_is_caught`: 4 of 4 planted faults caught (two unknown names, a capability A27 does not list, an empty reason), and the sound control passed, 1.1 ms.
+      - `prebuilt_chunked_kb_matches_the_published_documentation`: green. The compiler's `published_documentation` tests: 5 of 5, including `the_browser_subset_section_names_every_builtin_and_statement`.
+      - `cargo test -p cobolt-wasm --no-fail-fast`: 27 of 29 targets green. Two reds, both from before this task:
+        - `corpus`: the program `conditionals/test-arith-relation-after-and.cbl` prints its own timing (460 ms in the module, 970 ms in the interpreter);
+        - `dependency_guard`.
+      - No browser class moved: the 136 rows, with the Desktop column taken out, are the same as at 2.0.494.
 
 - [ ] **T11 — WHEN-COMPILED and paths as Build inputs** (R2; C3)
   - Files: `crates/cobolt-wasm/src/lib.rs` (`Options.compiled_at`), the WHEN-COMPILED lowering, and the `prlines` writer.

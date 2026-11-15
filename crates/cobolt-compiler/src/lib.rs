@@ -7283,7 +7283,7 @@ follows reports it.
 /// (`cobolt_wasm::support`) so that the System KB says exactly what the Build
 /// accepts.
 fn browser_subset_doc() -> String {
-    use cobolt_wasm::support::{Support, BUILTIN_TABLE, STATEMENT_TABLE};
+    use cobolt_wasm::support::{Native, Support, BUILTIN_TABLE, STATEMENT_TABLE};
     let class = |s: &Support| -> (String, String) {
         match s {
             Support::Module => ("yes".into(), String::new()),
@@ -7293,16 +7293,30 @@ fn browser_subset_doc() -> String {
             Support::Unsupported(why) => ("no".into(), why.to_string()),
         }
     };
+    // DESKTOP-WASM-001 R12: the Desktop column.
+    let desktop = |n: &Native| -> (String, String) {
+        match n {
+            Native::Module => ("yes".into(), String::new()),
+            Native::Host(cap) => (format!("yes, with the runner's `{cap}`"), String::new()),
+            Native::Cargo(why) => ("Cargo path".into(), why.to_string()),
+        }
+    };
     let mut d = String::from(
         "\n## What runs in a browser module (Web and Mobile projects)\n\n\
          The COBOL of a Web or Mobile project is compiled to one WebAssembly module that runs in the browser; the Backend keeps the \
          desktop runtime. A construct outside this subset is refused by the Build at its line, naming the construct and what to do \
          instead. This section is written from the generator's own tables, so it is what the Build accepts.\n\n\
-         ### Statements\n\n| Statement | In a browser module | Instead |\n|---|---|---|\n",
+         The column **On the Desktop** says how the same construct fares in a Desktop program built on the WebAssembly path, which \
+         is being built (today every Desktop Build takes the Cargo path, as before): *yes* is compiled into the module; *yes, with \
+         the runner's* `name` is compiled into the module and served by the desktop runner's capability of that name; *Cargo path* \
+         sends the Build to the Cargo path, which names the construct and the reason. `ACCEPT` from the console needs `console`, \
+         and from the environment or the command line `env`; `STOP RUN` and `GOBACK` hand the exit code to `env`.\n\n\
+         ### Statements\n\n| Statement | In a browser module | Instead | On the Desktop | Why |\n|---|---|---|---|---|\n",
     );
-    for (name, s) in STATEMENT_TABLE {
+    for (name, s, n) in STATEMENT_TABLE {
         let (yes, why) = class(s);
-        d.push_str(&format!("| {name} | {yes} | {why} |\n"));
+        let (on_desktop, because) = desktop(n);
+        d.push_str(&format!("| {name} | {yes} | {why} | {on_desktop} | {because} |\n"));
     }
     d.push_str(
         "\n### Files and SORT\n\n\
@@ -7333,12 +7347,13 @@ fn browser_subset_doc() -> String {
          - A called program keeps its `WORKING-STORAGE` from its first `CALL` until `CANCEL`, or until its form instance closes; \
          after `CANCEL` it starts again with its `VALUE`s. A program declared `IS INITIAL PROGRAM` starts fresh at every call in a \
          browser module (the desktop runtime does not apply `INITIAL`).\n\n\
-         ### Built-ins (`COBOL::\"NAME\"`)\n\n| Built-in | In a browser module | Browser feature | Instead |\n|---|---|---|---|\n",
+         ### Built-ins (`COBOL::\"NAME\"`)\n\n| Built-in | In a browser module | Browser feature | Instead | On the Desktop | Why |\n|---|---|---|---|---|---|\n",
     );
     for b in BUILTIN_TABLE {
         let (yes, why) = class(&b.support);
         let api = b.api.map(|(api, _)| api.to_string()).unwrap_or_default();
-        d.push_str(&format!("| {} | {yes} | {api} | {why} |\n", b.name));
+        let (on_desktop, because) = desktop(&b.native);
+        d.push_str(&format!("| {} | {yes} | {api} | {why} | {on_desktop} | {because} |\n", b.name));
     }
     d
 }
@@ -15780,7 +15795,7 @@ mod published_documentation_tests {
             builtins += 1;
         }
         let mut statements = 0;
-        for (name, _) in cobolt_wasm::support::STATEMENT_TABLE {
+        for (name, _, _) in cobolt_wasm::support::STATEMENT_TABLE {
             assert!(section.contains(&format!("| {name} |")), "statement {name} is not in the section");
             statements += 1;
         }

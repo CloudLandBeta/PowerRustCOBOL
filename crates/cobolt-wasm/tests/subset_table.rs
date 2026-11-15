@@ -10,7 +10,7 @@
 
 mod common;
 
-use cobolt_wasm::support::{builtin_available, builtin_entry, builtin_support, Support, BUILTIN_TABLE};
+use cobolt_wasm::support::{builtin_available, builtin_entry, builtin_support, Native, Support, BUILTIN_TABLE};
 use cobolt_wasm::{compile_program, ErrorKind, Options};
 
 /// The names that have no row in the table.
@@ -133,6 +133,127 @@ fn constructs_outside_the_subset_are_refused_at_their_line_with_the_alternative(
         refused += 1;
     }
     eprintln!("subset refusals: {refused} of {} constructs refused at their line with the alternative", cases.len());
+}
+
+/// The faults of one Desktop class (DESKTOP-WASM-001 R12): a `Host` that names no
+/// capability of ABI A27, a `Cargo` with no reason.
+fn native_fault(name: &str, n: Option<Native>) -> Option<String> {
+    match n {
+        None => Some(format!("{name} has no Desktop class")),
+        Some(Native::Host(c)) if !cobolt_wasm_abi::codes::cap::ALL.contains(&c) => {
+            Some(format!("{name} names the capability {c:?}, which ABI A27 does not list"))
+        }
+        Some(Native::Cargo(why)) if why.trim().is_empty() => Some(format!("{name} takes the Cargo path with no reason")),
+        Some(_) => None,
+    }
+}
+
+/// AC10: every statement and every built-in has a Desktop class, as the
+/// WebAssembly path stands at the end of M1 (console programs).
+#[test]
+fn every_statement_and_builtin_has_a_native_class() {
+    use cobolt_wasm::support::{statement_native, STATEMENT_TABLE};
+    let t = std::time::Instant::now();
+    let (mut module, mut host, mut cargo) = (0, 0, 0);
+    let mut caps = std::collections::BTreeSet::new();
+    let mut faults = Vec::new();
+    let mut tally = |name: &str, n: Option<Native>| {
+        if let Some(f) = native_fault(name, n) {
+            faults.push(f);
+        }
+        match n {
+            Some(Native::Module) => module += 1,
+            Some(Native::Host(c)) => {
+                host += 1;
+                caps.insert(c);
+            }
+            Some(Native::Cargo(_)) => cargo += 1,
+            None => {}
+        }
+    };
+    for (name, _, _) in STATEMENT_TABLE {
+        tally(name, statement_native(name));
+    }
+    let builtins: Vec<&str> = cobolt_runtime::builtins::BUILTINS.iter().map(|b| b.name).collect();
+    for name in &builtins {
+        tally(name, builtin_entry(name).map(|b| b.native));
+    }
+    let checked = STATEMENT_TABLE.len() + builtins.len();
+    // The fixed points of M1: EXEC RUST is Rust, so it never leaves the Cargo path (R12);
+    // the console, the environment and the exit code are the runner's.
+    let fixed = [
+        ("EXEC RUST", matches!(statement_native("EXEC RUST"), Some(Native::Cargo(_)))),
+        ("ACCEPT", statement_native("ACCEPT") == Some(Native::Host(cobolt_wasm_abi::codes::cap::CONSOLE))),
+        ("STOP", statement_native("STOP") == Some(Native::Host(cobolt_wasm_abi::codes::cap::ENV))),
+        ("GOBACK", statement_native("GOBACK") == Some(Native::Host(cobolt_wasm_abi::codes::cap::ENV))),
+        ("MOVE", statement_native("MOVE") == Some(Native::Module)),
+    ];
+    let fixed_ok = fixed.iter().filter(|(_, ok)| *ok).count();
+    // A Cargo reason names the milestone of DESKTOP-WASM-001 that moves the entry; only
+    // EXEC RUST never moves (R11's end state at M6 leaves it alone on the Cargo path).
+    let undated: Vec<&str> = STATEMENT_TABLE
+        .iter()
+        .map(|(n, _, c)| (*n, *c))
+        .chain(BUILTIN_TABLE.iter().map(|b| (b.name, b.native)))
+        .filter(|(n, c)| matches!(c, Native::Cargo(why) if *n != "EXEC RUST" && !why.contains("(DESKTOP-WASM-001 M")))
+        .map(|(n, _)| n)
+        .collect();
+    eprintln!(
+        "native column (DESKTOP-WASM-001 T10, AC10)\n  \
+         entries: {} statements + {} built-ins = {checked}\n  \
+         classes: {module} in the module, {host} through the runner ({caps:?}), {cargo} on the Cargo path\n  \
+         fixed points of M1: {fixed_ok} of {} (EXEC RUST, ACCEPT, STOP, GOBACK, MOVE)\n  \
+         faults: {}; Cargo reasons with no milestone: {}\n  \
+         time: {:.3} ms\n  \
+         result: {}",
+        STATEMENT_TABLE.len(),
+        builtins.len(),
+        fixed.len(),
+        faults.len(),
+        undated.len(),
+        t.elapsed().as_secs_f64() * 1e3,
+        if faults.is_empty() && undated.is_empty() && fixed_ok == fixed.len() { "PASS" } else { "FAIL" }
+    );
+    assert!(faults.is_empty(), "{faults:#?}");
+    assert!(undated.is_empty(), "Cargo reasons that name no milestone: {undated:?}");
+    assert_eq!(fixed_ok, fixed.len(), "{fixed:?}");
+    assert_eq!(module + host + cargo, checked, "one class per entry");
+}
+
+/// AC10's twin: a name with no row has no Desktop class, and the check names it;
+/// a planted capability outside ABI A27 and a planted empty reason are caught too.
+#[test]
+fn a_planted_entry_with_no_native_class_is_caught() {
+    use cobolt_wasm::support::statement_native;
+    let t = std::time::Instant::now();
+    let cases: [(&str, Option<Native>, &str); 5] = [
+        ("NO-SUCH-STATEMENT", statement_native("NO-SUCH-STATEMENT"), "has no Desktop class"),
+        ("NO-SUCH-BUILTIN", builtin_entry("NO-SUCH-BUILTIN").map(|b| b.native), "has no Desktop class"),
+        ("PLANTED-HOST", Some(Native::Host("teleport")), "which ABI A27 does not list"),
+        ("PLANTED-CARGO", Some(Native::Cargo("  ")), "with no reason"),
+        ("MOVE", statement_native("MOVE"), ""),
+    ];
+    let mut caught = 0;
+    for (name, n, words) in &cases {
+        match (native_fault(name, *n), words.is_empty()) {
+            (None, true) => {}
+            (Some(f), false) => {
+                assert!(f.contains(words) && f.contains(name), "{f}");
+                caught += 1;
+            }
+            (got, _) => panic!("{name}: {got:?}"),
+        }
+    }
+    eprintln!(
+        "native column, planted faults (DESKTOP-WASM-001 T10)\n  \
+         cases: {} (2 unknown names, 1 unknown capability, 1 empty reason, 1 sound control)\n  \
+         caught: {caught} of 4 faults; the sound entry passed\n  \
+         time: {:.3} ms\n  \
+         result: PASS",
+        cases.len(),
+        t.elapsed().as_secs_f64() * 1e3
+    );
+    assert_eq!(caught, 4);
 }
 
 /// Q9: `ACCEPT` from the operator is ignored in a browser module, with one

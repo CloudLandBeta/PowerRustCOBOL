@@ -2,6 +2,33 @@
 
 
 
+## 2.0.495 — 2026-11-14
+
+**DESKTOP-WASM-001 T10: every statement and built-in now has a Desktop class** (R12; AC10). The class says how the construct fares in a Desktop program built on the WebAssembly path, as that path stands at the end of M1 (console programs). Every Desktop Build still takes the Cargo path, as before.
+- **The three classes:**
+  - *in the module*: compiled into the module;
+  - *through the runner*: compiled into the module and served by one of the desktop runner's capabilities (WASM-ABI-v1 A27);
+  - *the Cargo path*: the Build takes the Cargo path, for a reason that names the milestone that moves the construct. EXEC RUST never moves: it is Rust compiled into the program.
+- **The statements (53):**
+  - 31 in the module.
+  - 3 through the runner: `ACCEPT` through `console` (from the environment or the command line, `env`); `STOP RUN` and `GOBACK` hand the exit code to `env`.
+  - 19 on the Cargo path:
+    - files on disk, SORT with USING or GIVING, MERGE, COMMIT, ROLLBACK and UNLOCK (M3). An INDEXED file declared `STORAGE IS MEMORY`, and a SORT with an INPUT and an OUTPUT PROCEDURE, are compiled into the module;
+    - EXEC SQL (M4);
+    - `SET` of a pointer (M5);
+    - INVOKE, control assignments, member calls and window operations (M2);
+    - EXEC RUST.
+- **The built-ins (83):** all on the Cargo path. Each drives a form, a dialog, a file, a database, HTTP, a model, a key, audio, the phone's secure storage or a remote call, so a console program needs none. They move with M2, M3, M4 and M6.
+- **The System KB's "What runs in a browser module"** gains the columns **On the Desktop** and **Why** in both its tables, with a paragraph explaining them. The KB is regenerated.
+- **Measured** (macOS arm64):
+  - **`cobolt-wasm` `subset_table`:** 8 of 8. Two are new:
+    - `every_statement_and_builtin_has_a_native_class`: 136 entries (53 statements and 83 built-ins). No class names a capability A27 does not list, no Cargo reason is empty or names no milestone, and the five fixed points of M1 hold (EXEC RUST, ACCEPT, STOP, GOBACK, MOVE);
+    - `a_planted_entry_with_no_native_class_is_caught`: 4 of 4 planted faults caught (two unknown names, an unknown capability, an empty reason), and the sound control passed.
+  - **The KB:** `prebuilt_chunked_kb_matches_the_published_documentation` green; 4 389 records, 15 544 320 bytes. The compiler's published-documentation tests: 5 of 5.
+  - **The whole of `cobolt-wasm`:** 27 of 29 targets green. The browser classes are unchanged (136 of 136 rows). The two reds were already red before this change:
+    - `corpus`: a program prints its own timing (460 ms in the module, 970 ms in the interpreter);
+    - `dependency_guard`.
+
 ## 2.0.494 — 2026-11-14
 
 **DESKTOP-WASM-001 T9: a program module says which capabilities it needs, every ABI from 1 on still loads, and the Web bundler refuses a module made for the desktop runner** (R3, R4's Web half, R5; AC5's Web half, AC16). The first task of M1 (console programs on the WebAssembly path).

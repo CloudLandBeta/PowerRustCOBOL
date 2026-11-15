@@ -10,6 +10,37 @@
 //! variant has no entry" rule held by the compiler itself.
 
 use cobolt_ast::stmt::Stmt;
+use cobolt_wasm_abi::codes::cap;
+
+/// How an entry fares in a **Desktop** program built on the WebAssembly path (DESKTOP-WASM-001 R12), as
+/// that path stands at the end of M1: console programs. An entry the path cannot build yet sends the
+/// Build to the Cargo path, which says why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Native {
+    /// Compiled into the module, with nothing from the runner beyond ABI v1 §3.
+    Module,
+    /// Compiled into the module, and served by the desktop runner through a capability (a name of
+    /// `cobolt_wasm_abi::codes::cap`, WASM-ABI-v1 A27).
+    Host(&'static str),
+    /// Not on the WebAssembly path yet, or never (`EXEC RUST`): the Build takes the Cargo path, for this reason.
+    Cargo(&'static str),
+}
+
+// The reasons of the Desktop column. Each names the milestone of DESKTOP-WASM-001 that moves the entry.
+const D_FORMS: &str = "forms, their controls and the application object are not on the WebAssembly path yet (DESKTOP-WASM-001 M2)";
+const D_DIALOGS: &str = "the desktop's dialogs are not on the WebAssembly path yet (DESKTOP-WASM-001 M2)";
+const D_FILES: &str = "files on disk are not on the WebAssembly path yet (DESKTOP-WASM-001 M3); an INDEXED file declared STORAGE IS MEMORY is compiled into the module";
+const D_FILE_BUILTINS: &str = "the file and image built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
+const D_SORT: &str = "SORT with USING or GIVING files is not on the WebAssembly path yet (DESKTOP-WASM-001 M3); with an INPUT and an OUTPUT PROCEDURE it is compiled into the module";
+const D_FILES_M3: &str = "MERGE, COMMIT, ROLLBACK and UNLOCK are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
+const D_SQL: &str = "SQL is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
+const D_HTTP: &str = "HTTP is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
+const D_POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module yet (DESKTOP-WASM-001 M5)";
+const D_CONTROLS: &str = "the non-visual controls, the keys and the model lists are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_MEDIA: &str = "audio, animation sequences and layouts are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_PHONE: &str = "the phone's secure storage is a Mobile built-in, where a desktop program stops; that stop is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_REMOTE: &str = "remote calls, backend verbs and identity operations are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_EXEC_RUST: &str = "EXEC RUST is Rust compiled into the program, so the Build takes the Cargo path";
 
 /// How a statement fares in a browser module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,6 +210,8 @@ pub struct BuiltinClass {
     /// The browser API a *browser* entry relies on, and the engines that have it.
     /// `None` when the player does the work with nothing beyond the page itself.
     pub api: Option<(&'static str, Engines)>,
+    /// How it fares in a Desktop program built on the WebAssembly path (DESKTOP-WASM-001 R12).
+    pub native: Native,
 }
 
 const BOTH: Engines = Engines { chrome: true, safari: true };
@@ -194,103 +227,107 @@ const NO_PATHS: &str = "a browser page has no file paths; let the backend hold t
 const IDENTITY: &str = "identity operations run in the Backend, through its /auth routes; on the page the Authentication control signs the user in (WASM-009 D15)";
 const PHONE_STORE: &str = "the phone's secure storage, through the mobile shell (Mobile projects only; a Web project's Build refuses it)";
 
-const fn c(name: &'static str, support: Support) -> BuiltinClass {
-    BuiltinClass { name, support, api: None }
+const fn c(name: &'static str, support: Support, native: Native) -> BuiltinClass {
+    BuiltinClass { name, support, api: None, native }
 }
-const fn web(name: &'static str, api: &'static str, engines: Engines) -> BuiltinClass {
-    BuiltinClass { name, support: Support::Module, api: Some((api, engines)) }
+const fn web(name: &'static str, api: &'static str, engines: Engines, native: Native) -> BuiltinClass {
+    BuiltinClass { name, support: Support::Module, api: Some((api, engines)), native }
+}
+
+const fn cargo(why: &'static str) -> Native {
+    Native::Cargo(why)
 }
 
 /// Every built-in, alphabetically, as `BUILTINS` lists them. A test fails when a
 /// name of `BUILTINS` has no row here, or a row names no built-in (R8).
 pub const BUILTIN_TABLE: &[BuiltinClass] = &[
-    c("ANIMATIONSEQUENCE", Support::Unsupported("the player has no scheduler for timed SHOW / HIDE / PLAY entries yet (spec 109 S7, WASM-PARITY #46)")),
-    c("APPEND-FILE", Support::BackendOnly(FILES)),
-    web("AUDIO-PAUSE", "HTMLAudioElement", BOTH),
-    web("AUDIO-PLAY", "HTMLAudioElement", BOTH),
-    web("AUDIO-RESUME", "HTMLAudioElement", BOTH),
-    c("AUDIO-STATE", Support::Unsupported("its answers have no way back into a browser module yet")),
-    web("AUDIO-STOP", "HTMLAudioElement", BOTH),
-    c("AUTH-OP", Support::BackendOnly(IDENTITY)),
-    c("AWS-CLEAR-CREDENTIALS", Support::BackendOnly(SECRETS)),
-    c("AWS-CREDENTIALS-SET", Support::BackendOnly(SECRETS)),
-    c("AWS-SET-CREDENTIALS", Support::BackendOnly(SECRETS)),
-    c("BINDING-LOAD", Support::BackendOnly(SQL)),
-    c("BINDING-MARK-CLEAN", Support::BackendOnly(SQL)),
-    c("BINDING-POPULATE", Support::BackendOnly(SQL)),
-    c("BINDING-SET-PENDING", Support::BackendOnly(SQL)),
-    c("BINDING-SET-READ-ONLY", Support::BackendOnly(SQL)),
-    c("BINDING-UPDATE", Support::BackendOnly(SQL)),
-    c("CHART-ADD-POINT", Support::Module),
-    c("CHART-CLEAR", Support::Module),
-    c("CHART-REFRESH", Support::Module),
-    c("CHART-SET-TABLE", Support::Module),
-    c("CLOSE-DB", Support::BackendOnly(SQL)),
-    c("EXEC-SQL", Support::BackendOnly(SQL)),
-    c("FETCH-ROW", Support::BackendOnly(SQL)),
-    c("FILE-STATUS", Support::BackendOnly(FILES)),
+    c("ANIMATIONSEQUENCE", Support::Unsupported("the player has no scheduler for timed SHOW / HIDE / PLAY entries yet (spec 109 S7, WASM-PARITY #46)"), cargo(D_MEDIA)),
+    c("APPEND-FILE", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
+    web("AUDIO-PAUSE", "HTMLAudioElement", BOTH, cargo(D_MEDIA)),
+    web("AUDIO-PLAY", "HTMLAudioElement", BOTH, cargo(D_MEDIA)),
+    web("AUDIO-RESUME", "HTMLAudioElement", BOTH, cargo(D_MEDIA)),
+    c("AUDIO-STATE", Support::Unsupported("its answers have no way back into a browser module yet"), cargo(D_MEDIA)),
+    web("AUDIO-STOP", "HTMLAudioElement", BOTH, cargo(D_MEDIA)),
+    c("AUTH-OP", Support::BackendOnly(IDENTITY), cargo(D_REMOTE)),
+    c("AWS-CLEAR-CREDENTIALS", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("AWS-CREDENTIALS-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("AWS-SET-CREDENTIALS", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("BINDING-LOAD", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("BINDING-MARK-CLEAN", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("BINDING-POPULATE", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("BINDING-SET-PENDING", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("BINDING-SET-READ-ONLY", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("BINDING-UPDATE", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("CHART-ADD-POINT", Support::Module, cargo(D_FORMS)),
+    c("CHART-CLEAR", Support::Module, cargo(D_FORMS)),
+    c("CHART-REFRESH", Support::Module, cargo(D_FORMS)),
+    c("CHART-SET-TABLE", Support::Module, cargo(D_FORMS)),
+    c("CLOSE-DB", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("EXEC-SQL", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("FETCH-ROW", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("FILE-STATUS", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
     // `showDirectoryPicker` is Chrome's only: Q7's parity rule leaves it out.
-    c("FOLDER-DIALOG", Support::Unsupported("a browser page cannot choose a folder in every engine (showDirectoryPicker is Chrome's only)")),
-    c("GET-PROPERTY", Support::Module),
-    c("HTTP-CLEAR-HEADERS", Support::BackendOnly(HTTP)),
-    c("HTTP-DELETE", Support::BackendOnly(HTTP)),
-    c("HTTP-DOWNLOAD", Support::BackendOnly(HTTP)),
-    c("HTTP-GET", Support::BackendOnly(HTTP)),
-    c("HTTP-POST", Support::BackendOnly(HTTP)),
-    c("HTTP-PUT", Support::BackendOnly(HTTP)),
-    c("HTTP-SET-HEADER", Support::BackendOnly(HTTP)),
-    c("IMAGE-FIT", Support::BackendOnly(FILES)),
-    c("IMAGE-INFO", Support::BackendOnly(FILES)),
-    c("INIT-FORM", Support::Module),
-    c("KEY-IS-SET", Support::BackendOnly(SECRETS)),
-    c("KEY-REMOVE", Support::BackendOnly(SECRETS)),
-    c("KEY-SET", Support::BackendOnly(SECRETS)),
-    c("LAYOUT", Support::Unsupported("the player has no command to install a layout script at run time yet (spec 109 S6, WASM-PARITY #47)")),
-    c("MCP-SEARCH", Support::BackendOnly(SECRETS)),
-    c("MODEL-COUNT", Support::BackendOnly(SECRETS)),
-    c("MODEL-GET", Support::BackendOnly(SECRETS)),
-    c("MODEL-LIST", Support::BackendOnly(SECRETS)),
-    c("MODEL-LIST-GET", Support::BackendOnly(SECRETS)),
-    c("MODEL-REMOVE", Support::BackendOnly(SECRETS)),
-    c("MODEL-SET", Support::BackendOnly(SECRETS)),
-    c("MODEL-TEST", Support::BackendOnly(SECRETS)),
-    c("NEXT-ROW", Support::BackendOnly(SQL)),
-    c("OPEN-DB", Support::BackendOnly(SQL)),
-    c("OPEN-FILE-DIALOG", Support::Unsupported(NO_PATHS)),
-    c("PARTIQL", Support::BackendOnly(FILES)),
-    c("PARTIQL-ERROR", Support::BackendOnly(FILES)),
-    c("PARTIQL-FETCH", Support::BackendOnly(FILES)),
-    c("PROVIDER-COUNT", Support::BackendOnly(SECRETS)),
-    c("PROVIDER-GET", Support::BackendOnly(SECRETS)),
-    c("RAISE-EVENT", Support::Module),
-    c("ROW-COUNT", Support::BackendOnly(SQL)),
-    c("SAVE-FILE-DIALOG", Support::Unsupported(NO_PATHS)),
+    c("FOLDER-DIALOG", Support::Unsupported("a browser page cannot choose a folder in every engine (showDirectoryPicker is Chrome's only)"), cargo(D_DIALOGS)),
+    c("GET-PROPERTY", Support::Module, cargo(D_FORMS)),
+    c("HTTP-CLEAR-HEADERS", Support::BackendOnly(HTTP), cargo(D_HTTP)),
+    c("HTTP-DELETE", Support::BackendOnly(HTTP), cargo(D_HTTP)),
+    c("HTTP-DOWNLOAD", Support::BackendOnly(HTTP), cargo(D_HTTP)),
+    c("HTTP-GET", Support::BackendOnly(HTTP), cargo(D_HTTP)),
+    c("HTTP-POST", Support::BackendOnly(HTTP), cargo(D_HTTP)),
+    c("HTTP-PUT", Support::BackendOnly(HTTP), cargo(D_HTTP)),
+    c("HTTP-SET-HEADER", Support::BackendOnly(HTTP), cargo(D_HTTP)),
+    c("IMAGE-FIT", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
+    c("IMAGE-INFO", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
+    c("INIT-FORM", Support::Module, cargo(D_FORMS)),
+    c("KEY-IS-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("KEY-REMOVE", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("KEY-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("LAYOUT", Support::Unsupported("the player has no command to install a layout script at run time yet (spec 109 S6, WASM-PARITY #47)"), cargo(D_MEDIA)),
+    c("MCP-SEARCH", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("MODEL-COUNT", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("MODEL-GET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("MODEL-LIST", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("MODEL-LIST-GET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("MODEL-REMOVE", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("MODEL-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("MODEL-TEST", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("NEXT-ROW", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("OPEN-DB", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("OPEN-FILE-DIALOG", Support::Unsupported(NO_PATHS), cargo(D_DIALOGS)),
+    c("PARTIQL", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
+    c("PARTIQL-ERROR", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
+    c("PARTIQL-FETCH", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
+    c("PROVIDER-COUNT", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("PROVIDER-GET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("RAISE-EVENT", Support::Module, cargo(D_FORMS)),
+    c("ROW-COUNT", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("SAVE-FILE-DIALOG", Support::Unsupported(NO_PATHS), cargo(D_DIALOGS)),
     // The phone shell's verbs (WASM-012 R9, ABI A26): a Mobile module compiles
     // them onto the application object; a Web module refuses them at their
     // line before this row is read (`lower_remote::is_mobile_verb`).
-    web("SECUREDELETE", PHONE_STORE, BOTH),
-    web("SECURELOAD", PHONE_STORE, BOTH),
-    web("SECURESTORE", PHONE_STORE, BOTH),
-    c("SET-PROPERTY", Support::Module),
-    c("WAIT-EVENT", Support::Module),
-    c("WRITE-FILE", Support::BackendOnly(FILES)),
-    c("WS-CANCELLED", Support::BackendOnly(BACKEND_VERB)),
-    c("WS-CLAIM", Support::BackendOnly(BACKEND_VERB)),
-    c("WS-DOWNLOAD", Support::Unsupported(NO_PATHS)),
-    c("WS-EMIT", Support::BackendOnly(BACKEND_VERB)),
-    c("WS-FAIL", Support::BackendOnly(BACKEND_VERB)),
-    c("WS-FILE-PATH", Support::BackendOnly(BACKEND_VERB)),
-    c("WS-FILE-PUBLISH", Support::BackendOnly(BACKEND_VERB)),
-    c("WS-LAST-ERROR", Support::Module),
-    c("WS-PAUSE", Support::BackendOnly(BACKEND_VERB)),
-    c("WS-PROGRESS", Support::BackendOnly(BACKEND_VERB)),
-    c("WS-SHOW-PROGRESS", Support::Unsupported("not in a browser module yet")),
-    c("WS-STREAM-ITEM", Support::Unsupported("not in a browser module yet")),
-    c("WS-SUBSCRIBE", Support::Unsupported("not in a browser module yet")),
-    c("WS-UNSUBSCRIBE", Support::Unsupported("not in a browser module yet")),
-    c("WS-UPLOAD", Support::Unsupported(NO_PATHS)),
-    c("WS-VERSION", Support::Unsupported("not in a browser module yet")),
-    c("WS-WARNING", Support::Unsupported("not in a browser module yet")),
+    web("SECUREDELETE", PHONE_STORE, BOTH, cargo(D_PHONE)),
+    web("SECURELOAD", PHONE_STORE, BOTH, cargo(D_PHONE)),
+    web("SECURESTORE", PHONE_STORE, BOTH, cargo(D_PHONE)),
+    c("SET-PROPERTY", Support::Module, cargo(D_FORMS)),
+    c("WAIT-EVENT", Support::Module, cargo(D_FORMS)),
+    c("WRITE-FILE", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
+    c("WS-CANCELLED", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
+    c("WS-CLAIM", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
+    c("WS-DOWNLOAD", Support::Unsupported(NO_PATHS), cargo(D_REMOTE)),
+    c("WS-EMIT", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
+    c("WS-FAIL", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
+    c("WS-FILE-PATH", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
+    c("WS-FILE-PUBLISH", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
+    c("WS-LAST-ERROR", Support::Module, cargo(D_REMOTE)),
+    c("WS-PAUSE", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
+    c("WS-PROGRESS", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
+    c("WS-SHOW-PROGRESS", Support::Unsupported("not in a browser module yet"), cargo(D_REMOTE)),
+    c("WS-STREAM-ITEM", Support::Unsupported("not in a browser module yet"), cargo(D_REMOTE)),
+    c("WS-SUBSCRIBE", Support::Unsupported("not in a browser module yet"), cargo(D_REMOTE)),
+    c("WS-UNSUBSCRIBE", Support::Unsupported("not in a browser module yet"), cargo(D_REMOTE)),
+    c("WS-UPLOAD", Support::Unsupported(NO_PATHS), cargo(D_REMOTE)),
+    c("WS-VERSION", Support::Unsupported("not in a browser module yet"), cargo(D_REMOTE)),
+    c("WS-WARNING", Support::Unsupported("not in a browser module yet"), cargo(D_REMOTE)),
 ];
 
 /// The row of the built-in `name` (without `COBOL-`), if it is one.
@@ -322,67 +359,75 @@ pub fn builtin_available(name: &str, ios: bool) -> bool {
 
 const BACKEND_FILES: &str = "file input/output runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
 
-/// Every statement, by the name [`stmt_name`] gives it, with its class: what
-/// the System KB's "What runs in a browser module" lists (WASM-010 D7). The
-/// exhaustive [`support`] is the definition; `tests/subset_table.rs` holds this
-/// table equal to it statement by statement.
-pub const STATEMENT_TABLE: &[(&str, Support)] = &[
-    ("ACCEPT", Support::Module),
-    ("ADD", Support::Module),
-    ("ADD CORRESPONDING", Support::Module),
-    ("ALTER", Support::Module),
-    ("CALL", Support::Module),
-    ("CANCEL", Support::Module),
-    ("CLOSE", Support::MemoryFiles(DISK_FILES)),
-    ("COMMIT", Support::BackendOnly(BACKEND_FILES)),
-    ("COMPUTE", Support::Module),
-    ("CONTINUE", Support::Module),
-    ("DELETE", Support::MemoryFiles(DISK_FILES)),
-    ("DISPLAY", Support::Module),
-    ("DIVIDE", Support::Module),
-    ("EVALUATE", Support::Module),
-    ("EXEC RUST", Support::Unsupported("EXEC RUST needs a native build; move it to the backend")),
-    ("EXEC SQL", Support::BackendOnly("embedded SQL runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE")),
-    ("EXIT", Support::Module),
-    ("GO TO", Support::Module),
-    ("GO TO DEPENDING", Support::Module),
-    ("GOBACK", Support::Module),
-    ("IF", Support::Module),
-    ("INITIALIZE", Support::Module),
-    ("INSPECT", Support::Module),
-    ("INVOKE", Support::Module),
-    ("MERGE", Support::BackendOnly("MERGE reads files, which are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE")),
-    ("MOVE", Support::Module),
-    ("MOVE CORRESPONDING", Support::Module),
-    ("MULTIPLY", Support::Module),
-    ("NEXT SENTENCE", Support::Module),
-    ("OPEN", Support::MemoryFiles(DISK_FILES)),
-    ("PERFORM", Support::Module),
-    ("READ", Support::MemoryFiles(DISK_FILES)),
-    ("RELEASE", Support::MemoryFiles(SORT_FILES)),
-    ("RETURN", Support::MemoryFiles(SORT_FILES)),
-    ("REWRITE", Support::MemoryFiles(DISK_FILES)),
-    ("ROLLBACK", Support::BackendOnly(BACKEND_FILES)),
-    ("SEARCH", Support::Module),
-    ("SET (pointer)", Support::BackendOnly(POINTERS)),
-    ("SORT", Support::MemoryFiles(SORT_FILES)),
-    ("START", Support::MemoryFiles(DISK_FILES)),
-    ("STOP", Support::Module),
-    ("STRING", Support::Module),
-    ("SUBTRACT", Support::Module),
-    ("SUBTRACT CORRESPONDING", Support::Module),
-    ("THROW", Support::Module),
-    ("TRY", Support::Module),
-    ("UNLOCK", Support::BackendOnly(BACKEND_FILES)),
-    ("UNSTRING", Support::Module),
-    ("WRITE", Support::MemoryFiles(DISK_FILES)),
-    ("control assignment", Support::Module),
-    ("end of sentence", Support::Module),
-    ("member call", Support::Module),
-    ("window operation", Support::Module),
+/// Every statement, by the name [`stmt_name`] gives it, with its class in a browser
+/// module and in a Desktop program on the WebAssembly path: what the System KB's
+/// "What runs in a browser module" lists (WASM-010 D7; DESKTOP-WASM-001 R12). The
+/// exhaustive [`support`] is the definition of the browser class;
+/// `tests/subset_table.rs` holds this table equal to it statement by statement.
+/// On the Desktop, `ACCEPT` from the console reaches `console` (from the environment
+/// or the arguments, `env`), and `STOP RUN` and `GOBACK` hand the exit code to `env`.
+pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
+    ("ACCEPT", Support::Module, Native::Host(cap::CONSOLE)),
+    ("ADD", Support::Module, Native::Module),
+    ("ADD CORRESPONDING", Support::Module, Native::Module),
+    ("ALTER", Support::Module, Native::Module),
+    ("CALL", Support::Module, Native::Module),
+    ("CANCEL", Support::Module, Native::Module),
+    ("CLOSE", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("COMMIT", Support::BackendOnly(BACKEND_FILES), Native::Cargo(D_FILES_M3)),
+    ("COMPUTE", Support::Module, Native::Module),
+    ("CONTINUE", Support::Module, Native::Module),
+    ("DELETE", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("DISPLAY", Support::Module, Native::Module),
+    ("DIVIDE", Support::Module, Native::Module),
+    ("EVALUATE", Support::Module, Native::Module),
+    ("EXEC RUST", Support::Unsupported("EXEC RUST needs a native build; move it to the backend"), Native::Cargo(D_EXEC_RUST)),
+    ("EXEC SQL", Support::BackendOnly("embedded SQL runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"), Native::Cargo(D_SQL)),
+    ("EXIT", Support::Module, Native::Module),
+    ("GO TO", Support::Module, Native::Module),
+    ("GO TO DEPENDING", Support::Module, Native::Module),
+    ("GOBACK", Support::Module, Native::Host(cap::ENV)),
+    ("IF", Support::Module, Native::Module),
+    ("INITIALIZE", Support::Module, Native::Module),
+    ("INSPECT", Support::Module, Native::Module),
+    ("INVOKE", Support::Module, Native::Cargo(D_FORMS)),
+    ("MERGE", Support::BackendOnly("MERGE reads files, which are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"), Native::Cargo(D_FILES_M3)),
+    ("MOVE", Support::Module, Native::Module),
+    ("MOVE CORRESPONDING", Support::Module, Native::Module),
+    ("MULTIPLY", Support::Module, Native::Module),
+    ("NEXT SENTENCE", Support::Module, Native::Module),
+    ("OPEN", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("PERFORM", Support::Module, Native::Module),
+    ("READ", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("RELEASE", Support::MemoryFiles(SORT_FILES), Native::Module),
+    ("RETURN", Support::MemoryFiles(SORT_FILES), Native::Module),
+    ("REWRITE", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("ROLLBACK", Support::BackendOnly(BACKEND_FILES), Native::Cargo(D_FILES_M3)),
+    ("SEARCH", Support::Module, Native::Module),
+    ("SET (pointer)", Support::BackendOnly(POINTERS), Native::Cargo(D_POINTERS)),
+    ("SORT", Support::MemoryFiles(SORT_FILES), Native::Cargo(D_SORT)),
+    ("START", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("STOP", Support::Module, Native::Host(cap::ENV)),
+    ("STRING", Support::Module, Native::Module),
+    ("SUBTRACT", Support::Module, Native::Module),
+    ("SUBTRACT CORRESPONDING", Support::Module, Native::Module),
+    ("THROW", Support::Module, Native::Module),
+    ("TRY", Support::Module, Native::Module),
+    ("UNLOCK", Support::BackendOnly(BACKEND_FILES), Native::Cargo(D_FILES_M3)),
+    ("UNSTRING", Support::Module, Native::Module),
+    ("WRITE", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("control assignment", Support::Module, Native::Cargo(D_FORMS)),
+    ("end of sentence", Support::Module, Native::Module),
+    ("member call", Support::Module, Native::Cargo(D_FORMS)),
+    ("window operation", Support::Module, Native::Cargo(D_FORMS)),
 ];
 
-/// The row of [`STATEMENT_TABLE`] for a statement name.
+/// The browser class of [`STATEMENT_TABLE`]'s row for a statement name.
 pub fn statement_entry(name: &str) -> Option<Support> {
-    STATEMENT_TABLE.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+    STATEMENT_TABLE.iter().find(|(n, _, _)| *n == name).map(|(_, s, _)| *s)
+}
+
+/// The Desktop class of [`STATEMENT_TABLE`]'s row for a statement name (DESKTOP-WASM-001 R12).
+pub fn statement_native(name: &str) -> Option<Native> {
+    STATEMENT_TABLE.iter().find(|(n, _, _)| *n == name).map(|(_, _, c)| *c)
 }
