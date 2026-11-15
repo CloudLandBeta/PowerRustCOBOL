@@ -2,6 +2,15 @@
 
 
 
+## 2.0.492 — 2026-11-14
+
+**Fix: a headless picture of a form no longer depends on the order its text was first drawn in.** The CPU rasteriser behind `render_form`, `run_form` and the headless `shot` step promised the same bytes for the same frame. It kept that promise only while every glyph sat at the same place in egui's font atlas. That place depends on the order text was first laid out in, which two runs of one program need not share. Found by DESKTOP-WASM-001's pixel-parity harness (T8): PowerCallOfDuty's war-form drew 2 to 4 text pixels differently from one run to the next, one step of 255 apart, at the designed size.
+- **The cause:** a pixel's texture coordinate was summed from the triangle's absolute coordinates in f32, so its rounding depended on the absolute place of the texels.
+- **The fix:** it is now the first vertex's coordinate plus the weighted differences, summed in f64. For an atlas whose sides are powers of two, which egui's are, that sum is exact, so a glyph samples the same texels in the same proportions wherever it sits.
+- **The new test, `a_texture_samples_the_same_from_any_place_in_the_atlas`:** the same 9 × 7 texels are drawn from 4 places of a 2048 × 256 texture at 4 scales. Before the fix 5 of 12 pictures differed from the first place's, by 1 to 4 pixels; after it, 12 of 12 are identical. On the harness's war-form, with the feature branch's virtual clock, 4 of 12 frames differed between two runs before the fix and 0 of 12 after it.
+- **What can move:** a textured pixel can come out one step different from before, as the old rounding is gone. Pictures of the same frame now agree with each other.
+- *(Fix branch `fixes-2x-raster-atlas`, `e90d17d3`, cut from `main` at 2.0.484; picked onto `features-2x-desktop-wasm`, whose T8 needs it.)*
+
 ## 2.0.491 — 2026-11-14
 
 **DESKTOP-WASM-001 T7: `cobolt-bench pixel-parity`, the base scripts of the five reference projects, and the first golden hashes** (the harness of R27; AC19's second guard; AC20 for each form). Pixel parity will be judged by running the same scripts under the Cargo-built and the WebAssembly-built program and comparing every frame. This task builds the harness on the Cargo path alone, writes the scripts, and records the hashes of today's frames, before T8 changes the form host's clocks.

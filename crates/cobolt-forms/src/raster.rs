@@ -15,7 +15,8 @@
 //! band of vertices fading to transparent), so the result is anti-aliased
 //! without any sampling scheme of our own.
 //!
-//! Deterministic: the same frame gives the same bytes on every machine.
+//! Deterministic: the same frame gives the same bytes on every machine, wherever
+//! its glyphs sit in the font atlas.
 //! `Shape::Callback` (custom GPU painting) has no CPU form and is skipped.
 
 use std::collections::HashMap;
@@ -119,8 +120,14 @@ fn fill_triangle(out: &mut ColorImage, clip: [i64; 4], ppp: f32, v: [&egui::epai
                 c[3] += w * a as f32;
             }
             if let Some(tex) = texture {
-                let u = w0 * v[0].uv.x + w1 * v[1].uv.x + w2 * v[2].uv.x;
-                let t = w0 * v[0].uv.y + w1 * v[1].uv.y + w2 * v[2].uv.y;
+                // The texture coordinate is the first vertex's plus the weighted differences, in
+                // f64. A glyph's place in the font atlas depends on the order text was first laid
+                // out in; summed from absolute coordinates in f32, the same glyph at another place
+                // rounded differently and could come out one step apart. This way the sum is exact
+                // for an atlas whose sides are powers of two (egui's), so it samples the same.
+                let rel = |a: f32, b: f32, c: f32| a as f64 + (w1 * (b - a) + w2 * (c - a)) as f64;
+                let u = rel(v[0].uv.x, v[1].uv.x, v[2].uv.x);
+                let t = rel(v[0].uv.y, v[1].uv.y, v[2].uv.y);
                 let s = sample(tex, u, t);
                 for k in 0..4 {
                     c[k] = c[k] * s[k] / 255.0;
@@ -137,16 +144,16 @@ fn fill_triangle(out: &mut ColorImage, clip: [i64; 4], ppp: f32, v: [&egui::epai
 }
 
 /// Bilinear sample of a premultiplied texture at normalised `u`, `v`.
-fn sample(tex: &ColorImage, u: f32, v: f32) -> [f32; 4] {
+fn sample(tex: &ColorImage, u: f64, v: f64) -> [f32; 4] {
     let [w, h] = tex.size;
     if w == 0 || h == 0 {
         return [255.0; 4];
     }
-    let x = (u * w as f32 - 0.5).clamp(0.0, (w - 1) as f32);
-    let y = (v * h as f32 - 0.5).clamp(0.0, (h - 1) as f32);
+    let x = (u * w as f64 - 0.5).clamp(0.0, (w - 1) as f64);
+    let y = (v * h as f64 - 0.5).clamp(0.0, (h - 1) as f64);
     let (x0, y0) = (x.floor() as usize, y.floor() as usize);
     let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
-    let (fx, fy) = (x - x0 as f32, y - y0 as f32);
+    let (fx, fy) = ((x - x0 as f64) as f32, (y - y0 as f64) as f32);
     let px = |x: usize, y: usize| tex.pixels[y * w + x].to_array().map(f32::from);
     let (a, b, c, d) = (px(x0, y0), px(x1, y0), px(x0, y1), px(x1, y1));
     let mut out = [0.0; 4];
@@ -249,5 +256,60 @@ mod tests {
         let back = image::load_from_memory(&png).unwrap();
         assert_eq!((back.width(), back.height()), (200, 100));
         println!("raster: rect exact at its centre, background untouched, text {ink} px of ink, PNG {} bytes round-trips", png.len());
+    }
+
+    /// A glyph comes out the same wherever it sits in the atlas. Where egui puts it depends on the
+    /// order text was first laid out in, which two runs of one program need not share. The same
+    /// 9 × 7 texels are kept at four places of a 2048 × 256 texture and drawn from each, at the
+    /// same spot on screen, at four scales that put pixel centres between texels; every picture
+    /// must equal the one from the first place, byte for byte.
+    #[test]
+    fn a_texture_samples_the_same_from_any_place_in_the_atlas() {
+        let started = std::time::Instant::now();
+        let (aw, ah) = (2048usize, 256usize);
+        let places = [(1usize, 1usize), (1777, 201), (1024, 128), (37, 243)];
+        let mut atlas = ColorImage::filled([aw, ah], Color32::TRANSPARENT);
+        for &(px, py) in &places {
+            for y in 0..7 {
+                for x in 0..9 {
+                    let v = ((x * 37 + y * 91) % 251) as u8;
+                    atlas.pixels[(py + y) * aw + px + x] = Color32::from_rgba_premultiplied(v, v, v, v);
+                }
+            }
+        }
+        let id = TextureId::Managed(7);
+        let mut r = Rasterizer::new();
+        r.textures.insert(id, atlas);
+        let size = [48usize, 40usize];
+        let picture = |(px, py): (usize, usize), (sx, sy): (f32, f32)| {
+            let uv = |tx: usize, ty: usize| egui::pos2(tx as f32 / aw as f32, ty as f32 / ah as f32);
+            let mut mesh = egui::Mesh::with_texture(id);
+            let rect = egui::Rect::from_min_size(egui::pos2(10.3, 6.7), egui::vec2(9.0 * sx, 7.0 * sy));
+            mesh.add_rect_with_uv(rect, egui::Rect::from_min_max(uv(px, py), uv(px + 9, py + 7)), Color32::WHITE);
+            let prim = ClippedPrimitive { clip_rect: egui::Rect::EVERYTHING, primitive: Primitive::Mesh(mesh) };
+            r.render(&[prim], size, 1.0, Color32::BLACK)
+        };
+        let scales = [(1.0f32, 1.0f32), (1.37, 1.37), (2.9, 0.83), (3.3, 3.7)];
+        let (mut compared, mut differing, mut inked) = (0usize, 0usize, 0usize);
+        for &scale in &scales {
+            let first = picture(places[0], scale);
+            inked = inked.max(first.pixels.iter().filter(|p| **p != Color32::BLACK).count());
+            for &place in &places[1..] {
+                let other = picture(place, scale);
+                compared += 1;
+                let n = first.pixels.iter().zip(&other.pixels).filter(|(a, b)| a != b).count();
+                if n > 0 {
+                    differing += 1;
+                    println!("  FAIL scale {scale:?}, texels at {place:?}: {n} of {} pixels differ from those at {:?}", size[0] * size[1], places[0]);
+                }
+            }
+        }
+
+        // The result block (GOLDEN RULE #7).
+        println!("== raster::a_texture_samples_the_same_from_any_place_in_the_atlas (fix 2.0.492) ==");
+        println!("texture 2048 x 256, 9 x 7 texels at {} places; scales {scales:?}; up to {inked} pixels inked per picture", places.len());
+        println!("pictures compared {compared}, identical {}, differing {differing} ({} ms)", compared - differing, started.elapsed().as_millis());
+        assert!(inked > 60, "the texels were drawn");
+        assert_eq!(differing, 0, "a picture depended on where its texels sit in the atlas");
     }
 }
