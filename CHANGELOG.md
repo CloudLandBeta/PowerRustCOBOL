@@ -2,6 +2,32 @@
 
 
 
+## 2.0.512 — 2026-11-15
+
+**Feature (DESKTOP-WASM-001 T14): `cobolt-program-package`, which puts the program inside the runner's executable, so a program built on the WebAssembly path is one file.**
+- **The payload:** a table of contents of `{kind, offset, len, sha256}` entries with its own checksum, then the parts: the module, its machine code, and the engine that made the machine code.
+  - A damaged table of contents is refused before anything is read, and a damaged module is refused by name.
+  - Damaged machine code is only reported, so the runner compiles at load instead.
+  - A kind the reader does not know is passed by, so a newer Build's program still opens in an older runner as far as that runner can go.
+- **On Linux and Windows** the payload follows the image, found through a 32-byte `PRLOC` trailer at the end of the file. A file whose payload was stripped says so.
+- **On macOS** the payload becomes a read-only `__PRPAYLOAD` segment before `__LINKEDIT`, which moves up with every offset that points into it. The file is then signed again ad hoc in pure Rust, so a Build needs neither Xcode nor the system `codesign`.
+  - **The signed file is byte for byte what `codesign -s -` writes for it.**
+  - The runner must be linked with room for one more load command (`-Wl,-headerpad,0x1000`), and one without that room is refused, naming the bytes it lacks.
+- **`RunnerSettings`:** the settings the Cargo path bakes into `main.rs`, as a type that T28 fills.
+- **libsui evaluated and not taken:**
+  - it pins `object` exactly to 0.36.3 (the workspace has 0.39.1);
+  - it adds second copies of `zerocopy` and `windows`;
+  - it takes a separate path on Intel Macs.
+  - The hand-written carriers are 763 lines.
+- **Measured** (macOS arm64): `cargo test -p cobolt-program-package`, 6 of 6.
+  - **A copy of the test's own executable** carrying a 600 346-byte payload (four parts): embed 83.9 ms. It passes `codesign --verify --strict`, `codesign -s -` writes the same file, and the copy runs and reads its own four parts back, each checked: 13 of 13.
+  - **A damaged table of contents:** 13 of 13 refused.
+  - **A part whose sha256 does not match:** 4 of 4 refused.
+  - **The ELF and PE overlay** on files made in the test: 12 of 12.
+  - **The Mach-O segment** on a Mach-O made in the test: 12 of 12.
+  - `build-all-platforms.yml` now runs the test on Linux, Windows and both Macs, each on its own carrier. It is not yet run there.
+- Also: a clippy note in `cobolt-runner-engine`'s test (a type alias for its cases).
+
 ## 2.0.511 — 2026-11-15
 
 **Feature (DESKTOP-WASM-001 T13): `cobolt-runner-engine`, the one WebAssembly engine of a built Desktop program. It holds the engine's settings, makes machine code ahead, and loads it in a fixed order with a local cache.**

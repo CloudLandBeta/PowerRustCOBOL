@@ -153,7 +153,8 @@ fn every_load_path_runs_the_same_program() {
     let on_host = host == baseline;
     let expected_code_path = if on_host { (LoadPath::MachineCode, None) } else { (LoadPath::Compiled, Some(Skipped::Foreign)) };
 
-    let cases: Vec<(&str, Option<&MachineCode>, Option<&Cache>, (LoadPath, Option<Skipped>))> = vec![
+    type Case<'a> = (&'a str, Option<&'a MachineCode>, Option<&'a Cache>, (LoadPath, Option<Skipped>));
+    let cases: Vec<Case> = vec![
         ("the Build's machine code", Some(&code), None, expected_code_path),
         ("a foreign compatibility hash", Some(&foreign), None, (LoadPath::Compiled, Some(Skipped::Foreign))),
         ("truncated code", Some(&truncated), None, (LoadPath::Compiled, Some(Skipped::Damaged))),

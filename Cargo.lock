@@ -2446,6 +2446,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-program-package"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cobolt-project-tools"
 version = "0.2.0"
 dependencies = [

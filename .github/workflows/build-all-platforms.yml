@@ -188,6 +188,14 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then run="xvfb-run -a"; else run=""; fi
           $run cargo test --release --locked --target ${{ matrix.target }} -p cobolt-web-preview --no-fail-fast
 
+      # The payload inside one executable, on this system's own carrier (DESKTOP-WASM-001 T14): an
+      # overlay on Linux and Windows, a __PRPAYLOAD segment signed ad hoc on both Macs (where
+      # `codesign --verify --strict` must accept it). The test packages a copy of its own
+      # executable and runs it.
+      - name: Test the program package on this system's carrier
+        shell: bash
+        run: cargo test --locked --target ${{ matrix.target }} -p cobolt-program-package --no-fail-fast -- --nocapture --test-threads=1
+
       - name: Name the package
         shell: bash
         run: |

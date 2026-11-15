@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-program-package"
+description = "The payload inside a built Desktop program (DESKTOP-WASM-001 T14): its table of contents, the carriers that put it inside the runner's executable (an overlay on ELF and PE, a segment on Mach-O signed again ad hoc), and the runner's settings"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+build                  = "build.rs"
+
+[dependencies]
+# Every part's checksum, the table of contents' own, and the Mach-O code signature's page hashes.
+sha2  = { workspace = true }
+# `RunnerSettings` crosses from the Build to the runner as data (T28 chooses the encoding).
+serde = { workspace = true }

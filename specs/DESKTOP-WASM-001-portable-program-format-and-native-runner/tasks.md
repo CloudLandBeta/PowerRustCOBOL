@@ -644,7 +644,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - **`desktop_wasm_unchanged`** (`cobolt-web-tests`): 3 of 3 artefacts match the pin.
       - **`dependency_guards_063`** (`cobolt-compiler`, over `Cargo.lock`): 3 of 3.
 
-- [ ] **T14 — `cobolt-program-package`: the payload inside one executable** (R1, R8)
+- [x] **T14 — `cobolt-program-package`: the payload inside one executable** (R1, R8)
   - Files: new `crates/cobolt-program-package/` (a workspace member).
   - Do:
     - **The table of contents:** `{kind, offset, len, sha256}` entries, kinds `MODULE` and `MACHINE_CODE`.
@@ -658,6 +658,44 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - a payload whose sha256 does not match is refused.
     - On macOS, `codesign --verify --strict` passes on the result.
     - The other carriers run in `build-all-platforms.yml`'s test step on their systems.
+  - *Done 2026-11-15 (2.0.512):*
+    - **The crate** `crates/cobolt-program-package` (a workspace member). Its only dependencies are `sha2` and `serde`.
+    - **The payload** (`encode`, `decode`), format 1, little-endian:
+      - a 56-byte header (`PRPAYLD\0`, the version, the part count, the total length, and the table of contents' own sha256);
+      - one 56-byte entry per part (`{kind, offset, len, sha256}`);
+      - the parts, each at a 16-byte boundary.
+      - **Kinds:** `MODULE` (1), `MACHINE_CODE` (2) and **`MACHINE_CODE_ENGINE` (3)**. The third is new: it carries T13's compatibility hash, which the table's four fields had no place for. A kind the reader does not know is kept and passed by, so an older runner reads a newer Build's payload as far as it can. A newer format version is refused, naming it.
+      - **Checks:** a damaged table of contents is refused before any part is read. Each part is checked when it is taken: `Payload::module()` refuses a damaged module. Damaged machine code is only reported (`Part::verified`), so T13's `load` compiles at load instead of refusing the program.
+    - **The carriers** (`embed`, `locate`, `format_of`):
+      - **ELF and PE:** the payload after the image at a 16-byte boundary, then the 32-byte `PRLOC` trailer: offset, length, version, and `PRLOC\0\0\0` as the file's last bytes. A file without the trailer (a bare runner, or one a packager stripped) is named `NoPayload`.
+      - **Mach-O:** a read-only `__PRPAYLOAD` segment (72 bytes, no sections) inserted before `__LINKEDIT`'s load command. The payload takes `__LINKEDIT`'s old place, padded to a 16 KiB page. `__LINKEDIT` moves up by that much in the file and in memory, with every file offset into it: `LC_SYMTAB`, `LC_DYSYMTAB`, `LC_DYLD_INFO(_ONLY)`, the nine `linkedit_data_command`s (chained fixups and the exports trie included) and `LC_NOTE`. The old signature is dropped and a new ad hoc one written (`codesign.rs`, pure Rust): a SuperBlob with a CodeDirectory v0x20400 (SHA-256, 16 KiB pages on Apple silicon and 4 KiB on Intel, as `codesign` chooses; two special slots; `__TEXT` as the executable segment), an empty requirement set and an empty signature wrapper. The reserved space is rounded up to 16 bytes, as `codesign` reserves it.
+      - **Header room:** a fat binary or a non-executable is refused. A runner without header room for one more load command is refused, naming the bytes free and needed. A Rust test binary had 48 bytes free, so the runner (T15) must be linked with `-Wl,-headerpad,0x1000`, as this crate's `build.rs` links its tests.
+      - **`write_executable`** writes a new file and renames it into place, executable on Unix, so macOS checks its new signature afresh rather than a cached one.
+    - **`RunnerSettings`** (the type only, `serde`, every field defaulted): the values `generate_main_rs_for` and the `bake_*` functions put into `main.rs`. These are the name, version, main form, theme, entrance and exit effects, connection catalogue, file memory limit, focus ring, indexed engine, locale, currency, link schemes and `remote`.
+    - **libsui evaluated** (0.16.4, MIT, the Deno authors, used by `deno compile`). The choice is **the hand-written carriers**:
+      - **libsui's carriers:**
+        - on Apple silicon, a `__SUI` segment with one section before `__LINKEDIT`, re-signed ad hoc, as here;
+        - on Intel Macs, no segment (`intel_mac.rs`): a second path;
+        - on ELF, a `PT_NOTE` program header, rewriting the header table;
+        - on PE, a resource (RCDATA).
+        - It finds them at run time through FFI: `getsectdata`, `dl_iterate_phdr`, `FindResource`.
+      - **Against it:**
+        - it would add to every Build's tree a second `object` (an exact pin `=0.36.3` beside the workspace's 0.39.1, which would also block that crate's updates), `zerocopy` 0.7 beside 0.8, and `windows` 0.58 beside 0.57, 0.61 and 0.62;
+        - it declares no `rust-version`;
+        - its Intel-Mac path differs from its Apple-silicon one, where ours is one path for both;
+        - its code is 3 589 lines, against 763 here for the payload, the carriers and the signer together (the settings and the tests apart).
+      - **What it does better, noted for later:** its ELF note survives `strip`, where our overlay does not. The runner names the missing payload, as the plan's risk table says.
+    - **Measured** (macOS arm64, Apple M3 Pro): `cargo test -p cobolt-program-package -- --nocapture`, 6 of 6.
+      - **`a_copy_of_this_test_carries_a_program_and_still_runs`**, 13 of 13: the test's executable (1 657 272 bytes) carries a 600 346-byte payload, giving 2 255 136 bytes. The payload has four parts: a module of 180 008 bytes, machine code of 420 000, the engine hash of 32, and an unknown kind of 10. Timings: embed 83.9 ms, write 0.6 ms, read back and decode 0.4 ms. Checks:
+        - **`codesign --verify --strict`:** valid on disk, satisfies its Designated Requirement;
+        - **`codesign -s -` of the same file writes the same file, byte for byte** (the same CDHash: v=20400, 138+2 hashes);
+        - the copy **runs** (287.2 ms) and reads its own four parts back through `current_exe`, each matching its sha256;
+        - the bare executable has no payload, and a packaged one is not packaged again.
+      - **`a_damaged_table_of_contents_is_refused`**, 13 of 13: a changed offset, length, kind, recorded sha256, count, total length or table checksum; cut short; cut inside the table; no magic; a part outside the payload with the checksum recomputed (`Damaged`); a whole but newer format (`NewerFormat(2)`).
+      - **`a_part_whose_sha256_does_not_match_is_refused`**, 4 of 4: a damaged module is refused naming `MODULE`, also inside an executable; damaged machine code is refused naming `MACHINE_CODE`, and the module beside it still reads.
+      - **`the_overlay_carrier_round_trips_on_any_system`**, 12 of 12, on ELF and PE files made in the test: the image kept, the payload read back, not packaged twice, a bare file without one, a trailer pointing elsewhere refused, a stripped file named `NoPayload`.
+      - **`the_macho_carrier_moves_linkedit_and_signs_again`**, 12 of 12, on a Mach-O made in the test: one command more, `__PRPAYLOAD` where `__LINKEDIT` began, `__LINKEDIT` and its tables moved by the payload's pages with their bytes where the offsets say, the new signature ending the file and `__LINKEDIT`, the text unchanged, 40 bytes of room refused (`NoHeaderRoom { free: 40, needed: 72 }`).
+    - **The other carriers:** `build-all-platforms.yml` gains "Test the program package on this system's carrier" in each of the four builds (Linux and Windows overlay, both Macs' segment). It runs at the workflow's next dispatch and **is not yet measured**. The Intel Mac's 4 KiB pages are the one choice made without a machine to check it on.
 
 - [ ] **T15 — `prc-runner` for console programs** (R4 runner half, R5, R6, R10, R16, R28 runner half; AC5 runner half)
   - Files: new `crates/cobolt-runner/` (a workspace member; binary `prc-runner`).
@@ -672,7 +710,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - a module that declares `sql` is refused, naming `sql`;
       - a module of ABI 1 runs;
       - the refusal text exists in six languages and contains no "cobolt".
-  - **Generator half done (2.0.507, 2026-11-15)**; the runner half waits for T13 and T14.
+  - **Generator half done (2.0.507, 2026-11-15)**; the runner half waits for T13 and T14 (both done: 2.0.511, 2.0.512). Link `prc-runner` with `-Wl,-headerpad,0x1000` on macOS, or T14 refuses it (`NoHeaderRoom`).
     - **`RETURN-CODE` in a desktop module** is a hidden whole-number register (`BINARY`, 18 digits, signed), zero when the run starts. It compiles in `MOVE`, `ADD`, `SUBTRACT`, `MULTIPLY`, `COMPUTE`, `DISPLAY` and comparisons with a number, `EVALUATE` included.
     - **Why only whole numbers:** the interpreter holds `RETURN-CODE` as a register of its own whose type follows the last value moved in (a fraction or characters stay as they are). The module cannot follow that, so it compiles only what it can prove is a whole number and refuses the rest, naming why. The program then takes the Cargo path, which ends as the interpreter does. Refused: a value that may carry a fraction or characters (a literal, an item with decimals, a division), `DIVIDE`, `ON SIZE ERROR` with it as a receiver, and any other use (`STRING`, a move into characters, a comparison with characters). A browser build still refuses it as undefined.
     - **`prn.exit(code)`** (ABI A30, capability `env`): where the run ends (after `STOP RUN`'s flush, `GOBACK` or `EXIT PROGRAM` from the main program, past its last statement), the module hands `RETURN-CODE` over, held to the 32-bit range as the interpreter's exit code is. The test host records it in `Outcome.exit_code`. A program that never names `RETURN-CODE` imports nothing new, and its module is the browser module byte for byte.
