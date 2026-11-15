@@ -2,6 +2,15 @@
 
 
 
+## 2.0.508 — 2026-11-15
+
+**Fix: a program compiled to WebAssembly no longer loses its output when it ends by running past its last statement.** A program module runs to its end and hands what it DISPLAYed to the host in batches. `STOP RUN`, `GOBACK` and `EXIT PROGRAM` handed over the last batch, but a main program that simply ran past its last statement ended without it, so every line still waiting was lost. A program of one `DISPLAY` and no `STOP RUN` showed nothing.
+- **The fix:** that end of the run now hands over the last batch too, exactly as `GOBACK` does. It is the end the Desktop program built as WebAssembly (DESKTOP-WASM-001) takes, so its console output depended on it.
+- **Forms are unchanged:** a form's event handler that runs past its end already had its batch handed over by the form's dispatcher, so the change applies only to a program module, and a form module keeps its bytes (the web player's generated fixture, a form module, is byte-identical).
+- **Found** while testing `RETURN-CODE` in desktop modules (2.0.507), where a run past the last statement showed nothing.
+- **Measured** (macOS arm64): `run_end_flush`, 8 programs × 2 memory variants against the interpreter: one line, paragraphs with `PERFORM`, `GO TO` the last paragraph, sections, `WITH NO ADVANCING`, all past the end, and `STOP RUN`, `GOBACK`, `EXIT PROGRAM` showing their line once, not twice. Before the fix 6 of 16 checks passed (every past-the-end run showed nothing); after it 16 of 16, 28 lines handed over. The generator's suite on this branch: 110 tests passed; the 2 that fail are the two 2.0.504 fixes, which this branch does not carry.
+- *(Fix branch `fixes-2x-run-end-flush`, cut from `main` at 2.0.500.)*
+
 ## 2.0.507 — 2026-11-15
 
 **Feature (DESKTOP-WASM-001 T15, generator half): a Desktop program compiled to WebAssembly keeps `RETURN-CODE` and hands it to the runner as its exit code.** Until now the generator refused `RETURN-CODE`, so a console program that named it could only take the Cargo path. In a desktop module it is now a register of its own, as it is in the interpreter, and the run ends with the code it holds.
