@@ -154,6 +154,9 @@ impl Lower<'_, '_> {
         let Some(fid) = self.function_id(&up, &flat) else {
             return self.err(line, format!("FUNCTION {name} is not supported in a WebAssembly module yet"));
         };
+        if fid == cobolt_wasm_rt::func::id::RANDOM {
+            self.uses_random = true;
+        }
         let mut words: Vec<u32> = vec![fid, flat.len() as u32, u32::from(self.prog.decimal_comma), self.prog.currency as u32];
         for a in &flat {
             words.push(self.operand_or_temp(a)?);

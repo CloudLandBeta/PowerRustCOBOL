@@ -42,6 +42,7 @@ members = [
     "crates/cobolt-wasm-abi",  # WASM-ABI-v1 — the contract between the program module, the player and the host page (2.x.x)
     "crates/cobolt-runner-engine", # DESKTOP-WASM-001 — the one wasmtime engine of a built Desktop program: settings, machine code, load order, cache
     "crates/cobolt-program-package", # DESKTOP-WASM-001 — the payload inside one executable: table of contents, ELF/PE overlay, Mach-O segment signed ad hoc
+    "crates/cobolt-runner",  # DESKTOP-WASM-001 — prc-runner: runs the program a Desktop Build put inside its own executable
     "crates/cobolt-web-bundle", # the Web bundle assembler: host page, loader, headers, CSP, SRI, dev server (2.x.x)
     "crates/cobolt-web-tests",  # WASM-015 D4 — shared helpers and fixtures for the web runners (publish = false)
 ]

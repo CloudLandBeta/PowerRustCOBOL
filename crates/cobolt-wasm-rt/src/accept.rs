@@ -231,3 +231,45 @@ pub fn accept_native_environment(base: u32, target: u32, kind: u32, key: u32) {
     let text: &[u8] = if got > 0 { mem::bytes(scratch, (got as u32).min(SCRATCH_SIZE)) } else { &[] };
     put(base, target, text);
 }
+
+/// `PRC_TEST_SEED` in a desktop module (DESKTOP-WASM-001 R28, T15): the
+/// generator calls this first, in a program that uses `FUNCTION RANDOM`, with
+/// `name` the operand of the literal `PRC_TEST_SEED`. A whole number from 0 to
+/// 2^64 - 1 (white space around it and a leading `+` allowed, as the
+/// interpreter reads the variable) starts the generator as `FUNCTION
+/// RANDOM(seed)` starts it; anything else leaves its first state, as the
+/// interpreter leaves its own. The arithmetic is `func::mix_seed`'s, written
+/// out so that function keeps its one caller (see above).
+pub fn native_random_pin(base: u32, name: u32) {
+    let scratch = st().ws + WS_SCRATCH;
+    let loc = locate(base, &parse(name));
+    let len = loc.len.min(SCRATCH_SIZE);
+    mem::copy(loc.addr, scratch, len);
+    // SAFETY: the host writes at most `cap` bytes into the scratch area, over the name.
+    let got = unsafe { host::env_get(ENV_VAR, len, scratch, SCRATCH_SIZE) };
+    if got <= 0 {
+        return;
+    }
+    let text = mem::bytes(scratch, (got as u32).min(SCRATCH_SIZE));
+    let blank = |c: &u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | 0x0B | 0x0C);
+    let start = text.iter().position(|c| !blank(c)).unwrap_or(text.len());
+    let end = text.iter().rposition(|c| !blank(c)).map_or(start, |e| e + 1);
+    let mut digits = text.get(start..end).unwrap_or(&[]);
+    if let Some((b'+', rest)) = digits.split_first() {
+        digits = rest;
+    }
+    if digits.is_empty() {
+        return;
+    }
+    let mut seed: u64 = 0;
+    for &c in digits {
+        if !c.is_ascii_digit() {
+            return;
+        }
+        match seed.checked_mul(10).and_then(|s| s.checked_add(u64::from(c.wrapping_sub(b'0')))) {
+            Some(s) => seed = s,
+            None => return,
+        }
+    }
+    st().random = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+}

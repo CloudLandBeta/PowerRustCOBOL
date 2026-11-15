@@ -2,6 +2,38 @@
 
 
 
+## 2.0.513 — 2026-11-15
+
+**Feature (DESKTOP-WASM-001 T15): `prc-runner`, the PowerRustCOBOL runner, which runs the console program a Desktop Build puts inside its own executable.**
+- **The crate `cobolt-runner`** (binary `prc-runner`) holds the runner. At start it:
+  1. reads its own file and finds the program in it. A file without one says so, and a damaged one is named;
+  2. reads the program's manifest before loading anything. It refuses an ABI outside 1 to the newest, any capability other than `console` and `env`, and any import it does not provide, naming each;
+  3. loads the Build's machine code, or compiles at load and keeps the result in the user's cache folder under `PowerRustCOBOL/runner` (or `PRC_RUNNER_CACHE`). With `PRC_RUNNER_TRACE` set it names the path it took on stderr;
+  4. links exactly the imports the program declares, runs it, and exits with the code the program handed over (`RETURN-CODE`), or 0.
+- It links neither the generator nor the interpreter. It is linked on macOS with room for the program's segment (`-Wl,-headerpad,0x1000`).
+- **Console and environment:**
+  - `DISPLAY` lines go to stdout, and errors to stderr.
+  - `ACCEPT` from the console flushes the output first, then reads one line of stdin without its line end. At the end of the input it answers the ABI's end-of-file code (−10).
+  - `ACCEPT` from the environment, the arguments and the command line answers from this process.
+- **Messages in six languages** (en, es, pt, fr, ja, zh), chosen by `LC_ALL`, then `LC_MESSAGES`, then `LANG`. `C`, `POSIX` and an unknown language get English.
+- **The test pins** `PRC_TEST_CLOCK` and `PRC_TEST_SEED` are read as the interpreter reads them, and an unreadable value is named.
+  - The clock answers the local date and time, so `ACCEPT … FROM DATE/TIME/DAY/DAY-OF-WEEK` and the first 16 characters of `CURRENT-DATE` match the interpreter in any zone.
+  - `CURRENT-DATE`'s last five characters still read `+0000` (WASM-PARITY #53, open).
+- **`FUNCTION RANDOM` under `PRC_TEST_SEED`:** the generator lives inside the program, so it never asks the runner. A desktop program that calls `RANDOM` now reads `PRC_TEST_SEED` at its start and begins as `FUNCTION RANDOM(seed)` does, as the Cargo-built program does.
+  - A value that is not a whole number from 0 to 2^64−1 pins nothing.
+  - A program without `RANDOM`, a browser module and a form's module are unchanged.
+  - The routine blob was rebuilt (234 427 → 235 145 bytes). PowerAnalyticsWeb's three artefacts keep their pins, and the 10 web goldens match.
+- **Measured** (macOS arm64, Apple M3 Pro, debug build): `cargo test -p cobolt-runner`, 5 of 5.
+  - **A packaged console program**, with console `ACCEPT` ×2, environment, arguments, command line, `DATE`, `TIME`, `DAY`, `DAY-OF-WEEK`, `CURRENT-DATE`, `RANDOM` ×3 and `RETURN-CODE` 7:
+    - module 136 835 bytes (12.7 ms); machine code 1 465 944 bytes (207.8 ms); the packaged file 46 399 024 bytes (1 940 ms);
+    - under a pinned clock and two seeds it prints what `rcrun run` prints, byte for byte: 294 bytes in 10 lines. Both exit with 7, and the runner loads the Build's machine code: 19 of 19;
+    - a warm start takes 67.5 ms, against 22.0 ms for `rcrun run`. The first run of a newly written file takes 1.5 s while macOS checks it.
+  - **A capability the runner lacks** (`sql`) is refused by name in each of the six languages, with nothing on stdout. ABI 2 is refused, and a bare runner says it carries no program: 34 of 34.
+  - **The messages:** 8 × 6 texts, all distinct, none naming the crate: 113 of 113.
+  - **The seed pin** (`cobolt-wasm`): 11 values of `PRC_TEST_SEED` each give the interpreter's numbers (55 lines): 40 of 40.
+  - **Unchanged:** `cobolt-wasm`, 118 tests, 0 failed; `cobolt-wasm-rt`, 27 of 27.
+- Not yet: the Build does not make this file (T16), and the runner is not yet built or signed in CI.
+
 ## 2.0.512 — 2026-11-15
 
 **Feature (DESKTOP-WASM-001 T14): `cobolt-program-package`, which puts the program inside the runner's executable, so a program built on the WebAssembly path is one file.**

@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-runner"
+description = "prc-runner, the PowerRustCOBOL runner (DESKTOP-WASM-001 T15): runs the Desktop program a Build put inside its own executable, a WebAssembly module and its machine code"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+build                  = "build.rs"
+
+[[bin]]
+name = "prc-runner"
+path = "src/main.rs"
+
+[dependencies]
+# The one engine, the machine code's load order and the local cache (T13).
+cobolt-runner-engine   = { path = "../cobolt-runner-engine" }
+# The payload inside this executable (T14).
+cobolt-program-package = { path = "../cobolt-program-package" }
+# The manifest, the module scanner, the command batches and the capability table: the ABI's one definition.
+cobolt-wasm-abi        = { path = "../cobolt-wasm-abi", features = ["scan"] }
+# The manifest is read before the module is loaded, so its ABI is named in the program's own words.
+serde_json = { workspace = true }
+# The same engine the runner-engine crate builds, for the linker and the store.
+wasmtime = { version = "=44.0.3", default-features = false, features = ["cranelift", "runtime", "std"] }
+# The pinned clock (`PRC_TEST_CLOCK`, RFC 3339) and the local offset, read as the interpreter reads them.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[dev-dependencies]
+# The test compiles its console programs with the generator, as the Build will (T16), and packages
+# them into this crate's built runner.
+cobolt-wasm   = { path = "../cobolt-wasm", default-features = false }
+cobolt-lexer  = { path = "../cobolt-lexer" }
+cobolt-parser = { path = "../cobolt-parser" }
+cobolt-ast    = { path = "../cobolt-ast" }
+# A module whose manifest asks for a capability the generator does not make yet (`sql`).
+wasmparser    = "0.244"
+wasm-encoder  = "0.244"

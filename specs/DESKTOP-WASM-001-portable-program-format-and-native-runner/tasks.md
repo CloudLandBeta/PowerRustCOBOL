@@ -697,7 +697,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - **`the_macho_carrier_moves_linkedit_and_signs_again`**, 12 of 12, on a Mach-O made in the test: one command more, `__PRPAYLOAD` where `__LINKEDIT` began, `__LINKEDIT` and its tables moved by the payload's pages with their bytes where the offsets say, the new signature ending the file and `__LINKEDIT`, the text unchanged, 40 bytes of room refused (`NoHeaderRoom { free: 40, needed: 72 }`).
     - **The other carriers:** `build-all-platforms.yml` gains "Test the program package on this system's carrier" in each of the four builds (Linux and Windows overlay, both Macs' segment). It runs at the workflow's next dispatch and **is not yet measured**. The Intel Mac's 4 KiB pages are the one choice made without a machine to check it on.
 
-- [ ] **T15 — `prc-runner` for console programs** (R4 runner half, R5, R6, R10, R16, R28 runner half; AC5 runner half)
+- [x] **T15 — `prc-runner` for console programs** (R4 runner half, R5, R6, R10, R16, R28 runner half; AC5 runner half)
   - Files: new `crates/cobolt-runner/` (a workspace member; binary `prc-runner`).
   - Do:
     - **Loading:** read the payload through `PRLOC`, then validate the manifest's range.
@@ -719,6 +719,51 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - **Found in passing, each a fix of its own** (fixed in 2.0.508 and 2.0.509 on `fixes-2x-run-end-flush` and `fixes-2x-exit-code-wrap`, picked here; 2.0.510 lets the "last statement" case of `native_return_code` DISPLAY again):
       - `pr_run` does not flush when the main program goes past its last statement, so on the test host the DISPLAY output of such a run is lost. That is older than T15.
       - The interpreter's exit code wraps past 64 bits (`CobolValue::as_i64` casts its `i128`): 2^64 ends with 0, −(2^64)+5 with 5.
+  - *Runner half done 2026-11-15 (2.0.513):*
+    - **The crate** `crates/cobolt-runner` (a workspace member, binary `prc-runner`), linked on macOS with `-Wl,-headerpad,0x1000` by its `build.rs` (`cargo:rustc-link-arg-bins`). Its dependencies are T13's engine, T14's package, `cobolt-wasm-abi` (`scan`), `wasmtime` 44.0.3, `chrono` and `serde_json`; it does not link the generator or the interpreter, and adds no third-party package to `Cargo.lock` (the generator and the parser are test-only dependencies).
+    - **Start** (`run_self`): the runner reads its own file. Then:
+      1. It finds the payload (`locate`, `decode`). A file with none is `NoProgram`; anything damaged is `Damaged`, with the package's words.
+      2. It reads the manifest from `prmanifest` before loading anything. An ABI outside 1 to `ABI_VERSION` is refused, naming both numbers.
+      3. It refuses every capability outside `PROVIDED_CAPABILITIES` (`console`, `env`), naming them, and every import outside `PROVIDED_IMPORTS`.
+      4. It loads through T13's `load` with the `MACHINE_CODE` and `MACHINE_CODE_ENGINE` parts. The cache is `PRC_RUNNER_CACHE`, or the user's cache folder under `PowerRustCOBOL/runner`. `PRC_RUNNER_TRACE` names the load path on stderr.
+      5. It instantiates the module, checks that `pr_abi` equals the manifest's ABI, calls `pr_run`, and exits with the code `prn.exit` received (0 without one).
+    - **`linker_for(engine, abi, imports)`** links exactly the imports the module declares:
+      - `PROVIDED_IMPORTS` lists `(ABI, module, name)` rows that are never removed. ABI 1 has `pr.flush`, `abort`, `now` and `random`, and `prn.con_read`, `env_get` and `exit`.
+      - `pr.query`, `pr.remote` and the conformance imports are not provided yet. They are named when a module has them.
+    - **The imports:**
+      - **`flush`:** each `DISPLAY` command is one line on stdout, and an `ERROR` goes to stderr.
+      - **`abort`:** the output so far, then the error in the system's language and exit 1.
+      - **`con_read`:** stdout is flushed first, then one line of stdin is read, its line end removed; −10 at the end of the input.
+      - **`env_get`:** this process's variables and arguments, with the test host's kinds 0–3.
+    - **Messages** (`messages.rs`): eight messages in en, es, pt, fr, ja and zh, chosen by `LC_ALL`, then `LC_MESSAGES`, then `LANG`. `C`, `POSIX` and an unknown language get English. The runner is "the PowerRustCOBOL runner"; no text names the crate.
+    - **Pins** (`pins.rs`): `PRC_TEST_CLOCK` and `PRC_TEST_SEED` are read as `cobolt-runtime::test_pins` reads them, and an unreadable value is named on stderr in the interpreter's words.
+      - **The clock is the local one.** `now` answers the local date and time (the instant plus the zone's offset) as milliseconds since 1970, because the routines read it as a calendar. So `ACCEPT … FROM DATE/TIME/DAY/DAY-OF-WEEK` and the first 16 characters of `CURRENT-DATE` are the desktop's, as the interpreter shows them, in any zone.
+      - **Open:** `CURRENT-DATE`'s last five characters still read `+0000` (**WASM-PARITY #53**, new). The module needs the offset from the runner before AC19 judges a form that shows `CURRENT-DATE` whole.
+      - **`random`** answers the interpreter's generator from `PRC_TEST_SEED`.
+    - **Found and settled: `FUNCTION RANDOM` never asks the host.** The module keeps its own generator (`cobolt-wasm-rt` `func.rs`), with the interpreter's algorithm and first state. A `random` import therefore cannot pin it.
+      - **The generator side:** a desktop program module that calls `RANDOM` now starts with `rt_random_pin`. That reads `PRC_TEST_SEED` through the `env_get` the runner already has (capability `env`), and starts the generator as `FUNCTION RANDOM(seed)` does. That is what the Cargo binary does with its own environment. A value that is not a whole number from 0 to 2^64−1 pins nothing, as in the interpreter.
+      - **No new import and no ABI change.** A program without `RANDOM`, a browser module and a form's module are unchanged. A form opens more than once, so its pin waits for the desktop form host (M2).
+      - **The routine blob was rebuilt** (234 427 → 235 145 bytes). The new routine is appended at the end of `accept.rs` and `lib.rs`, writes `mix_seed`'s arithmetic out so that function keeps its one caller, and indexes nothing, so the routines a browser module links keep their bytes.
+    - **Measured** (macOS arm64, Apple M3 Pro, debug build):
+      - **`cargo test -p cobolt-runner -- --nocapture --test-threads=1`:** 5 of 5 (2 unit, 3 integration).
+        - **`a_packaged_console_program_matches_rcrun_run_byte_for_byte`, 19 of 19:**
+          - The program: console `ACCEPT` ×2, `ENVIRONMENT` ×2 (set, not set), `ARGUMENT-NUMBER`, `COMMAND-LINE`, `ARGUMENT-VALUE`, `DATE`, `TIME`, `DAY`, `DAY-OF-WEEK`, `CURRENT-DATE` (its 16 characters), `RANDOM` ×3, and `RETURN-CODE` 7.
+          - It compiles to an ABI 1 module of 136 835 bytes (imports `prn.con_read`, `env_get`, `exit`; capabilities `console`, `env`) in 12.7 ms. Its machine code is 1 465 944 bytes, made in 207.8 ms. Packaged into the built debug `prc-runner` it is 46 399 024 bytes, written in 1 940 ms.
+          - Under `PRC_TEST_CLOCK=2026-01-02T03:04:05.67-03:00` with seeds 20261114 and 7, its stdout equals that of `rcrun run`, built fresh from the same source, byte for byte: 294 bytes in 10 lines each. Both exit with 7.
+          - The runner loads the Build's machine code (`loaded by MachineCode`).
+          - The pins are not a no-op: the lines show `date 260102 time 03040567 day 26002 dow 5` and `stamp 2026010203040567`, and the two seeds give different `RANDOM` lines.
+          - Start-up: 67.5 ms for a warm second run, against `rcrun run`'s 22.0 ms. The first run of a newly written file is 1.5 s on macOS, while the system checks it.
+        - **`a_capability_the_runner_lacks_is_refused_by_name_in_six_languages`, 34 of 34:**
+          - A module whose manifest asks for `console`, `env` and `sql` exits 1 under `LC_ALL` en_US, es_ES, pt_BR, fr_FR, ja_JP and zh_CN. In each, stderr is exactly that language's text and names `sql`, and stdout is empty.
+          - A manifest naming ABI 2 is refused as "ABI 2 … ABI 1 to 1".
+          - A bare `prc-runner` says, in Portuguese, that it carries no program.
+        - **`every_message_exists_in_six_languages_without_the_crate_name`, 113 of 113:** 8 messages × 6 languages; every text is distinct, has no "cobolt", and names every capability; 8 locale names read.
+        - **Unit tests:** the pinned clock answers its local wall time (1 767 323 045 670 ms), and unreadable pins are named and pin nothing.
+      - **`native_random_pin`** (`cobolt-wasm`), 40 of 40: 11 values of `PRC_TEST_SEED` (none, 0, 7, 20261114, 2^64−1, `"  42\t"`, `"+42"`, `"abc"`, `"-1"`, 2^64, empty) each give the interpreter's 5 lines (55 in all). A desktop program without `RANDOM` is the browser module byte for byte.
+      - **`cargo test -p cobolt-wasm --no-fail-fast`** with the rebuilt blob: 118 tests in 31 targets, 0 failed (`corpus`, `player_fixture`, `rt_blob`, `compile_determinism`, `native_console`, `native_return_code` included).
+      - **`desktop_wasm_unchanged`:** 3 of 3 PowerAnalyticsWeb artefacts match their pins. **`web_golden`:** 10 match.
+      - **`cargo test -p cobolt-wasm-rt`:** 27 of 27 (9 unit, 18 integration).
+    - **Not done here:** the Build does not yet make this file (T16), and the runner is not yet built or signed in CI. Its release size is measured in M1 (C12).
 
 - [ ] **T16 — The Build classifies and takes the WebAssembly path** (R1, R7, R8, R13, R14, R21, R24, R25; AC1 local half, AC11, AC12, AC13, AC15, AC17 compiler half; C8, C11)
   - Files:

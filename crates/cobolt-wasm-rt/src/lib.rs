@@ -805,3 +805,11 @@ pub extern "C" fn rt_accept_con(base: u32, target: u32) {
 pub extern "C" fn rt_accept_env(base: u32, target: u32, kind: u32, key: u32) {
     accept::accept_native_environment(base, target, kind, key);
 }
+
+/// The first statement of a desktop program that uses `FUNCTION RANDOM`
+/// (DESKTOP-WASM-001 R28, T15): `PRC_TEST_SEED`, read through `env_get`, pins
+/// the generator as it pins the interpreter's. `name` is the literal's operand.
+#[no_mangle]
+pub extern "C" fn rt_random_pin(base: u32, name: u32) {
+    accept::native_random_pin(base, name);
+}

@@ -259,6 +259,9 @@ pub struct Lower<'a, 'b> {
     /// named, and whether the statement being lowered is one where it may be named.
     pub(crate) rc_reg: Option<usize>,
     pub(crate) rc_ok: bool,
+    /// The program calls `FUNCTION RANDOM`: in a desktop program module, its first statement reads
+    /// `PRC_TEST_SEED` (DESKTOP-WASM-001 R28, T15; [`Self::pin_random`]).
+    pub(crate) uses_random: bool,
     pub(crate) files: HashMap<String, FileInfo>,
     /// Record item -> the file whose area it is.
     pub(crate) record_file: HashMap<usize, String>,
@@ -458,6 +461,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             native_regs: None,
             rc_reg: None,
             rc_ok: false,
+            uses_random: false,
             files: HashMap::new(),
             record_file: HashMap::new(),
             temp_next: 0,
@@ -550,6 +554,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             return Err(first);
         }
         l.resolve_run_ends()?;
+        l.pin_random(main_entry);
         let count = order.len();
         let park_slot = l.park_slot.unwrap_or(u32::MAX);
         let quit = if l.form.is_some() {
@@ -3338,6 +3343,23 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
         }
         Ok(true)
+    }
+
+    /// The test pin of `FUNCTION RANDOM` in a desktop program module (DESKTOP-WASM-001 R28, T15):
+    /// the module keeps its generator, so the main program's first statement reads `PRC_TEST_SEED`
+    /// through the runner's `env_get` and starts the generator from it, as the interpreter starts
+    /// its own (`rt_random_pin`). A program that never calls RANDOM, a browser module and a form's
+    /// module are unchanged, byte for byte; a form opens more than once, so its pin waits for the
+    /// desktop form host, which pins once per run (M2).
+    fn pin_random(&mut self, main_entry: crate::ir::BlockId) {
+        if !(self.native && self.uses_random && self.form.is_none()) {
+            return;
+        }
+        let name = self.pool.opd_lit_alnum(b"PRC_TEST_SEED");
+        if let Some(b) = self.blocks.get_mut(main_entry) {
+            let pin = [Ins::GlobalGet(G::Base), Ins::Raw(I::I32Const(name as i32)), Ins::CallRt("rt_random_pin")];
+            b.code.splice(0..0, pin);
+        }
     }
 
     /// The register's value handed to the desktop runner's `exit` wherever the run ends, clamped

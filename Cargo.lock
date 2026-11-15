@@ -2493,6 +2493,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-runner"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "cobolt-ast",
+ "cobolt-lexer",
+ "cobolt-parser",
+ "cobolt-program-package",
+ "cobolt-runner-engine",
+ "cobolt-wasm",
+ "cobolt-wasm-abi",
+ "serde_json",
+ "wasm-encoder 0.244.0",
+ "wasmparser 0.244.0",
+ "wasmtime",
+]
+
+[[package]]
 name = "cobolt-runner-engine"
 version = "0.2.0"
 dependencies = [
