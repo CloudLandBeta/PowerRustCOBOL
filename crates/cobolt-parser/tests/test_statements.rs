@@ -346,6 +346,56 @@ fn display_at_with_screen_phrase() {
     }
 }
 
+/// `WITH NO ADVANCING` is DISPLAY's own phrase, not a screen attribute. `NO`
+/// lexes as its own token, so the screen-phrase parser's guard (a word "NO")
+/// never matched it: `WITH NO ADVANCING` became an empty screen phrase, and the
+/// text was written at the terminal's top-left corner with cursor codes around
+/// it (a WebAssembly module, which ignores screen phrases, ended the line).
+#[test]
+fn with_no_advancing_is_not_a_screen_phrase() {
+    // (source, operands, NO ADVANCING, a screen phrase, UPON)
+    let cases: &[(&str, usize, bool, bool, bool)] = &[
+        ("    DISPLAY 'A' WITH NO ADVANCING.\n", 1, true, false, false),
+        ("    DISPLAY 'A' NO ADVANCING.\n", 1, true, false, false),
+        ("    DISPLAY 'A' 'B' WITH NO ADVANCING END-DISPLAY.\n", 2, true, false, false),
+        ("    DISPLAY 'A' UPON CONSOLE WITH NO ADVANCING.\n", 1, true, false, true),
+        ("    DISPLAY 'A' LINE 3 COL 5 WITH NO ADVANCING.\n", 1, true, true, false),
+        ("    DISPLAY 'A' AT LINE 3 COLUMN 5 WITH HIGHLIGHT NO ADVANCING.\n", 1, true, true, false),
+        ("    DISPLAY 'A' WITH HIGHLIGHT.\n", 1, false, true, false),
+        ("    DISPLAY 'A'.\n", 1, false, false, false),
+    ];
+    let mut failures = Vec::new();
+    for &(src, n, adv, scr, upon_set) in cases {
+        let stmts = parse_stmts(&prog(src));
+        let Some(Stmt::Display { operands, upon, no_advancing, screen, .. }) = stmts.first() else {
+            failures.push(format!("{src:?}: not a DISPLAY: {stmts:?}"));
+            continue;
+        };
+        let got = (stmts.len(), operands.len(), *no_advancing, screen.is_some(), upon.is_some());
+        if got != (1, n, adv, scr, upon_set) {
+            failures.push(format!(
+                "{src:?}: (statements, operands, NO ADVANCING, screen, UPON) = {got:?}, want {:?}",
+                (1, n, adv, scr, upon_set)
+            ));
+        }
+    }
+    // The phrase ends the statement: what follows is the next DISPLAY.
+    let two = parse_stmts(&prog("    DISPLAY 'A' WITH NO ADVANCING\n    DISPLAY 'B'.\n"));
+    if two.len() != 2 || !two.iter().all(|s| matches!(s, Stmt::Display { .. })) {
+        failures.push(format!("two DISPLAYs expected: {two:?}"));
+    }
+    // ACCEPT's `WITH NO ECHO` is not `NO ADVANCING`, and parses as it did.
+    let echo = parse_stmts(&prog("    ACCEPT WS-X WITH NO ECHO.\n"));
+    if echo.len() != 1 || !matches!(&echo[0], Stmt::Accept { screen: Some(_), .. }) {
+        failures.push(format!("ACCEPT WITH NO ECHO changed: {echo:?}"));
+    }
+    let n = cases.len() + 2;
+    println!("Parser: WITH NO ADVANCING is DISPLAY's phrase, not a screen attribute");
+    println!("  forms: WITH NO ADVANCING, NO ADVANCING, two operands, UPON, LINE/COL, AT … WITH HIGHLIGHT, HIGHLIGHT alone, plain; the next statement; ACCEPT WITH NO ECHO");
+    println!("  PASS {} FAIL {}", n - failures.len(), failures.len());
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 // ── END-DISPLAY / END-ACCEPT scope terminators ────────────────────────────────
 
 /// The terminator ENDS the operand list. Without a token of its own it lexed as

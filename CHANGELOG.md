@@ -2,6 +2,22 @@
 
 
 
+## 2.0.500 — 2026-11-15
+
+**Fix: `DISPLAY … WITH NO ADVANCING` keeps the line and writes only its text.** Written with the word `WITH`, the phrase was read as an empty screen phrase. Under `rcrun run` and in a built program the text went out wrapped in the terminal's cursor codes: at the top-left corner of a terminal, and as `ESC[1;1H…ESC[0m` in a redirected file or a pipe. A WebAssembly module, which ignores screen phrases, ended the line as if the phrase were absent.
+- **The cause:** the parser's guard looked for the word `NO` after `WITH`, but `NO` is a reserved word with a token of its own, so the guard never matched.
+- **Now `WITH NO ADVANCING` is `DISPLAY`'s own phrase** on every path, also after a real screen phrase (`AT LINE 3 COLUMN 5 WITH HIGHLIGHT NO ADVANCING`). `ACCEPT … WITH NO ECHO` parses as before.
+- **Never affected:** `NO ADVANCING` without `WITH`, and `UPON … WITH NO ADVANCING`.
+- **The Developer's Guide** (§17, after *Naming the console*) shows a prompt on the answer's line, with a Note on the old behaviour. Its translations stay deleted (2.0.498).
+- **The tests of 2.0.498** (`return_code_exit`, `return_code_exit_build`) compared the end of the output with `contains` because of this bug; they now compare it exactly.
+- **Measured** (macOS arm64):
+  - **`with_no_advancing_is_not_a_screen_phrase`** (`cobolt-parser`, new): 10 of 10. The forms: `WITH NO ADVANCING`, `NO ADVANCING`, two operands with `END-DISPLAY`, `UPON CONSOLE`, `LINE`/`COL`, `AT … WITH HIGHLIGHT`, `HIGHLIGHT` alone, a plain `DISPLAY`, the statement that follows, and `ACCEPT … WITH NO ECHO`.
+  - **`display_no_advancing`** (`cobolt-cli`, new): 3 of 3 under `rcrun run`. The output is exactly the 8 bytes `ABCD7E\nF`. Without the fix it is 38 bytes with cursor codes, and the test fails 2 of 3.
+  - **`return_code_exit`**: 9 of 9, with the last line compared exactly. **`return_code_exit_build`** (`--ignored`): 9 of 9 in the built program, also exact; debug build 31.3 s, nine runs 646 ms.
+  - **Suites:** `cobolt-parser` and `cobolt-cli` (26 test targets) are green. `cobolt-wasm` has 27 targets green and 2 red, both older than this fix and unrelated to it. `dependency_guard` still expects Rust 1.92, while the workspace's crates declare 1.95 (since 2.0.469). The corpus comparison fails on a line of elapsed time printed by `conditionals/test-arith-relation-after-and.cbl` (since 2.0.461): a different line on each run.
+  - **NIST CCVS85**, a parser change having no module boundary: the strict census is unchanged at PASS 420 of 420, FAIL 0, N-A 39. Nucleus runs 95 of 95 programs clean, with 4 614 assertions passing and 0 failing, as the ledger records. NC204M, the suite's `WITH NO ADVANCING` program, is among them.
+- *(Fix branch `fixes-2x-display-no-advancing`, `ce28f6d5`, cut from `fixes-2x-return-code` at 2.0.498 so that it can correct that fix's tests; picked onto `features-2x-desktop-wasm`.)*
+
 ## 2.0.499 — 2026-11-15
 
 **DESKTOP-WASM-001: the texts of T12 follow the `RETURN-CODE` fix** (2.0.498). T12 said that a desktop module ends with exit code 0 "as the Cargo-built program does". Since 2.0.498 the Cargo-built program ends with the code `RETURN-CODE` holds, so the texts now say what is true on each path.

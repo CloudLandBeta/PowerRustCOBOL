@@ -96,10 +96,8 @@ fn rcrun_run_ends_with_the_exit_code_return_code_holds() {
             .unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
         let got = out.status.code();
-        // `contains`, not equality: `WITH NO ADVANCING` also writes the
-        // console's cursor codes around its text.
         let ends = stdout.trim_end().lines().last().unwrap_or("").trim_end();
-        let ok = got == Some(want) && ends.contains(last);
+        let ok = got == Some(want) && ends == last;
         if !ok {
             failures.push(format!(
                 "{mode}: exit {got:?} (want {want}), output ends {ends:?} (want {last:?}); stderr: {}",
