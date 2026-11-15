@@ -44,9 +44,7 @@ const RUNS: &[(&str, &str, &str)] = &[
     ("never set", "    DISPLAY RETURN-CODE\n", STOP),
     ("move, stop run", "    MOVE 4 TO RETURN-CODE\n    DISPLAY \"RC=\" RETURN-CODE\n", STOP),
     ("move, goback", "    MOVE 16 TO RETURN-CODE\n", "    GOBACK.\n"),
-    // No DISPLAY here: `pr_run` does not flush a run that goes past its last statement, so its
-    // output would be lost on this host whatever RETURN-CODE does (older than T15, fixed apart).
-    ("move, last statement", "    MOVE 8 TO RETURN-CODE\n", "    ADD 1 TO RETURN-CODE.\n"),
+    ("move, last statement", "    MOVE 8 TO RETURN-CODE\n    DISPLAY \"RC=\" RETURN-CODE\n", "    ADD 1 TO RETURN-CODE.\n"),
     ("negative", "    MOVE -1 TO RETURN-CODE\n    DISPLAY RETURN-CODE\n", STOP),
     ("add, subtract, multiply", "    MOVE 3 TO RETURN-CODE\n    ADD 5 TO RETURN-CODE\n    SUBTRACT 2 FROM RETURN-CODE\n    MULTIPLY 7 BY RETURN-CODE\n    DISPLAY RETURN-CODE\n", STOP),
     ("compute from items", "    COMPUTE RETURN-CODE = WS-N * 2 - WS-I\n    DISPLAY RETURN-CODE\n", STOP),
@@ -59,9 +57,10 @@ const RUNS: &[(&str, &str, &str)] = &[
     ("reset", "    MOVE 5 TO RETURN-CODE\n    MOVE 0 TO RETURN-CODE\n", STOP),
 ];
 
-/// Results past 18 digits (WASM-PARITY #52): the module keeps the low 18 digits, as an item of
-/// 18 digits does; the interpreter's register has no size. The module's side is checked against
-/// the interpreter's value; the interpreter's own exit code is only shown.
+/// Results past 18 digits (WASM-PARITY #52, kept by the operator on 2026-11-15): the module keeps
+/// the low 18 digits, as an item of 18 digits does; the interpreter's register has no size. The
+/// module's side is checked against the interpreter's value; the interpreter's own exit code is
+/// only shown.
 const PAST_18: &[(&str, &str)] = &[
     ("19 digits", "    MOVE 90000000000 TO RETURN-CODE\n    MULTIPLY 100000000 BY RETURN-CODE\n    DISPLAY RETURN-CODE\n"),
     ("21 digits", "    MOVE 9999999999999 TO RETURN-CODE\n    MULTIPLY 100000000 BY RETURN-CODE\n    DISPLAY RETURN-CODE\n"),

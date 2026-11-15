@@ -2,6 +2,14 @@
 
 
 
+## 2.0.510 — 2026-11-15
+
+**Feature (DESKTOP-WASM-001 T15, generator half, follow-up): the 18-digit `RETURN-CODE` of a desktop module is kept, and its test covers output at the end of a run.**
+- **The operator's decision (2026-11-15):** past 18 digits a desktop module keeps the low 18 digits of `RETURN-CODE`, as a numeric item of 18 digits does, while the interpreter keeps every digit. WASM-PARITY #52 records it as decided, and ABI A30 says so. Below 19 digits the module and the interpreter agree, value and exit code.
+- **The two defects T15 found are fixed** and picked onto this branch: 2.0.508 (a program module hands over its output when it runs past its last statement) and 2.0.509 (the interpreter's exit code no longer wraps past 64 bits). The T15 notes in `tasks.md` and WASM-PROGRESS say so.
+- **`native_return_code`:** the case that ends past its last statement DISPLAYs `RETURN-CODE` again, which 2.0.508 makes possible, so it is now compared line for line with the interpreter like the other cases.
+- **Measured** (macOS arm64), on this branch with 2.0.508 and 2.0.509: `native_return_code` 142 of 142 (14 programs × 2 memory variants, compile 193.6 ms, 28 runs 8513.6 ms; the last-statement case shows `RC=8` and ends with 9 on both; past 18 digits the interpreter now ends 2^64 with 2147483647, as the module does); the generator's suite 118 tests in 32 targets, 0 failed; PowerAnalyticsWeb's module unchanged; `rcrun run`'s exit codes 11 of 11.
+
 ## 2.0.509 — 2026-11-15
 
 **Fix: a `RETURN-CODE` too large for an exit code is held at the nearest end instead of wrapping around.** Since 2.0.498 a console program ends with the exit code `RETURN-CODE` holds, held to the 32 bits an exit code has. `RETURN-CODE` has no size of its own, though, and the value was first cut to 64 bits by a conversion that wraps around: a program whose `RETURN-CODE` reached 2^64 (18446744073709551616) ended with 0, as if it had succeeded, and −(2^64)+5 ended with 5.
