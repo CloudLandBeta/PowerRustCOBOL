@@ -36,19 +36,41 @@ fn programs(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// A line that prints a measurement of the clock (an elapsed time, a rate):
-/// two runs of one engine already differ there, so only its label is compared.
-fn clock_free(l: &str) -> String {
+/// A line that prints a measurement of the clock (an elapsed time, a rate).
+/// It says so in words (`elapsed`, `per second`, `/second`, `/sec`) or gives a
+/// number of milliseconds (`460 ms`), as `conditionals/test-arith-relation-
+/// after-and.cbl` does (2.0.504). A count with no unit (`TIMED HITS : 1000`)
+/// is not one.
+fn is_clock_line(l: &str) -> bool {
     let low = l.to_ascii_lowercase();
-    if low.contains("elapsed") || low.contains("per second") || low.contains("/second") {
+    if low.contains("elapsed") || low.contains("per second") || low.contains("/sec") {
+        return true;
+    }
+    let words: Vec<&str> = low.split_whitespace().collect();
+    words.windows(2).any(|w| {
+        w[1] == "ms"
+            && w[0].chars().any(|c| c.is_ascii_digit())
+            && w[0].chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | ',' | '+' | '-'))
+    })
+}
+
+/// Two runs of one engine already differ in a clock line, so only its label
+/// (the text before its first `:`) is compared. Every other line is compared whole.
+fn clock_free(l: &str) -> String {
+    if is_clock_line(l) {
         l.split(':').next().unwrap_or(l).to_string()
     } else {
         l.to_string()
     }
 }
 
+/// Clock lines in the interpreter's output of the programs compared, and those programs.
+static CLOCK_LINES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static CLOCK_PROGRAMS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 enum Verdict {
-    Identical(usize),
+    /// Lines compared, and how many of them were clock lines compared by label.
+    Identical(usize, usize),
     Differs(String),
     Excluded(String),
 }
@@ -80,10 +102,13 @@ fn judge(path: &Path) -> Verdict {
         let why = format!("line {}: {}", e.line, e.message);
         return Verdict::Excluded(why);
     }
-    let want: Vec<String> = common::run_interpreter(&src)
-        .iter()
-        .map(|l| clock_free(l))
-        .collect();
+    let interpreted = common::run_interpreter(&src);
+    let clocks = interpreted.iter().filter(|l| is_clock_line(l)).count();
+    if clocks > 0 {
+        CLOCK_LINES.fetch_add(clocks, std::sync::atomic::Ordering::Relaxed);
+        CLOCK_PROGRAMS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    let want: Vec<String> = interpreted.iter().map(|l| clock_free(l)).collect();
     for multi in [true, false] {
         let c = compile_program(
             &prog,
@@ -124,7 +149,46 @@ fn judge(path: &Path) -> Verdict {
             ));
         }
     }
-    Verdict::Identical(want.len())
+    Verdict::Identical(want.len(), clocks)
+}
+
+/// The comparison is planted with pairs of lines: a clock line agrees with
+/// itself under any reading of the clock, and nothing else is let through.
+#[test]
+fn only_a_clock_line_is_compared_by_its_label() {
+    let started = std::time::Instant::now();
+    let same = |a: &str, b: &str| clock_free(a) == clock_free(b);
+    // Pairs a run of the module and of the interpreter may print: equal.
+    let agree = [
+        ("CHECK PHASE     :    12 ms", "CHECK PHASE     :    31 ms"),
+        ("TIMED PHASE     :  1000 evaluations in   460 ms", "TIMED PHASE     :  1000 evaluations in   970 ms"),
+        ("THROUGHPUT      :  2173 evaluations/sec", "THROUGHPUT      : under the clock's 10 ms"),
+        ("THROUGHPUT      : 40 calls/sec", "THROUGHPUT      : 51 calls/sec"),
+        ("Elapsed seconds     : 3", "Elapsed seconds     : 4"),
+        ("  elapsed (ms)    : 120", "  elapsed (ms)    : 95"),
+        ("RATE : 9 records per second", "RATE : 12 records per second"),
+    ];
+    // Pairs that differ in what the program computed or in a clock line's label: unequal.
+    let differ = [
+        ("TIMED HITS      : 1000", "TIMED HITS      : 999"),
+        ("TESTS PASSED    : 14", "TESTS PASSED    : 13"),
+        ("OVERALL RESULT  : PASS", "OVERALL RESULT  : FAIL"),
+        ("CHECK PHASE     :    12 ms", "CHECK PHASES    :    12 ms"),
+        ("TIMED PHASE     : 1000 evaluations in 460 ms", "TIMING PHASE    : 1000 evaluations in 460 ms"),
+        ("P010 PERFORM 4 TIMES -> 4 iterations", "P010 PERFORM 4 TIMES -> 5 iterations"),
+        ("TERMS : 12 items", "TERMS : 13 items"),
+        ("UNIT : 12 msec", "UNIT : 13 msec"),
+    ];
+    let agreed = agree.iter().filter(|(a, b)| same(a, b)).count();
+    let caught = differ.iter().filter(|(a, b)| !same(a, b)).count();
+    eprintln!(
+        "clock lines: {agreed} of {} clock pairs agree, {caught} of {} planted differences caught, {:.2} ms",
+        agree.len(),
+        differ.len(),
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    assert_eq!(agreed, agree.len(), "a clock line was compared beyond its label");
+    assert_eq!(caught, differ.len(), "a real difference was let through");
 }
 
 #[test]
@@ -141,10 +205,15 @@ fn the_corpus_inside_the_subset_matches_the_interpreter() {
             .to_string_lossy()
             .replace('\\', "/");
         match judge(f) {
-            Verdict::Identical(n) => {
+            Verdict::Identical(n, 0) => {
                 identical += 1;
                 lines += n;
                 eprintln!("  identical  {rel} ({n} lines)");
+            }
+            Verdict::Identical(n, clocks) => {
+                identical += 1;
+                lines += n;
+                eprintln!("  identical  {rel} ({n} lines, {clocks} of them clock lines compared by label)");
             }
             Verdict::Excluded(why) => {
                 excluded += 1;
@@ -163,6 +232,11 @@ fn the_corpus_inside_the_subset_matches_the_interpreter() {
         differs.len()
     );
     eprintln!("corpus: {} modules scanned, 0 with memory.grow (WASM-017 R7)", SCANNED.load(std::sync::atomic::Ordering::Relaxed));
+    eprintln!(
+        "corpus: {} clock lines in {} compiled programs compared by their label only",
+        CLOCK_LINES.load(std::sync::atomic::Ordering::Relaxed),
+        CLOCK_PROGRAMS.load(std::sync::atomic::Ordering::Relaxed)
+    );
     let unknown: Vec<_> = differs
         .iter()
         .filter(|(r, _)| !KNOWN.iter().any(|(k, _)| k == r))
