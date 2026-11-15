@@ -9,6 +9,16 @@
 - **A second failure, hidden behind the first:** the AC8 case of `live_resolver_verdicts` pinned `itoa =1.0.10` and expected a warning that two copies coexist. A 1.x pin becomes the only itoa 1.x of the whole program, so it must satisfy every crate's requirement. It stopped resolving once the AWS client needed itoa 1.0.17 or later. The case now pins `itoa =0.3.4`. The program already has itoa 0.4 and 1.x, and no crate will ever ask for 0.3, so this is the semver-incompatible second copy spec 044's R14 describes.
 - **Measured** (macOS arm64, live crates.io): the 9 `flow_tests` pass. The live verdicts: egui 0.36 refused as already available; `rusqlite =0.24.2` refused on the `sqlite3` links clash in 16.3 s; `itoa =0.3.4` allowed with the warning in 8.1 s; 25.7 s in all. `cargo test -p cobolt-ide --bin cobolt-ide`, run before the AC8 change, gave 2 026 passed, 2 failed and 6 ignored. The two failures were `live_resolver_verdicts` (now passing) and `every_document_ships_in_every_language`, which stays red by design while the guide's translations are deleted (GOLDEN RULE #8).
 
+## 2.0.505 — 2026-11-15
+
+**Fix: the form host's example-corpus golden follows the SideMenu fix of 2.0.311.** `corpus_golden` (`cobolt-form-host`) failed on `PowerChat/chat-form.cfrm`: the rail was 594 high where the golden said 792. Since 2.0.311, a full-height SideMenu follows the form's laid-out height instead of its designed one. 2.0.360 brought the renderer's golden (`cobolt-forms`) up to that fix, but the form host keeps a second golden of the same corpus, and that one was never updated. No product code changes.
+- **The golden changes in three rows, all of them the rail following the laid-out height:**
+  - the Window at 0.75x: 594 high instead of 792;
+  - the Window at 1.5x: 1188 instead of 792;
+  - the ContentPane occupant at 1.5x: the rail now ends at the pane's bottom (y 1188) instead of at 820.
+- **The other 75 forms of the corpus are unchanged.** The footer Panel's row keeps its designed rect: at run time the rail draws the footer into its own footer band, so that row never shows where the footer is painted.
+- **Measured** (macOS arm64): the golden rewritten from `main` at 2.0.500 with `COBOLT_WRITE_GOLDEN=1`, then compared again without it. The test covers 76 forms of PowerDemo3 and PowerChat at 0.75x, 1x and 1.5x, with 465 renders and 10 227 control rows. The comparison run finds 0 forms differing, and all 124 designed-size renders with `responsive="true"` agree with the plain form; 240.4 s.
+
 ## 2.0.504 — 2026-11-15
 
 **Fix: the WebAssembly generator's test suite is green again: its dependency guard follows the workspace's own Rust floor, and its corpus comparison recognises every timing line.** Two targets of `cargo test -p cobolt-wasm` had been red since before DESKTOP-WASM-001, and every task of it reported them. Neither red was a fault in the product: each test held a rule that the code had moved past.
