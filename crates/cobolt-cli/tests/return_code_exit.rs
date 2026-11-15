@@ -50,6 +50,15 @@ MAIN-PARA.
         WHEN \"negative\"
             MOVE -1 TO RETURN-CODE
             STOP RUN
+        WHEN \"huge\"
+            MOVE 4294967296 TO RETURN-CODE
+            MULTIPLY 4294967296 BY RETURN-CODE
+            STOP RUN
+        WHEN \"hugeneg\"
+            MOVE -4294967296 TO RETURN-CODE
+            MULTIPLY 4294967296 BY RETURN-CODE
+            ADD 5 TO RETURN-CODE
+            STOP RUN
         WHEN \"fall\"
             MOVE 8 TO RETURN-CODE
     END-EVALUATE
@@ -68,6 +77,9 @@ fn cases() -> Vec<(&'static str, i32, &'static str)> {
         ("fraction", 7, "MODE fraction"),
         ("wide", if cfg!(windows) { 300 } else { 44 }, "NO-NEWLINE"),
         ("negative", if cfg!(windows) { -1 } else { 255 }, "MODE negative"),
+        // 2^64 and -(2^64)+5 are held at the 32-bit ends (they used to wrap to 0 and 5).
+        ("huge", if cfg!(windows) { i32::MAX } else { 255 }, "MODE huge"),
+        ("hugeneg", if cfg!(windows) { i32::MIN } else { 0 }, "MODE hugeneg"),
         ("fall", 8, "END fall"),
     ]
 }
@@ -111,7 +123,7 @@ fn rcrun_run_ends_with_the_exit_code_return_code_holds() {
 
     println!("rcrun run: RETURN-CODE is the exit code");
     println!("  cases (exit code seen): {}", lines.join(", "));
-    println!("  forms: STOP RUN, GOBACK, the end of the program, MOVE, ADD, a fraction, 300 and -1, no RETURN-CODE");
+    println!("  forms: STOP RUN, GOBACK, the end of the program, MOVE, ADD, a fraction, 300 and -1, 2^64 and -(2^64)+5, no RETURN-CODE");
     println!("  runs {n}, {ms:.1} ms ({:.1} ms per run)", ms / n as f64);
     println!("  PASS {} FAIL {}", n - failures.len(), failures.len());
     assert!(failures.is_empty(), "{}", failures.join("\n"));
