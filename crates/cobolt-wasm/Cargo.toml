@@ -47,6 +47,12 @@ default-features = false
 features         = ["cranelift", "runtime", "std"]
 optional         = true
 
+# The engine's settings live in one place, shared with the native runner (DESKTOP-WASM-001 T13):
+# `host::engine()` is that crate's engine, so the tests run modules exactly as a built program does.
+[dependencies.cobolt-runner-engine]
+path     = "../cobolt-runner-engine"
+optional = true
+
 # The ABI's one codec, manifest and module scanner (WASM-010 D3). `scan` uses
 # the wasmparser this crate already has.
 [dependencies.cobolt-wasm-abi]
@@ -55,7 +61,7 @@ features = ["scan"]
 
 [features]
 default = ["host"]
-host    = ["dep:wasmtime"]
+host    = ["dep:wasmtime", "dep:cobolt-runner-engine"]
 
 [dev-dependencies]
 wasmparser      = { version = "0.244", features = ["validate", "features"] }

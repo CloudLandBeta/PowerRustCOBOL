@@ -40,6 +40,7 @@ members = [
     "crates/cobolt-web-preview", # WASM-008 — the helper process holding the system web view of the web Preview
     "crates/cobolt-bench",   # performance + allocation baseline harness
     "crates/cobolt-wasm-abi",  # WASM-ABI-v1 — the contract between the program module, the player and the host page (2.x.x)
+    "crates/cobolt-runner-engine", # DESKTOP-WASM-001 — the one wasmtime engine of a built Desktop program: settings, machine code, load order, cache
     "crates/cobolt-web-bundle", # the Web bundle assembler: host page, loader, headers, CSP, SRI, dev server (2.x.x)
     "crates/cobolt-web-tests",  # WASM-015 D4 — shared helpers and fixtures for the web runners (publish = false)
 ]

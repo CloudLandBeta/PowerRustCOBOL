@@ -592,7 +592,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
         - `corpus`: `conditionals/test-arith-relation-after-and.cbl` prints its own timing (430 ms in the module, 920 ms in the interpreter);
         - `dependency_guard`.
 
-- [ ] **T13 — `cobolt-runner-engine`: one wasmtime setup, machine code and its cache** (R6, R15, R16; AC8 engine half)
+- [x] **T13 — `cobolt-runner-engine`: one wasmtime setup, machine code and its cache** (R6, R15, R16; AC8 engine half)
   - Files:
     - new `crates/cobolt-runner-engine/` (a workspace member);
     - `crates/cobolt-wasm/src/host.rs`: `engine()` delegates to it.
@@ -611,6 +611,38 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       The result block gives each path's ms.
     - `cargo test -p cobolt-wasm` green.
     - `cargo tree -d -p cobolt-runner-engine` shows one `wasmtime`, `=44.0.3`.
+  - *Done 2026-11-15 (2.0.511):*
+    - **The crate** `crates/cobolt-runner-engine` (a workspace member): wasmtime `=44.0.3` with `cranelift`, `runtime`, `std` and `parallel-compilation`; `target-lexicon` 0.13 for the host's triple; `sha2`.
+    - **One `Config`** (`config(target)`): multi-memory, NaN canonicalisation, parallel compilation, and an explicit target with its CPU flags named, so nothing of the compiling machine leaks into the code.
+      - **`Target::baseline(triple)`** is what the Build makes code for: x86-64-v2 on x86-64 (`has_sse3`, `has_ssse3`, `has_sse41`, `has_sse42`, `has_popcnt`, `has_cmpxchg16b`), the Apple M1's level on aarch64 (`has_lse`, `has_pauth`, `has_fp16`).
+      - **`Target::host()`** is what the runner and the tests run on: this machine's triple at the same baseline, less any flag this CPU lacks. Reading the source showed why: wasmtime refuses to compile *at load* for an engine whose flags the CPU lacks (`Engine::_check_compatible_with_native_host`), so a fixed baseline engine would leave an older aarch64 Linux machine (no LSE) with no way to run. On every Apple silicon Mac and every x86-64-v2 PC the two are equal, and the Build's code loads.
+    - **`precompile(module, target)`** returns `MachineCode { bytes, sha256, compat }`: wasmtime's serialised module, its sha256, and the sha256 of the engine's `precompile_compatibility_hash`.
+    - **`load(engine, module, code, cache)`** goes in the task's order and returns the module, its `LoadPath` (`MachineCode`, `Cache`, `Compiled`), why the code was passed by (`Skipped`: `Absent`, `Damaged`, `Foreign`, `Refused` with wasmtime's words) and the ms to a runnable module.
+      - The order is: the code's sha256 → the compatibility hash → `deserialize` → the local cache → compile at load, and then keep the result in the cache.
+      - **The cache:** one `<key>.cwasm` per module and engine, keyed by the sha256 of both. Each entry holds its own sha256 followed by the code. Entries are written whole and renamed into place. A damaged entry is removed and the module compiled again. Past 512 MiB (`CACHE_LIMIT`) the least recently used go first. A cache that cannot be read or written never stops a program.
+    - **`cobolt_wasm::host::engine()`** is now `cobolt_runner_engine::engine()`. The generator's tests run modules on the runner's own engine (feature `host`).
+    - **The M1 spike** (`spike_baseline_code_in_a_host_detecting_engine`, Apple M3 Pro, aarch64-apple-darwin): **yes.**
+      - The baseline `.cwasm` loads in an engine that detects the host's CPU, with the same settings, and answers the model's value.
+      - **It also loads in an engine with wasmtime's default settings**, which has no NaN canonicalisation. wasmtime's own load check (`Metadata::check_compatible`) compares the triple, a fixed list of code-generation flags, the tunables and the wasm features. It checks the CPU flags against the CPU. `enable_nan_canonicalization` is on its list of settings whose value "shouldn't matter" (`Engine::check_compatible_with_shared_flag`), so it is **not** checked.
+      - **The settings it forces:** none beyond the triple. So the compatibility-hash step is what keeps code made with other settings out, and it stays ahead of `deserialize`. The two engines' hashes differ (`812d5a0c…` for ours, `6786c619…` for the defaults).
+      - The runner therefore keeps the explicit-target engine (`Target::host()`). A host-detecting engine would load the Build's code but hash differently, so `load` would compile instead.
+    - **Measured** (macOS arm64, debug build): `cargo test -p cobolt-runner-engine -- --nocapture`, 5 of 5.
+      - **`every_load_path_runs_the_same_program`:** 22 of 22 checks. The module has 300 functions × 64 steps, is 594 680 bytes, uses two memories, and folds in a canonical NaN every 16 steps. Every path answers the Rust model's −1672998543259288415. The machine code is 1 068 488 bytes and took 1 140 ms to make. Load times:
+        - the Build's machine code: `MachineCode`, 77.6 ms;
+        - a foreign compatibility hash: `Compiled` (`Foreign`), 642.6 ms;
+        - truncated code: `Compiled` (`Damaged`), 723.0 ms;
+        - absent code: `Compiled` (`Absent`), 643.2 ms;
+        - an empty cache: `Compiled`, which fills it, 891.4 ms;
+        - **a cache hit on the second load:** `Cache`, 61.8 ms;
+        - truncated code with a cache hit: `Cache` (`Damaged`), 80.8 ms;
+        - a damaged cache entry: `Compiled` again, 399.7 ms.
+      - **`precompile_targets_are_explicit_and_repeatable`:** aarch64 for Linux, Windows and macOS. Each target's machine code is the same bytes twice, and the three differ from one another (1 199 560, 1 199 624 and 1 068 488 bytes). x86-64 needs wasmtime's `all-arch` and is not built on an aarch64 machine: the Build makes code for its own platform.
+      - **`the_compatibility_hash_follows_the_settings`:** two engines with these settings hash equal, and wasmtime's defaults hash differently.
+      - **`the_cache_keeps_the_most_recently_used_within_its_limit`:** with a limit of two and a half entries, the least recently used entry goes and the touched one stays. The loads go `Compiled, Compiled`; `Cache`; `Compiled`; `Cache, Compiled`, and 2 entries are left.
+      - **`cargo tree -d -p cobolt-runner-engine`:** one `wasmtime`, v44.0.3. Its duplicates are wasmtime's own (`hashbrown` 0.16/0.17, `syn` 2/3) and the test-only `wasm-encoder` 0.244 beside wasmtime's 0.246.
+      - **`cargo test -p cobolt-wasm --no-fail-fast`** on the new engine: 118 tests in 32 targets, 0 failed. That includes `dependency_guard` (3 of 3, with `rayon`, `target-lexicon` and `sha2` now in the host's tree), `corpus`, `compile_determinism`, `native_console` and `native_return_code`.
+      - **`desktop_wasm_unchanged`** (`cobolt-web-tests`): 3 of 3 artefacts match the pin.
+      - **`dependency_guards_063`** (`cobolt-compiler`, over `Cargo.lock`): 3 of 3.
 
 - [ ] **T14 — `cobolt-program-package`: the payload inside one executable** (R1, R8)
   - Files: new `crates/cobolt-program-package/` (a workspace member).

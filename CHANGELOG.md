@@ -2,6 +2,26 @@
 
 
 
+## 2.0.511 — 2026-11-15
+
+**Feature (DESKTOP-WASM-001 T13): `cobolt-runner-engine`, the one WebAssembly engine of a built Desktop program. It holds the engine's settings, makes machine code ahead, and loads it in a fixed order with a local cache.**
+- **One setup for the tests and the runner:** multi-memory, NaN canonicalisation, parallel compilation, and an explicit target with its CPU flags named, so nothing of the compiling machine leaks into the code. The generator's test host (`cobolt_wasm::host::engine()`) now runs every module on this engine.
+- **Machine code made ahead** (`precompile`): for x86-64-v2 on x86-64 and for the Apple M1's level on aarch64. It depends on the target only, and the same module and target give the same bytes every time.
+  - The runner's engine takes the same flags, less any this CPU lacks. wasmtime refuses to compile at load for flags the CPU does not have, so an older CPU compiles at load instead of being unable to run.
+- **Loading** (`load`) goes in a fixed order and names the path it took: the code's sha256, then the engine's compatibility hash, then the code itself; failing those, the local cache; failing that, compile at load, and keep the result in the cache.
+  - **The cache:** 512 MiB, least recently used first out. Each entry is checked by its own sha256, written whole and renamed into place. A damaged entry is dropped and compiled again, and a cache that cannot be written never stops a program.
+- **The M1 spike:** the baseline machine code loads in an engine that detects the CPU itself. It also loads in one without NaN canonicalisation: wasmtime's load check does not look at that setting, so the compatibility hash is what keeps such code out, and it is checked before the code is loaded.
+- **Measured** (macOS arm64, debug build): `cargo test -p cobolt-runner-engine`, 5 of 5.
+  - **`every_load_path_runs_the_same_program`:** 22 of 22 checks, on a 594 680-byte module with two memories. Every path gives the Rust model's answer. Load times:
+    - the Build's machine code, 77.6 ms;
+    - a foreign compatibility hash, truncated code and absent code each compile at load, 643–723 ms;
+    - a cache hit on the second load, 61.8 ms;
+    - a damaged cache entry compiles again.
+  - **Machine code for aarch64** on Linux, Windows and macOS: repeatable and different per target.
+  - **The cache's limit** drops the least recently used entry first.
+  - `cargo tree -d -p cobolt-runner-engine` shows one `wasmtime`, 44.0.3.
+  - **The generator's suite** on the new engine: 118 tests in 32 targets, 0 failed, including the dependency guard. PowerAnalyticsWeb's module is unchanged (3 of 3 artefacts match the pin).
+
 ## 2.0.510 — 2026-11-15
 
 **Feature (DESKTOP-WASM-001 T15, generator half, follow-up): the 18-digit `RETURN-CODE` of a desktop module is kept, and its test covers output at the end of a run.**

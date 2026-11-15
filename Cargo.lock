@@ -2485,6 +2485,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-runner-engine"
+version = "0.2.0"
+dependencies = [
+ "sha2 0.10.9",
+ "target-lexicon 0.13.5",
+ "wasm-encoder 0.244.0",
+ "wasmtime",
+]
+
+[[package]]
 name = "cobolt-runtime"
 version = "0.2.0"
 dependencies = [
@@ -2630,6 +2640,7 @@ dependencies = [
  "cobolt-lexer",
  "cobolt-parser",
  "cobolt-project-tools",
+ "cobolt-runner-engine",
  "cobolt-runtime",
  "cobolt-semantic",
  "cobolt-wasm-abi",
@@ -13525,6 +13536,7 @@ dependencies = [
  "once_cell",
  "postcard",
  "pulley-interpreter",
+ "rayon",
  "rustix 1.1.4",
  "serde",
  "serde_derive",

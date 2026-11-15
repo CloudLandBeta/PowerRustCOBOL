@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-runner-engine"
+description = "The one WebAssembly engine of a built Desktop program (DESKTOP-WASM-001 T13): its settings, machine code made ahead, and loading it in a fixed order with a local cache"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+# The engine the generator's tests already run on (WASM-010 Q2, pinned to 44.0.3),
+# with `parallel-compilation` so machine code is made on every core (plan §4.6).
+# `runtime` compiles wasmtime's one C helper, allowed by cobolt-wasm's dependency guard.
+wasmtime = { version = "=44.0.3", default-features = false, features = ["cranelift", "runtime", "std", "parallel-compilation"] }
+# The host's target triple, the same crate and line wasmtime itself parses triples with.
+target-lexicon = "0.13"
+# The machine code's checksum and the cache's keys.
+sha2 = { workspace = true }
+
+[dev-dependencies]
+# A test module assembled by hand: nothing COBOL, so the engine is tested on its own.
+wasm-encoder = "0.244"

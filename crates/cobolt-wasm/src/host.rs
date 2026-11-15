@@ -215,14 +215,12 @@ fn read_batch(caller: &Caller<'_, State>, len: u32) -> Vec<u8> {
     buf
 }
 
-/// The engine every generated module runs on. Multi-memory for the arena
-/// (WASM-017 R9); NaN canonicalisation so `COMP-1`/`COMP-2` give the same bits
-/// on every machine (R13).
+/// The engine every generated module runs on: the native runner's own
+/// (`cobolt_runner_engine::engine`, DESKTOP-WASM-001 T13). Multi-memory for the
+/// arena (WASM-017 R9); NaN canonicalisation so `COMP-1`/`COMP-2` give the same
+/// bits on every machine (R13); this machine's triple at the baseline CPU level.
 pub fn engine() -> Result<Engine, String> {
-    let mut config = wasmtime::Config::new();
-    config.wasm_multi_memory(true);
-    config.cranelift_nan_canonicalization(true);
-    Engine::new(&config).map_err(|e| e.to_string())
+    cobolt_runner_engine::engine()
 }
 
 /// Run a program-mode module (`pr_run`) to its end.
