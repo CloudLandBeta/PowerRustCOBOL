@@ -2,6 +2,19 @@
 
 
 
+## 2.0.498 — 2026-11-15
+
+**Fix: a console program ends with the exit code `RETURN-CODE` holds.** Under `rcrun run`, and in the binary `rcrun build` or the IDE's Build makes, a program ended with exit code 0 whatever it had moved to `RETURN-CODE`. A script, a scheduler or a CI job could not tell a run that reported a problem from one that went well.
+- **Now the run ends with `RETURN-CODE`:** after `STOP RUN`, after `GOBACK` from the main program, and after the last statement of a program that has neither. A program that never sets it ends with 0, as before.
+- **What the shell sees:** Linux and macOS pass on the low eight bits of an exit code (300 arrives as 44, −1 as 255); Windows passes on the whole value. A fraction is dropped (7.9 ends with 7).
+- **Unchanged:** a runtime error still ends with 1. A form application is not affected.
+- **The program's files are closed, and what it displayed is written out, before it exits** with the code, as when it returned normally. This includes a last `DISPLAY … WITH NO ADVANCING`.
+- **The Developer's Guide** (§17, *The command line*) says so. Its five translations are deleted, to be regenerated whole at the next minor release (GOLDEN RULE #8).
+- **Measured** (macOS arm64):
+  - **`return_code_exit`** (`cobolt-cli`, new): 9 of 9 cases under `rcrun run`, 4.4 s (493 ms per run). The cases are `STOP RUN` with 4, `GOBACK` with 16, the end of the program with 8, a reset to 0, `ADD` (5 + 3), 7.9, 300, −1, and no `RETURN-CODE`. Without the fix, `rcrun run` gives 0 in all nine.
+  - **`return_code_exit_build`** (`cobolt-compiler`, new, `--ignored`: it builds a real binary): the same 9 of 9 in the built program. The debug build takes 21.6 s and the nine runs 720 ms (80 ms per run).
+- *(Fix branch `fixes-2x-return-code`, `a689f984`, cut from `main` at 2.0.484; picked onto `features-2x-desktop-wasm`, whose T12 left the exit code to this fix.)*
+
 ## 2.0.497 — 2026-11-15
 
 **DESKTOP-WASM-001 T12: a desktop module reads the console, the environment and the command line through the runner** (R3, R10, R11's console part). The generator gains a `native` option, off by default; the Desktop's WebAssembly path will turn it on when it lands (T21). Every Desktop Build still takes the Cargo path, and a Web or Mobile module keeps its bytes.

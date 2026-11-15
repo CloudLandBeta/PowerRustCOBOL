@@ -204,6 +204,15 @@ fn cmd_run(args: &[String]) {
             process::exit(1);
         }
     }
+    // The program ends with the exit code `RETURN-CODE` holds, as the built
+    // program does. The run is over: close what it holds first, as returning
+    // from `main` would.
+    let code = interp.return_code();
+    drop(interp);
+    if code != 0 {
+        cobolt_runtime::shutdown_child_processes();
+        process::exit(code);
+    }
 }
 
 /// Publish the project's SQL connections (spec 087 R33) to every interpreter
