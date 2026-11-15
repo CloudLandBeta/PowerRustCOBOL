@@ -107,10 +107,8 @@ fn the_built_program_ends_with_the_exit_code_return_code_holds() {
             .unwrap_or_else(|e| panic!("cannot run the built program: {e}"));
         let stdout = String::from_utf8_lossy(&out.stdout);
         let got = out.status.code();
-        // `contains`, not equality: `WITH NO ADVANCING` also writes the
-        // console's cursor codes around its text.
         let ends = stdout.trim_end().lines().last().unwrap_or("").trim_end();
-        if got != Some(want) || !ends.contains(last) {
+        if got != Some(want) || ends != last {
             failures.push(format!(
                 "{mode}: exit {got:?} (want {want}), output ends {ends:?} (want {last:?}); stderr: {}",
                 String::from_utf8_lossy(&out.stderr)

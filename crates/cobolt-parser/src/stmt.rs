@@ -2336,6 +2336,13 @@ fn parse_screen_phrase(p: &mut Parser) -> Option<cobolt_ast::stmt::ScreenPhrase>
     };
     let is_line = |p: &Parser| p.at(&Token::Line) || is_word(p.peek(), "LINE");
     let is_col = |p: &Parser| is_word(p.peek(), "COLUMN") || is_word(p.peek(), "COL");
+    // `NO ADVANCING` at `offset` belongs to DISPLAY, not to the attributes. `NO`
+    // lexes as its own token, never as a word, so `is_word(…, "NO")` never saw it,
+    // and `WITH NO ADVANCING` was read as screen attributes: the text was written
+    // at the top-left corner, with the console's cursor codes around it.
+    let no_advancing_at = |p: &Parser, offset: usize| {
+        matches!(p.peek_at(offset), Token::No) && matches!(p.peek_at(offset + 1), Token::Advancing)
+    };
     let mut sp = ScreenPhrase::default();
     let mut got = false;
     loop {
@@ -2363,11 +2370,12 @@ fn parse_screen_phrase(p: &mut Parser) -> Option<cobolt_ast::stmt::ScreenPhrase>
         } else if has_at && is_expr_start(p) {
             // AT nnnn — a combined row*100+col position.
             sp.at = Some(parse_expr(p));
-        } else if !has_at && p.at(&Token::With) && !is_word(p.peek_at(1), "NO") {
+        } else if !has_at && p.at(&Token::With) && !no_advancing_at(p, 1) {
             p.advance(); // WITH
             got = true;
             while !stop(p)
                 && !p.at(&Token::With)
+                && !no_advancing_at(p, 0)
                 && !is_word(p.peek(), "AT")
                 && !is_line(p)
                 && !is_col(p)

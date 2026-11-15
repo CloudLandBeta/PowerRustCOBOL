@@ -17394,6 +17394,27 @@ single place to change if the program is later driven from somewhere else.
 > mnemonic is what makes the read standard — and if an `ACCEPT` unexpectedly
 > returns nothing, check that the name is declared before looking anywhere else.
 
+**A prompt on the answer's line: `WITH NO ADVANCING`.** A `DISPLAY` ends its
+line unless it says `WITH NO ADVANCING`; with the phrase, the next `DISPLAY`,
+or what the operator types, continues on the same line:
+
+```cobol
+           DISPLAY "RUN DATE (YYYYMMDD): " WITH NO ADVANCING
+           ACCEPT  WS-RUN-DATE
+```
+
+`WITH` is optional (`NO ADVANCING` alone means the same), and the phrase comes
+after `UPON` when the statement has both. Text a program displays this way just
+before it ends is still written out.
+
+> **Note — before 2.0.500**, `WITH NO ADVANCING` written with the word `WITH`
+> was read as a screen phrase. Under `rcrun run` and in a built program the
+> text went out wrapped in the terminal's cursor codes: it showed at the
+> top-left corner of the terminal, and as `ESC[1;1H…ESC[0m` in a redirected
+> file. In a WebAssembly module the line ended as if the phrase were absent.
+> `NO ADVANCING` without `WITH`, and `UPON … WITH NO ADVANCING`, were never
+> affected.
+
 ### Justified receivers and edited alphanumeric fields
 
 Two `PICTURE`-level facilities that PowerCOBOL developers reach for on report
