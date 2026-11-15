@@ -5023,6 +5023,14 @@ fn run_headless(program: cobolt_ast::program::Program) {{
             std::process::exit(1);
         }}
     }}
+    // The program ends with the exit code `RETURN-CODE` holds. The run is
+    // over: close what it holds first, as returning from `main` would.
+    let code = interp.return_code();
+    drop(interp);
+    if code != 0 {{
+        cobolt_runtime::shutdown_child_processes();
+        std::process::exit(code);
+    }}
 }}
 {form_runtime_code}
 "#,

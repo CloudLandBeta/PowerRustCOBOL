@@ -16498,6 +16498,35 @@ Anything after the source path on `rcrun run` is handed to the program itself,
 so a program can be driven from a shell script the same way any other command
 is.
 
+**The exit code is `RETURN-CODE`.** A console program ends with the exit code
+`RETURN-CODE` holds when it is over: after `STOP RUN`, after `GOBACK` from the
+main program, and after the last statement of a program that has neither. That
+holds under `rcrun run` and in the binary that `rcrun build` or the IDE's
+**Build** makes. A program that never sets `RETURN-CODE` ends with 0. A script,
+a scheduler or a CI job can therefore test a COBOL program the way it tests any
+other command:
+
+```cobol
+    IF WS-REJECTED > 0
+        MOVE 8 TO RETURN-CODE
+    END-IF
+    STOP RUN.
+```
+
+```text
+rcrun run nightly.cbl || echo "the nightly run failed with code $?"
+```
+
+> **Caveat.** Linux and macOS pass on only the low eight bits of an exit code, so
+> a shell there sees a value from 0 to 255: 300 arrives as 44, and −1 as 255.
+> Windows passes on the whole value. Keep the codes between 0 and 255 to read
+> the same number on every system. A fraction is dropped: 7.9 ends the program
+> with 7.
+
+> **Note.** Before 2.0.498 a console program ended with 0 whatever
+> `RETURN-CODE` held. A runtime error still ends the run with 1, whatever
+> `RETURN-CODE` holds. A form application is not affected.
+
 `rcrun build` and `rcrun package` take the path of the project file —
 `rcrun build MyApp.project.toml`. With no argument they look in the current
 folder for a project file under an older, fixed name, which a project created

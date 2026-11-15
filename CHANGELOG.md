@@ -2,6 +2,18 @@
 
 
 
+## 2.0.498 — 2026-11-15
+
+**Fix: a console program ends with the exit code `RETURN-CODE` holds.** Under `rcrun run`, and in the binary `rcrun build` or the IDE's Build makes, a program ended with exit code 0 whatever it had moved to `RETURN-CODE`. A script, a scheduler or a CI job could not tell a run that reported a problem from one that went well.
+- **Now the run ends with `RETURN-CODE`:** after `STOP RUN`, after `GOBACK` from the main program, and after the last statement of a program that has neither. A program that never sets it ends with 0, as before.
+- **What the shell sees:** Linux and macOS pass on the low eight bits of an exit code (300 arrives as 44, −1 as 255); Windows passes on the whole value. A fraction is dropped (7.9 ends with 7).
+- **Unchanged:** a runtime error still ends with 1. A form application is not affected.
+- **The program's files are closed, and what it displayed is written out, before it exits** with the code, as when it returned normally. This includes a last `DISPLAY … WITH NO ADVANCING`.
+- **The Developer's Guide** (§17, *The command line*) says so. Its five translations are deleted, to be regenerated whole at the next minor release (GOLDEN RULE #8).
+- **Measured** (macOS arm64):
+  - **`return_code_exit`** (`cobolt-cli`, new): 9 of 9 cases under `rcrun run`, 4.4 s (493 ms per run). The cases are `STOP RUN` with 4, `GOBACK` with 16, the end of the program with 8, a reset to 0, `ADD` (5 + 3), 7.9, 300, −1, and no `RETURN-CODE`. Without the fix, `rcrun run` gives 0 in all nine.
+  - **`return_code_exit_build`** (`cobolt-compiler`, new, `--ignored`: it builds a real binary): the same 9 of 9 in the built program. The debug build takes 21.6 s and the nine runs 720 ms (80 ms per run).
+
 ## 2.0.492 — 2026-11-14
 
 **Fix: a headless picture of a form no longer depends on the order its text was first drawn in.** The CPU rasteriser behind `render_form`, `run_form` and the headless `shot` step promised the same bytes for the same frame. It kept that promise only while every glyph sat at the same place in egui's font atlas. That place depends on the order text was first laid out in, which two runs of one program need not share. Found by DESKTOP-WASM-001's pixel-parity harness (T8): PowerCallOfDuty's war-form drew 2 to 4 text pixels differently from one run to the next, one step of 255 apart, at the designed size.

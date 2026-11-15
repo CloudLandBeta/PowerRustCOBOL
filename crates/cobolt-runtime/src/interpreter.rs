@@ -2371,6 +2371,19 @@ impl Interpreter {
         self.program_args = args;
     }
 
+    /// The exit code a console run ends with: what `RETURN-CODE` holds once
+    /// the run is over, 0 when the program never set it. A fraction is
+    /// dropped, and a value beyond the 32 bits an exit status carries is held
+    /// at the nearest end. The operating system decides what the shell sees:
+    /// Linux and macOS keep the low eight bits (300 shows as 44, -1 as 255),
+    /// Windows the whole value.
+    pub fn return_code(&self) -> i32 {
+        self.env
+            .get("RETURN-CODE")
+            .and_then(|v| v.as_i64())
+            .map_or(0, |n| n.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32)
+    }
+
     /// 037 — connect this interpreter to the multi-form window supervisor:
     /// `host_tx` carries OpenForm/handle requests, `self_handle` is the
     /// supervisor's id for THIS window, `form_object` is the form's own
