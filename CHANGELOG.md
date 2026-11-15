@@ -2,6 +2,13 @@
 
 
 
+## 2.0.506 — 2026-11-15
+
+**Fix: the IDE's live crates.io tests no longer depend on what crates.io publishes next.** Two tests of the External Crates panel failed after egui 0.37.0 was published: `live_resolver_verdicts` and `compatible_and_reserved_collisions_still_refuse`. Each added `egui` with no version, and so got crates.io's newest egui. Once that was 0.37, it no longer matched the 0.36 every program links. The panel did what specs 044 (AC6) and 045 (R1) say: it offered an alias instead of refusing the add as already available. The product is unchanged; only the tests were wrong.
+- **The two tests now ask for egui `0.36`,** the version every program links, held in one constant beside the tests. The next egui upgrade changes that constant together with the compiler's table of linked crates.
+- **A second failure, hidden behind the first:** the AC8 case of `live_resolver_verdicts` pinned `itoa =1.0.10` and expected a warning that two copies coexist. A 1.x pin becomes the only itoa 1.x of the whole program, so it must satisfy every crate's requirement. It stopped resolving once the AWS client needed itoa 1.0.17 or later. The case now pins `itoa =0.3.4`. The program already has itoa 0.4 and 1.x, and no crate will ever ask for 0.3, so this is the semver-incompatible second copy spec 044's R14 describes.
+- **Measured** (macOS arm64, live crates.io): the 9 `flow_tests` pass. The live verdicts: egui 0.36 refused as already available; `rusqlite =0.24.2` refused on the `sqlite3` links clash in 16.3 s; `itoa =0.3.4` allowed with the warning in 8.1 s; 25.7 s in all. `cargo test -p cobolt-ide --bin cobolt-ide`, run before the AC8 change, gave 2 026 passed, 2 failed and 6 ignored. The two failures were `live_resolver_verdicts` (now passing) and `every_document_ships_in_every_language`, which stays red by design while the guide's translations are deleted (GOLDEN RULE #8).
+
 ## 2.0.504 — 2026-11-15
 
 **Fix: the WebAssembly generator's test suite is green again: its dependency guard follows the workspace's own Rust floor, and its corpus comparison recognises every timing line.** Two targets of `cargo test -p cobolt-wasm` had been red since before DESKTOP-WASM-001, and every task of it reported them. Neither red was a fault in the product: each test held a rule that the code had moved past.

@@ -241,6 +241,13 @@ mod flow_tests {
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
 
+    /// The egui requirement every generated program links (`DIRECT_LINKED` in
+    /// `cobolt-compiler`); an egui bump changes it there and here. The live
+    /// tests ask for a version inside it to meet the *compatible* collision:
+    /// with no requirement they would get crates.io's newest egui, which stops
+    /// being compatible the day a new minor is published (0.37.0 did).
+    const LINKED_EGUI: &str = "0.36";
+
     struct MockRegistry {
         base: String,
         /// Versions the mock "has published" — tests push to simulate time.
@@ -501,10 +508,12 @@ mod flow_tests {
         let t_all = Instant::now();
         let registry = Registry::new(DEFAULT_REGISTRY);
 
-        // AC6 — egui is refused as already available; nothing recorded.
+        // AC6 — egui at a compatible version is refused as already
+        // available; nothing recorded. (The incompatible half of AC6 is
+        // `incompatible_direct_collision_offers_alias_not_error`.)
         let dir = temp_project("egui");
         let manifest_path = dir.join("cobolt.toml");
-        let err = add(&registry, &manifest_path, None, "egui", None, vec![], None, &mut quiet())
+        let err = add(&registry, &manifest_path, None, "egui", Some(LINKED_EGUI), vec![], None, &mut quiet())
             .expect_err("egui must be refused");
         assert!(err.contains("already available"), "got: {err}");
         assert!(load_project(&manifest_path).unwrap().crates.is_empty());
@@ -539,17 +548,22 @@ mod flow_tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
 
-        // AC8 — a disjoint same-major pin coexists WITH the warning.
+        // AC8 — a second, semver-incompatible copy coexists WITH the warning.
+        // The tree has itoa 0.4 (lopdf) and 1.x; a pin at 0.3, which no crate
+        // will ever ask for, is the third copy. A 1.x pin would not do: the
+        // vendored patch makes it THE itoa 1.x of the whole graph, so it must
+        // satisfy every crate's requirement — `=1.0.10` stopped resolving once
+        // the AWS client needed itoa 1.0.17 or later.
         let dir = temp_project("warn");
         let manifest_path = dir.join("cobolt.toml");
         let mut warnings = Vec::new();
         let t = Instant::now();
-        add(&registry, &manifest_path, None, "itoa", Some("=1.0.10"), vec![], None, &mut |n| {
+        add(&registry, &manifest_path, None, "itoa", Some("=0.3.4"), vec![], None, &mut |n| {
             if let Note::Warn(text) = n {
                 warnings.push(text);
             }
         })
-        .expect("itoa =1.0.10 must be allowed with a warning");
+        .expect("itoa =0.3.4 must be allowed with a warning");
         let warn_s = t.elapsed().as_secs_f32();
         assert!(
             warnings.iter().any(|w| w.contains("exist twice")),
@@ -560,9 +574,9 @@ mod flow_tests {
 
         println!("──────────────────────────────────────────────");
         println!("spec 044 live resolver verdicts (AC6/AC7/AC8)");
-        println!("egui already-available: refused (no resolver run)");
+        println!("egui {LINKED_EGUI} already-available: refused (no resolver run)");
         println!("rusqlite =0.24.2 links clash: refused in {links_s:.1} s");
-        println!("itoa =1.0.10 coexistence: warned in {warn_s:.1} s");
+        println!("itoa =0.3.4 coexistence: warned in {warn_s:.1} s");
         println!("total: {:.1} s", t_all.elapsed().as_secs_f32());
         println!("──────────────────────────────────────────────");
     }
@@ -581,10 +595,10 @@ mod flow_tests {
             AddOutcome::AliasOffered { candidate, linked_requirement, vendored } => {
                 assert_eq!(candidate.name, "egui");
                 assert_eq!(candidate.version, "0.29.0");
-                assert_eq!(linked_requirement, "0.36");
+                assert_eq!(linked_requirement, LINKED_EGUI);
                 assert!(vendored.is_dir(), "the download must survive the offer");
             }
-            AddOutcome::Added(_) => panic!("egui 0.29.0 must collide with the linked 0.36"),
+            AddOutcome::Added(_) => panic!("egui 0.29.0 must collide with the linked {LINKED_EGUI}"),
         }
         assert!(
             load_project(&manifest_path).unwrap().crates.is_empty(),
@@ -608,7 +622,7 @@ mod flow_tests {
         let registry = Registry::new(DEFAULT_REGISTRY);
         let dir = temp_project("still-refused-compat");
         let manifest_path = dir.join("cobolt.toml");
-        let err = add(&registry, &manifest_path, None, "egui", None, vec![], None, &mut quiet())
+        let err = add(&registry, &manifest_path, None, "egui", Some(LINKED_EGUI), vec![], None, &mut quiet())
             .expect_err("a compatible direct collision must still be a plain refusal");
         assert!(err.contains("already available"), "got: {err}");
         assert!(load_project(&manifest_path).unwrap().crates.is_empty());
