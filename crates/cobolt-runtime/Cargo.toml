@@ -246,6 +246,12 @@ chrono      = { version = "0.4", default-features = false, features = ["clock", 
 # (with PCM).
 rodio       = { version = "0.22", default-features = false, features = ["playback", "tracing", "mp3", "vorbis", "flac", "wav"], optional = true }
 
+# How much of a thread's stack is left (`stack_guard.rs`): a nested PERFORM or
+# CALL ends with a runtime error instead of overflowing the stack. Already in the
+# lock (and a dev-dependency below), so this adds no new code to the build.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 cobolt-codegen    = { path = "../cobolt-codegen" }
 cobolt-forms      = { path = "../cobolt-forms" }

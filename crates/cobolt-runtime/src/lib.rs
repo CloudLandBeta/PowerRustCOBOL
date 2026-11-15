@@ -118,6 +118,7 @@ pub mod objects;
 pub mod relative;
 pub mod rust_bridge;
 pub mod search_runtime;
+pub mod stack_guard;
 pub mod test_pins;
 pub mod value;
 

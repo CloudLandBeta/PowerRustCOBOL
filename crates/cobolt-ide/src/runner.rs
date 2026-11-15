@@ -33,7 +33,7 @@ use std::sync::{
     mpsc::{self, Receiver, Sender},
     Arc,
 };
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
@@ -305,9 +305,11 @@ impl Runner {
         self.rx = Some(rx);
         self.running = true;
 
-        let handle = thread::spawn(move || {
+        // On the program stack, as every host runs a program (`stack_guard`).
+        let handle = cobolt_runtime::stack_guard::spawn_program_thread("run", move || {
             run_pipeline(file_name, source, tx, stop_flag);
-        });
+        })
+        .expect("cannot start the program's thread");
         self.handle = Some(handle);
     }
 
@@ -571,9 +573,11 @@ impl DebugRunner {
         dbg_log(&format!(
             "DebugRunner::start() — spawning thread for {file_name}"
         ));
-        let handle = thread::spawn(move || {
+        // On the program stack, as every host runs a program (`stack_guard`).
+        let handle = cobolt_runtime::stack_guard::spawn_program_thread("debug", move || {
             run_debug_pipeline(file_name, source, run_tx, ev_tx, cmd_rx, bp, scope);
-        });
+        })
+        .expect("cannot start the program's thread");
         self.handle = Some(handle);
         dbg_log("DebugRunner::start() — thread spawned, returning");
     }

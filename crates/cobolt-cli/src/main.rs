@@ -189,26 +189,35 @@ fn cmd_run(args: &[String]) {
         install_project_sql_catalog(&manifest);
     }
 
-    // Execute.
-    let mut interp = Interpreter::new(program);
-    interp.set_indexed_engine(resolve_indexed_engine(args));
-    interp.set_indexed_log_level(resolve_indexed_log_level(args));
-    interp.set_indexed_log_format(resolve_indexed_log_format(args));
-    interp.set_program_args(extract_program_args(args));
-    interp.set_external_switches(&resolve_external_switches(args));
-    match interp.run() {
-        Ok(()) => {}
-        Err(e) if e.is_exit_signal() => {}
-        Err(e) => {
-            eprintln!("cobolt: runtime error: {e}");
-            process::exit(1);
+    // Execute, on a thread with the program stack: the main thread's is smaller
+    // than the deepest PERFORM nesting needs, and a nested PERFORM or CALL that
+    // finds the stack nearly used up stops with a runtime error.
+    let (engine, log_level, log_format) =
+        (resolve_indexed_engine(args), resolve_indexed_log_level(args), resolve_indexed_log_format(args));
+    let (program_args, switches) = (extract_program_args(args), resolve_external_switches(args));
+    let run = cobolt_runtime::stack_guard::spawn_program_thread("rcrun-run", move || {
+        let mut interp = Interpreter::new(program);
+        interp.set_indexed_engine(engine);
+        interp.set_indexed_log_level(log_level);
+        interp.set_indexed_log_format(log_format);
+        interp.set_program_args(program_args);
+        interp.set_external_switches(&switches);
+        match interp.run() {
+            Ok(()) => {}
+            Err(e) if e.is_exit_signal() => {}
+            Err(e) => {
+                eprintln!("cobolt: runtime error: {e}");
+                process::exit(1);
+            }
         }
-    }
-    // The program ends with the exit code `RETURN-CODE` holds, as the built
-    // program does. The run is over: close what it holds first, as returning
-    // from `main` would.
-    let code = interp.return_code();
-    drop(interp);
+        // The program ends with the exit code `RETURN-CODE` holds, as the
+        // built program does. The run is over: what it holds is closed when
+        // `interp` drops here, as returning from `main` would.
+        interp.return_code()
+    })
+    .expect("cannot start the program's thread");
+    // A panic was reported where it happened; end as a panicking `main` does.
+    let code = run.join().unwrap_or_else(|_| process::exit(101));
     if code != 0 {
         cobolt_runtime::shutdown_child_processes();
         process::exit(code);
