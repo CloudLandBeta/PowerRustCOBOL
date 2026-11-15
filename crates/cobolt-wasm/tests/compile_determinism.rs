@@ -104,6 +104,22 @@ DRAIN.
     RETURN WORK-A AT END CONTINUE END-RETURN.
 ";
 
+/// DESKTOP-WASM-001 T11: a program whose module carries the time of its Build.
+const STAMP_FIXTURE: &str = "IDENTIFICATION DIVISION.
+PROGRAM-ID. STAMP.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-STAMP PIC X(21).
+PROCEDURE DIVISION.
+    MOVE FUNCTION WHEN-COMPILED TO WS-STAMP.
+    DISPLAY WS-STAMP.
+    STOP RUN.
+";
+
+/// 2025-11-14 00:00:00 UTC, and the next day.
+const EPOCH: &str = "1763078400";
+const EPOCH_NEXT_DAY: &str = "1763164800";
+
 fn programs(dir: &Path, out: &mut Vec<PathBuf>) {
     let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).collect();
     entries.sort();
@@ -232,4 +248,90 @@ fn same_input_same_bytes() {
     println!("result: {}", if differing.is_empty() { "PASS" } else { "FAIL" });
     assert!(differing.is_empty(), "module bytes changed between compiles:\n{}", differing.join("\n"));
     assert!(!hashes[0].contains("refused"), "the ALTER fixture must compile: {}", hashes[0]);
+}
+
+/// DESKTOP-WASM-001 T11 (R2, C3): `FUNCTION WHEN-COMPILED` and the paths of the line table are
+/// inputs of the Build. With the same `SOURCE_DATE_EPOCH`, a program that uses WHEN-COMPILED gives
+/// the same bytes whether its Common Code path was written on Windows (`src\common\stamp.cbl`) or
+/// on macOS and Linux (`src/common/stamp.cbl`); the module answers the epoch's time; another epoch
+/// gives other bytes; a malformed epoch and an absolute path are refused. This is the only test of
+/// the binary that sets `SOURCE_DATE_EPOCH`; the others name their WHEN-COMPILED text.
+#[test]
+fn source_date_epoch_and_separators_are_build_inputs() {
+    use cobolt_wasm::module::{build_time, compile_project, FormSpec, SourceLine, SOURCE_DATE_EPOCH};
+    let started = Instant::now();
+    let prog = parse(STAMP_FIXTURE, None).expect("the WHEN-COMPILED fixture parses");
+    // Generated lines 7 to 9 are the three statements, written in a Common Code file.
+    let spec = |site: &str| FormSpec {
+        name: "STAMP".into(),
+        main: true,
+        instances: 1,
+        program: &prog,
+        controls: vec![],
+        bindings: vec![],
+        layers: vec![],
+        lines: (7..=9).map(|g| SourceLine { gen_line: g, site: site.into(), line: g - 6, column: 0 }).collect(),
+    };
+    let (windows, unix) = (spec(r"src\common\stamp.cbl"), spec("src/common/stamp.cbl"));
+    let build = |s: &FormSpec, multi: bool| compile_project(std::slice::from_ref(s), &Options { multi_memory: multi, ..Options::default() });
+
+    std::env::set_var(SOURCE_DATE_EPOCH, EPOCH);
+    let (mut same, mut sites, mut site_rows) = (0, 0, 0);
+    let mut sizes = Vec::new();
+    for multi in [true, false] {
+        let a = build(&windows, multi).expect("the fixture compiles");
+        let b = build(&unix, multi).expect("the fixture compiles");
+        if a.wasm == b.wasm {
+            same += 1;
+        }
+        sizes.push(a.wasm.len());
+        for e in a.lines.iter().chain(b.lines.iter()).filter(|e| e.line > 0 && e.site.contains("stamp")) {
+            site_rows += 1;
+            if e.site == "src/common/stamp.cbl" {
+                sites += 1;
+            }
+        }
+    }
+    let program = compile_program(&prog, &Options::default()).expect("the fixture compiles");
+    let run = cobolt_wasm::host::run_program(&program.wasm).expect("the fixture runs");
+    let stamp = run.output.lines().next().unwrap_or_default().to_string();
+    let first = build(&unix, true).unwrap().wasm;
+    std::env::set_var(SOURCE_DATE_EPOCH, EPOCH_NEXT_DAY);
+    let next_day = build(&unix, true).unwrap().wasm;
+    std::env::set_var(SOURCE_DATE_EPOCH, "tomorrow");
+    let malformed = build(&unix, true).err().map(|e| e.message).unwrap_or_default();
+    std::env::remove_var(SOURCE_DATE_EPOCH);
+    let absolute: Vec<String> = ["/Users/dev/project/src/stamp.cbl", r"C:\work\project\src\stamp.cbl"]
+        .iter()
+        .filter_map(|p| build(&spec(p), true).err().map(|e| e.message))
+        .collect();
+    let clock = build_time(None).expect("the clock is always a time");
+    // 9999-12-31 23:59:59 UTC in seconds, the last second a four-digit year spells.
+    let last_second: u64 = 253_402_300_799;
+    let year_9999 = build_time(Some(&last_second.to_string())).expect("the last second WHEN-COMPILED spells");
+    let past_9999 = build_time(Some(&(last_second + 1).to_string())).is_err();
+
+    let checks = [
+        ("same bytes from both separators, two memories and one", same == 2),
+        ("every Common Code row of prlines written with /", site_rows > 0 && sites == site_rows),
+        ("WHEN-COMPILED answers the epoch's time", stamp == "2025111400000000+0000"),
+        ("another epoch gives other bytes", next_day != first),
+        ("a malformed epoch is refused, naming it", malformed.contains(SOURCE_DATE_EPOCH) && malformed.contains("tomorrow")),
+        ("an absolute path is refused, both kinds", absolute.len() == 2 && absolute.iter().all(|m| m.contains("relative to the project"))),
+        ("unset, the Build's clock (21 characters)", clock.len() == 21),
+        ("the year 9999 spelled, the year 10000 refused", year_9999 == "9999123123595900+0000" && past_9999),
+    ];
+    let passed = checks.iter().filter(|(_, ok)| *ok).count();
+    println!("== source_date_epoch_and_separators_are_build_inputs (DESKTOP-WASM-001 T11, R2, C3) ==");
+    println!("fixture: MOVE FUNCTION WHEN-COMPILED, its three statements mapped to a Common Code file");
+    println!("SOURCE_DATE_EPOCH: {EPOCH} (2025-11-14 00:00 UTC), {EPOCH_NEXT_DAY}, \"tomorrow\", unset");
+    println!("module sizes (two memories / one memory): {} / {} bytes", sizes[0], sizes[1]);
+    println!("prlines rows naming the file: {site_rows}, written with /: {sites}");
+    println!("WHEN-COMPILED: {stamp:?}; unset, the clock gave {clock:?}");
+    for (what, ok) in &checks {
+        println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
+    }
+    println!("checks: {passed} of {} in {} ms", checks.len(), started.elapsed().as_millis());
+    println!("result: {}", if passed == checks.len() { "PASS" } else { "FAIL" });
+    assert_eq!(passed, checks.len(), "{checks:#?}\nmalformed: {malformed}\nabsolute: {absolute:?}\nyear 9999: {year_9999}");
 }

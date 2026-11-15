@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3 and T1–T10 are done (2.0.483–2.0.495, with the fix 2.0.492 found by T8): every task of M0, and the first two of M1. The CI dispatches of T4 and T7 are owed until their workflows are on `main`.
+- **Status:** implementing since 2026-11-14. F1–F3 and T1–T11 are done (2.0.483–2.0.496, with the fix 2.0.492 found by T8): every task of M0, and the first three of M1. The CI dispatches of T4 and T7 are owed until their workflows are on `main`.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -507,7 +507,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
         - `dependency_guard`.
       - No browser class moved: the 136 rows, with the Desktop column taken out, are the same as at 2.0.494.
 
-- [ ] **T11 — WHEN-COMPILED and paths as Build inputs** (R2; C3)
+- [x] **T11 — WHEN-COMPILED and paths as Build inputs** (R2; C3)
   - Files: `crates/cobolt-wasm/src/lib.rs` (`Options.compiled_at`), the WHEN-COMPILED lowering, and the `prlines` writer.
   - Do:
     - `compiled_at` comes from `SOURCE_DATE_EPOCH` when it is set, and from the Build's clock otherwise.
@@ -515,6 +515,32 @@ The code says five things the plan did not settle. Each is applied in the tasks 
   - Verify:
     - `compile_determinism` gains a case: with the same `SOURCE_DATE_EPOCH`, a program using WHEN-COMPILED gives identical bytes, built from two folders with different separators.
     - T1's test green.
+  - *Done 2026-11-14 (2.0.496):*
+    - **The field:** the option already existed as `Options.when_compiled: Option<String>` (`module.rs`). It keeps that name rather than becoming `compiled_at`, so that the six test files that name it are untouched. The WHEN-COMPILED lowering (`lower_more.rs`) is unchanged: it takes the text the module builder hands it.
+    - **`build_time(source_date_epoch)`** (`module.rs`, public) gives the 21 characters when the options name none:
+      - from `SOURCE_DATE_EPOCH` when it is set and not empty;
+      - otherwise from the Build's clock, as before.
+      - A value that is not a whole number of seconds, or is past 9999-12-31 23:59:59 UTC (the last second a four-digit year spells), is refused. The message names the variable and its value, and says to set it to a number or unset it, as reproducible-builds.org asks for a malformed value.
+      - Every caller that leaves the option empty now honours the variable: the Web and Mobile generator today, the Desktop `wasm_build` from T21.
+    - **The `prlines` writer** (`line_site`):
+      - Today no file path reaches the line table. Its sites are form display paths (`MAIN ▸ BTN-OK ▸ onClick`) and form names, because codegen's source map has no Common Code spans. A Common Code file's display path is its bare `rel_path`, and `resolve_display_path` already treats a site with no `▸` as a file.
+      - The writer uses that same rule. A file site is written with `/`; an absolute one (`/…` or a drive letter) is refused as an internal error, because it would put the building machine's folders into the module's bytes.
+      - The fallback site (the form's own name, for a line the source map does not resolve) is left as it is.
+    - **Measured:**
+      - `source_date_epoch_and_separators_are_build_inputs` (new in `compile_determinism`): 8 of 8 checks, 358 ms. The fixture moves FUNCTION WHEN-COMPILED, with its three statements mapped to a Common Code file. The checks:
+        - `src\common\stamp.cbl` and `src/common/stamp.cbl` give the same bytes in both variants (85 374 and 85 385 bytes);
+        - 12 of 12 `prlines` rows naming the file are written with `/`;
+        - the module answers `2025111400000000+0000` for `SOURCE_DATE_EPOCH=1763078400`;
+        - the next day gives other bytes;
+        - `tomorrow` is refused, naming the variable and its value;
+        - `/Users/dev/…` and `C:\work\…` are refused;
+        - unset, the clock gives 21 characters;
+        - the last second of 9999 is spelled `9999123123595900+0000`, and the next second is refused.
+      - `same_input_same_bytes` (F1): 126 variants, 0 differing; 2 520 compiles in 23.5 s (107 compiles/s).
+      - `desktop_wasm_unchanged` (T1, AC16): 3 of 3 artefacts match the pin, 9.9 s.
+      - `cargo test -p cobolt-wasm --no-fail-fast`: 27 of 29 targets green. The same two reds as before this task:
+        - `corpus`: the program `conditionals/test-arith-relation-after-and.cbl` prints its own timing (450 ms in the module, 970 ms in the interpreter);
+        - `dependency_guard`.
 
 - [ ] **T12 — `Options.native` and the console capabilities in the generator** (R3, R10, R11 console part)
   - Files:

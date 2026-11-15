@@ -2,6 +2,24 @@
 
 
 
+## 2.0.496 — 2026-11-14
+
+**DESKTOP-WASM-001 T11: `FUNCTION WHEN-COMPILED` and the paths a module carries are now inputs of the Build** (R2; C3). Two Builds of the same project give the same module, whichever machine or system made them.
+- **WHEN-COMPILED in a WebAssembly module** takes the time in `SOURCE_DATE_EPOCH` (seconds since 1970-01-01 00:00 UTC, the reproducible-builds convention) when the variable is set. Otherwise it takes the time of the Build, as before.
+  - A value that is not a whole number of seconds, or is past the end of the year 9999, stops the Build with a message naming the variable and its value.
+  - This applies to Web and Mobile Builds today, and to the Desktop's WebAssembly path when that lands (T21).
+- **The line table inside a module** (`prlines`, which maps a run-time error back to the developer's line) writes a Common Code file's path with `/`, even when the Build ran on Windows. It refuses an absolute path, which would put the building machine's folders into the module. Today no file path reaches the table yet; the Desktop path will send Common Code there.
+- **Measured** (macOS arm64):
+  - **`source_date_epoch_and_separators_are_build_inputs`** (new): 8 of 8 checks.
+    - A program that moves FUNCTION WHEN-COMPILED, with its lines mapped to `src\common\stamp.cbl` in one Build and `src/common/stamp.cbl` in the other, gives the same bytes in both module variants (85 374 and 85 385 bytes).
+    - The module answers `2025111400000000+0000` for `SOURCE_DATE_EPOCH=1763078400`, and the next day gives other bytes.
+    - `tomorrow`, an absolute path (both kinds) and the year 10000 are refused; the last second of 9999 is spelled.
+  - **`same_input_same_bytes`:** 126 program variants, 0 differing over 2 520 compiles (107 compiles per second).
+  - **`desktop_wasm_unchanged` (AC16):** PowerAnalyticsWeb's two modules and its manifest still match their pins, 3 of 3.
+  - **The whole of `cobolt-wasm`:** 27 of 29 targets green. The two reds were already red before this change:
+    - `corpus`: a program prints its own timing;
+    - `dependency_guard`.
+
 ## 2.0.495 — 2026-11-14
 
 **DESKTOP-WASM-001 T10: every statement and built-in now has a Desktop class** (R12; AC10). The class says how the construct fares in a Desktop program built on the WebAssembly path, as that path stands at the end of M1 (console programs). Every Desktop Build still takes the Cargo path, as before.

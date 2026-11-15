@@ -69,8 +69,9 @@ pub struct Options {
     /// Blocks run before the module yields to the host.
     pub budget: i32,
     pub name: String,
-    /// The 21 characters `FUNCTION WHEN-COMPILED` answers; `None` takes the
-    /// time of the build (UTC), which a reproducible build overrides.
+    /// The 21 characters `FUNCTION WHEN-COMPILED` answers; `None` takes [`build_time`]: the
+    /// time in `SOURCE_DATE_EPOCH` when it is set, the time of the build (UTC) otherwise
+    /// (DESKTOP-WASM-001 R2, C3).
     pub when_compiled: Option<String>,
     /// Bytes of memory 0 for the records of in-memory INDEXED files and SORT
     /// work files (WASM-010 Q8). Reserved only when the program has such a
@@ -284,6 +285,54 @@ pub struct LineEntry {
     pub column: u32,
 }
 
+/// The variable a reproducible build sets to the seconds since 1970-01-01 00:00 UTC that stand
+/// for the time of the build (reproducible-builds.org).
+pub const SOURCE_DATE_EPOCH: &str = "SOURCE_DATE_EPOCH";
+
+/// The latest second `FUNCTION WHEN-COMPILED` can spell in its four-digit year: 9999-12-31 23:59:59 UTC.
+const LAST_SPELLED_SECOND: u64 = 253_402_300_799;
+
+/// The 21 characters `FUNCTION WHEN-COMPILED` answers in a build whose options do not name them
+/// (DESKTOP-WASM-001 R2, C3): the time `source_date_epoch` holds when it is set and not empty, the
+/// build's clock otherwise. A value that is not a whole number of seconds, or is past the year 9999,
+/// is refused, as reproducible-builds.org asks of a malformed `SOURCE_DATE_EPOCH`.
+pub fn build_time(source_date_epoch: Option<&str>) -> GenResult<String> {
+    let ms = match source_date_epoch.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => match s.parse::<u64>() {
+            Ok(secs) if secs <= LAST_SPELLED_SECOND => secs as f64 * 1000.0,
+            _ => {
+                return Err(GenError::new(
+                    0,
+                    format!(
+                        "{SOURCE_DATE_EPOCH} is \"{s}\", which is not a number of seconds since 1970-01-01 00:00 UTC up to the end of the year 9999: set it to one, or unset it to take the time of the Build"
+                    ),
+                ))
+            }
+        },
+        None => std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as f64)
+            .unwrap_or(0.0),
+    };
+    Ok(String::from_utf8_lossy(&cobolt_wasm_rt::func::current_date_text(ms)).into_owned())
+}
+
+/// A site of the line table as `prlines` writes it (DESKTOP-WASM-001 R2, C3). A site with no
+/// `▸` is a file (a Common Code file's project-relative path, `CodeSite::display_path`): it is
+/// written with `/` whatever the separator of the system that built it, and an absolute path,
+/// which would put the building machine's folders in the module, is refused.
+fn line_site(site: &str) -> GenResult<String> {
+    if site.contains(cobolt_forms::code_site::PATH_SEP.trim()) {
+        return Ok(site.to_string());
+    }
+    let path = site.replace('\\', "/");
+    let drive = path.as_bytes().get(1) == Some(&b':') && path.as_bytes()[0].is_ascii_alphabetic();
+    if path.starts_with('/') || drive {
+        return Err(GenError::new(0, format!("internal error: the line table names the absolute path {site}; a Common Code file is named relative to the project")));
+    }
+    Ok(path)
+}
+
 /// Compile one program as a module that runs to its end (`pr_run`): the form a
 /// conformance run, a test or a console program takes.
 pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
@@ -358,13 +407,10 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let mut pool = Pool::new(consts_base);
     let mut blocks: Vec<Block> = Vec::new();
     let mut names = crate::lower::Names::default();
-    let when_compiled = opts.when_compiled.clone().unwrap_or_else(|| {
-        let ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as f64)
-            .unwrap_or(0.0);
-        String::from_utf8_lossy(&cobolt_wasm_rt::func::current_date_text(ms)).into_owned()
-    });
+    let when_compiled = match &opts.when_compiled {
+        Some(w) => w.clone(),
+        None => build_time(std::env::var(SOURCE_DATE_EPOCH).ok().as_deref())?,
+    };
     let mut lowered_forms: Vec<(Lowered, usize)> = Vec::new();
     let mut unit_base = 0usize;
     for spec in forms {
@@ -406,7 +452,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         let f = &forms[fi];
         for &g in &l.lines {
             let e = match f.lines.iter().find(|s| s.gen_line == g) {
-                Some(s) => LineEntry { unit: fi as u32, unit_name: f.name.clone(), gen_line: g, site: s.site.clone(), line: s.line, column: s.column },
+                Some(s) => LineEntry { unit: fi as u32, unit_name: f.name.clone(), gen_line: g, site: line_site(&s.site)?, line: s.line, column: s.column },
                 None => LineEntry { unit: fi as u32, unit_name: f.name.clone(), gen_line: g, site: f.name.clone(), line: g, column: 0 },
             };
             line_table.push(e);
