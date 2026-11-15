@@ -672,7 +672,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // environment ones of a desktop module's. Each is backed by a host import
     // of the same name, in the `pr` namespace or, for a desktop capability, in
     // `prn` (ABI A27, A29).
-    const GLUE_ORDER: [&str; 13] = [
+    const GLUE_ORDER: [&str; 14] = [
         "flush",
         "abort",
         "query",
@@ -686,10 +686,19 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         "switch_state",
         "con_read",
         "env_get",
+        "exit",
     ];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
     glue_needed.insert("abort");
+    // A desktop module whose program names RETURN-CODE hands it to the runner (T15, A30); the
+    // generated code calls this one, not the routines.
+    if order.iter().any(|&b| blocks[b].code.iter().any(|i| matches!(i, Ins::CallGlue(Glue::Exit)))) {
+        if !opts.native {
+            return Err(GenError::new(0, "the program reaches the desktop runner's import prn.exit, which only a desktop module has"));
+        }
+        glue_needed.insert("exit");
+    }
     for &i in &closure.imports {
         let (m, n) = blob.import_name(i);
         let name = GLUE_ORDER.iter().copied().find(|g| *g == n && m == "glue");
@@ -732,6 +741,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             // A29: memory 0's addresses go straight to the runner.
             "con_read" => (ty_i32_i32_ret, ty_i32_i32_ret),
             "env_get" => (ty_i32_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
+            // A30: the run's exit code.
+            "exit" => (ty_i32_void, ty_i32_void),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
         }
     };
@@ -800,6 +811,11 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
                 Ins::CallGlue(Glue::Abort) => {
                     f.instruction(&I::Call(g_abort));
                 }
+                Ins::CallGlue(Glue::Exit) => {
+                    f.instruction(&I::Call(glue_final["exit"]));
+                }
+                // Resolved when lowering ends (`Lower::resolve_run_ends`).
+                Ins::RunEnd => {}
                 Ins::Pc(t) => {
                     f.instruction(&I::I32Const(seen[t] as i32));
                 }
@@ -1036,8 +1052,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         defs[(glue_final["file_read"] - n_imports) as usize].body = Body::Encoded(f);
     }
     // The desktop runner reads and writes memory 0 itself (A29): the glue only
-    // passes its arguments on.
-    for (g, args) in [("con_read", 2u32), ("env_get", 4)] {
+    // passes its arguments on, as it does the exit code (A30).
+    for (g, args) in [("con_read", 2u32), ("env_get", 4), ("exit", 1)] {
         if let Some(&at) = glue_final.get(g) {
             let mut f = Function::new([]);
             for i in 0..args {

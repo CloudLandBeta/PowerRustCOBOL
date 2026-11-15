@@ -7328,9 +7328,11 @@ fn browser_subset_doc() -> String {
          is being built (today every Desktop Build takes the Cargo path, as before): *yes* is compiled into the module; *yes, with \
          the runner's* `name` is compiled into the module and served by the desktop runner's capability of that name; *Cargo path* \
          sends the Build to the Cargo path, which names the construct and the reason. `ACCEPT` from the console needs `console`, \
-         and from the environment or the command line `env`; `STOP RUN` and `GOBACK` end the program in the module, with \
-         exit code 0. A program that names `RETURN-CODE` takes the Cargo path, which ends with the exit code `RETURN-CODE` \
-         holds.\n\n\
+         and from the environment or the command line `env`; `STOP RUN` and `GOBACK` end the program in the module. There \
+         `RETURN-CODE` is a whole number of up to 18 digits: `MOVE`, `ADD`, `SUBTRACT`, `MULTIPLY`, `COMPUTE`, `DISPLAY` and \
+         comparisons with a number compile, and the program ends with the exit code it holds (0 when it is never set), as on \
+         the Cargo path. A program that gives `RETURN-CODE` a fraction or characters, divides into it, puts `ON SIZE ERROR` on \
+         it or uses it any other way takes the Cargo path, which names the reason.\n\n\
          ### Statements\n\n| Statement | In a browser module | Instead | On the Desktop | Why |\n|---|---|---|---|---|\n",
     );
     for (name, s, n) in STATEMENT_TABLE {

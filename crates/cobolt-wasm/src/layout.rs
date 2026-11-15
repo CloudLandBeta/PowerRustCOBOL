@@ -652,6 +652,42 @@ impl Layout {
         off
     }
 
+    /// A register the generator keeps for the whole program (`RETURN-CODE`, DESKTOP-WASM-001
+    /// T15): hidden storage at the end of the region, zero until written, which no unit
+    /// declares and no `lookup` finds, so the caller decides where it may be named.
+    pub fn add_register(&mut self, name: &str, fd: Fd, usage: Usage) -> usize {
+        let off = self.alloc_hidden(fd.len);
+        let idx = self.items.len();
+        self.items.push(Item {
+            name: Some(name.to_string()),
+            level: 77,
+            parent: None,
+            children: vec![],
+            off,
+            size: fd.len,
+            occurs: None,
+            fd,
+            is_group: false,
+            redefines: None,
+            value: None,
+            cond: vec![],
+            renames: None,
+            span_line: 0,
+            hidden: true,
+            external: false,
+            global: false,
+            pic_template: None,
+            pic_kind: None,
+            usage,
+            blank_when_zero: false,
+            index_names: vec![],
+            keys: vec![],
+            unit: u32::MAX,
+            link: None,
+        });
+        idx
+    }
+
     /// The items bearing `name`.
     pub fn named(&self, name: &str) -> &[usize] {
         self.by_name.get(&name.to_ascii_uppercase()).map(|v| v.as_slice()).unwrap_or(&[])

@@ -32,6 +32,12 @@ use cobolt_wasm_rt::opd::{FIG_HIGH, FIG_LOW, FIG_NULL, FIG_QUOTE, FIG_SPACE, FIG
 use std::collections::{BTreeMap, HashMap, HashSet};
 use wasm_encoder::Instruction as I;
 
+/// The special register a desktop module holds as a whole number (DESKTOP-WASM-001 T15).
+pub(crate) const RETURN_CODE: &str = "RETURN-CODE";
+const RC_OTHER_USE: &str = "RETURN-CODE is used here other than as a number: a desktop module compiles it in MOVE, ADD, SUBTRACT, MULTIPLY, COMPUTE, DISPLAY and comparisons with a number, so this program takes the Cargo path";
+const RC_NOT_WHOLE: &str = "RETURN-CODE receives a value that may carry a fraction or characters: a desktop module holds it as a whole number, so this program takes the Cargo path";
+const RC_SIZE_ERROR: &str = "RETURN-CODE has no size to exceed, so ON SIZE ERROR on it is not compiled in a desktop module, and this program takes the Cargo path";
+
 /// Where the `PERFORM` stack lies inside the region: each instance of a form
 /// has its own, so a form that is waiting for an event keeps its frames.
 #[derive(Debug, Clone, Copy)]
@@ -249,6 +255,10 @@ pub struct Lower<'a, 'b> {
     /// The registers `DISPLAY … UPON ARGUMENT-NUMBER` and `… UPON ENVIRONMENT-NAME` set and a later
     /// `ACCEPT` reads, as region offsets (the pointer, the name), made when first used.
     pub(crate) native_regs: Option<(u32, u32)>,
+    /// `RETURN-CODE` in a desktop module (DESKTOP-WASM-001 T15): its layout item, made when first
+    /// named, and whether the statement being lowered is one where it may be named.
+    pub(crate) rc_reg: Option<usize>,
+    pub(crate) rc_ok: bool,
     pub(crate) files: HashMap<String, FileInfo>,
     /// Record item -> the file whose area it is.
     pub(crate) record_file: HashMap<usize, String>,
@@ -446,6 +456,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             mobile,
             native,
             native_regs: None,
+            rc_reg: None,
+            rc_ok: false,
             files: HashMap::new(),
             record_file: HashMap::new(),
             temp_next: 0,
@@ -537,6 +549,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             first.more = d;
             return Err(first);
         }
+        l.resolve_run_ends()?;
         let count = order.len();
         let park_slot = l.park_slot.unwrap_or(u32::MAX);
         let quit = if l.form.is_some() {
@@ -617,6 +630,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         // its caller by dropping every frame down to the call frame.
         self.begin(self.program_end);
         if u == 0 {
+            self.emit(Ins::RunEnd);
             self.emit(Ins::Raw(I::I32Const(ret::DONE)));
             self.finish_raw();
         } else {
@@ -1411,6 +1425,12 @@ impl<'a, 'b> Lower<'a, 'b> {
         };
         match self.layout.lookup(&name, &quals) {
             Ok(i) => Ok(i),
+            Err(_) if self.native && quals.is_empty() && name.eq_ignore_ascii_case(RETURN_CODE) => {
+                if !self.rc_ok {
+                    return self.err(line, RC_OTHER_USE);
+                }
+                Ok(self.return_code_item())
+            }
             Err(m) => {
                 // The CCVS85 X-cards stand for names the installation supplies;
                 // a conformance build reads them as the interpreter does under
@@ -1762,6 +1782,17 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     pub(crate) fn compare(&mut self, lhs: &Expr, op: u32, rhs: &Expr, line: u32) -> GenResult<()> {
+        // RETURN-CODE in a desktop module (T15) compares as a number, with a number.
+        if self.mentions_return_code(lhs) || self.mentions_return_code(rhs) {
+            if !(self.numeric_side(lhs) && self.numeric_side(rhs)) {
+                return self.err(line, RC_OTHER_USE);
+            }
+            return self.with_rc(|me| me.compare_values(lhs, op, rhs));
+        }
+        self.compare_values(lhs, op, rhs)
+    }
+
+    fn compare_values(&mut self, lhs: &Expr, op: u32, rhs: &Expr) -> GenResult<()> {
         let (a, b) = (self.operand(lhs)?, self.operand(rhs)?);
         match (a, b) {
             (Some(a), Some(b)) => {
@@ -1779,7 +1810,6 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.call_rt("rt_rel_reg");
             }
         }
-        let _ = line;
         Ok(())
     }
 
@@ -1871,7 +1901,12 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// Lower one statement; a construct that cannot be compiled is recorded
     /// and the statement skipped, so one run reports them all.
     pub(crate) fn stmt_guarded(&mut self, s: &Stmt) {
-        if let Err(e) = self.stmt(s) {
+        // Whether RETURN-CODE may be named is decided per statement: one nested in another
+        // (ON SIZE ERROR, AT END) is judged on its own, and the outer one's permission returns after.
+        let rc_ok = std::mem::replace(&mut self.rc_ok, false);
+        let r = self.stmt(s);
+        self.rc_ok = rc_ok;
+        if let Err(e) = r {
             self.diags.push(e);
             if self.cur.is_none() {
                 self.dead_block();
@@ -1892,6 +1927,9 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
         // The `super::` reads of this statement are asked, and waited for, before it begins (ABI A24).
         self.hoist_super_reads_of(s, line)?;
+        if self.native && self.return_code_arith(s, line)? {
+            self.rc_ok = true;
+        }
         match s {
             Stmt::Move { from, to, .. } => self.move_(from, to, line),
             Stmt::Add { operands, to, giving, on_size_error, not_on_size_error, .. } => {
@@ -1969,6 +2007,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             Stmt::Stop { run, .. } => {
                 let _ = run;
                 self.call_rt("rt_flush");
+                self.emit(Ins::RunEnd);
                 self.i32c(ret::STOP);
                 self.finish_raw();
                 Ok(())
@@ -2036,6 +2075,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     pub(crate) fn exit_program(&mut self) -> GenResult<()> {
         if self.cur_unit == 0 {
             self.call_rt("rt_flush");
+            self.emit(Ins::RunEnd);
             self.i32c(ret::DONE);
             self.finish_raw();
         } else {
@@ -2138,6 +2178,11 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.move_operand_to(src, t, line)?;
             }
             return Ok(());
+        }
+        // RETURN-CODE in a desktop module (T15): checked, then nameable for this statement.
+        if self.native && (self.mentions_return_code(from) || to.iter().any(|t| self.names_return_code(t))) {
+            self.return_code_move(from, to, line)?;
+            self.rc_ok = true;
         }
         // The sender.
         let src = match from {
@@ -3135,6 +3180,208 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(true)
     }
 
+    // ── RETURN-CODE in a desktop module (DESKTOP-WASM-001 T15, ABI A30) ─────────────────────
+    // The interpreter's RETURN-CODE has no declared type: the first value written decides what
+    // it holds (`MOVE 7.9` keeps 7.9, `MOVE "AB"` keeps the characters, `COMPUTE … = 10 / 4`
+    // keeps 2.500000000), it shows with no padding, and the run ends with it (2.0.498). A module
+    // cannot follow a type chosen while the program runs, so it compiles RETURN-CODE only where
+    // the value is surely a whole number: an 18-digit signed binary register, zero until written,
+    // written by MOVE of a whole number and by ADD, SUBTRACT, MULTIPLY and COMPUTE of whole
+    // numbers with no division; read as a number (a numeric receiver, an operand, a comparison
+    // with a number) and by DISPLAY, which shows it as the interpreter does. Any other use is
+    // refused, and the program takes the Cargo path.
+
+    /// The register's layout item, made when first named.
+    fn return_code_item(&mut self) -> usize {
+        if let Some(i) = self.rc_reg {
+            return i;
+        }
+        use cobolt_wasm_rt::fd::{Fd, F_SIGNED};
+        let i = self.layout.add_register(RETURN_CODE, Fd::binary(18, 0, F_SIGNED, 8), cobolt_ast::data::Usage::Binary);
+        self.rc_reg = Some(i);
+        i
+    }
+
+    /// Whether `e` is the register: `RETURN-CODE` in a desktop module that declares no item of
+    /// that name.
+    pub(crate) fn names_return_code(&self, e: &Expr) -> bool {
+        self.native
+            && matches!(e, Expr::Identifier(n, _) if n.eq_ignore_ascii_case(RETURN_CODE))
+            && self.layout.lookup(RETURN_CODE, &[]).is_err()
+    }
+
+    /// Whether `e` names the register anywhere in it.
+    fn mentions_return_code(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Arithmetic { lhs, rhs, .. } => self.mentions_return_code(lhs) || self.mentions_return_code(rhs),
+            Expr::Unary { operand, .. } => self.mentions_return_code(operand),
+            _ => self.names_return_code(e),
+        }
+    }
+
+    /// Lower `f` where the register may be named.
+    fn with_rc<T>(&mut self, f: impl FnOnce(&mut Self) -> GenResult<T>) -> GenResult<T> {
+        let was = std::mem::replace(&mut self.rc_ok, true);
+        let r = f(self);
+        self.rc_ok = was;
+        r
+    }
+
+    /// Whether `e` is surely a whole number of at most 18 digits: an integer literal, the
+    /// register, a numeric item with no decimal places, or their sums, differences and products.
+    fn whole(&mut self, e: &Expr) -> bool {
+        const LIMIT: u64 = 1_000_000_000_000_000_000;
+        match e {
+            Expr::Literal(Literal::Integer(n), _) | Expr::Literal(Literal::IntegerDigits(n, _), _) => n.unsigned_abs() < LIMIT,
+            Expr::Unary { operand, .. } => self.whole(operand),
+            Expr::Arithmetic { op: ArithOp::Add | ArithOp::Sub | ArithOp::Mul, lhs, rhs, .. } => self.whole(lhs) && self.whole(rhs),
+            _ if self.names_return_code(e) => true,
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let base = match e {
+                    Expr::Subscript { base, .. } => base.as_ref(),
+                    other => other,
+                };
+                match self.resolve_item(base) {
+                    Ok(i) => {
+                        let fd = &self.layout.items[i].fd;
+                        fd.is_numeric() && fd.scale <= 0 && i32::from(fd.digits) - i32::from(fd.scale) <= 18
+                    }
+                    Err(_) => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether `e` is a number on one side of a comparison with the register.
+    fn numeric_side(&mut self, e: &Expr) -> bool {
+        match e {
+            Expr::Literal(
+                Literal::Integer(_) | Literal::IntegerDigits(..) | Literal::Decimal(..) | Literal::Float(_) | Literal::Figurative(FigurativeConstant::Zero),
+                _,
+            ) => true,
+            Expr::Arithmetic { .. } | Expr::Unary { .. } => true,
+            _ if self.names_return_code(e) => true,
+            _ => self.is_numeric_item(e),
+        }
+    }
+
+    /// A MOVE that names the register: into it only a whole number; out of it only into
+    /// numeric items.
+    fn return_code_move(&mut self, from: &Expr, to: &[Expr], line: u32) -> GenResult<()> {
+        if to.iter().any(|t| self.names_return_code(t)) && !self.whole(from) {
+            return self.err(line, RC_NOT_WHOLE);
+        }
+        if self.mentions_return_code(from) {
+            for t in to {
+                if !self.names_return_code(t) && !self.is_numeric_item(t) {
+                    return self.err(line, RC_OTHER_USE);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// An arithmetic statement (`true`), checked where the register receives its result: every
+    /// operand a whole number, no DIVIDE, no SIZE ERROR phrase (the interpreter's register has no
+    /// size to exceed). `false` for any other statement.
+    fn return_code_arith(&mut self, s: &Stmt, line: u32) -> GenResult<bool> {
+        fn exprs(v: &[(Expr, bool)]) -> Vec<&Expr> {
+            v.iter().map(|(e, _)| e).collect()
+        }
+        let (receivers, sources, size_error): (Vec<&Expr>, Vec<&Expr>, bool) = match s {
+            Stmt::Add { operands, to, giving, on_size_error, not_on_size_error, .. }
+            | Stmt::Subtract { operands, from: to, giving, on_size_error, not_on_size_error, .. } => {
+                let mut sources: Vec<&Expr> = operands.iter().collect();
+                let receivers = if giving.is_empty() {
+                    exprs(to)
+                } else {
+                    sources.extend(exprs(to));
+                    exprs(giving)
+                };
+                (receivers, sources, !on_size_error.is_empty() || !not_on_size_error.is_empty())
+            }
+            Stmt::Multiply { lhs, by, giving, on_size_error, not_on_size_error, .. } => {
+                let receivers = if giving.is_empty() { vec![by] } else { exprs(giving) };
+                (receivers, vec![lhs, by], !on_size_error.is_empty() || !not_on_size_error.is_empty())
+            }
+            Stmt::Divide { lhs, by, giving, remainder, .. } => {
+                // A quotient may carry a fraction: the register receives none. Without GIVING
+                // either operand may be the receiver.
+                let mut receivers = exprs(giving);
+                receivers.extend(remainder.iter());
+                if giving.is_empty() {
+                    receivers.extend([lhs, by]);
+                }
+                if receivers.iter().any(|e| self.names_return_code(e)) {
+                    return self.err(line, RC_NOT_WHOLE);
+                }
+                return Ok(true);
+            }
+            Stmt::Compute { targets, expr, on_size_error, not_on_size_error, .. } => {
+                (exprs(targets), vec![expr], !on_size_error.is_empty() || !not_on_size_error.is_empty())
+            }
+            _ => return Ok(false),
+        };
+        if receivers.iter().any(|e| self.names_return_code(e)) {
+            if size_error {
+                return self.err(line, RC_SIZE_ERROR);
+            }
+            if !sources.into_iter().all(|e| self.whole(e)) {
+                return self.err(line, RC_NOT_WHOLE);
+            }
+        }
+        Ok(true)
+    }
+
+    /// The register's value handed to the desktop runner's `exit` wherever the run ends, clamped
+    /// to the 32 bits a process's exit code has, as `rcrun run` does; in a program that never
+    /// names RETURN-CODE the run's ends stay as they were, byte for byte.
+    fn resolve_run_ends(&mut self) -> GenResult<()> {
+        let opd = match self.rc_reg {
+            Some(i) => Some(self.item_operand(i, &[], None, 0)?),
+            None => None,
+        };
+        let read = |code: &mut Vec<Ins>, opd: u32| {
+            code.push(Ins::GlobalGet(G::Base));
+            code.push(Ins::Raw(I::I32Const(opd as i32)));
+            code.push(Ins::CallRt("rt_int"));
+        };
+        for b in self.blocks.iter_mut() {
+            if !b.code.iter().any(|i| matches!(i, Ins::RunEnd)) {
+                continue;
+            }
+            for ins in std::mem::take(&mut b.code) {
+                match (ins, opd) {
+                    (Ins::RunEnd, Some(opd)) => {
+                        let code = &mut b.code;
+                        let block = wasm_encoder::BlockType::Result(wasm_encoder::ValType::I32);
+                        read(code, opd);
+                        code.push(Ins::Raw(I::I64Const(i64::from(i32::MAX))));
+                        code.push(Ins::Raw(I::I64GtS));
+                        code.push(Ins::Raw(I::If(block)));
+                        code.push(Ins::Raw(I::I32Const(i32::MAX)));
+                        code.push(Ins::Raw(I::Else));
+                        read(code, opd);
+                        code.push(Ins::Raw(I::I64Const(i64::from(i32::MIN))));
+                        code.push(Ins::Raw(I::I64LtS));
+                        code.push(Ins::Raw(I::If(block)));
+                        code.push(Ins::Raw(I::I32Const(i32::MIN)));
+                        code.push(Ins::Raw(I::Else));
+                        read(code, opd);
+                        code.push(Ins::Raw(I::I32WrapI64));
+                        code.push(Ins::Raw(I::End));
+                        code.push(Ins::Raw(I::End));
+                        code.push(Ins::CallGlue(Glue::Exit));
+                    }
+                    (Ins::RunEnd, None) => {}
+                    (other, _) => b.code.push(other),
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// The operand of the register `DISPLAY … UPON ARGUMENT-NUMBER` (`pointer`) or `… UPON
     /// ENVIRONMENT-NAME` sets and a later `ACCEPT` reads: hidden storage of the region, made when
     /// first used. The pointer is a signed eight-byte binary item, 0 until set (which the routine
@@ -3182,6 +3429,13 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
         }
         for o in operands {
+            // RETURN-CODE shows as the interpreter shows it: no padding, a leading `-` (T15).
+            if self.mentions_return_code(o) {
+                self.call_rt("rt_begin");
+                self.with_rc(|me| me.push_expr(o))?;
+                self.call_rt("rt_display_reg");
+                continue;
+            }
             match self.operand(o)? {
                 Some(opd) => {
                     self.base();

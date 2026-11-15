@@ -2,6 +2,17 @@
 
 
 
+## 2.0.507 — 2026-11-15
+
+**Feature (DESKTOP-WASM-001 T15, generator half): a Desktop program compiled to WebAssembly keeps `RETURN-CODE` and hands it to the runner as its exit code.** Until now the generator refused `RETURN-CODE`, so a console program that named it could only take the Cargo path. In a desktop module it is now a register of its own, as it is in the interpreter, and the run ends with the code it holds.
+- **What compiles:** `RETURN-CODE` is a whole number of up to 18 digits, 0 when the run starts. `MOVE`, `ADD`, `SUBTRACT`, `MULTIPLY`, `COMPUTE`, `DISPLAY` and comparisons with a number (`IF`, `EVALUATE`) use it as the interpreter does.
+- **The exit code:** where the run ends (`STOP RUN`, `GOBACK` or `EXIT PROGRAM` from the main program, or past its last statement), the module hands `RETURN-CODE` to the runner's new import `prn.exit` (ABI A30, capability `env`). A value beyond 32 bits is held to the nearest 32-bit limit, as the interpreter's exit code is.
+- **What is refused, so the program takes the Cargo path:** the interpreter lets `RETURN-CODE` take whatever was moved into it, a fraction or characters included, and a module cannot follow that. So a value that may carry a fraction or characters, `DIVIDE`, `ON SIZE ERROR` with `RETURN-CODE` as a receiver, and any other use (`STRING`, a move into an alphanumeric item, a comparison with characters) refuse the program, naming why. The Cargo path then ends as the interpreter does.
+- **Nothing else moves:** a program that never names `RETURN-CODE` imports nothing new and its module is the browser module byte for byte; a Web or Mobile build still refuses `RETURN-CODE`. The System KB's "What runs in a browser module" says so (regenerated).
+- **Past 18 digits** the module keeps the low 18 digits, as a numeric item of 18 digits does, while the interpreter's register has no size: `90000000000 × 100000000` shows `0` and ends with 0 in a module, `9000000000000000000` and 2147483647 in the interpreter. Recorded as WASM-PARITY #52, open for the operator. The same probes showed that the interpreter's exit code wraps past 64 bits (2^64 ends with 0, −(2^64)+5 with 5), which is a fix of its own.
+- **Measured** (macOS arm64): `native_return_code`, 14 programs × 2 memory variants, each against the interpreter's lines and exit code (among them 300, −1, 9999999999999 and −9999999999999), 9 refusals, 4 programs past 18 digits, the browser build and a program that never names it: 142 of 142 checks; compile 175.4 ms, 28 runs 8841.7 ms. `native_console` 86 of 86; the generator's suite 117 tests in 31 targets, 0 failed.
+- **Still to come in T15:** the runner itself, which waits for T13 (the engine) and T14 (the package).
+
 ## 2.0.506 — 2026-11-15
 
 **Fix: the IDE's live crates.io tests no longer depend on what crates.io publishes next.** Two tests of the External Crates panel failed after egui 0.37.0 was published: `live_resolver_verdicts` and `compatible_and_reserved_collisions_still_refuse`. Each added `egui` with no version, and so got crates.io's newest egui. Once that was 0.37, it no longer matched the 0.36 every program links. The panel did what specs 044 (AC6) and 045 (R1) say: it offered an alias instead of refusing the add as already available. The product is unchanged; only the tests were wrong.

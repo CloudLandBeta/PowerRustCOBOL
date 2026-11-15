@@ -52,6 +52,9 @@ pub struct RtError {
 pub struct Outcome {
     /// `pr_run`'s status: -1 done, -4 stop run, or a trap.
     pub status: i32,
+    /// The exit code a desktop module handed to `prn.exit` as its run ended (ABI A30); `None`
+    /// when it never called it, which a runner ends with 0.
+    pub exit_code: Option<i32>,
     /// What `DISPLAY` wrote.
     pub output: String,
     pub errors: Vec<RtError>,
@@ -537,6 +540,11 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
             let Some(text) = text else { return -1 };
             let bytes = &text.as_bytes()[..text.len().min(cap.max(0) as usize)];
             mem.write(&mut caller, buf as u32 as usize, bytes).map(|_| bytes.len() as i32).unwrap_or(-1)
+        })
+        .map_err(|e| e.to_string())?;
+    linker
+        .func_wrap(prn, "exit", |caller: Caller<'_, State>, code: i32| {
+            caller.data().out.borrow_mut().exit_code = Some(code);
         })
         .map_err(|e| e.to_string())?;
     if want("remote") {

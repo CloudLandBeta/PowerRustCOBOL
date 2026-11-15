@@ -48,6 +48,8 @@ pub enum Glue {
     Flush,
     /// `glue.abort(code)` — report a run-time error and trap.
     Abort,
+    /// `glue.exit(code)` — the run's exit code, for the desktop runner (`prn.exit`, ABI A30).
+    Exit,
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +65,10 @@ pub enum Ins {
     /// Call the function that puts program unit `n`'s storage back to its
     /// initial state (`CANCEL`).
     InitUnit(usize),
+    /// Where the run ends (`STOP RUN`, the main program's `GOBACK` or last statement). When
+    /// lowering ends it becomes the hand-over of `RETURN-CODE` to the desktop runner in a
+    /// program that names it, and nothing in any other, whose bytes stay as they were.
+    RunEnd,
 }
 
 impl From<Instruction<'static>> for Ins {
