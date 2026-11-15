@@ -27,11 +27,12 @@ pub enum Native {
 }
 
 // The reasons of the Desktop column. Each names the milestone of DESKTOP-WASM-001 that moves the entry.
-const D_FORMS: &str = "forms, their controls and the application object are not on the WebAssembly path yet (DESKTOP-WASM-001 M2)";
+/// Why a project with forms takes the Cargo path until M2: the Desktop Build names it for a form (DESKTOP-WASM-001 T16).
+pub const D_FORMS: &str = "forms, their controls and the application object are not on the WebAssembly path yet (DESKTOP-WASM-001 M2)";
 const D_DIALOGS: &str = "the desktop's dialogs are not on the WebAssembly path yet (DESKTOP-WASM-001 M2)";
-const D_FILES: &str = "files on disk are not on the WebAssembly path yet (DESKTOP-WASM-001 M3); an INDEXED file declared STORAGE IS MEMORY is compiled into the module";
+pub(crate) const D_FILES: &str = "files on disk are not on the WebAssembly path yet (DESKTOP-WASM-001 M3); an INDEXED file declared STORAGE IS MEMORY is compiled into the module";
 const D_FILE_BUILTINS: &str = "the file and image built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
-const D_SORT: &str = "SORT with USING or GIVING files is not on the WebAssembly path yet (DESKTOP-WASM-001 M3); with an INPUT and an OUTPUT PROCEDURE it is compiled into the module";
+pub(crate) const D_SORT: &str = "SORT with USING or GIVING files is not on the WebAssembly path yet (DESKTOP-WASM-001 M3); with an INPUT and an OUTPUT PROCEDURE it is compiled into the module";
 const D_FILES_M3: &str = "MERGE, COMMIT, ROLLBACK and UNLOCK are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
 const D_SQL: &str = "SQL is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
 const D_HTTP: &str = "HTTP is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
@@ -434,4 +435,17 @@ pub fn statement_entry(name: &str) -> Option<Support> {
 /// The Desktop class of [`STATEMENT_TABLE`]'s row for a statement name (DESKTOP-WASM-001 R12).
 pub fn statement_native(name: &str) -> Option<Native> {
     STATEMENT_TABLE.iter().find(|(n, _, _)| *n == name).map(|(_, _, c)| *c)
+}
+
+/// Why a desktop module cannot hold the statement `s` yet: the reason of its Desktop class when that
+/// class is `Cargo` (DESKTOP-WASM-001 T16). A file verb and `SORT` are judged at their file instead,
+/// since a file held in memory and a SORT with procedures are compiled into the module.
+pub fn desktop_refusal(s: &Stmt) -> Option<&'static str> {
+    if matches!(support(s), Support::MemoryFiles(_)) {
+        return None;
+    }
+    match statement_native(stmt_name(s))? {
+        Native::Cargo(why) => Some(why),
+        Native::Module | Native::Host(_) => None,
+    }
 }

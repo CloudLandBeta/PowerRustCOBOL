@@ -44,16 +44,20 @@ pub struct GenError {
     /// The form (index in the project's forms) whose program the construct
     /// is in, when the module is a project's.
     pub form: Option<usize>,
+    /// The PROGRAM-ID (in capitals) of the program unit whose statement it is, when it is one: a
+    /// Common Code program linked into the main one is a unit of its own, so a Desktop Build can
+    /// name the file a refused construct is in (DESKTOP-WASM-001 R13). Empty otherwise.
+    pub program: String,
 }
 
 impl GenError {
     pub fn new(line: u32, message: impl Into<String>) -> GenError {
-        GenError { line, message: message.into(), kind: ErrorKind::Other, subject: String::new(), more: Vec::new(), form: None }
+        GenError { line, message: message.into(), kind: ErrorKind::Other, subject: String::new(), more: Vec::new(), form: None, program: String::new() }
     }
 
     /// A refusal of a known kind about `subject`.
     pub fn kinded(line: u32, kind: ErrorKind, subject: impl Into<String>, message: impl Into<String>) -> GenError {
-        GenError { line, message: message.into(), kind, subject: subject.into(), more: Vec::new(), form: None }
+        GenError { line, message: message.into(), kind, subject: subject.into(), more: Vec::new(), form: None, program: String::new() }
     }
 
     /// Every diagnostic, the first one included, with its kind.

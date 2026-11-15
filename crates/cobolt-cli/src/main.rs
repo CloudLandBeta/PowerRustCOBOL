@@ -784,6 +784,11 @@ fn cmd_build(args: &[String]) {
         // Every form's generated COBOL is rebuilt from its `.cfrm` first.
         regenerate_forms: true,
         debug,
+        // The path the project chooses (DESKTOP-WASM-001): the WebAssembly one by default, with
+        // the runner found beside `rcrun`; Cargo when the project or its contents ask for it.
+        runner: None,
+        force_cargo: false,
+        no_machine_code: false,
     };
 
     let target = target.unwrap_or_else(|| std::path::PathBuf::from("cobolt.toml"));

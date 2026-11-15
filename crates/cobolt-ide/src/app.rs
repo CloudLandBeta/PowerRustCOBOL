@@ -6230,6 +6230,12 @@ impl CoboltApp {
                 // designers' LIVE state, which the compiler cannot see.
                 regenerate_forms: false,
                 debug,
+                // The path the project chooses (DESKTOP-WASM-001): the WebAssembly one by
+                // default, with the runner found beside the IDE; Cargo when the project, its
+                // contents or a Debug Build ask for it.
+                runner: None,
+                force_cargo: false,
+                no_machine_code: false,
             };
             let result = build_project(&manifest, &opts).map_err(|e| e.to_string());
             let _ = tx.send(result);

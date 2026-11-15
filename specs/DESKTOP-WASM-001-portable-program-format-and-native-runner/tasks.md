@@ -765,7 +765,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - **`cargo test -p cobolt-wasm-rt`:** 27 of 27 (9 unit, 18 integration).
     - **Not done here:** the Build does not yet make this file (T16), and the runner is not yet built or signed in CI. Its release size is measured in M1 (C12).
 
-- [ ] **T16 — The Build classifies and takes the WebAssembly path** (R1, R7, R8, R13, R14, R21, R24, R25; AC1 local half, AC11, AC12, AC13, AC15, AC17 compiler half; C8, C11)
+- [x] **T16 — The Build classifies and takes the WebAssembly path** (R1, R7, R8, R13, R14, R21, R24, R25; AC1 local half, AC11, AC12, AC13, AC15, AC17 compiler half; C8, C11)
   - Files:
     - `crates/cobolt-compiler/src/lib.rs`:
       - `classify`, in plan §4.7's order;
@@ -790,6 +790,33 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - **`no_project_source_in_built_file` (AC15):** no `PROCEDURE DIVISION` statement line of the project is found in the built file. Literals, data names and `EXEC SQL` text are excluded (C1).
     - **AC13:** `bin/` holds one executable plus the assets and licences the Cargo path writes, and `dist/` is copied as today.
     - `cargo build -p cobolt-ide -p cobolt-project-tools -p cobolt-cli` succeeds.
+  - *Done 2026-11-15 (2.0.514):*
+    - **The order of a Build** (`build_core`): regenerate, front end, **classify**, then the WebAssembly path (generate, machine code, assemble, install) or the Cargo path (the toolchain check, then today's steps), then `finish_install`, which both paths share (the old steps 11b to the External Crates, factored out unchanged). The phase clock now starts at the front end, so a Cargo Build reports `Regenerate, FrontEnd, Classify, Cargo, Install`.
+    - **`classify`** checks, in this order, and the first that holds is the reason: Debug → `DebugBuild`; `BuildOptions.force_cargo` or `[desktop] build_path = "cargo"` → `Chosen`; `[[crates]]` → `ExternalCrate`; an `EXEC RUST` block in the main program or a form's program (`cobolt_semantic::exec_rust`) → `ExecRust { file, line }`; forms → `Refused`, naming the main form and its `.cfrm` at line 0 with the forms reason (M2); no runner → `RunnerUnavailable`; then the generator's first refusal → `Refused { construct, reason, file, line }`.
+      - **The runner** is `BuildOptions.runner` when that is a file, else `PRC_RUNNER`, else `prc-runner[.exe]` beside the running program. So `rcrun` and the IDE in `target/debug` find `target/debug/prc-runner`, and a test executable in `target/debug/deps` finds none: the existing compiler tests stay on the Cargo path, with `RunnerUnavailable`.
+      - **The file of a refusal:** the generator's error now carries its program unit (`GenError.program`). A PROGRAM-ID that a Common Code file declares names that file; anything else names the main program's file.
+    - **The WebAssembly path** (`wasm_build`): `cobolt_wasm::compile_program` with `native: true`; machine code for `Target::baseline` of this machine's triple (a failure is logged and the program is packaged without it; skipped by `no_machine_code` or `[desktop] machine_code = false`); the payload (module, machine code, its engine's compatibility hash) embedded into a copy of the runner; staged at `<build folder>/cobolt-build-<name>/wasm/<exe>` and renamed into `bin/`.
+    - **The toolchain check** moved after `classify` (C8). Its failure is `CompilerError::CargoNeedsToolchain { reason, tool, detail }`; the text still contains "Rust toolchain is required", which the IDE matches until T18.
+    - **In the generator** (desktop modules only; browser bytes unchanged): files on disk (subject `file NAME`), `SORT … USING/GIVING` (an INPUT and OUTPUT PROCEDURE still compiles), a built-in whose Desktop class is `Cargo(_)` (subject `COBOL::"NAME"`), and members of controls, forms and the application object, `INVOKE` included, are refused with the reason of their Desktop class (T10).
+    - **Settled while building:**
+      - The named tests are **sections of one test**, `desktop_wasm_build::the_build_classifies_and_takes_the_webassembly_path`: AC1 empties `PATH`, which is process-wide, so the test that does so must be the only one in its file. The runner is built inside it first (`$CARGO build -p cobolt-runner --bin prc-runner`), before `PATH` is emptied.
+      - `BuildResult.build_dir` stays a top-level field (the WebAssembly path stages there too). `Refused` carries the `reason` as well as the construct, file and line, so the message says why.
+      - **`DesktopControl { form, control }` is not added yet.** Until M2 a project with forms is refused as a whole, naming its main form; the per-control reason comes with M2's form support.
+    - **Measured** (macOS arm64, Apple M3 Pro, debug build):
+      - **`desktop_wasm_build`, 28 of 28,** with `PATH` an empty folder and `CARGO_HOME`, `RUSTUP_HOME` empty folders. The debug runner is 43.0 MB.
+        - **AC1, AC13, AC15:** a console project (main program + Common Code) builds on the WebAssembly path in 2 015.5 ms into a 46 211 504-byte file: regenerate 0.1, front end 3.9, classify 0.0, generate 8.4, machine code 140.9, assemble 1 827.6, install 2.4 ms. `bin/<name>` runs in 598.1 ms and prints `TOTAL 001415 COUNT 0003`; `bin/` holds that one executable, `assets/logo.txt` and the three notices; `dist/` holds the same file, `assets/`, `data/` and the notices, and runs too. None of the 7 statement lines is in the built file.
+        - **AC12:** `EXEC RUST` at `src/main.cbl` line 5 is named in 0.8 ms; nothing is compiled or staged.
+        - **AC11:** `file LOG-FILE` at `src/files.cbl` line 13 (a Common Code file) in 2.3 ms, and `COBOL::"HTTP-GET"` at `src/main.cbl` line 9 in 3.6 ms, each with its reason.
+        - **AC17:** `build_path = "cargo"` with no toolchain stops in 1.8 ms with `CargoNeedsToolchain` and reason `Chosen`; `bin/`'s tree hash is unchanged.
+        - A Debug Build gives `DebugBuild`; no runner, or a runner path that is not a file, gives `RunnerUnavailable`; the chosen build folder, the typed toolchain error and the current-code twins (`FRESH-T16-BOOK` compiled, `STALE-T16-BOOK` kept with regeneration off) all hold.
+      - **`native_desktop_refusals`** (`cobolt-wasm`), 10 of 10, 10 programs in 23.1 ms:
+        - refused as a desktop module, each at its line with its reason: `file LOG-F` (M3, unit `T16G`), `SORT … USING/GIVING` (M3), `COBOL::"HTTP-GET"` (M4), `ME::TITLE` read and written (M2; the parser gives the name in capitals) and `INVOKE` (M2);
+        - a refusal inside the nested program `INNER` names `INNER`;
+        - the same disk file in a browser module keeps the browser's refusal;
+        - a SORT with an INPUT and an OUTPUT PROCEDURE, and a plain console program, compile.
+      - **`cargo test -p cobolt-compiler --no-fail-fast`:** 18 targets, 298 passed, 1 failed, 9 ignored. The one red is `example_calls_name_only_what_exists`, red since PowerOficina came in (2.0.390): its 127 unresolved CALLs are all PowerOficina's test programs calling the programs it lists under `[files] backend`, which `common_code_names` does not read. No T16 change reaches it; it is a fix of its own.
+      - **`cargo test -p cobolt-wasm --no-fail-fast`:** 34 targets, 120 passed, 0 failed. **`desktop_wasm_unchanged`:** 3 of 3 PowerAnalyticsWeb artefacts match their pins. **`web_golden`:** 10 match.
+    - **Owed:** the release runner's size (C12, M1). Assembling takes 1.8 s with the 43 MB debug runner, most of the Build.
 
 - [ ] **T17 — `rcrun build --cargo`, `--no-machine-code`, and the install hint** (R15, R24, R25; A4; AC8 first half, AC17 CLI half)
   - Files: `crates/cobolt-cli/src/main.rs`.

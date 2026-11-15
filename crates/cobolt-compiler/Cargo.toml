@@ -29,6 +29,11 @@ cobolt-codegen  = { path = "../cobolt-codegen" }
 # The System KB's "What runs in a browser module" is written from the WebAssembly
 # generator's own tables (WASM-010 D7). Without its engine: the compiler runs nothing.
 cobolt-wasm     = { path = "../cobolt-wasm", default-features = false }
+# DESKTOP-WASM-001 T16, the WebAssembly path of a Desktop Build: the engine only makes the module's
+# machine code ahead (it runs nothing here), and the package puts module and machine code into a
+# copy of the PowerRustCOBOL runner.
+cobolt-runner-engine   = { path = "../cobolt-runner-engine" }
+cobolt-program-package = { path = "../cobolt-program-package" }
 
 serde      = { workspace = true }
 serde_json = { workspace = true }

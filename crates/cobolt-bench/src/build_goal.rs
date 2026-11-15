@@ -301,6 +301,7 @@ fn phase_ms(b: &BuildRun, phase: cobolt_compiler::BuildPhase) -> Option<f64> {
 
 fn path_name(p: cobolt_compiler::BuildPath) -> &'static str {
     match p {
+        cobolt_compiler::BuildPath::Wasm => "wasm",
         cobolt_compiler::BuildPath::Cargo => "cargo",
     }
 }

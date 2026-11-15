@@ -1065,6 +1065,15 @@ pub struct DesktopSettings {
     pub high_dpi: bool,
     #[serde(default = "yes")]
     pub gpu_acceleration: bool,
+    /// How a Build makes the program (DESKTOP-WASM-001 R7, R14): `wasm`, the default, puts a
+    /// WebAssembly module into the PowerRustCOBOL runner and needs no Rust toolchain; `cargo`
+    /// compiles the generated Rust with Cargo, as every Build did before.
+    #[serde(default = "wasm_path", skip_serializing_if = "is_wasm_path")]
+    pub build_path: String,
+    /// Whether a WebAssembly Build also makes the program's machine code (R15), so that it starts
+    /// without compiling first. On by default.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub machine_code: bool,
 }
 
 fn tabbed() -> String {
@@ -1075,9 +1084,36 @@ fn power_ui() -> String {
     "powerui".to_owned()
 }
 
+/// `build_path`'s default value.
+pub const BUILD_PATH_WASM: &str = "wasm";
+/// The `build_path` value that chooses Cargo.
+pub const BUILD_PATH_CARGO: &str = "cargo";
+
+fn wasm_path() -> String {
+    BUILD_PATH_WASM.to_owned()
+}
+
+fn is_wasm_path(s: &String) -> bool {
+    s.trim().is_empty() || s.trim().eq_ignore_ascii_case(BUILD_PATH_WASM)
+}
+
+impl DesktopSettings {
+    /// Has the developer chosen the Cargo path (`build_path = "cargo"`)?
+    pub fn chooses_cargo(&self) -> bool {
+        self.build_path.trim().eq_ignore_ascii_case(BUILD_PATH_CARGO)
+    }
+}
+
 impl Default for DesktopSettings {
     fn default() -> Self {
-        Self { window_style: tabbed(), ui_framework: power_ui(), high_dpi: true, gpu_acceleration: true }
+        Self {
+            window_style: tabbed(),
+            ui_framework: power_ui(),
+            high_dpi: true,
+            gpu_acceleration: true,
+            build_path: wasm_path(),
+            machine_code: true,
+        }
     }
 }
 

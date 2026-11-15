@@ -148,6 +148,35 @@ impl Lower<'_, '_> {
         ))
     }
 
+    /// A desktop module has no form, controls or application object before M2, and a built-in
+    /// waits for its own milestone (DESKTOP-WASM-001 T10, T16): a member that reaches the host is
+    /// refused there with the reason of its Desktop class, so the Build takes the Cargo path.
+    /// `root` is the chain's first name and `first` its first segment's; on the application object
+    /// the segment names the built-in.
+    pub(crate) fn desktop_gate(&self, ctrl: u32, root: &Expr, first: Option<&str>, line: u32) -> GenResult<()> {
+        if !self.native {
+            return Ok(());
+        }
+        let root = match root {
+            Expr::Identifier(n, _) => n.as_str(),
+            _ => "",
+        };
+        if ctrl == CTRL_APP {
+            if let Some(b) = first.and_then(|n| crate::support::builtin_entry(&n.to_ascii_uppercase())) {
+                return match b.native {
+                    crate::support::Native::Cargo(why) => {
+                        let subject = format!("COBOL::\"{}\"", b.name);
+                        let message = format!("{subject}: {why}");
+                        self.err_kind(line, crate::error::ErrorKind::Other, subject, message)
+                    }
+                    crate::support::Native::Module | crate::support::Native::Host(_) => Ok(()),
+                };
+            }
+        }
+        let subject = first.map(|n| format!("{root}::{n}")).unwrap_or_else(|| root.to_string());
+        self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_FORMS))
+    }
+
     /// Does `e` start a chain that reaches the host?
     pub(crate) fn is_host_member(&mut self, e: &Expr) -> bool {
         match Self::chain(e) {
@@ -243,6 +272,7 @@ impl Lower<'_, '_> {
             }
             return self.err(line, "a value method cannot be a receiving field");
         };
+        self.desktop_gate(ctrl, root, segs.first().map(|s| s.name), line)?;
         self.check_layer_rules(root, ctrl, &segs, true, line)?;
         self.build_path(ctrl, &segs)?;
         self.base();
@@ -291,6 +321,7 @@ impl Lower<'_, '_> {
             }
             return self.err(line, "a value method cannot be a receiving field");
         };
+        self.desktop_gate(ctrl, root, segs.first().map(|s| s.name), line)?;
         self.check_layer_rules(root, ctrl, &segs, true, line)?;
         let k = self.ctemp_next;
         let opd = self.host_read(ctrl, &segs, line)?;
@@ -325,6 +356,7 @@ impl Lower<'_, '_> {
             // A value method used as a statement has no effect.
             return Ok(());
         };
+        self.desktop_gate(ctrl, root, segs.first().map(|s| s.name), line)?;
         self.check_layer_rules(root, ctrl, &segs, false, line)?;
         // A Canvas2D drawing method is one command of a display list, not a host call (ABI A23).
         if let Some(op) = self.canvas_command(ctrl, &segs) {
@@ -394,6 +426,7 @@ impl Lower<'_, '_> {
         };
         let (mut recv, local) = match self.host_root(root) {
             Some(ctrl) => {
+                self.desktop_gate(ctrl, root, segs.first().map(|s| s.name), line)?;
                 let host_len = Self::host_prefix_len(&segs);
                 self.check_layer_rules(root, ctrl, &segs[..host_len], false, line)?;
                 // A `super::` read the statement asked for before it began (`lower_super`): the answer is there.
@@ -634,6 +667,8 @@ impl Lower<'_, '_> {
 
     /// A built-in `CALL "COBOL-NAME"` that belongs to the page.
     pub(crate) fn builtin_call(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
+        let app = Expr::Identifier("COBOL".to_string(), cobolt_lexer::Span::new(0, 0, line, 0));
+        self.desktop_gate(CTRL_APP, &app, Some(name), line)?;
         match name {
             // The page builds the form when it opens it.
             "INIT-FORM" => Ok(()),

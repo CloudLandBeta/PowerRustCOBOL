@@ -856,6 +856,8 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
         match found {
             Some(f) if f.kind != FileKind::Seq || self.conformance => Ok(f),
+            // A desktop module holds the same files in memory; one on disk waits for M3 (T16).
+            _ if self.native => self.err_kind(line, crate::error::ErrorKind::Other, format!("file {name}"), format!("file {name}: {}", crate::support::D_FILES)),
             _ if !self.conformance => {
                 let persistent = self
                     .prog
@@ -1917,7 +1919,10 @@ impl<'a, 'b> Lower<'a, 'b> {
         let rc_ok = std::mem::replace(&mut self.rc_ok, false);
         let r = self.stmt(s);
         self.rc_ok = rc_ok;
-        if let Err(e) = r {
+        if let Err(mut e) = r {
+            if e.program.is_empty() {
+                e.program = self.units[self.cur_unit].name.clone();
+            }
             self.diags.push(e);
             if self.cur.is_none() {
                 self.dead_block();
@@ -1931,6 +1936,14 @@ impl<'a, 'b> Lower<'a, 'b> {
         let line = s.span().line;
         if line > 0 {
             self.line(line);
+        }
+        // A desktop module refuses what the runner cannot serve yet, with the reason of the
+        // statement's Desktop class, so the Build takes the Cargo path and says why (DESKTOP-WASM-001 T16).
+        if self.native {
+            if let Some(why) = crate::support::desktop_refusal(s) {
+                let name = crate::support::stmt_name(s);
+                return self.err_kind(line, crate::error::ErrorKind::Other, name, format!("{name}: {why}"));
+            }
         }
         // Files held in memory and SORT work files (`lower_idx`).
         if let Some(r) = self.memory_file_stmt(s, line) {

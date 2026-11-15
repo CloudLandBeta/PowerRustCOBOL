@@ -312,6 +312,11 @@ fn start(shared: &Arc<Shared>, manifest: PathBuf, workspace_root: Option<PathBuf
             regenerate_forms: true,
             // The agent's build is the one a developer ships: optimised.
             debug: false,
+            // The path the project chooses: the WebAssembly one by default, with the runner found
+            // beside this program, Cargo when the project or its contents ask for it (DESKTOP-WASM-001).
+            runner: None,
+            force_cargo: false,
+            no_machine_code: false,
         };
         builder(&manifest, &opts)
     });

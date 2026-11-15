@@ -2,6 +2,30 @@
 
 
 
+## 2.0.514 — 2026-11-15
+
+**Feature (DESKTOP-WASM-001 T16): the Desktop Build chooses its path. A console program that the WebAssembly path can serve now builds there by default, with no Rust toolchain; anything else takes the Cargo path, and the Build says why.**
+- **The order of a Build** is now: regenerate, front end, **classify**, then one of two paths, then the same install for both.
+  - **The WebAssembly path:** the generator makes a desktop module, the Build makes its machine code for this machine's baseline CPU, puts module and machine code into a copy of `prc-runner`, stages it under `<build folder>/cobolt-build-<name>/wasm/`, and installs it into `bin/<name>` by rename. No `cargo` or `rustc` is started.
+  - **The Cargo path** is the Build as before. Its toolchain check now comes after the classification (C8), so a missing toolchain is found only when Cargo is needed, still before anything is staged or compiled.
+  - **Both paths then** copy the assets and documentation into `bin/`, write the SQL connections file and the licence notices, and fill the destination folder (`dist/`) as before.
+- **Why a Build takes the Cargo path**, checked in this order, the first that holds being the one named:
+  1. a Debug Build (`DebugBuild`);
+  2. the project chooses it, `[desktop] build_path = "cargo"` (`Chosen`);
+  3. the project registers External Crates (`ExternalCrate`);
+  4. an `EXEC RUST` block, named by file and line (`ExecRust`);
+  5. the project has forms, until M2: the main form and its `.cfrm` are named (`Refused`);
+  6. no runner is found (`RunnerUnavailable`): `PRC_RUNNER`, else `prc-runner` beside the IDE or `rcrun`;
+  7. the generator refuses a construct (`Refused`), named with its file, its line and the reason of its Desktop class: a file on disk, `SORT … USING/GIVING`, a built-in such as `COBOL::"HTTP-GET"`, a control or the application object. A construct in Common Code names the Common Code file.
+- **A Build with no Rust toolchain** that needs Cargo stops with `CargoNeedsToolchain`, which names the reason, the tool and how to install Rust. Its text still contains "Rust toolchain is required" for the IDE's install offer until T18. `bin/` is left exactly as it was.
+- **The project manifest's `[desktop]` table** gains `build_path` (`wasm`, the default, or `cargo`) and `machine_code` (on by default). Each is written only when it differs from its default, so existing manifests do not change.
+- **For the tools:** `BuildResult` reports the path, and the Cargo fields (crates compiled, target folder, forced crates) move under `cargo`, with the reason. `BuildOptions` gains `runner`, `force_cargo` and `no_machine_code`; `rcrun build --cargo` and `--no-machine-code` come in T17.
+- **In the generator,** a desktop module refuses what the runner cannot serve yet, with the reason of the construct's Desktop class (T10), and each refusal now names the program unit it is in. Browser and Mobile modules are unchanged byte for byte.
+- **Measured** (macOS arm64, Apple M3 Pro, debug build):
+  - `desktop_wasm_build`, 28 of 28, with no `cargo` or `rustc` on `PATH`: a console project (main program + Common Code) builds on the WebAssembly path in 2 015.5 ms into one 46.2 MB executable (machine code 140.9 ms; assembling with the 43 MB debug runner 1 827.6 ms). It runs from `bin/` and `dist/`, and none of its 7 statement lines is in the file. `EXEC RUST` is named in 0.8 ms, a Common Code disk file at its file and line in 2.3 ms, and with no toolchain the Build stops in 1.8 ms with `bin/` unchanged.
+  - `native_desktop_refusals`, 10 of 10. `cobolt-wasm` 120 passed in 34 targets; the PowerAnalyticsWeb pins (3) and the web goldens (10) match.
+  - `cobolt-compiler`: 298 passed, 1 failed, 9 ignored. The failure, `example_calls_name_only_what_exists`, predates this change (PowerOficina's backend programs, since 2.0.390).
+
 ## 2.0.513 — 2026-11-15
 
 **Feature (DESKTOP-WASM-001 T15): `prc-runner`, the PowerRustCOBOL runner, which runs the console program a Desktop Build puts inside its own executable.**

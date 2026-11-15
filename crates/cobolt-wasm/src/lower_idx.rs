@@ -878,6 +878,10 @@ impl Lower<'_, '_> {
         collating: Option<&str>,
         line: u32,
     ) -> GenResult<()> {
+        // A desktop module sorts in memory too; USING and GIVING files wait for M3 (DESKTOP-WASM-001 T16).
+        if self.native && (!using.is_empty() || !giving.is_empty()) {
+            return self.err_kind(line, ErrorKind::Other, "SORT … USING/GIVING", format!("SORT … USING/GIVING: {}", crate::support::D_SORT));
+        }
         if !using.is_empty() || !giving.is_empty() {
             return self.err_kind(
                 line,

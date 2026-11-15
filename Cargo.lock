@@ -2155,6 +2155,8 @@ dependencies = [
  "cobolt-graphics",
  "cobolt-lexer",
  "cobolt-parser",
+ "cobolt-program-package",
+ "cobolt-runner-engine",
  "cobolt-runtime",
  "cobolt-semantic",
  "cobolt-server",

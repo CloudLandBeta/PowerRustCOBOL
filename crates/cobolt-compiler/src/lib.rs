@@ -760,6 +760,23 @@ pub enum CompilerError {
     )]
     Toolchain { tool: String, detail: String },
 
+    /// The Build takes the Cargo path, for `reason`, and the Rust toolchain is missing or unusable
+    /// (DESKTOP-WASM-001 R24, R25). It is found after the Build has chosen its path, so a program
+    /// the WebAssembly path takes never needs Rust; it stops before anything is staged or compiled,
+    /// and `bin/` is left as it was.
+    #[error(
+        "this program is built with Cargo because {reason}, and the Rust toolchain is required to \
+         build it that way, but {tool} could not be run: {detail}. Install Rust from \
+         https://rustup.rs and make sure {tool} is on PATH. (Only building needs it — the binary \
+         you produce does not.)"
+    )]
+    CargoNeedsToolchain { reason: CargoReason, tool: String, detail: String },
+
+    /// The WebAssembly path could not put the program into the PowerRustCOBOL runner: its file
+    /// could not be read, or it is not an executable the program package knows (DESKTOP-WASM-001 T16).
+    #[error("the PowerRustCOBOL runner at '{path}' could not take the program: {detail}")]
+    Runner { path: String, detail: String },
+
     /// A build was asked for a target this host cannot produce (spec 041 R18).
     #[error(
         "cannot build for '{requested}' on this machine ({host}): PowerRustCOBOL builds \
@@ -1067,6 +1084,10 @@ struct CoboltProject {
     /// `[links]` — the schemes the project's Hyperlinks may follow beyond the defaults (WASM-006 R7).
     #[serde(default)]
     links: LinksConfig,
+    /// `[desktop]` — read by a Build for the path it takes and whether it makes machine code
+    /// (DESKTOP-WASM-001 R7, R15). Absent ⇒ the defaults: the WebAssembly path, with machine code.
+    #[serde(default)]
+    desktop: Option<project_kind::DesktopSettings>,
 }
 
 /// `[links]` in the project manifest (WASM-006 R7, OQ3): `schemes` widens what a Hyperlink follows —
@@ -1633,6 +1654,14 @@ pub fn form_program_path(cfrm: &Path, id: &str) -> Option<PathBuf> {
 ///
 /// Returns the programs and one warning per source left out for a fault.
 fn common_code_programs(proj: &CoboltProject, dir: &Path) -> (Vec<cobolt_ast::program::Program>, Vec<String>) {
+    let (units, warnings) = common_code_units(proj, dir);
+    (units.into_iter().map(|(_, p)| p).collect(), warnings)
+}
+
+/// [`common_code_programs`], each program with the project-relative file it was read from: a
+/// Desktop Build names that file when the WebAssembly path refuses a construct of it
+/// (DESKTOP-WASM-001 R13).
+fn common_code_units(proj: &CoboltProject, dir: &Path) -> (Vec<(String, cobolt_ast::program::Program)>, Vec<String>) {
     let form_stems: std::collections::HashSet<String> = proj
         .files
         .forms
@@ -1665,7 +1694,7 @@ fn common_code_programs(proj: &CoboltProject, dir: &Path) -> (Vec<cobolt_ast::pr
             Some(_) if pr.next_block_id > 0 => warnings.push(format!(
                 "Common Code {rel}: holds EXEC RUST blocks, which a form cannot CALL into — not linked"
             )),
-            Some(program) => programs.push(program),
+            Some(program) => programs.push((rel.clone(), program)),
             None => warnings.push(format!("Common Code {rel}: does not parse — not linked")),
         }
     }
@@ -1890,12 +1919,112 @@ impl BuildPhase {
     }
 }
 
-/// The way a Build made its executable (DESKTOP-WASM-001). Only the Cargo path
-/// exists so far; the WebAssembly path joins it when the Build can take it.
+/// The way a Build made its executable (DESKTOP-WASM-001).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuildPath {
+    /// The program was compiled to a WebAssembly module and put into a copy of the
+    /// PowerRustCOBOL runner, with its machine code (R1, R7, R8): no Rust toolchain was used.
+    Wasm,
     /// The program was compiled to a Rust project and built with `cargo`.
     Cargo,
+}
+
+impl BuildPath {
+    /// The path's name in a build log and a result block.
+    pub fn name(self) -> &'static str {
+        match self {
+            BuildPath::Wasm => "WebAssembly",
+            BuildPath::Cargo => "Cargo",
+        }
+    }
+}
+
+/// Why a Build took the Cargo path instead of the WebAssembly one (DESKTOP-WASM-001 R13, R14,
+/// R24; plan §4.7). The Build checks them in the order declared here and names the first that
+/// holds; a construct the generator refuses comes last, after the runner is found.
+///
+/// Not yet here: `DesktopControl { form, control }`. Until M2 every program with forms is a
+/// `Refused` that names its main form, with the generator's reason for forms.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CargoReason {
+    /// A Debug Build: the debugger attaches to a program Cargo built (C11).
+    DebugBuild,
+    /// The project chose Cargo (`[desktop] build_path = "cargo"`), or the Build was asked for it
+    /// (`rcrun build --cargo`).
+    Chosen,
+    /// The project registers External Crates (`[[crates]]`), which only Cargo links.
+    ExternalCrate,
+    /// An `EXEC RUST` block: Rust compiled into the program. `file` is relative to the project.
+    ExecRust { file: String, line: u32 },
+    /// A construct the WebAssembly path does not take yet, and why (the reason of its Desktop
+    /// class, T10). `file` is relative to the project; `line` is 0 when the construct is a whole file.
+    Refused { construct: String, reason: String, file: String, line: u32 },
+    /// No PowerRustCOBOL runner was found to put the program into.
+    RunnerUnavailable,
+}
+
+impl std::fmt::Display for CargoReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let at = |file: &str, line: u32| if line > 0 { format!("{file} line {line}") } else { file.to_string() };
+        match self {
+            CargoReason::DebugBuild => f.write_str("it is a Debug Build, which the debugger attaches to"),
+            CargoReason::Chosen => f.write_str("the project chooses the Cargo path"),
+            CargoReason::ExternalCrate => f.write_str("the project uses External Crates, which only Cargo links"),
+            CargoReason::ExecRust { file, line } => {
+                write!(f, "{} holds an EXEC RUST block, Rust compiled into the program", at(file, *line))
+            }
+            CargoReason::Refused { construct, reason, file, line } => write!(f, "{}: {construct}: {reason}", at(file, *line)),
+            CargoReason::RunnerUnavailable => write!(
+                f,
+                "the PowerRustCOBOL runner ({RUNNER_NAME}) was not found beside the program that builds, or in {RUNNER_ENV}"
+            ),
+        }
+    }
+}
+
+/// The environment variable that names the PowerRustCOBOL runner a Build uses (DESKTOP-WASM-001 T16).
+pub const RUNNER_ENV: &str = "PRC_RUNNER";
+
+/// The runner's file name, beside the IDE and `rcrun`.
+pub const RUNNER_NAME: &str = if cfg!(windows) { "prc-runner.exe" } else { "prc-runner" };
+
+/// Where the PowerRustCOBOL runner is, if it is installed: [`RUNNER_ENV`], else beside the running
+/// executable (the IDE, `rcrun` and the runner ship together).
+pub fn runner_path() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os(RUNNER_ENV).map(PathBuf::from) {
+        return p.is_file().then_some(p);
+    }
+    let exe = std::env::current_exe().ok()?;
+    let beside = exe.parent()?.join(RUNNER_NAME);
+    beside.is_file().then_some(beside)
+}
+
+/// What the Cargo path did, beside what every Build reports.
+#[derive(Debug)]
+pub struct CargoBuild {
+    /// Why the Build took the Cargo path.
+    pub reason: CargoReason,
+    /// How many crates `cargo` actually compiled this time (spec 041 R15).
+    ///
+    /// `0` on a rebuild with nothing changed — the measurement AC13 asks for,
+    /// as a count rather than a stopwatch reading, because a count is the same
+    /// number on a fast machine and a slow one.
+    pub crates_compiled: usize,
+    /// Where cargo kept the compiled crates of this build: the cache every
+    /// program shares (`<build folder>/shared-target`), or — when that could not
+    /// be used — `<build_dir>/target`, as before (spec 101).
+    pub target_dir: PathBuf,
+    /// The platform crates that were stale in the cache and so were compiled again
+    /// (spec 101 R15), with what depends on them. Empty in the ordinary case.
+    pub forced_full: Vec<String>,
+}
+
+#[cfg(test)]
+impl BuildResult {
+    /// What the Cargo path did: the tests that build with Cargo read it.
+    fn cargo_build(&self) -> &CargoBuild {
+        self.cargo.as_ref().expect("the Build took the Cargo path")
+    }
 }
 
 /// Times the phases of one Build (DESKTOP-WASM-001 R18).
@@ -2096,7 +2225,19 @@ pub struct BuildOptions {
     /// A debug build never replaces the optimised one. It is installed as
     /// `bin/<name>-debug` and left out of the destination folder, so building
     /// to debug cannot leave a slow binary where the deliverable belongs.
+    ///
+    /// A debug build always takes the Cargo path (DESKTOP-WASM-001 C11).
     pub debug: bool,
+    /// The PowerRustCOBOL runner the WebAssembly path puts the program into (DESKTOP-WASM-001 R8).
+    /// `None` — the default — finds it with [`runner_path`].
+    pub runner: Option<PathBuf>,
+    /// Take the Cargo path whatever the project says (`rcrun build --cargo`); the reason is
+    /// [`CargoReason::Chosen`].
+    pub force_cargo: bool,
+    /// Make no machine code on the WebAssembly path (`rcrun build --no-machine-code`), whatever
+    /// the project's `[desktop] machine_code` says: the program then compiles when it first starts
+    /// and keeps that in its cache (R15, R16).
+    pub no_machine_code: bool,
 }
 
 impl Default for BuildOptions {
@@ -2110,6 +2251,9 @@ impl Default for BuildOptions {
             build_dir: None,
             regenerate_forms: true,
             debug: false,
+            runner: None,
+            force_cargo: false,
+            no_machine_code: false,
         }
     }
 }
@@ -2125,26 +2269,17 @@ pub struct BuildResult {
     pub form_count: usize,
     /// Compressed AST size in bytes.
     pub ast_bytes: usize,
-    /// How many crates `cargo` actually compiled this time (spec 041 R15).
-    ///
-    /// `0` on a rebuild with nothing changed — the measurement AC13 asks for,
-    /// as a count rather than a stopwatch reading, because a count is the same
-    /// number on a fast machine and a slow one.
-    pub crates_compiled: usize,
-    /// The staging workspace this build used — the generated `Cargo.toml`,
-    /// `Cargo.lock` and cargo's `target/`. It lives under a per-user cache
-    /// folder, not the OS temp directory (see `resolve_build_root`), and is
-    /// reported here so nothing outside the compiler has to know that rule.
+    /// The staging folder this build used. On the Cargo path it holds the
+    /// generated `Cargo.toml`, `Cargo.lock` and cargo's `target/`; on the
+    /// WebAssembly path, the module and the executable before they are
+    /// installed. It lives under a per-user cache folder, not the OS temp
+    /// directory (see `resolve_build_root`), and is reported here so nothing
+    /// outside the compiler has to know that rule.
     pub build_dir: PathBuf,
-    /// Where cargo kept the compiled crates of this build: the cache every
-    /// program shares (`<build folder>/shared-target`), or — when that could not
-    /// be used — `<build_dir>/target`, as before (spec 101).
-    pub target_dir: PathBuf,
-    /// The platform crates that were stale in the cache and so were compiled again
-    /// (spec 101 R15), with what depends on them. Empty in the ordinary case.
-    pub forced_full: Vec<String>,
     /// The way this Build made the executable (DESKTOP-WASM-001).
     pub path: BuildPath,
+    /// What the Cargo path did, and why it was taken; `None` on the WebAssembly path.
+    pub cargo: Option<CargoBuild>,
     /// The time spent in each phase that ran, in the order phases run (R18).
     pub phases: Vec<(BuildPhase, std::time::Duration)>,
     /// The highest resident memory of the Build, in bytes, sampled every 25 ms
@@ -2221,6 +2356,7 @@ pub fn build_single_file(
         ide: IdeConfig::default(),
         links: LinksConfig::default(),
         sql_connections: Vec::new(),
+        desktop: None,
     };
     build_core(proj, project_dir, opts, false)
 }
@@ -2375,6 +2511,75 @@ fn host_triple() -> Result<String, CompilerError> {
     })
 }
 
+/// A toolchain failure on the Cargo path, typed with the reason the Build took that path
+/// (DESKTOP-WASM-001 R25): the developer learns why Rust is needed for this program.
+fn needs_toolchain(e: CompilerError, reason: &CargoReason) -> CompilerError {
+    match e {
+        CompilerError::Toolchain { tool, detail } => CompilerError::CargoNeedsToolchain { reason: reason.clone(), tool, detail },
+        other => other,
+    }
+}
+
+/// The line of the first `EXEC RUST` block of `program` and its nested programs, statement or
+/// item level; `None` when it has none.
+fn first_exec_rust_line(program: &cobolt_ast::program::Program) -> Option<u32> {
+    let mut first: Option<u32> = None;
+    let mut take = |line: u32| first = Some(first.map_or(line, |f| f.min(line)));
+    cobolt_semantic::exec_rust::for_each_block(program, &mut |_, stmt| take(stmt.span().line));
+    for item in cobolt_semantic::exec_rust::item_blocks(program) {
+        take(item.span.line);
+    }
+    first
+}
+
+/// The first reason, in plan §4.7's order, that the program takes the Cargo path before the
+/// generator is asked (DESKTOP-WASM-001 T16): Debug, chosen, External Crates, `EXEC RUST`, forms,
+/// no runner. `Ok` is the runner the WebAssembly path puts the program into. `programs` are the
+/// main program and each form's, with their files; `main_form` is the main form's file.
+fn classify<'p>(
+    proj: &CoboltProject,
+    opts: &BuildOptions,
+    programs: impl Iterator<Item = (&'p str, &'p cobolt_ast::program::Program)>,
+    main_form: Option<(&str, &str)>,
+) -> Result<PathBuf, CargoReason> {
+    if opts.debug {
+        return Err(CargoReason::DebugBuild);
+    }
+    if opts.force_cargo || proj.desktop.as_ref().is_some_and(|d| d.chooses_cargo()) {
+        return Err(CargoReason::Chosen);
+    }
+    if !proj.crates.is_empty() {
+        return Err(CargoReason::ExternalCrate);
+    }
+    for (file, program) in programs {
+        if let Some(line) = first_exec_rust_line(program) {
+            return Err(CargoReason::ExecRust { file: file.to_string(), line });
+        }
+    }
+    // Until M2 the runner shows no window: a program with forms takes the Cargo path, which says
+    // which form (DESKTOP-WASM-001 T10's reason for forms).
+    if let Some((id, file)) = main_form {
+        return Err(CargoReason::Refused {
+            construct: format!("the form {id}"),
+            reason: cobolt_wasm::support::D_FORMS.to_string(),
+            file: file.to_string(),
+            line: 0,
+        });
+    }
+    opts.runner.clone().filter(|p| p.is_file()).or_else(runner_path).ok_or(CargoReason::RunnerUnavailable)
+}
+
+/// The generator's refusal as the reason the Build takes the Cargo path (DESKTOP-WASM-001 R13):
+/// the construct, the reason of its Desktop class, and the file and line it is at. `files` maps a
+/// linked Common Code program's PROGRAM-ID (in capitals) to its file; any other statement is in
+/// `main_file`.
+fn refused(e: &cobolt_wasm::GenError, main_file: &str, files: &[(String, String)]) -> CargoReason {
+    let file = files.iter().find(|(id, _)| *id == e.program).map_or(main_file, |(_, rel)| rel.as_str());
+    let construct = if e.subject.is_empty() { "a statement".to_string() } else { e.subject.clone() };
+    let reason = e.message.strip_prefix(&format!("{}: ", e.subject)).unwrap_or(&e.message).to_string();
+    CargoReason::Refused { construct, reason, file: file.to_string(), line: e.line }
+}
+
 /// Shared build pipeline used by both [`build_project`] and [`build_single_file`].
 fn build_core(
     mut proj: CoboltProject,
@@ -2385,9 +2590,8 @@ fn build_core(
     // External Crates, a lone `.cbl` that external crates require a project.
     has_project: bool,
 ) -> Result<BuildResult, CompilerError> {
-    // DESKTOP-WASM-001 R18, R20: each phase's time and the peak memory. The
-    // toolchain check that opens a Build belongs to the Cargo path.
-    let clock = PhaseClock::new(BuildPhase::Cargo);
+    // DESKTOP-WASM-001 R18, R20: each phase's time and the peak memory.
+    let clock = PhaseClock::new(BuildPhase::FrontEnd);
     let sampler = PeakSampler::start();
     // Detail lines (file counts, sizes) stream to the UI too, flagged so
     // they land in the build-details log rather than on the progress bar.
@@ -2421,22 +2625,13 @@ fn build_core(
         }
     };
 
-    // ── 1. The toolchain, before anything is staged ──────────────────────────
-    // Checked first so a missing toolchain fails with its own diagnostic and
-    // leaves no half-built artefacts behind (spec 041 R14/AC12), and so a
-    // cross-target request is refused before any work is done (R18/AC16).
-    report(0.02, "Checking the Rust toolchain…");
-    let host = host_triple()?;
-    if let Some(requested) = opts.target.as_deref() {
-        if requested != host {
-            return Err(CompilerError::UnsupportedTarget {
-                requested: requested.to_string(),
-                host,
-            });
-        }
-    }
-
-    clock.enter(BuildPhase::FrontEnd);
+    // ── 1. The toolchain is checked once the path is chosen (step 5c) ────────
+    // A program the WebAssembly path takes needs no Rust toolchain, so the
+    // check belongs to the Cargo path (DESKTOP-WASM-001 R7, R25, C8). It still
+    // comes before anything is staged or compiled there, so a missing toolchain
+    // fails with its own diagnostic, names why Cargo was needed, and leaves
+    // `bin/` as it was (spec 041 R14/AC12). Only the forms' generated COBOL may
+    // have been written again by then (step 1b).
     report(0.05, "Reading project…");
     // The system documentation is NOT published here. It describes the
     // platform, not this project, so it belongs to the machine-level System
@@ -2587,17 +2782,20 @@ fn build_core(
     // Common Code rides inside every program that may CALL it: the main one
     // here, each form's below — as Run Form links it when it loads them. Read
     // before the analysis, which needs its names to check a literal CALL.
-    let common = if has_project {
-        let (common, warnings) = common_code_programs(&proj, &project_dir);
+    // Each Common Code program's file is kept by its PROGRAM-ID, so the WebAssembly
+    // path can name the file of a construct it refuses (DESKTOP-WASM-001 R13).
+    let (common, common_files): (Vec<cobolt_ast::program::Program>, Vec<(String, String)>) = if has_project {
+        let (units, warnings) = common_code_units(&proj, &project_dir);
         for w in &warnings {
             log(&format!("⚠️  {w}"));
         }
-        if !common.is_empty() {
-            log(&format!("   {} Common Code program(s) linked", common.len()));
+        if !units.is_empty() {
+            log(&format!("   {} Common Code program(s) linked", units.len()));
         }
-        common
+        let files = units.iter().map(|(rel, p)| (p.identification.program_id.to_ascii_uppercase(), rel.clone())).collect();
+        (units.into_iter().map(|(_, p)| p).collect(), files)
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
 
     // Spec 044 R20 — registered External Crates extend the block allowlist;
@@ -2838,8 +3036,80 @@ fn build_core(
         log(&format!("   {} form program(s) embedded", form_programs.len()));
     }
 
-    // ── 6. Locate workspace root (where the cobolt-* crates live) ────────────
+    let exe_name = if cfg!(windows) {
+        format!("{bin_name}.exe")
+    } else {
+        bin_name.clone()
+    };
+    let bin_dir = project_dir.join("bin");
+
+    // ── 5c. Classify: the WebAssembly path, or Cargo and why ─────────────────
+    // DESKTOP-WASM-001 plan §4.7: Debug → chosen → External Crates → EXEC RUST
+    // → forms → runner, then the generator, whose refusal names the construct,
+    // its file and its line (R13, R14). The first reason that holds is the one
+    // the Build reports.
+    clock.enter(BuildPhase::Classify);
+    report(0.45, "Choosing the build path…");
+    let main_form = forms.first().and_then(|(id, _)| {
+        proj.files
+            .forms
+            .iter()
+            .find(|rel| Path::new(rel).file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case(id)))
+            .map(|rel| (id.clone(), rel.clone()))
+    });
+    let programs = std::iter::once((main_rel.as_str(), &program)).chain(form_units.iter().map(|u| (u.rel.as_str(), &u.program)));
+    let chosen = classify(&proj, opts, programs, main_form.as_ref().map(|(id, rel)| (id.as_str(), rel.as_str())));
+    let chosen = match chosen {
+        Ok(runner) => {
+            clock.enter(BuildPhase::Generate);
+            report(0.50, "Generating the WebAssembly module…");
+            let wasm_opts = cobolt_wasm::Options { native: true, name: bin_name.clone(), ..cobolt_wasm::Options::default() };
+            match cobolt_wasm::compile_program(&program, &wasm_opts) {
+                Ok(module) => Ok((runner, module)),
+                Err(e) => Err(refused(&e, main_rel, &common_files)),
+            }
+        }
+        Err(reason) => Err(reason),
+    };
+    let reason = match chosen {
+        Ok((runner, module)) => {
+            let target = WasmTarget { proj: &proj, bin_name: &bin_name, exe_name: &exe_name, bin_dir: &bin_dir };
+            let (dst_bin, build_dir) = wasm_build(&target, opts, &runner, &module, &clock, &log, &report)?;
+            finish_install(&proj, &project_dir, &bin_dir, &dst_bin, &exe_name, false, false, &log)?;
+            report(1.0, "Done");
+            let phases = clock.finish();
+            return Ok(BuildResult {
+                binary_path: dst_bin,
+                source_count: sources.len(),
+                form_count: forms.len(),
+                ast_bytes: ast_compressed_len,
+                build_dir,
+                path: BuildPath::Wasm,
+                cargo: None,
+                phases,
+                peak_rss: sampler.finish(),
+            });
+        }
+        Err(reason) => reason,
+    };
+
+    // ── 6. The toolchain, then the workspace root (where the cobolt-* crates live) ──
     clock.enter(BuildPhase::Cargo);
+    log(&format!("🦀 Cargo path: {reason}"));
+    // Checked before anything is staged, so a missing toolchain fails with its
+    // own diagnostic, names why this program needs it, leaves no half-built
+    // artefacts behind (spec 041 R14/AC12; DESKTOP-WASM-001 R25), and so a
+    // cross-target request is refused before any work is done (R18/AC16).
+    report(0.46, "Checking the Rust toolchain…");
+    let host = host_triple().map_err(|e| needs_toolchain(e, &reason))?;
+    if let Some(requested) = opts.target.as_deref() {
+        if requested != host {
+            return Err(CompilerError::UnsupportedTarget {
+                requested: requested.to_string(),
+                host,
+            });
+        }
+    }
     let workspace_root = resolve_workspace_root(opts.workspace_root.clone());
 
     let workspace_root = match workspace_root {
@@ -3451,14 +3721,7 @@ fn build_core(
     // ── 11. Copy binary to bin/ ───────────────────────────────────────────────
     clock.enter(BuildPhase::Install);
     report(0.97, "Copying binary…");
-    let bin_dir = project_dir.join("bin");
     create_dir(&bin_dir)?;
-
-    let exe_name = if cfg!(windows) {
-        format!("{bin_name}.exe")
-    } else {
-        bin_name.clone()
-    };
 
     let profile_dir = if opts.debug { "debug" } else { "release" };
     let src_bin = target_dir.join(profile_dir).join(&exe_name);
@@ -3493,6 +3756,124 @@ fn build_core(
         }
     }
 
+    finish_install(&proj, &project_dir, &bin_dir, &dst_bin, &exe_name, opts.debug, features.kb_semantic, &log)?;
+
+    report(1.0, "Done");
+    let phases = clock.finish();
+    Ok(BuildResult {
+        binary_path: dst_bin,
+        source_count: sources.len(),
+        form_count: forms.len(),
+        ast_bytes: ast_compressed_len,
+        build_dir,
+        path: BuildPath::Cargo,
+        cargo: Some(CargoBuild { reason, crates_compiled: compiled, target_dir, forced_full }),
+        phases,
+        peak_rss: sampler.finish(),
+    })
+}
+
+/// Where the WebAssembly path installs the program, and for which project.
+struct WasmTarget<'a> {
+    proj: &'a CoboltProject,
+    bin_name: &'a str,
+    exe_name: &'a str,
+    bin_dir: &'a Path,
+}
+
+/// The WebAssembly path after the module is generated (DESKTOP-WASM-001 R1, R7, R8, R15):
+/// machine code for the baseline CPU of this machine's architecture (unless the project or the
+/// Build turned it off; a failure to make it is logged and the program then compiles when it
+/// first starts), then one executable — a copy of the runner carrying module and machine code —
+/// staged under the build folder and installed into `bin/` by rename. Answers the installed file
+/// and the staging folder. No Rust toolchain is used.
+fn wasm_build(
+    to: &WasmTarget<'_>,
+    opts: &BuildOptions,
+    runner: &Path,
+    module: &cobolt_wasm::Compiled,
+    clock: &PhaseClock,
+    log: &impl Fn(&str),
+    report: &impl Fn(f32, &str),
+) -> Result<(PathBuf, PathBuf), CompilerError> {
+    use cobolt_program_package::Kind;
+    let host = cobolt_runner_engine::Target::host().triple();
+    if let Some(requested) = opts.target.as_deref() {
+        if requested != host {
+            return Err(CompilerError::UnsupportedTarget { requested: requested.to_string(), host });
+        }
+    }
+    log(&format!("🧩 WebAssembly path: module {} bytes", module.wasm.len()));
+    for w in &module.warnings {
+        log(&format!("⚠️  {w}"));
+    }
+
+    let wanted = !opts.no_machine_code && to.proj.desktop.as_ref().is_none_or(|d| d.machine_code);
+    let code = if wanted {
+        clock.enter(BuildPhase::MachineCode);
+        report(0.60, "Making the machine code…");
+        match cobolt_runner_engine::Target::baseline(&host).and_then(|t| cobolt_runner_engine::precompile(&module.wasm, &t)) {
+            Ok(code) => {
+                log(&format!("   machine code for {host}: {} bytes", code.bytes.len()));
+                Some(code)
+            }
+            Err(e) => {
+                log(&format!("⚠️  No machine code was made ({e}): the program compiles when it first starts"));
+                None
+            }
+        }
+    } else {
+        log("   no machine code: the program compiles when it first starts, and keeps it in its cache");
+        None
+    };
+
+    clock.enter(BuildPhase::Assemble);
+    report(0.85, "Putting the program into the runner…");
+    let runner_failure = |detail: String| CompilerError::Runner { path: runner.display().to_string(), detail };
+    let runner_bytes = std::fs::read(runner).map_err(|e| runner_failure(e.to_string()))?;
+    let mut parts: Vec<(Kind, &[u8])> = vec![(Kind::Module, module.wasm.as_slice())];
+    if let Some(code) = &code {
+        parts.push((Kind::MachineCode, code.bytes.as_slice()));
+        parts.push((Kind::MachineCodeEngine, &code.compat[..]));
+    }
+    let payload = cobolt_program_package::encode(&parts);
+    let exe = cobolt_program_package::embed(&runner_bytes, &payload, to.exe_name).map_err(|e| runner_failure(e.to_string()))?;
+
+    let (build_root, _) = resolve_build_root(opts.build_dir.as_deref());
+    let build_dir = build_root.join(format!("cobolt-build-{}", to.bin_name));
+    let staged_dir = build_dir.join("wasm");
+    create_dir(&staged_dir)?;
+    let staged = staged_dir.join(to.exe_name);
+    cobolt_program_package::write_executable(&staged, &exe).ctx(|| format!("write the program '{}'", staged.display()))?;
+
+    clock.enter(BuildPhase::Install);
+    report(0.97, "Copying binary…");
+    create_dir(to.bin_dir)?;
+    let dst_bin = to.bin_dir.join(installed_binary_name(to.bin_name, false));
+    // Rename-into-place, as the Cargo path installs (see `install_executable`).
+    install_executable(&staged, &dst_bin)
+        .ctx(|| format!("install the program at '{}' (built at '{}')", dst_bin.display(), staged.display()))?;
+    log(&format!("✅ Binary → {} ({} bytes)", dst_bin.display(), exe.len()));
+    Ok((dst_bin, build_dir))
+}
+
+/// What both paths do once the program is in `bin/` (DESKTOP-WASM-001 T16, AC13): the project's
+/// assets and documentation beside it, the SQL connections file and the licence notices, then the
+/// destination folder (`dist/` unless the project chooses another) with the program, `assets/`,
+/// `data/`, the indexed definitions, the notices and the External Crates manifest. `dst_bin` is
+/// the program as installed in `bin/`; a debug build is not delivered (`debug`), and `kb_semantic`
+/// ships the built-in semantic model.
+#[allow(clippy::too_many_arguments)]
+fn finish_install(
+    proj: &CoboltProject,
+    project_dir: &Path,
+    bin_dir: &Path,
+    dst_bin: &Path,
+    exe_name: &str,
+    debug: bool,
+    kb_semantic: bool,
+    log: &impl Fn(&str),
+) -> Result<(), CompilerError> {
     // ── 11b. Copy bundled assets next to the binary ───────────────────────────
     // Images, audio, fonts and other data files tracked under the project's
     // Assets (and Documentation) must ship with the build so the program finds
@@ -3574,7 +3955,7 @@ fn build_core(
     // own iteration binary, and putting it here would replace the program they
     // hand over with an unoptimised one.
     let dest_bin = dest_path.join(&exe_name);
-    if !opts.debug {
+    if !debug {
         if let Err(e) = install_executable(&dst_bin, &dest_bin) {
             log(&format!(
                 "⚠️  Failed to copy binary to destination folder: {e}"
@@ -3615,7 +3996,7 @@ fn build_core(
     // An application that links the built-in semantic model ships it, in
     // `models/` beside `assets/` — where its KnowledgeBase looks first — so it
     // embeds offline from its first run (operator, 2026-09-27).
-    if features.kb_semantic {
+    if kb_semantic {
         deliver_builtin_model(&project_dir, &dest_path, &log);
     }
     let data_src = project_dir.join("data");
@@ -3659,22 +4040,7 @@ fn build_core(
         Ok(None) => {}
         Err(e) => log(&format!("⚠️  Could not write the crate manifest: {e}")),
     }
-
-    report(1.0, "Done");
-    let phases = clock.finish();
-    Ok(BuildResult {
-        binary_path: dst_bin,
-        source_count: sources.len(),
-        form_count: forms.len(),
-        ast_bytes: ast_compressed_len,
-        crates_compiled: compiled,
-        build_dir,
-        target_dir,
-        forced_full,
-        path: BuildPath::Cargo,
-        phases,
-        peak_rss: sampler.finish(),
-    })
+    Ok(())
 }
 
 // ── Asset-pack themes (spec 007) ──────────────────────────────────────────────
@@ -11897,6 +12263,7 @@ function_prefix = "sales-"
             ide: IdeConfig::default(),
             links: LinksConfig::default(),
             sql_connections: Vec::new(),
+            desktop: None,
         }
     }
 
@@ -13147,14 +13514,14 @@ function_prefix = "sales-"
         println!(
             "AC13: build 1 compiled {} crate(s) in {first_secs:.1}s; \
              build 2 compiled {} crate(s) in {second_secs:.1}s",
-            first.crates_compiled, second.crates_compiled
+            first.cargo_build().crates_compiled, second.cargo_build().crates_compiled
         );
 
         assert_eq!(
-            second.crates_compiled, 0,
+            second.cargo_build().crates_compiled, 0,
             "an unchanged program recompiled {} crate(s) on the second build \
              (the first compiled {})",
-            second.crates_compiled, first.crates_compiled
+            second.cargo_build().crates_compiled, first.cargo_build().crates_compiled
         );
 
         // And a changed block *does* rebuild — a cache that never invalidates
@@ -13163,10 +13530,10 @@ function_prefix = "sales-"
         let third = build_single_file(&src, &opts).expect("the third build should succeed");
         println!(
             "AC13: after editing the block, build 3 compiled {} crate(s)",
-            third.crates_compiled
+            third.cargo_build().crates_compiled
         );
         assert!(
-            third.crates_compiled > 0,
+            third.cargo_build().crates_compiled > 0,
             "editing the block did not trigger a recompile"
         );
 
@@ -13385,9 +13752,10 @@ function_prefix = "sales-"
     /// **DESKTOP-WASM-001 R18, R20 (T2)** — a Build reports the time of each phase that ran
     /// and its peak memory. One real Build of a one-form project on the Cargo path, into the
     /// default build folder (the shared cache, as the IDE builds): the phases are
-    /// `regenerate`, `front end`, `cargo` and `install`, in that order; their sum is at most
-    /// the wall time; the peak is above zero; and every progress update names its phase, with
-    /// a time since the start that never goes back.
+    /// `regenerate`, `front end`, `classify` (T16: a program with forms takes the Cargo path
+    /// until M2, and the reason names its form), `cargo` and `install`, in that order; their sum
+    /// is at most the wall time; the peak is above zero; and every progress update names its
+    /// phase, with a time since the start that never goes back.
     #[test]
     fn build_reports_phases_and_peak() {
         let _heavy = heavy_build_guard();
@@ -13424,7 +13792,11 @@ function_prefix = "sales-"
 
         let sum: std::time::Duration = built.phases.iter().map(|(_, d)| *d).sum();
         let names: Vec<BuildPhase> = built.phases.iter().map(|(p, _)| *p).collect();
-        let expected = [BuildPhase::Regenerate, BuildPhase::FrontEnd, BuildPhase::Cargo, BuildPhase::Install];
+        let expected = [BuildPhase::Regenerate, BuildPhase::FrontEnd, BuildPhase::Classify, BuildPhase::Cargo, BuildPhase::Install];
+        let form_reason = matches!(
+            &built.cargo_build().reason,
+            CargoReason::Refused { construct, file, line: 0, .. } if construct == "the form MAIN" && file == "forms/main.cfrm"
+        );
         let backwards = updates.windows(2).filter(|w| w[1].elapsed < w[0].elapsed).count();
         let mut seen: Vec<BuildPhase> = updates.iter().map(|u| u.phase).collect();
         seen.sort();
@@ -13433,10 +13805,11 @@ function_prefix = "sales-"
 
         let checks = [
             ("path is Cargo", built.path == BuildPath::Cargo),
-            ("phases are regenerate, front end, cargo, install", names == expected),
+            ("the reason names the form MAIN in forms/main.cfrm", form_reason),
+            ("phases are regenerate, front end, classify, cargo, install", names == expected),
             ("sum of phases <= wall time", sum <= wall),
             ("peak memory > 0", built.peak_rss.is_some_and(|b| b > 0)),
-            ("updates name the four phases", seen == expected),
+            ("updates name the five phases", seen == expected),
             ("elapsed never goes back", backwards == 0),
         ];
         println!("== build_reports_phases_and_peak (DESKTOP-WASM-001 T2, R18, R20) ==");
@@ -13446,7 +13819,8 @@ function_prefix = "sales-"
         }
         println!("  sum        {:>9.1} ms of {:.1} ms wall", sum.as_secs_f64() * 1000.0, wall.as_secs_f64() * 1000.0);
         println!("  peak       {} (this process and what it started, sampled every 25 ms)", peak_mb.map_or("not read".into(), |m| format!("{m:.1} MB")));
-        println!("  progress updates: {}; crates compiled: {}", updates.len(), built.crates_compiled);
+        println!("  progress updates: {}; crates compiled: {}", updates.len(), built.cargo_build().crates_compiled);
+        println!("  Cargo path because {}", built.cargo_build().reason);
         let passed = checks.iter().filter(|(_, ok)| *ok).count();
         for (what, ok) in &checks {
             println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
@@ -13515,7 +13889,7 @@ function_prefix = "sales-"
         let optimised = dir.join("bin").join(installed_binary_name("profileprobe", false));
         let delivered = dir.join("dist").join(installed_binary_name("profileprobe", false));
         assert_eq!(release.binary_path, optimised);
-        assert!(release.target_dir.join("release").join(installed_binary_name("profileprobe", false)).is_file(),
+        assert!(release.cargo_build().target_dir.join("release").join(installed_binary_name("profileprobe", false)).is_file(),
             "the optimised build must come from cargo's release profile");
         assert!(delivered.is_file(), "the optimised build is delivered to the destination folder");
         assert!(run(&optimised).contains("probe"), "the optimised binary must run");
@@ -13525,7 +13899,7 @@ function_prefix = "sales-"
         let debug = build(true);
         let debug_bin = dir.join("bin").join(installed_binary_name("profileprobe", true));
         assert_eq!(debug.binary_path, debug_bin);
-        assert!(debug.target_dir.join("debug").join(installed_binary_name("profileprobe", false)).is_file(),
+        assert!(debug.cargo_build().target_dir.join("debug").join(installed_binary_name("profileprobe", false)).is_file(),
             "the debug build must come from cargo's debug profile");
         assert!(run(&debug_bin).contains("probe"), "the debug binary must run");
         assert_eq!(stamp(&optimised), optimised_before, "a debug build must not touch bin/<name>");
@@ -13778,6 +14152,30 @@ function_prefix = "sales-"
             text.contains("does not"),
             "it should say the produced binary needs no toolchain: {text}"
         );
+    }
+
+    /// **DESKTOP-WASM-001 R25 (T16)** — the twin of the test above, now typed: on the Cargo path
+    /// a missing `rustc` is `CargoNeedsToolchain`, which carries why the Build took that path,
+    /// and its text still says what is missing and how to install it (the IDE's install offer
+    /// matches that sentence until T18).
+    #[test]
+    fn a_missing_toolchain_is_named_and_typed_with_the_reason() {
+        let reason = CargoReason::ExecRust { file: "src/main.cbl".into(), line: 12 };
+        let probe = probe_host_triple(|| {
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "No such file or directory (os error 2)"))
+        });
+        let err = needs_toolchain(probe.expect_err("a missing rustc must fail the build"), &reason);
+        assert!(
+            matches!(&err, CompilerError::CargoNeedsToolchain { reason: r, tool, .. } if *r == reason && tool == "rustc"),
+            "the error is typed with its reason: {err:?}"
+        );
+        let text = err.to_string();
+        for want in ["rustc", "Rust toolchain is required to build", "rustup.rs", "does not", "src/main.cbl line 12", "EXEC RUST"] {
+            assert!(text.contains(want), "the message should say {want:?}: {text}");
+        }
+        // Any other failure passes through as it was.
+        let other = needs_toolchain(CompilerError::NoMain, &reason);
+        assert!(matches!(other, CompilerError::NoMain), "only a toolchain failure is retyped: {other:?}");
     }
 
     /// A `rustc` that runs but reports nothing usable is a broken toolchain,
@@ -15064,7 +15462,7 @@ generated = ["generated/inner-form1.cbl"]
         let t = std::time::Instant::now();
         let one = cached_build(&dir, "shareone", "alpha", &root, &sdk, false);
         let cold_secs = t.elapsed().as_secs_f64();
-        assert_eq!(one.result.target_dir, root.join("shared-target"), "the build did not use the shared cache");
+        assert_eq!(one.result.cargo_build().target_dir, root.join("shared-target"), "the build did not use the shared cache");
         assert!(!one.result.build_dir.join("target").exists(), "the program kept a private target/");
         let one_bin = dir.join("bin").join(installed_binary_name("shareone", true));
         let one_bytes = fs::read(&one_bin).unwrap();
@@ -15095,7 +15493,7 @@ generated = ["generated/inner-form1.cbl"]
         assert!(run_binary(&dir.join("bin").join(installed_binary_name("sharetwo", true))).contains("beta"));
 
         let again = cached_build(&dir, "shareone", "alpha", &root, &sdk, false);
-        assert_eq!(again.result.crates_compiled, 0, "an unchanged program recompiled {:?}", again.compiled);
+        assert_eq!(again.result.cargo_build().crates_compiled, 0, "an unchanged program recompiled {:?}", again.compiled);
 
         println!(
             "SPEC101 AC1/AC2/AC4/AC8/R11: first program compiled {} crate(s) in {cold_secs:.1}s; \
@@ -15104,7 +15502,7 @@ generated = ["generated/inner-form1.cbl"]
             one.compiled.len(),
             two.compiled.len(),
             two.compiled.join(","),
-            again.result.crates_compiled,
+            again.result.cargo_build().crates_compiled,
             off_sdk.len(),
             build_cache::human_size(dir_size(&root.join("shared-target"))),
         );
@@ -15131,24 +15529,24 @@ generated = ["generated/inner-form1.cbl"]
         let only_ours = |b: &Built| b.compiled.iter().all(|c| is_platform_or(c, name));
 
         let cold = cached_build(&dir, name, "v1", &root, &sdk, false);
-        assert!(cold.result.forced_full.is_empty());
+        assert!(cold.result.cargo_build().forced_full.is_empty());
 
         // An unchanged SDK never forces a full build.
         let same = cached_build(&dir, name, "v1", &root, &sdk, false);
-        assert_eq!(same.result.crates_compiled, 0);
-        assert!(same.result.forced_full.is_empty());
+        assert_eq!(same.result.cargo_build().crates_compiled, 0);
+        assert!(same.result.cargo_build().forced_full.is_empty());
 
         // A newer edit: cargo notices on its own.
         edit_platform_crate(&sdk, "cobolt-lexer", "newer", None);
         let newer = cached_build(&dir, name, "v1", &root, &sdk, false);
-        assert!(newer.result.forced_full.is_empty(), "a newer edit forced a full build: {:?}", newer.result.forced_full);
+        assert!(newer.result.cargo_build().forced_full.is_empty(), "a newer edit forced a full build: {:?}", newer.result.cargo_build().forced_full);
         assert!(newer.compiled.iter().any(|c| c == "cobolt-lexer"), "the edited crate was not compiled: {:?}", newer.compiled);
         assert!(only_ours(&newer), "a third-party crate was compiled: {:?}", newer.compiled);
 
         // The same kind of edit, but the file looks a day old.
         edit_platform_crate(&sdk, "cobolt-lexer", "older", Some(86_400));
         let stale = cached_build(&dir, name, "v1", &root, &sdk, false);
-        assert_eq!(stale.result.forced_full, vec!["cobolt-lexer".to_owned()], "the stale crate was not found");
+        assert_eq!(stale.result.cargo_build().forced_full, vec!["cobolt-lexer".to_owned()], "the stale crate was not found");
         assert!(stale.log.iter().any(|l| l.contains("Stale platform crate")), "the log did not say why: {:?}", stale.log);
         for must in ["cobolt-lexer", "cobolt-ast", "cobolt-runtime", name] {
             assert!(stale.compiled.iter().any(|c| c == must), "{must} was not compiled again: {:?}", stale.compiled);
@@ -15163,31 +15561,31 @@ generated = ["generated/inner-form1.cbl"]
 
         // Settled: nothing is stale any more.
         let settled = cached_build(&dir, name, "v1", &root, &sdk, false);
-        assert_eq!(settled.result.crates_compiled, 0);
-        assert!(settled.result.forced_full.is_empty());
+        assert_eq!(settled.result.cargo_build().crates_compiled, 0);
+        assert!(settled.result.cargo_build().forced_full.is_empty());
 
         // An explicit full build with nothing changed: the program alone.
         let full = cached_build(&dir, name, "v1", &root, &sdk, true);
-        assert!(full.result.forced_full.is_empty());
+        assert!(full.result.cargo_build().forced_full.is_empty());
         assert_eq!(full.compiled, vec![name.to_owned()], "a full build compiled more than the program: {:?}", full.compiled);
 
         // The cache is disposable: delete it and the next build is a cold one.
         fs::remove_dir_all(root.join("shared-target")).unwrap();
         let recold = cached_build(&dir, name, "v1", &root, &sdk, false);
-        assert!(recold.result.crates_compiled > full.result.crates_compiled);
+        assert!(recold.result.cargo_build().crates_compiled > full.result.cargo_build().crates_compiled);
 
         println!(
             "SPEC101 AC3/AC5/AC14: cold {}; unchanged {}; newer edit {} ({}); old-looking edit {} \
              forced_full={:?}; settled {}; explicit full {}; cache deleted then built {}",
-            cold.result.crates_compiled,
-            same.result.crates_compiled,
-            newer.result.crates_compiled,
+            cold.result.cargo_build().crates_compiled,
+            same.result.cargo_build().crates_compiled,
+            newer.result.cargo_build().crates_compiled,
             newer.compiled.join(","),
-            stale.result.crates_compiled,
-            stale.result.forced_full,
-            settled.result.crates_compiled,
-            full.result.crates_compiled,
-            recold.result.crates_compiled,
+            stale.result.cargo_build().crates_compiled,
+            stale.result.cargo_build().forced_full,
+            settled.result.cargo_build().crates_compiled,
+            full.result.cargo_build().crates_compiled,
+            recold.result.cargo_build().crates_compiled,
         );
         let _ = fs::remove_dir_all(&dir);
     }
@@ -15210,7 +15608,7 @@ generated = ["generated/inner-form1.cbl"]
         fs::create_dir_all(&blocked).unwrap();
         fs::write(blocked.join("shared-target"), b"not a folder").unwrap();
         let own = cached_build(&dir, "safeown", "own", &blocked, &sdk, false);
-        assert_eq!(own.result.target_dir, own.result.build_dir.join("target"), "it should have used its own folder");
+        assert_eq!(own.result.cargo_build().target_dir, own.result.build_dir.join("target"), "it should have used its own folder");
         assert!(own.log.iter().any(|l| l.contains("compiled-crate cache is not used")), "{:?}", own.log);
         assert!(run_binary(&dir.join("bin").join(installed_binary_name("safeown", true))).contains("own"));
         let _ = fs::remove_dir_all(&blocked);
@@ -15268,10 +15666,10 @@ generated = ["generated/inner-form1.cbl"]
             "SPEC101 AC4/AC6/AC13: unusable cache -> built in its own folder ({} crates); \
              unavailable pin -> seed dropped, built ({} crates); two at once -> a compiled {}, b compiled {} \
              (builds that logged the wait: {waited})",
-            own.result.crates_compiled,
-            seeded.result.crates_compiled,
-            a.result.crates_compiled,
-            b.result.crates_compiled,
+            own.result.cargo_build().crates_compiled,
+            seeded.result.cargo_build().crates_compiled,
+            a.result.cargo_build().crates_compiled,
+            b.result.cargo_build().crates_compiled,
         );
         let _ = fs::remove_dir_all(&dir);
     }
@@ -15331,11 +15729,11 @@ generated = ["generated/inner-form1.cbl"]
         let check_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         println!("SPEC101 AC12 (release profile, this machine, macOS):");
-        println!("  PowerDemo3, empty cache ................ {:>4} crates {first_secs:>7.1} s", first.crates_compiled);
-        println!("  PowerSpatial, after PowerDemo3 ......... {:>4} crates {second_secs:>7.1} s   <- shared cache", second.crates_compiled);
-        println!("  PowerSpatial, its own folder (before) .. {:>4} crates {old_secs:>7.1} s   <- the old layout", old.crates_compiled);
-        println!("  PowerSpatial, full build, warm cache ... {:>4} crates {full_secs:>7.1} s   (forced_full {:?})", full.crates_compiled, full.forced_full);
-        println!("  PowerSpatial, nothing changed .......... {:>4} crates {again_secs:>7.1} s", again.crates_compiled);
+        println!("  PowerDemo3, empty cache ................ {:>4} crates {first_secs:>7.1} s", first.cargo_build().crates_compiled);
+        println!("  PowerSpatial, after PowerDemo3 ......... {:>4} crates {second_secs:>7.1} s   <- shared cache", second.cargo_build().crates_compiled);
+        println!("  PowerSpatial, its own folder (before) .. {:>4} crates {old_secs:>7.1} s   <- the old layout", old.cargo_build().crates_compiled);
+        println!("  PowerSpatial, full build, warm cache ... {:>4} crates {full_secs:>7.1} s   (forced_full {:?})", full.cargo_build().crates_compiled, full.cargo_build().forced_full);
+        println!("  PowerSpatial, nothing changed .......... {:>4} crates {again_secs:>7.1} s", again.cargo_build().crates_compiled);
         println!(
             "  disk: shared cache {} for both programs; PowerSpatial's own folder (before) {}",
             build_cache::human_size(dir_size(&shared_root.join("shared-target"))),
