@@ -46,6 +46,7 @@ fn manifest() -> Manifest {
         sizes: Default::default(),
         contract: None,
         remote: Vec::new(),
+        capabilities: Vec::new(),
     }
 }
 

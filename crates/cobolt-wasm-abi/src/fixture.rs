@@ -1497,6 +1497,7 @@ pub fn build(spec: &FixtureSpec) -> Fixture {
         sizes: Default::default(),
         contract: None,
         remote: Vec::new(),
+        capabilities: Vec::new(),
     };
     manifest.validate().expect("the fixture's own manifest is valid");
     let manifest_json = serde_json::to_string(&manifest).unwrap();
@@ -1770,5 +1771,98 @@ mod tests {
         let go = main.control_by_name("BTN-GO").unwrap();
         assert!(main.has_handler(go.id, m.event_index("onClick").unwrap()));
         assert!(!main.has_handler(go.id, m.event_index("onLoad").unwrap()));
+    }
+
+    fn leb(b: &[u8], mut i: usize) -> (usize, usize) {
+        let (mut v, mut shift) = (0usize, 0);
+        loop {
+            let x = b[i];
+            i += 1;
+            v |= ((x & 0x7f) as usize) << shift;
+            shift += 7;
+            if x < 0x80 {
+                return (v, i);
+            }
+        }
+    }
+
+    /// The module with its `prmanifest` section replaced by `m`, every other section byte for byte.
+    fn with_manifest(wasm: &[u8], m: &Manifest) -> Vec<u8> {
+        let mut out = wasm[..8].to_vec();
+        let mut i = 8;
+        while i < wasm.len() {
+            let (len, at) = leb(wasm, i + 1);
+            let end = at + len;
+            let named = |name: &str| {
+                let (n, s) = leb(wasm, at);
+                &wasm[s..s + n] == name.as_bytes()
+            };
+            if !(wasm[i] == 0 && named(MANIFEST_SECTION)) {
+                out.extend_from_slice(&wasm[i..end]);
+            }
+            i = end;
+        }
+        let mut tail = Module::new();
+        let json = serde_json::to_string(m).unwrap();
+        tail.section(&CustomSection { name: std::borrow::Cow::Borrowed(MANIFEST_SECTION), data: std::borrow::Cow::Owned(json.into_bytes()) });
+        out.extend_from_slice(&tail.finish()[8..]);
+        out
+    }
+
+    /// DESKTOP-WASM-001 T9 (A27, AC16): the fixture modules' embedded manifests are the bytes they were before
+    /// `capabilities` existed. The hashes were taken from `write_fixtures` at 2.0.493, before the change.
+    #[test]
+    fn a_manifest_without_capabilities_is_the_bytes_it_was() {
+        use sha2::{Digest, Sha256};
+        let started = std::time::Instant::now();
+        let before = [
+            (true, 2165, "147dcb237a48146058e8146f934114433fefa141505d7a751e53ff1694abe373"),
+            (false, 2166, "b45f399199968ab28dc57c4fb6e75089c3a2a42e7be5bd5fd024b03bae67efb7"),
+        ];
+        let mut pass = 0;
+        for (multi, len, sha) in before {
+            let f = build(&standard_spec(multi));
+            let scan = scan_module(&f.wasm).unwrap();
+            let bytes = scan.custom(MANIFEST_SECTION).expect("the fixture embeds its manifest");
+            let hex: String = Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
+            assert_eq!((bytes.len(), hex.as_str()), (len, sha), "multi={multi}: the embedded manifest moved");
+            assert!(!String::from_utf8_lossy(bytes).contains("capabilities"));
+            pass += 1;
+        }
+        println!("── a_manifest_without_capabilities_is_the_bytes_it_was ──");
+        println!("  fixtures: multi-memory (2165 bytes) and single-memory (2166 bytes): sha256 as recorded before A27");
+        println!("  {pass} of 2 identical in {:.1} ms", started.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    /// DESKTOP-WASM-001 T9 (R4 web half, AC5 web half): the bundler refuses a module whose manifest requires a
+    /// capability only the desktop runner provides, and names it; an unknown one is named too.
+    #[test]
+    fn bundle_problems_names_a_capability_only_the_runner_provides() {
+        let started = std::time::Instant::now();
+        let mut checks = 0;
+        for multi in [true, false] {
+            let f = build(&standard_spec(multi));
+            let mut m = f.manifest.clone();
+            m.capabilities = vec![crate::codes::cap::FILES_INDEXED.into()];
+            let wasm = with_manifest(&f.wasm, &m);
+            assert_eq!(scan_module(&wasm).unwrap().embedded_manifest().unwrap(), m, "the module carries the new manifest");
+            let problems = bundle_problems(&wasm, !multi);
+            assert_eq!(problems.len(), 1, "multi={multi}: {problems:#?}");
+            assert!(problems[0].contains("`files.indexed`") && problems[0].contains("only the desktop runner provides"), "{}", problems[0]);
+            checks += 2;
+
+            m.capabilities = vec!["teleport".into()];
+            let problems = bundle_problems(&with_manifest(&f.wasm, &m), !multi);
+            assert_eq!(problems.len(), 1, "multi={multi}: {problems:#?}");
+            assert!(problems[0].contains("`teleport`") && problems[0].contains("does not know"), "{}", problems[0]);
+            checks += 1;
+
+            m.capabilities.clear();
+            assert!(bundle_problems(&with_manifest(&f.wasm, &m), !multi).is_empty(), "multi={multi}: none, none refused");
+            checks += 1;
+        }
+        println!("── bundle_problems_names_a_capability_only_the_runner_provides ──");
+        println!("  2 variants × (files.indexed refused and named; an unknown name refused and named; none accepted)");
+        println!("  {checks} of 8 checks passed in {:.1} ms", started.elapsed().as_secs_f64() * 1000.0);
     }
 }

@@ -25,6 +25,10 @@ wasmparser = { version = "0.244", optional = true }
 # nothing in a product build enables it.
 wasm-encoder = { version = "0.244", optional = true }
 
+[dev-dependencies]
+# The fixture manifests' bytes are checked against hashes recorded before a change (DESKTOP-WASM-001 T9).
+sha2 = { workspace = true }
+
 [features]
 default = []
 scan    = ["dep:wasmparser"]

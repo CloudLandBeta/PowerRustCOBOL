@@ -2191,5 +2191,7 @@ fn build_manifest(m: &ManifestInput<'_, '_>) -> cobolt_wasm_abi::manifest::Manif
         sizes: Sizes { module: 0, rt_functions: m.rt_functions as u64, rt_bytes: m.rt_bytes as u64 },
         contract: m.opts.contract.clone(),
         remote: m.opts.remote.clone(),
+        // A27: a browser module needs nothing beyond ABI v1 §3 (DESKTOP-WASM-001 T12 fills it for the runner).
+        capabilities: Vec::new(),
     }
 }

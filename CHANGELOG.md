@@ -2,6 +2,36 @@
 
 
 
+## 2.0.494 — 2026-11-14
+
+**DESKTOP-WASM-001 T9: a program module says which capabilities it needs, every ABI from 1 on still loads, and the Web bundler refuses a module made for the desktop runner** (R3, R4's Web half, R5; AC5's Web half, AC16). The first task of M1 (console programs on the WebAssembly path).
+- **The manifest's `capabilities`** (WASM-ABI-v1 amendment **A27**): what a module needs beyond the imports of ABI v1 §3.
+  - The names: `console`, `env`, `files.sequential`, `files.line-sequential`, `files.relative`, `files.indexed`, `sort`, `sql`, `http`, `dialogs`.
+  - The member is written only when it is not empty. A Web or Mobile module needs none, so its manifest keeps the bytes it had.
+  - A host that does not provide a capability the manifest lists refuses to start and names it.
+- **The runner's imports** live in their own namespace, `prn`, one fixed set per capability: `console` brings `con_read`; `env` brings `env_get` and `exit`. The other capabilities get theirs from the tasks that implement them.
+- **No ABI is ever dropped:** a manifest's `abi` is accepted from 1 to the newest this release speaks (it was "exactly 1"). `0`, or a newer ABI, is refused with what to do: rebuild the application, or run it with a current release. No import, capability or section name is ever retired; a change of meaning takes a new name.
+- **The Web bundler refuses a desktop module, at bundle time:**
+  - each capability its manifest lists, named, as one only the desktop runner provides;
+  - an unknown name, as one this release does not know;
+  - an import from `prn`, named.
+- **WASM-ABI-v1 §8, the conformance build, now says what the code does** (amendment **A28**):
+  - `file_write` takes the `ADVANCING` phrase as a third argument;
+  - the modes are 2 = I-O and 3 = EXTEND (the text had them the other way round), with the organisation in bits 8–15;
+  - the end of a file is `-10` (it said `-1`), and every other failure is the FILE STATUS negated;
+  - a handle is 1 or more, and handle 0 reads the operator's console;
+  - the import `switch_state` (an external switch) is listed, and the bundler names it as a conformance import.
+- **Measured** (macOS arm64):
+  - **`cobolt-wasm-abi`:** 21 of 21 tests, and 26 of 26 with its fixtures. Four are new:
+    - `validate_accepts_every_abi_from_1_to_the_current_one`: ABI 1 accepted; 0 and 2 refused, each saying what to do; 3 of 3;
+    - `capabilities_are_written_only_when_there_are_some`: without them, the manifest is the 568 bytes it was before; with two, they round-trip in order; 4 of 4;
+    - `a_manifest_without_capabilities_is_the_bytes_it_was`: both fixture modules' embedded manifests (2 165 and 2 166 bytes) have the sha256 recorded before the change; 2 of 2;
+    - `bundle_problems_names_a_capability_only_the_runner_provides`: in both variants, `files.indexed` is refused and named, an unknown name is refused and named, and none is accepted; 8 of 8.
+  - **`desktop_wasm_unchanged` (AC16):** PowerAnalyticsWeb's two modules and its manifest still match their pins, 3 of 3.
+  - **`cobolt-web-bundle`:** 146 of 146 tests in 60 targets.
+  - **The player:** 474 of 474 in its library, and 28 of 28 in `abi_host`.
+- **The shipped web player is rebuilt** (`assets/web-player/`). Its freshness test had been red since 2.0.470, whose change and the fix of 2.0.492 reached the player's sources without a rebuild. Sizes: plain 4 130 450 bytes, threaded 3 944 904, the graphics3d part 8 471 516. The freshness test passes 6 of 6, and `cobolt-web-bundle` passes 146 of 146 with the new player.
+
 ## 2.0.493 — 2026-11-14
 
 **DESKTOP-WASM-001 T8: in a deterministic headless run, the form host keeps the run's virtual time, and every reference form now draws the same frames run after run** (R28; AC19's second guard; AC20). T6 made the frames' time virtual. Now the host's own clocks follow that time too, so a scripted run with the clock pinned draws the same frames however fast the machine is. **All 22 forms of the five reference projects repeat** (6 of 22 at T7), and their 408 frames are the new golden hashes.

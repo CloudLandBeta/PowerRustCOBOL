@@ -142,6 +142,11 @@ pub struct Manifest {
     /// `idempotent` ones after a lost connection. Empty when there is no interface file.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub remote: Vec<RemoteSig>,
+    /// What the module needs beyond ABI v1 §3 (A27): names of [`crate::codes::cap`]. Absent when it needs
+    /// nothing more, so the manifest of such a module is the bytes it was before A27. A host that does not
+    /// provide one of them refuses to start and names it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
 }
 
 /// One exported backend program, as the module's manifest records it (ABI v1 §10).
@@ -173,9 +178,12 @@ impl core::fmt::Display for ManifestError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ManifestError::Json(e) => write!(f, "the manifest is not valid JSON: {e}"),
+            ManifestError::AbiMismatch { found: 0, .. } => {
+                write!(f, "the manifest names ABI 0, which no release has built: rebuild the application with the current IDE")
+            }
             ManifestError::AbiMismatch { found, expected } => write!(
                 f,
-                "this application was built for ABI {found} and this player speaks ABI {expected}: rebuild the application with the current IDE"
+                "this application was built for ABI {found}, and this release runs ABI 1 to {expected}: run it with a current PowerRustCOBOL release"
             ),
             ManifestError::Layout(e) => write!(f, "the transport arena does not fit: {e}"),
             ManifestError::Invalid(e) => write!(f, "the manifest is inconsistent: {e}"),
@@ -238,8 +246,10 @@ impl Manifest {
         Ok(m)
     }
 
+    /// Every ABI from 1 to [`ABI_VERSION`] is accepted (A27): no ABI is ever dropped, so a module built by
+    /// any release still loads. `expected` in the error is the newest this crate speaks.
     pub fn validate(&self) -> Result<(), ManifestError> {
-        if self.abi != ABI_VERSION {
+        if !(1..=ABI_VERSION).contains(&self.abi) {
             return Err(ManifestError::AbiMismatch { found: self.abi, expected: ABI_VERSION });
         }
         ArenaLayout::new(&self.limits)?;
@@ -366,6 +376,7 @@ mod tests {
             sizes: Sizes::default(),
             contract: None,
             remote: Vec::new(),
+            capabilities: Vec::new(),
         }
     }
 
@@ -477,5 +488,53 @@ mod tests {
         let back = Manifest::parse(&text).expect("loads");
         assert_eq!(back, m);
         println!("manifest with contract {:?} and {} remote programs round-trips ({} bytes)", back.contract, back.remote.len(), text.len());
+    }
+
+    /// DESKTOP-WASM-001 T9 (A27, R5, C2): every ABI from 1 to `ABI_VERSION` loads; 0 and the next one do not,
+    /// and each refusal says what to do.
+    #[test]
+    fn validate_accepts_every_abi_from_1_to_the_current_one() {
+        let started = std::time::Instant::now();
+        let mut pass = 0;
+        let mut accepted = Vec::new();
+        for abi in 1..=ABI_VERSION {
+            let mut m = sample();
+            m.abi = abi;
+            assert_eq!(m.validate(), Ok(()), "ABI {abi}");
+            accepted.push(abi);
+            pass += 1;
+        }
+        let mut refused = Vec::new();
+        for (abi, says) in [(0, "rebuild the application"), (ABI_VERSION + 1, "run it with a current PowerRustCOBOL release")] {
+            let mut m = sample();
+            m.abi = abi;
+            let e = m.validate().unwrap_err();
+            assert!(matches!(e, ManifestError::AbiMismatch { found, expected } if found == abi && expected == ABI_VERSION), "ABI {abi}: {e:?}");
+            assert!(e.to_string().contains(says), "ABI {abi}: {e}");
+            refused.push(abi);
+            pass += 1;
+        }
+        println!("── validate_accepts_every_abi_from_1_to_the_current_one ──");
+        println!("  ABI_VERSION {ABI_VERSION}: accepted {accepted:?}, refused {refused:?} with a message that says what to do");
+        println!("  {pass} of {} checks passed in {:.3} ms", accepted.len() + refused.len(), started.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    /// DESKTOP-WASM-001 T9 (A27, R3): a manifest without capabilities writes no `capabilities` key, so its bytes are
+    /// what they were; one with them round-trips, in their order.
+    #[test]
+    fn capabilities_are_written_only_when_there_are_some() {
+        let started = std::time::Instant::now();
+        let before = r#"{"abi":1,"generator":"test","project":"demo","variant":{"multi_memory":true,"conformance":false},"limits":{"arena_size":1048576,"batch_size":65536,"answer_size":65536,"frame_size":393216,"budget_blocks":20000,"data_pages":17,"tasks":0},"names":["Caption","Text"],"events":["onClick","onLoad"],"forms":[{"id":0,"name":"main-form","main":true,"instances":1,"region_size":4096,"controls":[{"id":3,"name":"BTN-OK","type":"Button"}],"handlers":[{"ctrl":3,"event":0,"entry":17}]}],"builtins":[],"imports":["flush","query"],"sizes":{"module":0,"rt_functions":0,"rt_bytes":0}}"#;
+        let none = serde_json::to_string(&sample()).unwrap();
+        assert_eq!(none, before, "a manifest without capabilities is the bytes it was before A27");
+        let mut m = sample();
+        m.capabilities = vec![crate::codes::cap::FILES_INDEXED.into(), crate::codes::cap::CONSOLE.into()];
+        let with = serde_json::to_string(&m).unwrap();
+        assert!(with.ends_with(r#","capabilities":["files.indexed","console"]}"#), "{with}");
+        assert_eq!(Manifest::parse(&with).unwrap(), m);
+        assert_eq!(Manifest::parse(&none).unwrap().capabilities, Vec::<String>::new(), "absent reads as none");
+        println!("── capabilities_are_written_only_when_there_are_some ──");
+        println!("  without: {} bytes, identical to the bytes before A27; with 2: {} bytes, round-trips in order", none.len(), with.len());
+        println!("  4 of 4 checks passed in {:.3} ms", started.elapsed().as_secs_f64() * 1000.0);
     }
 }

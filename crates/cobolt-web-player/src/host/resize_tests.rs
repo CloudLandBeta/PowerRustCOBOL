@@ -30,6 +30,7 @@ fn manifest() -> Manifest {
     Manifest {
         contract: None,
         remote: Vec::new(),
+        capabilities: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "room".into(),

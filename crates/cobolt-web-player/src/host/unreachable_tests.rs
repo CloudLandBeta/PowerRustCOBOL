@@ -38,6 +38,7 @@ fn host(bound: bool) -> Host {
     let manifest = Manifest {
         contract: None,
         remote: Vec::new(),
+        capabilities: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "shop".into(),

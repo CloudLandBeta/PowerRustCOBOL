@@ -125,7 +125,42 @@ pub mod variant {
 pub const PRODUCTION_IMPORTS: &[&str] = &["flush", "query", "remote", "now", "random", "abort"];
 
 /// The extra imports of a conformance build (§8). A page refuses a module that has them.
-pub const CONFORMANCE_IMPORTS: &[&str] = &["file_open", "file_read", "file_write", "file_close"];
+pub const CONFORMANCE_IMPORTS: &[&str] = &["file_open", "file_read", "file_write", "file_close", "switch_state"];
+
+/// The import namespace of the native runner (A27). A module that imports from it needs a capability
+/// of [`cap`], and runs only on the runner.
+pub const NATIVE_IMPORT_MODULE: &str = "prn";
+
+/// The capabilities a manifest may require (A27): what a module needs beyond ABI v1 §3. A manifest
+/// without `capabilities` needs none. A name is never retired and never changes its meaning: a new
+/// meaning is a new name.
+pub mod cap {
+    /// The operator's console: `ACCEPT` from it.
+    pub const CONSOLE: &str = "console";
+    /// The environment, the command line's arguments and the exit code.
+    pub const ENV: &str = "env";
+    pub const FILES_SEQUENTIAL: &str = "files.sequential";
+    pub const FILES_LINE_SEQUENTIAL: &str = "files.line-sequential";
+    pub const FILES_RELATIVE: &str = "files.relative";
+    pub const FILES_INDEXED: &str = "files.indexed";
+    /// `SORT` and `MERGE` with `USING` or `GIVING` files.
+    pub const SORT: &str = "sort";
+    /// `EXEC SQL` and the program's database object.
+    pub const SQL: &str = "sql";
+    pub const HTTP: &str = "http";
+    /// The desktop's file and message dialogs, asked by the program.
+    pub const DIALOGS: &str = "dialogs";
+
+    /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
+    /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
+    pub const ALL: &[&str] =
+        &[CONSOLE, ENV, FILES_SEQUENTIAL, FILES_LINE_SEQUENTIAL, FILES_RELATIVE, FILES_INDEXED, SORT, SQL, HTTP, DIALOGS];
+}
+
+/// The imports in [`NATIVE_IMPORT_MODULE`] each capability brings (A27). A capability's set is fixed
+/// when a release first uses it; the capabilities not listed get theirs from the task that implements
+/// them, which amends A27.
+pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[(cap::CONSOLE, &["con_read"]), (cap::ENV, &["env_get", "exit"])];
 
 /// The exports a module must provide (§4), besides its memories.
 pub const REQUIRED_EXPORTS: &[&str] = &[

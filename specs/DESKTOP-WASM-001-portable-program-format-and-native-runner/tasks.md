@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3 and T1–T8 are done (2.0.483–2.0.493, with the fix 2.0.492 found by T8), so every task of M0 is. The CI dispatches of T4 and T7 are owed until their workflows are on `main`.
+- **Status:** implementing since 2026-11-14. F1–F3 and T1–T9 are done (2.0.483–2.0.494, with the fix 2.0.492 found by T8): every task of M0, and the first of M1. The CI dispatches of T4 and T7 are owed until their workflows are on `main`.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -430,7 +430,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
 
 ## Phase M1 — Console programs on the WebAssembly path, on by default
 
-- [ ] **T9 — The manifest's capabilities, the ABI range and the bundler's refusal** (R3, R4 web half, R5; AC5 web half, AC16)
+- [x] **T9 — The manifest's capabilities, the ABI range and the bundler's refusal** (R3, R4 web half, R5; AC5 web half, AC16)
   - Files:
     - `crates/cobolt-wasm-abi/src/manifest.rs`: `capabilities`, serialised only when not empty; `validate` (:241) accepts `1 ≤ abi ≤ ABI_VERSION` (C2);
     - `crates/cobolt-wasm-abi/src/codes.rs`: `NATIVE_IMPORTS`, namespace `prn`;
@@ -443,6 +443,36 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - `bundle_problems` names `files.indexed` in a module that declares it.
     - `cargo test -p cobolt-web-bundle` and T1's test green.
     - The player `--lib` is green. The shipped player is rebuilt if its freshness test asks for it, in the same commit.
+  - *Done 2026-11-14 (2.0.494):*
+    - **`codes.rs`:**
+      - `cap`: the ten capability names of the plan, and `cap::ALL`;
+      - `NATIVE_IMPORT_MODULE = "prn"`, and `NATIVE_IMPORTS` with the sets M1 uses: `console` → `con_read`, `env` → `env_get`, `exit`. Only those two, because a set is fixed once a release uses it (C2): the dialog, file, sort, SQL and HTTP sets are left to the tasks that implement them (T32, T38, T39, T41, T42), each amending A27;
+      - `CONFORMANCE_IMPORTS` gains `switch_state`, which the conformance build has always imported (C10).
+    - **`manifest.rs`:**
+      - `capabilities: Vec<String>`, `serde(default, skip_serializing_if = "Vec::is_empty")`;
+      - `validate` accepts `1..=ABI_VERSION`. The refusal now says what to do: for 0, rebuild the application; for a newer ABI, run it with a current release. "Rebuild with the current IDE" was wrong advice for a module newer than the host.
+      - Struct literals: the field was added to the 20 places that build a manifest by hand (the ABI crate, `cobolt-wasm`'s `build_manifest`, the player's `tree.rs`, 15 player test files and `parity_page.rs`). `build_manifest` writes none: T12 fills it under `native`.
+    - **`scan.rs` (`bundle_problems`):**
+      - each capability the embedded manifest lists is a problem that names it: one only the desktop runner provides, or, for an unknown name, one this release does not know;
+      - an import from `prn` is named as a runner import, no longer as "not allowed by §3".
+      - The page's own loader (`hostpage.rs`) still accepts ABI 1 exactly, which is every ABI there is. It is left as it is, so the Web bundle stays byte-identical (AC16).
+    - **`WASM-ABI-v1.md`:**
+      - §10 gains the `capabilities` member;
+      - §11 item 1 reads "refuse an ABI it does not speak";
+      - §8 is rewritten to the code: the `adv` argument, modes 2 = I-O and 3 = EXTEND with the organisation in bits 8–15, end of file −10, failures as the FILE STATUS negated, handles from 1 with 0 as the console, and `switch_state`;
+      - amendment rows **A27** (capabilities, `prn`, the ABI range) and **A28** (the §8 correction).
+    - **Measured:**
+      - `cargo test -p cobolt-wasm-abi`: 21 of 21; with `--features fixture`, 26 of 26. New:
+        - `validate_accepts_every_abi_from_1_to_the_current_one`: 3 of 3 (1 accepted; 0 and 2 refused with what to do);
+        - `capabilities_are_written_only_when_there_are_some`: 4 of 4 (568 bytes, as before A27; with two they round-trip in order);
+        - `a_manifest_without_capabilities_is_the_bytes_it_was`: 2 of 2 (the fixture modules' embedded manifests, 2 165 and 2 166 bytes, have the sha256 taken from `write_fixtures` before the change);
+        - `bundle_problems_names_a_capability_only_the_runner_provides`: 8 of 8 (both variants: `files.indexed` named, an unknown name named, none accepted).
+      - `desktop_wasm_unchanged` (T1, AC16): 3 of 3 artefacts match the pin, regenerated and built in 9.2 s.
+      - `cargo test -p cobolt-web-bundle`: 146 of 146 in 60 targets.
+      - The player: `--lib` 474 of 474, `abi_host` 28 of 28.
+      - **The shipped player is rebuilt** (`build_player --out assets/web-player`). Its freshness test asked for it, and was red before this task too: the player's inputs changed at 2.0.470 (Canvas3D in `onLoad`) and at the fix 2.0.492 without a rebuild, the last being 2.0.447.
+        - plain 4 129 791 → 4 130 450 bytes, threaded 3 944 236 → 3 944 904, the graphics3d part 8 471 405 → 8 471 516; the other parts unchanged.
+        - `freshness` 6 of 6; `cobolt-web-bundle` 146 of 146 again with the new player.
 
 - [ ] **T10 — The native column of the subset table** (R12; AC10)
   - Files:

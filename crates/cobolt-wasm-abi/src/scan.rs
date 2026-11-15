@@ -9,14 +9,15 @@
 //! loader's baseline rest on.
 //!
 //! This is what the bundle assembler uses to refuse a module that imports
-//! anything beyond ABI v1 §3, that contains `memory.grow`, or whose single-memory
+//! anything beyond ABI v1 §3, whose manifest requires a capability (A27: only the
+//! desktop runner provides them), that contains `memory.grow`, or whose single-memory
 //! variant uses a multi-memory instruction. The browser loader performs the same
 //! import/export checks in JavaScript (`WebAssembly.Module.imports/exports`);
 //! this is the build-time twin, so a bad module never reaches a page.
 
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator, WasmFeatures};
 
-use crate::codes::{CONFORMANCE_IMPORTS, DEBUG_EXPORTS, IMPORT_MODULE, PRODUCTION_IMPORTS, REQUIRED_EXPORTS};
+use crate::codes::{cap, CONFORMANCE_IMPORTS, DEBUG_EXPORTS, IMPORT_MODULE, NATIVE_IMPORT_MODULE, PRODUCTION_IMPORTS, REQUIRED_EXPORTS};
 use crate::manifest::{Manifest, MANIFEST_SECTION};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,6 +190,11 @@ pub fn bundle_problems(bytes: &[u8], single_memory: bool) -> Vec<String> {
                 "the module imports `{}.{}`, a conformance-build import (ABI §8): a conformance module is never bundled",
                 imp.module, imp.name
             ));
+        } else if imp.module == NATIVE_IMPORT_MODULE {
+            problems.push(format!(
+                "the module imports `{}.{}`, which only the desktop runner provides (ABI A27): a desktop module is never bundled",
+                imp.module, imp.name
+            ));
         } else {
             problems.push(format!("the module imports `{}.{}`, which ABI v1 §3 does not allow", imp.module, imp.name));
         }
@@ -252,6 +258,16 @@ pub fn bundle_problems(bytes: &[u8], single_memory: bool) -> Vec<String> {
                     m.variant.multi_memory,
                     if single_memory { "single-memory" } else { "multi-memory" }
                 ));
+            }
+            // A27: a page provides nothing beyond ABI v1 §3, so every capability is one it lacks (R4).
+            for c in &m.capabilities {
+                if cap::ALL.contains(&c.as_str()) {
+                    problems.push(format!(
+                        "the manifest requires the capability `{c}`, which only the desktop runner provides (ABI A27): a desktop module is never bundled"
+                    ));
+                } else {
+                    problems.push(format!("the manifest requires the capability `{c}`, which this release does not know (ABI A27)"));
+                }
             }
         }
         Err(e) => problems.push(e),

@@ -30,6 +30,7 @@ fn host(bound: &[&str], props: &str) -> Host {
     let manifest = Manifest {
         contract: None,
         remote: Vec::new(),
+        capabilities: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "demo".into(),
@@ -395,6 +396,7 @@ fn protected_app(named: bool) -> Host {
     let manifest = Manifest {
         contract: None,
         remote: Vec::new(),
+        capabilities: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "demo".into(),
