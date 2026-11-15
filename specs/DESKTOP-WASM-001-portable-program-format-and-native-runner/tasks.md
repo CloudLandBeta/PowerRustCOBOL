@@ -567,6 +567,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - **The exit code** (operator, 2026-11-14: "Match Cargo now"):
       - The task asked for `RETURN-CODE` at `STOP RUN` to reach `exit`. The source says otherwise: the Cargo-built program and `rcrun run` end with 0 after `STOP RUN` whatever `RETURN-CODE` holds. `RETURN-CODE` is not in the generator at all, so a program naming it takes the Cargo path.
       - So `STOP RUN` and `GOBACK` end the run inside the module, the runner will end with 0, and `exit` stays reserved in A29 until `RETURN-CODE` reaches both paths. That gap is a fix of its own, for both paths, proposed separately.
+      - *Later (2.0.498, 2.0.499):* the fix landed on `fixes-2x-return-code` and was picked here. The Cargo-built program and `rcrun run` now end with the code `RETURN-CODE` holds. The generator still refuses `RETURN-CODE` (`native_console` checks it), so such a program takes the Cargo path, and a module, which cannot name it, ends with 0. `RETURN-CODE` in the generator, and `exit` with it, fall to T15.
       - `STOP` and `GOBACK` are now *in the module* in the Desktop column: `support.rs`, the KB's paragraph and `subset_table`'s fixed points. The KB is regenerated.
     - **The manifest:** `capabilities` lists `console` and `env` as the module's `prn` imports reach them, in A27's order. `imports` names them `prn.con_read` and `prn.env_get`. A module that reaches neither writes no `capabilities`, and its bytes are the browser build's.
     - **The routine blob** (`rt.wasm`) gains `rt_accept_con` and `rt_accept_env`. T1's pin failed at each step until four rules held, and they are written above the new code in `accept.rs`:
@@ -631,7 +632,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
   - Do:
     - **Loading:** read the payload through `PRLOC`, then validate the manifest's range.
     - **Capabilities:** refuse any it does not provide, naming it. Messages come in six languages, chosen by the system locale, and never say "cobolt".
-    - **Running:** load the machine code through T13, link `pr` and the console part of `prn` with `linker_for(abi, imports)`, run, and exit with the program's code.
+    - **Running:** load the machine code through T13, link `pr` and the console part of `prn` with `linker_for(abi, imports)`, run, and exit with the program's code. That needs `RETURN-CODE` in the generator and the `exit` import's signature (A29), left open by T12 and 2.0.498.
     - **Test pins:** `now` and `random` come from `PRC_TEST_CLOCK` and `PRC_TEST_SEED`.
   - Verify:
     - `cargo test -p cobolt-runner -- --nocapture`:

@@ -366,7 +366,9 @@ const BACKEND_FILES: &str = "file input/output runs on the backend; call a backe
 /// `tests/subset_table.rs` holds this table equal to it statement by statement.
 /// On the Desktop, `ACCEPT` from the console reaches `console` (from the environment
 /// or the arguments, `env`); `STOP RUN` and `GOBACK` end the run in the module, with
-/// exit code 0 as the Cargo-built program has (DESKTOP-WASM-001 T12).
+/// exit code 0 (DESKTOP-WASM-001 T12). The generator has no `RETURN-CODE`, so a
+/// program that names it takes the Cargo path, which ends with the code it holds
+/// (2.0.498).
 pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("ACCEPT", Support::Module, Native::Host(cap::CONSOLE)),
     ("ADD", Support::Module, Native::Module),

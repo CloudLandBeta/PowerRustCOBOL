@@ -2,6 +2,14 @@
 
 
 
+## 2.0.499 — 2026-11-15
+
+**DESKTOP-WASM-001: the texts of T12 follow the `RETURN-CODE` fix** (2.0.498). T12 said that a desktop module ends with exit code 0 "as the Cargo-built program does". Since 2.0.498 the Cargo-built program ends with the code `RETURN-CODE` holds, so the texts now say what is true on each path.
+- **A module** still ends with 0 after `STOP RUN` and `GOBACK`. The generator does not compile `RETURN-CODE`, so a module cannot name it.
+- **A program that names `RETURN-CODE`** is refused by the generator and takes the Cargo path, which ends with the code it holds.
+- **Where the texts changed:** the System KB's subset paragraph (regenerated), WASM-ABI-v1 A29 (the `exit` import stays reserved until the generator compiles `RETURN-CODE`), the generator's statement table, `subset_table`'s fixed points, and the tasks: T12's note, and T15, which ends the process with the program's code and so takes `RETURN-CODE` and `exit`.
+- **Measured** (macOS arm64): **`native_console`** gains the check that a `native` build refuses `RETURN-CODE`, 86 of 86.
+
 ## 2.0.498 — 2026-11-15
 
 **Fix: a console program ends with the exit code `RETURN-CODE` holds.** Under `rcrun run`, and in the binary `rcrun build` or the IDE's Build makes, a program ended with exit code 0 whatever it had moved to `RETURN-CODE`. A script, a scheduler or a CI job could not tell a run that reported a problem from one that went well.

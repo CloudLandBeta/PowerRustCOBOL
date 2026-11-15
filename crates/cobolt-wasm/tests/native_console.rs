@@ -276,6 +276,11 @@ fn the_console_and_the_environment_reach_the_runner_and_the_manifest_names_them(
             &mut failures,
         );
     }
+    // The generator has no `RETURN-CODE`, even with `native`: a program that names it takes the
+    // Cargo path, which ends with the code it holds (2.0.498). That is why a module may end with 0.
+    let rc = common::parse(&program("T12RC", "", "    MOVE 4 TO RETURN-CODE\n"));
+    let rc_refused = compile_program(&rc, &native(true)).err().map(|e| e.to_string()).unwrap_or_default();
+    check(rc_refused.contains("RETURN-CODE"), format!("with native, RETURN-CODE is refused: {rc_refused:?}"), &mut failures);
     let prog = common::parse(&program("T12CON", CONSOLE_WS, CONSOLE_PD));
     let ignored = compile_program(&prog, &Options::default()).expect("a browser module ignores ACCEPT");
     let kinds: Vec<_> = ignored.warnings.iter().map(|w| w.kind).collect();
@@ -302,6 +307,7 @@ fn the_console_and_the_environment_reach_the_runner_and_the_manifest_names_them(
         (all.len() * 2) as f64 / (run_ms / 1000.0).max(1e-9)
     );
     println!("without native: {} refusals, the console ignored with 6 warnings, as before", refusals.len());
+    println!("with native: a program naming RETURN-CODE is refused, so it takes the Cargo path: {rc_refused}");
     println!("checks: {passed} of {checks} passed");
     for f in &failures {
         println!("  FAIL {f}");
