@@ -12,12 +12,22 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 
 use cobolt_runtime::{FormEvent, StateUpdate};
 
 use crate::state::{state_entry_mut, CtrlState, LiveState};
+
+/// DESKTOP-WASM-001 T8: how many events the host has sent to a program in this process. The
+/// deterministic headless loop reads it on each side of a frame, to know whether the frame raised
+/// one (a timer's tick, a canvas frame, `onShow`) that it must wait for.
+static EVENTS_SENT: AtomicU64 = AtomicU64::new(0);
+
+/// See [`EVENTS_SENT`].
+pub(crate) fn events_sent() -> u64 {
+    EVENTS_SENT.load(Ordering::Relaxed)
+}
 
 /// How long an effect actually plays. Every effect but MatrixRain takes the
 /// duration it was configured with; MatrixRain's falling lines are scheduled
@@ -553,7 +563,7 @@ impl FormHost {
                 display_rx,
                 pending,
                 finished,
-                start: std::time::Instant::now(),
+                start: crate::clock::now(),
                 lifecycle_sent: false,
                 db_dumped: false,
                 form_object,
@@ -1611,7 +1621,7 @@ impl FormBody {
                     cobolt_forms::snackbar::MAX_BUTTONS
                 ));
             }
-            self.snackbars.raise(ctrl_id, visual, std::time::Instant::now());
+            self.snackbars.raise(ctrl_id, visual, crate::clock::now());
             let _ = value;
             return true;
         }
@@ -1654,7 +1664,7 @@ impl FormBody {
             // allowed was cut off).
             visual.size = cobolt_forms::snackbar::SnackSize::Whole;
             self.snackbars
-                .raise(ctrl_id, visual, std::time::Instant::now());
+                .raise(ctrl_id, visual, crate::clock::now());
             return true;
         }
         false
@@ -1690,7 +1700,7 @@ impl FormBody {
         if self.snackbars.is_empty() {
             return;
         }
-        let now = std::time::Instant::now();
+        let now = crate::clock::now();
         let pointer = ui
             .ctx()
             .pointer_latest_pos()
@@ -1867,6 +1877,7 @@ impl FormBody {
         // nothing to lower, and the backlog stayed one too high for the rest
         // of the run (`an_event_is_counted_before_the_interpreter_can_take_it`).
         self.pending.fetch_add(1, Ordering::Relaxed);
+        EVENTS_SENT.fetch_add(1, Ordering::Relaxed);
         if self.ev_tx.send(ev).is_err() {
             let _ = self
                 .pending
@@ -3057,7 +3068,7 @@ impl FormBody {
     /// coalescing) and timer handlers keep running. Returns the earliest
     /// next-due delay, for `request_repaint_after`.
     pub(crate) fn tick_parked_timers(&mut self) -> Option<std::time::Duration> {
-        let now = std::time::Instant::now();
+        let now = crate::clock::now();
         let mut next: Option<std::time::Duration> = None;
         let timers: Vec<(String, u64)> = self
             .controls
@@ -3293,7 +3304,7 @@ impl FormBody {
         self.surface_theme.install_widget_visuals(ctx);
 
         // Animation clock.
-        let now = std::time::Instant::now();
+        let now = crate::clock::now();
         let dt = self
             .last_frame
             .map(|t| now.duration_since(t).as_secs_f32())
@@ -3332,7 +3343,7 @@ impl FormBody {
         self.flush_display();
 
         // Warm-up, then the form-level lifecycle pair — exactly once.
-        let armed = self.start.elapsed().as_millis() > 450;
+        let armed = crate::clock::since(self.start).as_millis() > 450;
         if armed && !self.lifecycle_sent {
             self.lifecycle_sent = true;
             let name = self.form_name.clone();
@@ -4482,7 +4493,7 @@ impl FormHost {
                             // reach this arm, so a refusal plays nothing.
                             if self.fx_exit.is_active() && !self.quit_sent {
                                 if self.fx_exit_start.is_none() {
-                                    self.fx_exit_start = Some(std::time::Instant::now());
+                                    self.fx_exit_start = Some(crate::clock::now());
                                 }
                             } else {
                                 if !self.quit_sent {
@@ -5844,7 +5855,7 @@ impl FormHost {
             }
             None => &self.root.controls,
         };
-        let time = self.root.start.elapsed().as_secs_f64();
+        let time = crate::clock::since(self.root.start).as_secs_f64();
         cobolt_forms::window_fx::paint_window_fx(
             &painter,
             rect,
@@ -6042,6 +6053,15 @@ impl FormHost {
         // wake behind the event is taken only back in the wait loop — after
         // the handler returns — and is never shown to the program.
         body.wake_for_input(ctrl_id);
+    }
+
+    /// DESKTOP-WASM-001 T8: a wake behind whatever the form on the pane was just sent, so
+    /// [`Self::script_pending`] stays above zero until the program has handled all of it, as for
+    /// [`Self::script_event`].
+    pub(crate) fn script_barrier(&mut self) {
+        let body = self.script_body();
+        let name = body.form_name.clone();
+        body.wake_for_input(&name);
     }
 
     /// Events sent to the form on the pane and not yet handled (with
@@ -6346,7 +6366,7 @@ impl FormHost {
             // What the program DISPLAYed last, before the window closes.
             self.root.flush_display();
             if self.fx_exit.is_active() && self.fx_exit_start.is_none() {
-                self.fx_exit_start = Some(std::time::Instant::now());
+                self.fx_exit_start = Some(crate::clock::now());
             }
             if self.fx_exit_start.is_none() {
                 self.viewport_cmd(ctx,egui::ViewportCommand::Close);
@@ -6435,7 +6455,7 @@ impl FormHost {
             }
             let exit_ms = fx_duration_ms(&self.fx_exit, root_ui.max_rect().width());
             let dur = exit_ms.max(1) as f64 / 1000.0;
-            let t_lin = 1.0 - (started.elapsed().as_secs_f64() / dur).min(1.0);
+            let t_lin = 1.0 - (crate::clock::since(started).as_secs_f64() / dur).min(1.0);
             if t_lin <= 0.0 {
                 if !self.quit_sent {
                     self.quit_sent = true;
@@ -6857,7 +6877,7 @@ impl FormHost {
             self.root.anim_started = true;
             self.root.anim.start_form_load(&self.root.controls);
         }
-        let now = std::time::Instant::now();
+        let now = crate::clock::now();
         let dt = self
             .root
             .last_frame
@@ -6978,7 +6998,7 @@ impl FormHost {
         self.root.flush_display();
 
         // Ignore input for a brief warm-up after the window appears.
-        let armed = self.root.start.elapsed().as_millis() > 450;
+        let armed = crate::clock::since(self.root.start).as_millis() > 450;
 
         // Form-level lifecycle: onShow / onActivate fire once after warm-up
         // (unknown events are ignored by the generated dispatch loop, so this
@@ -7001,13 +7021,13 @@ impl FormHost {
         if !self.fx_entrance_done {
             let started = *self
                 .fx_entrance_start
-                .get_or_insert_with(std::time::Instant::now);
+                .get_or_insert_with(crate::clock::now);
             // MatrixRain sets its own floor: one line per 25–50 ms beat is a
             // schedule of its own length, and the configured duration is the
             // MINIMUM it may take, never the maximum (operator, 2026-07-31).
             let ent_ms = fx_duration_ms(&self.fx_entrance, root_ui.max_rect().width());
             let dur = ent_ms.max(1) as f64 / 1000.0;
-            let t_lin = (started.elapsed().as_secs_f64() / dur).min(1.0);
+            let t_lin = (crate::clock::since(started).as_secs_f64() / dur).min(1.0);
             if t_lin >= 1.0 {
                 self.fx_entrance_done = true; // live UI takes over this frame
                 // …and the load animations start on THIS frame, not the next

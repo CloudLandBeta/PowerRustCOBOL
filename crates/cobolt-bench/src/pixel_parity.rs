@@ -30,6 +30,10 @@
 //! - a handler that opens a file dialog gets an `answer` step (cancel) before it;
 //! - a handler that reaches the network (a control of an AWS, agent, REST, SQL, knowledge-base,
 //!   map, search or sign-in type, `COBOL::"AWS-…"`, `EXEC SQL`) is not raised.
+//! - in a project whose forms open with an entrance effect (`[forms] entrance-effect`), the script
+//!   waits for the longest effect to end (`MATRIX_HARD_MAX_MS`) after the first picture and takes
+//!   another (`00-ready`), since T8. An event moves no virtual clock, so otherwise every later
+//!   picture would show the effect where it stood when the form opened.
 //!
 //! The script's `comment` names each of them. A handler's text includes the procedures it calls.
 //!
@@ -42,7 +46,8 @@
 //! **A frame's hash** is the sha256 of its width and height (each a little-endian u32) followed by
 //! its RGBA bytes. A form whose frames are the same in every run is repeatable, and `--record`
 //! writes its hashes into `tests/pixel-parity/golden/<platform>.toml`. A form that is not is named
-//! "not repeatable before `HostClock`" (T8 makes the host's clocks follow the pinned one).
+//! "not repeatable". Since T8 the host keeps the run's virtual time, so every form must repeat
+//! (AC20): without `--record` a form that does not fails the run.
 //!
 //! **Without `--record`** every recorded frame must equal its golden. A frame that differs fails
 //! the run. The frames of both runs and a picture of the differing pixels go under
@@ -80,6 +85,10 @@ fn runs_per_size(record: bool) -> usize {
 }
 /// How long a modal form is given to open before its frame is taken.
 const MODAL_WAIT_MS: u64 = 500;
+
+/// T8: how long a base script waits, after the picture of the form opening, for an entrance effect
+/// to end. MatrixRain's hard ceiling, which is longer than any other effect's (`FX_MAX_MS`).
+const ENTRANCE_WAIT_MS: u64 = cobolt_forms::window_fx::MATRIX_HARD_MAX_MS as u64;
 /// The line a headless run reports on (`cobolt_form_host::headless::RESULT_MARKER`).
 const MARKER: &str = "@RUN-FORM-RESULT ";
 
@@ -226,8 +235,17 @@ struct BaseScript {
     steps: Vec<Value>,
 }
 
-/// The base script of `form` (see the module's comment).
-fn base_script(form: &cobolt_forms::Form) -> BaseScript {
+/// Whether the project's forms open with an entrance effect (`[forms] entrance-effect` in its
+/// manifest), as the product reads the setting.
+fn opens_with_effect(manifest: &str) -> bool {
+    let value: toml::Value = toml::from_str(manifest).unwrap_or(toml::Value::Table(Default::default()));
+    let effect = value.get("forms").and_then(|f| f.get("entrance-effect")).and_then(toml::Value::as_str).unwrap_or("");
+    cobolt_forms::window_fx::WindowEffect::from_str(effect) != cobolt_forms::window_fx::WindowEffect::None
+}
+
+/// The base script of `form` (see the module's comment). `entrance`: the project's forms open with
+/// an entrance effect.
+fn base_script(form: &cobolt_forms::Form, entrance: bool) -> BaseScript {
     let procs: BTreeMap<String, String> =
         form.user_procedures.iter().map(|p| (p.name.trim().to_ascii_uppercase(), p.code.to_ascii_uppercase())).collect();
     // A handler's text, with the procedures it calls, theirs, and so on.
@@ -301,6 +319,12 @@ fn base_script(form: &cobolt_forms::Form) -> BaseScript {
     }
 
     let mut steps = vec![json!({"shot": "00-open"})];
+    // In virtual time an event moves no clock, so the frames after it would all show the entrance
+    // effect where it stood when the form opened. Let it end first: the form as it is ready to use.
+    if entrance {
+        steps.push(json!({"wait_ms": ENTRANCE_WAIT_MS}));
+        steps.push(json!({"shot": "00-ready"}));
+    }
     let mut shot = 1;
     let named = |list: &[(String, String, bool, String)]| list.iter().map(|e| e.3.clone()).collect::<Vec<_>>();
     let (modal_names, ends_names) = (named(&modal), named(&ends));
@@ -504,8 +528,8 @@ const GOLDEN_HEADER: &str = "\
 # A hash is the sha256 of the frame's width and height (little-endian u32) and its RGBA bytes.
 # Written by `cobolt-bench pixel-parity --cargo --record`. Re-recorded only by a change that moves
 # a pixel on purpose, named in the CHANGELOG. A form is recorded only when three runs of the same
-# binary draw every frame the same; `not_repeatable` lists the others, whose hashes cannot be
-# recorded yet.
+# binary draw every frame the same; `not_repeatable` lists any other, which breaks AC20 and is not
+# recorded.
 
 ";
 
@@ -600,8 +624,10 @@ fn run_project(name: &str, args: &Args, scratch: &Path, build_root: &Path, golde
         if args.write_scripts {
             let dir = scripts_dir(name);
             std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            let manifest = ten_times::manifest_of(&copy)?;
+            let entrance = opens_with_effect(&std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?);
             for (stem, _, form) in &loaded {
-                let s = base_script(form);
+                let s = base_script(form, entrance);
                 let file = json!({"form": s.form, "comment": s.comment, "steps": s.steps});
                 let text = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())? + "\n";
                 std::fs::write(dir.join(format!("{stem}.json")), text).map_err(|e| e.to_string())?;
@@ -762,11 +788,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     }
     if !not_repeatable.is_empty() {
-        println!("not repeatable before HostClock (T8):");
+        println!("not repeatable (AC20):");
         for (form, why) in &not_repeatable {
             println!("  {form}: {why}");
         }
     }
+    let unrepeatable = not_repeatable.len();
     println!(
         "frames compared {frames}, identical in every run {identical}; forms repeatable {} of {}; golden {matched_golden} matched, {differ_golden} differ; total {:.1} min",
         results.iter().flat_map(|r| &r.results).filter(|x| x.repeatable()).count(),
@@ -805,6 +832,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     if results.iter().any(|r| r.failed.is_some()) {
         return Err("pixel-parity: a project failed (above)".into());
+    }
+    // T8: the host keeps the run's virtual time, so a form that does not repeat breaks AC20. A
+    // recording only leaves it out; a check fails.
+    if unrepeatable > 0 && !args.record {
+        return Err(format!("pixel-parity: {unrepeatable} form(s) draw different frames in two runs (AC20)"));
     }
     if differ_golden > 0 {
         return Err(format!("pixel-parity: {differ_golden} frame(s) differ from their golden"));
@@ -855,7 +887,8 @@ mod tests {
     #[test]
     fn base_script_orders_and_names_the_handlers() {
         let form = cobolt_forms::load_form_from_str(FORM).expect("the form loads");
-        let script = base_script(&form);
+        let script = base_script(&form, false);
+        let with_effect = base_script(&form, true);
         let expected = vec![
             json!({"shot": "00-open"}),
             json!({"event": {"control": "BTN-PLAIN", "name": "onClick"}}),
@@ -893,6 +926,12 @@ mod tests {
             ("the comment names the dialog handler", script.comment.contains("file dialog: BTN-OPEN.onClick.")),
             ("the comment names the handler that reaches the network", script.comment.contains("network: BTN-ASK.onClick.")),
             ("the form's name", script.form == "T-FORM"),
+            ("with an entrance effect, a wait for it and a picture of the form ready follow the first picture", {
+                let mut want = expected.clone();
+                want.splice(1..1, [json!({"wait_ms": ENTRANCE_WAIT_MS}), json!({"shot": "00-ready"})]);
+                with_effect.steps == want
+            }),
+            ("the manifest's entrance effect is read as the product reads it", opens_with_effect("[forms]\nentrance-effect = \"matrix-rain\"\n") && !opens_with_effect("[forms]\nentrance-effect = \"\"\n") && !opens_with_effect("name = \"x\"\n") && !opens_with_effect("[forms]\nentrance-effect = \"no-such\"\n")),
             ("a stem: forms/sub/a-form.cfrm is sub__a-form", form_stem("forms/sub/a-form.cfrm") == "sub__a-form"),
             ("CALL \"A\" and CALL  \"B\" are found, CALL WS-NAME is not", called("CALL \"A\" CALL WS-NAME CALL  \"B\"") == ["A", "B"]),
             ("a frame's hash is the sha256 of its size and RGBA bytes", got.as_deref() == Ok(want.as_str())),
@@ -900,7 +939,7 @@ mod tests {
 
         // The result block (GOLDEN RULE #7).
         let passed = checks.iter().filter(|(_, ok)| *ok).count();
-        println!("== pixel_parity::base_script_orders_and_names_the_handlers (DESKTOP-WASM-001 T7) ==");
+        println!("== pixel_parity::base_script_orders_and_names_the_handlers (DESKTOP-WASM-001 T7, T8) ==");
         println!("fixture: 7 controls, 8 handlers (onLoad is never raised), 1 procedure; {} steps written, {} expected", script.steps.len(), expected.len());
         for (what, ok) in &checks {
             println!("  {} {what}", if *ok { "pass" } else { "FAIL" });

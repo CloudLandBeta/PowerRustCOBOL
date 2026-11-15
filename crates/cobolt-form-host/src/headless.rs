@@ -37,8 +37,11 @@
 //! **Deterministic mode** (DESKTOP-WASM-001 R28): when `PRC_TEST_CLOCK` pins the clock, frames
 //! are drawn at a virtual time that moves only when the script waits. `wait_ms` and the opening
 //! wait move it by 1/60 s per frame; a frame that only waits for the program does not move it. So
-//! the same script draws its frames at the same times in every run. Until the host's own clocks
-//! follow that time (DESKTOP-WASM-001 T8), a wait still lets the same real time pass.
+//! the same script draws its frames at the same times in every run. The host's own clock (its
+//! effects, snackbars, timers, the input hold) and the program's clock follow that time (T8), so
+//! a wait lets no real time pass. Before time moves on, the form on screen finishes everything it
+//! was sent (a long `onLoad`, a timer's tick, a canvas frame, `onShow`), unless a modal form it
+//! opened holds it up; so does it at the end of every step that waits for the program.
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
@@ -148,6 +151,14 @@ pub fn run_headless_with(
 ) -> Value {
     let started = Instant::now();
     let deadline = started + limit;
+    // DESKTOP-WASM-001 R28: with the clock pinned, the run is deterministic. Its time is virtual,
+    // counted in 1/60 s ticks that only a wait adds, and the host's own clock (`crate::clock`) and
+    // the program's follow it (T8). It starts before the form is built, so every instant the host
+    // keeps is on that clock.
+    let deterministic = cobolt_runtime::test_pins::clock_pinned();
+    if deterministic {
+        cobolt_runtime::test_pins::start_virtual_time();
+    }
     let (mut host, size) = match shell {
         Some(root_menu) => {
             let (app, _title, viewport) = ShellApp::new(config, root_menu);
@@ -161,11 +172,13 @@ pub fn run_headless_with(
         }
     };
     let size = Cell::new(size);
-    // DESKTOP-WASM-001 R28: with the clock pinned, frames are drawn at a virtual time, counted in
-    // 1/60 s ticks that only a wait adds.
-    let deterministic = cobolt_runtime::test_pins::clock_pinned();
     let ticks = Cell::new(0u64);
     let now = || if deterministic { ticks.get() as f64 / 60.0 } else { started.elapsed().as_secs_f64() };
+    // One tick of virtual time, for the frames, the host's clock and the program's alike.
+    let tick = || {
+        ticks.set(ticks.get() + 1);
+        cobolt_runtime::test_pins::set_virtual_time(Duration::from_nanos(ticks.get() * 1_000_000_000 / 60));
+    };
     // Answers an earlier run in this process left are not this script's.
     crate::file_dialog::clear_answers();
     let ctx = egui::Context::default();
@@ -179,24 +192,35 @@ pub fn run_headless_with(
     let frame_with = |host: &mut Driven, raster: &mut cobolt_forms::raster::Rasterizer, events: Vec<egui::Event>| {
         cobolt_forms::raster::advance_frame_with(&ctx, raster, size.get(), now(), events, |ui| host.frame(ui));
     };
-    // Run frames for `ms` (the host's clocks are real ones). In deterministic mode each frame also
-    // adds a tick; the real time still passes until the host's clocks follow the virtual one (T8).
-    let run_for = |host: &mut Driven, raster: &mut cobolt_forms::raster::Rasterizer, ms: u64| {
-        if deterministic {
-            for _ in 0..(ms * 60).div_ceil(1000) {
-                if Instant::now() >= deadline {
-                    break;
-                }
-                frame(host, raster);
-                ticks.set(ticks.get() + 1);
-                std::thread::sleep(Duration::from_millis(16));
+    // The count of events sent when the form on the pane was last found at rest.
+    let quiet = Cell::new(crate::host::events_sent());
+    // Deterministic mode: let the form on the pane finish everything it was sent (a long onLoad,
+    // a timer's tick, a canvas frame) before the virtual clock moves on, so what the next frame
+    // draws never depends on how fast the program ran. The program takes an event off its queue
+    // before handling it, so a wake goes behind what it was sent (`script_barrier`); the wake is
+    // taken only once the handlers before it have returned. A form that a modal form holds up, or
+    // whose program has ended, is not waited for, and neither are events sent to a child window.
+    let quiesce = |host: &mut Driven, raster: &mut cobolt_forms::raster::Rasterizer| {
+        let held = |h: &Driven| h.host().script_finished() || h.host().root_modal_blocked();
+        // A frame that raises an event at every frame would never rest: a bound on the rounds.
+        for _ in 0..16 {
+            if held(host) || Instant::now() >= deadline {
+                return;
             }
-            return;
-        }
-        let until = (Instant::now() + Duration::from_millis(ms)).min(deadline);
-        while Instant::now() < until {
-            frame(host, raster);
-            std::thread::sleep(Duration::from_millis(16));
+            if crate::host::events_sent() == quiet.get() && host.host().script_pending() == 0 {
+                return;
+            }
+            host.host_mut().script_barrier();
+            while host.host().script_pending() > 0 && !held(host) && Instant::now() < deadline {
+                frame(host, raster);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            quiet.set(crate::host::events_sent());
+            // What the handlers wrote reaches the state. An event these frames raise is another
+            // round.
+            for _ in 0..3 {
+                frame(host, raster);
+            }
         }
     };
     // Run until the program has handled everything sent to it.
@@ -209,12 +233,37 @@ pub fn run_headless_with(
                     frame(host, raster);
                     std::thread::sleep(Duration::from_millis(10));
                 }
+                // And what those frames raised is handled too, before the next step.
+                if deterministic {
+                    quiesce(host, raster);
+                }
                 return true;
             }
             if Instant::now() >= deadline {
                 return false;
             }
             std::thread::sleep(Duration::from_millis(10));
+        }
+    };
+    // Run frames for `ms`. In deterministic mode nothing sleeps: each frame is one tick of virtual
+    // time, and before and after each the form on the pane finishes what it was sent (`quiesce`).
+    let run_for = |host: &mut Driven, raster: &mut cobolt_forms::raster::Rasterizer, ms: u64| {
+        if deterministic {
+            quiesce(host, raster);
+            for _ in 0..(ms * 60).div_ceil(1000) {
+                if Instant::now() >= deadline {
+                    break;
+                }
+                frame(host, raster);
+                quiesce(host, raster);
+                tick();
+            }
+            return;
+        }
+        let until = (Instant::now() + Duration::from_millis(ms)).min(deadline);
+        while Instant::now() < until {
+            frame(host, raster);
+            std::thread::sleep(Duration::from_millis(16));
         }
     };
 
@@ -342,6 +391,10 @@ pub fn run_headless_with(
                 picture = Some(json!({"width": img.size[0], "height": img.size[1]}));
             }
         }
+    }
+    // The run is over: the host's clock is real again.
+    if deterministic {
+        cobolt_runtime::test_pins::stop_virtual_time();
     }
     let unused_answers = crate::file_dialog::clear_answers();
     let mut report = json!({

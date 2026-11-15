@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3 and T1–T7 are done (2.0.483–2.0.491); the CI dispatches of T4 and T7 are owed until their workflows are on `main`.
+- **Status:** implementing since 2026-11-14. F1–F3 and T1–T8 are done (2.0.483–2.0.493, with the fix 2.0.492 found by T8), so every task of M0 is. The CI dispatches of T4 and T7 are owed until their workflows are on `main`.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -366,7 +366,53 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - The golden file is written. A second run without `--record` matches every golden.
     - The CI job is dispatched once, outside the window, and the three other platforms' goldens are committed from its artefacts.
 
-- [ ] **T8 — `HostClock`, then the rest of the golden hashes** (R28; AC20)
+- [x] **T8 — `HostClock`, then the rest of the golden hashes** (R28; AC20)
+  - *Done 2026-11-14 (2.0.493; the fix 2.0.492 before it):*
+    - **`crates/cobolt-form-host/src/clock.rs`:** `now()` and `since()`. It is the real clock unless a deterministic run has started the virtual time; then it is a fixed instant plus that time.
+    - **The 16 reads in `host.rs` that reach a pixel** now read it:
+      - the form's start, which gates the 450 ms hold and `onShow` (root and child bodies);
+      - the entrance effect, the exit effect (two places) and the window effect;
+      - the snackbars (raise and tick);
+      - the animation step (two places);
+      - the parked form's timers.
+    - **Left on the real clock**, as nothing they do reaches a pixel: placing a group of windows on the screen (`group_fit_started`), the OS blur's retry, time limits, and the measurements in tests. The plan's "37 calls" counted those and the tests. `snackbar_stack.rs` reads no clock (every method takes `now`), so it is unchanged.
+    - **The virtual time lives in `cobolt_runtime::test_pins`** (`start_virtual_time`, `set_virtual_time`, `stop_virtual_time`, `virtual_elapsed`), so the program's clock follows the same time: the pinned instant plus the virtual time while it runs.
+    - **The headless loop** (`headless.rs`), with the clock pinned:
+      - starts the virtual time before it builds the form, and ends it with the run;
+      - no longer sleeps during a wait; each frame is one 1/60 s tick;
+      - **refinement (`quiesce`):** before time moves on, and at the end of every step that waits for the program, the form on the pane finishes everything it was sent. When anything was sent since it was last at rest, a wake goes behind it (`FormHost::script_barrier`), and the loop draws frames at the same virtual time until the program has handled both. The frames that let the writes reach the state go round again if they raise an event (at most 16 rounds).
+        - Why the wake: the program takes an event off its queue before handling it, so the pending count alone says nothing about a handler still running. The wake is taken only after the handler returns.
+        - Why before time moves on: the first version waited only for events raised while the form was idle. That leaves the opening wait racing a long `onLoad` (war-form's builds a city): canvas frames raised meanwhile queue up, or are coalesced away past 8, in a number set by how fast the program ran. Whether that race ever bit here was not isolated, because the pixels war-form drew differently turned out to be the rasteriser's (below).
+        - A form that a modal form holds up (`root_modal_blocked`), or whose program has ended, is not waited for, and neither are events sent to a child window.
+      - `host::events_sent()` counts the events the host sends, so the loop can tell whether anything was sent since the form was last at rest.
+    - **`cobolt-bench pixel-parity`:**
+      - a check now fails when a form's runs differ (AC20), as a differing golden does; a recording only leaves the form out. Its wording and the golden file's header say so;
+      - **the entrance wait:** under virtual time an event moves no clock. In the four projects that open their forms with MatrixRain (2000 ms), every picture after the first was therefore taken 600 ms in, mid-effect, and showed the effect rather than the form's answer (PowerCloud's confirm-form drew the same hash for every step). In such a project (`[forms] entrance-effect`, read as the product reads it), the base script now waits `MATRIX_HARD_MAX_MS` (6000 ms, longer than any effect) after `00-open` and takes `00-ready`. PowerGraphics opens without an effect, and its scripts are unchanged.
+    - **A fix found on the way, landed first (2.0.492, `fixes-2x-raster-atlas`, picked onto this branch):**
+      - war-form still drew 2 to 4 text pixels differently between runs, one step of 255 apart, at the designed size.
+      - The CPU rasteriser summed a glyph's texture coordinate from absolute atlas coordinates in f32, so its rounding depended on where egui had put the glyph, which depends on the order text was first laid out in.
+      - It now samples exactly in f64, relative to the first vertex. Its own test went from 5 of 12 differing pictures to 12 of 12 identical.
+    - **Measured** (macOS arm64, release build):
+      - **The refactor moved no pixel:**
+        - the first version of this task, checked against T7's goldens, matched 75 of 75 golden, with 369 of 369 frames identical in two runs (a three-run recording after it found war-form differing in 3 of 9 frames; see the fix above);
+        - the final code with the sampling before 2.0.492 matched PowerGraphics 120 of 120 frames identical, 9 of 9 forms repeatable, 75 of 75 golden (3.9 min).
+      - **`--write-scripts --cargo --record`:** 5 projects, 22 forms, 289 steps, 408 frames, three runs each, 18.2 min.
+        - Per project, forms / steps / frames / identical in all three runs / build s / runs s:
+          - PowerCallOfDuty 1 / 7 / 12 / 12 / 205.8 / 19.4;
+          - PowerCloud 5 / 49 / 72 / 72 / 82.8 / 116.0;
+          - PowerCobolCraft 2 / 45 / 66 / 66 / 6.0 / 119.9;
+          - PowerGraphics 9 / 95 / 120 / 120 / 102.5 / 58.2;
+          - PowerSpatial 5 / 93 / 138 / 138 / 65.7 / 311.5.
+        - **408 of 408 frames identical; 22 of 22 forms repeatable** (6 of 22 at T7); 408 golden frames written, `not_repeatable` empty.
+        - Against T7's 75 frames, 42 are unchanged. The other 33 (every frame of PowerGraphics' pitfall, pool3d and viewer3d forms) moved, by 2.0.492's sampling alone, as the check above shows.
+      - **The check without `--record`** (two runs each): **408 of 408 golden frames matched**, 22 of 22 forms repeatable, exit 0, 14.6 min.
+      - **Tests:**
+        - `deterministic_mode_repeats_frames`: 10 of 10 checks, 4 of 4 pictures identical, 41 ticks and 5 700 ms of virtual time per run;
+        - `pinned_clock_and_seed`: 9 of 9; `base_script_orders_and_names_the_handlers`: 11 of 11;
+        - `cobolt-form-host`: 189 of 190 in the library and 28 of 28 in 8 targets. The red, `corpus_golden`, is a layout golden that fails on PowerChat's chat-form, and was red before this task;
+        - `cobolt-forms --features render`: 1 877 of 1 878, `engine_reference_form_parity_static_vs_faces` green. The red, `example_corpus_golden` (3 PowerDemo3 forms), is a shape golden, red on `main` without this work too;
+        - the rcrun host tests (`powercloud_hosts`, `side_menu_hosted_controls`, `side_menu_rows_hosts`, `layers_hosts_091`, `perspective_hosts_096`, `model_list_hosts`, `partiql_hosts`, `aws_hosts`): 22 of 22, `side_menu_rows_hosts` with its built-binary test; the 5 other built-binary tests stay ignored, as by default.
+    - **Owed:** the CI dispatch of `pixel-parity.yml` on four platforms and the other three platforms' golden files, as for T7 (the workflow must be on `main` first).
   - Files:
     - new `crates/cobolt-form-host/src/clock.rs`;
     - `crates/cobolt-form-host/src/host.rs`: its 37 `Instant::now` calls (timers, animations, entrance and exit effects, snackbars);

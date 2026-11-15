@@ -3,31 +3,225 @@
 # A hash is the sha256 of the frame's width and height (little-endian u32) and its RGBA bytes.
 # Written by `cobolt-bench pixel-parity --cargo --record`. Re-recorded only by a change that moves
 # a pixel on purpose, named in the CHANGELOG. A form is recorded only when three runs of the same
-# binary draw every frame the same; `not_repeatable` lists the others, whose hashes cannot be
-# recorded yet.
+# binary draw every frame the same; `not_repeatable` lists any other, which breaks AC20 and is not
+# recorded.
 
-version = "2.0.491"
-commit = "6694dce1"
+version = "2.0.493"
+commit = "1cb58ded"
 clock = "2026-01-02T03:04:05-03:00"
 seed = 20261114
 
 [not_repeatable]
-"PowerCallOfDuty/war-form" = "9 of 9 frames differ between runs"
-"PowerCloud/confirm-form" = "9 of 9 frames differ between runs"
-"PowerCloud/main-form" = "2 of 27 frames differ between runs"
-"PowerCloud/pet-form" = "12 of 12 frames differ between runs"
-"PowerCloud/view-form" = "3 of 3 frames differ between runs"
-"PowerCloud/working-form" = "6 of 6 frames differ between runs"
-"PowerCobolCraft/title-form" = "18 of 18 frames differ between runs"
-"PowerCobolCraft/world-form" = "38 of 42 frames differ between runs"
-"PowerGraphics/bridge-form" = "2 of 6 frames differ between runs"
-"PowerGraphics/game-form" = "9 of 33 frames differ between runs"
-"PowerGraphics/runner-form" = "1 of 6 frames differ between runs"
-"PowerSpatial/main-form" = "7 of 60 frames differ between runs"
-"PowerSpatial/rail-form" = "22 of 24 frames differ between runs"
-"PowerSpatial/rooms-form" = "21 of 21 frames differ between runs"
-"PowerSpatial/settings-form" = "8 of 9 frames differ between runs"
-"PowerSpatial/toolbar-form" = "9 of 9 frames differ between runs"
+
+[frames.PowerCallOfDuty.war-form.compact]
+00-open = "7e8a928cdacbd47dceabd2e064dab71c4e20fe981b22c1802db3d210ff548b17"
+00-ready = "fe9e3f09f2d6e0b361f5d8fb6602abfe34f2e01428d9067400967bf9d1633be3"
+01-CNV-3D-onFrame = "fe9e3f09f2d6e0b361f5d8fb6602abfe34f2e01428d9067400967bf9d1633be3"
+02-CNV-3D-onRightClick = "fe9e3f09f2d6e0b361f5d8fb6602abfe34f2e01428d9067400967bf9d1633be3"
+
+[frames.PowerCallOfDuty.war-form.designed]
+00-open = "b46b3b95fc90b4685db2bd4849a8f1f03db36584fb25e0d9af1bfcf69121d98e"
+00-ready = "fc0bf99dc38d4f702ee3b682e2ada872c2e21f0dc0c9219040b02ec738bdaf4a"
+01-CNV-3D-onFrame = "fc0bf99dc38d4f702ee3b682e2ada872c2e21f0dc0c9219040b02ec738bdaf4a"
+02-CNV-3D-onRightClick = "fc0bf99dc38d4f702ee3b682e2ada872c2e21f0dc0c9219040b02ec738bdaf4a"
+
+[frames.PowerCallOfDuty.war-form.medium]
+00-open = "ae50cec4efe9b2b30f1acd8a94c2a194255e676ad44548cebacce3e8b246b647"
+00-ready = "5fa41ae778e700784b27cc177dc51bfd29be96a592f703d421eddc7594705911"
+01-CNV-3D-onFrame = "5fa41ae778e700784b27cc177dc51bfd29be96a592f703d421eddc7594705911"
+02-CNV-3D-onRightClick = "5fa41ae778e700784b27cc177dc51bfd29be96a592f703d421eddc7594705911"
+
+[frames.PowerCloud.confirm-form.compact]
+00-open = "60310473bb482f03eafbc6f0afd7825ab65f634d6e4d580f1d32180068ba2c26"
+00-ready = "c4844a1f0e735f0ca4afafac5331c87bbf41878e9c071d663381b95a76b99d43"
+01-Btn-Yes-onClick = "cb771f579c3d49e0e08a32fad00e7d8a883d1fd512cd7d15cd0de407783bbe68"
+02-Btn-No-onClick = "cb771f579c3d49e0e08a32fad00e7d8a883d1fd512cd7d15cd0de407783bbe68"
+
+[frames.PowerCloud.confirm-form.designed]
+00-open = "24c10089b4f532da31db5ebb59be3027e2927bf9e5275a604c1da6dcc79dadd3"
+00-ready = "76523b415421f4e043a4a7ae6794a18867c5079c6c6c99c06775d72c9ce41b8e"
+01-Btn-Yes-onClick = "2d962e5a7c6fdcf72f4b29484bfdc0379abd61dcc1540c6e38cccfe8f0f3e96b"
+02-Btn-No-onClick = "2d962e5a7c6fdcf72f4b29484bfdc0379abd61dcc1540c6e38cccfe8f0f3e96b"
+
+[frames.PowerCloud.confirm-form.medium]
+00-open = "87c60c8f608f91e83c190ebfe4d4d8573aeefe0961e3e9c612acf59a073bd898"
+00-ready = "1b30d4b0520885289c8a6216fda4066a192da4e71ba7dc8c098b37a86cc16fee"
+01-Btn-Yes-onClick = "658e3e76f4b450e68072083f0d195ef10e72765480b86fc0acd8b93daacfa9a0"
+02-Btn-No-onClick = "658e3e76f4b450e68072083f0d195ef10e72765480b86fc0acd8b93daacfa9a0"
+
+[frames.PowerCloud.main-form.compact]
+00-open = "bc98084571e5c809fcbebc4d2d7fe9e0c961c71a3ab8ed07816901df8c9421b7"
+00-ready = "2879d87ead80f73723f98c1e9acaedcd218776d44999340a2f8ed0937c8853a2"
+01-Btn-Save-onClick = "2879d87ead80f73723f98c1e9acaedcd218776d44999340a2f8ed0937c8853a2"
+02-Lbl-Link-onClick = "2879d87ead80f73723f98c1e9acaedcd218776d44999340a2f8ed0937c8853a2"
+03-Btn-ClearFilters-onClick = "2879d87ead80f73723f98c1e9acaedcd218776d44999340a2f8ed0937c8853a2"
+04-Btn-Play-onClick = "2879d87ead80f73723f98c1e9acaedcd218776d44999340a2f8ed0937c8853a2"
+05-Btn-Pause-onClick = "2879d87ead80f73723f98c1e9acaedcd218776d44999340a2f8ed0937c8853a2"
+06-Btn-Stop-onClick = "2879d87ead80f73723f98c1e9acaedcd218776d44999340a2f8ed0937c8853a2"
+07-Tmr-Player-onTick = "2879d87ead80f73723f98c1e9acaedcd218776d44999340a2f8ed0937c8853a2"
+08-Drp-Rek-onFilesDropped = "2879d87ead80f73723f98c1e9acaedcd218776d44999340a2f8ed0937c8853a2"
+
+[frames.PowerCloud.main-form.designed]
+00-open = "b09fe78747e73b88d7dd7a9727bc374ae53e303bbbbce1803427f48f2b01bc27"
+00-ready = "b086a8ea41eb76f07cadcd43e46e56099601570aab8d249eb72ad30a15a47b2d"
+01-Btn-Save-onClick = "b086a8ea41eb76f07cadcd43e46e56099601570aab8d249eb72ad30a15a47b2d"
+02-Lbl-Link-onClick = "b086a8ea41eb76f07cadcd43e46e56099601570aab8d249eb72ad30a15a47b2d"
+03-Btn-ClearFilters-onClick = "b086a8ea41eb76f07cadcd43e46e56099601570aab8d249eb72ad30a15a47b2d"
+04-Btn-Play-onClick = "b086a8ea41eb76f07cadcd43e46e56099601570aab8d249eb72ad30a15a47b2d"
+05-Btn-Pause-onClick = "b086a8ea41eb76f07cadcd43e46e56099601570aab8d249eb72ad30a15a47b2d"
+06-Btn-Stop-onClick = "b086a8ea41eb76f07cadcd43e46e56099601570aab8d249eb72ad30a15a47b2d"
+07-Tmr-Player-onTick = "b086a8ea41eb76f07cadcd43e46e56099601570aab8d249eb72ad30a15a47b2d"
+08-Drp-Rek-onFilesDropped = "b086a8ea41eb76f07cadcd43e46e56099601570aab8d249eb72ad30a15a47b2d"
+
+[frames.PowerCloud.main-form.medium]
+00-open = "2c37bcb8db6641c8e6956a1d6e98acab308b0ca4cd44da64123327109e6bb143"
+00-ready = "39ca6e5adbd1a0575bd467d481605eaeb5adeee64d4fb201dd58314995fd8a2f"
+01-Btn-Save-onClick = "39ca6e5adbd1a0575bd467d481605eaeb5adeee64d4fb201dd58314995fd8a2f"
+02-Lbl-Link-onClick = "39ca6e5adbd1a0575bd467d481605eaeb5adeee64d4fb201dd58314995fd8a2f"
+03-Btn-ClearFilters-onClick = "39ca6e5adbd1a0575bd467d481605eaeb5adeee64d4fb201dd58314995fd8a2f"
+04-Btn-Play-onClick = "39ca6e5adbd1a0575bd467d481605eaeb5adeee64d4fb201dd58314995fd8a2f"
+05-Btn-Pause-onClick = "39ca6e5adbd1a0575bd467d481605eaeb5adeee64d4fb201dd58314995fd8a2f"
+06-Btn-Stop-onClick = "39ca6e5adbd1a0575bd467d481605eaeb5adeee64d4fb201dd58314995fd8a2f"
+07-Tmr-Player-onTick = "39ca6e5adbd1a0575bd467d481605eaeb5adeee64d4fb201dd58314995fd8a2f"
+08-Drp-Rek-onFilesDropped = "39ca6e5adbd1a0575bd467d481605eaeb5adeee64d4fb201dd58314995fd8a2f"
+
+[frames.PowerCloud.pet-form.compact]
+00-open = "ad82468f5e6f7b1dd139442e9188ab28472c38de86551cdc036d21a480dffb01"
+00-ready = "c382a0442116bb81032cd26c2d927dc36ed34a09eea80b640a59adc86a22eca9"
+01-Drp-Photo-onFilesDropped = "c382a0442116bb81032cd26c2d927dc36ed34a09eea80b640a59adc86a22eca9"
+02-Btn-Save-onClick = "c382a0442116bb81032cd26c2d927dc36ed34a09eea80b640a59adc86a22eca9"
+03-Btn-Cancel-onClick = "a3c8385429e1c2cfd1cc24bc4bf591eb72429f64b243fc2ec21753b10b0b1e0f"
+
+[frames.PowerCloud.pet-form.designed]
+00-open = "2c156a6b33abe6b460b88c5c81a5abbcd4bb8d1e0e04e1629496c21fd4ea3440"
+00-ready = "d89f5f71d0f4ac09820be395a2dbd12255cf6d061178824797690dc518305a9a"
+01-Drp-Photo-onFilesDropped = "d89f5f71d0f4ac09820be395a2dbd12255cf6d061178824797690dc518305a9a"
+02-Btn-Save-onClick = "d89f5f71d0f4ac09820be395a2dbd12255cf6d061178824797690dc518305a9a"
+03-Btn-Cancel-onClick = "b4f724d5847068bbbc57ee643331ee8550e697ead38014e505d70965173d4b56"
+
+[frames.PowerCloud.pet-form.medium]
+00-open = "d34e8c8657179fc3a2b08418f7024fa9595e6b0184460ff9ef6044fe326b895d"
+00-ready = "04d39abb77bb61473612eb05f359f602c8431a4286bdf6e0f37e3dbc6eabe2f0"
+01-Drp-Photo-onFilesDropped = "04d39abb77bb61473612eb05f359f602c8431a4286bdf6e0f37e3dbc6eabe2f0"
+02-Btn-Save-onClick = "357e0e92865a3962da1f3cc47cbdc0a039b47d2fc169dcf868dee159d1fa1069"
+03-Btn-Cancel-onClick = "adf9038f790ad37fd4da4f3a7d199852be08b6987a1ea5b7175d61622a85d3aa"
+
+[frames.PowerCloud.view-form.compact]
+00-open = "8b50d99f13e8263a3062d8c74441a5abe677f59ada9d9960976039aedb4d1f5e"
+00-ready = "13259e41e49a7a8f674f1f3d772e99500422f53515f7e7f34d50d39d0a30cda4"
+
+[frames.PowerCloud.view-form.designed]
+00-open = "53a4fba0cb9c45fee0a5c9aca406f715e44b9a492b1701615c8309003f4ee435"
+00-ready = "3912690e3ae3592b888ba8482bfd0e925aef942cb5c070aa144a64c7247e7ba3"
+
+[frames.PowerCloud.view-form.medium]
+00-open = "c14f95d5624420c2defc48866d4ea78f2d7b4df867d87fbf0d8c5d6abf1ff257"
+00-ready = "84cbc5448d729c95d09fb6b68cb7d2bc6c375a500636c3de210cde677c321070"
+
+[frames.PowerCloud.working-form.compact]
+00-open = "6cd0162299ba0d0cb64985391136cc008d09d9dd78440f867c7902a121138229"
+00-ready = "b985e867dd4196f554740dadc553d62f39bf68378f519be84e7009adfd118dd8"
+01-Tmr-Working-onTick = "b985e867dd4196f554740dadc553d62f39bf68378f519be84e7009adfd118dd8"
+
+[frames.PowerCloud.working-form.designed]
+00-open = "3b893482a7eaadf7f3b852d2fdf1706f90bc35ce6bb893cdb83bc2bfced57091"
+00-ready = "aae430a1d796f152b9599f78938393ef4ec7ff93f8a4de271c1a1c9b227fceac"
+01-Tmr-Working-onTick = "aae430a1d796f152b9599f78938393ef4ec7ff93f8a4de271c1a1c9b227fceac"
+
+[frames.PowerCloud.working-form.medium]
+00-open = "de5e3cba77810768539ecced318294557c6fdebd816a1be3cd6c44fd86d13ff8"
+00-ready = "474630d0bfa5b7ffdcbb65516fc0ceb27944e71f657a6ae699eac19ca60134e5"
+01-Tmr-Working-onTick = "474630d0bfa5b7ffdcbb65516fc0ceb27944e71f657a6ae699eac19ca60134e5"
+
+[frames.PowerCobolCraft.title-form.compact]
+00-open = "24951a732eee85f9d0b658ffb834f4c236fafb93b980a02d73e13cf390da2260"
+00-ready = "c5adb717c79fc4f798ca63bb655e1b0d73f87f0124c67e129f89038a223f4602"
+01-CNV-DIORAMA-onFrame = "c5adb717c79fc4f798ca63bb655e1b0d73f87f0124c67e129f89038a223f4602"
+02-CMB-LANGUAGE-onSelectedIndexChanged = "c5adb717c79fc4f798ca63bb655e1b0d73f87f0124c67e129f89038a223f4602"
+03-BTN-PLAY-onClick = "0ec28da5b967ad3fcbc3ff939873a9ab675b715eab3ab89afe99b4d1c1435185"
+04-BTN-CONTINUE-onClick = "0ec28da5b967ad3fcbc3ff939873a9ab675b715eab3ab89afe99b4d1c1435185"
+05-BTN-QUIT-onClick = "0ec28da5b967ad3fcbc3ff939873a9ab675b715eab3ab89afe99b4d1c1435185"
+
+[frames.PowerCobolCraft.title-form.designed]
+00-open = "a4b34bc6b6d07dbbf9596fab84b4277f394bff7d6a0a870d5c2b6f79c77683eb"
+00-ready = "33cf7cf35e0ef5fd2cf5fd5d7cf3a69495a9e1ad810607903959d18607d83e4d"
+01-CNV-DIORAMA-onFrame = "33cf7cf35e0ef5fd2cf5fd5d7cf3a69495a9e1ad810607903959d18607d83e4d"
+02-CMB-LANGUAGE-onSelectedIndexChanged = "33cf7cf35e0ef5fd2cf5fd5d7cf3a69495a9e1ad810607903959d18607d83e4d"
+03-BTN-PLAY-onClick = "ca93a9ca15e87218d50e5429898b33f0773253224db6767a0b151f975d77c387"
+04-BTN-CONTINUE-onClick = "ca93a9ca15e87218d50e5429898b33f0773253224db6767a0b151f975d77c387"
+05-BTN-QUIT-onClick = "ca93a9ca15e87218d50e5429898b33f0773253224db6767a0b151f975d77c387"
+
+[frames.PowerCobolCraft.title-form.medium]
+00-open = "5bbc73ad52d22c672a43d6aa2b2777131a43f81a1fd0ef82f4b076b6d7adbbb3"
+00-ready = "630766c0f646608cd7bc18824d27375e948e71cf253936658bef558c13cfd993"
+01-CNV-DIORAMA-onFrame = "630766c0f646608cd7bc18824d27375e948e71cf253936658bef558c13cfd993"
+02-CMB-LANGUAGE-onSelectedIndexChanged = "630766c0f646608cd7bc18824d27375e948e71cf253936658bef558c13cfd993"
+03-BTN-PLAY-onClick = "33f0b6f442ec8fb4035de88075b331abaf32c662c33022cb78b586b3dfe8d0ae"
+04-BTN-CONTINUE-onClick = "33f0b6f442ec8fb4035de88075b331abaf32c662c33022cb78b586b3dfe8d0ae"
+05-BTN-QUIT-onClick = "33f0b6f442ec8fb4035de88075b331abaf32c662c33022cb78b586b3dfe8d0ae"
+
+[frames.PowerCobolCraft.world-form.compact]
+00-open = "bc688426a8716778941563e9209062be43384ac5b93d672b799dd12788c55e8b"
+00-ready = "08db88667009b89f36f76fb1cafc0d80a0e55d3d386878a565db22ad56681d3f"
+01-CNV-3D-onFrame = "08db88667009b89f36f76fb1cafc0d80a0e55d3d386878a565db22ad56681d3f"
+02-CNV-3D-onPointerDown = "8097b2967492d91a9026be4198de9d7a9d69b78417470b0995f9921af8cdd811"
+03-CNV-3D-onPointerUp = "8097b2967492d91a9026be4198de9d7a9d69b78417470b0995f9921af8cdd811"
+04-CNV-3D-onRightClick = "8097b2967492d91a9026be4198de9d7a9d69b78417470b0995f9921af8cdd811"
+05-BTN-RESUME-onClick = "8097b2967492d91a9026be4198de9d7a9d69b78417470b0995f9921af8cdd811"
+06-BTN-SAVE-onClick = "335f731e603610a11ff75082e4fc1be20d506bc294b3cb50801bfb6a1c30dbe1"
+07-BTN-CONSOLE-onClick = "eb025b6e33981757cda4e2cbc49a9c8a557e3d1810ce2796308eaed551ce19ba"
+08-BTN-RESPAWN-onClick = "eb025b6e33981757cda4e2cbc49a9c8a557e3d1810ce2796308eaed551ce19ba"
+09-BTN-CONSOLE-CLOSE-onClick = "335f731e603610a11ff75082e4fc1be20d506bc294b3cb50801bfb6a1c30dbe1"
+10-BTN-QUIT-onClick = "7a0579d554e3d83beeac30012de67c00ca260d8e4e07ada23c62da5d4c1d1b37"
+11-BTN-DEATH-QUIT-onClick = "7a0579d554e3d83beeac30012de67c00ca260d8e4e07ada23c62da5d4c1d1b37"
+12-TXT-COMMAND-onEnterPressed = "7a0579d554e3d83beeac30012de67c00ca260d8e4e07ada23c62da5d4c1d1b37"
+13-BTN-SEND-onClick = "7a0579d554e3d83beeac30012de67c00ca260d8e4e07ada23c62da5d4c1d1b37"
+
+[frames.PowerCobolCraft.world-form.designed]
+00-open = "ace4cdc06388f0b19b995c673b6141372c8a1a5a51996bc8ca647103512080a1"
+00-ready = "114b5b85e32afe7acd7f6c6a83f365e3c1072b02b7231a8e529d1bdb2a748b86"
+01-CNV-3D-onFrame = "114b5b85e32afe7acd7f6c6a83f365e3c1072b02b7231a8e529d1bdb2a748b86"
+02-CNV-3D-onPointerDown = "d10246dc9852e6cbf5200b42d25cc3d4ef84441f2849d97b8034fbf625e7b887"
+03-CNV-3D-onPointerUp = "d10246dc9852e6cbf5200b42d25cc3d4ef84441f2849d97b8034fbf625e7b887"
+04-CNV-3D-onRightClick = "d10246dc9852e6cbf5200b42d25cc3d4ef84441f2849d97b8034fbf625e7b887"
+05-BTN-RESUME-onClick = "d10246dc9852e6cbf5200b42d25cc3d4ef84441f2849d97b8034fbf625e7b887"
+06-BTN-SAVE-onClick = "0fde21eb71c71186c6d11046d71fbbf14c9cc73f5230109a9255db32c4886962"
+07-BTN-CONSOLE-onClick = "944c0c91ab9c4523575eb2599aa8e205b8f34a4664afe17119d460b3e84a71ce"
+08-BTN-RESPAWN-onClick = "944c0c91ab9c4523575eb2599aa8e205b8f34a4664afe17119d460b3e84a71ce"
+09-BTN-CONSOLE-CLOSE-onClick = "0fde21eb71c71186c6d11046d71fbbf14c9cc73f5230109a9255db32c4886962"
+10-BTN-QUIT-onClick = "f98c2ad1d65dd06798f5a88933eceb922e21267d50223aafec1f41e8b893eb42"
+11-BTN-DEATH-QUIT-onClick = "f98c2ad1d65dd06798f5a88933eceb922e21267d50223aafec1f41e8b893eb42"
+12-TXT-COMMAND-onEnterPressed = "f98c2ad1d65dd06798f5a88933eceb922e21267d50223aafec1f41e8b893eb42"
+13-BTN-SEND-onClick = "f98c2ad1d65dd06798f5a88933eceb922e21267d50223aafec1f41e8b893eb42"
+
+[frames.PowerCobolCraft.world-form.medium]
+00-open = "de5fb610bf6dfd69840f5614b1e4d2b76e7e5dbe9df9fddcd1160ebca563de18"
+00-ready = "0879bd7317003fa78310c14809bfd7014740a14f73b6718fa7ba402d16d6a10c"
+01-CNV-3D-onFrame = "0879bd7317003fa78310c14809bfd7014740a14f73b6718fa7ba402d16d6a10c"
+02-CNV-3D-onPointerDown = "8f0bd89e6851e17b33903475906dae42ea92dbd2e07264fd81af2ebdcfadd456"
+03-CNV-3D-onPointerUp = "8f0bd89e6851e17b33903475906dae42ea92dbd2e07264fd81af2ebdcfadd456"
+04-CNV-3D-onRightClick = "8f0bd89e6851e17b33903475906dae42ea92dbd2e07264fd81af2ebdcfadd456"
+05-BTN-RESUME-onClick = "8f0bd89e6851e17b33903475906dae42ea92dbd2e07264fd81af2ebdcfadd456"
+06-BTN-SAVE-onClick = "8027390101dbcf484a61696bb157a0f53e17036cd1950c173a683acb4895cb62"
+07-BTN-CONSOLE-onClick = "0d347866f9f745292874f0f5c447c53e5ed888f58b9a0054150d5060aaa0d6ff"
+08-BTN-RESPAWN-onClick = "0d347866f9f745292874f0f5c447c53e5ed888f58b9a0054150d5060aaa0d6ff"
+09-BTN-CONSOLE-CLOSE-onClick = "8027390101dbcf484a61696bb157a0f53e17036cd1950c173a683acb4895cb62"
+10-BTN-QUIT-onClick = "f4bebbeca054b1a921abdf1a38287448bf368c96e4479d1f843ebecb7b6ecc0b"
+11-BTN-DEATH-QUIT-onClick = "f4bebbeca054b1a921abdf1a38287448bf368c96e4479d1f843ebecb7b6ecc0b"
+12-TXT-COMMAND-onEnterPressed = "f4bebbeca054b1a921abdf1a38287448bf368c96e4479d1f843ebecb7b6ecc0b"
+13-BTN-SEND-onClick = "f4bebbeca054b1a921abdf1a38287448bf368c96e4479d1f843ebecb7b6ecc0b"
+
+[frames.PowerGraphics.bridge-form.compact]
+00-open = "2157fb662abb43c323f27be2cc43b95479fa046f2b00a64e94ecf5bbc49663b2"
+01-CNV-3D-onFrame = "74c9bac8bf2ae79c85bcadde38ac065b5a45c018602f456232cd6515d6a4662e"
+
+[frames.PowerGraphics.bridge-form.designed]
+00-open = "eac4250164ed83e4c01885a80aad9d555bc0f554f578812f911a8a8d59832a7b"
+01-CNV-3D-onFrame = "4725338200e9c3b91cfdcf01ffb36e179afed728cca9d6261f9da0b91b4335fd"
+
+[frames.PowerGraphics.bridge-form.medium]
+00-open = "8b74b682a5636d8f49eb731747fb3119364e2e723344580be61b230e29ff283e"
+01-CNV-3D-onFrame = "73315e0fe8d2660d92f889a43a45e228e0e28e12da43a0128f4dc056bc1084ef"
 
 [frames.PowerGraphics.charts-form.compact]
 00-open = "ba52b476a6d3017fdffbaba1c02d07445bbcf4c784f5ef9cee86472c3d94c3af"
@@ -43,6 +237,45 @@ seed = 20261114
 00-open = "a42b94ec98734d2cdf4d36c0156985ecc8a2fb0911d666d2b1a6d047b91b8c10"
 01-BTN-NEXT-onClick = "598fcdd60b5e7b4706f7393d4b4ea4cf8290804427c24b7bdc7a37984758a17f"
 02-BTN-BIG-onClick = "1dd60a07fa7cce20df85861435c37b8eaf0ce54716e68f635ac5fa128cfb566a"
+
+[frames.PowerGraphics.game-form.compact]
+00-open = "04220e5572c215501fbff7968f9a724ba1dd1a44a6025b137d8052360f8aac63"
+01-CNV-GAME-onFrame = "608935271a4be259e3f2cfa14348c9f4f53fa1c6070cb3714c7548d9b99c07bf"
+02-BTN-RESET-onClick = "608935271a4be259e3f2cfa14348c9f4f53fa1c6070cb3714c7548d9b99c07bf"
+03-BTN-CHARTS-onClick = "d89f7e6941c168fc79b7d8784893de9d7535719998ec8f372368ce6c6b81ea12"
+04-BTN-IMAGES-onClick = "d89f7e6941c168fc79b7d8784893de9d7535719998ec8f372368ce6c6b81ea12"
+05-BTN-VIEWER-onClick = "d89f7e6941c168fc79b7d8784893de9d7535719998ec8f372368ce6c6b81ea12"
+06-BTN-PITFALL-onClick = "d89f7e6941c168fc79b7d8784893de9d7535719998ec8f372368ce6c6b81ea12"
+07-BTN-BRIDGE-onClick = "d89f7e6941c168fc79b7d8784893de9d7535719998ec8f372368ce6c6b81ea12"
+08-BTN-POOL2D-onClick = "d89f7e6941c168fc79b7d8784893de9d7535719998ec8f372368ce6c6b81ea12"
+09-BTN-POOL3D-onClick = "d89f7e6941c168fc79b7d8784893de9d7535719998ec8f372368ce6c6b81ea12"
+10-BTN-RUNNER-onClick = "d89f7e6941c168fc79b7d8784893de9d7535719998ec8f372368ce6c6b81ea12"
+
+[frames.PowerGraphics.game-form.designed]
+00-open = "45a9eb9db49ea3147f619be270dcd5610efb84d47c47bd696d0be845f0f0af07"
+01-CNV-GAME-onFrame = "4064d55844866b12fd32dc2f995dd1a9ccea48b055ab8cff7c85eefe27684e4f"
+02-BTN-RESET-onClick = "4064d55844866b12fd32dc2f995dd1a9ccea48b055ab8cff7c85eefe27684e4f"
+03-BTN-CHARTS-onClick = "a6607c167c9a34d1ca0e3a3a0a8c409a8f9b9a28c96325a3ab65849670bcdfd0"
+04-BTN-IMAGES-onClick = "a6607c167c9a34d1ca0e3a3a0a8c409a8f9b9a28c96325a3ab65849670bcdfd0"
+05-BTN-VIEWER-onClick = "a6607c167c9a34d1ca0e3a3a0a8c409a8f9b9a28c96325a3ab65849670bcdfd0"
+06-BTN-PITFALL-onClick = "a6607c167c9a34d1ca0e3a3a0a8c409a8f9b9a28c96325a3ab65849670bcdfd0"
+07-BTN-BRIDGE-onClick = "a6607c167c9a34d1ca0e3a3a0a8c409a8f9b9a28c96325a3ab65849670bcdfd0"
+08-BTN-POOL2D-onClick = "a6607c167c9a34d1ca0e3a3a0a8c409a8f9b9a28c96325a3ab65849670bcdfd0"
+09-BTN-POOL3D-onClick = "a6607c167c9a34d1ca0e3a3a0a8c409a8f9b9a28c96325a3ab65849670bcdfd0"
+10-BTN-RUNNER-onClick = "a6607c167c9a34d1ca0e3a3a0a8c409a8f9b9a28c96325a3ab65849670bcdfd0"
+
+[frames.PowerGraphics.game-form.medium]
+00-open = "03850223f28e323288112e0406c010c81bc235b6872e16843c4b37d9d1ac70aa"
+01-CNV-GAME-onFrame = "cd80755d8af94b219a5d47b0286e76cb5dcbc682c083c60ea0eb722ba75ce0b7"
+02-BTN-RESET-onClick = "cd80755d8af94b219a5d47b0286e76cb5dcbc682c083c60ea0eb722ba75ce0b7"
+03-BTN-CHARTS-onClick = "84d191c645393c9d6c75438a6e20ac69b17813fd85572d330181fc06f0866d95"
+04-BTN-IMAGES-onClick = "84d191c645393c9d6c75438a6e20ac69b17813fd85572d330181fc06f0866d95"
+05-BTN-VIEWER-onClick = "84d191c645393c9d6c75438a6e20ac69b17813fd85572d330181fc06f0866d95"
+06-BTN-PITFALL-onClick = "84d191c645393c9d6c75438a6e20ac69b17813fd85572d330181fc06f0866d95"
+07-BTN-BRIDGE-onClick = "84d191c645393c9d6c75438a6e20ac69b17813fd85572d330181fc06f0866d95"
+08-BTN-POOL2D-onClick = "84d191c645393c9d6c75438a6e20ac69b17813fd85572d330181fc06f0866d95"
+09-BTN-POOL3D-onClick = "84d191c645393c9d6c75438a6e20ac69b17813fd85572d330181fc06f0866d95"
+10-BTN-RUNNER-onClick = "84d191c645393c9d6c75438a6e20ac69b17813fd85572d330181fc06f0866d95"
 
 [frames.PowerGraphics.imagelab-form.compact]
 00-open = "874eb33a8306f538168cf837ef9e49bfbe812ebbdd4d97b8dd2d3e9da87f4ae3"
@@ -69,16 +302,16 @@ seed = 20261114
 05-BTN-EDGE-onClick = "d428300a9fcd4e256d39f049eebc4aba6e70542ba957027f87340ef65fe4b0c1"
 
 [frames.PowerGraphics.pitfall-form.compact]
-00-open = "9ad9a1fc4e40835866c824029d980ad2249a3873651f954e3139c322fb78309b"
-01-CNV-PIT-onFrame = "9ad9a1fc4e40835866c824029d980ad2249a3873651f954e3139c322fb78309b"
+00-open = "91fb6a1e99e2b12b31733efea0b9a732e630cf631a334d4f7435cc9ea739ba20"
+01-CNV-PIT-onFrame = "91fb6a1e99e2b12b31733efea0b9a732e630cf631a334d4f7435cc9ea739ba20"
 
 [frames.PowerGraphics.pitfall-form.designed]
-00-open = "868e7d0b93b03fc20a863cbdb3bd02e8ea9419eaee6598a5a1aab49f062e531b"
-01-CNV-PIT-onFrame = "868e7d0b93b03fc20a863cbdb3bd02e8ea9419eaee6598a5a1aab49f062e531b"
+00-open = "a1051e0fa859eff98a98aa3609591860d76463c606c12c63d1d602e5ff60d037"
+01-CNV-PIT-onFrame = "a1051e0fa859eff98a98aa3609591860d76463c606c12c63d1d602e5ff60d037"
 
 [frames.PowerGraphics.pitfall-form.medium]
-00-open = "9ed6b028eaee9df1845d81f19c62ecd7f7808d01b32639dbe94fda3e32aec160"
-01-CNV-PIT-onFrame = "9ed6b028eaee9df1845d81f19c62ecd7f7808d01b32639dbe94fda3e32aec160"
+00-open = "7ecab635708a0bee5dd9772fbc8874faf01524a676ff49cb43ce3b81dcb33a93"
+01-CNV-PIT-onFrame = "7ecab635708a0bee5dd9772fbc8874faf01524a676ff49cb43ce3b81dcb33a93"
 
 [frames.PowerGraphics.pool2d-form.compact]
 00-open = "abcb00dfddcf38811fc1acd2c2f76ecd960f5a4d9452664dd8fb647e912dca7f"
@@ -102,40 +335,220 @@ seed = 20261114
 04-BTN-NEW-onClick = "722fa4cc2bcadcfecd41c602faa8d5a5a78a69858fc7d73431858ce0943cc7aa"
 
 [frames.PowerGraphics.pool3d-form.compact]
-00-open = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
-01-CNV-3D-onPointerDown = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
-02-CNV-3D-onPointerUp = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
-03-CNV-3D-onPointerMove = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
-04-CNV-3D-onFrame = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
-05-BTN-MODE-onClick = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
-06-BTN-NEW-onClick = "540a892c41710debff07f4c524f813ca9f1deda5f18676a7c07d5b263a025521"
+00-open = "9075ecd742fa6b32ffcde5ff56f2b5fb507e5aed85d2449aa0cfb85ccc5237ab"
+01-CNV-3D-onPointerDown = "9075ecd742fa6b32ffcde5ff56f2b5fb507e5aed85d2449aa0cfb85ccc5237ab"
+02-CNV-3D-onPointerUp = "9075ecd742fa6b32ffcde5ff56f2b5fb507e5aed85d2449aa0cfb85ccc5237ab"
+03-CNV-3D-onPointerMove = "9075ecd742fa6b32ffcde5ff56f2b5fb507e5aed85d2449aa0cfb85ccc5237ab"
+04-CNV-3D-onFrame = "9075ecd742fa6b32ffcde5ff56f2b5fb507e5aed85d2449aa0cfb85ccc5237ab"
+05-BTN-MODE-onClick = "9075ecd742fa6b32ffcde5ff56f2b5fb507e5aed85d2449aa0cfb85ccc5237ab"
+06-BTN-NEW-onClick = "9075ecd742fa6b32ffcde5ff56f2b5fb507e5aed85d2449aa0cfb85ccc5237ab"
 
 [frames.PowerGraphics.pool3d-form.designed]
-00-open = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
-01-CNV-3D-onPointerDown = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
-02-CNV-3D-onPointerUp = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
-03-CNV-3D-onPointerMove = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
-04-CNV-3D-onFrame = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
-05-BTN-MODE-onClick = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
-06-BTN-NEW-onClick = "7fe8f07c169c6ecf620dc6eb409a34fd75e862080ac0065a08cefe5bcb9a439e"
+00-open = "db75f390d40349a308c3f98328545a3176af4cec0bb8a6ffe9e7271cd77848ea"
+01-CNV-3D-onPointerDown = "db75f390d40349a308c3f98328545a3176af4cec0bb8a6ffe9e7271cd77848ea"
+02-CNV-3D-onPointerUp = "db75f390d40349a308c3f98328545a3176af4cec0bb8a6ffe9e7271cd77848ea"
+03-CNV-3D-onPointerMove = "db75f390d40349a308c3f98328545a3176af4cec0bb8a6ffe9e7271cd77848ea"
+04-CNV-3D-onFrame = "db75f390d40349a308c3f98328545a3176af4cec0bb8a6ffe9e7271cd77848ea"
+05-BTN-MODE-onClick = "db75f390d40349a308c3f98328545a3176af4cec0bb8a6ffe9e7271cd77848ea"
+06-BTN-NEW-onClick = "db75f390d40349a308c3f98328545a3176af4cec0bb8a6ffe9e7271cd77848ea"
 
 [frames.PowerGraphics.pool3d-form.medium]
-00-open = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
-01-CNV-3D-onPointerDown = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
-02-CNV-3D-onPointerUp = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
-03-CNV-3D-onPointerMove = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
-04-CNV-3D-onFrame = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
-05-BTN-MODE-onClick = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
-06-BTN-NEW-onClick = "3ef81dfe0d4852c096b5fef6aee21be4e2389f7e37c4a6ecdfcdedc420ce8aec"
+00-open = "e14ce28d9bf1ff2f393e210b3e4ea0a08cde8fc3406f8bb38ea2514c71017379"
+01-CNV-3D-onPointerDown = "e14ce28d9bf1ff2f393e210b3e4ea0a08cde8fc3406f8bb38ea2514c71017379"
+02-CNV-3D-onPointerUp = "e14ce28d9bf1ff2f393e210b3e4ea0a08cde8fc3406f8bb38ea2514c71017379"
+03-CNV-3D-onPointerMove = "e14ce28d9bf1ff2f393e210b3e4ea0a08cde8fc3406f8bb38ea2514c71017379"
+04-CNV-3D-onFrame = "e14ce28d9bf1ff2f393e210b3e4ea0a08cde8fc3406f8bb38ea2514c71017379"
+05-BTN-MODE-onClick = "e14ce28d9bf1ff2f393e210b3e4ea0a08cde8fc3406f8bb38ea2514c71017379"
+06-BTN-NEW-onClick = "e14ce28d9bf1ff2f393e210b3e4ea0a08cde8fc3406f8bb38ea2514c71017379"
+
+[frames.PowerGraphics.runner-form.compact]
+00-open = "9bcf3e2b367ea83511d32843052d17dbd321c2e65b88176e4bc093772f72f5cc"
+01-CNV-3D-onFrame = "9bcf3e2b367ea83511d32843052d17dbd321c2e65b88176e4bc093772f72f5cc"
+
+[frames.PowerGraphics.runner-form.designed]
+00-open = "c9d9a9b331d5d3f2a3e76f5bbbfcd7afc226c5c45ace6c6d038a07719002d25b"
+01-CNV-3D-onFrame = "c9d9a9b331d5d3f2a3e76f5bbbfcd7afc226c5c45ace6c6d038a07719002d25b"
+
+[frames.PowerGraphics.runner-form.medium]
+00-open = "72ef2ed105a674d37b067f9d9610ca1aad85819f1a8fb8f596ad07395de18f96"
+01-CNV-3D-onFrame = "72ef2ed105a674d37b067f9d9610ca1aad85819f1a8fb8f596ad07395de18f96"
 
 [frames.PowerGraphics.viewer3d-form.compact]
-00-open = "9be44c7b561840fda6973cf830abcc30934147fc5bac86c62df4bc1216151456"
-01-CNV-3D-onFrame = "9be44c7b561840fda6973cf830abcc30934147fc5bac86c62df4bc1216151456"
+00-open = "7dd1df734fbf0bd9e01b7059a716badccb402e6ac22f7c274c60bdc5a83a2738"
+01-CNV-3D-onFrame = "7dd1df734fbf0bd9e01b7059a716badccb402e6ac22f7c274c60bdc5a83a2738"
 
 [frames.PowerGraphics.viewer3d-form.designed]
-00-open = "66cc4d240e8c34a2ff6a371be8762711c378b5f8af0f71676f30419aa01c4561"
-01-CNV-3D-onFrame = "66cc4d240e8c34a2ff6a371be8762711c378b5f8af0f71676f30419aa01c4561"
+00-open = "e05d3f4fdfe563b70a230d63b743a9deeecec8a044155f5b5a2a1d8842effa91"
+01-CNV-3D-onFrame = "e05d3f4fdfe563b70a230d63b743a9deeecec8a044155f5b5a2a1d8842effa91"
 
 [frames.PowerGraphics.viewer3d-form.medium]
-00-open = "d5216c4b5eff5a216937b380476aec265fc7966d2c927c1746babe63cf0aa94b"
-01-CNV-3D-onFrame = "d5216c4b5eff5a216937b380476aec265fc7966d2c927c1746babe63cf0aa94b"
+00-open = "d09c65f72b7f6284c7a1f9b0bd968785622ff895e54c1bcbb6ff6bfee72235b5"
+01-CNV-3D-onFrame = "d09c65f72b7f6284c7a1f9b0bd968785622ff895e54c1bcbb6ff6bfee72235b5"
+
+[frames.PowerSpatial.main-form.compact]
+00-open = "8a193a11708baae1325e92195237304692bf0b74c47b070de9595d47420e48bc"
+00-ready = "afe5eb1293fb6b71ed39918070527975c4c2ca1745db1c80f889f7d81acf506b"
+01-Sw-AC-onCheckedChanged = "afe5eb1293fb6b71ed39918070527975c4c2ca1745db1c80f889f7d81acf506b"
+02-Knb-AC-onValueChanged = "afe5eb1293fb6b71ed39918070527975c4c2ca1745db1c80f889f7d81acf506b"
+03-Btn-AC-Power-onClick = "55d6e11918b7e8ff0b4f56eef2f0b011520978072adb4f65ea243708e3f4b066"
+04-Sld-Fan-onValueChanged = "55d6e11918b7e8ff0b4f56eef2f0b011520978072adb4f65ea243708e3f4b066"
+05-Sld-Swing-onValueChanged = "55d6e11918b7e8ff0b4f56eef2f0b011520978072adb4f65ea243708e3f4b066"
+06-Btn-Bell-onClick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+07-Btn-Prev-onClick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+08-Btn-Play-onClick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+09-Btn-Next-onClick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+10-Tmr-Wave-onTick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+11-Btn-Thermostat-Cast-onClick = "1f598c3f241e3c48725baa95af9bf4b5e15010f21c2048fe58c8018395165ce6"
+12-Btn-Thermostat-Plug-onClick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+13-Btn-Lighting-Cast-onClick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+14-Btn-Lighting-Plug-onClick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+15-Btn-Speaker-Cast-onClick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+16-Btn-Speaker-Plug-onClick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+17-Tmr-Clock-onTick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+18-Tmr-Lang-onTick = "b3fc052dfdfdeebd296e53bf5f5461bb72398d84ab2a17c385d5574d8f069093"
+19-Btn-User-onClick = "4fb6d548fe93e241d3fa23447ce2f5c9ad1c5b17de5fe50c729f3927c7da1011"
+
+[frames.PowerSpatial.main-form.designed]
+00-open = "cf4e71cafdeeba0e88543af767ebcc55c0d2631c11d6422785f47f98e966c410"
+00-ready = "cf4e71cafdeeba0e88543af767ebcc55c0d2631c11d6422785f47f98e966c410"
+01-Sw-AC-onCheckedChanged = "cf4e71cafdeeba0e88543af767ebcc55c0d2631c11d6422785f47f98e966c410"
+02-Knb-AC-onValueChanged = "cf4e71cafdeeba0e88543af767ebcc55c0d2631c11d6422785f47f98e966c410"
+03-Btn-AC-Power-onClick = "a8d29a27e0d07ac37c8234c8709e5c41aa344d0641fc44f07eeabdc1045ec0db"
+04-Sld-Fan-onValueChanged = "a8d29a27e0d07ac37c8234c8709e5c41aa344d0641fc44f07eeabdc1045ec0db"
+05-Sld-Swing-onValueChanged = "a8d29a27e0d07ac37c8234c8709e5c41aa344d0641fc44f07eeabdc1045ec0db"
+06-Btn-Bell-onClick = "72715cc8d91b4785eeb8aa4999b4ef551ee8c91f8c0661a5b2777fd1efa30bb9"
+07-Btn-Prev-onClick = "53f8492bef12dff66ee8909fed239a5a44caa6256782be93cb2b4104f1d832ed"
+08-Btn-Play-onClick = "da70b83d44b37b735f7cce4132275de51b28998ecb5f3f67cd30d980b47d8bca"
+09-Btn-Next-onClick = "96fe6c7ccf523d009cc72dfde1f3d206e5de188c4abb8a6cc859d34e3a08a36d"
+10-Tmr-Wave-onTick = "c274b3dde5371edc65aae382dde7e672e4e766282eda8dd990b093fc017ad4db"
+11-Btn-Thermostat-Cast-onClick = "ad429a4091a09a6e4e1c7983b28cd2f067c9d9280c397c8b3abb6bbc24a3828b"
+12-Btn-Thermostat-Plug-onClick = "c274b3dde5371edc65aae382dde7e672e4e766282eda8dd990b093fc017ad4db"
+13-Btn-Lighting-Cast-onClick = "47f7767f190a99001325dc23a8f6d4274e79fc3818bc527f4f30b68c5dc92565"
+14-Btn-Lighting-Plug-onClick = "c274b3dde5371edc65aae382dde7e672e4e766282eda8dd990b093fc017ad4db"
+15-Btn-Speaker-Cast-onClick = "7200a35d33e9d54a513f731e462e3a495794456c583979ef241f9097bccbe5df"
+16-Btn-Speaker-Plug-onClick = "c274b3dde5371edc65aae382dde7e672e4e766282eda8dd990b093fc017ad4db"
+17-Tmr-Clock-onTick = "c274b3dde5371edc65aae382dde7e672e4e766282eda8dd990b093fc017ad4db"
+18-Tmr-Lang-onTick = "c274b3dde5371edc65aae382dde7e672e4e766282eda8dd990b093fc017ad4db"
+19-Btn-User-onClick = "2395f9d41b166ceb5edf6911fd8a07988e02e2ff85c7e02a712c67f3e79b0d7f"
+
+[frames.PowerSpatial.main-form.medium]
+00-open = "2407afc49e57e91bd469a85465455c10ebdd9161a6a4edf1881024e033a7bd79"
+00-ready = "8824baed1e56b9e1408b39da14c5f1f391c28a9f09351090be0a56c64e9d3cf2"
+01-Sw-AC-onCheckedChanged = "8824baed1e56b9e1408b39da14c5f1f391c28a9f09351090be0a56c64e9d3cf2"
+02-Knb-AC-onValueChanged = "8824baed1e56b9e1408b39da14c5f1f391c28a9f09351090be0a56c64e9d3cf2"
+03-Btn-AC-Power-onClick = "f3b5f3cb5bc2a6f49c459285b83fccd2eb7327262537422e57cf42c55da9d00a"
+04-Sld-Fan-onValueChanged = "f3b5f3cb5bc2a6f49c459285b83fccd2eb7327262537422e57cf42c55da9d00a"
+05-Sld-Swing-onValueChanged = "f3b5f3cb5bc2a6f49c459285b83fccd2eb7327262537422e57cf42c55da9d00a"
+06-Btn-Bell-onClick = "74c7bd3c28bcf47287082429d0e9b81977516c64d5714f56c3e6b9306c15152a"
+07-Btn-Prev-onClick = "ca53769bcb1d8e53843af6a2bf537423cff5b2008c67250e983f3bb0acd2612b"
+08-Btn-Play-onClick = "2bd154f83d3b4c9a87de9f582e1d169ac30a98e2d74d16fe013b782545edb212"
+09-Btn-Next-onClick = "0a33d396a676f48fcf1f420b18b61085870f0ea3744fe0cf62e82d25f2f98939"
+10-Tmr-Wave-onTick = "88ed47672a2f49a44c0d7e038c387b40a47fbe6edba129560121061316a530e2"
+11-Btn-Thermostat-Cast-onClick = "0ffca14d14efe45771bf84a4851b83dda709bdf004e180c4250ee85d402955c8"
+12-Btn-Thermostat-Plug-onClick = "88ed47672a2f49a44c0d7e038c387b40a47fbe6edba129560121061316a530e2"
+13-Btn-Lighting-Cast-onClick = "f792d7a876df125ec20d443c44294489f6ece8a222a07ab3670e9d01459dc5d9"
+14-Btn-Lighting-Plug-onClick = "88ed47672a2f49a44c0d7e038c387b40a47fbe6edba129560121061316a530e2"
+15-Btn-Speaker-Cast-onClick = "88ed47672a2f49a44c0d7e038c387b40a47fbe6edba129560121061316a530e2"
+16-Btn-Speaker-Plug-onClick = "88ed47672a2f49a44c0d7e038c387b40a47fbe6edba129560121061316a530e2"
+17-Tmr-Clock-onTick = "88ed47672a2f49a44c0d7e038c387b40a47fbe6edba129560121061316a530e2"
+18-Tmr-Lang-onTick = "88ed47672a2f49a44c0d7e038c387b40a47fbe6edba129560121061316a530e2"
+19-Btn-User-onClick = "dd7d20f12bb10b093e4e547b365c445bfe4d6d294cd4a2a02ab8fc3163fac903"
+
+[frames.PowerSpatial.rail-form.compact]
+00-open = "639008b3bc141ec4e2f199476de028949d530aa0231ab946d591230bcd48a188"
+00-ready = "2b8ced1a2e3c92cc63f1ea51aa5a7c9c3e8269829151821d86bb8b1b23f0b7fb"
+01-Btn-Home-onClick = "2b8ced1a2e3c92cc63f1ea51aa5a7c9c3e8269829151821d86bb8b1b23f0b7fb"
+02-Btn-Rooms-onClick = "5bdbd4388c13b83fb42016d087ae4fe4b3699a62182df0fdc23d958fe92f6d5c"
+03-Btn-Security-onClick = "8244149af3b5b3666aaedc6aa22a22976d32bb11c3f70abb49b8ac1b51eb66a0"
+04-Btn-Cameras-onClick = "bb1dcaac7797fe0a86c27e454dd995252f78ad16257465fa241a1cfa980005b9"
+05-Btn-Energy-onClick = "80a72919089ac36770be32bf9e4de9060a8f6bb8f070e3551b9ead71978af21a"
+06-Tmr-Lang-onTick = "80a72919089ac36770be32bf9e4de9060a8f6bb8f070e3551b9ead71978af21a"
+07-Btn-Settings-onClick = "e94e5a1c353c1220c665a2b29ffa825f0bc38829923513cf7f147e0634510884"
+
+[frames.PowerSpatial.rail-form.designed]
+00-open = "034c52738e93cc8579283178f6020ad5bdabc085c3fe3b5522610959bea4bfc5"
+00-ready = "d7a73812ff81178d9a5044c1e9708ca641cf3fcf6d488f3f39efe165643eb757"
+01-Btn-Home-onClick = "d7a73812ff81178d9a5044c1e9708ca641cf3fcf6d488f3f39efe165643eb757"
+02-Btn-Rooms-onClick = "764c08ce1f9ad53806c5cbd53ecef7cc29cbb91e675ea6a477b5324778a3c1fd"
+03-Btn-Security-onClick = "1bd91149ec8886e88bdc1b8deea45dba10ccf924a835bbe2896ed2e9561239aa"
+04-Btn-Cameras-onClick = "4832dd7dd45c05872245504b006eaca537eb7dfa3f8db9cccb6b0b7b7d97fa43"
+05-Btn-Energy-onClick = "8747b210fb392ff683faa82302971d86da5cd768909d136b90f3e52906dd9173"
+06-Tmr-Lang-onTick = "8747b210fb392ff683faa82302971d86da5cd768909d136b90f3e52906dd9173"
+07-Btn-Settings-onClick = "a90f45b1e19cdb0a99e5ab812ab9ea65660e89355e941e1f80bb1a7edb42e687"
+
+[frames.PowerSpatial.rail-form.medium]
+00-open = "72c3bdb2a26abd0ddde81f52db75d005007f027027e08f991a7d9b83851dd7c9"
+00-ready = "3677db31a1b7c798ff95d6369cee446fe3fa9173079602c2833ec54325617dba"
+01-Btn-Home-onClick = "3677db31a1b7c798ff95d6369cee446fe3fa9173079602c2833ec54325617dba"
+02-Btn-Rooms-onClick = "c7a78381ab6b8187ebddf43697cdf38b84173f8d88e19e5db52b3a731ed82b54"
+03-Btn-Security-onClick = "c6c81867db8b24f6232585db54d70aa9541dd4a5088f764cf8034038067037cc"
+04-Btn-Cameras-onClick = "9a493c2c03dcf91a23d03de1a58ca715aacd1d3ae2a5f4acb5bf1bf6e7ff8f2b"
+05-Btn-Energy-onClick = "598d8fbf5f06379609755f23d08ccc12b84aac99bd044fa9d3e4cd40fe699c6b"
+06-Tmr-Lang-onTick = "598d8fbf5f06379609755f23d08ccc12b84aac99bd044fa9d3e4cd40fe699c6b"
+07-Btn-Settings-onClick = "3575f587790dcb385790d43c45568250e51474a206ef47ac851fcbc2abf0c661"
+
+[frames.PowerSpatial.rooms-form.compact]
+00-open = "e99ee04d06d7ac040d7649faceb73eeeb6c5a4dc7c120ced03e4f35f76ac151b"
+00-ready = "85da21e3fe9284f470933a2d92fa633322bafaf349615e42a89c79fdaa06d2dd"
+01-Btn-Living-onClick = "85da21e3fe9284f470933a2d92fa633322bafaf349615e42a89c79fdaa06d2dd"
+02-Btn-Bed-onClick = "bc752289ee2aa46c81d664be19491ae4b965e7b244d1517914295e214648f937"
+03-Btn-Kitchen-onClick = "20c81e82ea526b38250321873cf8927fa06172bd860353a543777e7dab7d107a"
+04-Btn-Dining-onClick = "4f20721c2a4fddb03c8dff8a06c5aac6ba8ce24ffab35f24499b0ee8d0372c85"
+05-Btn-Play-onClick = "9101507fa146fc40d78cc582be915624a6d2439cb47123f5460d982e791e6a53"
+06-Tmr-Lang-onTick = "9101507fa146fc40d78cc582be915624a6d2439cb47123f5460d982e791e6a53"
+
+[frames.PowerSpatial.rooms-form.designed]
+00-open = "48004991de24ea2aab7844c2cf8e77038354cec3aac80965ab4aed8eed435062"
+00-ready = "844bd1dba33934a1f49cd01918ea891cc47673db9ca80ee62fc719b92fb7dae8"
+01-Btn-Living-onClick = "844bd1dba33934a1f49cd01918ea891cc47673db9ca80ee62fc719b92fb7dae8"
+02-Btn-Bed-onClick = "ac4c61f6c560597bcde67fecd936b471d0038d2fd5d696e727a7b3476053ae88"
+03-Btn-Kitchen-onClick = "39b3bdec5f0be972b0c498d09ad2818b0c6a94b4fc72ec14dc93894de78f4ea8"
+04-Btn-Dining-onClick = "dea81f0332c9ed036e66f2f640d652e209c8ff1c7a44c14542901bd201891afc"
+05-Btn-Play-onClick = "138115378a59ccca919e6c97bc41e5bb0b55c56aea6a04ef04b443d8a9e77a96"
+06-Tmr-Lang-onTick = "138115378a59ccca919e6c97bc41e5bb0b55c56aea6a04ef04b443d8a9e77a96"
+
+[frames.PowerSpatial.rooms-form.medium]
+00-open = "39176d0ede00d304e63923a5ef3ec1732a03876aba98c695d920b10e7770e6db"
+00-ready = "6788362fc13f2388f526ec2329e4365c42824026ddbe672b905c8eb70bfa292e"
+01-Btn-Living-onClick = "6788362fc13f2388f526ec2329e4365c42824026ddbe672b905c8eb70bfa292e"
+02-Btn-Bed-onClick = "efcee44292ff7ce2b758c3bfb1f62952a7f1ad34a2fac1fee5dcc0ad431c1f37"
+03-Btn-Kitchen-onClick = "09e8e71c609bdb32e457c373ec9740dcf1c39411e47841d38a26c622cdc35a8a"
+04-Btn-Dining-onClick = "4ab46a21127ce83d1ffd02e3248c419d19965e5756698e20531b7d063f275851"
+05-Btn-Play-onClick = "0cefb631419624e0d8fa63901561ae50e826bbdb693eb7522320bf43d69fe511"
+06-Tmr-Lang-onTick = "0cefb631419624e0d8fa63901561ae50e826bbdb693eb7522320bf43d69fe511"
+
+[frames.PowerSpatial.settings-form.compact]
+00-open = "51e1ab430ca19bcfdf4ae2f6e22ec48b1a3bd291fadded3ee8a8bc5ff04ae51e"
+00-ready = "ccf40f002ef5c06d793fdc351b14b953696c18ae8277ef6bbf8d54ad7778e7c1"
+01-Tmr-Lang-onTick = "ccf40f002ef5c06d793fdc351b14b953696c18ae8277ef6bbf8d54ad7778e7c1"
+02-Cmb-Language-onSelectedIndexChanged = "ccf40f002ef5c06d793fdc351b14b953696c18ae8277ef6bbf8d54ad7778e7c1"
+
+[frames.PowerSpatial.settings-form.designed]
+00-open = "b0e6019df74e1be4c98af761f99ecff5f674cad111c99a183944fdadae4b614d"
+00-ready = "50d4e72865b1bb477f52e7ac452f81e81b43be213d8e6103a74b814006a1ce4b"
+01-Tmr-Lang-onTick = "50d4e72865b1bb477f52e7ac452f81e81b43be213d8e6103a74b814006a1ce4b"
+02-Cmb-Language-onSelectedIndexChanged = "50d4e72865b1bb477f52e7ac452f81e81b43be213d8e6103a74b814006a1ce4b"
+
+[frames.PowerSpatial.settings-form.medium]
+00-open = "07185695a14c9b57f2036656a670537f66f5f63c3ee82846acab243976ea7aad"
+00-ready = "ff2882741773d72a8bac11d8b339d7640093cea5116cc374fb82c43fa7074f96"
+01-Tmr-Lang-onTick = "ff2882741773d72a8bac11d8b339d7640093cea5116cc374fb82c43fa7074f96"
+02-Cmb-Language-onSelectedIndexChanged = "ff2882741773d72a8bac11d8b339d7640093cea5116cc374fb82c43fa7074f96"
+
+[frames.PowerSpatial.toolbar-form.compact]
+00-open = "0c98117042f1a2e1c0a4efbe2beeacedf8407533b78c455cf5c06e8fc3a37ecc"
+00-ready = "9eb7c526f668e4ad61d82e4ae203fd6cfdb0bbe6f978702b75fafaa595990a76"
+01-Btn-Close-onClick = "c04acbbb622419d92ef36affa47ca6e5cda820613dacde17e0b3d296c17ea04b"
+02-Tmr-Lang-onTick = "c04acbbb622419d92ef36affa47ca6e5cda820613dacde17e0b3d296c17ea04b"
+
+[frames.PowerSpatial.toolbar-form.designed]
+00-open = "27fb552fd3713069f8e370a72c3b60e644acf1ccdb0f4441982b49e201b530a1"
+00-ready = "87e76b75cade469b890ad4a352ee6ccf235594baea86d8823865b02dc97ec660"
+01-Btn-Close-onClick = "d42a1cba831f1e6150c58d1db75d36c8f8fe76625b87368da75e781ef62d1d06"
+02-Tmr-Lang-onTick = "d42a1cba831f1e6150c58d1db75d36c8f8fe76625b87368da75e781ef62d1d06"
+
+[frames.PowerSpatial.toolbar-form.medium]
+00-open = "8cbde03ccf69d3ee79291151e14f3e91e71d1344ad18af693dcf7e6210a95090"
+00-ready = "430917594e3bb81d274698546619f65cbd1fe8efcfedf841bcdd4eea9d67d457"
+01-Btn-Close-onClick = "e1292fcf59f97a7dc48b6fe910213f3e8d6c098b0a70e81441fde0231e9792c6"
+02-Tmr-Lang-onTick = "e1292fcf59f97a7dc48b6fe910213f3e8d6c098b0a70e81441fde0231e9792c6"

@@ -2,6 +2,35 @@
 
 
 
+## 2.0.493 — 2026-11-14
+
+**DESKTOP-WASM-001 T8: in a deterministic headless run, the form host keeps the run's virtual time, and every reference form now draws the same frames run after run** (R28; AC19's second guard; AC20). T6 made the frames' time virtual. Now the host's own clocks follow that time too, so a scripted run with the clock pinned draws the same frames however fast the machine is. **All 22 forms of the five reference projects repeat** (6 of 22 at T7), and their 408 frames are the new golden hashes.
+- **The host's clock** (`cobolt-form-host/src/clock.rs`) replaces `Instant::now` everywhere the host times something that reaches a pixel:
+  - the moment a form opened, which gates its 450 ms input hold and `onShow`;
+  - the entrance and exit effects, MatrixRain among them, and the window effect;
+  - snackbars;
+  - the animation step;
+  - the timers of a parked form.
+
+  It is the real clock unless a deterministic run has started the virtual time. Placing a group of windows on the screen, the OS blur's retry and time limits stay on the real clock, as nothing they do reaches a pixel.
+- **The program's clock follows the same time.** While the virtual time runs, `ACCEPT … FROM TIME`, `FUNCTION CURRENT-DATE` and the other registers give the pinned instant plus the virtual time; when it ends they give the pinned instant again (`test_pins::start_virtual_time`, `set_virtual_time`, `stop_virtual_time`).
+- **The headless loop in deterministic mode:**
+  - starts the virtual time before it builds the form, so every instant the host keeps is on that clock, and ends it with the run;
+  - no longer sleeps during a wait: each frame is one 1/60 s tick;
+  - before time moves on, and at the end of every step that waits for the program, lets the form on the pane finish everything it was sent: a long `onLoad`, a timer's tick, a canvas frame, `onShow`. What is drawn next never depends on how fast the program ran. A form that a modal form holds up is not waited for, and neither are events sent to a child window.
+- **Nothing changes without `PRC_TEST_CLOCK`:** the clock is the real one and the loop is the one it was.
+- **`cobolt-bench pixel-parity`:**
+  - a check now fails when a form's two runs differ (AC20), as a frame that differs from its golden does; a recording leaves such a form out, as before;
+  - in a project whose forms open with an entrance effect, the base script waits for the longest effect to end after the first picture and takes another, `00-ready`. An event moves no virtual clock, so otherwise every later picture would show the effect where it stood when the form opened. PowerCallOfDuty, PowerCloud, PowerCobolCraft and PowerSpatial open with MatrixRain; PowerGraphics with none, so its scripts are unchanged;
+  - the scripts and the golden hashes are recorded again.
+- **The golden hashes moved on purpose, and only by the fix of 2.0.492.** Against T7's 75 frames, 42 are unchanged and 33 moved: every frame of PowerGraphics' pitfall, pool3d and viewer3d forms. Run with the sampling before 2.0.492, this task's code matches all 75 of T7's frames, so the clocks moved no pixel; the 33 are that fix's exact sampling of their textures.
+- **Measured** (macOS arm64):
+  - **`pixel-parity --cargo --record`:** 22 forms, 289 steps, 408 frames, three runs each, 18.2 min. 408 of 408 frames identical, 22 of 22 forms repeatable. **The check after it:** 408 of 408 golden frames matched, exit 0, 14.6 min.
+  - **`deterministic_mode_repeats_frames`** (new): a form with a MatrixRain entrance, a 100 ms timer and a snackbar, run twice. 4 of 4 pictures identical, 10 of 10 checks, 5 700 ms of virtual time in about 1.5 s.
+  - **`pinned_clock_and_seed`:** 9 of 9, with the virtual time. **`base_script_orders_and_names_the_handlers`:** 11 of 11.
+  - **`cobolt-form-host`:** 189 of 190 in the library and 28 of 28 in 8 targets. **`cobolt-forms --features render`:** 1 877 of 1 878, with `engine_reference_form_parity_static_vs_faces` green. The one red in each (`corpus_golden`, `example_corpus_golden`) compares layout or shapes rather than pixels, and was red before this task.
+  - **The rcrun host tests:** 8 targets, 22 of 22 passed, `side_menu_rows_hosts` with its built-binary test; the 5 other built-binary tests stay ignored, as by default.
+
 ## 2.0.492 — 2026-11-14
 
 **Fix: a headless picture of a form no longer depends on the order its text was first drawn in.** The CPU rasteriser behind `render_form`, `run_form` and the headless `shot` step promised the same bytes for the same frame. It kept that promise only while every glyph sat at the same place in egui's font atlas. That place depends on the order text was first laid out in, which two runs of one program need not share. Found by DESKTOP-WASM-001's pixel-parity harness (T8): PowerCallOfDuty's war-form drew 2 to 4 text pixels differently from one run to the next, one step of 255 apart, at the designed size.

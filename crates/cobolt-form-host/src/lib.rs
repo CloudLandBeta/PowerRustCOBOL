@@ -36,6 +36,8 @@
 /// WASM-018 T18 — Canvas2D textures from `Present`.
 #[cfg(feature = "graphics")]
 pub(crate) mod canvas;
+/// The host's own clock: real, or the virtual time of a deterministic headless run (DESKTOP-WASM-001 T8).
+pub mod clock;
 pub mod debug_link;
 pub mod diagnostics;
 pub mod file_dialog;

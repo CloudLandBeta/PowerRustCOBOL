@@ -6,6 +6,12 @@
       "shot": "00-open"
     },
     {
+      "wait_ms": 6000
+    },
+    {
+      "shot": "00-ready"
+    },
+    {
       "event": {
         "control": "CNV-DIORAMA",
         "name": "onFrame"

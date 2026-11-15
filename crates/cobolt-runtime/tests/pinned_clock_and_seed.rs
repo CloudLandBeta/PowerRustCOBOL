@@ -10,17 +10,18 @@
 //! `DAY-OF-WEEK` and `TIME` give the pinned instant, the same in every run and on every machine.
 //! With the seed pinned, `FUNCTION RANDOM` gives the same 1 000 values in every run, the values
 //! `FUNCTION RANDOM(seed)` gives. With nothing pinned, the generator starts where it always has.
+//! While a deterministic run's virtual time moves (T8), the pinned clock moves with it.
 //!
 //! The pins are set with `set_for_test`, never through the environment. They hold for the whole
 //! process, so this file has one test. Restarting the pins starts the generator again, as a new
 //! process does.
 
 use std::sync::mpsc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::{parse, Severity};
-use cobolt_runtime::test_pins::{clear_for_test, set_for_test};
+use cobolt_runtime::test_pins::{clear_for_test, set_for_test, set_virtual_time, start_virtual_time, stop_virtual_time};
 use cobolt_runtime::Interpreter;
 
 /// A Friday, 2 January 2026, at 03:04:05.67 in São Paulo's offset.
@@ -120,6 +121,17 @@ fn pinned_clock_and_seed_fix_current_date_and_random() {
     check("the clock: two runs give the same registers", clock_a == clock_b);
     check("the clock: every register is the pinned instant", clock_a == expected);
 
+    // T8: while a deterministic run's virtual time moves, the pinned clock moves with it, and
+    // stands at the pinned instant again when it ends.
+    start_virtual_time();
+    set_virtual_time(Duration::from_millis(1500));
+    let clock_v = run(CLOCK);
+    stop_virtual_time();
+    let clock_after = run(CLOCK);
+    let expected_v = ["2026010203040717-0300", "260102", "26002", "5", "03040717"];
+    check("virtual time: 1.5 s in, every register is the pinned instant plus 1.5 s", clock_v == expected_v);
+    check("virtual time: once it ends, the registers are the pinned instant again", clock_after == expected);
+
     // The generator, pinned: two runs, each from a fresh start.
     let t = Instant::now();
     set_for_test(Some(PIN), Some(SEED));
@@ -147,6 +159,7 @@ fn pinned_clock_and_seed_fix_current_date_and_random() {
     println!("== pinned_clock_and_seed (DESKTOP-WASM-001 T5, R28) ==");
     println!("pinned clock {PIN}, pinned seed {SEED}");
     println!("clock registers: CURRENT-DATE, DATE, DAY, DAY-OF-WEEK, TIME -> {clock_a:?}");
+    println!("virtual time 1.5 s in: {clock_v:?}; after it ends: {clock_after:?}");
     println!("clock: 2 runs in {clock_ms:.1} ms");
     println!(
         "RANDOM: {} runs x {DRAWS} values in {random_ms:.1} ms ({:.0} values/s), {distinct} distinct; first {:?}, last {:?}",

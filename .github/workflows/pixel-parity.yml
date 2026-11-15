@@ -8,7 +8,7 @@
 # refuses connections.
 #
 # - On a tag, every frame must equal its golden in `tests/pixel-parity/golden/<platform>.toml`;
-#   one differing pixel fails the job.
+#   one differing pixel fails the job, and so does a form whose two runs differ (AC20, since T8).
 # - On a dispatch, the job records instead (`--record`) and uploads its golden file, to be
 #   committed from the artefact.
 #

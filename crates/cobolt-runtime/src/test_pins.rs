@@ -9,7 +9,8 @@
 //! Two variables turn the pins on. Nothing sets them by default:
 //! - `PRC_TEST_CLOCK=<RFC 3339>`, for example `2026-01-02T03:04:05.67-03:00`, pins the date and
 //!   time a program sees. The offset in the value is the program's time zone, so a pinned run
-//!   shows the same date on every machine. The pinned clock does not move by itself.
+//!   shows the same date on every machine. The pinned clock does not move by itself; in a
+//!   deterministic headless run it follows the run's virtual time (T8, [`start_virtual_time`]).
 //! - `PRC_TEST_SEED=<u64>` gives `FUNCTION RANDOM` its first state, as `FUNCTION RANDOM(seed)`
 //!   would.
 //!
@@ -32,7 +33,9 @@
 //!
 //! `cobolt-stdlib`'s intrinsic table has its own `CURRENT-DATE`, but no code calls the table.
 
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{OnceLock, RwLock};
+use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset};
 
@@ -70,9 +73,42 @@ fn pins() -> Pins {
     *FROM_ENV.get_or_init(read_env)
 }
 
-/// The date and time the program sees: the pinned instant, or the local clock.
+/// The date and time the program sees: the pinned instant, plus the virtual time while a
+/// deterministic run moves it; or the local clock.
 pub fn now() -> DateTime<FixedOffset> {
-    pins().clock.unwrap_or_else(|| chrono::Local::now().fixed_offset())
+    match pins().clock {
+        Some(pinned) => pinned + chrono::Duration::from_std(virtual_elapsed().unwrap_or_default()).unwrap_or_default(),
+        None => chrono::Local::now().fixed_offset(),
+    }
+}
+
+/// Whether a deterministic run's virtual time is running, and how far it has gone (ns).
+static VIRTUAL_ON: AtomicBool = AtomicBool::new(false);
+static VIRTUAL_NANOS: AtomicU64 = AtomicU64::new(0);
+
+/// Starts a deterministic run's virtual time at zero (T8). The headless loop calls it when the
+/// clock is pinned, before it builds the form. From then on the form host's clock is a fixed
+/// instant plus this time, and the program's pinned clock moves by it too.
+pub fn start_virtual_time() {
+    VIRTUAL_NANOS.store(0, Ordering::SeqCst);
+    VIRTUAL_ON.store(true, Ordering::SeqCst);
+}
+
+/// Moves the virtual time to `elapsed` since it started.
+pub fn set_virtual_time(elapsed: Duration) {
+    VIRTUAL_NANOS.store(u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX), Ordering::SeqCst);
+}
+
+/// Ends the virtual time: the host's clock is real again, and the program's stays at the pinned
+/// instant.
+pub fn stop_virtual_time() {
+    VIRTUAL_ON.store(false, Ordering::SeqCst);
+    VIRTUAL_NANOS.store(0, Ordering::SeqCst);
+}
+
+/// How far the virtual time has gone, while it runs.
+pub fn virtual_elapsed() -> Option<Duration> {
+    VIRTUAL_ON.load(Ordering::SeqCst).then(|| Duration::from_nanos(VIRTUAL_NANOS.load(Ordering::SeqCst)))
 }
 
 /// Whether the clock is pinned: a headless run is then deterministic (T6).
