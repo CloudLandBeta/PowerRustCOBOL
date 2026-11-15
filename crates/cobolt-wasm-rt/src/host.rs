@@ -48,6 +48,20 @@ mod imp {
         /// The state of the external switch named by the `len` bytes at `addr`:
         /// 1 on, 0 off, -1 when the host knows no such switch.
         pub fn switch_state(addr: u32, len: u32) -> i32;
+        // A desktop module only (ABI A29): the generator imports these from
+        // `prn`, the desktop runner's namespace, and passes memory 0's
+        // addresses straight through.
+        /// One line of the operator's console into `addr` (at most `cap`
+        /// bytes), its line end removed: the bytes written, or -10 at the end
+        /// of the input.
+        pub fn con_read(addr: u32, cap: u32) -> i32;
+        /// The environment and the command line: `kind` 0 the variable whose
+        /// name is the first `n` bytes at `buf`, 1 argument `n` (from 1), 2
+        /// the number of arguments, 3 the arguments joined by one space. The
+        /// text goes to `buf` (at most `cap` bytes, over the name) and the
+        /// bytes written are returned; kind 2 writes nothing and returns the
+        /// count; -1 when there is no such variable or argument.
+        pub fn env_get(kind: u32, n: u32, buf: u32, cap: u32) -> i32;
     }
 }
 
@@ -108,6 +122,16 @@ mod imp {
     }
     pub unsafe fn switch_state(_addr: u32, _len: u32) -> i32 {
         -1
+    }
+    pub unsafe fn con_read(_addr: u32, _cap: u32) -> i32 {
+        -10
+    }
+    pub unsafe fn env_get(kind: u32, _n: u32, _buf: u32, _cap: u32) -> i32 {
+        if kind == 2 || kind == 3 {
+            0
+        } else {
+            -1
+        }
     }
     pub unsafe fn now() -> f64 {
         NOW.with(|n| *n.borrow())

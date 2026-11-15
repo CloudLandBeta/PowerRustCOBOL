@@ -180,12 +180,13 @@ fn every_statement_and_builtin_has_a_native_class() {
     }
     let checked = STATEMENT_TABLE.len() + builtins.len();
     // The fixed points of M1: EXEC RUST is Rust, so it never leaves the Cargo path (R12);
-    // the console, the environment and the exit code are the runner's.
+    // the console and the environment are the runner's; STOP RUN and GOBACK end the run in
+    // the module, with exit code 0 as on the Cargo path (T12).
     let fixed = [
         ("EXEC RUST", matches!(statement_native("EXEC RUST"), Some(Native::Cargo(_)))),
         ("ACCEPT", statement_native("ACCEPT") == Some(Native::Host(cobolt_wasm_abi::codes::cap::CONSOLE))),
-        ("STOP", statement_native("STOP") == Some(Native::Host(cobolt_wasm_abi::codes::cap::ENV))),
-        ("GOBACK", statement_native("GOBACK") == Some(Native::Host(cobolt_wasm_abi::codes::cap::ENV))),
+        ("STOP", statement_native("STOP") == Some(Native::Module)),
+        ("GOBACK", statement_native("GOBACK") == Some(Native::Module)),
         ("MOVE", statement_native("MOVE") == Some(Native::Module)),
     ];
     let fixed_ok = fixed.iter().filter(|(_, ok)| *ok).count();

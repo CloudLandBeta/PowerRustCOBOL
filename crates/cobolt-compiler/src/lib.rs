@@ -7310,7 +7310,8 @@ fn browser_subset_doc() -> String {
          is being built (today every Desktop Build takes the Cargo path, as before): *yes* is compiled into the module; *yes, with \
          the runner's* `name` is compiled into the module and served by the desktop runner's capability of that name; *Cargo path* \
          sends the Build to the Cargo path, which names the construct and the reason. `ACCEPT` from the console needs `console`, \
-         and from the environment or the command line `env`; `STOP RUN` and `GOBACK` hand the exit code to `env`.\n\n\
+         and from the environment or the command line `env`; `STOP RUN` and `GOBACK` end the program in the module, with \
+         exit code 0 as on the Cargo path.\n\n\
          ### Statements\n\n| Statement | In a browser module | Instead | On the Desktop | Why |\n|---|---|---|---|---|\n",
     );
     for (name, s, n) in STATEMENT_TABLE {

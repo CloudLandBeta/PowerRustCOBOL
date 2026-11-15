@@ -25,6 +25,18 @@ pub struct Conformance {
     pub switches: Vec<(String, bool)>,
 }
 
+/// What the desktop runner's `prn` imports answer in a test run (ABI A27, A29): the operator's
+/// console, the environment and the command line's arguments. Nothing is read from this process's own.
+#[derive(Debug, Clone, Default)]
+pub struct NativeInput {
+    /// The console's lines, in order; `con_read` answers the end of the input after the last.
+    pub console: Vec<String>,
+    /// The environment variables, `(name, value)`.
+    pub env: Vec<(String, String)>,
+    /// The arguments, without the program's name.
+    pub args: Vec<String>,
+}
+
 enum OpenFile {
     Reader(std::io::BufReader<std::fs::File>),
     Writer(std::fs::File),
@@ -98,6 +110,9 @@ struct State {
     super_waits: bool,
     super_asked: HashSet<Vec<u8>>,
     super_gone: bool,
+    /// A desktop module's run: what `prn` answers, and the next console line.
+    native: Option<NativeInput>,
+    console_at: usize,
 }
 
 /// Apply a command batch to the outcome, through the ABI's one codec.
@@ -209,18 +224,24 @@ pub fn engine() -> Result<Engine, String> {
 
 /// Run a program-mode module (`pr_run`) to its end.
 pub fn run_program(wasm: &[u8]) -> Result<Outcome, String> {
-    run_with(wasm, None, false).map(|(o, _)| o)
+    run_with(wasm, None, false, None).map(|(o, _)| o)
+}
+
+/// Run a desktop module (`Options::native`) to its end, its `prn` imports answered from `input`
+/// (DESKTOP-WASM-001 T12).
+pub fn run_native(wasm: &[u8], input: NativeInput) -> Result<Outcome, String> {
+    run_with(wasm, None, false, Some(input)).map(|(o, _)| o)
 }
 
 /// [`run_program`], and the module's data memory as the run left it (the
 /// byte-layout tests read their items out of it).
 pub fn run_program_memory(wasm: &[u8]) -> Result<(Outcome, Vec<u8>), String> {
-    run_with(wasm, None, true)
+    run_with(wasm, None, true, None)
 }
 
 /// Run a conformance module: file verbs work against `conf.cwd`.
 pub fn run_conformance(wasm: &[u8], conf: Conformance) -> Result<Outcome, String> {
-    run_with(wasm, Some(conf), false).map(|(o, _)| o)
+    run_with(wasm, Some(conf), false, None).map(|(o, _)| o)
 }
 
 fn new_state(out: Rc<RefCell<Outcome>>, conformance: Option<Conformance>, (batch_size, answer_size, gfx_at): (u32, u32, u32)) -> State {
@@ -243,6 +264,8 @@ fn new_state(out: Rc<RefCell<Outcome>>, conformance: Option<Conformance>, (batch
         super_waits: false,
         super_asked: HashSet::new(),
         super_gone: false,
+        native: None,
+        console_at: 0,
     }
 }
 
@@ -480,6 +503,42 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
     if want("random") {
         linker.func_wrap("pr", "random", |caller: Caller<'_, State>| -> f64 { caller.data().random }).map_err(|e| e.to_string())?;
     }
+    // A desktop module's capabilities (ABI A27, A29), over memory 0, answered from the run's
+    // `NativeInput`; a run without one has an empty console, no variables and no arguments.
+    let prn = cobolt_wasm_abi::codes::NATIVE_IMPORT_MODULE;
+    linker
+        .func_wrap(prn, "con_read", |mut caller: Caller<'_, State>, addr: i32, cap: i32| -> i32 {
+            let st = caller.data_mut();
+            let Some(line) = st.native.as_ref().and_then(|n| n.console.get(st.console_at)).cloned() else { return -10 };
+            st.console_at += 1;
+            let line = line.trim_end_matches(['\n', '\r']);
+            let bytes = &line.as_bytes()[..line.len().min(cap.max(0) as usize)];
+            let Some(mem) = caller.get_export("memory").and_then(|e| e.into_memory()) else { return -10 };
+            mem.write(&mut caller, addr as u32 as usize, bytes).map(|_| bytes.len() as i32).unwrap_or(-10)
+        })
+        .map_err(|e| e.to_string())?;
+    linker
+        .func_wrap(prn, "env_get", |mut caller: Caller<'_, State>, kind: i32, n: i32, buf: i32, cap: i32| -> i32 {
+            let Some(mem) = caller.get_export("memory").and_then(|e| e.into_memory()) else { return -1 };
+            let input = caller.data().native.clone().unwrap_or_default();
+            let text = match kind {
+                0 => {
+                    let mut name = vec![0u8; n.max(0) as usize];
+                    if mem.read(&caller, buf as u32 as usize, &mut name).is_err() {
+                        return -1;
+                    }
+                    input.env.iter().find(|(k, _)| k.as_bytes() == name.as_slice()).map(|(_, v)| v.clone())
+                }
+                1 => (n as u32 as usize).checked_sub(1).and_then(|i| input.args.get(i)).cloned(),
+                2 => return input.args.len() as i32,
+                3 => Some(input.args.join(" ")),
+                _ => None,
+            };
+            let Some(text) = text else { return -1 };
+            let bytes = &text.as_bytes()[..text.len().min(cap.max(0) as usize)];
+            mem.write(&mut caller, buf as u32 as usize, bytes).map(|_| bytes.len() as i32).unwrap_or(-1)
+        })
+        .map_err(|e| e.to_string())?;
     if want("remote") {
         linker
             .func_wrap("pr", "remote", |mut caller: Caller<'_, State>, len: i32| -> i32 {
@@ -500,7 +559,7 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
     Ok(linker)
 }
 
-fn run_with(wasm: &[u8], conformance: Option<Conformance>, keep_memory: bool) -> Result<(Outcome, Vec<u8>), String> {
+fn run_with(wasm: &[u8], conformance: Option<Conformance>, keep_memory: bool, native: Option<NativeInput>) -> Result<(Outcome, Vec<u8>), String> {
     let engine = engine()?;
     let module = Module::new(&engine, wasm).map_err(|e| format!("invalid module: {e}"))?;
     let out = Rc::new(RefCell::new(Outcome::default()));
@@ -510,6 +569,7 @@ fn run_with(wasm: &[u8], conformance: Option<Conformance>, keep_memory: bool) ->
         .map(|m| (m.limits.batch_size, m.limits.answer_size, gfx_start(&m.limits)))
         .map_err(|e| format!("no manifest: {e}"))?;
     let mut store = Store::new(&engine, new_state(out.clone(), conformance, limits));
+    store.data_mut().native = native;
     let linker = linker(&engine, &[])?;
     let instance = linker
         .instantiate(&mut store, &module)

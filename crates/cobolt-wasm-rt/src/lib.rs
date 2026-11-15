@@ -787,3 +787,21 @@ pub extern "C" fn rt_remote_result(base: u32, call: u32) -> i32 {
 pub extern "C" fn rt_ws_last_error(base: u32, class: u32, code: u32, message: u32) {
     remote::last_error(base, class, code, message);
 }
+
+// ── A desktop module's ACCEPT (DESKTOP-WASM-001 T12, ABI A29) ──────────────
+// What a browser module links keeps its place in the blob: see `accept`.
+
+/// `ACCEPT target` from the operator's console in a desktop module (ABI A29
+/// `con_read`).
+#[no_mangle]
+pub extern "C" fn rt_accept_con(base: u32, target: u32) {
+    accept::accept_native_console(base, target);
+}
+
+/// `ACCEPT target FROM ENVIRONMENT … | COMMAND-LINE | ARGUMENT-…` in a desktop
+/// module (`accept::ACC_ENV_VAR` …, ABI A29 `env_get`): `key` names the
+/// variable or holds the argument pointer.
+#[no_mangle]
+pub extern "C" fn rt_accept_env(base: u32, target: u32, kind: u32, key: u32) {
+    accept::accept_native_environment(base, target, kind, key);
+}

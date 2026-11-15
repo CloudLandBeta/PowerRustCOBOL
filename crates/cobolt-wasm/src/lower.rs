@@ -243,6 +243,12 @@ pub struct Lower<'a, 'b> {
     pub(crate) tolerant: bool,
     /// A Mobile project's module: the phone shell's verbs compile (WASM-012, ABI A26).
     pub(crate) mobile: bool,
+    /// A desktop program's module: the console, the environment and the command line compile
+    /// to the desktop runner's imports (DESKTOP-WASM-001 T12, ABI A29).
+    pub(crate) native: bool,
+    /// The registers `DISPLAY … UPON ARGUMENT-NUMBER` and `… UPON ENVIRONMENT-NAME` set and a later
+    /// `ACCEPT` reads, as region offsets (the pointer, the name), made when first used.
+    pub(crate) native_regs: Option<(u32, u32)>,
     pub(crate) files: HashMap<String, FileInfo>,
     /// Record item -> the file whose area it is.
     pub(crate) record_file: HashMap<usize, String>,
@@ -338,6 +344,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         conformance: bool,
         tolerant: bool,
         mobile: bool,
+        native: bool,
         when_compiled: String,
     ) -> GenResult<Lowered> {
         // The units: the main program, then every program nested in it or
@@ -437,6 +444,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             conformance,
             tolerant,
             mobile,
+            native,
+            native_regs: None,
             files: HashMap::new(),
             record_file: HashMap::new(),
             temp_next: 0,
@@ -3045,6 +3054,9 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     pub(crate) fn accept_(&mut self, target: &Expr, from: Option<&AcceptSource>, line: u32) -> GenResult<()> {
         use cobolt_wasm_rt::accept::*;
+        if self.native && self.accept_native(target, from)? {
+            return Ok(());
+        }
         let kind = match from {
             // `ACCEPT` from the operator (plain, or from a console mnemonic) has
             // no meaning where the form's controls are the input: a browser
@@ -3083,13 +3095,90 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
+    /// `ACCEPT` in a desktop module (DESKTOP-WASM-001 T12, ABI A29): what the desktop runner
+    /// answers, as the desktop does. `false`: lowered as in a browser module (the clock, and the
+    /// console of a conformance build).
+    fn accept_native(&mut self, target: &Expr, from: Option<&AcceptSource>) -> GenResult<bool> {
+        use cobolt_wasm_rt::accept::*;
+        let (kind, key) = match from {
+            None | Some(AcceptSource::Mnemonic(_)) if !self.conformance => {
+                let t = self.receiver(target)?;
+                self.base();
+                self.i32c(t as i32);
+                self.call_rt("rt_accept_con");
+                return Ok(true);
+            }
+            Some(AcceptSource::Environment(var)) => (ACC_ENV_VAR, self.pool.opd_lit_alnum(var.as_bytes())),
+            Some(AcceptSource::EnvironmentValue) => (ACC_ENV_VALUE, self.native_reg(false)),
+            Some(AcceptSource::CommandLine) => (ACC_COMMAND_LINE, 0),
+            Some(AcceptSource::ArgumentNumber) => (ACC_ARG_COUNT, 0),
+            Some(AcceptSource::ArgumentValue) => (ACC_ARG_VALUE, self.native_reg(true)),
+            // What the desktop answers: no screen status is ever kept.
+            Some(src @ (AcceptSource::EscapeKey | AcceptSource::CrtStatus)) => {
+                let text: &[u8] = if matches!(src, AcceptSource::EscapeKey) { b"00" } else { b"0000" };
+                let from = self.pool.opd_lit_alnum(text);
+                let t = self.receiver(target)?;
+                self.base();
+                self.i32c(from as i32);
+                self.i32c(t as i32);
+                self.call_rt("rt_move");
+                return Ok(true);
+            }
+            _ => return Ok(false),
+        };
+        let t = self.receiver(target)?;
+        self.base();
+        self.i32c(t as i32);
+        self.i32c(kind as i32);
+        self.i32c(key as i32);
+        self.call_rt("rt_accept_env");
+        Ok(true)
+    }
+
+    /// The operand of the register `DISPLAY … UPON ARGUMENT-NUMBER` (`pointer`) or `… UPON
+    /// ENVIRONMENT-NAME` sets and a later `ACCEPT` reads: hidden storage of the region, made when
+    /// first used. The pointer is a signed eight-byte binary item, 0 until set (which the routine
+    /// reads as 1, as the desktop starts at 1); the name holds 255 characters.
+    fn native_reg(&mut self, pointer: bool) -> u32 {
+        use cobolt_wasm_rt::fd::{Fd, F_SIGNED};
+        const NAME: u32 = 255;
+        let (ptr, name) = match self.native_regs {
+            Some(r) => r,
+            None => {
+                let r = (self.layout.alloc_hidden(8), self.layout.alloc_hidden(NAME));
+                self.native_regs = Some(r);
+                r
+            }
+        };
+        if pointer {
+            self.pool.opd_item(ptr, &Fd::binary(18, 0, F_SIGNED, 8), &[], None)
+        } else {
+            self.pool.opd_item(name, &Fd::alnum(NAME), &[], None)
+        }
+    }
+
     // ── DISPLAY ───────────────────────────────────────────────────────────
 
     pub(crate) fn display(&mut self, operands: &[Expr], upon: Option<&str>, no_adv: bool, line: u32) -> GenResult<()> {
         if let Some(u) = upon {
             let u = u.to_ascii_uppercase();
             if u == "ARGUMENT-NUMBER" || u == "ENVIRONMENT-NAME" {
-                return self.err(line, format!("DISPLAY UPON {u} is not supported in a WebAssembly module"));
+                if !self.native {
+                    return self.err(line, format!("DISPLAY UPON {u} is not supported in a WebAssembly module"));
+                }
+                // A desktop module (DESKTOP-WASM-001 T12): the first operand goes to the register a
+                // later ACCEPT reads, and nothing is shown, as on the desktop.
+                if let Some(o) = operands.first() {
+                    let Some(from) = self.operand(o)? else {
+                        return self.err(line, format!("DISPLAY … UPON {u} takes a data item or a literal in a WebAssembly module"));
+                    };
+                    let reg = self.native_reg(u == "ARGUMENT-NUMBER");
+                    self.base();
+                    self.i32c(from as i32);
+                    self.i32c(reg as i32);
+                    self.call_rt("rt_move");
+                }
+                return Ok(());
             }
         }
         for o in operands {

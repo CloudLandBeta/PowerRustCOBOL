@@ -86,11 +86,31 @@ pub struct Options {
     /// (`COBOL::SecureStore`, `SecureLoad`, `SecureDelete`, ABI A26) compile; in a Web
     /// module they are refused at their line.
     pub mobile: bool,
+    /// A desktop program's module, run by the desktop runner (DESKTOP-WASM-001 R3, R10): `ACCEPT`
+    /// from the console, the environment and the command line compile to the runner's `prn`
+    /// imports (ABI A27, A29) and the manifest lists the capabilities they need. Unset, they are
+    /// refused (or, for the console, ignored) as in a browser module.
+    pub native: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None, file_heap: DEFAULT_FILE_HEAP, contract: None, remote: Vec::new(), mobile: false }
+        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None, file_heap: DEFAULT_FILE_HEAP, contract: None, remote: Vec::new(), mobile: false, native: false }
+    }
+}
+
+/// The capability (ABI A27) whose `prn` import the glue function `g` is backed by; `None` for an
+/// import of ABI v1 §3.
+fn native_cap(g: &str) -> Option<&'static str> {
+    cobolt_wasm_abi::codes::NATIVE_IMPORTS.iter().find(|(_, names)| names.contains(&g)).map(|(c, _)| *c)
+}
+
+/// The namespace of the host import behind the glue function `g`.
+fn import_module(g: &str) -> &'static str {
+    if native_cap(g).is_some() {
+        cobolt_wasm_abi::codes::NATIVE_IMPORT_MODULE
+    } else {
+        cobolt_wasm_abi::codes::IMPORT_MODULE
     }
 }
 
@@ -436,6 +456,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             opts.conformance,
             opts.tolerate_undeclared,
             opts.mobile,
+            opts.native,
             when_compiled.clone(),
         )
         .map_err(|e| if project { e.in_form(lowered_forms.len()) } else { e })?;
@@ -647,10 +668,25 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
 
     // ── function index space ────────────────────────────────────────────
     // The glue functions the module needs: the two it always has, plus the
-    // file ones a conformance build's routines import. Each is backed by a
-    // host import of the same name in the `pr` namespace.
-    const GLUE_ORDER: [&str; 11] =
-        ["flush", "abort", "query", "remote", "now", "random", "file_open", "file_close", "file_write", "file_read", "switch_state"];
+    // file ones a conformance build's routines import and the console and
+    // environment ones of a desktop module's. Each is backed by a host import
+    // of the same name, in the `pr` namespace or, for a desktop capability, in
+    // `prn` (ABI A27, A29).
+    const GLUE_ORDER: [&str; 13] = [
+        "flush",
+        "abort",
+        "query",
+        "remote",
+        "now",
+        "random",
+        "file_open",
+        "file_close",
+        "file_write",
+        "file_read",
+        "switch_state",
+        "con_read",
+        "env_get",
+    ];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
     glue_needed.insert("abort");
@@ -666,6 +702,9 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
                         "file input/output",
                         "file input/output is not available in a browser module: it runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE",
                     ));
+                }
+                if native_cap(g).is_some() && !opts.native {
+                    return Err(GenError::new(0, format!("the routines reach the desktop runner's import prn.{g}, which only a desktop module has")));
                 }
                 glue_needed.insert(g);
             }
@@ -690,6 +729,9 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             "file_close" => (ty_i32_ret1, ty_i32_ret1),
             "file_write" => (ty_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
             "switch_state" => (ty_i32_ret1, ty_i32_i32_ret),
+            // A29: memory 0's addresses go straight to the runner.
+            "con_read" => (ty_i32_i32_ret, ty_i32_i32_ret),
+            "env_get" => (ty_i32_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
         }
     };
@@ -993,6 +1035,19 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         f.instruction(&I::End);
         defs[(glue_final["file_read"] - n_imports) as usize].body = Body::Encoded(f);
     }
+    // The desktop runner reads and writes memory 0 itself (A29): the glue only
+    // passes its arguments on.
+    for (g, args) in [("con_read", 2u32), ("env_get", 4)] {
+        if let Some(&at) = glue_final.get(g) {
+            let mut f = Function::new([]);
+            for i in 0..args {
+                f.instruction(&I::LocalGet(i));
+            }
+            f.instruction(&I::Call(imp_of(g)));
+            f.instruction(&I::End);
+            defs[(at - n_imports) as usize].body = Body::Encoded(f);
+        }
+    }
     {
         // glue.abort(code): ERROR command with the line, then pr.abort, then trap.
         // A run-time error of the routines is a COBOL run-time error: its code
@@ -1269,7 +1324,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
 
     let mut imports = ImportSection::new();
     for g in &glue_list {
-        imports.import("pr", g, EntityType::Function(glue_types(g).0));
+        imports.import(import_module(g), g, EntityType::Function(glue_types(g).0));
     }
     module.section(&imports);
 
@@ -1411,7 +1466,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let mut names = NameSection::new();
     let mut fnames = NameMap::new();
     for g in &glue_list {
-        fnames.append(imp_of(g), &format!("pr.{g}"));
+        fnames.append(imp_of(g), &format!("{}.{g}", import_module(g)));
     }
     for (i, d) in defs.iter().enumerate() {
         fnames.append(n_imports + i as u32, &d.name);
@@ -1428,7 +1483,14 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         builtins: builtin_list,
         rt_functions: closure.funcs.len(),
         rt_bytes,
-        imports: glue_list.iter().map(|g| g.to_string()).collect(),
+        // A desktop capability's import is named with its namespace (A29).
+        imports: glue_list.iter().map(|g| if native_cap(g).is_some() { format!("{}.{g}", import_module(g)) } else { g.to_string() }).collect(),
+        // A27: what the `prn` imports need, in the order of `cap::ALL`; none for a browser module.
+        capabilities: cobolt_wasm_abi::codes::cap::ALL
+            .iter()
+            .filter(|c| glue_list.iter().any(|g| native_cap(g) == Some(**c)))
+            .map(|c| c.to_string())
+            .collect(),
         arena_total,
         data_pages,
         total_instances,
@@ -2185,6 +2247,7 @@ struct ManifestInput<'a, 'p> {
     rt_functions: usize,
     rt_bytes: usize,
     imports: Vec<String>,
+    capabilities: Vec<String>,
     arena_total: u32,
     data_pages: u32,
     total_instances: u32,
@@ -2237,7 +2300,7 @@ fn build_manifest(m: &ManifestInput<'_, '_>) -> cobolt_wasm_abi::manifest::Manif
         sizes: Sizes { module: 0, rt_functions: m.rt_functions as u64, rt_bytes: m.rt_bytes as u64 },
         contract: m.opts.contract.clone(),
         remote: m.opts.remote.clone(),
-        // A27: a browser module needs nothing beyond ABI v1 §3 (DESKTOP-WASM-001 T12 fills it for the runner).
-        capabilities: Vec::new(),
+        // A27: written only when not empty, so a browser module's manifest is the bytes it was.
+        capabilities: m.capabilities.clone(),
     }
 }

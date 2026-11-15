@@ -131,3 +131,103 @@ pub fn accept_clock(base: u32, target: u32, kind: u32) {
     put(base, target, &out[..n]);
     let _ = CobolNumeric::integer(0);
 }
+
+// ── A desktop module (DESKTOP-WASM-001 T12, ABI A29) ────────────────────────
+// The console, the environment and the command line, through the desktop
+// runner's `prn` imports. What a browser module links must keep its bytes
+// (AC16), and the blob's routines are compiled in the order of their symbol
+// names, each placed where it is first named: these names sort after
+// `accept_clock`, which names `put` first. They use only signatures the blob
+// already had (the generator copies the blob's types in order), index nothing
+// and divide by nothing that can be zero (a bounds or a zero check adds a panic
+// location to the read-only data), and stay below every line of the code above
+// (a panic location records its line).
+
+// The kinds of `rt_accept_env`.
+/// `FROM ENVIRONMENT "name"`: `key` is the name's literal.
+pub const ACC_ENV_VAR: u32 = 5;
+/// `FROM ENVIRONMENT-VALUE`: `key` is the register `DISPLAY … UPON
+/// ENVIRONMENT-NAME` fills.
+pub const ACC_ENV_VALUE: u32 = 6;
+pub const ACC_COMMAND_LINE: u32 = 7;
+pub const ACC_ARG_COUNT: u32 = 8;
+/// `FROM ARGUMENT-VALUE`: `key` is the pointer `DISPLAY … UPON ARGUMENT-NUMBER`
+/// sets (0 until then, which means 1).
+pub const ACC_ARG_VALUE: u32 = 9;
+
+/// The kinds of `env_get` (ABI A29).
+const ENV_VAR: u32 = 0;
+const ENV_ARG: u32 = 1;
+const ENV_ARG_COUNT: u32 = 2;
+const ENV_COMMAND_LINE: u32 = 3;
+
+/// One line of the operator's console in a desktop module (ABI A29
+/// `con_read`), its line end removed. At the end of the input an
+/// alphanumeric receiver gets spaces and a numeric one keeps its value, as in
+/// the conformance build.
+pub fn accept_native_console(base: u32, target: u32) {
+    let scratch = st().ws + WS_SCRATCH;
+    // SAFETY: the host writes at most `cap` bytes into the scratch area.
+    let n = unsafe { host::con_read(scratch, SCRATCH_SIZE) };
+    let line: &[u8] = if n > 0 { mem::bytes(scratch, (n as u32).min(SCRATCH_SIZE)) } else { &[] };
+    let loc = locate(base, &parse(target));
+    if n >= 0 || loc.fd.is_alnum_like() {
+        put(base, target, line);
+    }
+}
+
+/// Where the name a register holds starts and ends: without the white space
+/// around it (the desktop trims it) and the zero bytes of a register never set.
+fn native_name_bounds(b: &[u8]) -> (usize, usize) {
+    let pad = |c: &u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | 0x0B | 0x0C | 0);
+    let start = b.iter().position(|c| !pad(c)).unwrap_or(b.len());
+    let end = b.iter().rposition(|c| !pad(c)).map_or(start, |e| e + 1);
+    (start, end)
+}
+
+/// `ACCEPT … FROM ENVIRONMENT "name" | ENVIRONMENT-VALUE | COMMAND-LINE |
+/// ARGUMENT-NUMBER | ARGUMENT-VALUE` in a desktop module (ABI A29 `env_get`,
+/// `ACC_ENV_VAR` …). `key` is the name's literal, the register `DISPLAY …
+/// UPON ENVIRONMENT-NAME` fills, or the argument pointer `DISPLAY … UPON
+/// ARGUMENT-NUMBER` sets (0 until then, which means 1). A variable or an
+/// argument that is not there is empty text, as on the desktop.
+pub fn accept_native_environment(base: u32, target: u32, kind: u32, key: u32) {
+    let scratch = st().ws + WS_SCRATCH;
+    // SAFETY (every call): the host writes at most `cap` bytes into the
+    // scratch area, over the name it read there.
+    let got = match kind {
+        ACC_ENV_VAR | ACC_ENV_VALUE => {
+            let loc = locate(base, &parse(key));
+            let (start, end) = if kind == ACC_ENV_VALUE { native_name_bounds(mem::bytes(loc.addr, loc.len)) } else { (0, loc.len as usize) };
+            let len = ((end - start) as u32).min(SCRATCH_SIZE);
+            mem::copy(loc.addr + start as u32, scratch, len);
+            unsafe { host::env_get(ENV_VAR, len, scratch, SCRATCH_SIZE) }
+        }
+        ACC_COMMAND_LINE => unsafe { host::env_get(ENV_COMMAND_LINE, 0, scratch, SCRATCH_SIZE) },
+        ACC_ARG_VALUE => {
+            let at = match value(base, &parse(key)) {
+                Val::Dec(n) => n.mantissa.checked_div(cobolt_decimal::pow10(n.decimals as u32).unwrap_or(1)).unwrap_or(0) as i64,
+                Val::F(f) => f as i64,
+            };
+            unsafe { host::env_get(ENV_ARG, at.clamp(1, u32::MAX as i64) as u32, scratch, SCRATCH_SIZE) }
+        }
+        _ => {
+            // ACC_ARG_COUNT: the count, as the digits a MOVE of it gives.
+            let mut v = unsafe { host::env_get(ENV_ARG_COUNT, 0, 0, 0) }.max(0) as u32;
+            let mut out = [0u8; 10];
+            let mut at = out.len();
+            for slot in out.iter_mut().rev() {
+                *slot = b'0' + (v % 10) as u8;
+                v /= 10;
+                at -= 1;
+                if v == 0 {
+                    break;
+                }
+            }
+            put(base, target, out.get(at..).unwrap_or(&[]));
+            return;
+        }
+    };
+    let text: &[u8] = if got > 0 { mem::bytes(scratch, (got as u32).min(SCRATCH_SIZE)) } else { &[] };
+    put(base, target, text);
+}

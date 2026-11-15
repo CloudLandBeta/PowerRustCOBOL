@@ -2,6 +2,32 @@
 
 
 
+## 2.0.497 — 2026-11-15
+
+**DESKTOP-WASM-001 T12: a desktop module reads the console, the environment and the command line through the runner** (R3, R10, R11's console part). The generator gains a `native` option, off by default; the Desktop's WebAssembly path will turn it on when it lands (T21). Every Desktop Build still takes the Cargo path, and a Web or Mobile module keeps its bytes.
+- **What a desktop module sends to the runner** (WASM-ABI-v1 amendment **A29**, new):
+  - `ACCEPT` from the console reads one line through `prn.con_read`. The line end is removed, a long line is cut to the receiving item, and an empty line gives spaces. At the end of the input, an alphanumeric item gets spaces and a numeric one keeps its value, as `rcrun run` does.
+  - `ACCEPT … FROM ENVIRONMENT "name"`, `FROM ENVIRONMENT-VALUE`, `FROM COMMAND-LINE`, `FROM ARGUMENT-NUMBER` and `FROM ARGUMENT-VALUE` ask `prn.env_get`.
+  - `DISPLAY … UPON ENVIRONMENT-NAME` names the variable the next `ENVIRONMENT-VALUE` reads. `DISPLAY … UPON ARGUMENT-NUMBER` chooses the argument the next `ARGUMENT-VALUE` reads. Neither shows anything, as on the desktop.
+  - `ACCEPT … FROM ESCAPE KEY` gives `00` and `FROM CRT STATUS` gives `0000`, as a console program on the desktop does. This happens in the module, with no capability.
+  - Without the option (Web and Mobile), the same statements are refused, or the console's `ACCEPT` is ignored with a warning, as before.
+- **The manifest** lists `console` and `env` under `capabilities` only when the module uses them, and names the imports `prn.con_read` and `prn.env_get`. A module that uses neither is the browser module, byte for byte. The Web bundler refuses one that uses either and names its import.
+- **`STOP RUN` and `GOBACK` end the run inside the module.** The program ends with exit code 0, as the Cargo-built program and `rcrun run` do whatever `RETURN-CODE` holds. 2.0.495 classed them *through the runner*; they are now *in the module*. A29 keeps the `exit` import reserved until `RETURN-CODE` reaches both paths, which is a separate fix. The System KB's paragraph says so and is regenerated.
+- **Measured** (macOS arm64):
+  - **`native_console`** (new): 85 of 85 checks, 66 lines compared, compile 114 ms, run 5.0 s. It covers 8 programs × 2 memory variants:
+    - the console, with lines recorded from `rcrun run`;
+    - the environment, the arguments, a run with no arguments, ESCAPE KEY with CRT STATUS, and SORT procedures, each equal to the interpreter in the same process;
+    - the console and the environment together, whose manifest lists `["console", "env"]`;
+    - an in-memory INDEXED file.
+    - Each module needing nothing equals the browser module. The five refusals and six warnings without the option are unchanged.
+  - **`desktop_wasm_unchanged` (AC16):** PowerAnalyticsWeb's two modules and its manifest still match their pins, 3 of 3.
+  - **`same_input_same_bytes`:** 126 program variants, 0 differing over 2 520 compiles (107 compiles per second).
+  - **`subset_table`:** 8 of 8. On the Desktop, 33 entries are in the module, 1 goes through the runner (`console`) and 102 take the Cargo path.
+  - **The KB:** `prebuilt_chunked_kb_matches_the_published_documentation` green; 4 388 records.
+  - **The whole of `cobolt-wasm`:** 28 of 30 targets green. The two reds were already red before this change:
+    - `corpus`: a program prints its own timing (430 ms in the module, 920 ms in the interpreter);
+    - `dependency_guard`.
+
 ## 2.0.496 — 2026-11-14
 
 **DESKTOP-WASM-001 T11: `FUNCTION WHEN-COMPILED` and the paths a module carries are now inputs of the Build** (R2; C3). Two Builds of the same project give the same module, whichever machine or system made them.

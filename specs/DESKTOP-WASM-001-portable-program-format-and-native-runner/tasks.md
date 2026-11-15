@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3 and T1–T11 are done (2.0.483–2.0.496, with the fix 2.0.492 found by T8): every task of M0, and the first three of M1. The CI dispatches of T4 and T7 are owed until their workflows are on `main`.
+- **Status:** implementing since 2026-11-14. F1–F3 and T1–T12 are done (2.0.483–2.0.497, with the fix 2.0.492 found by T8): every task of M0, and the first four of M1. The CI dispatches of T4 and T7 are owed until their workflows are on `main`.
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -542,7 +542,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
         - `corpus`: the program `conditionals/test-arith-relation-after-and.cbl` prints its own timing (450 ms in the module, 970 ms in the interpreter);
         - `dependency_guard`.
 
-- [ ] **T12 — `Options.native` and the console capabilities in the generator** (R3, R10, R11 console part)
+- [x] **T12 — `Options.native` and the console capabilities in the generator** (R3, R10, R11 console part)
   - Files:
     - `crates/cobolt-wasm/src/lib.rs` (`Options.native`), the `lower*.rs` files it reaches, and `module.rs` (the manifest's capabilities);
     - new `crates/cobolt-wasm/tests/native_console.rs`.
@@ -557,6 +557,39 @@ The code says five things the plan did not settle. Each is applied in the tasks 
   - Verify:
     - `cargo test -p cobolt-wasm --test native_console -- --nocapture`: one program per construct compiles, and its manifest lists exactly its capabilities. The same program without `native` gives today's refusal.
     - `cargo test -p cobolt-wasm`, `compile_determinism` and T1's test green.
+  - *Done 2026-11-15 (2.0.497):*
+    - **The option:** `Options.native` (default off) is in `module.rs`, where `Options` is defined; `lib.rs` only re-exports it. The Web and Mobile generator leaves it off.
+    - **What compiles to the runner's imports** (ABI **A29**, new):
+      - `ACCEPT` from the console (plain, or from a console mnemonic) → `prn.con_read`. A conformance build keeps reading handle 0, as before.
+      - `ACCEPT … FROM ENVIRONMENT "name"`, `ENVIRONMENT-VALUE`, `COMMAND-LINE`, `ARGUMENT-NUMBER` and `ARGUMENT-VALUE` → `prn.env_get`.
+      - `DISPLAY … UPON ENVIRONMENT-NAME` and `… UPON ARGUMENT-NUMBER` set two hidden registers of the region (a 255-character name, an eight-byte pointer) and show nothing, as on the desktop.
+      - `ACCEPT … FROM ESCAPE KEY` and `CRT STATUS` move `"00"` and `"0000"`, as the desktop does: in the module, with no capability.
+    - **The exit code** (operator, 2026-11-14: "Match Cargo now"):
+      - The task asked for `RETURN-CODE` at `STOP RUN` to reach `exit`. The source says otherwise: the Cargo-built program and `rcrun run` end with 0 after `STOP RUN` whatever `RETURN-CODE` holds. `RETURN-CODE` is not in the generator at all, so a program naming it takes the Cargo path.
+      - So `STOP RUN` and `GOBACK` end the run inside the module, the runner will end with 0, and `exit` stays reserved in A29 until `RETURN-CODE` reaches both paths. That gap is a fix of its own, for both paths, proposed separately.
+      - `STOP` and `GOBACK` are now *in the module* in the Desktop column: `support.rs`, the KB's paragraph and `subset_table`'s fixed points. The KB is regenerated.
+    - **The manifest:** `capabilities` lists `console` and `env` as the module's `prn` imports reach them, in A27's order. `imports` names them `prn.con_read` and `prn.env_get`. A module that reaches neither writes no `capabilities`, and its bytes are the browser build's.
+    - **The routine blob** (`rt.wasm`) gains `rt_accept_con` and `rt_accept_env`. T1's pin failed at each step until four rules held, and they are written above the new code in `accept.rs`:
+      - **Order.** The routines are compiled in symbol-name order, and each is placed where it is first named. The new functions are named to sort after `accept_clock` (`accept_native_console`, `accept_native_environment`). A separate module, `native_accept`, sorted first and pulled `put` and `locate_sized` ahead of their old places.
+      - **Signatures.** They use only signatures the blob already had, because the generator copies the blob's types in order. An `i64` argument, or a six-argument import, shifted every type index. So `env_get` writes its answer over the name it reads, and the argument pointer travels as an operand.
+      - **No checks.** They index nothing and divide by nothing that can be zero. Each such check adds a 16-byte panic location to the read-only data and moves every static after it.
+      - **Lines.** They stand below every line of the existing code, because a panic location records its line.
+    - **The test host** (`host.rs`) gains `NativeInput` (the console's lines, the environment, the arguments) and `run_native`. Its `prn` imports answer only from that list.
+    - **Measured:**
+      - **`native_console`** (new): 85 of 85 checks, 5.4 s. 8 programs × 2 memory variants, 66 lines compared, compile 114 ms in all:
+        - `console` (`console`): `[Ada Lovelace]`, `[036]`, `[long]`, `[   ]`, `[     ]`, `[007]`. These are the lines `rcrun run` printed with the same four lines on its standard input: the line end is removed, a long line is cut, an empty line is spaces, and at the end of the input an alphanumeric item gets spaces while a numeric one keeps its value.
+        - `environment`, `arguments`, `no-arguments` (`env`), `escape-key-crt-status` (none) and `sort-procedures` (none): equal to the interpreter run in the same process with the same variables and arguments;
+        - `console-and-environment` lists `["console", "env"]`; `in-memory-indexed` (none) reads its three records back in key order;
+        - each capability-free module equals the browser build byte for byte; each module that needs the runner is refused by the bundler, which names its `prn` import.
+        - Without `native`: the environment, the arguments, both `DISPLAY UPON` registers and ESCAPE KEY are refused as before, and the console's six `ACCEPT`s are ignored with six warnings.
+      - **`desktop_wasm_unchanged`** (T1, AC16): 3 of 3 artefacts match the pin.
+      - **`compile_determinism`:** 2 of 2. `same_input_same_bytes` covers 126 variants, 0 differing; 2 520 compiles in 23.5 s (107 compiles/s).
+      - **`subset_table`:** 8 of 8. 33 entries in the module, 1 through the runner (`console`), 102 on the Cargo path; 5 of 5 fixed points.
+      - **`rt_blob`:** 2 of 2.
+      - **The KB:** regenerated (4 388 records). `prebuilt_chunked_kb_matches_the_published_documentation` and `the_browser_subset_section_names_every_builtin_and_statement` are green.
+      - **`cargo test -p cobolt-wasm --no-fail-fast`:** 28 of 30 targets green. The same two reds as before this task:
+        - `corpus`: `conditionals/test-arith-relation-after-and.cbl` prints its own timing (430 ms in the module, 920 ms in the interpreter);
+        - `dependency_guard`.
 
 - [ ] **T13 — `cobolt-runner-engine`: one wasmtime setup, machine code and its cache** (R6, R15, R16; AC8 engine half)
   - Files:

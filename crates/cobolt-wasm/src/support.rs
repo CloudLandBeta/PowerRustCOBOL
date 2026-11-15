@@ -365,7 +365,8 @@ const BACKEND_FILES: &str = "file input/output runs on the backend; call a backe
 /// exhaustive [`support`] is the definition of the browser class;
 /// `tests/subset_table.rs` holds this table equal to it statement by statement.
 /// On the Desktop, `ACCEPT` from the console reaches `console` (from the environment
-/// or the arguments, `env`), and `STOP RUN` and `GOBACK` hand the exit code to `env`.
+/// or the arguments, `env`); `STOP RUN` and `GOBACK` end the run in the module, with
+/// exit code 0 as the Cargo-built program has (DESKTOP-WASM-001 T12).
 pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("ACCEPT", Support::Module, Native::Host(cap::CONSOLE)),
     ("ADD", Support::Module, Native::Module),
@@ -386,7 +387,7 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("EXIT", Support::Module, Native::Module),
     ("GO TO", Support::Module, Native::Module),
     ("GO TO DEPENDING", Support::Module, Native::Module),
-    ("GOBACK", Support::Module, Native::Host(cap::ENV)),
+    ("GOBACK", Support::Module, Native::Module),
     ("IF", Support::Module, Native::Module),
     ("INITIALIZE", Support::Module, Native::Module),
     ("INSPECT", Support::Module, Native::Module),
@@ -407,7 +408,7 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("SET (pointer)", Support::BackendOnly(POINTERS), Native::Cargo(D_POINTERS)),
     ("SORT", Support::MemoryFiles(SORT_FILES), Native::Cargo(D_SORT)),
     ("START", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
-    ("STOP", Support::Module, Native::Host(cap::ENV)),
+    ("STOP", Support::Module, Native::Module),
     ("STRING", Support::Module, Native::Module),
     ("SUBTRACT", Support::Module, Native::Module),
     ("SUBTRACT CORRESPONDING", Support::Module, Native::Module),
