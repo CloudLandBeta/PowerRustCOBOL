@@ -14,6 +14,28 @@
   - **Without the fix**, after twelve frames on the laptop, the monitor-size path is at 0.747 and still moving. It fell to 0.5 on the second frame, then set 0.52, 0.54 … 0.75, one per frame. The window was left at a size matching none of them. The work-area path is at 0.5, the floor.
 - **Not changed, found while checking:** on Windows and Linux the fit places the window as if the screen started at the primary monitor's corner. A window started on a monitor to the right of or below the primary can therefore be pulled onto the primary.
 
+## 2.0.501 — 2026-11-15
+
+**Fix: a recursion with no end stops with a runtime error instead of crashing.** A `PERFORM` of the paragraph being performed, or a nested program that `CALL`s itself, overflowed the stack long before the limit of 512 `PERFORM` levels the interpreter promises: after about 200 levels in an unoptimised build, on `rcrun run`'s 8 MB main thread. An overflow cannot be caught, so the process ended with no runtime error. In the IDE's **Run**, which runs the program inside the IDE, it closed the IDE. `CALL` had no limit at all.
+- **A guard on the real stack.** Before each `PERFORM` and each `CALL`, the interpreter asks the operating system how much of the thread's stack is left: `pthread` on macOS and Linux, `GetCurrentThreadStackLimits` on Windows. With less than 1 MB left, the statement ends the run with *"PERFORM (or CALL) nested too deeply: the stack is nearly used up — possible infinite recursion"*. This holds on any thread of any host, whatever stack it was given.
+- **The program stack.** `rcrun run`, the built program (console and forms), `rcrun run-form`, the form windows of the form host, and the IDE's **Run** and **Debug** now run a program on a 64 MB thread. Only the pages a run touches are used. On it the 512th level comes first, as the interpreter promised: 600 levels end with *"PERFORM nesting too deep (max 512)"*.
+- **Unchanged:** a program within the limits runs as before, and every runtime error still ends a console program with exit code 1. The Backend server keeps its threads; the guard alone protects it. A WebAssembly module was never exposed: its `PERFORM` and `CALL` keep their frames on a stack in the module's own memory, which ends the run with its own error when full, and never use the machine's.
+- **The Developer's Guide** (§17, after the exit code) says how deep a program may nest and what a recursion with no end does. Its translations stay deleted (2.0.498).
+- **Measured** (macOS arm64):
+  - **`test_stack_guard`** (`cobolt-runtime`, new): 5 of 5. On a 4 MB thread, endless `PERFORM` and endless `CALL` each end with the guard's error. On the 64 MB program stack, 500 levels run, 600 meet the limit of 512, and endless `CALL` ends with the guard's error.
+  - **`perform_stack`** (`cobolt-cli`, new): 4 of 4 under `rcrun run`: 300 and 500 levels end with 0, and 600 levels and endless `CALL` end with 1. No run overflows. Without the fix, 250 levels already overflowed.
+  - **`perform_stack_build`** (`cobolt-compiler`, new, `--ignored`): the same 4 of 4 in the built program; debug build 11.3 s, four runs 741 ms. `return_code_exit` and `return_code_exit_build` (2.0.498) still pass 9 of 9 with the program on its own thread.
+  - **The suites of the crates touched:**
+    - `cobolt-runtime`: 209 targets, 1 673 passed, 0 failed, 29 ignored.
+    - `cobolt-cli`: 25 targets, 67 passed, 0 failed, 6 ignored.
+    - `cobolt-compiler --lib`: 254 passed, 0 failed, 1 ignored.
+    - `cobolt-form-host`: 215 of 216 passed. The one red, `host::parity::corpus_golden` (PowerChat's `chat-form` SideMenu measured 594 high against a golden of 792), fails identically on `main` at 2.0.500 without this fix, so it predates it.
+    - `cobolt-ide --bin cobolt-ide`: 2 025 of 2 028 passed, 6 ignored. None of the 3 reds touches this fix:
+      - `every_document_ships_in_every_language`: the guide's translations are deleted since 2.0.498 (GOLDEN RULE #8).
+      - two live tests of `external_crates_service` expect `egui` to be refused outright, but crates.io now offers egui 0.37.0 against the 0.36 the IDE links, so the resolver offers an alias.
+  - **NIST CCVS85**, the interpreter being shared by every module: the strict census is unchanged at PASS 420 of 420, N-A 39. Every finished module runs as the ledger records, with 0 failing assertions: NC 95 of 95 programs (4 614 assertions), SQ 85 of 85 (624), IX 41 of 41 (574), IF 45 of 45 (841), IC 25 of 25 (309), ST 39 of 39 (735), SM 16 of 16 (311), RL 34 of 34 (354).
+- *(Fix branch `fixes-2x-perform-stack`, cut from `main` at 2.0.500.)*
+
 ## 2.0.500 — 2026-11-15
 
 **Fix: `DISPLAY … WITH NO ADVANCING` keeps the line and writes only its text.** Written with the word `WITH`, the phrase was read as an empty screen phrase. Under `rcrun run` and in a built program the text went out wrapped in the terminal's cursor codes: at the top-left corner of a terminal, and as `ESC[1;1H…ESC[0m` in a redirected file or a pipe. A WebAssembly module, which ignores screen phrases, ended the line as if the phrase were absent.

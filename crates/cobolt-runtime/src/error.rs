@@ -27,6 +27,13 @@ pub enum RuntimeError {
     #[error("PERFORM nesting too deep (max {max}) — possible infinite recursion")]
     PerformDepthExceeded { max: usize },
 
+    /// The thread's stack is nearly used up by nested PERFORM and CALL levels
+    /// (stack overflow guard, checked before each new level). Without it the
+    /// stack overflows, which ends the whole process with no message — the IDE
+    /// with it, since an overflow cannot be caught.
+    #[error("{verb} nested too deeply: the stack is nearly used up — possible infinite recursion")]
+    StackExhausted { verb: &'static str },
+
     /// STOP RUN was executed — not a real error, used as a control-flow signal.
     #[error("STOP RUN")]
     StopRun,

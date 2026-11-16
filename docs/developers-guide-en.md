@@ -16538,6 +16538,27 @@ rcrun run nightly.cbl || echo "the nightly run failed with code $?"
 > `RETURN-CODE` held. A runtime error still ends the run with 1, whatever
 > `RETURN-CODE` holds. A form application is not affected.
 
+**A recursion with no end is a runtime error.** COBOL-85 leaves undefined a
+`PERFORM` of a paragraph that is still being performed, and a `CALL` of a
+program that is still active. PowerRustCOBOL lets both nest, up to 512
+`PERFORM` levels, and stops a recursion that never ends with a runtime error,
+so a console program ends with exit code 1. The error reads:
+
+```text
+PERFORM nesting too deep (max 512) — possible infinite recursion
+```
+
+A `CALL` has no fixed limit. A program that calls itself without end stops
+when the program's stack is nearly used up, with
+`CALL nested too deeply: the stack is nearly used up`. The same message, for
+`PERFORM`, can come before the 512th level on a host that gives the program a
+small stack. `rcrun run`, the built program, the form windows and the IDE's
+**Run** and **Debug** all give it enough for 512 levels.
+
+> **Note.** Before 2.0.501 such a program overflowed the stack after about
+> 200 levels in an unoptimised build. The process ended with no runtime error,
+> and in the IDE's **Run** it closed the IDE.
+
 `rcrun build` and `rcrun package` take the path of the project file —
 `rcrun build MyApp.project.toml`. With no argument they look in the current
 folder for a project file under an older, fixed name, which a project created

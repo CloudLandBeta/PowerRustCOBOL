@@ -5426,7 +5426,8 @@ impl FormHost {
             // build through here, so none of them can be forgotten.
             let debug_wiring = crate::debug_link::active_router()
                 .map(|router| router.register(&handle, &form_object));
-            std::thread::spawn(move || {
+            // On the program stack, as every host runs a program (`stack_guard`).
+            cobolt_runtime::stack_guard::spawn_program_thread("form", move || {
                 // 051 Q1 — one object bridge per process, adopted from
                 // construction: seeding this form's own EXEC RUST objects into
                 // the shared bridge directly (rather than building with a
@@ -5470,7 +5471,8 @@ impl FormHost {
                     }
                 }
                 finished.store(true, Ordering::Relaxed);
-            });
+            })
+            .expect("cannot start the form's program thread");
         }
 
         // Spec 085 — a window that runs as a shell lays its own form out the

@@ -4727,7 +4727,8 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         let form_object = form_object.clone();
         let form_req_tx = form_req_tx.clone();
         let root_form_id = root_form_id.clone();
-        std::thread::spawn(move || {
+        // On the program stack, as every host runs a program (`stack_guard`).
+        cobolt_runtime::stack_guard::spawn_program_thread("form", move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
             interp.set_sql_run_unit(sql_unit, true);
             interp.set_control_ids(control_ids);
@@ -4788,7 +4789,8 @@ fn run_form_app(program: cobolt_ast::program::Program) {
                 }
             }
             finished.store(true, Ordering::Relaxed);
-        });
+        })
+        .expect("cannot start the form's program thread");
     }
 
     // 051 R6 — a child form's design and program come from the embedded
@@ -5011,22 +5013,30 @@ fn load_program_by_id(form_id: &str) -> Option<cobolt_ast::program::Program> {{
 // ── Headless (CLI) runner ─────────────────────────────────────────────────────
 fn run_headless(program: cobolt_ast::program::Program) {{
     use cobolt_runtime::Interpreter;
-    let mut interp = Interpreter::new(program);
-    interp.set_indexed_engine(indexed_engine());
-    // Compiled EXEC RUST blocks, before the run (spec 041 R2).
-    interp.register_exec_rust_blocks(exec_rust_blocks::register);
-    match interp.run() {{
-        Ok(()) => {{}}
-        Err(e) if e.is_exit_signal() => {{}}
-        Err(e) => {{
-            eprintln!("Runtime error: {{e}}");
-            std::process::exit(1);
+    // The program runs on a thread with the program stack: the main thread's is
+    // smaller than the deepest PERFORM nesting needs, and a nested PERFORM or
+    // CALL that finds the stack nearly used up stops with a runtime error.
+    let run = cobolt_runtime::stack_guard::spawn_program_thread("program", move || {{
+        let mut interp = Interpreter::new(program);
+        interp.set_indexed_engine(indexed_engine());
+        // Compiled EXEC RUST blocks, before the run (spec 041 R2).
+        interp.register_exec_rust_blocks(exec_rust_blocks::register);
+        match interp.run() {{
+            Ok(()) => {{}}
+            Err(e) if e.is_exit_signal() => {{}}
+            Err(e) => {{
+                eprintln!("Runtime error: {{e}}");
+                std::process::exit(1);
+            }}
         }}
-    }}
-    // The program ends with the exit code `RETURN-CODE` holds. The run is
-    // over: close what it holds first, as returning from `main` would.
-    let code = interp.return_code();
-    drop(interp);
+        // The program ends with the exit code `RETURN-CODE` holds. The run is
+        // over: what it holds is closed when `interp` drops here, as returning
+        // from `main` would.
+        interp.return_code()
+    }})
+    .expect("cannot start the program's thread");
+    // A panic was reported where it happened; end as a panicking `main` does.
+    let code = run.join().unwrap_or_else(|_| std::process::exit(101));
     if code != 0 {{
         cobolt_runtime::shutdown_child_processes();
         std::process::exit(code);
@@ -12227,7 +12237,7 @@ function_prefix = "sales-"
         ));
         assert!(src.contains("indexed_engine: indexed_engine(),"));
         assert!(src.contains(
-            "let mut interp = Interpreter::new(program);\n    interp.set_indexed_engine(indexed_engine());"
+            "let mut interp = Interpreter::new(program);\n        interp.set_indexed_engine(indexed_engine());"
         ));
         assert!(src.contains(r#"std::env::var("COBOL_INDEXED_ENGINE")"#));
 

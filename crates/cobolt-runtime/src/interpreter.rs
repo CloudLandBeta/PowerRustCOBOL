@@ -8011,6 +8011,11 @@ impl Interpreter {
                 max: MAX_PERFORM_DEPTH,
             });
         }
+        // The fixed limit counts levels; this one measures what they cost, on
+        // whatever thread and stack the host gave the program.
+        if crate::stack_guard::exhausted() {
+            return Err(RuntimeError::StackExhausted { verb: "PERFORM" });
+        }
         self.perform_depth += 1;
         // EVERY form of PERFORM adds one level of step depth, because
         // `PERFORM …` is a single COBOL statement and Step Over executes a
@@ -11561,6 +11566,11 @@ impl Interpreter {
         not_on_exception: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
+        // A called program runs on this thread's stack, and nothing else limits
+        // how deep CALL nests (a program that calls itself, or A → B → A).
+        if crate::stack_guard::exhausted() {
+            return Err(RuntimeError::StackExhausted { verb: "CALL" });
+        }
         let prog_name = self
             .eval_expr(program, span)?
             .as_display_string()

@@ -547,7 +547,8 @@ pub fn cmd_run_form(args: &[String]) {
         let form_req_tx = form_req_tx.clone();
         let control_ids: Vec<String> = form.controls.iter().map(|c| c.id.clone()).collect();
         let form_object = form_object.clone();
-        std::thread::spawn(move || {
+        // On the program stack, as every host runs a program (`stack_guard`).
+        cobolt_runtime::stack_guard::spawn_program_thread("form", move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
             interp.set_sql_run_unit(sql_unit, true);
             // How the FORM spells its control ids. A COBOL word reaches the
@@ -583,7 +584,8 @@ pub fn cmd_run_form(args: &[String]) {
                 }
             }
             finished.store(true, Ordering::Relaxed);
-        });
+        })
+        .expect("cannot start the form's program thread");
     }
     let shared_rust_bridge = bridge_rx.recv().ok();
 
