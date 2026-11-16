@@ -80,6 +80,13 @@ pub fn reason_text(tr: &Tr, reason: &CargoReason) -> String {
             .replace("{at}", &at(file, *line))
             .replace("{construct}", construct)
             .replace("{reason}", reason),
+        CargoReason::DesktopControl { form, file, control, control_type, reason } => tr
+            .build_reason_desktop_control
+            .replace("{form}", form)
+            .replace("{file}", file)
+            .replace("{control}", control)
+            .replace("{type}", control_type)
+            .replace("{reason}", reason),
         CargoReason::RunnerUnavailable => tr.build_reason_runner_unavailable.replace("{name}", cobolt_compiler::RUNNER_NAME),
     }
 }
@@ -169,6 +176,13 @@ mod tests {
                 file: "src/files.cbl".into(),
                 line: 13,
             },
+            CargoReason::DesktopControl {
+                form: "MAIN".into(),
+                file: "forms/main.cfrm".into(),
+                control: "MAP-CITY".into(),
+                control_type: "Maps".into(),
+                reason: "Maps come with M6".into(),
+            },
             CargoReason::RunnerUnavailable,
         ]
     }
@@ -213,6 +227,10 @@ mod tests {
                         "{lang:?}: {text}"
                     ),
                     CargoReason::RunnerUnavailable => assert!(text.contains(cobolt_compiler::RUNNER_NAME), "{lang:?}: {text}"),
+                    CargoReason::DesktopControl { .. } => assert!(
+                        ["MAIN", "forms/main.cfrm", "MAP-CITY", "Maps", "Maps come with M6"].iter().all(|w| text.contains(w)),
+                        "{lang:?}: {text}"
+                    ),
                     _ => {}
                 }
                 if *lang != Language::English {

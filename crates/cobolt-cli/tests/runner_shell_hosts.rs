@@ -195,7 +195,6 @@ fn build(root: &Path, manifest: &Path) -> (PathBuf, f64) {
         .arg("--quiet")
         .env(cobolt_compiler::BUILD_DIR_ENV, root.join("builds"))
         .env("PRC_RUNNER_CACHE", root.join("runner-cache"))
-        .env(cobolt_compiler::WASM_FORMS_ENV, "1")
         .env_remove(cobolt_compiler::RUNNER_ENV)
         .output()
         .expect("run rcrun build");

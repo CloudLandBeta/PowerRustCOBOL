@@ -68,7 +68,9 @@ pub fn compiler_builder() -> Builder {
 /// Why a Build took the Cargo path, for the agent (DESKTOP-WASM-001 R13): `kind`, the sentence the
 /// IDE and `rcrun` show (`text`), and for an `EXEC RUST` block or a construct the WebAssembly path
 /// does not take yet the `file` (relative to the project) and its `line` (absent when the
-/// construct is a whole file); a refused construct also names itself (`construct`) and `why`.
+/// construct is a whole file); a refused construct also names itself (`construct`) and `why`. A
+/// form holding a control the runner does not serve yet names the `form`, its `file`, the
+/// `control`, its `control_type` and `why` (T33).
 pub fn reason_json(reason: &cobolt_compiler::CargoReason) -> Value {
     use cobolt_compiler::CargoReason as R;
     let kind = match reason {
@@ -77,6 +79,7 @@ pub fn reason_json(reason: &cobolt_compiler::CargoReason) -> Value {
         R::ExternalCrate => "external_crate",
         R::ExecRust { .. } => "exec_rust",
         R::Refused { .. } => "refused",
+        R::DesktopControl { .. } => "desktop_control",
         R::RunnerUnavailable => "runner_unavailable",
     };
     let mut v = json!({ "kind": kind, "text": reason.to_string() });
@@ -86,6 +89,13 @@ pub fn reason_json(reason: &cobolt_compiler::CargoReason) -> Value {
             v["construct"] = json!(construct);
             v["why"] = json!(reason);
             Some((file, *line))
+        }
+        R::DesktopControl { form, file, control, control_type, reason } => {
+            v["form"] = json!(form);
+            v["control"] = json!(control);
+            v["control_type"] = json!(control_type);
+            v["why"] = json!(reason);
+            Some((file, 0))
         }
         _ => None,
     };
@@ -670,6 +680,26 @@ mod tests {
             line: 0,
         });
         check("refused whole file: file, no line", whole["file"] == "forms/MAIN.cfrm" && whole.get("line").is_none());
+
+        // ── A control the runner does not serve yet: the form, its file, the control (T33) ──
+        let control = reason_json(&CargoReason::DesktopControl {
+            form: "MAIN".into(),
+            file: "forms/main.cfrm".into(),
+            control: "MAP-CITY".into(),
+            control_type: "Maps".into(),
+            reason: "Maps come at M6".into(),
+        });
+        check(
+            "desktop control: kind, form, file, control, type, why, no line",
+            control["kind"] == "desktop_control"
+                && control["form"] == "MAIN"
+                && control["file"] == "forms/main.cfrm"
+                && control["control"] == "MAP-CITY"
+                && control["control_type"] == "Maps"
+                && control["why"] == "Maps come at M6"
+                && control.get("line").is_none(),
+        );
+        check("desktop control: text names the control", control["text"].as_str().unwrap().contains("MAP-CITY (Maps)"));
 
         // ── Every reason has its kind ──
         let kinds: Vec<Value> = [

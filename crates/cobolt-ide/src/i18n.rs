@@ -3120,6 +3120,8 @@ pub struct Tr {
     pub build_reason_refused: &'static str,
     /// `{name}` — the runner's file name.
     pub build_reason_runner_unavailable: &'static str,
+    /// `{form}` `{file}` `{control}` `{type}` — the form, its file, the control and its type; `{reason}` — the generator's reason (English).
+    pub build_reason_desktop_control: &'static str,
     /// `{file}` `{line}` — where a construct is.
     pub build_reason_at_line: &'static str,
     /// The Output after a WebAssembly Build.
@@ -5535,6 +5537,7 @@ const EN: Tr = Tr {
     build_reason_exec_rust: "{at} holds an EXEC RUST block, Rust compiled into the program",
     build_reason_refused: "{at} uses {construct}, which the WebAssembly path does not build yet ({reason})",
     build_reason_runner_unavailable: "the PowerRustCOBOL runner ({name}) is not installed beside the IDE",
+    build_reason_desktop_control: "the form {form} ({file}) holds the control {control} ({type}), which the WebAssembly path does not build yet ({reason})",
     build_reason_at_line: "{file} line {line}",
     build_path_line_wasm: "Path: WebAssembly (no Rust toolchain used)",
     build_path_line_cargo: "Path: Cargo, because {reason}",
@@ -7925,6 +7928,7 @@ const ES: Tr = Tr {
     build_reason_exec_rust: "{at} contiene un bloque EXEC RUST, Rust compilado dentro del programa",
     build_reason_refused: "{at} usa {construct}, que el camino WebAssembly todavía no compila ({reason})",
     build_reason_runner_unavailable: "el ejecutor de PowerRustCOBOL ({name}) no está instalado junto al IDE",
+    build_reason_desktop_control: "el formulario {form} ({file}) contiene el control {control} ({type}), que el camino WebAssembly todavía no compila ({reason})",
     build_reason_at_line: "{file} línea {line}",
     build_path_line_wasm: "Camino: WebAssembly (sin la cadena de herramientas de Rust)",
     build_path_line_cargo: "Camino: Cargo, porque {reason}",
@@ -10315,6 +10319,7 @@ const PT: Tr = Tr {
     build_reason_exec_rust: "{at} contém um bloco EXEC RUST, Rust compilado dentro do programa",
     build_reason_refused: "{at} usa {construct}, que o caminho WebAssembly ainda não compila ({reason})",
     build_reason_runner_unavailable: "o executor do PowerRustCOBOL ({name}) não está instalado ao lado do IDE",
+    build_reason_desktop_control: "o formulário {form} ({file}) contém o controle {control} ({type}), que o caminho WebAssembly ainda não compila ({reason})",
     build_reason_at_line: "{file} linha {line}",
     build_path_line_wasm: "Caminho: WebAssembly (sem o conjunto de ferramentas do Rust)",
     build_path_line_cargo: "Caminho: Cargo, porque {reason}",
@@ -12704,6 +12709,7 @@ const JA: Tr = Tr {
     build_reason_exec_rust: "{at} に EXEC RUST ブロック（プログラムに組み込まれる Rust）がある",
     build_reason_refused: "{at} が、WebAssembly の経路がまだビルドしない {construct} を使っている（{reason}）",
     build_reason_runner_unavailable: "PowerRustCOBOL ランナー（{name}）が IDE と同じ場所にインストールされていない",
+    build_reason_desktop_control: "フォーム {form}（{file}）に、WebAssembly の経路がまだビルドしないコントロール {control}（{type}）がある（{reason}）",
     build_reason_at_line: "{file} の {line} 行目",
     build_path_line_wasm: "経路: WebAssembly（Rust ツールチェーンは使用していません）",
     build_path_line_cargo: "経路: Cargo（理由: {reason}）",
@@ -15100,6 +15106,7 @@ const ZH: Tr = Tr {
     build_reason_exec_rust: "{at} 含有 EXEC RUST 块，即编译进程序的 Rust 代码",
     build_reason_refused: "{at} 使用了 WebAssembly 路径尚不能构建的 {construct}（{reason}）",
     build_reason_runner_unavailable: "IDE 旁边没有安装 PowerRustCOBOL 运行器（{name}）",
+    build_reason_desktop_control: "窗体 {form}（{file}）包含 WebAssembly 路径尚不能构建的控件 {control}（{type}）（{reason}）",
     build_reason_at_line: "{file} 第 {line} 行",
     build_path_line_wasm: "路径：WebAssembly（未使用 Rust 工具链）",
     build_path_line_cargo: "路径：Cargo，因为{reason}",
@@ -17490,6 +17497,7 @@ const FR: Tr = Tr {
     build_reason_exec_rust: "{at} contient un bloc EXEC RUST, du Rust compilé dans le programme",
     build_reason_refused: "{at} utilise {construct}, que le chemin WebAssembly ne compile pas encore ({reason})",
     build_reason_runner_unavailable: "l'exécuteur PowerRustCOBOL ({name}) n'est pas installé à côté de l'IDE",
+    build_reason_desktop_control: "le formulaire {form} ({file}) contient le contrôle {control} ({type}), que le chemin WebAssembly ne compile pas encore ({reason})",
     build_reason_at_line: "{file} ligne {line}",
     build_path_line_wasm: "Chemin : WebAssembly (sans la chaîne d'outils Rust)",
     build_path_line_cargo: "Chemin : Cargo, parce que {reason}",

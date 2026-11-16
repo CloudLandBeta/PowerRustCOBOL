@@ -13,7 +13,7 @@
 //! and seed:
 //!
 //! 1. under `rcrun run-form`, the interpreter;
-//! 2. in the program `rcrun build` makes on the WebAssembly path (`PRC_WASM_FORMS=1`): the runner,
+//! 2. in the program `rcrun build` makes on the WebAssembly path, the default since T33: the runner,
 //!    the module's programs driven by its ABI host.
 //!
 //! After every step that changes something, the script dumps every control's state and takes a
@@ -262,7 +262,6 @@ fn interpreter_and_wasm_engine_agree_on_one_form() {
         .arg("--quiet")
         .env(cobolt_compiler::BUILD_DIR_ENV, root.join("builds"))
         .env("PRC_RUNNER_CACHE", root.join("runner-cache"))
-        .env(cobolt_compiler::WASM_FORMS_ENV, "1")
         .env_remove(cobolt_compiler::RUNNER_ENV)
         .output()
         .expect("run rcrun build");

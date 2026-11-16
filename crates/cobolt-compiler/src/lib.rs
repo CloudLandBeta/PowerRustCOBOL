@@ -1962,9 +1962,6 @@ impl BuildPath {
 /// Why a Build took the Cargo path instead of the WebAssembly one (DESKTOP-WASM-001 R13, R14,
 /// R24; plan §4.7). The Build checks them in the order declared here and names the first that
 /// holds; a construct the generator refuses comes last, after the runner is found.
-///
-/// Not yet here: `DesktopControl { form, control }`. Until M2 every program with forms is a
-/// `Refused` that names its main form, with the generator's reason for forms.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CargoReason {
     /// A Debug Build: the debugger attaches to a program Cargo built (C11).
@@ -1976,6 +1973,11 @@ pub enum CargoReason {
     ExternalCrate,
     /// An `EXEC RUST` block: Rust compiled into the program. `file` is relative to the project.
     ExecRust { file: String, line: u32 },
+    /// A form holds a control the runner does not serve yet, or a control bound to data (T33, plan
+    /// §4.3): the form's ID and its file (relative to the project), the control's ID and type, and
+    /// the reason of its desktop class (`cobolt_wasm::support::desktop_control_gap`). Checked before
+    /// the runner is looked for, so it is named wherever the Build runs.
+    DesktopControl { form: String, file: String, control: String, control_type: String, reason: String },
     /// A construct the WebAssembly path does not take yet, and why (the reason of its Desktop
     /// class, T10). `file` is relative to the project; `line` is 0 when the construct is a whole file.
     Refused { construct: String, reason: String, file: String, line: u32 },
@@ -1995,6 +1997,9 @@ impl std::fmt::Display for CargoReason {
             CargoReason::ExecRust { file, line } => {
                 write!(f, "{} holds an EXEC RUST block, Rust compiled into the program", at(file, *line))
             }
+            CargoReason::DesktopControl { form, file, control, control_type, reason } => {
+                write!(f, "{file}: the form {form} holds the control {control} ({control_type}): {reason}")
+            }
             CargoReason::Refused { construct, reason, file, line } => write!(f, "{}: {construct}: {reason}", at(file, *line)),
             CargoReason::RunnerUnavailable => write!(
                 f,
@@ -2006,12 +2011,6 @@ impl std::fmt::Display for CargoReason {
 
 /// The environment variable that names the PowerRustCOBOL runner a Build uses (DESKTOP-WASM-001 T16).
 pub const RUNNER_ENV: &str = "PRC_RUNNER";
-
-/// While the runner learns forms (DESKTOP-WASM-001 M2, T30–T32), a form project takes the WebAssembly
-/// path only when this is set to `1`, so the runner's form engine can be tested on real Builds; every
-/// other Build of a form project takes the Cargo path, as at M1. T33 replaces it with the check that
-/// sends a form whose controls the runner lacks to the Cargo path, naming them.
-pub const WASM_FORMS_ENV: &str = "PRC_WASM_FORMS";
 
 /// The runner's file name, beside the IDE and `rcrun`.
 pub const RUNNER_NAME: &str = if cfg!(windows) { "prc-runner.exe" } else { "prc-runner" };
@@ -2577,14 +2576,15 @@ fn first_exec_rust_line(program: &cobolt_ast::program::Program) -> Option<u32> {
 }
 
 /// The first reason, in plan §4.7's order, that the program takes the Cargo path before the
-/// generator is asked (DESKTOP-WASM-001 T16): Debug, chosen, External Crates, `EXEC RUST`, forms,
-/// no runner. `Ok` is the runner the WebAssembly path puts the program into. `programs` are the
-/// main program and each form's, with their files; `main_form` is the main form's file.
+/// generator is asked (DESKTOP-WASM-001 T16, T33): Debug, chosen, External Crates, `EXEC RUST`, a
+/// desktop control the runner does not serve, no runner. `Ok` is the runner the WebAssembly path
+/// puts the program into. `programs` are the main program and each form's, with their files;
+/// `forms` are the designs, as [`desktop_control_reason`] takes them.
 fn classify<'p>(
     proj: &CoboltProject,
     opts: &BuildOptions,
     programs: impl Iterator<Item = (&'p str, &'p cobolt_ast::program::Program)>,
-    main_form: Option<(&str, &str)>,
+    forms: &[(&str, &str, &cobolt_forms::Form)],
 ) -> Result<PathBuf, CargoReason> {
     if opts.debug {
         return Err(CargoReason::DebugBuild);
@@ -2600,19 +2600,41 @@ fn classify<'p>(
             return Err(CargoReason::ExecRust { file: file.to_string(), line });
         }
     }
-    // Until the runner has every form verb (M2), a program with forms takes the Cargo path, which
-    // says which form (DESKTOP-WASM-001 T10's reason for forms), unless `PRC_WASM_FORMS=1` asks for
-    // the WebAssembly path ([`WASM_FORMS_ENV`], T30).
-    let forms_asked = std::env::var(WASM_FORMS_ENV).is_ok_and(|v| v.trim() == "1");
-    if let Some((id, file)) = main_form.filter(|_| !forms_asked) {
-        return Err(CargoReason::Refused {
-            construct: format!("the form {id}"),
-            reason: cobolt_wasm::support::D_FORMS.to_string(),
-            file: file.to_string(),
-            line: 0,
-        });
+    if let Some(reason) = desktop_control_reason(forms) {
+        return Err(reason);
     }
     opts.runner.clone().filter(|p| p.is_file()).or_else(runner_path).ok_or(CargoReason::RunnerUnavailable)
+}
+
+/// The first control of `forms` the runner does not serve yet, in the forms' order and each form's
+/// document order, else the first control bound to data, as the reason the Build takes the Cargo
+/// path, naming the form, its file and the control (DESKTOP-WASM-001 T33, plan §4.3). `forms` are
+/// `(ID, file relative to the project, design)`.
+fn desktop_control_reason(forms: &[(&str, &str, &cobolt_forms::Form)]) -> Option<CargoReason> {
+    fn first_gap(cs: &[cobolt_forms::Control]) -> Option<(&cobolt_forms::Control, &'static str)> {
+        cs.iter().find_map(|c| cobolt_wasm::support::desktop_control_gap(&c.control_type).map(|why| (c, why)).or_else(|| first_gap(&c.children)))
+    }
+    fn find<'c>(cs: &'c [cobolt_forms::Control], id: &str) -> Option<&'c cobolt_forms::Control> {
+        cs.iter().find_map(|c| if c.id.eq_ignore_ascii_case(id) { Some(c) } else { find(&c.children, id) })
+    }
+    for (id, file, form) in forms {
+        let reason = |control: &str, control_type: String, why: &str| CargoReason::DesktopControl {
+            form: id.to_string(),
+            file: file.to_string(),
+            control: control.to_string(),
+            control_type,
+            reason: why.to_string(),
+        };
+        if let Some((c, why)) = first_gap(&form.controls) {
+            return Some(reason(&c.id, c.control_type.as_str().to_string(), why));
+        }
+        if let Some(b) = form.data_bindings.first() {
+            let target = b.target.primary_control_id();
+            let kind = find(&form.controls, target).map_or_else(|| "control array".to_string(), |c| c.control_type.as_str().to_string());
+            return Some(reason(target, kind, cobolt_wasm::support::desktop_binding_gap(&b.source)));
+        }
+    }
+    None
 }
 
 /// The generator's refusal as the reason the Build takes the Cargo path (DESKTOP-WASM-001 R13):
@@ -3147,20 +3169,30 @@ fn build_core(
 
     // ── 5c. Classify: the WebAssembly path, or Cargo and why ─────────────────
     // DESKTOP-WASM-001 plan §4.7: Debug → chosen → External Crates → EXEC RUST
-    // → forms → runner, then the generator, whose refusal names the construct,
+    // → desktop controls → runner, then the generator, whose refusal names the construct,
     // its file and its line (R13, R14). The first reason that holds is the one
     // the Build reports.
     clock.enter(BuildPhase::Classify);
     report(0.45, "Choosing the build path…");
-    let main_form = forms.first().and_then(|(id, _)| {
-        proj.files
-            .forms
-            .iter()
-            .find(|rel| Path::new(rel).file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case(id)))
-            .map(|rel| (id.clone(), rel.clone()))
-    });
+    // Each form's design and its file as the project lists it. A design that does not parse is
+    // left out here, as it is from the module below.
+    let designs: Vec<(String, String, cobolt_forms::Form)> = forms
+        .iter()
+        .filter_map(|(id, raw)| {
+            let form = cobolt_forms::load_form_from_str(std::str::from_utf8(raw).ok()?).ok()?;
+            let rel = proj
+                .files
+                .forms
+                .iter()
+                .find(|rel| Path::new(rel).file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case(id)))
+                .cloned()
+                .unwrap_or_else(|| format!("forms/{id}.cfrm"));
+            Some((id.clone(), rel, form))
+        })
+        .collect();
+    let form_refs: Vec<(&str, &str, &cobolt_forms::Form)> = designs.iter().map(|(id, rel, f)| (id.as_str(), rel.as_str(), f)).collect();
     let programs = std::iter::once((main_rel.as_str(), &program)).chain(form_units.iter().map(|u| (u.rel.as_str(), &u.program)));
-    let chosen = classify(&proj, opts, programs, main_form.as_ref().map(|(id, rel)| (id.as_str(), rel.as_str())));
+    let chosen = classify(&proj, opts, programs, &form_refs);
     let chosen = match chosen {
         Ok(runner) => {
             clock.enter(BuildPhase::Generate);
@@ -3169,18 +3201,11 @@ fn build_core(
             // A form project is one module with every form whose program the Build has: the main
             // form's (the program above) first, then each openable form's (T30). A refusal in a
             // form's program names that form's generated file.
-            let designs: Vec<(String, cobolt_forms::Form)> = forms
-                .iter()
-                .filter_map(|(id, raw)| {
-                    let form = cobolt_forms::load_form_from_str(std::str::from_utf8(raw).ok()?).ok()?;
-                    Some((id.clone(), form))
-                })
-                .collect();
             let compiled = match designs.first() {
-                Some((_, main)) => {
+                Some((_, _, main)) => {
                     let mut specs = vec![form_spec(main, &program, true, Vec::new())];
                     for u in &form_units {
-                        if let Some((_, f)) = designs.iter().skip(1).find(|(id, _)| *id == u.id) {
+                        if let Some((_, _, f)) = designs.iter().skip(1).find(|(id, _, _)| *id == u.id) {
                             specs.push(form_spec(f, &u.program, false, Vec::new()));
                         }
                     }
@@ -7504,11 +7529,17 @@ The Build takes the Cargo path, and says why, when:
 - a program holds an `EXEC RUST` block (the file and line are named);
 - a program uses a construct the WebAssembly path does not build yet: the Build
   names the construct, its file and its line. The path builds console programs
-  today. A project with forms takes the Cargo path, and so does a program with a
-  file (on the desktop an INDEXED file declared `STORAGE IS MEMORY` is read from
+  and form programs (the controls the runner draws, opening forms, the shell and
+  its SideMenu, timers and file dialogs). A program takes the Cargo path when it
+  has a file (on the desktop an INDEXED file declared `STORAGE IS MEMORY` is read from
   its disk file, so it counts as one), `EXEC SQL`, HTTP, national data, pointers,
   `TRY` or `THROW`. The column *On the Desktop* of "What runs in a browser module"
   below lists every statement and built-in;
+- a form holds a control the runner does not serve yet (a service control such as
+  a file, database, HTTP, AI, search, cloud or sign-in control; a canvas or
+  graphics object; Maps; the Viewer), or a control bound to data (Data Binding):
+  the Build names the form, its file, the control and its type. "Controls on the
+  Desktop" below lists them;
 - the runner is not installed beside the IDE or `rcrun`, and the variable
   `PRC_RUNNER` names none.
 
@@ -7962,6 +7993,7 @@ fn browser_subset_doc() -> String {
         match n {
             Native::Module => ("yes".into(), String::new()),
             Native::Host(cap) => (format!("yes, with the runner's `{cap}`"), String::new()),
+            Native::Form => ("yes, in a form's program".into(), "a program with no form takes the Cargo path for it".into()),
             Native::Cargo(why) => ("Cargo path".into(), why.to_string()),
         }
     };
@@ -7972,7 +8004,8 @@ fn browser_subset_doc() -> String {
          instead. This section is written from the generator's own tables, so it is what the Build accepts.\n\n\
          The column **On the Desktop** says how the same construct fares in a Desktop program built on the WebAssembly path, which \
          is the Desktop Build's default (see `[desktop]` above): *yes* is compiled into the module; *yes, with \
-         the runner's* `name` is compiled into the module and served by the desktop runner's capability of that name; *Cargo path* \
+         the runner's* `name` is compiled into the module and served by the desktop runner's capability of that name; *yes, in a \
+         form's program* is served to a form's handlers and a program with no form takes the Cargo path for it; *Cargo path* \
          sends the Build to the Cargo path, which names the construct and the reason. `ACCEPT` from the console needs `console`, \
          and from the environment or the command line `env`; `STOP RUN` and `GOBACK` end the program in the module. There \
          `RETURN-CODE` is a whole number of up to 18 digits: `MOVE`, `ADD`, `SUBTRACT`, `MULTIPLY`, `COMPUTE`, `DISPLAY` and \
@@ -8022,6 +8055,24 @@ fn browser_subset_doc() -> String {
         let api = b.api.map(|(api, _)| api.to_string()).unwrap_or_default();
         let (on_desktop, because) = desktop(&b.native);
         d.push_str(&format!("| {} | {yes} | {api} | {why} | {on_desktop} | {because} |\n", b.name));
+    }
+    // DESKTOP-WASM-001 T33: the controls a Desktop form may hold on the WebAssembly path, written
+    // from the generator's own check, so the list is what the Build refuses.
+    d.push_str(
+        "\n### Controls on the Desktop\n\n\
+         A Desktop form builds on the WebAssembly path when the runner serves every control it holds and no control is bound to \
+         data. Otherwise the Build takes the Cargo path and names the form, its file, the first such control and its type. The \
+         runner serves every control of the toolbox but these:\n\n\
+         | Control | Why |\n|---|---|\n",
+    );
+    for t in cobolt_forms::model::ControlType::ALL {
+        if let Some(why) = cobolt_wasm::support::desktop_control_gap(t) {
+            d.push_str(&format!("| {} | {why} |\n", t.as_str()));
+        }
+    }
+    d.push_str("\nA control bound to data (Data Binding) takes the Cargo path too, whatever its type:\n\n| Bound to | Why |\n|---|---|\n");
+    for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {
+        d.push_str(&format!("| {source} | {why} |\n"));
     }
     d
 }
@@ -14032,9 +14083,10 @@ function_prefix = "sales-"
     /// **DESKTOP-WASM-001 R18, R20 (T2)** — a Build reports the time of each phase that ran
     /// and its peak memory. One real Build of a one-form project on the Cargo path, into the
     /// default build folder (the shared cache, as the IDE builds): the phases are
-    /// `regenerate`, `front end`, `classify` (T16: a program with forms takes the Cargo path
-    /// until M2, and the reason names its form), `cargo` and `install`, in that order; their sum
-    /// is at most the wall time; the peak is above zero; and every progress update names its
+    /// `regenerate`, `front end`, `classify` (the Build asks for the Cargo path, as
+    /// `rcrun build --cargo` does, since T33 builds a form on the WebAssembly path), `cargo` and
+    /// `install`, in that order; their sum is at most the wall time; the peak is above zero; and
+    /// every progress update names its
     /// phase, with a time since the start that never goes back.
     #[test]
     fn build_reports_phases_and_peak() {
@@ -14059,6 +14111,7 @@ function_prefix = "sales-"
             verbose: false,
             workspace_root: Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).map(Path::to_path_buf),
             progress: Some(tx),
+            force_cargo: true,
             ..Default::default()
         };
         let t = std::time::Instant::now();
@@ -14073,10 +14126,7 @@ function_prefix = "sales-"
         let sum: std::time::Duration = built.phases.iter().map(|(_, d)| *d).sum();
         let names: Vec<BuildPhase> = built.phases.iter().map(|(p, _)| *p).collect();
         let expected = [BuildPhase::Regenerate, BuildPhase::FrontEnd, BuildPhase::Classify, BuildPhase::Cargo, BuildPhase::Install];
-        let form_reason = matches!(
-            &built.cargo_build().reason,
-            CargoReason::Refused { construct, file, line: 0, .. } if construct == "the form MAIN" && file == "forms/main.cfrm"
-        );
+        let chosen = matches!(&built.cargo_build().reason, CargoReason::Chosen);
         let backwards = updates.windows(2).filter(|w| w[1].elapsed < w[0].elapsed).count();
         let mut seen: Vec<BuildPhase> = updates.iter().map(|u| u.phase).collect();
         seen.sort();
@@ -14085,7 +14135,7 @@ function_prefix = "sales-"
 
         let checks = [
             ("path is Cargo", built.path == BuildPath::Cargo),
-            ("the reason names the form MAIN in forms/main.cfrm", form_reason),
+            ("the reason is the Cargo path asked for", chosen),
             ("phases are regenerate, front end, classify, cargo, install", names == expected),
             ("sum of phases <= wall time", sum <= wall),
             ("peak memory > 0", built.peak_rss.is_some_and(|b| b > 0)),
@@ -14093,7 +14143,7 @@ function_prefix = "sales-"
             ("elapsed never goes back", backwards == 0),
         ];
         println!("== build_reports_phases_and_peak (DESKTOP-WASM-001 T2, R18, R20) ==");
-        println!("project: one form (MAIN, one Label), Cargo path, release, default build folder");
+        println!("project: one form (MAIN, one Label), Cargo path asked for, release, default build folder");
         for (phase, took) in &built.phases {
             println!("  {:<10} {:>9.1} ms", phase.name(), took.as_secs_f64() * 1000.0);
         }
@@ -14107,6 +14157,69 @@ function_prefix = "sales-"
         }
         println!("result: {passed} of {} checks passed", checks.len());
         assert_eq!(passed, checks.len(), "phases {names:?}, sum {sum:?}, wall {wall:?}, peak {:?}, seen {seen:?}, backwards {backwards}", built.peak_rss);
+    }
+
+    /// **DESKTOP-WASM-001 T33 (R13, plan §4.3)** — a form holding a control the runner does not
+    /// serve, or a control bound to data, sends the Build to the Cargo path, and the reason names
+    /// the form, its file, the control and its type. Controls the runner draws pass, nested ones
+    /// are found inside their container, and the forms are searched in order.
+    #[test]
+    fn desktop_controls_the_runner_lacks_are_named() {
+        use cobolt_forms::{Control, ControlType as T, Form};
+        let form = |id: &str, controls: Vec<Control>| {
+            let mut f = Form::new(id, id, 400, 300);
+            f.controls = controls;
+            f
+        };
+        let ctl = |id: &str, t: T| Control::new(id, t, 10, 10);
+        let mut panel = ctl("PNL-SIDE", T::Panel);
+        panel.children.push(ctl("TXT-NAME", T::TextBox));
+        let served = form("MAIN", vec![ctl("BTN-GO", T::Button), ctl("LBL-HELLO", T::Label), panel.clone(), ctl("GRD-ROWS", T::DataGrid)]);
+        let mut nested = panel.clone();
+        nested.children.push(ctl("MAP-CITY", T::Maps));
+        let with_maps = form("MAIN", vec![ctl("BTN-GO", T::Button), nested]);
+        let second = form("ORDERS", vec![ctl("LBL-X", T::Label), ctl("CNV-PLOT", T::Canvas2D)]);
+        let mut bound = form("MAIN", vec![ctl("LBL-TOTAL", T::Label)]);
+        bound.data_bindings.push(cobolt_forms::model::DataBindingDef::new(
+            "Bind-Total",
+            "Total",
+            cobolt_forms::model::BindingSourceDescriptor::IndexedFile {
+                definition_path: "data/orders.cidx".into(),
+                record_name: "ORDER-REC".into(),
+                fields: Vec::new(),
+                key_field: None,
+                writable: false,
+            },
+            cobolt_forms::model::BindingTargetDescriptor::ScalarControl { control_id: "LBL-TOTAL".into() },
+        ));
+
+        let t = std::time::Instant::now();
+        let none = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &served)]);
+        let maps = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &with_maps)]);
+        let canvas = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &served), ("ORDERS", "forms/orders.cfrm", &second)]);
+        let binding = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &bound)]);
+        let took = t.elapsed();
+        let is = |r: &Option<CargoReason>, f: &str, file: &str, c: &str, ty: &str, milestone: &str| {
+            matches!(r, Some(CargoReason::DesktopControl { form, file: fl, control, control_type, reason })
+                if form == f && fl == file && control == c && control_type == ty && reason.contains(milestone))
+        };
+        let text = maps.as_ref().map(|r| r.to_string()).unwrap_or_default();
+        let checks = [
+            ("Button, Label, Panel + TextBox, DataGrid: none", none.is_none()),
+            ("Maps inside a Panel: MAIN, forms/main.cfrm, MAP-CITY, Maps, M6", is(&maps, "MAIN", "forms/main.cfrm", "MAP-CITY", "Maps", "(DESKTOP-WASM-001 M6)")),
+            ("the message names the file, the form and the control", text.contains("forms/main.cfrm") && text.contains("MAIN") && text.contains("MAP-CITY (Maps)")),
+            ("a Canvas2D on the second form: ORDERS, forms/orders.cfrm, CNV-PLOT", is(&canvas, "ORDERS", "forms/orders.cfrm", "CNV-PLOT", "Canvas2D", "(DESKTOP-WASM-001 M6)")),
+            ("a Label bound to an indexed file: LBL-TOTAL, Label, M3", is(&binding, "MAIN", "forms/main.cfrm", "LBL-TOTAL", "Label", "(DESKTOP-WASM-001 M3)")),
+        ];
+        println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, R13) ==");
+        println!("forms: 4 designs, 12 controls (3 nested), 1 binding; 4 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
+        println!("  Maps: {text}");
+        let passed = checks.iter().filter(|(_, ok)| *ok).count();
+        for (what, ok) in &checks {
+            println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
+        }
+        println!("result: {passed} of {} checks passed", checks.len());
+        assert_eq!(passed, checks.len(), "maps {maps:?}, canvas {canvas:?}, binding {binding:?}");
     }
 
     // ── Build profile: the button chooses, not the project ────────────────────
@@ -16500,7 +16613,27 @@ mod published_documentation_tests {
             statements += 1;
         }
         assert!(section.contains("FILE STATUS **89**") && section.contains("STORAGE IS MEMORY"));
+        // DESKTOP-WASM-001 T33: every control the runner does not serve is listed, and only those.
+        let controls = section.split("### Controls on the Desktop").nth(1).expect("the controls subsection is there");
+        let (mut listed, mut served) = (0, 0);
+        for t in cobolt_forms::model::ControlType::ALL {
+            let row = format!("| {} |", t.as_str());
+            match cobolt_wasm::support::desktop_control_gap(t) {
+                Some(why) => {
+                    assert!(controls.contains(&format!("{row} {why} |")), "{} is not listed with its reason", t.as_str());
+                    listed += 1;
+                }
+                None => {
+                    assert!(!controls.contains(&row), "{} is served but listed", t.as_str());
+                    served += 1;
+                }
+            }
+        }
+        for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {
+            assert!(controls.contains(&format!("| {source} | {why} |")), "binding to {source} is not listed");
+        }
         println!("browser subset: {builtins} built-ins and {statements} statements in the System KB");
+        println!("controls on the Desktop: {listed} listed with their reason, {served} served and not listed, {} binding sources", cobolt_wasm::support::DESKTOP_BINDING_GAPS.len());
     }
 
     /// `system_documentation()` is exactly what publishing writes: the same

@@ -149,12 +149,12 @@ fn native_fault(name: &str, n: Option<Native>) -> Option<String> {
 }
 
 /// AC10: every statement and every built-in has a Desktop class, as the
-/// WebAssembly path stands at the end of M1 (console programs).
+/// WebAssembly path stands at M2 (console programs, and forms since T33).
 #[test]
 fn every_statement_and_builtin_has_a_native_class() {
     use cobolt_wasm::support::{statement_native, STATEMENT_TABLE};
     let t = std::time::Instant::now();
-    let (mut module, mut host, mut cargo) = (0, 0, 0);
+    let (mut module, mut host, mut form, mut cargo) = (0, 0, 0, 0);
     let mut caps = std::collections::BTreeSet::new();
     let mut faults = Vec::new();
     let mut tally = |name: &str, n: Option<Native>| {
@@ -167,6 +167,7 @@ fn every_statement_and_builtin_has_a_native_class() {
                 host += 1;
                 caps.insert(c);
             }
+            Some(Native::Form) => form += 1,
             Some(Native::Cargo(_)) => cargo += 1,
             None => {}
         }
@@ -189,6 +190,9 @@ fn every_statement_and_builtin_has_a_native_class() {
         ("STOP", statement_native("STOP") == Some(Native::Module)),
         ("GOBACK", statement_native("GOBACK") == Some(Native::Module)),
         ("MOVE", statement_native("MOVE") == Some(Native::Module)),
+        // T33: a form's program is served the controls and the application object.
+        ("INVOKE", statement_native("INVOKE") == Some(Native::Form)),
+        ("SET-PROPERTY", builtin_entry("SET-PROPERTY").map(|b| b.native) == Some(Native::Form)),
     ];
     let fixed_ok = fixed.iter().filter(|(_, ok)| *ok).count();
     // A Cargo reason names the milestone of DESKTOP-WASM-001 that moves the entry; only
@@ -203,8 +207,8 @@ fn every_statement_and_builtin_has_a_native_class() {
     eprintln!(
         "native column (DESKTOP-WASM-001 T10, AC10)\n  \
          entries: {} statements + {} built-ins = {checked}\n  \
-         classes: {module} in the module, {host} through the runner ({caps:?}), {cargo} on the Cargo path\n  \
-         fixed points of M1: {fixed_ok} of {} (EXEC RUST, ACCEPT, STOP, GOBACK, MOVE)\n  \
+         classes: {module} in the module, {host} through the runner ({caps:?}), {form} in a form's program, {cargo} on the Cargo path\n  \
+         fixed points: {fixed_ok} of {} (EXEC RUST, ACCEPT, STOP, GOBACK, MOVE; INVOKE, SET-PROPERTY in a form)\n  \
          faults: {}; Cargo reasons with no milestone: {}\n  \
          time: {:.3} ms\n  \
          result: {}",
@@ -219,7 +223,73 @@ fn every_statement_and_builtin_has_a_native_class() {
     assert!(faults.is_empty(), "{faults:#?}");
     assert!(undated.is_empty(), "Cargo reasons that name no milestone: {undated:?}");
     assert_eq!(fixed_ok, fixed.len(), "{fixed:?}");
-    assert_eq!(module + host + cargo, checked, "one class per entry");
+    assert_eq!(module + host + form + cargo, checked, "one class per entry");
+}
+
+/// T33 (R13, plan §4.3): every control type of the toolbox has a Desktop class. The runner serves
+/// the controls of classes A and B (HTML and drawn) and the DataGrid; a service control, a canvas
+/// or graphics object, Maps, the Viewer and an unknown type send the Build to the Cargo path with
+/// a reason naming the milestone that moves it. So does a control bound to data, for each source.
+#[test]
+fn every_control_has_a_desktop_class() {
+    use cobolt_forms::model::{BindingSourceDescriptor as S, ControlType};
+    use cobolt_wasm::support::{desktop_binding_gap, desktop_control_gap, DESKTOP_BINDING_GAPS};
+    let t = std::time::Instant::now();
+    let mut served = 0usize;
+    let mut by_reason: std::collections::BTreeMap<&str, Vec<&str>> = std::collections::BTreeMap::new();
+    for ct in ControlType::ALL {
+        match desktop_control_gap(ct) {
+            None => served += 1,
+            Some(why) => by_reason.entry(why).or_default().push(ct.as_str()),
+        }
+    }
+    let gaps: usize = by_reason.values().map(Vec::len).sum();
+    let undated: Vec<&&str> = by_reason.keys().filter(|why| !why.contains("(DESKTOP-WASM-001 M")).collect();
+    let fixed = [
+        ("Button served", desktop_control_gap(&ControlType::Button).is_none()),
+        ("Label served", desktop_control_gap(&ControlType::Label).is_none()),
+        ("SideMenu served", desktop_control_gap(&ControlType::SideMenu).is_none()),
+        ("Timer served", desktop_control_gap(&ControlType::Timer).is_none()),
+        ("DataGrid served", desktop_control_gap(&ControlType::DataGrid).is_none()),
+        ("Maps refused (M6)", desktop_control_gap(&ControlType::Maps).is_some_and(|w| w.contains("M6"))),
+        ("Canvas2D refused (M6)", desktop_control_gap(&ControlType::Canvas2D).is_some_and(|w| w.contains("M6"))),
+        ("an unknown type refused", desktop_control_gap(&ControlType::from_str("NoSuchControl")).is_some()),
+    ];
+    let fixed_ok = fixed.iter().filter(|(_, ok)| *ok).count();
+    let sources = [
+        S::IndexedFile { definition_path: String::new(), record_name: String::new(), fields: Vec::new(), key_field: None, writable: false },
+        S::Sql {
+            source_control_id: String::new(),
+            query_name: String::new(),
+            result_set_name: String::new(),
+            fields: Vec::new(),
+            key_fields: Vec::new(),
+            writable: false,
+            query: String::new(),
+            table_name: String::new(),
+        },
+        S::RestApi { source_control_id: String::new(), endpoint_name: String::new(), response_data_item: String::new(), fields: Vec::new(), update: None },
+        S::CobolTable { table_name: String::new(), occurs_item: String::new(), fields: Vec::new(), key_fields: Vec::new(), writable: false },
+        S::AgentAi { source_control_id: String::new(), output_name: String::new(), fields: Vec::new(), update: None },
+        S::PartiQl { source_control_id: String::new(), query: String::new(), parameters: Vec::new(), fields: Vec::new(), key_fields: Vec::new(), writable: false },
+    ];
+    let bindings: Vec<&str> = sources.iter().map(desktop_binding_gap).collect();
+    let binding_rows_ok = bindings.iter().zip(DESKTOP_BINDING_GAPS).all(|(why, (_, row))| why == row) && bindings.len() == DESKTOP_BINDING_GAPS.len();
+    let bindings_dated = bindings.iter().all(|w| w.contains("(DESKTOP-WASM-001 M"));
+    eprintln!("controls on the Desktop (DESKTOP-WASM-001 T33, R13)");
+    eprintln!("  control types: {} = {served} served + {gaps} on the Cargo path", ControlType::ALL.len());
+    for (why, names) in &by_reason {
+        eprintln!("    {:>2} {}: {}", names.len(), why.split(" (DESKTOP-WASM-001").next().unwrap_or(why), names.join(", "));
+    }
+    eprintln!("  fixed points: {fixed_ok} of {}", fixed.len());
+    eprintln!("  bound to data: {} sources, one row each: {binding_rows_ok}; every reason names its milestone: {bindings_dated}", sources.len());
+    eprintln!("  reasons with no milestone: {}", undated.len());
+    eprintln!("  time: {:.3} ms", t.elapsed().as_secs_f64() * 1e3);
+    let ok = fixed_ok == fixed.len() && undated.is_empty() && binding_rows_ok && bindings_dated && served + gaps == ControlType::ALL.len();
+    eprintln!("  result: {}", if ok { "PASS" } else { "FAIL" });
+    assert_eq!(fixed_ok, fixed.len(), "{fixed:?}");
+    assert!(undated.is_empty(), "control reasons that name no milestone: {undated:?}");
+    assert!(binding_rows_ok && bindings_dated, "{bindings:?}");
 }
 
 /// AC10's twin: a name with no row has no Desktop class, and the check names it;

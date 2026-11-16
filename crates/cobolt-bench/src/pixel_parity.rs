@@ -663,6 +663,8 @@ fn run_project(name: &str, args: &Args, scratch: &Path, build_root: &Path, golde
             verbose: false,
             workspace_root: Some(repo_root()),
             build_dir: Some(build_root.to_path_buf()),
+            // A form of served controls takes the WebAssembly path by default since T33.
+            force_cargo: true,
             ..Default::default()
         };
         let built = cobolt_compiler::build_project(&manifest, &opts).map_err(|e| format!("the Build failed: {e}"))?;

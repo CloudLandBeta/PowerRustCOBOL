@@ -85,19 +85,20 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
         e.subject == "COBOL::\"HTTP-GET\"" && e.line == line_of(&http, "HTTP-GET") && e.message.contains("HTTP is not on the WebAssembly path yet") && e.message.contains("M4"),
     );
 
-    // The form and the application object: refused at the member, with M2's reason.
+    // The form and the application object in a program with no form: refused at the member, with
+    // the reason that a form's program is served them (T33).
     let me = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-T PIC X(20).\nPROCEDURE DIVISION.\n    MOVE ME::Title TO WS-T\n    STOP RUN.\n");
     let e = refusal(&me);
     check(
-        "ME::Title read: refused as ME::TITLE at its line, forms (M2)".into(),
-        e.subject == "ME::TITLE" && e.line == line_of(&me, "ME::Title") && e.message.contains("forms, their controls and the application object") && e.message.contains("M2"),
+        "ME::Title read with no form: refused as ME::TITLE at its line, no form (M2)".into(),
+        e.subject == "ME::TITLE" && e.line == line_of(&me, "ME::Title") && e.message.contains("a program with no form has no controls or application object") && e.message.contains("M2"),
     );
     let set = format!("{HEAD}PROCEDURE DIVISION.\n    MOVE \"x\" TO ME::Title\n    STOP RUN.\n");
     let e = refusal(&set);
-    check("ME::Title written: refused as ME::TITLE at its line, forms (M2)".into(), e.subject == "ME::TITLE" && e.line == line_of(&set, "ME::Title") && e.message.contains("M2"));
+    check("ME::Title written with no form: refused as ME::TITLE at its line, no form (M2)".into(), e.subject == "ME::TITLE" && e.line == line_of(&set, "ME::Title") && e.message.contains("M2"));
     let invoke = format!("{HEAD}PROCEDURE DIVISION.\n    INVOKE ME \"Close\"\n    STOP RUN.\n");
     let e = refusal(&invoke);
-    check("INVOKE: refused at its line, forms (M2)".into(), e.subject == "INVOKE" && e.line == line_of(&invoke, "INVOKE") && e.message.contains("M2"));
+    check("INVOKE with no form: refused at its line, no form (M2)".into(), e.subject == "INVOKE" && e.line == line_of(&invoke, "INVOKE") && e.message.contains("M2"));
 
     // A nested program's refusal names that program.
     let nested = format!(

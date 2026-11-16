@@ -22,13 +22,17 @@ pub enum Native {
     /// Compiled into the module, and served by the desktop runner through a capability (a name of
     /// `cobolt_wasm_abi::codes::cap`, WASM-ABI-v1 A27).
     Host(&'static str),
+    /// Compiled into a form's program and served by the runner's ABI host with the form, its
+    /// controls and the application object (DESKTOP-WASM-001 M2, T33). A program with no form
+    /// has none of them, so there it sends the Build to the Cargo path ([`D_FORMS`]).
+    Form,
     /// Not on the WebAssembly path yet, or never (`EXEC RUST`): the Build takes the Cargo path, for this reason.
     Cargo(&'static str),
 }
 
 // The reasons of the Desktop column. Each names the milestone of DESKTOP-WASM-001 that moves the entry.
-/// Why a project with forms takes the Cargo path until M2: the Desktop Build names it for a form (DESKTOP-WASM-001 T16).
-pub const D_FORMS: &str = "forms, their controls and the application object are not on the WebAssembly path yet (DESKTOP-WASM-001 M2)";
+/// Why a program with no form takes the Cargo path for an entry of class [`Native::Form`] (DESKTOP-WASM-001 T33).
+pub const D_FORMS: &str = "a program with no form has no controls or application object in its module, so it takes the Cargo path for them (DESKTOP-WASM-001 M2 serves them to a form's program)";
 pub(crate) const D_FILES: &str = "files are not on the WebAssembly path yet (DESKTOP-WASM-001 M3): on the desktop every file is on disk, and an INDEXED file declared STORAGE IS MEMORY is read from its file";
 const D_FILE_BUILTINS: &str = "the file and image built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
 pub(crate) const D_SORT: &str = "SORT with USING or GIVING files is not on the WebAssembly path yet (DESKTOP-WASM-001 M3); with an INPUT and an OUTPUT PROCEDURE it is compiled into the module";
@@ -259,17 +263,17 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("BINDING-SET-PENDING", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("BINDING-SET-READ-ONLY", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("BINDING-UPDATE", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("CHART-ADD-POINT", Support::Module, cargo(D_FORMS)),
-    c("CHART-CLEAR", Support::Module, cargo(D_FORMS)),
-    c("CHART-REFRESH", Support::Module, cargo(D_FORMS)),
-    c("CHART-SET-TABLE", Support::Module, cargo(D_FORMS)),
+    c("CHART-ADD-POINT", Support::Module, Native::Form),
+    c("CHART-CLEAR", Support::Module, Native::Form),
+    c("CHART-REFRESH", Support::Module, Native::Form),
+    c("CHART-SET-TABLE", Support::Module, Native::Form),
     c("CLOSE-DB", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("EXEC-SQL", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("FETCH-ROW", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("FILE-STATUS", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
     // `showDirectoryPicker` is Chrome's only: Q7's parity rule leaves it out.
     c("FOLDER-DIALOG", Support::Unsupported("a browser page cannot choose a folder in every engine (showDirectoryPicker is Chrome's only)"), Native::Host(cap::DIALOGS)),
-    c("GET-PROPERTY", Support::Module, cargo(D_FORMS)),
+    c("GET-PROPERTY", Support::Module, Native::Form),
     c("HTTP-CLEAR-HEADERS", Support::BackendOnly(HTTP), cargo(D_HTTP)),
     c("HTTP-DELETE", Support::BackendOnly(HTTP), cargo(D_HTTP)),
     c("HTTP-DOWNLOAD", Support::BackendOnly(HTTP), cargo(D_HTTP)),
@@ -279,7 +283,7 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("HTTP-SET-HEADER", Support::BackendOnly(HTTP), cargo(D_HTTP)),
     c("IMAGE-FIT", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
     c("IMAGE-INFO", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
-    c("INIT-FORM", Support::Module, cargo(D_FORMS)),
+    c("INIT-FORM", Support::Module, Native::Form),
     c("KEY-IS-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
     c("KEY-REMOVE", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
     c("KEY-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
@@ -300,7 +304,7 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("PARTIQL-FETCH", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
     c("PROVIDER-COUNT", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
     c("PROVIDER-GET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("RAISE-EVENT", Support::Module, cargo(D_FORMS)),
+    c("RAISE-EVENT", Support::Module, Native::Form),
     c("ROW-COUNT", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("SAVE-FILE-DIALOG", Support::Unsupported(NO_PATHS), Native::Host(cap::DIALOGS)),
     // The phone shell's verbs (WASM-012 R9, ABI A26): a Mobile module compiles
@@ -309,8 +313,8 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     web("SECUREDELETE", PHONE_STORE, BOTH, cargo(D_PHONE)),
     web("SECURELOAD", PHONE_STORE, BOTH, cargo(D_PHONE)),
     web("SECURESTORE", PHONE_STORE, BOTH, cargo(D_PHONE)),
-    c("SET-PROPERTY", Support::Module, cargo(D_FORMS)),
-    c("WAIT-EVENT", Support::Module, cargo(D_FORMS)),
+    c("SET-PROPERTY", Support::Module, Native::Form),
+    c("WAIT-EVENT", Support::Module, Native::Form),
     c("WRITE-FILE", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
     c("WS-CANCELLED", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
     c("WS-CLAIM", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
@@ -395,7 +399,7 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("IF", Support::Module, Native::Module),
     ("INITIALIZE", Support::Module, Native::Module),
     ("INSPECT", Support::Module, Native::Module),
-    ("INVOKE", Support::Module, Native::Cargo(D_FORMS)),
+    ("INVOKE", Support::Module, Native::Form),
     ("MERGE", Support::BackendOnly("MERGE reads files, which are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"), Native::Cargo(D_FILES_M3)),
     ("MOVE", Support::Module, Native::Module),
     ("MOVE CORRESPONDING", Support::Module, Native::Module),
@@ -421,10 +425,10 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("UNLOCK", Support::BackendOnly(BACKEND_FILES), Native::Cargo(D_FILES_M3)),
     ("UNSTRING", Support::Module, Native::Module),
     ("WRITE", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
-    ("control assignment", Support::Module, Native::Cargo(D_FORMS)),
+    ("control assignment", Support::Module, Native::Form),
     ("end of sentence", Support::Module, Native::Module),
-    ("member call", Support::Module, Native::Cargo(D_FORMS)),
-    ("window operation", Support::Module, Native::Cargo(D_FORMS)),
+    ("member call", Support::Module, Native::Form),
+    ("window operation", Support::Module, Native::Form),
 ];
 
 /// The browser class of [`STATEMENT_TABLE`]'s row for a statement name.
@@ -438,14 +442,78 @@ pub fn statement_native(name: &str) -> Option<Native> {
 }
 
 /// Why a desktop module cannot hold the statement `s` yet: the reason of its Desktop class when that
-/// class is `Cargo` (DESKTOP-WASM-001 T16). A file verb and `SORT` are judged at their file instead,
-/// since a file held in memory and a SORT with procedures are compiled into the module.
-pub fn desktop_refusal(s: &Stmt) -> Option<&'static str> {
+/// class is `Cargo`, or `Form` outside a form's program (`in_form` false) (DESKTOP-WASM-001 T16,
+/// T33). A file verb and `SORT` are judged at their file instead, since a file held in memory and a
+/// SORT with procedures are compiled into the module.
+pub fn desktop_refusal(s: &Stmt, in_form: bool) -> Option<&'static str> {
     if matches!(support(s), Support::MemoryFiles(_)) {
         return None;
     }
     match statement_native(stmt_name(s))? {
         Native::Cargo(why) => Some(why),
+        Native::Form => (!in_form).then_some(D_FORMS),
         Native::Module | Native::Host(_) => None,
     }
+}
+
+// ── The controls of a desktop form (DESKTOP-WASM-001 T33, plan §4.3) ─────────────────────────────
+
+const D_SERVICE: &str = "the service controls (files, databases, HTTP, AI, search, cloud and sign-in) are not on the WebAssembly path yet (DESKTOP-WASM-001 M3, M4 and M6)";
+const D_CANVAS: &str = "the canvases and the graphics objects are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_MAPS: &str = "the Maps control's places and directions are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_VIEWER: &str = "the Viewer's documents and verbs are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know takes the Cargo path (DESKTOP-WASM-001 M6)";
+
+/// Why the runner does not serve a control of type `t` in a desktop form yet, or `None` when it does
+/// (DESKTOP-WASM-001 T33, plan §4.3, R13). The runner serves a control whose whole state the ABI
+/// host holds, as the browser's player does, and the form host draws: every class A and B control
+/// of the web table ([`cobolt_forms::web_class`]), and the DataGrid with rows of its own (a grid
+/// bound to data is judged by [`desktop_binding_gap`]). It does not serve yet: the service controls
+/// (class C), the canvases and the graphics objects, the Maps control (its places and directions
+/// are a service), the Viewer (its documents and verbs) and a type it does not know (class D). A
+/// form holding one takes the Cargo path, which names the form and the control.
+pub fn desktop_control_gap(t: &cobolt_forms::model::ControlType) -> Option<&'static str> {
+    use cobolt_forms::model::ControlType as T;
+    use cobolt_forms::web_class::{class_of, player_kind_of, Class};
+    if player_kind_of(t).is_some() {
+        return Some(D_CANVAS);
+    }
+    match t {
+        T::DataGrid => None,
+        T::Maps => Some(D_MAPS),
+        T::Viewer => Some(D_VIEWER),
+        _ => match class_of(t) {
+            Class::A | Class::B => None,
+            Class::C => Some(D_SERVICE),
+            Class::E => Some(D_CANVAS),
+            Class::D => Some(D_UNKNOWN),
+        },
+    }
+}
+
+/// The data a control can be bound to (Data Binding), and why a control bound to it takes the Cargo
+/// path (DESKTOP-WASM-001 T33): a binding is filled by the interpreter's runtime, which a module
+/// does not carry yet. One row per source, in [`desktop_binding_gap`]'s order.
+pub const DESKTOP_BINDING_GAPS: &[(&str, &str)] = &[
+    ("an indexed file", "a control bound to an indexed file is not on the WebAssembly path yet (DESKTOP-WASM-001 M3)"),
+    ("a SQL query", "a control bound to a SQL query is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)"),
+    ("a REST endpoint", "a control bound to a REST endpoint is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)"),
+    ("a COBOL table", "a control bound to a COBOL table is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)"),
+    ("an agent's output", "a control bound to an agent's output is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)"),
+    ("a PartiQL query", "a control bound to a PartiQL query is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)"),
+];
+
+/// Why the runner does not serve a control bound to `source` yet ([`DESKTOP_BINDING_GAPS`]). Every
+/// source has a reason: a form with a binding takes the Cargo path.
+pub fn desktop_binding_gap(source: &cobolt_forms::model::BindingSourceDescriptor) -> &'static str {
+    use cobolt_forms::model::BindingSourceDescriptor as S;
+    let row = match source {
+        S::IndexedFile { .. } => 0,
+        S::Sql { .. } => 1,
+        S::RestApi { .. } => 2,
+        S::CobolTable { .. } => 3,
+        S::AgentAi { .. } => 4,
+        S::PartiQl { .. } => 5,
+    };
+    DESKTOP_BINDING_GAPS[row].1
 }

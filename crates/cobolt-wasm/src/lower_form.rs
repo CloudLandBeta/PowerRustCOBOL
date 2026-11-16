@@ -171,14 +171,18 @@ impl Lower<'_, '_> {
         };
         if ctrl == CTRL_APP {
             if let Some(b) = first.and_then(|n| crate::support::builtin_entry(&n.to_ascii_uppercase())) {
-                return match b.native {
-                    crate::support::Native::Cargo(why) if !(forms_served && why == crate::support::D_FORMS) => {
+                let why = match b.native {
+                    crate::support::Native::Cargo(why) => Some(why),
+                    crate::support::Native::Form => (!forms_served).then_some(crate::support::D_FORMS),
+                    crate::support::Native::Module | crate::support::Native::Host(_) => None,
+                };
+                return match why {
+                    Some(why) => {
                         let subject = format!("COBOL::\"{}\"", b.name);
                         let message = format!("{subject}: {why}");
                         self.err_kind(line, crate::error::ErrorKind::Other, subject, message)
                     }
-                    crate::support::Native::Module | crate::support::Native::Host(_) => Ok(()),
-                    crate::support::Native::Cargo(_) => Ok(()),
+                    None => Ok(()),
                 };
             }
         }

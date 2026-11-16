@@ -2,6 +2,28 @@
 
 
 
+## 2.0.532 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T33): a Desktop project with forms now builds on the WebAssembly path. A form holding a control the PowerRustCOBOL runner does not serve yet takes the Cargo path, and the Build names the form, its file and the control.**
+- **Forms build without Rust:** a form whose controls are all ones the runner draws now builds into the runner, with no Rust toolchain. Those controls are buttons, labels, text boxes, lists, check boxes, charts, gauges, the shell and its SideMenu, timers, the DataGrid filled from COBOL, and the rest of the drawn controls in the toolbox.
+- **What still takes the Cargo path:**
+  - the service controls: files, databases, HTTP, AI, search, cloud and sign-in;
+  - the canvases and graphics objects;
+  - Maps and the Viewer;
+  - a control of an unknown type;
+  - any control bound to data (Data Binding), whatever its type.
+  The Build names the form, its file, the control and its type. A control inside a container is found too.
+- **Where you see the reason:**
+  - the IDE's Build report, in all six languages;
+  - `rcrun build`;
+  - the coding agent's `build` tool, which reports the kind `desktop_control` with the form, the file, the control, its type and why.
+- **The System KB** gains "Controls on the Desktop", written from the Build's own check. It lists each control and each data source that takes the Cargo path, with the milestone that will move it. The *On the Desktop* column reads "yes, in a form's program" for the statements and built-ins that work on controls (`INVOKE`, `COBOL::"SET-PROPERTY"` and the rest).
+- **Checked:**
+  - With no Rust toolchain on the machine, a form with a Button and a Label built on the WebAssembly path in 7.3 s.
+  - A form with Maps inside a Panel stopped on the Cargo path in 11 ms, naming MAIN, `forms/main.cfrm` and MAP-CITY (Maps), with nothing compiled. The Build test passed 32 of 32 checks.
+  - Of the 71 control types, 38 are served and 33 take the Cargo path. Each of the 33 names its milestone.
+  - The seven runner twins of T30–T32 now build their forms on the WebAssembly path with no switch: 75 of 75 checks, and 21 pictures equal to the interpreter's in every pixel (8 740 000 pixels, 0 differing).
+
 ## 2.0.531 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T32): the PowerRustCOBOL runner now shows a program's file dialogs, exactly as the interpreter does.**

@@ -1285,7 +1285,36 @@ The code says five things the plan did not settle. Each is applied in the tasks 
   - Do: message boxes and file dialogs run under the runner, and the `answer` step of T6 drives them headless.
   - Verify: a runner test where a fixture opens each dialog kind, answered by script, gives equal dumps and frames under both engines.
 
-- [ ] **T33 — Desktop controls the ABI host lacks fall back by name** (R13; plan §4.3)
+- [x] **T33 — Desktop controls the ABI host lacks fall back by name** (R13; plan §4.3)
+  - *Done 2026-11-16 (2.0.532):*
+    - **Forms take the WebAssembly path by default.** The switch `PRC_WASM_FORMS` (T29–T32's opt-in) is gone: `classify` no longer refuses a project for having forms. In its place, plan §4.7's "desktop control" step, after `EXEC RUST` and before the runner lookup.
+    - **`CargoReason::DesktopControl { form, file, control, control_type, reason }`** — the plan named `{form, control}`; the file (as the project lists it) and the control's type are added so the IDE, `rcrun` and the agent can point at the `.cfrm` and say what the control is. Display: "forms/main.cfrm: the form MAIN holds the control MAP-CITY (Maps): …".
+    - **Which controls the runner serves (decision):** the web player's classes A and B (HTML and drawn, `cobolt_forms::web_class`), whose semantics the ABI host carries, plus the DataGrid with in-memory `Rows` (web class A for that use). Everything else falls back with a reason naming its milestone:
+      - the 24 service controls of class C (AgentObject, RestClient, SqlDatabase, IndexedFile, KnowledgeBase, FileDropZone, WebSearch, Authentication and the 16 AWS controls): "M3, M4 and M6";
+      - the 7 canvases and graphics objects (Canvas2D, Canvas3D, ImageBuffer, Plot, Scene3D, Physics2D, Physics3D): M6;
+      - Maps and the Viewer: M6;
+      - a type the path does not know (class D, a plug-in): M6.
+      - So 38 of the 71 control types are served and 33 fall back. AC19 (T34) is the judge of the served set: a served control that draws or behaves differently is caught there and moves back to the list.
+    - **Data bindings fall back too (decision, not in the task text):** a binding is filled by the interpreter's runtime and the form host's seeding, which a module does not carry; the ABI host fills only the web's remote grids. So any control bound to data takes the Cargo path, whatever its type, with the source's milestone: an indexed file M3; a SQL query and a REST endpoint M4; a COBOL table, an agent's output and a PartiQL query M6 (`DESKTOP_BINDING_GAPS`). No task names the bindings; they move with T38 (files), T41/T42 (SQL, HTTP) and T47/T48 (agents, PartiQL).
+    - **The ToolBar needs no exception:** its four web exceptions (`run-app`, `open-terminal`, `print`, `share`) are performed by the form host itself (`toolbar_runner`), under either engine.
+    - **The native column (T10):** a new class `Native::Form` for the 13 entries a form's program is served (the built-ins CHART-ADD-POINT, CHART-CLEAR, CHART-REFRESH, CHART-SET-TABLE, GET-PROPERTY, INIT-FORM, RAISE-EVENT, SET-PROPERTY, WAIT-EVENT; the statements INVOKE, control assignment, member call, window operation). Before, they were `Cargo(D_FORMS)`. A program with no form still sends them to the Cargo path (`desktop_refusal(stmt, in_form)`), with D_FORMS reworded. The KB's column reads "yes, in a form's program".
+    - **Search order:** the forms in the project's order, each form's controls in document order with containers searched depth-first, then that form's first binding. The first finding is the reason.
+    - **The KB:** `[desktop]` now says the path builds form programs, and adds the bullet for an unserved or bound control. A new subsection "Controls on the Desktop" is written from `desktop_control_gap` and `DESKTOP_BINDING_GAPS`, so it lists exactly what the Build refuses. The System KB is regenerated: 4 410 records.
+    - **Where the reason shows:**
+      - the IDE's Build report (`build_reason_desktop_control`, six languages);
+      - `rcrun build` and the toolchain error (Display);
+      - the agent's `build` tool: kind `desktop_control` with `form`, `file`, `control`, `control_type` and `why`.
+    - **Tests and benches that relied on forms falling back:** `build_reports_phases_and_peak` now asks for the Cargo path (`force_cargo`, reason `Chosen`), and `cobolt-bench pixel-parity`'s Cargo recording sets `force_cargo`. The two runner twins drop the switch, so they now build forms on the WebAssembly path by default.
+    - **Tests:**
+      - `desktop_controls_the_runner_lacks_are_named` (compiler unit): 5 of 5 — served controls pass; Maps nested in a Panel is named with its form, file and type; a Canvas2D on the second form names that form; a Label bound to an indexed file names M3.
+      - `desktop_wasm_build`: 32 of 32 checks with no Rust toolchain. Section 7 is new: a form of a Button and a Label built on the WebAssembly path in 7 267.6 ms; a form with Maps in a Panel stopped on the Cargo path in 10.9 ms, naming MAIN, `forms/main.cfrm`, MAP-CITY and Maps, with nothing compiled.
+      - `subset_table`: 9 of 9. The new `every_control_has_a_desktop_class` gives 71 types = 38 served + 33 on the Cargo path, 8 of 8 fixed points, 6 binding sources each with its row, and 0 reasons without a milestone. AC10: 31 in the module, 4 through the runner, 13 in a form's program and 88 on the Cargo path, 7 of 7 fixed points, 0 faults.
+      - The KB subset test: 33 controls listed with their reason, 38 served and not listed, 6 binding sources.
+      - `cobolt-wasm`: 122 passed in 34 targets. `native_desktop_refusals`: 14 of 14; its three checks of a program with no form (`ME::Title` read and written, `INVOKE`) now expect the reworded reason.
+      - The runner twins, now built without the switch: `runner_one_form` 15 of 15 (1 344 000 pixels, 0 differing; `rcrun build` took the WebAssembly path by default in 6 780 ms); `runner_shell_hosts` 6 of 6 (60 of 60 checks, 16 pictures, 7 396 000 pixels, 0 differing).
+      - Project tools `build`: 11 passed. IDE `build_path_report`: 3 passed. IDE `i18n`: 22 passed. `prebuilt_chunked_kb`: green.
+      - `cargo test -p cobolt-compiler`: 303 passed, 0 failed, 9 ignored, in 19 targets.
+    - **No reference project moves yet** (T34 measures it). PowerSpatial holds only served controls, but its Common Code opens an ORGANIZATION IS INDEXED disk file (M3). The other four hold a Canvas, a Scene3D, an ImageBuffer, an Aws control or a FileDropZone.
   - Files: `crates/cobolt-compiler/src/lib.rs` (`classify`: `DesktopControl { form, control }`), and the native column (T10) updated for what M2 covers.
   - Verify: a compiler test with a form holding one control the ABI host lacks. It builds on the Cargo path, and the message names the form and the control. The AC10 test stays green.
 

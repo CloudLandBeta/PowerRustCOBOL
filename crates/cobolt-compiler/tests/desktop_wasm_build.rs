@@ -25,7 +25,10 @@
 //! - a Debug Build gives `DebugBuild`, the project's choice `Chosen`, no runner
 //!   `RunnerUnavailable`;
 //! - the forms' current code is compiled, not a stale generated file: the front end runs before
-//!   the toolchain is looked for (the twin of `regenerate_before_build_tests`).
+//!   the toolchain is looked for (the twin of `regenerate_before_build_tests`);
+//! - (T33) a form of controls the runner draws builds on the WebAssembly path; one holding a
+//!   control the runner does not serve yet (Maps, inside a Panel) takes the Cargo path, naming the
+//!   form, its file and the control.
 
 use cobolt_compiler::{build_project, BuildOptions, BuildPath, BuildPhase, CargoReason, CompilerError};
 use sha2::{Digest, Sha256};
@@ -438,8 +441,49 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     check("regeneration off compiles the file as it is (STALE-T16-BOOK)", kept.contains("STALE-T16-BOOK"));
     check("the regenerated program is compiled (FRESH-T16-BOOK), before any toolchain error", fresh.contains("FRESH-T16-BOOK") && !fresh.contains("toolchain"));
 
+    // ── 7. Desktop controls (T33): a form of controls the runner draws takes the WebAssembly path;
+    //       one holding a control it does not serve yet takes the Cargo path, naming the form, its
+    //       file and the control ──
+    let form_project = |name: &str, controls: Vec<cobolt_forms::Control>| -> PathBuf {
+        let dir = root.join(name);
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("forms")).unwrap();
+        let mut form = cobolt_forms::Form::new("MAIN", "Main", 400, 300);
+        form.main_form = true;
+        form.controls = controls;
+        cobolt_forms::save_form(&form, &dir.join("forms/main.cfrm")).unwrap();
+        let m = dir.join(format!("{name}.project.toml"));
+        fs::write(&m, format!("[project]\nname = \"{name}\"\nversion = \"0.1.0\"\nmain = \"\"\n\n[files]\nforms = [\"forms/main.cfrm\"]\n")).unwrap();
+        m
+    };
+    let ctl = |id: &str, t: cobolt_forms::ControlType| cobolt_forms::Control::new(id, t, 10, 10);
+    let m = form_project("prct33served", vec![ctl("BTN-GO", cobolt_forms::ControlType::Button), ctl("LBL-HELLO", cobolt_forms::ControlType::Label)]);
+    let t = Instant::now();
+    let r = build_project(&m, &opts(Some(&runner)));
+    let served_ms = ms(t);
+    let served_path = r.as_ref().map(|b| b.path.name().to_string()).map_err(|e| e.to_string());
+    check(
+        "a form of a Button and a Label → WebAssembly path, bin/<name> written",
+        r.as_ref().is_ok_and(|b| b.path == BuildPath::Wasm && b.binary_path.is_file()),
+    );
+    let mut panel = ctl("PNL-SIDE", cobolt_forms::ControlType::Panel);
+    panel.children.push(ctl("MAP-CITY", cobolt_forms::ControlType::Maps));
+    let m = form_project("prct33maps", vec![ctl("BTN-GO", cobolt_forms::ControlType::Button), panel]);
+    let t = Instant::now();
+    let r = build_project(&m, &opts(Some(&runner)));
+    let maps_ms = ms(t);
+    let maps_reason = reason_of(&r);
+    let text = r.as_ref().err().map(|e| e.to_string()).unwrap_or_default();
+    check(
+        "Maps inside a Panel → DesktopControl { MAIN, forms/main.cfrm, MAP-CITY, Maps }",
+        matches!(&maps_reason, Ok(CargoReason::DesktopControl { form, file, control, control_type, reason })
+            if form == "MAIN" && file == "forms/main.cfrm" && control == "MAP-CITY" && control_type == "Maps" && reason.contains("(DESKTOP-WASM-001 M6)")),
+    );
+    check("the message names the file, the form, the control and Rust", text.contains("forms/main.cfrm") && text.contains("MAP-CITY") && text.contains("Rust toolchain is required"));
+    check("nothing compiled: no bin/", !m.parent().unwrap().join("bin").exists());
+
     // ── The result ──
-    println!("== desktop_wasm_build (DESKTOP-WASM-001 T16: AC1 local half, AC11, AC12, AC13, AC15, AC17) ==");
+    println!("== desktop_wasm_build (DESKTOP-WASM-001 T16, T33: AC1 local half, AC11, AC12, AC13, AC15, AC17) ==");
     println!("environment: PATH = an empty folder; CARGO_HOME and RUSTUP_HOME = empty folders");
     println!("runner: {} ({:.1} MB), built first in {runner_ms:.0} ms", runner.display(), runner_bytes as f64 / 1_048_576.0);
     println!("1. console project, main + Common Code, WebAssembly path: {wasm_ms:.1} ms, {} bytes", exe_bytes.len());
@@ -458,6 +502,8 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     println!("3. refused: {files_reason:?} in {files_ms:.1} ms");
     println!("   refused: {http_reason:?} in {http_ms:.1} ms");
     println!("4. build_path = \"cargo\": stopped in {chosen_ms:.1} ms, bin/ unchanged");
+    println!("7. a form of a Button and a Label: {served_path:?} in {served_ms:.1} ms");
+    println!("   a form with Maps in a Panel: {maps_reason:?} in {maps_ms:.1} ms");
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
