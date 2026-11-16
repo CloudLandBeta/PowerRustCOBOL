@@ -2,6 +2,24 @@
 
 
 
+## 2.0.518 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T19): the `build` tool of `rcrun mcp` and the IDE's agents says which way a Desktop Build made the program, why, and how long each phase took.**
+- **A built Desktop project's answer** gains:
+  - `path`: `"WebAssembly"` (no Rust used) or `"Cargo"`;
+  - on the Cargo path, `reason`: its `kind` (`debug_build`, `chosen`, `external_crate`, `exec_rust`, `refused`, `runner_unavailable`) and its `text`. For an `EXEC RUST` block, or a construct the WebAssembly path does not build yet, it also gives the `file` and the `line` (no line when the construct is a whole file), and a refused construct names itself (`construct`) and `why`. The Cargo path also says how many crates `cargo` compiled;
+  - `phases`: each phase that ran, in order, with its time in ms;
+  - `peak_bytes`: the Build's highest memory use.
+- **A Desktop Build that stopped because its program needs Cargo and no Rust toolchain was found** answers `needs_rust: true`, the missing `tool`, the path and the `reason`, so an agent can tell the developer why Rust is needed for this program and what would let it build without Rust.
+- The tool's description lists the new fields. A Mobile package's answer is unchanged.
+- **Measured** (macOS arm64, Apple M3 Pro, debug build):
+  - **`build_answer_names_the_path_the_reason_the_phases_and_the_peak`** (hand-made Build results, then through the build slot as an agent sees it): 22 of 22 checks in 16.2 ms. It covers one WebAssembly report and two Cargo reports (an `EXEC RUST` block, a refused construct), a whole-file construct with no line, the six reason kinds, the failure with and without a toolchain reason, and a built and a failed answer through the slot.
+  - **`the_build_tool_names_the_path_the_reason_the_phases_and_the_peak`** (real Builds through the tool, with `PATH`, `CARGO_HOME` and `RUSTUP_HOME` emptied, so no Rust): 15 of 15 checks, 3 fixtures.
+    - A console project built on the WebAssembly path in 2 027 ms, in one call: regenerate 0.0 ms, front end 0.7 ms, classify 0.0 ms, generate 7.8 ms, machine code 150.6 ms, assemble 1 844.3 ms, install 1.5 ms; peak 144 752 640 bytes.
+    - The `EXEC RUST` program stopped with `needs_rust`, naming `src/main.cbl` line 5.
+    - The program whose Common Code writes a line-sequential file stopped naming `src/files.cbl` line 13, the file `LOG-FILE`, and why: files on disk come at M3.
+  - **`cargo test -p cobolt-project-tools --no-fail-fast`:** 33 targets, 267 passed, 0 failed, 2 ignored.
+
 ## 2.0.517 — 2026-11-15
 
 **Feature (DESKTOP-WASM-001 T18): the IDE says which way a Build made the program, offers to install Rust when a Build needs it, and gets the Desktop settings.**

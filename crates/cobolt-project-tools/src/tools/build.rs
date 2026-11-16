@@ -28,22 +28,119 @@ use crate::tools::{check, regenerate, Shared};
 pub const DEFAULT_BUILD_WAIT: Duration = Duration::from_secs(40);
 
 /// What a finished build produced.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BuildOutcome {
     pub binary: PathBuf,
+    /// A Desktop Build's report (DESKTOP-WASM-001 R13, R18) — the path it took, why it took the
+    /// Cargo path, the time of each phase and the peak memory — as [`report_json`] writes it;
+    /// `None` for a Mobile package.
+    pub report: Option<Value>,
+}
+
+/// Why a build did not finish: the compiler's message and, when a Desktop Build stopped on the
+/// Cargo path for want of a Rust toolchain (DESKTOP-WASM-001 R25), what [`failure_json`] says
+/// about it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BuildFailure {
+    pub errors: String,
+    pub detail: Option<Value>,
+}
+
+impl From<String> for BuildFailure {
+    fn from(errors: String) -> Self {
+        Self { errors, detail: None }
+    }
 }
 
 /// Runs one build: the compiler, or a stub in tests.
 pub type Builder =
-    Arc<dyn Fn(&Path, &cobolt_compiler::BuildOptions) -> Result<BuildOutcome, String> + Send + Sync>;
+    Arc<dyn Fn(&Path, &cobolt_compiler::BuildOptions) -> Result<BuildOutcome, BuildFailure> + Send + Sync>;
 
 /// The real builder.
 pub fn compiler_builder() -> Builder {
     Arc::new(|manifest, opts| {
         cobolt_compiler::build_project(manifest, opts)
-            .map(|r| BuildOutcome { binary: r.binary_path })
-            .map_err(|e| e.to_string())
+            .map(|r| BuildOutcome { report: Some(report_json(&r)), binary: r.binary_path })
+            .map_err(|e| BuildFailure { errors: e.to_string(), detail: failure_json(&e) })
     })
+}
+
+/// Why a Build took the Cargo path, for the agent (DESKTOP-WASM-001 R13): `kind`, the sentence the
+/// IDE and `rcrun` show (`text`), and for an `EXEC RUST` block or a construct the WebAssembly path
+/// does not take yet the `file` (relative to the project) and its `line` (absent when the
+/// construct is a whole file); a refused construct also names itself (`construct`) and `why`.
+pub fn reason_json(reason: &cobolt_compiler::CargoReason) -> Value {
+    use cobolt_compiler::CargoReason as R;
+    let kind = match reason {
+        R::DebugBuild => "debug_build",
+        R::Chosen => "chosen",
+        R::ExternalCrate => "external_crate",
+        R::ExecRust { .. } => "exec_rust",
+        R::Refused { .. } => "refused",
+        R::RunnerUnavailable => "runner_unavailable",
+    };
+    let mut v = json!({ "kind": kind, "text": reason.to_string() });
+    let at = match reason {
+        R::ExecRust { file, line } => Some((file, *line)),
+        R::Refused { construct, reason, file, line } => {
+            v["construct"] = json!(construct);
+            v["why"] = json!(reason);
+            Some((file, *line))
+        }
+        _ => None,
+    };
+    if let Some((file, line)) = at {
+        v["file"] = json!(file);
+        if line > 0 {
+            v["line"] = json!(line);
+        }
+    }
+    v
+}
+
+/// A Desktop Build's report (DESKTOP-WASM-001 R13, R18): `path` ("WebAssembly" or "Cargo"),
+/// `reason` on the Cargo path, `phases` in the order they ran with each one's time in ms (to a
+/// tenth), and `peak_bytes`, the Build's highest resident memory (null where the system did not
+/// tell). The Cargo path also says how many crates `cargo` compiled.
+pub fn report_json(r: &cobolt_compiler::BuildResult) -> Value {
+    let phases: Vec<Value> = r
+        .phases
+        .iter()
+        .map(|(phase, took)| json!({ "phase": phase.name(), "ms": (took.as_secs_f64() * 10_000.0).round() / 10.0 }))
+        .collect();
+    let mut v = json!({ "path": r.path.name(), "phases": phases, "peak_bytes": r.peak_rss });
+    if let Some(cargo) = &r.cargo {
+        v["reason"] = reason_json(&cargo.reason);
+        v["crates_compiled"] = json!(cargo.crates_compiled);
+    }
+    v
+}
+
+/// What a failed Desktop Build adds to its message (DESKTOP-WASM-001 R25): a Build that stopped
+/// because its program takes the Cargo path and no usable Rust toolchain was found answers
+/// `needs_rust`, the missing `tool`, the path and the `reason` the program needs Cargo — so the
+/// agent can tell the developer why, and what else would let it build. `None` for any other failure.
+pub fn failure_json(e: &cobolt_compiler::CompilerError) -> Option<Value> {
+    use cobolt_compiler::CompilerError as E;
+    match e {
+        E::CargoNeedsToolchain { reason, tool, .. } => Some(json!({
+            "needs_rust": true,
+            "tool": tool,
+            "path": cobolt_compiler::BuildPath::Cargo.name(),
+            "reason": reason_json(reason),
+        })),
+        E::Toolchain { tool, .. } => Some(json!({ "needs_rust": true, "tool": tool })),
+        _ => None,
+    }
+}
+
+/// `extra`'s fields, copied into the answer `into`.
+fn merge(into: &mut Value, extra: Option<&Value>) {
+    if let (Some(into), Some(Value::Object(extra))) = (into.as_object_mut(), extra) {
+        for (k, v) in extra {
+            into.insert(k.clone(), v.clone());
+        }
+    }
 }
 
 #[derive(Default)]
@@ -54,7 +151,7 @@ enum SlotState {
         started: Instant,
     },
     Done {
-        result: Result<BuildOutcome, String>,
+        result: Result<BuildOutcome, BuildFailure>,
         elapsed: Duration,
     },
 }
@@ -205,7 +302,7 @@ fn start_package(shared: &Arc<Shared>, root: &ProjectRoot, release: bool, platfo
             PackageTools::Android(t) => mb::build_android(&req, t, secrets.as_ref(), &mut log),
             PackageTools::Ios(t) => mb::build_ios(&req, t, &mut log),
         };
-        package.map(|p| BuildOutcome { binary: p.path })
+        package.map(|p| BuildOutcome { binary: p.path, report: None }).map_err(BuildFailure::from)
     });
     let mut answer = package_answer(wait(shared, root), platform);
     answer["log"] = json!(log_shown);
@@ -274,7 +371,7 @@ pub fn run<H: ProjectHost>(
 }
 
 /// Run `job` on the build worker unless a build is already running.
-fn start_job(shared: &Arc<Shared>, job: impl FnOnce() -> Result<BuildOutcome, String> + Send + 'static) {
+fn start_job(shared: &Arc<Shared>, job: impl FnOnce() -> Result<BuildOutcome, BuildFailure> + Send + 'static) {
     {
         let mut st = shared.build.state.lock().unwrap_or_else(|p| p.into_inner());
         if !matches!(*st, SlotState::Idle) {
@@ -340,16 +437,22 @@ fn wait(shared: &Arc<Shared>, root: &ProjectRoot) -> Value {
                         let size = std::fs::metadata(&out.binary)
                             .map(|m| if m.is_dir() { cobolt_compiler::mobile_build::dir_size(&out.binary) } else { m.len() })
                             .ok();
-                        json!({
+                        let mut answer = json!({
                             "status": "built",
                             "binary": root.relative(&out.binary).unwrap_or_else(|| {
                                 out.binary.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
                             }),
                             "bytes": size,
                             "elapsed_s": elapsed.as_secs(),
-                        })
+                        });
+                        merge(&mut answer, out.report.as_ref());
+                        answer
                     }
-                    Err(e) => json!({ "status": "failed", "errors": e, "elapsed_s": elapsed.as_secs() }),
+                    Err(e) => {
+                        let mut answer = json!({ "status": "failed", "errors": e.errors, "elapsed_s": elapsed.as_secs() });
+                        merge(&mut answer, e.detail.as_ref());
+                        answer
+                    }
                 };
             }
             SlotState::Running { started } => {
@@ -426,7 +529,7 @@ mod tests {
         let shared = Arc::new(Shared::with_builder(
             Arc::new(move |_, _| {
                 c.fetch_add(1, Ordering::SeqCst);
-                Ok(BuildOutcome { binary: PathBuf::from("x") })
+                Ok(BuildOutcome { binary: PathBuf::from("x"), report: None })
             }),
             Duration::from_secs(5),
         ));
@@ -454,7 +557,7 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(900));
                 std::fs::create_dir_all(bin2.parent().unwrap()).unwrap();
                 std::fs::write(&bin2, b"binary").unwrap();
-                Ok(BuildOutcome { binary: bin2.clone() })
+                Ok(BuildOutcome { binary: bin2.clone(), report: None })
             }),
             Duration::from_millis(300),
         ));
@@ -478,5 +581,158 @@ mod tests {
         let view = cobolt_compiler::project_manifest_view(root.manifest()).unwrap();
         assert_eq!(view.generated, ["generated/MAIN.cbl"]);
         println!("build: {polls} calls, 1 build started, answered running then built (dist/B, 6 bytes)");
+    }
+
+    /// A hand-made Build result, as `build_project` returns it.
+    fn result(path: cobolt_compiler::BuildPath, reason: Option<cobolt_compiler::CargoReason>) -> cobolt_compiler::BuildResult {
+        use cobolt_compiler::BuildPhase as P;
+        let ms = |n: u64| Duration::from_micros(n * 1000 + 250);
+        let phases = match path {
+            cobolt_compiler::BuildPath::Wasm => vec![
+                (P::Regenerate, ms(3)),
+                (P::FrontEnd, ms(41)),
+                (P::Classify, ms(1)),
+                (P::Generate, ms(17)),
+                (P::MachineCode, ms(820)),
+                (P::Assemble, ms(9)),
+                (P::Install, ms(4)),
+            ],
+            cobolt_compiler::BuildPath::Cargo => vec![(P::Regenerate, ms(3)), (P::FrontEnd, ms(41)), (P::Cargo, ms(61_000)), (P::Install, ms(4))],
+        };
+        cobolt_compiler::BuildResult {
+            binary_path: PathBuf::from("bin/B"),
+            source_count: 2,
+            form_count: 0,
+            ast_bytes: 0,
+            build_dir: PathBuf::from("staging"),
+            path,
+            cargo: reason.map(|reason| cobolt_compiler::CargoBuild {
+                reason,
+                crates_compiled: 3,
+                target_dir: PathBuf::from("staging/target"),
+                forced_full: Vec::new(),
+            }),
+            phases,
+            peak_rss: Some(181_403_648),
+        }
+    }
+
+    /// **DESKTOP-WASM-001 T19 (R13, R18, R25)** — the `build` tool's answer names the path the Build
+    /// took, why it took the Cargo path (with the file and line of an `EXEC RUST` block or of a
+    /// construct the WebAssembly path does not take yet), each phase in ms and the peak; a Build
+    /// stopped for want of Rust says so, with the reason. Hand-made results, then one through the
+    /// build slot as an agent sees it.
+    #[test]
+    fn build_answer_names_the_path_the_reason_the_phases_and_the_peak() {
+        use cobolt_compiler::{BuildPath, CargoReason, CompilerError};
+        let t = Instant::now();
+        let mut checks: Vec<(String, bool)> = Vec::new();
+        let mut check = |what: &str, ok: bool| checks.push((what.to_owned(), ok));
+
+        // ── The WebAssembly path: no reason, seven phases, the peak ──
+        let wasm = report_json(&result(BuildPath::Wasm, None));
+        check("wasm: path WebAssembly", wasm["path"] == "WebAssembly");
+        check("wasm: no reason", wasm.get("reason").is_none());
+        let names: Vec<&str> = wasm["phases"].as_array().unwrap().iter().map(|p| p["phase"].as_str().unwrap()).collect();
+        check(
+            "wasm: seven phases in order",
+            names == ["regenerate", "front end", "classify", "generate", "machine code", "assemble", "install"],
+        );
+        check("wasm: machine code 820.3 ms", wasm["phases"][4]["ms"] == 820.3);
+        check("wasm: peak bytes", wasm["peak_bytes"] == 181_403_648u64);
+
+        // ── The Cargo path for an EXEC RUST block: its file and line ──
+        let exec = report_json(&result(BuildPath::Cargo, Some(CargoReason::ExecRust { file: "src/main.cbl".into(), line: 12 })));
+        check("exec rust: path Cargo", exec["path"] == "Cargo");
+        check("exec rust: kind", exec["reason"]["kind"] == "exec_rust");
+        check("exec rust: file and line", exec["reason"]["file"] == "src/main.cbl" && exec["reason"]["line"] == 12);
+        check("exec rust: text names the block", exec["reason"]["text"].as_str().unwrap().contains("src/main.cbl line 12 holds an EXEC RUST"));
+        check("exec rust: cargo phase 61000.3 ms", exec["phases"][2]["phase"] == "cargo" && exec["phases"][2]["ms"] == 61_000.3);
+        check("exec rust: crates compiled", exec["crates_compiled"] == 3);
+
+        // ── A refused construct: its name, why, file and line; a whole file has no line ──
+        let refused = CargoReason::Refused {
+            construct: "a disk file".into(),
+            reason: "files come at M3".into(),
+            file: "src/common.cbl".into(),
+            line: 7,
+        };
+        let r = report_json(&result(BuildPath::Cargo, Some(refused)));
+        check(
+            "refused: kind, construct, why",
+            r["reason"]["kind"] == "refused" && r["reason"]["construct"] == "a disk file" && r["reason"]["why"] == "files come at M3",
+        );
+        check("refused: file and line", r["reason"]["file"] == "src/common.cbl" && r["reason"]["line"] == 7);
+        let whole = reason_json(&CargoReason::Refused {
+            construct: "a form".into(),
+            reason: "forms come at M2".into(),
+            file: "forms/MAIN.cfrm".into(),
+            line: 0,
+        });
+        check("refused whole file: file, no line", whole["file"] == "forms/MAIN.cfrm" && whole.get("line").is_none());
+
+        // ── Every reason has its kind ──
+        let kinds: Vec<Value> = [
+            CargoReason::DebugBuild,
+            CargoReason::Chosen,
+            CargoReason::ExternalCrate,
+            CargoReason::RunnerUnavailable,
+        ]
+        .iter()
+        .map(|r| reason_json(r)["kind"].clone())
+        .collect();
+        check(
+            "the other four kinds",
+            kinds == [json!("debug_build"), json!("chosen"), json!("external_crate"), json!("runner_unavailable")],
+        );
+
+        // ── No Rust: the failure says so, with the reason ──
+        let no_rust = CompilerError::CargoNeedsToolchain {
+            reason: CargoReason::ExecRust { file: "src/main.cbl".into(), line: 12 },
+            tool: "rustc".into(),
+            detail: "not found".into(),
+        };
+        let f = failure_json(&no_rust).expect("a typed toolchain failure has detail");
+        check("no rust: needs_rust, tool, path", f["needs_rust"] == true && f["tool"] == "rustc" && f["path"] == "Cargo");
+        check("no rust: reason with file and line", f["reason"]["file"] == "src/main.cbl" && f["reason"]["line"] == 12);
+        check("any other failure: no detail", failure_json(&CompilerError::NoMain).is_none());
+
+        // ── Through the slot, as an agent sees it ──
+        let root = fixture("report", CLEAN);
+        let shared = Arc::new(Shared::with_builder(
+            Arc::new(|_, _| {
+                let r = result(BuildPath::Cargo, Some(CargoReason::ExecRust { file: "src/main.cbl".into(), line: 12 }));
+                Ok(BuildOutcome { report: Some(report_json(&r)), binary: PathBuf::from("bin/B") })
+            }),
+            Duration::from_secs(5),
+        ));
+        let mut host = Fixed(root.clone());
+        let built = run(&mut host, &root, &shared, false, false).unwrap();
+        check("slot: built", built["status"] == "built");
+        check(
+            "slot: path, reason, phases, peak",
+            built["path"] == "Cargo" && built["reason"]["line"] == 12 && built["phases"].as_array().map_or(0, Vec::len) == 4 && built["peak_bytes"] == 181_403_648u64,
+        );
+        let failing = Arc::new(Shared::with_builder(
+            Arc::new(move |_, _| Err(BuildFailure { errors: no_rust.to_string(), detail: failure_json(&no_rust) })),
+            Duration::from_secs(5),
+        ));
+        let failed = run(&mut host, &root, &failing, false, false).unwrap();
+        check("slot: failed", failed["status"] == "failed");
+        check(
+            "slot: the failure names the need and the reason",
+            failed["needs_rust"] == true
+                && failed["reason"]["kind"] == "exec_rust"
+                && failed["errors"].as_str().unwrap().contains("Rust toolchain is required"),
+        );
+
+        let failures: Vec<&(String, bool)> = checks.iter().filter(|(_, ok)| !ok).collect();
+        println!("== build tool answer (DESKTOP-WASM-001 T19: R13, R18, R25) ==");
+        println!("reports: WebAssembly 1, Cargo 2 (EXEC RUST, refused construct); reasons 6 kinds; failures 2; slot answers 2");
+        for (what, ok) in &checks {
+            println!("  {} {what}", if *ok { "ok  " } else { "FAIL" });
+        }
+        println!("{} of {} checks passed in {:.1} ms", checks.len() - failures.len(), checks.len(), t.elapsed().as_secs_f64() * 1000.0);
+        assert!(failures.is_empty(), "failed: {failures:?}");
     }
 }

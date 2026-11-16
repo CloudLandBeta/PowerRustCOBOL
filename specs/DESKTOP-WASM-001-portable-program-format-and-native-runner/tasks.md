@@ -893,13 +893,33 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - **`cargo test -p cobolt-project-tools --no-fail-fast`:** 32 targets, 265 passed, 0 failed, 2 ignored, including `the_options_belong_to_their_templates` and `the_kind_and_its_options_pick_the_template_and_shape_the_project` (9 refusals).
       - **Owed to the operator:** the manual IDE Build on a machine with no toolchain (plan §6).
 
-- [ ] **T19 — The project tools' `build` reports the path, the reason and the timings** (R13, R18)
+- [x] **T19 — The project tools' `build` reports the path, the reason and the timings** (R13, R18)
   - Files: `crates/cobolt-project-tools/src/tools/` (the `build` tool), and its schema text.
   - Verify: `cargo test -p cobolt-project-tools build` green. On fixtures, the tool's result names:
     - the path;
     - the reason, with the file and line for `ExecRust` and `Refused`;
     - each phase in ms;
     - the peak.
+  - *Done 2026-11-16 (2.0.518):*
+    - **`crates/cobolt-project-tools/src/tools/build.rs`:**
+      - `BuildOutcome` gains `report` (a Desktop Build's report; `None` for a Mobile package).
+      - The builder's failure is `BuildFailure` (the message plus the detail of a toolchain failure) instead of a string.
+      - `report_json` writes `path`, `reason` on the Cargo path, `phases` (`phase`, `ms` to a tenth), `peak_bytes` and, on Cargo, `crates_compiled`.
+      - `reason_json` writes `kind` and `text`, plus `file` and `line` for `ExecRust` and `Refused` (no `line` for a whole file), and `construct` and `why` for `Refused`.
+      - `failure_json` turns `CargoNeedsToolchain` into `needs_rust`, `tool`, `path` and `reason` (a bare `Toolchain` into `needs_rust` and `tool`).
+      - `wait` merges the report into the `built` answer and the detail into the `failed` one.
+    - **`tools/mod.rs`:** the `build` tool's description names the new fields.
+    - **Settled while building:**
+      - **The answer carries no install command.** An agent that reads `needs_rust` tells the developer. Installing Rust is the developer's decision, made in the IDE's offer (T18) or by hand.
+      - **The fields sit at the top of the answer,** beside `binary` and `bytes`, not under a sub-object, so a `built` answer reads the same with or without them.
+    - **Measured** (macOS arm64, Apple M3 Pro, debug build):
+      - **`build_answer_names_the_path_the_reason_the_phases_and_the_peak`** (unit, hand-made Build results and the build slot): 22 of 22 checks in 16.2 ms.
+      - **New `tests/build_report.rs`, `the_build_tool_names_the_path_the_reason_the_phases_and_the_peak`** (real Builds, no Rust on `PATH`, `CARGO_HOME` or `RUSTUP_HOME`): 15 of 15 checks, 3 fixtures.
+        - The console project took the WebAssembly path in 2 027 ms, in one call. Phases: regenerate 0.0, front end 0.7, classify 0.0, generate 7.8, machine code 150.6, assemble 1 844.3, install 1.5 ms. Peak 144 752 640 bytes.
+        - The `EXEC RUST` program stopped with `needs_rust`, naming `src/main.cbl` line 5.
+        - The disk-file program stopped naming `src/files.cbl` line 13 (`LOG-FILE`, files on disk at M3).
+      - **`cargo test -p cobolt-project-tools build`:** 32 targets, 39 passed, 0 failed, 2 ignored.
+      - **`cargo test -p cobolt-project-tools --no-fail-fast`:** 33 targets, 267 passed, 0 failed, 2 ignored.
 
 - [ ] **T20 — `prc-runner` ships with the IDE** (R6; AC13)
   - Files:

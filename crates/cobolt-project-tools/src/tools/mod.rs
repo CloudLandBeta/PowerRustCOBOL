@@ -284,7 +284,13 @@ impl<H: ProjectHost> ProjectTools<H> {
                 description: Some(
                     "Regenerate everything, refuse on any check error, then build the binary. Waits at \
                      most 40 seconds: if the build is still running it answers {\"status\":\"running\"} \
-                     — call build again to keep waiting on the same build. A Mobile project for Android \
+                     — call build again to keep waiting on the same build. A Desktop build answers the \
+                     path it took (\"path\": \"WebAssembly\", which needs no Rust, or \"Cargo\"); on the Cargo \
+                     path, why (\"reason\": its \"kind\" and \"text\", and for an EXEC RUST block or a construct \
+                     the WebAssembly path does not take yet the \"file\" and \"line\"); each phase's time \
+                     (\"phases\": [{\"phase\", \"ms\"}]); and the peak memory (\"peak_bytes\"). A Desktop build \
+                     that stopped because its program needs Cargo and no Rust toolchain was found answers \
+                     \"needs_rust\": true with that \"reason\". A Mobile project for Android \
                      also builds its package (dist/mobile/android/<Name>-debug.apk) in the same way: \
                      while it builds, \"package\" answers {\"status\":\"running\"} — call build again."
                         .into(),
