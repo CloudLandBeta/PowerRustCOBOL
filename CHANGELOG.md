@@ -14,6 +14,14 @@
   - **Without the fix**, after twelve frames on the laptop, the monitor-size path is at 0.747 and still moving. It fell to 0.5 on the second frame, then set 0.52, 0.54 … 0.75, one per frame. The window was left at a size matching none of them. The work-area path is at 0.5, the floor.
 - **Not changed, found while checking:** on Windows and Linux the fit places the window as if the screen started at the primary monitor's corner. A window started on a monitor to the right of or below the primary can therefore be pulled onto the primary.
 
+## 2.0.515 — 2026-11-15
+
+**Fix: the check that every example's `CALL` names something knows a Web or Mobile project's Backend programs.** `example_calls_name_only_what_exists` (`cobolt-compiler`) had been red since PowerOficina came in (2.0.390): it reported 127 `CALL`s that name nothing, all in PowerOficina's drivers under `tests/`, calling its Backend programs (`CUSTOMER-SAVE`, `QUOTE-SAVE`, `PAYMENT-CONFIRM`, …).
+- **The cause:** the check knew only the project's Common Code (`[files] sources`). PowerOficina has none, and its server programs are listed under `[files] backend`.
+- **Now the Backend's programs** (its `.cbl` and `.cob` files and the programs they contain) count as existing for the Backend's own files and for the drivers. The backend links each of its programs into the others, and a driver is assembled with the programs it calls. **They do not count for the front end:** a plain `CALL` from Common Code or a form never reaches the backend, so it is still reported. The Check of a developer's program (`rcrun check`, the form runner, the `validate_source` tool) is unchanged.
+- **A guard in the same test** proves both sides for every project with a Backend: a driver's `CALL "NO-SUCH-BACKEND-PROGRAM"` is still reported, and the front end's `CALL` to a real backend program is still reported.
+- **Measured** (macOS arm64): 12 projects, 100 form programs and 62 sources, 35 Backend program names (seen by 45 backend and driver sources), 2 436 literal `CALL` targets resolved, **0 unresolved** (127 before), 2 747 ms. The guard passed in all 4 projects with a Backend: PowerAnalyticsWeb, PowerMobileHello, PowerOficina and PowerWebHello.
+
 ## 2.0.509 — 2026-11-15
 
 **Fix: a `RETURN-CODE` too large for an exit code is held at the nearest end instead of wrapping around.** Since 2.0.498 a console program ends with the exit code `RETURN-CODE` holds, held to the 32 bits an exit code has. `RETURN-CODE` has no size of its own, though, and the value was first cut to 64 bits by a conversion that wraps around: a program whose `RETURN-CODE` reached 2^64 (18446744073709551616) ended with 0, as if it had succeeded, and −(2^64)+5 ended with 5.
