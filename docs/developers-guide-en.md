@@ -194,7 +194,14 @@ application in `/opt/powerrustcobol` and link `powerrustcobol` and `rcrun` into
 > format.
 
 Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the
-OpenGL, X11 or Wayland libraries your desktop already provides.
+graphics libraries every desktop already has: OpenGL (EGL) with its Mesa
+drivers, and the X11 or Wayland libraries. On a minimal or server install the
+`.deb` and `.rpm` fetch them for you. With the archive you install them
+yourself; on Debian and Ubuntu:
+
+```bash
+sudo apt install libegl1 libgl1-mesa-dri libx11-xcb1 libxcursor1 libxi6 libxkbcommon-x11-0
+```
 
 > **Note — sound on Linux.** The IDE and `rcrun` carry the sound built-ins
 > (§11, *Playing sound*), which reach the sound card through **ALSA**, so on
@@ -202,10 +209,18 @@ OpenGL, X11 or Wayland libraries your desktop already provides.
 > 24.04 and Debian 13; `alsa-lib` on Fedora). Every desktop installs it with its
 > sound system; on a minimal or server install the `.deb` and `.rpm` fetch it
 > for you, and with the archive you install it yourself
-> (`sudo apt install libasound2`). **Building** an application that plays sound
+> (`sudo apt install libasound2t64` on Ubuntu 24.04 and Debian 13,
+> `sudo apt install libasound2` on older releases). **Building** an application that plays sound
 > on Linux also needs the ALSA development package — `libasound2-dev`, or
 > `alsa-lib-devel` on Fedora; one that never calls an `AUDIO-…` built-in is
 > built without sound and needs neither. macOS and Windows need nothing.
+
+> ⚠️ **Caveat — the IDE stops at once with `undefined symbol: snd_pcm_get_params`.**
+> On Ubuntu 24.04 another package, `liboss4-salsa-asound2`, also answers to the
+> name `libasound2`, but it is an OSS stand-in without the ALSA functions the IDE
+> calls. Packages up to 2.0.538 could let apt pick it on a minimal install.
+> Install the real library with `sudo apt install libasound2t64`; apt then
+> replaces the stand-in.
 
 Launch the IDE; on first run you are greeted with an empty workspace and the
 prompt *"Open a COBOL file to get started."* You can either open a single `.cbl`

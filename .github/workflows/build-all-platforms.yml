@@ -1059,7 +1059,7 @@ jobs:
           Architecture: amd64
           Maintainer: Emerson Lopes <emersonlopes@gmail.com>
           Installed-Size: $size
-          Depends: libasound2 | libasound2t64
+          Depends: libasound2t64 | libasound2 (>= 1.0.16), libegl1, libgl1-mesa-dri, libx11-6, libx11-xcb1, libxcursor1, libxi6, libxkbcommon0, libxkbcommon-x11-0
           Recommends: libwebkit2gtk-4.1-0
           Suggests: build-essential
           Description: PowerRustCOBOL AI - the next generation COBOL RAD IDE
@@ -1075,6 +1075,25 @@ jobs:
           # install does not, and apt now fetches it. The alternative covers
           # Ubuntu 24.04 / Debian 13, where the 64-bit-time transition renamed
           # the package to libasound2t64.
+          #
+          # 2.0.539 - the real library comes FIRST and the old name carries a
+          # version. On 24.04 `libasound2` is only a virtual name, and
+          # liboss4-salsa-asound2 (an OSS stand-in without the ALSA symbols)
+          # provides it too: with `libasound2 | libasound2t64` apt could pick
+          # the stand-in, and the IDE then stopped at once on "undefined
+          # symbol: snd_pcm_get_params". The stand-in provides the name with no
+          # version, so `(>= 1.0.16)` lets only the real library satisfy it.
+          #
+          # The other eight are what the IDE OPENS at start rather than links,
+          # so no dependency scan sees them: winit's X11 back end (libX11,
+          # libX11-xcb, libXcursor, libXi, libxkbcommon, libxkbcommon-x11) and
+          # EGL for wgpu (libegl1, plus Mesa's drivers in libgl1-mesa-dri:
+          # on Ubuntu 22.04 and Debian 12 libegl1 alone leaves EGL with no
+          # driver, "failed to open swrast"). Measured on minimal Ubuntu 22.04
+          # and 24.04 and Debian 12 by reading the running IDE's library map;
+          # without them it stops on "libXcursor.so.1: cannot open shared
+          # object file" and the like. A desktop has them all; a minimal
+          # install now gets them from apt.
           #
           # `Suggests` rather than `Depends` or `Recommends`, deliberately.
           # Designing forms and running programs need nothing beyond this
@@ -1197,9 +1216,18 @@ jobs:
           # Hard, for the reason the .deb uses Depends: both programs link
           # libasound.so.2 (the sound built-ins) and do not start without it.
           # Named by the library's own soname, which Fedora/RHEL's alsa-lib and
-          # openSUSE's libasound2 both provide - AutoReqProv is off, so this is
-          # the one requirement rpm is told about.
+          # openSUSE's libasound2 both provide - AutoReqProv is off, so these
+          # are the only requirements rpm is told about.
           Requires:       libasound.so.2()(64bit)
+          # 2.0.539 - and what the IDE opens at start, for the reason the .deb
+          # names them: winit's X11 back end and EGL for wgpu. By soname too.
+          Requires:       libEGL.so.1()(64bit)
+          Requires:       libX11.so.6()(64bit)
+          Requires:       libX11-xcb.so.1()(64bit)
+          Requires:       libXcursor.so.1()(64bit)
+          Requires:       libXi.so.6()(64bit)
+          Requires:       libxkbcommon.so.0()(64bit)
+          Requires:       libxkbcommon-x11.so.0()(64bit)
           # Weak, for the reason the .deb uses Suggests: only BUILD needs a
           # compiler, and forcing one on every user who wants to design forms
           # would be wrong. gcc is what carries the linker here.

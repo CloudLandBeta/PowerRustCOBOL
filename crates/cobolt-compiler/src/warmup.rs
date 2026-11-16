@@ -638,6 +638,34 @@ mod tests {
         assert_eq!(pinned_rust("[workspace]\nmembers = []\n"), None);
     }
 
+    /// **2.0.539 — the Linux packages name what the IDE needs to start.** The real ALSA library
+    /// comes first and the old name carries a version (Ubuntu 24.04's OSS stand-in provides
+    /// `libasound2` with no version and lacks the ALSA symbols), and the libraries the IDE opens
+    /// at start, which no dependency scan sees, are in both the `.deb` and the `.rpm`.
+    #[test]
+    fn the_linux_packages_declare_what_the_ide_opens_at_start() {
+        let workflow = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.github/workflows/build-all-platforms.yml"));
+        let depends: Vec<&str> = workflow
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("Depends: "))
+            .expect("the .deb has a Depends line")
+            .split(',')
+            .map(str::trim)
+            .collect();
+        assert_eq!(depends[0], "libasound2t64 | libasound2 (>= 1.0.16)", "the real ALSA library first, the old name versioned");
+        let opened = ["libegl1", "libgl1-mesa-dri", "libx11-6", "libx11-xcb1", "libxcursor1", "libxi6", "libxkbcommon0", "libxkbcommon-x11-0"];
+        for package in opened {
+            assert!(depends.contains(&package), "the .deb does not depend on {package}");
+        }
+        let requires: Vec<&str> =
+            workflow.lines().filter_map(|l| l.trim().strip_prefix("Requires:")).map(str::trim).collect();
+        let sonames = ["libasound.so.2", "libEGL.so.1", "libX11.so.6", "libX11-xcb.so.1", "libXcursor.so.1", "libXi.so.6", "libxkbcommon.so.0", "libxkbcommon-x11.so.0"];
+        for soname in sonames {
+            assert!(requires.contains(&format!("{soname}()(64bit)").as_str()), "the .rpm does not require {soname}");
+        }
+        println!(".deb: ALSA first and versioned + {} opened libraries; .rpm: {} sonames", opened.len(), sonames.len());
+    }
+
     /// 2.0.467 — the log names both compilers, the cost, and the command that makes the libraries usable.
     #[test]
     fn libraries_from_another_compiler_are_explained_with_the_fix() {

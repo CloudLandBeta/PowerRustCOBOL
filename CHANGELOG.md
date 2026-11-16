@@ -2,6 +2,20 @@
 
 
 
+## 2.0.539 — 2026-11-16
+
+**Fix: the Linux `.deb` and `.rpm` now install what the IDE needs to start, so it starts on a minimal or server install too.** Found while testing the Claude Code integration with the published 2.0.477 `.deb` on a clean Ubuntu 24.04, where the IDE stopped before opening its window. A desktop install was not affected, because a desktop already has every library involved.
+- **The sound library could be the wrong one.** The `.deb` asked for `libasound2 | libasound2t64`. On Ubuntu 24.04 `libasound2` is only a name, and two packages answer to it: the real ALSA library and `liboss4-salsa-asound2`, an OSS stand-in without the ALSA functions. On a minimal install apt picked the stand-in, and the IDE stopped at once on `undefined symbol: snd_pcm_get_params`. The real library now comes first, and the old name carries a version, `libasound2t64 | libasound2 (>= 1.0.16)`. The stand-in gives the name no version, so it can no longer satisfy it.
+- **The libraries the IDE opens at start were not declared.** The IDE opens the X11 window libraries and EGL while it starts, so no dependency scan sees them, and the packages declared none. On a minimal install it stopped on `libXcursor.so.1: cannot open shared object file`, then on the next missing library. The `.deb` now also depends on `libegl1`, `libgl1-mesa-dri`, `libx11-6`, `libx11-xcb1`, `libxcursor1`, `libxi6`, `libxkbcommon0` and `libxkbcommon-x11-0`. The `.rpm` requires the same libraries by soname. On Ubuntu 22.04 and Debian 12, `libegl1` alone leaves EGL without a driver ("failed to open swrast"), hence `libgl1-mesa-dri`. On Fedora, `libEGL.so.1` already brings Mesa's drivers.
+- **How the list was found:** the released IDE was started on a minimal x86_64 Ubuntu 24.04, adding one package per failure, and the library map of the running IDE was then read. That map holds 51 libraries, all from packages; the eight above are the ones the IDE opens itself.
+- **Measured**, with a package that carries the new dependency line and the 2.0.477 release's files, on x86_64 installs without recommended packages and without any X server package:
+  - The IDE starts and serves its tools on port 5720 within about 10 s on Ubuntu 22.04, Ubuntu 24.04 and Debian 12, with no library errors. The display came from a separate container.
+  - apt resolves the line on Ubuntu 22.04, Ubuntu 24.04, Debian 12 and Debian 13, always to the real ALSA library.
+  - Fedora 45 has a provider for each of the eight sonames the `.rpm` requires.
+- **Test:** `the_linux_packages_declare_what_the_ide_opens_at_start` (`cobolt-compiler`, warmup, new) reads the release workflow. It requires the ALSA alternative in the new order with its version, the eight libraries in the `.deb`, and the eight sonames in the `.rpm`. On the old dependency line it fails.
+- **The Developer's Guide** (§3, the Linux paragraph under the downloads table) lists the graphics libraries and the `apt` line for the archive. `sudo apt install libasound2` fails on Ubuntu 24.04 with "no installation candidate", so it now names `libasound2t64` there. A new Caveat explains `undefined symbol: snd_pcm_get_params` and its cure for packages up to 2.0.538.
+- **Not changed:** the `.tar.gz` still relies on the desktop, as the Guide says. Only the X11 path was measured; a Wayland session uses libraries a Wayland desktop always has. openSUSE was not checked. Published packages keep their old dependency line until the next release is built.
+
 ## 2.0.538 — 2026-11-16
 
 **Integration: eight fixes made on their own branches since 2.0.500 reach main.** Each was cut from main at 2.0.500 and tested there, but none had been merged. They were already on `features-2x-desktop-wasm`, so main lagged behind it. Each is cherry-picked with its own number and its entry below, and its code is identical to the original commit's:
