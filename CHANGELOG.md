@@ -2,6 +2,28 @@
 
 
 
+## 2.0.517 — 2026-11-15
+
+**Feature (DESKTOP-WASM-001 T18): the IDE says which way a Build made the program, offers to install Rust when a Build needs it, and gets the Desktop settings.**
+- **The Output after a Build** names its path and the time of each phase, in the IDE's language: `Path: WebAssembly (no Rust toolchain used)`, or `Path: Cargo, because …` with the reason (a Debug Build, the project's choice, the project's own crates, an `EXEC RUST` block at its file and line, a construct the WebAssembly path does not build yet at its file and line, or no runner beside the IDE), then `Phases: regenerate 0.1 ms, front end 3.9 ms, …`. The Building dialog shows the path line under its summary.
+- **A Build that needs Cargo on a machine without Rust offers to install it.** The failure is now typed (the compiler's `CargoNeedsToolchain`), not recognised by its words. The offer is the first-run one, the same official rustup command for Rust 1.95.0, with a line on why this Build needs Cargo. One "Not now" closes it, and the next Build that needs Rust asks again. The Building dialog steps aside, since the offer is what to act on; the Output keeps the failure.
+- **The Desktop settings:**
+  - Project Settings gains a *Desktop application* section with **Build path** (WebAssembly or Cargo) and **Include the machine code**, with a note under each.
+  - The New Project dialog, and the `create_project` tool, offer the same two options.
+  - A project without them reads the defaults and is not rewritten: `[desktop]` is written only when a choice differs from what the project already says.
+- **The first-run Rust question tells the truth about WebAssembly Builds:** without Rust, only a Build that takes the Cargo path cannot run (an `EXEC RUST` block, the project's own crates, a Debug Build, a program the WebAssembly path does not build yet). WebAssembly Builds, designing, editing and interpreted runs are unaffected. These are two texts, changed in all six languages.
+- 27 new interface texts, each in English, Spanish, Portuguese, Japanese, Chinese and French.
+- **Measured** (macOS arm64, Apple M3 Pro, debug build):
+  - **`build_path_report`, 3 tests, 108 of 108 checks in 5.0 ms:**
+    - six languages × eight phase names, six reasons and the report lines (24 lines): each filled, file, line and construct kept, and differing from English outside English;
+    - a typed toolchain failure opens the offer, with the reason; one decline is final at Build time, while the first-run offer still asks twice; any other failure opens nothing;
+    - a project without the settings reads the defaults and saves no `[desktop]` table; one that chooses Cargo writes `build_path = "cargo"` and not the default machine code.
+  - **`cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`:** 2 028 passed, 3 failed, 6 ignored.
+    - `docs_embed` is the known red of the 2.x line.
+    - The other two were T18's own and are fixed: the New Project window grew wider than its fixed size in Portuguese with the long choice labels, now shortened; and `a_desktop_project_draws_nothing`, the rule T18 changes, is now `a_desktop_project_draws_only_its_build_rows`.
+    - Re-run after the fix: the 82 tests of `new_project`, `web_settings`, `build_path_report`, `i18n` and `toolchain` pass, `no_empty_ui_translations` and `non_english_is_actually_translated` among them.
+  - **`cargo test -p cobolt-project-tools --no-fail-fast`:** 32 targets, 265 passed, 0 failed, 2 ignored. `create_project` writes `build_path` and `machine_code`, and refuses `build_path = "llvm"`, naming the two values.
+
 ## 2.0.516 — 2026-11-15
 
 **Feature (DESKTOP-WASM-001 T17): `rcrun build --cargo` and `--no-machine-code`, and `rcrun build` says which path it took and how to install Rust when it needs it.**

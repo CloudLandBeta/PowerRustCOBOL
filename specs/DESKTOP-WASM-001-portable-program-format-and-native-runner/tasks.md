@@ -841,7 +841,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - **`cargo test -p cobolt-cli --no-fail-fast`:** 26 targets, 68 passed, 0 failed, 6 ignored (the six run with `--ignored`).
       - **`cargo test -p cobolt-ide --bin cobolt-ide toolchain`:** 21 of 21, including `the_command_shown_is_the_command_run` (the command shown is the one `install_argv` runs). **`cargo test -p cobolt-compiler --lib missing_toolchain`:** 2 of 2.
 
-- [ ] **T18 — The IDE: the Build's path, its phases, the install offer, and the Desktop settings** (R18, R24, R25; AC17 IDE half; i18n)
+- [x] **T18 — The IDE: the Build's path, its phases, the install offer, and the Desktop settings** (R18, R24, R25; AC17 IDE half; i18n)
   - Files:
     - `crates/cobolt-ide/src/app.rs`:
       - the toolchain failure, today matched by its text (:17237), becomes the typed error;
@@ -863,6 +863,35 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - a project without the new settings reads the defaults and is not rewritten.
     - `no_empty_ui_translations` and `non_english_is_actually_translated` green.
     - The manual check (plan §6) is owed to the operator: an IDE Build on a machine with no toolchain. The window is never driven by an agent; the MCP `build` tool shows the same report (T19).
+  - *Done 2026-11-15 (2.0.517):*
+    - **New module `crates/cobolt-ide/src/build_path_report.rs`:** `BuildFailure` (the message, `needs_rust`, the `CargoReason`), made from the `CompilerError` on the build thread; `phase_name`, `reason_text`, `path_line`, `phases_line` and `report_lines` in the IDE's language; `rust_offer`, the decision to offer.
+    - **`app.rs`:**
+      - The build channel carries `BuildFailure`. The Run-intent note that matched "Rust toolchain is required" now reads `needs_rust`, so no text is matched any more.
+      - After a Build, the Output gets the path line and the phases line (also in the Build log as details), and the Building dialog's summary ends with the path line.
+      - `offer_rust_install(&BuildFailure)` opens the first-run offer at Build time, unless an offer is already on screen. The Building dialog and the details window step aside.
+      - `show_toolchain_prompt`: a Build's offer has its own title, says why the Build needs Cargo, leaves out the first-run "why", and does not record the first-run answer.
+    - **`toolchain.rs`:** `FirstRunPrompt.at_build`, `FirstRunPrompt::at_build(status, reason)`. A status the IDE's probe finds usable is shown as missing, since the Build could not run it. At Build time one decline is final.
+    - **Settings:**
+      - `SettingsDraft.desktop` is filled from `[desktop]` or the defaults. `apply_kind` writes it only when it differs from what the project says.
+      - `web_settings::show` draws a Desktop project's section (Build path, machine code, a note under each), with a shared `section_heading`.
+      - The New Project options `build_path` (`wasm`, `cargo`) and `machine_code` live in `cobolt-project-tools/src/templates.rs` and are written by `create.rs`, so the dialog and the `create_project` tool offer them alike. `new_project.rs` translates both.
+    - **i18n:**
+      - 27 new `Tr` keys in six languages: the section, the two settings, their two choices and two notes; eight phases; six reasons plus the at-line form; the path and phases lines; the offer's title and text. The offer's buttons are the first-run ones, so no button key is new.
+      - `rust_check_why` and `rust_check_lost` are rewritten in six languages: without Rust, only Cargo-path Builds stop.
+    - **Settled while building:**
+      - **Six reasons, not seven:** `DesktopControl` comes with M2 (T33), and its `Tr` key with it.
+      - **The choice labels are short** (`WebAssembly (no Rust needed)`), because the long ones made the New Project window wider than its fixed size in Portuguese (`the_window_does_not_grow_while_nobody_touches_it`).
+      - **`a_desktop_project_draws_nothing` became `a_desktop_project_draws_only_its_build_rows`:** the old rule (a Desktop project has no section) is what T18 changes. The test now checks that the Desktop rows are drawn, that no Web or Mobile row is, and that drawing leaves the draft as it was.
+    - **Measured** (macOS arm64, Apple M3 Pro, debug build):
+      - **`cargo test -p cobolt-ide --bin cobolt-ide build_path_report`:** 3 of 3, 108 of 108 checks in 5.0 ms:
+        - **six languages:** 8 phase names, 6 reasons and 24 report lines, each filled and keeping its file, line and construct;
+        - **the offer:** a typed failure opens it with the reason; at Build time one decline is final, while the first-run offer still asks twice; any other failure opens nothing;
+        - **the settings:** the defaults are read, and no `[desktop]` table is written for a project without one.
+      - **`cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`:** 2 028 passed, 3 failed, 6 ignored.
+        - `docs_embed` is the known red.
+        - The two T18 reds are fixed (above), and the re-run of the 82 `new_project`, `web_settings`, `build_path_report`, `i18n` and `toolchain` tests is green. `no_empty_ui_translations` and `non_english_is_actually_translated` are among them.
+      - **`cargo test -p cobolt-project-tools --no-fail-fast`:** 32 targets, 265 passed, 0 failed, 2 ignored, including `the_options_belong_to_their_templates` and `the_kind_and_its_options_pick_the_template_and_shape_the_project` (9 refusals).
+      - **Owed to the operator:** the manual IDE Build on a machine with no toolchain (plan §6).
 
 - [ ] **T19 — The project tools' `build` reports the path, the reason and the timings** (R13, R18)
   - Files: `crates/cobolt-project-tools/src/tools/` (the `build` tool), and its schema text.

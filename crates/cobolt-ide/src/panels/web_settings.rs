@@ -14,7 +14,9 @@
 //! and the programs the Backend exports. A Mobile project asks for its
 //! platform and device (shown; they are fixed at creation), the orientation, the
 //! minimum OS, the style, multi-memory (off by default for iOS), and the same
-//! Backend address and exports. A Desktop project shows none of it.
+//! Backend address and exports. A Desktop project shows none of it: it asks
+//! for the Build path (WebAssembly or Cargo) and whether a WebAssembly Build
+//! includes the machine code (DESKTOP-WASM-001 R7, R15, R24).
 //!
 //! The section edits the form's draft ([`SettingsDraft`]); `apply_kind` writes
 //! the draft back into the project, and [`write_exports`] writes the exported
@@ -195,7 +197,14 @@ impl SettingsDraft {
             }
         };
         match self.kind {
-            ProjectKind::Desktop => {}
+            // Written only when it differs from what the project already says, or from the
+            // defaults when it says nothing: a project without `[desktop]` is not rewritten.
+            ProjectKind::Desktop => {
+                let saved = p.desktop.clone().unwrap_or_default();
+                if self.desktop != saved {
+                    p.desktop = Some(self.desktop.clone());
+                }
+            }
             ProjectKind::Web => {
                 let kept = p.web.as_ref().map(|w| w.backend_url.clone()).unwrap_or_default();
                 let mut web = self.web.clone();
@@ -1038,24 +1047,61 @@ pub struct PageJobs {
     pub studio: crate::panels::native_project::SharedStudio,
 }
 
-pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay: RowLayout, project_dir: Option<&Path>, jobs: &mut PageJobs) {
-    if draft.kind.is_desktop() {
-        return;
-    }
-    let dim = theme.text_dim;
+/// The heading of the kind's section, in the left column like the form's other headings.
+fn section_heading(ui: &mut Ui, lay: RowLayout, title: &str, theme: &Theme) {
     ui.add_space(8.0);
     ui.horizontal_top(|ui| {
         let left_rect = ui.allocate_exact_size(egui::vec2(lay.splitter, 0.0), egui::Sense::hover()).0;
         ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             ui.set_min_width(lay.splitter);
-            section(ui, if draft.kind == ProjectKind::Web { tr.pk_set_sec_web } else { tr.pk_set_sec_mobile }, theme);
+            section(ui, title, theme);
         });
         ui.allocate_space(egui::vec2(lay.resizer_width, 0.0));
         ui.add_space(lay.gap_after_resizer);
         let right_w = ui.available_width();
         ui.allocate_ui(egui::vec2(right_w, 0.0), |_ui| {});
     });
+}
+
+/// The label of a Build path value (DESKTOP-WASM-001 R7, R24), from the New Project dialog's own choices.
+fn build_path_text<'a>(tr: &'a Tr, value: &str) -> &'a str {
+    if value.trim().eq_ignore_ascii_case(cobolt_compiler::project_kind::BUILD_PATH_CARGO) {
+        tr.pk_c_build_path_cargo
+    } else {
+        tr.pk_c_build_path_wasm
+    }
+}
+
+/// A Desktop project's section: how a Build makes the program (DESKTOP-WASM-001 R7, R15, R24).
+fn desktop_rows(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay: RowLayout) {
+    use cobolt_compiler::project_kind::{BUILD_PATH_CARGO, BUILD_PATH_WASM};
+    let dim = theme.text_dim;
+    section_heading(ui, lay, tr.pk_set_sec_desktop, theme);
+    let desktop = &mut draft.desktop;
+    row(ui, lay, tr.pk_o_build_path, |ui| {
+        egui::ComboBox::from_id_salt("kind_build_path").selected_text(build_path_text(tr, &desktop.build_path)).show_ui(ui, |ui| {
+            for value in [BUILD_PATH_WASM, BUILD_PATH_CARGO] {
+                if ui.selectable_label(desktop.build_path.trim().eq_ignore_ascii_case(value), build_path_text(tr, value)).clicked() {
+                    desktop.build_path = value.to_owned();
+                }
+            }
+        });
+    });
+    note(ui, lay, tr.pk_o_build_path_note, dim);
+    row(ui, lay, tr.pk_o_machine_code, |ui| {
+        ui.checkbox(&mut desktop.machine_code, "");
+    });
+    note(ui, lay, tr.pk_o_machine_code_note, dim);
+}
+
+pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay: RowLayout, project_dir: Option<&Path>, jobs: &mut PageJobs) {
+    if draft.kind.is_desktop() {
+        desktop_rows(ui, draft, tr, theme, lay);
+        return;
+    }
+    let dim = theme.text_dim;
+    section_heading(ui, lay, if draft.kind == ProjectKind::Web { tr.pk_set_sec_web } else { tr.pk_set_sec_mobile }, theme);
 
     // What the project is: fixed at creation.
     row(ui, lay, tr.pk_set_kind, |ui| {
@@ -1735,14 +1781,18 @@ mod tests {
     }
 
     #[test]
-    fn a_desktop_project_draws_nothing() {
+    /// A Desktop project's section holds its Build rows only (DESKTOP-WASM-001 T18): the Build
+    /// path and the machine code, and none of a Web or Mobile project's rows. Drawing it changes
+    /// nothing in the draft.
+    fn a_desktop_project_draws_only_its_build_rows() {
         let llm = LlmConfig::load_defaults_for_test();
         let p = CoboltProject::new("D.project", "src/main.cbl");
         let mut draft = SettingsDraft::from_project(&p, &llm);
+        let before_draw = draft.clone();
         let ctx = egui::Context::default();
         let theme = crate::theme::default_theme();
         let tr = Language::English.tr();
-        let mut height = 1.0;
+        let mut height = 0.0;
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 1000.0)));
         let mut out = ctx.run_ui(input, |ui| {
@@ -1752,7 +1802,22 @@ mod tests {
             height = ui.cursor().top() - before;
         });
         out.textures_delta.clear();
-        assert_eq!(height, 0.0, "a Desktop project's Settings form gains no row");
+        let texts: Vec<String> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) => Some(t.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+        assert!(height > 0.0, "a Desktop project's Settings form gains its Desktop section");
+        for wanted in [tr.pk_set_sec_desktop, tr.pk_o_build_path, tr.pk_c_build_path_wasm, tr.pk_o_machine_code] {
+            assert!(texts.iter().any(|t| t == wanted), "{wanted:?} is drawn: {texts:?}");
+        }
+        for absent in [tr.pk_set_sec_web, tr.pk_set_sec_mobile, tr.pk_o_style, tr.pk_set_backend_url, tr.pk_f_locale] {
+            assert!(!texts.iter().any(|t| t == absent), "{absent:?} is not a Desktop row: {texts:?}");
+        }
+        assert!(draft == before_draw, "drawing the section changes nothing in the draft");
     }
 
     /// WASM-009 T19: the Identity section in every language has a text.

@@ -138,6 +138,11 @@ const WINDOW_STYLES: &[Choice] = &[
     Choice { id: "single", label: "Single Window" },
 ];
 const UI_FRAMEWORKS: &[Choice] = &[Choice { id: "powerui", label: "PowerUI" }];
+/// How a Build makes a Desktop program (DESKTOP-WASM-001 R7, R24): `[desktop] build_path`.
+const BUILD_PATHS: &[Choice] = &[
+    Choice { id: "wasm", label: "WebAssembly (no Rust needed)" },
+    Choice { id: "cargo", label: "Cargo (needs Rust)" },
+];
 const APP_STYLES: &[Choice] = &[
     Choice { id: "spa", label: "Single-page application (SPA)" },
     Choice { id: "standalone", label: "Standalone forms" },
@@ -173,6 +178,8 @@ const DESKTOP_OPTIONS: &[OptionDescriptor] = &[
     choice("ui_framework", "UI framework", UI_FRAMEWORKS, "powerui"),
     flag("high_dpi", "Enable High DPI support", true),
     flag("gpu_acceleration", "Enable GPU acceleration", true),
+    choice("build_path", "Build path", BUILD_PATHS, "wasm"),
+    flag("machine_code", "Include the machine code", true),
     flag("sample", "Include sample main program", true),
 ];
 
@@ -549,7 +556,7 @@ mod tests {
     fn the_options_belong_to_their_templates() {
         let catalogue = builtin();
         let desktop = find(&catalogue, "desktop").unwrap();
-        for id in ["window_style", "ui_framework", "high_dpi", "gpu_acceleration", "sample"] {
+        for id in ["window_style", "ui_framework", "high_dpi", "gpu_acceleration", "build_path", "machine_code", "sample"] {
             assert!(desktop.option(id).is_some(), "desktop asks for {id}");
         }
         for id in ["orientation", "min_os", "style", "backend"] {
@@ -559,6 +566,7 @@ mod tests {
             let t = find(&catalogue, id).unwrap();
             assert!(t.option("style").is_some() && t.option("backend").is_some(), "{id}: application style and Backend");
             assert!(t.option("high_dpi").is_none() && t.option("gpu_acceleration").is_none(), "{id}: no desktop-only options");
+            assert!(t.option("build_path").is_none() && t.option("machine_code").is_none(), "{id}: the Build path is a Desktop option");
         }
         assert!(find(&catalogue, "web").unwrap().option("orientation").is_none(), "a web page has no orientation option");
         for id in ["android-phone", "android-tablet", "iphone", "ipad"] {

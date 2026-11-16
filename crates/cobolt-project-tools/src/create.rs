@@ -653,7 +653,8 @@ fn build_manifest(
             ui_framework: resolved.choice("ui_framework").to_owned(),
             high_dpi: resolved.flag("high_dpi"),
             gpu_acceleration: resolved.flag("gpu_acceleration"),
-            ..DesktopSettings::default()
+            build_path: resolved.choice("build_path").to_owned(),
+            machine_code: resolved.flag("machine_code"),
         };
         if desktop != DesktopSettings::default() {
             tables.push(table_text(&DesktopTable { desktop: &desktop })?);

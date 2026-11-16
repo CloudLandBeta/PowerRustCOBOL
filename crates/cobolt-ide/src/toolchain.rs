@@ -530,6 +530,11 @@ pub struct FirstRunPrompt {
     pub status: Status,
     pub stage: Stage,
     pub install: Option<Install>,
+    /// `Some` when a Build asks, not the first run (DESKTOP-WASM-001 R25): the
+    /// Build took the Cargo path and this machine has no usable Rust. It holds
+    /// why the Build took that path, in the IDE's language, or is empty when the
+    /// compiler did not say.
+    pub at_build: Option<String>,
 }
 
 impl FirstRunPrompt {
@@ -539,12 +544,31 @@ impl FirstRunPrompt {
             status,
             stage: Stage::Offer,
             install: None,
+            at_build: None,
         })
     }
 
+    /// The same offer, made by a Build that needs Cargo and could not run
+    /// `rustc` (DESKTOP-WASM-001 R25). `reason` is why the Build took the Cargo
+    /// path. A `status` this probe finds usable is shown as missing: the Build
+    /// could not run it, and installing puts a `rustc` where the Build looks.
+    pub fn at_build(status: Status, reason: String) -> Self {
+        let status = if status.is_usable() { Status::Missing } else { status };
+        Self {
+            status,
+            stage: Stage::Offer,
+            install: None,
+            at_build: Some(reason),
+        }
+    }
+
     /// The developer said no. The first no advances to the warning; the second
-    /// is their answer.
+    /// is their answer. At Build time the first no is the answer: the developer
+    /// asked for a Build, not a conversation, and the next Build asks again.
     pub fn decline(&mut self) -> Decision {
+        if self.at_build.is_some() {
+            return Decision::Accepted;
+        }
         match self.stage {
             Stage::Offer => {
                 self.stage = Stage::LastChance;

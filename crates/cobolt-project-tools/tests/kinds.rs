@@ -152,6 +152,16 @@ fn the_kind_and_its_options_pick_the_template_and_shape_the_project() {
     assert!(doc.get("backend").is_none(), "no [backend] table");
     assert!(doc["files"].get("backend").is_none());
 
+    // DESKTOP-WASM-001 R7, R15: a Desktop project can choose the Cargo path and leave the machine code out;
+    // the defaults write no `[desktop]` table (a_desktop_project_is_what_it_always_was).
+    let (f, made) = make(&mut tools, "cargo", json!({"options": {"build_path": "cargo", "machine_code": false}})).unwrap();
+    assert_eq!(made["template"], "desktop");
+    let doc = manifest_of(&f);
+    assert_eq!(doc["desktop"]["build_path"].as_str(), Some("cargo"));
+    assert_eq!(doc["desktop"]["machine_code"].as_bool(), Some(false));
+    let e = make(&mut tools, "r7", json!({"options": {"build_path": "llvm"}})).unwrap_err();
+    assert!(e.contains("wasm") && e.contains("cargo"), "{e}");
+
     // Without the sample there is no form and no main.
     let (f, made) = make(&mut tools, "nosample", json!({"kind": "web", "options": {"sample": "false"}})).unwrap();
     assert_eq!(made["main"], "");
@@ -170,10 +180,10 @@ fn the_kind_and_its_options_pick_the_template_and_shape_the_project() {
     assert!(e.contains("spa"), "{e}");
     let e = make(&mut tools, "r6", json!({"kind": "web", "options": "style"})).unwrap_err();
     assert!(e.contains("object"), "{e}");
-    for r in ["r1", "r2", "r3", "r4", "r5", "r6", "m0", "m1"] {
+    for r in ["r1", "r2", "r3", "r4", "r5", "r6", "r7", "m0", "m1"] {
         assert!(!base.join(r).exists(), "a refused creation writes nothing ({r})");
     }
-    println!("create_project: kind/platform/device pick the template; style, orientation, min_os, backend and sample reach the manifest; 8 bad requests refused with nothing written");
+    println!("create_project: kind/platform/device pick the template; style, orientation, min_os, backend, sample, build_path and machine_code reach the manifest; 9 bad requests refused with nothing written");
     let _ = std::fs::remove_dir_all(base);
 }
 

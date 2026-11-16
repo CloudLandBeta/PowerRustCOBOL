@@ -1240,7 +1240,7 @@ pub struct CoboltApp {
 
     /// Pending binary build result channel (Phase 11).
     pending_build_rx:
-        Option<std::sync::mpsc::Receiver<Result<cobolt_compiler::BuildResult, String>>>,
+        Option<std::sync::mpsc::Receiver<Result<cobolt_compiler::BuildResult, crate::build_path_report::BuildFailure>>>,
     /// Set when *Run* started a build because the program contains `EXEC RUST`
     /// (spec 041 T13): the form whose run is waiting for that build.
     ///
@@ -6208,7 +6208,7 @@ impl CoboltApp {
 
         // Run the build on a background thread; collect result via a one-shot
         // channel, and stream phase progress via a second channel.
-        let (tx, rx) = std::sync::mpsc::channel::<Result<cobolt_compiler::BuildResult, String>>();
+        let (tx, rx) = std::sync::mpsc::channel::<Result<cobolt_compiler::BuildResult, crate::build_path_report::BuildFailure>>();
         let (ptx, prx) = std::sync::mpsc::channel::<cobolt_compiler::BuildProgress>();
         std::thread::spawn(move || {
             let opts = BuildOptions {
@@ -6237,7 +6237,8 @@ impl CoboltApp {
                 force_cargo: false,
                 no_machine_code: false,
             };
-            let result = build_project(&manifest, &opts).map_err(|e| e.to_string());
+            // Typed, so a missing toolchain is known by its variant, not by its words (T18).
+            let result = build_project(&manifest, &opts).map_err(|e| crate::build_path_report::BuildFailure::from_error(&e));
             let _ = tx.send(result);
         });
 
@@ -14303,6 +14304,23 @@ impl CoboltApp {
         }
     }
 
+    /// A Build stopped because it takes the Cargo path and this machine has no
+    /// usable Rust (DESKTOP-WASM-001 R25): offer to install it — the first-run
+    /// offer, saying why this Build needs it. One question at a time: an offer
+    /// already on screen is left as it is. The Building dialog steps aside, since
+    /// it is a modal and the offer is what to act on; the Output keeps the failure.
+    fn offer_rust_install(&mut self, failure: &crate::build_path_report::BuildFailure) {
+        if self.toolchain_prompt.is_some() {
+            return;
+        }
+        let tr = self.lang.tr();
+        if let Some(prompt) = crate::build_path_report::rust_offer(&tr, failure, crate::toolchain::detect()) {
+            self.toolchain_prompt = Some(prompt);
+            self.build_modal_closed = true;
+            self.build_details_open = false;
+        }
+    }
+
     /// The first-run Rust question (see [`crate::toolchain`]).
     ///
     /// There is no ✕: the only ways out are Install and a refusal, because a
@@ -14329,9 +14347,13 @@ impl CoboltApp {
         let mut decline = false;
         let mut settle = false;
 
-        let title = match prompt.stage {
-            Stage::Offer => tr.rust_check_title,
-            Stage::LastChance => tr.rust_check_last_title,
+        // A Build's offer (DESKTOP-WASM-001 R25) says why this Build needs Rust;
+        // the first-run one says why projects do.
+        let at_build = prompt.at_build.clone();
+        let title = match (&at_build, prompt.stage) {
+            (Some(_), _) => tr.rust_build_offer_title,
+            (None, Stage::Offer) => tr.rust_check_title,
+            (None, Stage::LastChance) => tr.rust_check_last_title,
         };
         egui::Window::new(title)
             .id(egui::Id::new("rust_first_run"))
@@ -14429,6 +14451,10 @@ impl CoboltApp {
                     None => {
                         match prompt.stage {
                             Stage::Offer => {
+                                if let Some(reason) = at_build.as_deref().filter(|r| !r.is_empty()) {
+                                    ui.label(tr.rust_build_offer_text.replace("{reason}", reason));
+                                    ui.add_space(6.0);
+                                }
                                 ui.label(match &prompt.status {
                                     Status::TooOld { version, .. } => tr
                                         .rust_check_too_old
@@ -14436,8 +14462,10 @@ impl CoboltApp {
                                         .replacen("{}", &minimum, 1),
                                     _ => tr.rust_check_missing.to_owned(),
                                 });
-                                ui.add_space(6.0);
-                                ui.label(tr.rust_check_why);
+                                if at_build.is_none() {
+                                    ui.add_space(6.0);
+                                    ui.label(tr.rust_check_why);
+                                }
                             }
                             Stage::LastChance => {
                                 ui.label(egui::RichText::new(tr.rust_check_lost).size(13.0));
@@ -14477,7 +14505,11 @@ impl CoboltApp {
         }
         if settle {
             self.toolchain_prompt = None;
-            crate::ui_prefs::mark_rust_check_done();
+            // The first-run question is answered once; a Build's offer comes
+            // back with the next Build that needs Rust.
+            if at_build.is_none() {
+                crate::ui_prefs::mark_rust_check_done();
+            }
         }
     }
 
@@ -17175,9 +17207,20 @@ impl eframe::App for CoboltApp {
                     );
                     self.output.push_status(line.clone());
                     self.build_log.push((BuildLogKind::Success, line.clone()));
+                    // DESKTOP-WASM-001 R18, R24: which path the Build took (and why, for
+                    // Cargo) and how long each phase took, in the IDE's language.
+                    let report = crate::build_path_report::report_lines(&self.lang.tr(), &result);
+                    for l in &report {
+                        self.output.push_status(format!("   {l}"));
+                        self.build_log.push((BuildLogKind::Detail, l.clone()));
+                    }
                     // The Building dialog does not self-dismiss: it stays up
-                    // with the outcome until the user closes it.
-                    self.build_outcome = Some(Ok(line));
+                    // with the outcome until the user closes it. It names the path too.
+                    let summary = match report.first() {
+                        Some(path) => format!("{line}\n\n{path}"),
+                        None => line,
+                    };
+                    self.build_outcome = Some(Ok(summary));
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
                     // Only a FULL build stamps the project: it is the only one
@@ -17221,8 +17264,9 @@ impl eframe::App for CoboltApp {
                         }
                     }
                 }
-                Ok(Err(e)) => {
+                Ok(Err(failure)) => {
                     let took = took();
+                    let e = failure.message.clone();
                     self.output.push_status(crate::ui_text::idef("❌ Build failed after {}: {}", &[&took, &e]));
                     self.build_log
                         .push((BuildLogKind::Error, format!("Build failed after {took}: {e}")));
@@ -17240,11 +17284,15 @@ impl eframe::App for CoboltApp {
                         // toolchain is what is missing — how to fix it.
                         self.output
                             .push_status(tr.status_exec_rust_build_failed.to_owned());
-                        if e.contains("Rust toolchain is required") {
+                        if failure.needs_rust {
                             self.output
                                 .push_status(tr.status_exec_rust_toolchain_missing.to_owned());
                         }
                         self.set_element_status(&form_path, ElementStatus::Failed);
+                    }
+                    // R25: a Build that needs Cargo on a machine without Rust offers to install it.
+                    if failure.needs_rust {
+                        self.offer_rust_install(&failure);
                     }
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {

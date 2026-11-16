@@ -75,6 +75,7 @@ pub mod theme;
 pub mod theme_ui;
 pub mod tool_exec;
 pub mod toolchain;
+pub mod build_path_report;
 pub mod ollama_setup;
 pub mod ui_prefs;
 mod update_check;

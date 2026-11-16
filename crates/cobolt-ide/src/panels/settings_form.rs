@@ -51,6 +51,9 @@ pub struct SettingsDraft {
     pub web: cobolt_compiler::project_kind::WebSettings,
     /// `[mobile]`, edited for a Mobile project.
     pub mobile: Option<cobolt_compiler::project_kind::MobileSettings>,
+    /// `[desktop]`, of which a Desktop project edits the Build path and the machine code
+    /// (DESKTOP-WASM-001 R7, R15); the defaults when the project has no `[desktop]` table.
+    pub desktop: cobolt_compiler::project_kind::DesktopSettings,
     /// Does the project have a Backend part (`[backend]` or Backend files)?
     pub has_backend: bool,
     /// The programs `backend/exports.toml` lists, one per line (loaded by the
@@ -170,6 +173,7 @@ impl SettingsDraft {
             currency: p.project.currency.clone(),
             web: p.web_settings(),
             mobile: p.mobile.clone(),
+            desktop: p.desktop.clone().unwrap_or_default(),
             has_backend: p.backend.is_some() || !p.files.backend.is_empty(),
             exports_text: String::new(),
             identity: Default::default(),
@@ -965,8 +969,8 @@ impl SettingsForm {
                             });
                         });
 
-                        // --- A Web or Mobile project's own settings (WASM-001, WASM-002).
-                        // A Desktop project shows nothing here: its settings are what they were.
+                        // --- The project kind's own settings: a Web or Mobile project's (WASM-001,
+                        // WASM-002), or a Desktop project's Build path and machine code (DESKTOP-WASM-001).
                         crate::panels::web_settings::show(
                             ui,
                             &mut self.draft,
