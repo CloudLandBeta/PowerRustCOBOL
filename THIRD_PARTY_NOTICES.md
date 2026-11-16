@@ -198,7 +198,9 @@ License and texts:
          https://llvm.org/LICENSE.txt
 Used by: clipboard-win and error-code through arboard (the IDE's clipboard, Windows); xxhash-rust through server_fn (Leptos, the web player);
          base16 through wasm_split_macros; encoding-index-* through encoding and lopdf (a development dependency); wasmtime and the cranelift
-         family through cobolt-wasm's `host` feature (the module runner); libfuzzer-sys through rav1e and ravif (the image encoder). Whether a
+         family through cobolt-wasm's `host` feature (the module runner) and through cobolt-runner-engine, which
+         prc-runner (the PowerRustCOBOL runner that ships beside the IDE and rcrun, DESKTOP-WASM-001) links, and which the IDE and
+         rcrun use to compile a program's module to machine code at Build time; libfuzzer-sys through rav1e and ravif (the image encoder). Whether a
          given binary links one depends on its features: `cargo tree -i <crate>` shows the path.
 Notes: Every one is permissive. Redistribution keeps the notices above and the texts in licenses/. Re-check with `cargo deny list` before a release.
 ```

@@ -2009,14 +2009,30 @@ pub const RUNNER_ENV: &str = "PRC_RUNNER";
 pub const RUNNER_NAME: &str = if cfg!(windows) { "prc-runner.exe" } else { "prc-runner" };
 
 /// Where the PowerRustCOBOL runner is, if it is installed: [`RUNNER_ENV`], else beside the running
-/// executable (the IDE, `rcrun` and the runner ship together).
+/// executable (the IDE, `rcrun` and the runner ship together), as [`runner_near`] finds it.
 pub fn runner_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os(RUNNER_ENV).map(PathBuf::from) {
         return p.is_file().then_some(p);
     }
-    let exe = std::env::current_exe().ok()?;
-    let beside = exe.parent()?.join(RUNNER_NAME);
-    beside.is_file().then_some(beside)
+    runner_near(&std::env::current_exe().ok()?)
+}
+
+/// The runner that ships with the program at `exe` (DESKTOP-WASM-001 T20): [`RUNNER_NAME`] in the
+/// same folder — an installed IDE and `rcrun` (the folder of a Linux or Windows package, or
+/// `Contents/MacOS` of the macOS application), or `target/<profile>/` of a checkout once
+/// `cargo build -p cobolt-runner` has put it there. When `exe` was started through a link (the
+/// loose `rcrun` of the macOS archive points into the application, `/usr/bin/rcrun` into
+/// `/opt/powerrustcobol`), the folder of the file it links to is looked in too. A test or an
+/// example of a checkout (`target/<profile>/deps`, `…/examples`) finds none: it names its runner.
+pub fn runner_near(exe: &Path) -> Option<PathBuf> {
+    let linked = exe.canonicalize().ok();
+    let found = [Some(exe), linked.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter_map(Path::parent)
+        .map(|dir| dir.join(RUNNER_NAME))
+        .find(|p| p.is_file());
+    found
 }
 
 /// What the Cargo path did, beside what every Build reports.

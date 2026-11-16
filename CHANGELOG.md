@@ -2,6 +2,26 @@
 
 
 
+## 2.0.519 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T20): the PowerRustCOBOL runner ships with the IDE.**
+- **Every package carries `prc-runner` beside the IDE and `rcrun`:** the Linux and Windows archives, the MSI, the `.deb` and the `.rpm`, and `Contents/MacOS` of the macOS application and the `.dmg`. A Desktop Build on the WebAssembly path copies it and puts the program inside, so an installed IDE builds such programs with no Rust toolchain.
+- **The release workflow:**
+  - builds the runner, stages it, and signs it ad hoc on macOS before the application (`codesign --verify --strict` still covers the bundle);
+  - checks its libraries with the IDE's;
+  - runs it once on each platform: with no program inside, it must say so and exit 1;
+  - checks the `.deb` and `.rpm` contents for it.
+- **The Build finds the runner when `rcrun` is started through a link:** the loose `rcrun` of the macOS archive, and `/usr/bin/rcrun` on Linux. It looks beside the program and beside the file the link points to.
+- **The third-party notices** name the runner among the users of wasmtime and Cranelift (Apache-2.0 WITH LLVM-exception, already listed). The runner's 92 crates bring no other licence into the shipped binary.
+- **The Platform SDK is unchanged:** it holds the sources the Cargo path compiles. The WebAssembly path compiles nothing from source; it uses the runner that ships beside the IDE.
+- **Measured** (macOS arm64, Apple M3 Pro, debug build):
+  - **`runner_locator`:** 8 of 8 checks in 5.0 ms (a package, the macOS application, the two links, a checkout, a checkout's test, a bare IDE).
+  - **The macOS staging, rehearsed on a stand-in bundle:**
+    - `codesign --verify --strict` passed, and so did the runner start check.
+    - A console project built through the archive-style link to `rcrun`, with no `PRC_RUNNER`, on the WebAssembly path in 3 986 ms, and ran.
+  - **Re-run green:** `desktop_wasm_build` (28 of 28) and `build_path_flags`.
+- **Owed to the operator:** one run of **Actions → "Build PowerRustCOBOL (all platforms)"** on `features-2x-desktop-wasm`, with *publish* off. `gh` is not on this machine, so an agent cannot start it.
+
 ## 2.0.518 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T19): the `build` tool of `rcrun mcp` and the IDE's agents says which way a Desktop Build made the program, why, and how long each phase took.**

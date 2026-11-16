@@ -921,7 +921,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - **`cargo test -p cobolt-project-tools build`:** 32 targets, 39 passed, 0 failed, 2 ignored.
       - **`cargo test -p cobolt-project-tools --no-fail-fast`:** 33 targets, 267 passed, 0 failed, 2 ignored.
 
-- [ ] **T20 — `prc-runner` ships with the IDE** (R6; AC13)
+- [x] **T20 — `prc-runner` ships with the IDE** (R6; AC13)
   - Files:
     - `.github/workflows/build-all-platforms.yml`:
       - build `cobolt-runner`;
@@ -934,6 +934,32 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - The runner locator finds `prc-runner` next to the IDE binary and, in a checkout, in `target/<profile>/`. This is a compiler test.
     - The release workflow is dispatched once, outside the window. Each of the four packages contains `prc-runner`, and on macOS `codesign --verify --strict` passes.
     - The package step and the installers are otherwise unchanged (AC13).
+  - *Done 2026-11-16 (2.0.519):*
+    - **`.github/workflows/build-all-platforms.yml`:**
+      - The build step also builds `cobolt-runner`.
+      - Staging copies `prc-runner` beside the IDE and `rcrun`: into the package folder on Linux and Windows, into `Contents/MacOS` on macOS.
+      - On macOS it is signed ad hoc before the application, so `codesign --verify --strict` still covers the whole bundle.
+      - The dependency check (`ldd`, `otool -L`) includes it.
+      - A new step, *Check the packaged runner starts*, runs the staged runner on each platform and expects its "carries no program" message and exit code 1.
+      - The `.deb` and `.rpm` content checks look for `/opt/powerrustcobol/prc-runner`.
+      - The MSI and the `.dmg` are built from the staged folder (WiX `heat` harvests it; the `.dmg` wraps the signed application), so they carry it with no list to edit.
+    - **`crates/cobolt-compiler/src/lib.rs`:** `runner_path` now asks the new `runner_near(exe)`. That looks beside the running program and, when the program was started through a link, beside the file the link points to. Two links ship: the loose `rcrun` of the macOS archive points into the application, and `/usr/bin/rcrun` points into `/opt/powerrustcobol`.
+    - **`THIRD_PARTY_NOTICES.md`:** wasmtime, Cranelift, Pulley and regalloc2 were already listed (Apache-2.0 WITH LLVM-exception). Their "Used by" now names `cobolt-runner-engine` and `prc-runner`.
+      - `cargo tree -p cobolt-runner -e normal` lists 92 crates. Outside MIT, Apache-2.0, BSD, ISC, Zlib and the Unlicense, they hold only the LLVM-exception family already listed, plus `unicode-ident`.
+      - `unicode-ident` (Unicode-3.0) is reached only through procedural macros, so it is used while compiling and is not in the shipped binary.
+    - **Decided: the Platform SDK is unchanged.**
+      - `SDK_CRATES` is the source closure the Cargo path compiles against (`stage_sdk` and `prebuild_libs` are its only readers, both run by the release workflow).
+      - The WebAssembly path compiles nothing from source. It uses the generator already linked into the IDE and `rcrun`, and the prebuilt runner that ships beside them.
+      - So no crate is added to `SDK_CRATES`, and a Platform SDK installation's IDE builds Desktop projects on the WebAssembly path through the `prc-runner` beside it.
+    - **Settled while building:**
+      - **A test or an example of a checkout finds no runner** (`target/<profile>/deps`, `…/examples`). It names its runner (`PRC_RUNNER` or `BuildOptions::runner`), so T16's "no runner → `RunnerUnavailable`" check keeps meaning what it says.
+      - **The IDE in a checkout finds `target/<profile>/prc-runner`** once `cargo build -p cobolt-runner` has put it there; until then its Builds take Cargo, naming the reason.
+    - **Measured** (macOS arm64, Apple M3 Pro, debug build):
+      - **New `cargo test -p cobolt-compiler --test runner_locator`, `the_runner_is_found_beside_the_ide_and_in_a_checkout`:** 8 of 8 checks in 5.0 ms. Layouts: a Linux or Windows package (IDE and `rcrun`), the macOS application, the archive's linked `rcrun`, a linked `/usr/bin/rcrun`, a checkout's `target/debug`, a checkout's test (none found), and a bare IDE (none found).
+      - **The macOS staging, rehearsed on a stand-in bundle:** `rcrun`, `prc-runner` and the application signed ad hoc in the workflow's order; `codesign --verify --strict` accepted it. The runner start check passed (exit 1, "carries no program").
+        - Through the archive-style link to the bundle's `rcrun`, with no `PRC_RUNNER`, `rcrun build` of a console project found the runner in `Contents/MacOS` and built on the WebAssembly path in 3 986 ms. The program printed its line and exited 0.
+      - **Re-run green:** `desktop_wasm_build` (T16, 28 of 28 checks, "no runner → `RunnerUnavailable`" among them) and `cobolt-cli --test build_path_flags`.
+      - **Owed to the operator:** the release workflow's dispatch. `gh` is not installed and no token is set, so an agent cannot dispatch it. Run **Actions → "Build PowerRustCOBOL (all platforms)"** on `features-2x-desktop-wasm` with *publish* off. Its new step shows the runner starting on each of the four platforms, and the `.deb`, `.rpm` and macOS signature checks cover the packages.
 
 - [ ] **T21 — The module corpus, kept for ever** (R5, R23; AC4)
   - Files:

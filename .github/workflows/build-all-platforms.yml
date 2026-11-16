@@ -170,11 +170,14 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Build PowerRustCOBOL and rcrun
+      # prc-runner, the PowerRustCOBOL runner (DESKTOP-WASM-001 T20): a Desktop Build on the
+      # WebAssembly path copies it and puts the program inside, so it ships beside the IDE and
+      # rcrun, where the Build looks for it (`runner_near`); without it every Build takes Cargo.
+      - name: Build PowerRustCOBOL, rcrun and the runner
         run: >
           cargo build --release --locked
           --target ${{ matrix.target }}
-          -p cobolt-ide -p cobolt-cli -p cobolt-web-preview
+          -p cobolt-ide -p cobolt-cli -p cobolt-web-preview -p cobolt-runner
 
       # The headless web view helper draws, on every system (WASM-008 T45):
       # PRC_REQUIRE_WEBVIEW=1 turns its tests' "no web view, skipped" into a
@@ -241,6 +244,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/cobolt-ide${{ matrix.ext }}" "$out/PowerRustCOBOL${{ matrix.ext }}"
           cp "target/${{ matrix.target }}/release/rcrun${{ matrix.ext }}" "$out/rcrun${{ matrix.ext }}"
           cp "target/${{ matrix.target }}/release/prc-web-preview${{ matrix.ext }}" "$out/prc-web-preview${{ matrix.ext }}"
+          cp "target/${{ matrix.target }}/release/prc-runner${{ matrix.ext }}" "$out/prc-runner${{ matrix.ext }}"
           cp -R assets "$out/assets"
           rm -rf "$out/assets/knowledge"
           git archive HEAD examples | tar -x -C "$out"
@@ -308,6 +312,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/cobolt-ide" "$app/Contents/MacOS/PowerRustCOBOL"
           cp "target/${{ matrix.target }}/release/rcrun" "$app/Contents/MacOS/rcrun"
           cp "target/${{ matrix.target }}/release/prc-web-preview" "$app/Contents/MacOS/prc-web-preview"
+          cp "target/${{ matrix.target }}/release/prc-runner" "$app/Contents/MacOS/prc-runner"
           cp -R assets "$app/Contents/Resources/assets"
           # Already inside the binary — see the Linux/Windows staging step.
           rm -rf "$app/Contents/Resources/assets/knowledge"
@@ -357,6 +362,9 @@ jobs:
           # and assembling the bundle invalidates the one the linker applied.
           codesign --force --sign - "$app/Contents/MacOS/rcrun"
           codesign --force --sign - "$app/Contents/MacOS/prc-web-preview"
+          # The runner is signed like the others; a Build signs each program it makes from it again,
+          # ad hoc, after putting the program inside (cobolt-program-package).
+          codesign --force --sign - "$app/Contents/MacOS/prc-runner"
           codesign --force --sign - "$app"
           codesign --verify --strict "$app"
 
@@ -368,16 +376,16 @@ jobs:
           set -euo pipefail
           case "$RUNNER_OS" in
             Linux)
-              ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun"
-              if ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun" | grep -E 'libssl|libcrypto' >/dev/null; then
+              ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun" "dist/$PKG/prc-runner"
+              if ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun" "dist/$PKG/prc-runner" | grep -E 'libssl|libcrypto' >/dev/null; then
                 echo "::error::OpenSSL is still linked dynamically — the package is not self-contained"
                 exit 1
               fi
               ;;
             macOS)
               app="dist/$PKG/PowerRustCOBOL.app/Contents/MacOS"
-              otool -L "$app/PowerRustCOBOL" "$app/rcrun"
-              if otool -L "$app/PowerRustCOBOL" "$app/rcrun" | grep -E '/usr/local/|/opt/homebrew/' >/dev/null; then
+              otool -L "$app/PowerRustCOBOL" "$app/rcrun" "$app/prc-runner"
+              if otool -L "$app/PowerRustCOBOL" "$app/rcrun" "$app/prc-runner" | grep -E '/usr/local/|/opt/homebrew/' >/dev/null; then
                 echo "::error::a Homebrew library leaked into the binary — it will not run on a clean Mac"
                 exit 1
               fi
@@ -431,6 +439,27 @@ jobs:
             || { echo "::error::the example project is missing from the package"; exit 1; }
           test -d "$ex/PowerDemo3/forms" \
             || { echo "::error::the example project is incomplete: forms/"; exit 1; }
+
+      # The packaged runner starts on this system (DESKTOP-WASM-001 T20): with no program inside it
+      # says so and exits 1. A runner that cannot start here (a signature a Mac refuses, a missing
+      # library) fails this step instead of every Build a developer makes.
+      - name: Check the packaged runner starts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            r="dist/$PKG/PowerRustCOBOL.app/Contents/MacOS/prc-runner"
+          else
+            r="dist/$PKG/prc-runner${{ matrix.ext }}"
+          fi
+          test -f "$r" || { echo "::error::the package has no prc-runner"; exit 1; }
+          set +e
+          msg=$("$r" 2>&1)
+          code=$?
+          set -e
+          echo "$msg (exit $code)"
+          test "$code" = 1 || { echo "::error::prc-runner exited $code, not 1"; exit 1; }
+          echo "$msg" | grep -q "carries no program" || { echo "::error::prc-runner did not start"; exit 1; }
 
       # ── Installers ──────────────────────────────────────────────────────────
       #
@@ -1161,6 +1190,7 @@ jobs:
           dpkg-deb -c "dist/${PKG}.deb" > dist/_deb-contents.txt
           grep -q "./opt/powerrustcobol/assets/themes/" dist/_deb-contents.txt
           grep -q "./opt/powerrustcobol/sdk/Cargo.toml" dist/_deb-contents.txt
+          grep -q "./opt/powerrustcobol/prc-runner" dist/_deb-contents.txt
           grep -q "./opt/powerrustcobol/examples/PowerDemo3/" dist/_deb-contents.txt
           rm -f dist/_deb-contents.txt
           # The links have done their job; the .rpm needs the room next.
@@ -1299,6 +1329,7 @@ jobs:
           rpm -qlp "dist/${PKG}.rpm" > dist/_rpm-contents.txt
           grep -q "^/opt/powerrustcobol/assets/themes/" dist/_rpm-contents.txt
           grep -q "^/opt/powerrustcobol/sdk/Cargo.toml$" dist/_rpm-contents.txt
+          grep -q "^/opt/powerrustcobol/prc-runner$" dist/_rpm-contents.txt
           grep -q "^/opt/powerrustcobol/examples/PowerDemo3/" dist/_rpm-contents.txt
           rm -f dist/_rpm-contents.txt
           # Nothing below needs the build tree or the staged desktop entry, and
