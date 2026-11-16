@@ -2,6 +2,21 @@
 
 
 
+## 2.0.522 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T23): conformance of the WebAssembly path measured at M1, and the parity list updated.**
+- **`nist_runner_run`** runs a program as a Desktop Build ships it: the generator compiles it in the native mode, the module goes inside a copy of `prc-runner`, and that file runs it. The NIST harness uses it in place of `rcrun`. Its `compare` mode runs every `tests/cobol` program on both the interpreter and the runner and compares them.
+- **NIST, the modules the interpreter has finished:**
+  - **NC (Nucleus):** compile 4 of 95, execution 4 of 95 with 0 failures (53 assertions, the same as the interpreter).
+  - **SQ (Sequential I/O):** compile 3 of 85, execution 3 of 85 with 0 failures (24 assertions, the same as the interpreter).
+  - Every other program uses a file on disk (its report, or the suite's data file), and disk files come at M3.
+- **`tests/cobol`:** 18 of 62 programs compile in the native mode, and **16 of the 18 give identical output and exit code**. The other two differ only by a warning line that `rcrun` itself writes to standard output.
+- **Three new rows in `WASM-PARITY.md`:**
+  - **#54:** `rcrun`'s log goes to standard output. That is a fix for the interpreter's host, reported.
+  - **#55:** external switches are OFF in a built program, on both paths.
+  - **#56:** the value-method extensions the generator still refuses.
+- **Nothing gates on these counts** (R21): the Build still falls back to Cargo for every program the generator refuses, naming the construct.
+
 ## 2.0.521 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T22): a CI workflow checks the WebAssembly path on machines with no Rust, across Rust releases and across platforms.**

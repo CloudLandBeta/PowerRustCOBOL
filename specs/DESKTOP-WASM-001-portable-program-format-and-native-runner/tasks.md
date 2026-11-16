@@ -1022,7 +1022,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - **`module_hashes`, run twice with the same `SOURCE_DATE_EPOCH`:** 69 lines identical. They cover 19 modules (2 fixtures and 17 of the 62 `tests/cobol` programs; the other 45 are refused, each named), and the 5 reference projects with their reasons.
       - **Owed to the operator:** one dispatch of **Actions → "Desktop WebAssembly path (DESKTOP-WASM-001)"**, once the file is on the default branch (GitHub dispatches from there), or a `v*` tag. `gh` is not on this machine. The four platforms' result blocks then go into `WASM-PROGRESS.md`.
 
-- [ ] **T23 — AC9 at M1, and the parity list** (R11, R21, R22; AC9)
+- [x] **T23 — AC9 at M1, and the parity list** (R11, R21, R22; AC9)
   - Files: new `crates/cobolt-runner/examples/nist_runner_run.rs` (the `nist_wasm_run` pattern, with the module run by `prc-runner`); `specs/WASM-PARITY.md`.
   - Do: measure on both axes (GOLDEN RULE #9):
     - the NIST modules the interpreter has finished, in the native mode;
@@ -1030,6 +1030,23 @@ The code says five things the plan did not settle. Each is applied in the tasks 
 
     Each divergence found goes into `WASM-PARITY.md`, with who is right.
   - Verify: the compile and execution counts per module, reported separately, plus the corpus's identical-output count, are written to `WASM-PROGRESS.md`. Nothing gates on them (R21).
+  - *Done 2026-11-16 (2.0.522):*
+    - **New `crates/cobolt-runner/examples/nist_runner_run.rs`**, two modes:
+      - **`run`**, what the NIST harness passes `rcrun`: the generator compiles the program in the native mode (copybooks expanded, free form unless `--source-format` says otherwise), the module is packaged alone into a copy of `prc-runner`, and that executable runs it in the working directory. A refusal exits 1 and is written to `NIST_RUNNER_LOG`, which is how the compile axis is counted. `--switch` is accepted and ignored (WASM-PARITY #55).
+      - **`compare --rcrun <rcrun> [folder]`**: every program of `tests/cobol` (or the folder), run under `rcrun run` and under the runner, each in its own copy of the program's folder, with no input, the pins and 20 s each. Output and exit code must be equal; one result block.
+    - **Measured** (macOS arm64, Apple M3 Pro, debug build):
+      - **NC (Nucleus):** compile 4 of 95, execution 4 of 95 with 0 failures (NC110M, NC302M, NC303M, NC401M). 53 PASS, 0 FAIL, the same 53 the interpreter reports for them.
+      - **SQ (Sequential I/O):** compile 3 of 85, execution 3 of 85 with 0 failures (SQ302M, SQ303M, SQ401M). 24 PASS, 0 FAIL, the interpreter's 24.
+      - **Why so few:** every other CCVS program uses a file on disk, and files on disk come at M3 (T40 measures SQ again). Each refusal names the first such file: all 91 in NC name the report file `PRINT-FILE`; in SQ, 62 name `RAW-DATA` (the installation's data file) and 20 name `PRINT-FILE`.
+      - **`tests/cobol`:** 62 programs, 18 compiled in the native mode, **16 of 18 identical**. The other 2 (`call/test-call-exception.cbl`, `call/test-call-returning.cbl`) are identical except for one line, `rcrun`'s own warning `CALL to unknown program '…'`, which `rcrun` writes to standard output (WASM-PARITY #54).
+      - **The 44 refused, by reason:** 19 disk files; 11 `EXEC SQL`; 5 value-method extensions (#56); and one each of MERGE, `SET` pointer, `AUDIO-PLAY`, `IMAGE-INFO`, national literals, `DISPLAY-OF`, `ULENGTH` and a user-defined function (`FUNCTION-ID`). One more is `copy-replace/tcpyrep.cbl`: read as free form, its comment line `COPY and COPY REPLACING` is taken for a `COPY` statement, by the interpreter too, so it is refused on both.
+    - **New parity rows:**
+      - **#54:** `rcrun` writes its log to standard output. The runner is right; this is a 1.x.x fix, reported to the operator.
+      - **#55:** external switches are OFF in a built program on both paths (the Cargo-built `main.rs` never sets them either). By design at M1.
+      - **#56:** the value-method extensions the generator refuses and the interpreter runs.
+    - **Settled while building:**
+      - **The comparison reads free form,** as `rcrun run` and the Desktop Build do. Detecting the format would compare two different readings of a source.
+      - **The NIST harness is unchanged:** its 20 s limit and its scoring apply to the runner as they do to `rcrun`.
 
 - [ ] **T24 — Console parity, byte for byte** (R27 console part)
   - Files: new `tests/pixel-parity/console/` (console fixtures using each M1 construct); `crates/cobolt-bench/src/pixel_parity.rs` (`--console`).
