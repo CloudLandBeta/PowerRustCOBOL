@@ -39,6 +39,8 @@ pub(crate) mod canvas;
 /// The host's own clock: real, or the virtual time of a deterministic headless run (DESKTOP-WASM-001 T8).
 pub mod clock;
 pub mod debug_link;
+/// What runs a form's program: the interpreter, or an engine the glue gives (DESKTOP-WASM-001 T29).
+pub mod engine;
 pub mod diagnostics;
 pub mod file_dialog;
 /// Running a form off screen with a script (spec 084 R31).

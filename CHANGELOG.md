@@ -2,6 +2,16 @@
 
 
 
+## 2.0.528 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T29): the form host now asks a program engine to run each form's program, so the desktop runner can run them from the WebAssembly module while every other host keeps the interpreter.**
+- **What changed:** when a form opens, the host asks an engine for the form's design and for the start of its program. The start receives the window's own channels, its handle, its form's object and its caller.
+- **No existing host changes:** with no engine given, the interpreter runs the program the form source names. That code moved, unchanged, into the interpreter's engine.
+- **Checked:**
+  - a test engine opens a child window and releases it, in a host that has no form source;
+  - the form host's tests (219) and the `rcrun` host tests (21) pass;
+  - the Cargo-built reference forms still draw all 408 golden frames exactly, so the change moved no pixel.
+
 ## 2.0.527 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T28): a desktop program's module now carries its forms, menus, settings and theme art, so one file is the whole program.**

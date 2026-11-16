@@ -1177,7 +1177,23 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - `no_project_source_in_built_file` covers a form project.
     - `cargo test -p cobolt-project-tools` green.
 
-- [ ] **T29 — `ProgramEngine` in the form host; today's path becomes `InterpreterEngine`** (R9; C5)
+- [x] **T29 — `ProgramEngine` in the form host; today's path becomes `InterpreterEngine`** (R9; C5)
+  - *Done 2026-11-16 (2.0.528):*
+    - **`cobolt-form-host::engine` (new):**
+      - `ProgramRun` carries everything a form instance's program is given: its handle, its form's object, the control ids, the event, state, display and input channels, the closed signal, the request channel, the pending and finished flags, the caller for `super::`, the seeded objects, the designed menus and the debug wiring.
+      - `ProgramStart` is the one-shot start of a program with that run.
+      - `trait ProgramEngine` has `form(id)` (the design alone) and `open(id)` (the design and a start).
+      - `InterpreterEngine { setup, indexed_engine, bridge }` holds the interpreter-thread code that was in `build_form_instance_as`, moved unchanged.
+    - **`host.rs`:**
+      - `HostHooks::program_engine()` gives the host its engine once, when it is built. The default is `None`, the interpreter, with the programs `form_source` names, so no existing host changes.
+      - `form_design` and `open_program` ask the engine when there is one, else the form source. `form_side_menu_id` and `form_has_side_menu` read the design through `form_design`.
+      - `build_form_instance_as` registers the debug router, then calls the start with the instance's own channels.
+    - **New test `a_child_form_runs_on_the_program_engine_the_glue_gave`:** a host with no form source, given a fake engine, answers a form's design (3 asks) and opens a child window. The start receives the instance's display channel, its handle `W1`, its object `DETAIL` and its caller `W0`. The engine's "finished" releases the window, and the close reaches the fan-out.
+    - **Verify:**
+      - `cargo test -p cobolt-form-host`: 219 passed, 0 failed (218 before, plus the new test).
+      - The `rcrun` host tests (`aws_hosts`, `layers_hosts_091`, `model_list_hosts`, `partiql_hosts`, `perspective_hosts_096`, `powercloud_hosts`, `side_menu_hosted_controls`, `side_menu_rows_hosts`): 21 passed, 0 failed, 6 ignored.
+      - `engine_reference_form_parity_static_vs_faces`: 1 passed.
+      - `pixel-parity --cargo`: 408 frames compared, 408 golden matched, 0 differ, 22 of 22 forms repeatable, 13.8 min. The refactor moved no pixel.
   - Files: `crates/cobolt-form-host/src/host.rs`: `build_form_instance_as` (:5314), and the interpreter thread (:5379–5447) behind the trait.
   - Verify:
     - `cargo test -p cobolt-form-host` green.

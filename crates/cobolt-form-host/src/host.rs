@@ -94,11 +94,20 @@ fn anim_command(prop: &str) -> Option<AnimCommand> {
 ///
 /// - the **compiled application** replays `EXEC RUST` block windows
 ///   (`cobolt_windows::show_all`) in [`HostHooks::per_frame`];
-/// - `rcrun run-form` needs no hook at all ([`NoHooks`]).
+/// - `rcrun run-form` needs no hook at all ([`NoHooks`]);
+/// - the **desktop runner** runs the forms' programs in a WebAssembly module
+///   ([`HostHooks::program_engine`], DESKTOP-WASM-001).
 pub trait HostHooks {
     /// Called once per frame, after the theme/glass state is installed and
     /// before anything else runs. Default: nothing.
     fn per_frame(&mut self, _ctx: &egui::Context) {}
+
+    /// What runs the programs of the forms this host opens, taken once when
+    /// the host is built (DESKTOP-WASM-001 T29). Default: `None`, the
+    /// interpreter, with the programs the config's `form_source` names.
+    fn program_engine(&mut self) -> Option<Box<dyn crate::engine::ProgramEngine>> {
+        None
+    }
 }
 
 /// The empty seam — a host with no per-host behaviour.
@@ -446,9 +455,11 @@ impl FormHost {
             surface_theme,
             icon_path: _,
             title_fallback: _,
-            hooks,
+            mut hooks,
             surface,
         } = config;
+        // DESKTOP-WASM-001 T29 — taken once: what runs the programs of the forms this host opens.
+        let program_engine = hooks.program_engine();
 
         // 049 R18 — entrance/exit effects are window effects: a pane-hosted
         // form is simply present. Zeroing the specs here keeps every fx gate
@@ -590,6 +601,7 @@ impl FormHost {
             pane: Pane::default(),
             form_req_tx,
             form_source,
+            program_engine,
             child_theme,
             child_interpreter_setup,
             indexed_engine,
@@ -4117,6 +4129,10 @@ pub struct FormHost {
     /// 051 — the pieces `SpawnWindow` builds a child from (see the config).
     form_req_tx: mpsc::Sender<cobolt_runtime::form_host::FormRequest>,
     form_source: Option<FormSource>,
+    /// DESKTOP-WASM-001 T29 — what runs the forms' programs, when the glue gave one
+    /// ([`HostHooks::program_engine`]); `None` runs the programs `form_source` names
+    /// with the interpreter ([`crate::engine::InterpreterEngine`]).
+    program_engine: Option<Box<dyn crate::engine::ProgramEngine>>,
     child_theme: Option<ChildThemeSource>,
     child_interpreter_setup:
         Option<std::sync::Arc<dyn Fn(&mut cobolt_runtime::interpreter::Interpreter) + Send + Sync>>,
@@ -4770,10 +4786,7 @@ impl FormHost {
     /// safe to call again right before `ensure_occupant` resolves the same id.
     /// The id of the SideMenu `form_id` carries, if it carries one.
     pub(crate) fn form_side_menu_id(&self, form_id: &str) -> Result<Option<String>, String> {
-        let Some(source) = &self.form_source else {
-            return Err("this host has no form source (single-form runtime)".into());
-        };
-        let (form, _program) = source(form_id)?;
+        let form = self.form_design(form_id)?;
         let mut flat: Vec<cobolt_forms::Control> = Vec::new();
         crate::flatten_controls(&form.controls, &mut flat);
         Ok(flat
@@ -4783,15 +4796,47 @@ impl FormHost {
     }
 
     pub fn form_has_side_menu(&self, form_id: &str) -> Result<bool, String> {
-        let Some(source) = &self.form_source else {
-            return Err("this host has no form source (single-form runtime)".into());
-        };
-        let (form, _program) = source(form_id)?;
+        let form = self.form_design(form_id)?;
         let mut flat: Vec<cobolt_forms::Control> = Vec::new();
         crate::flatten_controls(&form.controls, &mut flat);
         Ok(flat
             .iter()
             .any(|c| c.control_type == cobolt_forms::ControlType::SideMenu))
+    }
+
+    /// The design of `form_id`, starting nothing (DESKTOP-WASM-001 T29): from
+    /// the glue's program engine when it gave one, else from the form source.
+    fn form_design(&self, form_id: &str) -> Result<cobolt_forms::Form, String> {
+        if let Some(engine) = &self.program_engine {
+            return engine.form(form_id);
+        }
+        let Some(source) = &self.form_source else {
+            return Err("this host has no form source (single-form runtime)".into());
+        };
+        Ok(source(form_id)?.0)
+    }
+
+    /// The design of `form_id` and the start of a new instance's program
+    /// (DESKTOP-WASM-001 T29): from the glue's program engine when it gave
+    /// one, else the program the form source names, run by the interpreter
+    /// with this host's setup, file engine and object bridge.
+    fn open_program(
+        &self,
+        form_id: &str,
+    ) -> Result<(cobolt_forms::Form, crate::engine::ProgramStart), String> {
+        if let Some(engine) = &self.program_engine {
+            return engine.open(form_id);
+        }
+        let Some(source) = &self.form_source else {
+            return Err("this host has no form source (single-form runtime)".into());
+        };
+        let (form, program) = source(form_id)?;
+        let engine = crate::engine::InterpreterEngine {
+            setup: self.child_interpreter_setup.clone(),
+            indexed_engine: self.indexed_engine,
+            bridge: self.shared_rust_bridge.clone(),
+        };
+        Ok((form, engine.start(program)))
     }
 
     /// 051 R10 — make sure a pane occupant for `form_id` exists (building
@@ -5328,10 +5373,9 @@ impl FormHost {
         form_id: &str,
         as_shell: bool,
     ) -> Result<(FormBody, cobolt_forms::Form), String> {
-        let Some(source) = &self.form_source else {
-            return Err("this host has no form source (single-form runtime)".into());
-        };
-        let (form, program) = source(form_id)?;
+        // The design, and the start of this instance's program: the
+        // interpreter, or the engine the glue gave (DESKTOP-WASM-001 T29).
+        let (form, start) = self.open_program(form_id)?;
 
         // Flatten + z-sort + seed exactly as the glues do for the root form.
         let mut flat: Vec<cobolt_forms::Control> = Vec::new();
@@ -5388,15 +5432,6 @@ impl FormHost {
         // already there on both the child-window and the pane-occupant path.
         let super_handle = self.supervisor.caller_of(handle).map(|h| h.to_string());
         {
-            let finished = Arc::clone(&finished);
-            let pending = Arc::clone(&pending);
-            let form_object = form_object.clone();
-            let handle = handle.to_string();
-            let req_tx = self.form_req_tx.clone();
-            let setup = self.child_interpreter_setup.clone();
-            let indexed_engine = self.indexed_engine;
-            let bridge = self.shared_rust_bridge.clone();
-            let err_tx = display_tx.clone();
             // 061 — when this process is being debugged, the form it is about
             // to open joins the session too: its own command channel, its own
             // breakpoints, its own "only my code" scope, under its own
@@ -5409,54 +5444,26 @@ impl FormHost {
             // modal child and a SideMenu pane occupant (`ensure_occupant`) all
             // build through here, so none of them can be forgotten.
             let debug_wiring = crate::debug_link::active_router()
-                .map(|router| router.register(&handle, &form_object));
-            // On the program stack, as every host runs a program (`stack_guard`).
-            cobolt_runtime::stack_guard::spawn_program_thread("form", move || {
-                // 051 Q1 — one object bridge per process, adopted from
-                // construction: seeding this form's own EXEC RUST objects into
-                // the shared bridge directly (rather than building with a
-                // private one and swapping it in after) is what keeps their
-                // handles valid — see `new_with_channels_and_bridge`'s doc.
-                let mut interp =
-                    cobolt_runtime::interpreter::Interpreter::new_with_channels_and_bridge(
-                        program, ev_rx, state_tx, display_tx, bridge,
-                    );
-                interp.set_control_ids(control_ids);
-                // The parent's engine: a child form creates files in the same
-                // format as the form that opened it.
-                interp.set_indexed_engine(indexed_engine);
-                interp.set_input_channel(input_rx);
-                interp.set_event_counter(pending);
-                interp.set_form_host(req_tx, &handle, &form_object, closed_rx);
-                if let Some(sh) = &super_handle {
-                    interp.set_super_form(sh);
-                }
-                // …**running**, never paused at its own first statement: this
-                // form is not the one the developer pressed Debug on. It runs
-                // and stops where they put a breakpoint. Starting it paused
-                // would halt the application every time any form opened.
-                if let Some((cmd_rx, ev_tx, bps, scope)) = debug_wiring {
-                    interp.attach_debug_channels_running(cmd_rx, ev_tx, bps);
-                    interp.set_debug_user_scope(scope);
-                }
-                if let Some(setup) = setup {
-                    setup(&mut interp);
-                }
-                interp.seed_objects(seed);
-                for (id, def) in &designed_menus {
-                    interp.set_designed_menu(id, def);
-                }
-                match interp.run() {
-                    Ok(()) => {}
-                    Err(e) if e.is_exit_signal() => {}
-                    Err(e) => {
-                        eprintln!("Runtime error: {e}");
-                        let _ = err_tx.send(format!("Runtime error: {e}"));
-                    }
-                }
-                finished.store(true, Ordering::Relaxed);
-            })
-            .expect("cannot start the form's program thread");
+                .map(|router| router.register(handle, &form_object));
+            // The program starts with this instance's channels; the
+            // interpreter runs it on a program thread of its own.
+            start(crate::engine::ProgramRun {
+                handle: handle.to_string(),
+                form_object: form_object.clone(),
+                control_ids,
+                events: ev_rx,
+                state: state_tx,
+                display: display_tx,
+                input: input_rx,
+                closed: closed_rx,
+                requests: self.form_req_tx.clone(),
+                pending: Arc::clone(&pending),
+                finished: Arc::clone(&finished),
+                super_handle,
+                seed,
+                designed_menus,
+                debug: debug_wiring,
+            })?;
         }
 
         // Spec 085 — a window that runs as a shell lays its own form out the
@@ -7946,6 +7953,83 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             height: None,
             modal: false,
         }
+    }
+
+    /// DESKTOP-WASM-001 T29 — the program engine a glue gives runs a child
+    /// form: the host asks it, not a form source (this host has none), for
+    /// the design and the start; the start gets the instance's own channels,
+    /// its handle, its form's object and its caller; and the engine's
+    /// "finished" releases the window as an interpreter's STOP RUN does.
+    #[test]
+    fn a_child_form_runs_on_the_program_engine_the_glue_gave() {
+        type Seen = Arc<std::sync::Mutex<Vec<(String, String, Option<String>)>>>;
+        struct Fake {
+            asked: Arc<AtomicUsize>,
+            seen: Seen,
+        }
+        impl crate::engine::ProgramEngine for Fake {
+            fn form(&self, form_id: &str) -> Result<cobolt_forms::Form, String> {
+                self.asked.fetch_add(1, Ordering::Relaxed);
+                Ok(cobolt_forms::Form::new(form_id, "Child", 240, 160))
+            }
+            fn open(&self, form_id: &str) -> Result<(cobolt_forms::Form, crate::engine::ProgramStart), String> {
+                let form = self.form(form_id)?;
+                let seen = Arc::clone(&self.seen);
+                let start: crate::engine::ProgramStart = Box::new(move |run: crate::engine::ProgramRun| {
+                    seen.lock().unwrap().push((run.handle.clone(), run.form_object.clone(), run.super_handle.clone()));
+                    run.display.send(format!("started {} as {}", run.handle, run.form_object)).unwrap();
+                    run.finished.store(true, Ordering::Relaxed);
+                    Ok(())
+                });
+                Ok((form, start))
+            }
+        }
+        let (mut host, closed_rx, _req_tx) = host_with_source(false);
+        assert!(host.form_has_side_menu("DETAIL").is_err(), "with no source and no engine nothing answers");
+        let asked = Arc::new(AtomicUsize::new(0));
+        let seen: Seen = Default::default();
+        host.program_engine = Some(Box::new(Fake { asked: Arc::clone(&asked), seen: Arc::clone(&seen) }));
+        assert_eq!(host.form_has_side_menu("DETAIL"), Ok(false), "the engine answers the design");
+
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(640.0, 480.0)));
+        host.supervisor_open_for_test("DETAIL");
+        let mut full = ctx.run_ui(input.clone(), |ui| {
+            host.apply_host_actions(ui.ctx(), vec![spawn_action("W1", "DETAIL")]);
+        });
+        full.textures_delta.clear();
+        assert_eq!(host.children.len(), 1, "the child window exists");
+        assert_eq!(host.children[0].body.form_name, "DETAIL");
+        let line = host.children[0].body.display_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert_eq!(line, "started W1 as DETAIL", "the start got the instance's own display channel");
+        let started = seen.lock().unwrap().clone();
+        assert_eq!(started.len(), 1, "one start per instance");
+        assert_eq!(started[0].0, "W1");
+        assert_eq!(started[0].1, "DETAIL");
+        assert!(started[0].2.is_some(), "the caller is handed over for super::");
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !host.children.is_empty() && std::time::Instant::now() < deadline {
+            let mut f = ctx.run_ui(input.clone(), |ui| {
+                let c = ui.ctx().clone();
+                host.update_children(&c);
+            });
+            f.textures_delta.clear();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(host.children.is_empty(), "the engine's finish released the child");
+        let closed: Vec<String> = closed_rx.try_iter().collect();
+        assert!(closed.contains(&"W1".to_string()), "NotifyClosed reached the fan-out: {closed:?}");
+        println!(
+            "program engine (T29): designs asked {}, starts {}, handle {}, object {}, caller {:?}, released {}",
+            asked.load(Ordering::Relaxed),
+            started.len(),
+            started[0].0,
+            started[0].1,
+            started[0].2,
+            closed.contains(&"W1".to_string()),
+        );
     }
 
     /// 051 R6/R3 — a spawn builds a real child (own body, own interpreter);
