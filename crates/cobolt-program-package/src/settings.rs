@@ -5,9 +5,9 @@
 // See the LICENSE file in the project root for full license information.
 
 //! What the runner needs from the project before the program starts: the values the Cargo path
-//! bakes into the generated `main.rs` (`cobolt-compiler`: `generate_main_rs_for` and the `bake_*`
-//! functions). The type only: T28 fills it from the project with the one function that also feeds
-//! the Cargo path, so both paths start from the same values.
+//! bakes into the generated `main.rs`. `cobolt-compiler`'s `runner_settings` makes them, and both
+//! paths start from what it makes (T28): the Cargo path bakes them (`main_rs_from_settings`), the
+//! WebAssembly path writes them into the module's `prsettings` section ([`crate::sections`]).
 
 use serde::{Deserialize, Serialize};
 

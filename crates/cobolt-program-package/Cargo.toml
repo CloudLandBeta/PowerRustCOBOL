@@ -17,5 +17,8 @@ build                  = "build.rs"
 [dependencies]
 # Every part's checksum, the table of contents' own, and the Mach-O code signature's page hashes.
 sha2  = { workspace = true }
-# `RunnerSettings` crosses from the Build to the runner as data (T28 chooses the encoding).
+# `RunnerSettings` and the other sections cross from the Build to the runner as data (T28).
 serde = { workspace = true }
+serde_json = { workspace = true }
+# The forms travel as their code-free descriptions (`cobolt_forms::description`).
+cobolt-forms = { path = "../cobolt-forms", default-features = false }

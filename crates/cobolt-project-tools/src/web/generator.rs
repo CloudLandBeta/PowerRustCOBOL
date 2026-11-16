@@ -463,41 +463,14 @@ pub fn write_backend_programs(
     Ok(())
 }
 
-/// The form specs the generator takes: controls in the model's order, every
-/// bound event, the layers above the base, the form's `Instances` (WASM-017
-/// R2). The first form of the manifest is the main form.
+/// The form specs the generator takes, made by the builder the Desktop Build uses too
+/// (`cobolt_compiler::form_spec`, DESKTOP-WASM-001 T28). The first form of the manifest is the
+/// main form.
 fn form_specs(forms: &[LoadedForm]) -> Vec<FormSpec<'_>> {
     forms
         .iter()
         .enumerate()
-        .map(|(i, f)| {
-            let mut controls = Vec::new();
-            all_controls(&f.form.controls, &mut controls);
-            let mut bindings: Vec<(String, String)> = Vec::new();
-            for c in &controls {
-                for e in &c.events {
-                    bindings.push((c.id.clone(), e.event.clone()));
-                }
-            }
-            for e in &f.form.form_events {
-                if !matches!(e.event.as_str(), "onLoad" | "onClose") {
-                    bindings.push((String::new(), e.event.clone()));
-                }
-            }
-            FormSpec {
-                name: f.form.name.clone(),
-                main: i == 0,
-                instances: f.form.effective_instances(i == 0),
-                program: &f.program,
-                controls: controls
-                    .iter()
-                    .map(|c| (c.id.clone(), format!("{:?}", c.control_type)))
-                    .collect(),
-                bindings,
-                layers: f.form.layers.iter().map(|l| l.name.clone()).collect(),
-                lines: f.lines.clone(),
-            }
-        })
+        .map(|(i, f)| cobolt_compiler::form_spec(&f.form, &f.program, i == 0, f.lines.clone()))
         .collect()
 }
 

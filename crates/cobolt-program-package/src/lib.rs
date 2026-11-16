@@ -18,12 +18,15 @@
 //!     very end of the file;
 //!   * on **Mach-O**, a `__PRPAYLOAD` segment inserted before `__LINKEDIT`, and the file signed
 //!     again ad hoc, in pure Rust (an overlay would break the signature).
-//! * **[`RunnerSettings`]**: what the Cargo path bakes into `main.rs`, as data (the type only; T28
-//!   fills it).
+//! * **[`RunnerSettings`]**: what the Cargo path bakes into `main.rs`, as data, made by the one
+//!   function that also feeds the Cargo path (T28).
+//! * **[`DesktopSections`]** (T28, C1): the settings, the forms as code-free descriptions, the
+//!   menus and the theme art, as custom sections of the program's module.
 
 mod codesign;
 mod macho;
 mod overlay;
+pub mod sections;
 mod settings;
 
 use std::fmt;
@@ -31,6 +34,9 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
+pub use sections::{
+    DesktopSections, MenuSource, SectionError, ThemeArt, ART_SECTION, FORMS_SECTION, MENUS_SECTION, SETTINGS_SECTION,
+};
 pub use settings::{FocusRing, RunnerSettings};
 
 /// The payload's magic, at its first byte.

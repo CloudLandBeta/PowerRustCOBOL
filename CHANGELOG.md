@@ -2,6 +2,22 @@
 
 
 
+## 2.0.527 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T28): a desktop program's module now carries its forms, menus, settings and theme art, so one file is the whole program.**
+- **Four sections are added to the module after its code**, each with its own format number:
+  - the program's settings;
+  - each form's design, with no handler code in it;
+  - the menus;
+  - the theme art.
+
+  A runner reads every format up to its own. Faced with a newer one, it says by name that a later runner is needed. A Web application's module is not changed.
+- **One function now makes a desktop program's settings for both Build paths:** the values a Cargo-built program carries are the values the module carries.
+- **Checked on the five reference projects:**
+  - the settings are equal on both paths, 10 of 10;
+  - 22 forms are described, and none of the projects' 993 handler statement lines is in them.
+- **The Web Build and the Desktop Build now describe a form with the same code.**
+
 ## 2.0.526 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T27): the part of the web player that drives a program module is now its own crate, `cobolt-abi-host`, so the desktop runner can drive forms with the same code as the browser.**

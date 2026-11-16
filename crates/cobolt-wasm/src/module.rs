@@ -281,6 +281,18 @@ pub struct FormSpec<'a> {
     pub lines: Vec<SourceLine>,
 }
 
+/// Append custom sections to a finished module, in the order given (DESKTOP-WASM-001 T28): the
+/// Desktop Build puts the program's settings, forms, menus and theme art here after the
+/// generator, so a browser module's bytes are never touched. A custom section may follow any
+/// other, and engines pass by one they do not know.
+pub fn append_custom_sections(wasm: &mut Vec<u8>, sections: &[(&str, Vec<u8>)]) {
+    use wasm_encoder::Encode as _;
+    for (name, data) in sections {
+        wasm.push(0);
+        CustomSection { name: std::borrow::Cow::Borrowed(name), data: std::borrow::Cow::Borrowed(data) }.encode(wasm);
+    }
+}
+
 /// One generated line and the place the developer wrote it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SourceLine {

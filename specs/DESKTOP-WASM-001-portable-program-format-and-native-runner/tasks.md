@@ -1144,7 +1144,27 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - The player's `wasm32` build succeeds. The shipped player is rebuilt if the freshness test asks.
     - T1's test green.
 
-- [ ] **T28 — The forms, menus, settings and art inside the module** (R1; C1; AC15, AC16)
+- [x] **T28 — The forms, menus, settings and art inside the module** (R1; C1; AC15, AC16)
+  - *Done 2026-11-16 (2.0.527):*
+    - **`cobolt-program-package::sections`:** four custom sections, each with its own format number (1).
+      - `prsettings`, always: JSON, the `RunnerSettings`.
+      - `prforms`: JSON, each form's code-free `FormDescription`, the main form first.
+      - `prmenus`: JSON, each menu's key and its YAML.
+      - `prart`: binary little-endian, each theme pack's id, manifest and files.
+      - A section that is missing reads as empty, or as the defaults. A reader takes every format up to its own and refuses a newer one by name: "run the program with a later PowerRustCOBOL runner".
+      - Recorded as ABI A32.
+    - **`cobolt_wasm::module::append_custom_sections`:** the Desktop Build appends the sections after the generator has finished. A Web module's bytes therefore cannot change: T1's test still matches 3 of 3.
+    - **`cobolt-compiler`:**
+      - `gather_forms` is step 5 of `build_core`, taken out so the two paths share it.
+      - `form_spec` is the FormSpec builder the Web generator now uses too. Its browser-only lowering stays its own.
+      - `runner_settings` is the one function that makes the settings. The Cargo path bakes them into `main.rs` through `main_rs_from_settings`, and the WebAssembly path writes them into `prsettings`.
+      - `desktop_sections` describes the forms, the menus and the theme art. `find_theme_packs` is now shared with `stage_theme_packs`.
+    - **`desktop_sections_tests`:**
+      - The settings test: for each of the five reference projects, with remote calls off and on, the settings read back from the generated `main.rs` equal those decoded from a module's `prsettings`. 10 of 10 (170 fields).
+      - The forms test (AC15 for a form project): 22 forms are described (509 486 bytes of `prforms`), every section round-trips (5 of 5), and none of the projects' 993 handler statement lines is in them, raw or JSON-escaped.
+      - The reference projects have no menus and no theme packs, so `prmenus` and `prart` are covered by the package's own round-trip tests (4 of 4).
+    - **No test named `no_project_source_in_built_file` exists.** AC15's check of the built file is in `desktop_wasm_build`, and a form project's built file waits for M2: until then its forms take the Cargo path.
+    - **Other suites:** `cobolt-wasm` 121 passed, 0 failed; `cobolt-compiler` 302 passed, 0 failed, 9 ignored (19 test binaries); `cobolt-program-package` 10 passed; `cobolt-project-tools` 267 passed, 0 failed.
   - Files:
     - `crates/cobolt-compiler/src/lib.rs`:
       - `desktop_form_specs`;

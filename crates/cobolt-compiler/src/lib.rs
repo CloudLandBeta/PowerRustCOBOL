@@ -2616,6 +2616,131 @@ fn refused(e: &cobolt_wasm::GenError, main_file: &str, files: &[(String, String)
     CargoReason::Refused { construct, reason, file: file.to_string(), line: e.line }
 }
 
+/// One form as the WebAssembly generator takes it (DESKTOP-WASM-001 T28): its controls in the
+/// model's order, every bound event, its layers above the base and its `Instances` (WASM-017 R2).
+/// `main` is the manifest's first form; `lines` maps the generated lines to the developer's.
+/// The Web Build and the Desktop Build describe a form to the generator here, so the two cannot
+/// describe it differently.
+pub fn form_spec<'a>(
+    form: &cobolt_forms::Form,
+    program: &'a cobolt_ast::program::Program,
+    main: bool,
+    lines: Vec<cobolt_wasm::module::SourceLine>,
+) -> cobolt_wasm::module::FormSpec<'a> {
+    fn all<'c>(cs: &'c [cobolt_forms::Control], out: &mut Vec<&'c cobolt_forms::Control>) {
+        for c in cs {
+            out.push(c);
+            all(&c.children, out);
+        }
+    }
+    let mut controls = Vec::new();
+    all(&form.controls, &mut controls);
+    let mut bindings: Vec<(String, String)> = Vec::new();
+    for c in &controls {
+        for e in &c.events {
+            bindings.push((c.id.clone(), e.event.clone()));
+        }
+    }
+    for e in &form.form_events {
+        if !matches!(e.event.as_str(), "onLoad" | "onClose") {
+            bindings.push((String::new(), e.event.clone()));
+        }
+    }
+    cobolt_wasm::module::FormSpec {
+        name: form.name.clone(),
+        main,
+        instances: form.effective_instances(main),
+        program,
+        controls: controls.iter().map(|c| (c.id.clone(), format!("{:?}", c.control_type))).collect(),
+        bindings,
+        layers: form.layers.iter().map(|l| l.name.clone()).collect(),
+        lines,
+    }
+}
+
+/// The forms a Build embeds, as `(ID, the .cfrm's bytes)` with the main form first, and their
+/// menu sidecars as `(FORM/CONTROL key, YAML bytes)`. Both paths read them here (DESKTOP-WASM-001
+/// T28): the Cargo path embeds the files, the WebAssembly path describes them.
+#[allow(clippy::type_complexity)]
+fn gather_forms(
+    proj: &CoboltProject,
+    project_dir: &Path,
+    log: &impl Fn(&str),
+) -> Result<(Vec<(String, Vec<u8>)>, Vec<(String, Vec<u8>)>), CompilerError> {
+    let mut forms: Vec<(String, Vec<u8>)> = Vec::new(); // (id, raw_xml_bytes)
+    // 049 — the menu sidecars, keyed by the control that owns them. A SideMenu
+    // or MenuBar keeps its structure in `<control id>.menu.yaml` beside the
+    // `.cfrm`, never in a property, so a build that embedded only the forms
+    // produced an application whose menus were empty: the compiled shell had
+    // a rail with nothing on it. They ride into the binary exactly as the
+    // forms do.
+    // Spec 085 — keyed by FORM and control (`menu_key`): two forms may each
+    // have a `SideMenu-1` with its own menu, and the first one found used to
+    // win for both.
+    let mut menus: Vec<(String, Vec<u8>)> = Vec::new(); // (FORM/CTRL key, yaml bytes)
+
+    for rel in &proj.files.forms {
+        let abs = project_dir.join(rel);
+        if !abs.exists() {
+            continue;
+        }
+        // Form ID = file stem, uppercased (matches COBOL usage)
+        let id = abs
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(rel.as_str())
+            .to_ascii_uppercase();
+        let raw = std::fs::read(&abs).ctx(|| format!("read the form '{}'", abs.display()))?;
+        // `menu_yaml_path` names the sidecar `<control id>.menu.yaml`, so the
+        // file stem IS the control id and the directory can be read without
+        // parsing the form again.
+        if let Some(dir) = abs.parent() {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    let Some(name) = p.file_name().and_then(|s| s.to_str()) else {
+                        continue;
+                    };
+                    let Some(ctrl_id) = name.strip_suffix(".menu.yaml") else {
+                        continue;
+                    };
+                    let key = cobolt_forms::menu::menu_key(&id, ctrl_id);
+                    if menus.iter().any(|(k, _)| *k == key) {
+                        continue;
+                    }
+                    if let Ok(bytes) = std::fs::read(&p) {
+                        menus.push((key, bytes));
+                    }
+                }
+            }
+        }
+        forms.push((id, raw));
+    }
+
+    // The MAIN form goes first, because that is the one the built application
+    // opens (`FORMS.first()` in the generated `main.rs`).
+    //
+    // Without this the binary opened whichever form happened to be listed first
+    // in `cobolt.toml` — so a project whose main form was the third one started
+    // on the wrong window, while the IDE's own Run, which resolves the main form
+    // properly, showed the right one. The build and the IDE disagreed about what
+    // the application *is*.
+    //
+    // The designation is read the same way `rcrun` reads it before starting a
+    // form, so the build and the runtime cannot disagree about which form the
+    // application is. A project where two forms claim the mark has no answer
+    // to give, and the build says so rather than picking one.
+    let designation = main_form_guard::read_designation(project_dir, &proj.files.forms)
+        .map_err(CompilerError::AmbiguousMainForm)?;
+    let designated = designation.map(|d| d.main_form_id).unwrap_or_default();
+    if let Some(main_at) = forms.iter().position(|(id, _)| *id == designated) {
+        let main = forms.remove(main_at);
+        log(&format!("   main form: {}", main.0));
+        forms.insert(0, main);
+    }
+    Ok((forms, menus))
+}
+
 /// Shared build pipeline used by both [`build_project`] and [`build_single_file`].
 fn build_core(
     mut proj: CoboltProject,
@@ -2912,77 +3037,7 @@ fn build_core(
 
     // ── 5. Collect form files ─────────────────────────────────────────────────
     report(0.42, "Collecting forms & generated code…");
-    let mut forms: Vec<(String, Vec<u8>)> = Vec::new(); // (id, raw_xml_bytes)
-    // 049 — the menu sidecars, keyed by the control that owns them. A SideMenu
-    // or MenuBar keeps its structure in `<control id>.menu.yaml` beside the
-    // `.cfrm`, never in a property, so a build that embedded only the forms
-    // produced an application whose menus were empty: the compiled shell had
-    // a rail with nothing on it. They ride into the binary exactly as the
-    // forms do.
-    // Spec 085 — keyed by FORM and control (`menu_key`): two forms may each
-    // have a `SideMenu-1` with its own menu, and the first one found used to
-    // win for both.
-    let mut menus: Vec<(String, Vec<u8>)> = Vec::new(); // (FORM/CTRL key, yaml bytes)
-
-    for rel in &proj.files.forms {
-        let abs = project_dir.join(rel);
-        if !abs.exists() {
-            continue;
-        }
-        // Form ID = file stem, uppercased (matches COBOL usage)
-        let id = abs
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(rel.as_str())
-            .to_ascii_uppercase();
-        let raw = std::fs::read(&abs).ctx(|| format!("read the form '{}'", abs.display()))?;
-        // `menu_yaml_path` names the sidecar `<control id>.menu.yaml`, so the
-        // file stem IS the control id and the directory can be read without
-        // parsing the form again.
-        if let Some(dir) = abs.parent() {
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    let Some(name) = p.file_name().and_then(|s| s.to_str()) else {
-                        continue;
-                    };
-                    let Some(ctrl_id) = name.strip_suffix(".menu.yaml") else {
-                        continue;
-                    };
-                    let key = cobolt_forms::menu::menu_key(&id, ctrl_id);
-                    if menus.iter().any(|(k, _)| *k == key) {
-                        continue;
-                    }
-                    if let Ok(bytes) = std::fs::read(&p) {
-                        menus.push((key, bytes));
-                    }
-                }
-            }
-        }
-        forms.push((id, raw));
-    }
-
-    // The MAIN form goes first, because that is the one the built application
-    // opens (`FORMS.first()` in the generated `main.rs`).
-    //
-    // Without this the binary opened whichever form happened to be listed first
-    // in `cobolt.toml` — so a project whose main form was the third one started
-    // on the wrong window, while the IDE's own Run, which resolves the main form
-    // properly, showed the right one. The build and the IDE disagreed about what
-    // the application *is*.
-    //
-    // The designation is read the same way `rcrun` reads it before starting a
-    // form, so the build and the runtime cannot disagree about which form the
-    // application is. A project where two forms claim the mark has no answer
-    // to give, and the build says so rather than picking one.
-    let designation = main_form_guard::read_designation(&project_dir, &proj.files.forms)
-        .map_err(CompilerError::AmbiguousMainForm)?;
-    let designated = designation.map(|d| d.main_form_id).unwrap_or_default();
-    if let Some(main_at) = forms.iter().position(|(id, _)| *id == designated) {
-        let main = forms.remove(main_at);
-        log(&format!("   main form: {}", main.0));
-        forms.insert(0, main);
-    }
+    let (forms, menus) = gather_forms(&proj, &project_dir, &log)?;
     // Baked in beside the table below: at startup the application checks that
     // the form it is about to open is still this one, so an executable whose
     // embedded form table has been reordered refuses to run instead of opening
@@ -3101,7 +3156,15 @@ fn build_core(
             report(0.50, "Generating the WebAssembly module…");
             let wasm_opts = cobolt_wasm::Options { native: true, name: bin_name.clone(), ..cobolt_wasm::Options::default() };
             match cobolt_wasm::compile_program(&program, &wasm_opts) {
-                Ok(module) => Ok((runner, module)),
+                Ok(mut module) => {
+                    // T28: the settings, forms, menus and theme art beside the code (C1). The
+                    // backend is read from the program as the Cargo path reads it.
+                    let remote = runtime_features::scan_program(&program).remote;
+                    let settings = runner_settings(&proj, &main_form_id, remote);
+                    let sections = desktop_sections(&project_dir, opts, &forms, &menus, settings, &project_theme_default_of(&proj), &log)?;
+                    cobolt_wasm::module::append_custom_sections(&mut module.wasm, &sections.encode());
+                    Ok((runner, module))
+                }
                 Err(e) => Err(refused(&e, main_rel, &common_files)),
             }
         }
@@ -3543,60 +3606,11 @@ fn build_core(
 
     // ── 9b. Generate src/main.rs ──────────────────────────────────────────────
     let form_ids: Vec<&str> = forms.iter().map(|(id, _)| id.as_str()).collect();
-    // 038/042 — the project's window effects, baked into the generated source
-    // as `id:ms:easing` triples: a shipped binary has no `cobolt.toml` beside
-    // it, so settings it cannot read are settings it cannot honour (042 R11).
-    let entrance_fx = fx_triple(
-        &proj.forms.entrance_effect,
-        proj.forms.entrance_ms,
-        &proj.forms.entrance_easing,
-    );
-    let exit_fx = fx_triple(
-        &proj.forms.exit_effect,
-        proj.forms.exit_ms,
-        &proj.forms.exit_easing,
-    );
     let program_ids: Vec<&str> = form_programs.iter().map(|(id, _)| id.as_str()).collect();
     let menu_ids: Vec<&str> = menus.iter().map(|(id, _)| id.as_str()).collect();
-    let main_rs = generate_main_rs_for(
-        &proj.project.name,
-        &proj.project.version,
-        has_forms,
-        &form_ids,
-        &main_form_id,
-        &program_ids,
-        &menu_ids,
-        &staged_themes,
-        &project_theme_default,
-        &entrance_fx,
-        &exit_fx,
-        proj.forms.entrance_on_restore,
-        &cobolt_forms::connections::Catalogue {
-            rest: proj.integrations.rest_connections.clone(),
-            search: proj.integrations.search_connections.clone(),
-            // Deliberately not baked: these are the BUILD machine's providers,
-            // and shipping one developer's configuration to every user of the
-            // application would be wrong. The operator sets
-            // COBOLT_AGENT_PROVIDERS on the machine that runs it.
-            agent: Vec::new(),
-            // Spec 078 — baked like the others: a connection is a profile
-            // name and a region, never a credential.
-            aws: proj.integrations.aws_connections.clone(),
-        }
-        .to_json(),
-        proj.agents.file_memory_limit_mb(),
-        features.remote,
-    );
-    let main_rs = bake_focus_ring(
-        main_rs,
-        proj.forms.focus_ring,
-        &proj.forms.focus_ring_color,
-        proj.forms.focus_ring_pulse,
-    );
-    let main_rs = bake_indexed_engine(main_rs, &proj.ide.indexed_engine);
-    let main_rs = bake_locale(main_rs, &proj.project.locale);
-    let main_rs = bake_currency(main_rs, &proj.project.currency);
-    let main_rs = bake_link_schemes(main_rs, &proj.links.schemes);
+    // DESKTOP-WASM-001 T28: the settings the WebAssembly path puts into its module, baked here.
+    let settings = runner_settings(&proj, &main_form_id, features.remote);
+    let main_rs = main_rs_from_settings(&settings, has_forms, &form_ids, &program_ids, &menu_ids, &staged_themes);
     write_if_changed(&src_dir.join("main.rs"), main_rs.as_bytes())?;
 
     // ── 10. Run cargo build --release (cargo build, for a debug build) ────────
@@ -4139,20 +4153,69 @@ fn theme_search_dirs(project_dir: &Path, workspace_root: &Path) -> Vec<PathBuf> 
     dirs
 }
 
-/// Copy each wanted pack's manifest and referenced art into `themes_out`,
-/// preserving the pack-relative layout so the manifest's image refs keep
-/// working verbatim once embedded.
-///
-/// A pack that cannot be found or parsed is reported and skipped: the binary
-/// then falls back to Liquid Glass exactly as it does today, which is a worse
-/// look but never a failed build.
-fn stage_theme_packs(
-    ids: &[String],
-    search_dirs: &[PathBuf],
-    themes_out: &Path,
+/// The project's default form theme, as the Cargo path reads it (`[forms] theme`).
+fn project_theme_default_of(proj: &CoboltProject) -> String {
+    proj.forms.theme.trim().to_owned()
+}
+
+/// What a desktop module carries beside its code (DESKTOP-WASM-001 C1, T28): `settings`; each
+/// form as a code-free description, in the order the Cargo path embeds them (the main form
+/// first); the menu sidecars; and the art of the asset-pack themes the forms use, found as the
+/// Cargo path finds the packs it stages. A form whose file cannot be read here is reported and
+/// left out, as the Cargo path leaves out a form whose program does not parse.
+fn desktop_sections(
+    project_dir: &Path,
+    opts: &BuildOptions,
+    forms: &[(String, Vec<u8>)],
+    menus: &[(String, Vec<u8>)],
+    settings: cobolt_program_package::RunnerSettings,
+    project_theme_default: &str,
     log: &impl Fn(&str),
-) -> Result<Vec<StagedTheme>, CompilerError> {
-    let mut staged = Vec::new();
+) -> Result<cobolt_program_package::DesktopSections, CompilerError> {
+    use cobolt_program_package::{DesktopSections, MenuSource, ThemeArt};
+    let mut described = Vec::new();
+    for (id, raw) in forms {
+        match cobolt_forms::load_form_from_str(&String::from_utf8_lossy(raw)) {
+            Ok(form) => described.push(cobolt_forms::description::describe(&form)),
+            Err(e) => log(&format!("⚠️  form {id}: it cannot be read ({e}), so the program is built without it")),
+        }
+    }
+    let menus = menus
+        .iter()
+        .map(|(key, yaml)| MenuSource { key: key.clone(), yaml: String::from_utf8_lossy(yaml).into_owned() })
+        .collect();
+    let wanted = wanted_theme_ids(forms, project_theme_default);
+    let mut art = Vec::new();
+    if !wanted.is_empty() {
+        let root = resolve_workspace_root(opts.workspace_root.clone());
+        let search_dirs = theme_search_dirs(project_dir, root.as_deref().unwrap_or(project_dir));
+        for pack in find_theme_packs(&wanted, &search_dirs, log)? {
+            let mut files = Vec::new();
+            for rel in &pack.assets {
+                let src = pack.dir.join(rel);
+                files.push((rel.clone(), std::fs::read(&src).ctx(|| format!("read '{}'", src.display()))?));
+            }
+            art.push(ThemeArt { id: pack.id, manifest: pack.manifest, files });
+        }
+    }
+    Ok(DesktopSections { settings, forms: described, menus, art })
+}
+
+/// An asset-pack theme the forms use, as it was found: its folder, its manifest's text, and the
+/// art its manifest names that is there, in the manifest's order.
+struct FoundTheme {
+    id: String,
+    dir: PathBuf,
+    manifest: String,
+    assets: Vec<String>,
+}
+
+/// Find each wanted pack in `search_dirs` (the first that has it) and the art it draws. A pack
+/// that cannot be found or parsed, and art that is missing, are reported and passed by: the
+/// program then falls back to Liquid Glass, a worse look but never a failed build. Both paths
+/// take their themes from here (DESKTOP-WASM-001 T28).
+fn find_theme_packs(ids: &[String], search_dirs: &[PathBuf], log: &impl Fn(&str)) -> Result<Vec<FoundTheme>, CompilerError> {
+    let mut found = Vec::new();
     for id in ids {
         let Some(pack_dir) = search_dirs
             .iter()
@@ -4180,19 +4243,40 @@ fn stage_theme_packs(
                 continue;
             }
         };
-
-        let out_dir = themes_out.join(id);
-        create_dir(&out_dir)?;
-        write_if_changed(&out_dir.join("theme.toml"), manifest_src.as_bytes())?;
-
         let mut assets = Vec::new();
         for rel in manifest.referenced_assets() {
-            let src = pack_dir.join(&rel);
-            if !src.is_file() {
+            if !pack_dir.join(&rel).is_file() {
                 log(&format!("⚠️  Theme pack '{id}': missing art '{rel}', skipped"));
                 continue;
             }
-            let dst = out_dir.join(&rel);
+            assets.push(rel);
+        }
+        found.push(FoundTheme { id: id.clone(), dir: pack_dir, manifest: manifest_src, assets });
+    }
+    Ok(found)
+}
+
+/// Copy each wanted pack's manifest and referenced art into `themes_out`,
+/// preserving the pack-relative layout so the manifest's image refs keep
+/// working verbatim once embedded.
+///
+/// A pack that cannot be found or parsed is reported and skipped: the binary
+/// then falls back to Liquid Glass exactly as it does today, which is a worse
+/// look but never a failed build.
+fn stage_theme_packs(
+    ids: &[String],
+    search_dirs: &[PathBuf],
+    themes_out: &Path,
+    log: &impl Fn(&str),
+) -> Result<Vec<StagedTheme>, CompilerError> {
+    let mut staged = Vec::new();
+    for pack in find_theme_packs(ids, search_dirs, log)? {
+        let out_dir = themes_out.join(&pack.id);
+        create_dir(&out_dir)?;
+        write_if_changed(&out_dir.join("theme.toml"), pack.manifest.as_bytes())?;
+        for rel in &pack.assets {
+            let src = pack.dir.join(rel);
+            let dst = out_dir.join(rel);
             if let Some(parent) = dst.parent() {
                 create_dir(parent)?;
             }
@@ -4201,12 +4285,8 @@ fn stage_theme_packs(
             // cannot restage it.
             copy_overwrite(&src, &dst)
                 .ctx(|| format!("copy '{}' to '{}'", src.display(), dst.display()))?;
-            assets.push(rel);
         }
-        staged.push(StagedTheme {
-            id: id.clone(),
-            assets,
-        });
+        staged.push(StagedTheme { id: pack.id, assets: pack.assets });
     }
     Ok(staged)
 }
@@ -4842,6 +4922,85 @@ path = "src/main.rs"
 fn fx_triple(effect: &str, ms: u32, easing: &str) -> String {
     let clean = |s: &str| s.trim().to_ascii_lowercase().replace(':', "");
     format!("{}:{}:{}", clean(effect), ms, clean(easing))
+}
+
+/// The runner's settings for a project (DESKTOP-WASM-001 T28): the values the Cargo path bakes
+/// into `main.rs`, normalised as the baking normalises them. Both paths start here: the Cargo path
+/// bakes them ([`main_rs_from_settings`]) and the WebAssembly path puts them into the module's
+/// `prsettings` section, so a program reads the same settings whichever path built it.
+/// `main_form` is the form the application starts at (empty for a console program); `remote`
+/// says the program calls its backend.
+fn runner_settings(proj: &CoboltProject, main_form: &str, remote: bool) -> cobolt_program_package::RunnerSettings {
+    cobolt_program_package::RunnerSettings {
+        app_name: proj.project.name.clone(),
+        version: proj.project.version.clone(),
+        main_form: main_form.to_string(),
+        theme: proj.forms.theme.trim().to_owned(),
+        // 038/042 — the project's window effects as `id:ms:easing` triples: a shipped program has
+        // no `cobolt.toml` beside it, so settings it cannot read are settings it cannot honour
+        // (042 R11).
+        entrance_effect: fx_triple(&proj.forms.entrance_effect, proj.forms.entrance_ms, &proj.forms.entrance_easing),
+        exit_effect: fx_triple(&proj.forms.exit_effect, proj.forms.exit_ms, &proj.forms.exit_easing),
+        entrance_on_restore: proj.forms.entrance_on_restore,
+        connections_json: cobolt_forms::connections::Catalogue {
+            rest: proj.integrations.rest_connections.clone(),
+            search: proj.integrations.search_connections.clone(),
+            // Deliberately not baked: these are the BUILD machine's providers,
+            // and shipping one developer's configuration to every user of the
+            // application would be wrong. The operator sets
+            // COBOLT_AGENT_PROVIDERS on the machine that runs it.
+            agent: Vec::new(),
+            // Spec 078 — baked like the others: a connection is a profile
+            // name and a region, never a credential.
+            aws: proj.integrations.aws_connections.clone(),
+        }
+        .to_json(),
+        file_memory_limit_mb: proj.agents.file_memory_limit_mb(),
+        focus_ring: cobolt_program_package::FocusRing {
+            enabled: proj.forms.focus_ring,
+            color: proj.forms.focus_ring_color.trim().to_owned(),
+            pulse: proj.forms.focus_ring_pulse,
+        },
+        indexed_engine: proj.ide.indexed_engine.trim().to_owned(),
+        locale: proj.project.locale.trim().to_owned(),
+        currency: proj.project.currency.trim().to_owned(),
+        link_schemes: normalize_link_schemes(&proj.links.schemes),
+        remote,
+    }
+}
+
+/// The Cargo path's `main.rs`, with `settings` baked into it (DESKTOP-WASM-001 T28).
+fn main_rs_from_settings(
+    settings: &cobolt_program_package::RunnerSettings,
+    has_forms: bool,
+    form_ids: &[&str],
+    program_ids: &[&str],
+    menu_ids: &[&str],
+    themes: &[StagedTheme],
+) -> String {
+    let s = settings;
+    let main_rs = generate_main_rs_for(
+        &s.app_name,
+        &s.version,
+        has_forms,
+        form_ids,
+        &s.main_form,
+        program_ids,
+        menu_ids,
+        themes,
+        &s.theme,
+        &s.entrance_effect,
+        &s.exit_effect,
+        s.entrance_on_restore,
+        &s.connections_json,
+        s.file_memory_limit_mb,
+        s.remote,
+    );
+    let main_rs = bake_focus_ring(main_rs, s.focus_ring.enabled, &s.focus_ring.color, s.focus_ring.pulse);
+    let main_rs = bake_indexed_engine(main_rs, &s.indexed_engine);
+    let main_rs = bake_locale(main_rs, &s.locale);
+    let main_rs = bake_currency(main_rs, &s.currency);
+    bake_link_schemes(main_rs, &s.link_schemes)
 }
 
 /// The generated `main.rs` of an application that makes no remote call.
@@ -16715,5 +16874,238 @@ mod web_knowledge_tests {
             println!("owed: {spec} — {fact}");
         }
         assert!(missing.is_empty(), "missing from the System KB: {missing:?}");
+    }
+}
+
+/// DESKTOP-WASM-001 T28: the settings both paths start from, and the sections a desktop module
+/// carries, measured on the five reference projects (C7).
+#[cfg(test)]
+mod desktop_sections_tests {
+    use super::*;
+    use cobolt_program_package::{DesktopSections, RunnerSettings, FORMS_SECTION, SETTINGS_SECTION};
+
+    const REFERENCE: [&str; 5] = ["PowerCallOfDuty", "PowerCloud", "PowerCobolCraft", "PowerGraphics", "PowerSpatial"];
+
+    fn repo() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    }
+
+    /// A reference project's manifest (its one `*.project.toml`, read as `build_project` reads
+    /// it) and its main form, read in place (nothing is written).
+    fn reference(name: &str) -> (PathBuf, CoboltProject, String) {
+        let dir = repo().join("examples").join(name);
+        let manifest = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(".project.toml")))
+            .unwrap_or_else(|| panic!("{name} has a project manifest"));
+        let text = std::fs::read_to_string(manifest).unwrap();
+        let proj: CoboltProject = toml::from_str(&text).unwrap();
+        let (forms, _) = gather_forms(&proj, &dir, &|_| {}).unwrap();
+        let main = forms.first().map(|(id, _)| id.clone()).unwrap_or_default();
+        (dir, proj, main)
+    }
+
+    /// The text between the first pair of quotes after `name` in `main_rs`, unescaped as
+    /// `escape_default` escaped it.
+    fn baked_str(main_rs: &str, name: &str) -> String {
+        let at = main_rs.find(&format!("const {name}")).unwrap_or_else(|| panic!("{name} is baked"));
+        let line = main_rs[at..].lines().next().unwrap();
+        let body = &line[line.find('"').unwrap() + 1..line.rfind('"').unwrap()];
+        unescape(body)
+    }
+
+    fn baked_word(main_rs: &str, name: &str) -> String {
+        let at = main_rs.find(&format!("const {name}")).unwrap_or_else(|| panic!("{name} is baked"));
+        let line = main_rs[at..].lines().next().unwrap();
+        line.rsplit("= ").next().unwrap().trim_end_matches(';').trim().to_string()
+    }
+
+    fn unescape(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            if c != '\\' {
+                out.push(c);
+                continue;
+            }
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('r') => out.push('\r'),
+                Some('t') => out.push('\t'),
+                Some('u') => {
+                    let hex: String = chars.by_ref().skip(1).take_while(|c| *c != '}').collect();
+                    out.push(char::from_u32(u32::from_str_radix(&hex, 16).unwrap()).unwrap());
+                }
+                Some(other) => out.push(other),
+                None => {}
+            }
+        }
+        out
+    }
+
+    /// The settings a generated `main.rs` carries, read back from its constants.
+    fn baked(main_rs: &str) -> RunnerSettings {
+        let schemes = baked_word(main_rs, "PROJECT_LINK_SCHEMES");
+        RunnerSettings {
+            app_name: baked_str(main_rs, "APP_NAME"),
+            version: baked_str(main_rs, "APP_VERSION"),
+            main_form: baked_str(main_rs, "MAIN_FORM"),
+            theme: baked_str(main_rs, "PROJECT_THEME_DEFAULT"),
+            entrance_effect: baked_str(main_rs, "PROJECT_FX_ENTRANCE"),
+            exit_effect: baked_str(main_rs, "PROJECT_FX_EXIT"),
+            entrance_on_restore: baked_word(main_rs, "PROJECT_FX_ON_RESTORE") == "true",
+            connections_json: baked_str(main_rs, "PROJECT_CONNECTIONS"),
+            file_memory_limit_mb: baked_word(main_rs, "PROJECT_FILE_MEMORY_LIMIT_MB").parse().unwrap(),
+            focus_ring: cobolt_program_package::FocusRing {
+                enabled: baked_word(main_rs, "PROJECT_FOCUS_RING_ENABLED") == "true",
+                color: baked_str(main_rs, "PROJECT_FOCUS_RING_COLOR"),
+                pulse: baked_word(main_rs, "PROJECT_FOCUS_RING_PULSE") == "true",
+            },
+            indexed_engine: baked_str(main_rs, "PROJECT_INDEXED_ENGINE"),
+            locale: baked_str(main_rs, "PROJECT_LOCALE"),
+            currency: baked_str(main_rs, "PROJECT_CURRENCY"),
+            link_schemes: schemes
+                .trim_start_matches("&[")
+                .trim_end_matches(']')
+                .split(", ")
+                .filter(|s| !s.is_empty())
+                .map(|s| unescape(s.trim_matches('"')))
+                .collect(),
+            remote: main_rs.contains("cobolt_server::client::install_default_from_env();"),
+        }
+    }
+
+    /// The custom sections of a module, by name.
+    fn custom_sections(wasm: &[u8]) -> Vec<(String, Vec<u8>)> {
+        fn uleb(b: &[u8], at: &mut usize) -> usize {
+            let (mut v, mut shift) = (0usize, 0);
+            loop {
+                let byte = b[*at];
+                *at += 1;
+                v |= ((byte & 0x7f) as usize) << shift;
+                if byte & 0x80 == 0 {
+                    return v;
+                }
+                shift += 7;
+            }
+        }
+        let mut out = Vec::new();
+        let mut at = 8;
+        while at < wasm.len() {
+            let id = wasm[at];
+            at += 1;
+            let len = uleb(wasm, &mut at);
+            let end = at + len;
+            if id == 0 {
+                let mut p = at;
+                let n = uleb(wasm, &mut p);
+                out.push((String::from_utf8(wasm[p..p + n].to_vec()).unwrap(), wasm[p + n..end].to_vec()));
+            }
+            at = end;
+        }
+        out
+    }
+
+    /// A module with nothing in it, as the generator would begin one.
+    const EMPTY_MODULE: [u8; 8] = *b"\0asm\x01\0\0\0";
+
+    #[test]
+    fn the_settings_baked_on_the_cargo_path_equal_the_settings_in_the_module() {
+        let started = std::time::Instant::now();
+        let (mut checked, mut fields) = (0, 0);
+        for name in REFERENCE {
+            let (_, proj, main) = reference(name);
+            for remote in [false, true] {
+                let settings = runner_settings(&proj, &main, remote);
+                let main_rs = main_rs_from_settings(&settings, true, &[], &[], &[], &[]);
+                assert_eq!(baked(&main_rs), settings, "{name}: main.rs carries the settings (remote {remote})");
+                let mut wasm = EMPTY_MODULE.to_vec();
+                let sections = DesktopSections { settings: settings.clone(), ..DesktopSections::default() };
+                cobolt_wasm::module::append_custom_sections(&mut wasm, &sections.encode());
+                let found = custom_sections(&wasm);
+                assert_eq!(found.len(), 1, "{name}: a program with no forms carries its settings only");
+                assert_eq!(found[0].0, SETTINGS_SECTION);
+                let read = DesktopSections::decode(|n| found.iter().find(|(f, _)| f == n).map(|(_, b)| b.as_slice())).unwrap();
+                assert_eq!(read.settings, settings, "{name}: the module carries the settings (remote {remote})");
+                checked += 1;
+                fields += 17;
+            }
+        }
+        println!("== runner settings, both paths (DESKTOP-WASM-001 T28) ==");
+        println!("reference projects {}, settings compared {checked} (remote off and on), fields {fields}", REFERENCE.len());
+        println!("main.rs = settings {checked} of {checked}; module = settings {checked} of {checked}; {:.1} ms", started.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    /// The PROCEDURE DIVISION statement lines of a handler.
+    fn statement_lines(code: &str) -> Vec<String> {
+        let mut inside = false;
+        let mut out = Vec::new();
+        for l in code.lines() {
+            let t = l.trim();
+            if t.starts_with("PROCEDURE DIVISION") {
+                inside = true;
+                continue;
+            }
+            if inside && !t.is_empty() && !t.starts_with('*') {
+                out.push(t.to_string());
+            }
+        }
+        out
+    }
+
+    fn handler_code(controls: &[cobolt_forms::model::Control], out: &mut Vec<String>) {
+        for c in controls {
+            out.extend(c.events.iter().map(|e| e.code.clone()));
+            handler_code(&c.children, out);
+        }
+    }
+
+    #[test]
+    fn a_form_projects_sections_hold_its_forms_menus_and_art_but_no_handler_code() {
+        let started = std::time::Instant::now();
+        let (mut forms_n, mut menus_n, mut themes_n, mut art_bytes, mut lines_n, mut bytes_n) = (0, 0, 0, 0, 0, 0);
+        for name in REFERENCE {
+            let (dir, proj, main) = reference(name);
+            let (forms, menus) = gather_forms(&proj, &dir, &|_| {}).unwrap();
+            let settings = runner_settings(&proj, &main, false);
+            let theme = project_theme_default_of(&proj);
+            let sections = desktop_sections(&dir, &BuildOptions::default(), &forms, &menus, settings, &theme, &|_| {}).unwrap();
+            assert_eq!(sections.forms.len(), forms.len(), "{name}: every form is described");
+            assert_eq!(sections.forms[0].name.to_ascii_uppercase(), main, "{name}: the main form first");
+            assert_eq!(sections.menus.len(), menus.len(), "{name}: every menu sidecar");
+            let encoded = sections.encode();
+            let mut wasm = EMPTY_MODULE.to_vec();
+            cobolt_wasm::module::append_custom_sections(&mut wasm, &encoded);
+            let found = custom_sections(&wasm);
+            let read = DesktopSections::decode(|n| found.iter().find(|(f, _)| f == n).map(|(_, b)| b.as_slice())).unwrap();
+            assert_eq!(read, sections, "{name}: the sections read back as written");
+            // AC15 for a form project: no statement line of any handler is in the module.
+            let mut code = Vec::new();
+            for (_, raw) in &forms {
+                let form = cobolt_forms::load_form_from_str(&String::from_utf8_lossy(raw)).unwrap();
+                handler_code(&form.controls, &mut code);
+                code.extend(form.form_events.iter().map(|e| e.code.clone()));
+            }
+            let lines: Vec<String> = code.iter().flat_map(|c| statement_lines(c)).filter(|l| l.contains(' ')).collect();
+            assert!(!lines.is_empty(), "{name}: its handlers have statements to look for");
+            for l in &lines {
+                let escaped = serde_json::to_string(l).unwrap();
+                let escaped = escaped.trim_matches('"');
+                for needle in [l.as_str(), escaped] {
+                    assert!(!wasm.windows(needle.len()).any(|w| w == needle.as_bytes()), "{name}: a handler line is in the module: {l}");
+                }
+            }
+            forms_n += sections.forms.len();
+            menus_n += sections.menus.len();
+            themes_n += sections.art.len();
+            art_bytes += sections.art.iter().flat_map(|t| t.files.iter()).map(|(_, b)| b.len()).sum::<usize>();
+            lines_n += lines.len();
+            bytes_n += found.iter().find(|(n, _)| n == FORMS_SECTION).map_or(0, |(_, b)| b.len());
+        }
+        println!("== desktop sections, five reference projects (DESKTOP-WASM-001 T28; AC15 for forms) ==");
+        println!("forms described {forms_n} ({bytes_n} bytes of prforms), menus {menus_n}, themes {themes_n} ({art_bytes} bytes of art)");
+        println!("handler statement lines looked for {lines_n}, found 0; round trips {} of {}; {:.1} ms", REFERENCE.len(), REFERENCE.len(), started.elapsed().as_secs_f64() * 1000.0);
     }
 }
