@@ -9203,6 +9203,21 @@ size; move it back and it is reduced again, just enough. To keep text at full
 size on smaller screens, give the form a responsive layout whose smallest
 layout fits them: the window then shrinks to that layout and nothing is zoomed.
 
+With more than one monitor, the screen is the one the window is on. Drag the
+application onto another monitor and it is fitted there, to that monitor's size
+and scale, and stays there. On Windows the area used is that monitor's work
+area, without its task bar.
+
+> **Note.** Before 2.0.545, on Windows, the fit took the monitor's size with its
+> corner at the primary monitor's, so a window dragged onto a second monitor
+> was fitted and then pulled back onto the first one.
+
+> ⚠️ **Caveat.** Linux reports the size of the monitor a window is on but not
+> where that monitor sits, so the group is fitted as if it were on the primary
+> monitor, less room for a panel: under X11 a window on a second monitor can be
+> pulled back onto the first. Under Wayland a window's position is not
+> reported, and the group is not fitted at all.
+
 > **Note.** Before 2.0.535 the zoom did not stop at what the group needed. It
 > fell to half size and kept changing slightly while the window was open, so on
 > a laptop a form only a little too large for the screen showed its text and

@@ -72,19 +72,43 @@ pub fn raise_group(parent: (f64, f64, f64, f64)) -> bool {
 }
 
 /// The part of the screen a window may use — without the menu bar and the
-/// dock — as `(x, y, width, height)` in points, top-left origin on the primary
-/// screen, as egui reports window frames. The screen holding the window that
-/// has the keyboard. `None` where the platform does not say (only macOS
-/// does), so a caller falls back to the monitor's size.
-pub fn usable_screen_area() -> Option<(f64, f64, f64, f64)> {
+/// dock (macOS) or the task bar (Windows) — as `(x, y, width, height)` in
+/// points, top-left origin on the primary screen, as egui reports window
+/// frames. On Windows, the screen most of `window` is on: its outer frame in
+/// those points, `scale` pixels to the point. On macOS, the screen holding the
+/// window that has the keyboard. `None` where the platform does not say
+/// (Linux), so a caller falls back to the monitor's size.
+pub fn usable_screen_area(window: (f64, f64, f64, f64), scale: f64) -> Option<(f64, f64, f64, f64)> {
     #[cfg(target_os = "macos")]
     {
+        let _ = (window, scale);
         macos_group::usable_area()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
+        windows::work_area(window, scale)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (window, scale);
         None
     }
+}
+
+/// `frame`, in points at `scale` pixels to the point, as the pixel edges
+/// `(left, top, right, bottom)` Windows measures screens in.
+#[cfg(any(target_os = "windows", test))]
+fn to_pixels((x, y, w, h): (f64, f64, f64, f64), scale: f64) -> (i32, i32, i32, i32) {
+    let px = |v: f64| (v * scale).round() as i32;
+    (px(x), px(y), px(x + w), px(y + h))
+}
+
+/// Pixel edges `(left, top, right, bottom)` as a frame in points at `scale`
+/// pixels to the point; `None` for an empty one.
+#[cfg(any(target_os = "windows", test))]
+fn to_points((l, t, r, b): (i32, i32, i32, i32), scale: f64) -> Option<(f64, f64, f64, f64)> {
+    (r > l && b > t && scale > 0.0)
+        .then(|| (l as f64 / scale, t as f64 / scale, (r - l) as f64 / scale, (b - t) as f64 / scale))
 }
 
 /// Blur (`true`) or stop blurring (`false`) the desktop behind every window of
@@ -379,6 +403,29 @@ mod windows {
         fn DwmEnableBlurBehindWindow(hwnd: Hwnd, blur: *const BlurBehind) -> i32;
     }
 
+    /// `RECT`.
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    /// `MONITORINFO`.
+    #[repr(C)]
+    #[derive(Default)]
+    struct MonitorInfo {
+        size: u32,
+        monitor: Rect,
+        work: Rect,
+        flags: u32,
+    }
+
+    /// `MONITOR_DEFAULTTONEAREST`.
+    const DEFAULT_TO_NEAREST: u32 = 2;
+
     #[link(name = "user32")]
     unsafe extern "system" {
         fn EnumThreadWindows(
@@ -386,6 +433,8 @@ mod windows {
             callback: unsafe extern "system" fn(Hwnd, isize) -> Bool,
             param: isize,
         ) -> Bool;
+        fn MonitorFromRect(rect: *const Rect, flags: u32) -> *mut c_void;
+        fn GetMonitorInfoW(monitor: *mut c_void, info: *mut MonitorInfo) -> Bool;
     }
 
     #[link(name = "kernel32")]
@@ -426,6 +475,27 @@ mod windows {
             let _ = EnumThreadWindows(GetCurrentThreadId(), apply, blur as isize);
         }
     }
+
+    /// The work area (the monitor less the task bar) of the monitor most of
+    /// `window` is on — the one Windows itself says the window is on. Screens
+    /// are measured in pixels across the whole desktop, the primary monitor's
+    /// top-left at (0, 0), so a monitor left of or above it starts below zero.
+    pub(super) fn work_area(window: (f64, f64, f64, f64), scale: f64) -> Option<(f64, f64, f64, f64)> {
+        let (left, top, right, bottom) = super::to_pixels(window, scale);
+        let rect = Rect { left, top, right, bottom };
+        unsafe {
+            let monitor = MonitorFromRect(&rect, DEFAULT_TO_NEAREST);
+            if monitor.is_null() {
+                return None;
+            }
+            let mut info = MonitorInfo { size: std::mem::size_of::<MonitorInfo>() as u32, ..Default::default() };
+            if GetMonitorInfoW(monitor, &mut info) == 0 {
+                return None;
+            }
+            let w = info.work;
+            super::to_points((w.left, w.top, w.right, w.bottom), scale)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -447,6 +517,22 @@ mod tests {
         assert!(same_frame((101.5, 318.0, 1000.0, 600.0), egui, 1117.0), "within two points");
         assert!(!same_frame((100.0, 200.0, 1000.0, 600.0), egui, 1117.0), "not with y left uncounted");
         assert!(!same_frame((100.0, 317.0, 900.0, 600.0), egui, 1117.0), "another size is another window");
+    }
+
+    /// A window on a laptop at 150 % that sits right of a 2560-pixel monitor
+    /// is found by its pixels, and the laptop's work area comes back in the
+    /// same points as the window: starting where the laptop starts, not at
+    /// the primary monitor's corner.
+    #[test]
+    fn a_frame_goes_to_pixels_and_a_work_area_back_to_points() {
+        let window = (2600.0 / 1.5, 40.0 / 1.5, 384.0 / 1.5, 312.0 / 1.5);
+        assert_eq!(super::to_pixels(window, 1.5), (2600, 40, 2984, 352));
+        let laptop = super::to_points((2560, 0, 4480, 1032), 1.5).unwrap();
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(near(laptop.0, 2560.0 / 1.5) && near(laptop.1, 0.0), "{laptop:?}");
+        assert!(near(laptop.2, 1280.0) && near(laptop.3, 688.0), "{laptop:?}");
+        assert_eq!(super::to_points((-1920, 0, 0, 1040), 1.0), Some((-1920.0, 0.0, 1920.0, 1040.0)), "left of the primary");
+        assert_eq!(super::to_points((10, 10, 10, 20), 1.0), None, "an empty area is no area");
     }
 
     /// Off the main thread of an app with no windows, nothing is found and

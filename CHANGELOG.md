@@ -2,6 +2,18 @@
 
 
 
+## 2.0.545 — 2026-11-16
+
+**Fix: on Windows, a window on a second monitor is fitted to that monitor and stays on it.** The form host fits the main window and the windows docked to it on the screen (2.0.535). On Windows it took the monitor's size, less 48 points for a task bar, but placed that area at the primary monitor's corner, because Windows was never asked where the screen is. So a window dragged onto a monitor right of or below the primary was fitted and then pulled back onto the primary. This was the follow-up noted under 2.0.535.
+- **Now the platform is asked for the screen the window is on.** On Windows that is the work area of the monitor most of the window is on: the monitor less its task bar, where that monitor really sits. The window's frame goes to the platform in pixels and the area comes back in the window's own points. macOS already answered with its visible frame, and is unchanged.
+- **Where:** `cobolt-os-blur` (`usable_screen_area` now takes the window's frame and scale; Windows asks `MonitorFromRect` and `GetMonitorInfoW`), and the form host's fit, which reaches `rcrun run-form`, a built application and a shell application.
+- **Not changed:** Linux reports a monitor's size but not where it sits, so under X11 a window on a second monitor can still be pulled onto the primary. Under Wayland a window's position is not reported, and the group is not fitted at all.
+- **The Developer's Guide** (§11, after *Every window stays on the screen*) says the screen is the one the window is on, with a Note on the old Windows behaviour and a Caveat for Linux. Its translations stay deleted (2.0.498).
+- **Measured** (macOS arm64; the Windows calls type-checked for `x86_64-pc-windows-gnu`, and the crate for `x86_64-unknown-linux-gnu`):
+  - **`a_window_on_a_second_monitor_is_fitted_there_and_stays_there`** (`cobolt-form-host`, new): 3 of 3 checks, 36 frames in about 16 ms. The desk is a 2K monitor at 100 % (the primary) with a laptop at 150 % right of it from pixel 2560. The window moves from the 2K monitor to the laptop and back. Its zoom is 1.000, then 0.720, then 1.000, and each time it is inside the work area of the monitor it is on. **Without the platform's answer**, as on Windows before, the window was zoomed for the laptop and then pulled to pixel 38 of the 2K monitor.
+  - **`a_frame_goes_to_pixels_and_a_work_area_back_to_points`** (`cobolt-os-blur`, new): the conversions on both sides of the Windows call, including a monitor left of the primary.
+  - `a_form_larger_than_the_screen_zooms_just_enough_on_every_screen` still passes, 4 of 4.
+
 ## 2.0.539 — 2026-11-16
 
 **Fix: the Linux `.deb` and `.rpm` now install what the IDE needs to start, so it starts on a minimal or server install too.** Found while testing the Claude Code integration with the published 2.0.477 `.deb` on a clean Ubuntu 24.04, where the IDE stopped before opening its window. A desktop install was not affected, because a desktop already has every library involved.

@@ -4155,9 +4155,10 @@ pub struct FormHost {
     /// readings of the window and the monitor were taken at
     /// ([`Self::fit_group`]).
     group_fit_pass_zoom: Option<f32>,
-    /// Where the usable screen comes from: the platform's own answer
+    /// Where the usable screen comes from: the platform's own answer for the
+    /// window's outer frame in screen points at a scale
     /// ([`cobolt_os_blur::usable_screen_area`]). A test gives it a screen.
-    screen_area: fn() -> Option<(f64, f64, f64, f64)>,
+    screen_area: fn((f64, f64, f64, f64), f64) -> Option<(f64, f64, f64, f64)>,
     /// 037 — the window lifecycle state machine (vetoes, cascades, handles).
     supervisor: cobolt_runtime::form_host::FormSupervisor,
     /// Requests from the interpreter thread (OpenForm*, handle methods, …).
@@ -4341,10 +4342,10 @@ impl FormHost {
             ctx.request_repaint();
             return;
         }
-        let Some((monitor, outer, inner, whole_screen)) = ctx.input(|i| {
+        let Some((monitor, outer, inner, native, whole_screen)) = ctx.input(|i| {
             let v = i.viewport();
             let whole = v.maximized.unwrap_or(false) || v.fullscreen.unwrap_or(false);
-            Some((v.monitor_size?, v.outer_rect?, v.inner_rect?, whole))
+            Some((v.monitor_size?, v.outer_rect?, v.inner_rect?, v.native_pixels_per_point.unwrap_or(1.0), whole))
         }) else {
             return;
         };
@@ -4374,9 +4375,14 @@ impl FormHost {
             let across = if matches!(c.dock, DockEdge::Top | DockEdge::Bottom) { c.size.y } else { c.size.x };
             docked.push(DockedExtent { edge: c.dock, gap: c.dock_gap, across });
         }
-        // The usable screen, in screen points: what the platform reports, or
-        // the monitor less room for a task bar.
-        let area = (self.screen_area)()
+        // The usable part of the screen the window is on, in screen points:
+        // what the platform reports, or, where it does not say (Linux), the
+        // monitor less room for a task bar, as if it were the primary one.
+        // Asked for the window's own screen: an answer anchored at the
+        // primary monitor's corner pulled a window on a second monitor back
+        // onto the first.
+        let frame = (outer.min.x * zoom, outer.min.y * zoom, outer.width() * zoom, outer.height() * zoom);
+        let area = (self.screen_area)((frame.0 as f64, frame.1 as f64, frame.2 as f64, frame.3 as f64), native as f64)
             .map(|(x, y, w, h)| (x as f32, y as f32, w as f32, h as f32))
             .unwrap_or((0.0, 0.0, monitor.x * zoom, (monitor.y * zoom - 48.0).max(1.0)));
         let key: GroupFitKey = (
@@ -12041,11 +12047,12 @@ mod parity {
         let big = (1.0, egui::vec2(2560.0, 1440.0));
         let fits = 144.0 / 200.0;
         let form = egui::vec2(320.0, 200.0);
-        // Windows and Linux: the platform gives no work area, so the
-        // monitor's size less a task bar. macOS: the platform's visible frame.
-        let paths: [(&str, fn() -> Option<(f64, f64, f64, f64)>); 2] = [
-            ("monitor size (Windows, Linux)", || None),
-            ("platform work area (macOS)", || Some((0.0, 0.0, 256.0, 160.0))),
+        // Linux: the platform gives no work area, so the monitor's size less
+        // a task bar. macOS and Windows: the platform's work area.
+        type Area = fn((f64, f64, f64, f64), f64) -> Option<(f64, f64, f64, f64)>;
+        let paths: [(&str, Area); 2] = [
+            ("monitor size (Linux)", |_, _| None),
+            ("platform work area (macOS, Windows)", |_, _| Some((0.0, 0.0, 256.0, 160.0))),
         ];
         let (mut cases, mut frames) = (0, 0);
         let mut check = |path: &str, ctx: &egui::Context, screen: &PixelScreen, zoom: f32| {
@@ -12082,7 +12089,7 @@ mod parity {
             screen.run(&mut app, &ctx, 12);
             frames += 12;
             check(path, &ctx, &screen, fits);
-            if area().is_some() {
+            if area((0.0, 0.0, 0.0, 0.0), 1.0).is_some() {
                 continue;
             }
             // Onto the 2K monitor, where it fits unzoomed, and back.
@@ -12095,9 +12102,80 @@ mod parity {
             frames += 24;
         }
         println!(
-            "Fit on a smaller screen: {cases}/{cases} passed. Paths: monitor size (Windows, Linux) and platform work area (macOS); \
+            "Fit on a smaller screen: {cases}/{cases} passed. Paths: monitor size (Linux) and platform work area (macOS, Windows); \
              laptop 1280x720 points at 150 % -> 2K monitor at 100 % -> laptop. Zoom on the laptop {fits:.3}, on the 2K monitor 1.000; \
              window always on the screen. {frames} frames in {:.1} ms.",
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+
+    /// Windows, as [`cobolt_os_blur::usable_screen_area`] answers there, on a
+    /// desk with two monitors: a 2K monitor at 100 % (the primary, its corner
+    /// at pixel 0, 0) and, right of it, the laptop of the test above at 150 %
+    /// from pixel 2560. Each has 48 points of task bar. The answer is the work
+    /// area of the monitor the window's centre is on, in the points of the
+    /// window's own scale.
+    fn two_monitors((x, _, w, _): (f64, f64, f64, f64), scale: f64) -> Option<(f64, f64, f64, f64)> {
+        let (left, top, right, bottom) =
+            if (x + w / 2.0) * scale >= 2560.0 { (2560.0, 0.0, 2944.0, 240.0) } else { (0.0, 0.0, 2560.0, 1392.0) };
+        Some((left / scale, top / scale, (right - left) / scale, (bottom - top) / scale))
+    }
+
+    /// A window dragged onto a second monitor stays on it, fitted to it
+    /// (operator, 2026-11-16, the multi-monitor report). Windows answered no
+    /// work area, so the fit took the monitor's size with its corner at the
+    /// primary monitor's: on the laptop right of a 2K monitor, the window was
+    /// zoomed for the laptop and then pulled back onto the 2K monitor, to
+    /// pixel 38 of it. Now the work area comes from the monitor the window
+    /// is on.
+    #[test]
+    fn a_window_on_a_second_monitor_is_fitted_there_and_stays_there() {
+        let started = std::time::Instant::now();
+        let laptop = (1.5, egui::vec2(384.0, 312.0));
+        let big = (1.0, egui::vec2(2560.0, 1440.0));
+        let fits = 144.0 / 200.0;
+        let form = egui::vec2(320.0, 200.0);
+        let (mut app, _pipes) = host_with("none:0:linear", "none:0:linear", false);
+        app.fx_entrance_done = true;
+        app.root.anim_started = true;
+        app.root.lifecycle_sent = true;
+        app.screen_area = two_monitors;
+        let ctx = egui::Context::default();
+        let mut cases = 0;
+        let mut check = |at: &str, ctx: &egui::Context, screen: &PixelScreen, zoom: f32, (left, right, bottom): (f32, f32, f32)| {
+            let now = ctx.zoom_factor();
+            assert!((now - zoom).abs() < 1e-3, "{at}: zoomed to {now}, the form fits at {zoom}");
+            let (pos, size) = (screen.pos_px, screen.inner_px + egui::vec2(0.0, screen.title_px));
+            assert!(
+                pos.x >= left - 0.5 && pos.x + size.x <= right + 0.5 && pos.y >= -0.5 && pos.y + size.y <= bottom + 0.5,
+                "{at}: the window is at {pos:?}, {size:?} pixels; the screen's work area is x {left}..{right}, y 0..{bottom}"
+            );
+            cases += 1;
+        };
+        // The window opens on the 2K monitor, where the form fits unzoomed.
+        // Its 16-pixel title bar is 24 pixels on the laptop, as above.
+        let mut screen = PixelScreen {
+            native: big.0,
+            monitor_px: big.1,
+            pos_px: egui::pos2(40.0, 40.0),
+            inner_px: form * big.0,
+            title_px: 16.0,
+        };
+        screen.run(&mut app, &ctx, 12);
+        check("2K monitor", &ctx, &screen, 1.0, (0.0, 2560.0, 1392.0));
+        // Dragged onto the laptop, near its top-left corner.
+        screen.move_to(laptop);
+        screen.pos_px = egui::pos2(2568.0, 8.0);
+        screen.run(&mut app, &ctx, 12);
+        check("laptop, right of the 2K monitor", &ctx, &screen, fits, (2560.0, 2944.0, 240.0));
+        // And back.
+        screen.move_to(big);
+        screen.run(&mut app, &ctx, 12);
+        check("2K monitor again", &ctx, &screen, 1.0, (0.0, 2560.0, 1392.0));
+        println!(
+            "Window on a second monitor: {cases}/{cases} passed. 2K monitor at 100 % (primary) -> laptop at 150 % right of it \
+             -> 2K monitor; zoom 1.000, {fits:.3}, 1.000; the window inside the work area of the monitor it is on each time. \
+             36 frames in {:.1} ms.",
             started.elapsed().as_secs_f64() * 1000.0
         );
     }
