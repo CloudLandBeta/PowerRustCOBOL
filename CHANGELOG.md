@@ -2,6 +2,25 @@
 
 
 
+## 2.0.540 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T36): forms on the WebAssembly path (milestone M2) are closed and measured. A form program builds in under a second on that path, draws pixel for pixel as its Cargo-built twin, and the Cargo path itself has not moved a pixel. None of the five reference projects takes the new path yet, each for a reason it names.**
+- **Pixel parity (AC19):** the form fixture built on the WebAssembly path draws all 18 of its frames identical to the Cargo-built program, with 0 differing pixels. All 27 of its reads and state dumps are equal.
+- **The Cargo path's goldens:** 408 of 408 frames match the pictures recorded before any of this work, and all 22 forms repeat themselves. The two fixes carried since 2.0.535 moved no pixel.
+- **Why each reference project still takes the Cargo path:**
+  - PowerCallOfDuty, PowerCobolCraft and PowerGraphics: a 3D or 2D canvas (M6).
+  - PowerCloud: its AWS controls (M3, M4 and M6).
+  - PowerSpatial and the ten-times project: files on disk (M3).
+- **The 30-second Build goal:** the fixture's Build on the WebAssembly path took 0.3 s. The reference projects' Cargo Builds took 215.6 to 364.2 s, so the first real judgement waits until one of them moves.
+- **NIST through the runner:** Nucleus 4 of 95 and Sequential I/O 3 of 85, all with 0 failures. Every other program waits for disk files (M3).
+- **The runner** is now 45.9 MiB on macOS, against 9.9 MiB before forms. It needs only the system's own libraries.
+- **Next, by the operator's direction:** no project should rely on the Cargo Build without a technical reason. The tasks that remove a reference project's reason come first: files (M3), then the canvases.
+- **Measured on this Mac** (macOS, Apple silicon, not a reference machine). Test totals:
+  - 468 passed in the runner and Build crates;
+  - 484 passed in the form host;
+  - 1 877 passed in the form renderer. Its one red is three PowerDemo3 goldens recorded before this work;
+  - 2 030 passed in the IDE. Its one red is the known translations check.
+
 ## 2.0.536 — 2026-11-16
 
 **Fix: a form larger than the screen is zoomed just enough to fit, and the zoom settles.** The report came from a two-monitor setup. An application built and first run on a 2K monitor, then run on the laptop's smaller screen, "does not adapt": its text and icons stayed very small. When a window and the windows docked to it do not fit the screen, the whole application is zoomed down until they do. That zoom did not stop at what the group needed.

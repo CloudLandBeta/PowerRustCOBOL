@@ -1384,7 +1384,43 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - **AC14:** a test renders a reference form in the designer's render path, under `rcrun run-form` and under the runner, and gets equal pixels. `engine_reference_form_parity_static_vs_faces` green.
     - **AC3:** the `cross-platform` job of T22 gains the form projects that moved.
 
-- [ ] **T36 — M2 close**
+- [x] **T36 — M2 close**
+  - *Done 2026-11-16 (2.0.540), on macOS arm64 (Apple M3 Pro, 11 cores, 18 GB; not a reference box), at commit d27ca2d7 (2.0.536):*
+    - **Per project at M2 (the record the close asks for):**
+
+      | Project | Path | Reason for the Cargo path | AC19 | Slowest Build (30 s goal) |
+      |---|---|---|---|---|
+      | PowerCallOfDuty | Cargo | WAR-FORM's CNV-3D (Canvas3D), M6 | not comparable (no WebAssembly-built form) | 272.8 s, over |
+      | PowerCloud | Cargo | MAIN-FORM's Aws-Mcp (AwsMcp), M3, M4 and M6 | not comparable | 215.6 s, over |
+      | PowerCobolCraft | Cargo | TITLE-FORM's CNV-DIORAMA (Canvas3D), M6 | not comparable | 278.5 s, over |
+      | PowerGraphics | Cargo | GAME-FORM's CNV-GAME (Canvas2D), M6 | not comparable | 295.1 s, over |
+      | PowerSpatial | Cargo | `src/ps-setting-get.cbl` line 46, SETTINGS-FILE on disk, M3 | not comparable | 235.5 s, over |
+      | TenTimes | Cargo | `generated/form-001.cbl` line 268, IDX-01-FILE on disk, M3 | — | 364.2 s, over |
+
+      - The generator alone accepts PowerCallOfDuty (6.1 ms) and PowerGraphics (45.9 ms), as at T26. Behind the first reason, the others also hold statements the generator refuses: PowerCloud `AWS-SET-CREDENTIALS`, PowerCobolCraft a statement reading more than four properties, PowerSpatial `ACCEPT FROM Environment`, TenTimes its indexed file.
+    - **The first 30 s judgement (AC6):** no reference project takes the WebAssembly path at M2, so there is no reference Build on that path to judge. The one WebAssembly-path Build measured is T34's form fixture `ParityControls`: 0.3 s, against 503.0 s on the Cargo path.
+      - The reference projects' Cargo Builds (`build-goal --runs 1`, each from an empty build folder) took 215.6–364.2 s, peak memory 3 636–4 619 MB.
+      - That is slower than T26's run on this Mac (139.3–185.4 s); I did not find out why.
+    - **`pixel-parity` (pairs, AC19):**
+      - moved 1 of 6: ParityControls on the WebAssembly path, 18 of 18 frames identical, 0 differing pixels, 27 of 27 reads and dumps equal, 18 of 18 expected reads met (8.7 min);
+      - the five reference projects stop before compiling, each with the reason in the table.
+    - **`pixel-parity --cargo`:** 408 of 408 golden frames match and 22 of 22 forms are repeatable (22.7 min). The two fixes carried since T35 (2.0.534, the designer's picture; 2.0.536, the zoom of a form larger than the screen) moved no pixel on the Cargo path.
+    - **AC9 (NIST through the runner):**
+      - NC (Nucleus): compile 4 of 95, execution 4 of 95 with 0 failures (53 assertions passed);
+      - SQ (Sequential I/O): compile 3 of 85, execution 3 of 85 with 0 failures (24 assertions passed);
+      - the other 91 and 82 programs are refused for a file on disk (M3), as at T26;
+      - `tests/cobol`: 16 of 18 identical (interpreter 15.6 s, runner 38.6 s); the 2 others differ only by the interpreter's warning line for a `CALL` of an unknown program (#54).
+    - **The runner's size (C12):** the release `prc-runner` is 48 141 296 bytes (45.9 MiB), macOS arm64, against 10 336 576 at M1.
+      - It now draws forms, so it carries the window, the GPU drawing and the form engine. It needs only system frameworks (AppKit, Metal, QuartzCore, CoreGraphics, Foundation, Security and others) and libiconv.
+      - It now links `cobolt-runtime` (default features off), through the form host and for the test pins, the stack size and the settings it publishes. That is what C12 expected; at M1 it did not.
+    - **Tests:**
+      - the six crates of T26: 468 passed, 0 failed, 9 ignored (66 test binaries);
+      - `cobolt-form-host` and `cobolt-abi-host`: 484 passed, 0 failed (13);
+      - `cobolt-forms --features render`: 1 877 passed, 1 failed, 2 ignored (102). The red is `example_corpus_golden`'s three PowerDemo3 forms (`chart-3d`, `charts-form`, `responsive-dashboard-form`), recorded before this task;
+      - `cobolt-ide --bin`: 2 030 passed, 1 failed (the known `docs_embed`), 6 ignored;
+      - T1's test: 3 of 3 artefacts match their pins.
+    - **Owed at the merge into `main`:** the Developer's Guide's list of what takes the Cargo path, with T25's §17 and §18 (the 2.x line does not touch `docs/` here). The table above is that list at M2.
+    - **Operator, 2026-11-16:** "unless there is a technical reason, no project should rely on cargo build". So from M3 on, the order favours the tasks that remove a reference project's reason. Files (M3) unblock PowerSpatial and TenTimes. The canvases (M6) unblock PowerCallOfDuty, PowerCobolCraft and PowerGraphics.
   - Do: the milestone close (preamble).
   - Verify:
     - The first 30 s judgement on the WebAssembly path, for each reference project that moved (AC6).
