@@ -168,12 +168,17 @@ pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[
     (cap::FILES_SEQUENTIAL, FILE_IMPORTS),
     (cap::FILES_LINE_SEQUENTIAL, FILE_IMPORTS),
     (cap::FILES_RELATIVE, FILE_IMPORTS),
-    (cap::FILES_INDEXED, FILE_IMPORTS),
+    // A35: an INDEXED file's transactions and record locks add `f_tx`.
+    (cap::FILES_INDEXED, INDEXED_FILE_IMPORTS),
 ];
 
 /// The file verbs in [`NATIVE_IMPORT_MODULE`] (A34): a file is named by its number in the module's
 /// `prfiles` section (`crate::files`), and records cross in memory 0.
 pub const FILE_IMPORTS: &[&str] = &["f_open", "f_close", "f_read", "f_write", "f_rewrite", "f_delete", "f_start"];
+
+/// The INDEXED organisation's imports (A35): the verbs, and `f_tx` for `COMMIT`, `ROLLBACK` and
+/// `UNLOCK`, which act on INDEXED files only, as in the interpreter.
+pub const INDEXED_FILE_IMPORTS: &[&str] = &["f_open", "f_close", "f_read", "f_write", "f_rewrite", "f_delete", "f_start", "f_tx"];
 
 /// The exports a module must provide (§4), besides its memories.
 pub const REQUIRED_EXPORTS: &[&str] = &[

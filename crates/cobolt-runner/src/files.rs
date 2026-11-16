@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use cobolt_runtime::file_core::{self, Cursor, Handle, IndexedDecl, ReadReq, RewriteReq, ShareLock, WriteReq};
 use cobolt_runtime::files::RecordLayout;
-use cobolt_runtime::indexed::{IndexedEngine, KeySpec, OpenMode, ReadDir, StartOp};
+use cobolt_runtime::indexed::{IndexedEngine, IndexedStore, KeySpec, OpenMode, ReadDir, StartOp};
 use cobolt_runtime::indexed_log::{LogFormat, LogLevel};
 use cobolt_runtime::seqfile::SequentialFile;
 use cobolt_wasm_abi::files::{verb, Access, FileDecl, KeyDecl, Org};
@@ -335,6 +335,22 @@ impl Files {
         let status = file_core::start(self.open.get_mut(&slot).map(|f| f.handle.as_mut()), &mut cur, op, kor as usize, key, rel_num);
         self.cursors.insert(slot, cur);
         code(status)
+    }
+
+    /// `UNLOCK` (`verb::TX_UNLOCK`, the file in `slot`), `COMMIT` or `ROLLBACK` (every INDEXED file
+    /// the calling program holds open), as the interpreter's: only an INDEXED file's engine acts, and
+    /// no status is set (A35, T39).
+    pub fn tx(&mut self, op: i32, _id: i32, slot: i32) {
+        let calling = self.calling;
+        for (s, f) in self.open.iter_mut() {
+            let Handle::Indexed(engine) = &mut f.handle else { continue };
+            match op {
+                verb::TX_UNLOCK if *s == slot as u32 => engine.unlock(),
+                verb::TX_COMMIT if f.owner == calling => engine.commit(),
+                verb::TX_ROLLBACK if f.owner == calling => engine.rollback(),
+                _ => {}
+            }
+        }
     }
 
     /// The files form instance `inst` opened and left open, let go when its window closes, as the

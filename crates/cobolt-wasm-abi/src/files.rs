@@ -162,6 +162,11 @@ pub mod verb {
     pub const START_GE: i32 = 2;
     pub const START_LT: i32 = 3;
     pub const START_LE: i32 = 4;
+    /// `f_tx`'s `op` (A35): `UNLOCK` the named file's record locks; `COMMIT` or `ROLLBACK` every
+    /// INDEXED file the program has open (the file arguments are then [`NONE`]).
+    pub const TX_UNLOCK: i32 = 0;
+    pub const TX_COMMIT: i32 = 1;
+    pub const TX_ROLLBACK: i32 = 2;
     /// No key bytes (`key_len`), no record number (`rel`).
     pub const NONE: i32 = -1;
 }

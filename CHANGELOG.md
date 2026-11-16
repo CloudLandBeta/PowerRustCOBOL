@@ -2,6 +2,39 @@
 
 
 
+## 2.0.543 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T39): on the WebAssembly path, `SORT` and `MERGE` now read their `USING` files and write their `GIVING` files on disk, and `UNLOCK`, `COMMIT` and `ROLLBACK` now work on indexed files. Files, records and printed lines match the interpreter's.**
+- **What moves:** a program that sorts or merges files, or that unlocks, commits or rolls back an indexed file, no longer sends the Build to Cargo.
+  - The sorting itself stays inside the program.
+  - Only the reading and writing go to the PowerRustCOBOL runner, through the same file verbs as `READ` and `WRITE` (T38).
+- **The same rules as the interpreter:**
+  - a `USING` record keeps its own length;
+  - `GIVING` writes each record at its own length after `USING`, and at the sort record's length after an `INPUT PROCEDURE`;
+  - `MERGE … USING` is a sort of every file;
+  - a `USING` file that does not exist gives no records, and its `FILE STATUS` ends as the interpreter leaves it;
+  - `ROLLBACK` undoes the indexed writes since the last `COMMIT`;
+  - none of these statements sets a `FILE STATUS`.
+- **Still on the Cargo path, each named with its line:**
+  - a relative or indexed file in `USING` or `GIVING`. The interpreter reads nothing from such a file today, which is a COBOL-85 gap of its own;
+  - `COLLATING SEQUENCE` on a sort.
+- **Measured:** the twin test runs each program under the runner and under `rcrun run`, and compares the printed lines, the files left on disk and their bytes:
+  - sorting: 44 lines, 7 files (439 bytes), covering `SORT … USING … GIVING` into two files, an `INPUT PROCEDURE` with `GIVING`, `USING` with an `OUTPUT PROCEDURE`, `MERGE` into a file and into an `OUTPUT PROCEDURE`, variable-length records and a `USING` file that does not exist;
+  - transactions: 12 lines, 3 files (20 480 bytes), covering `COMMIT`, `ROLLBACK` (which undid record 3 on both paths) and `UNLOCK`;
+  - 88 of 88 checks passed.
+  - The refusals test passes 18 of 18: `SORT` and `MERGE` with sequential files compile, an indexed `USING` file and `COLLATING SEQUENCE` are refused, and `COMMIT`, `ROLLBACK` and `UNLOCK` name the indexed-file capability.
+- **Known edge differences** (no reference program meets them):
+  - `GIVING` on the runner checks a variable-length file's record range, as `WRITE` does (status 44, record not written). The interpreter writes the record anyway.
+  - After `RETURN` of a short record, the fields past its end keep their old values, and those old values may differ between the two paths.
+- **Found, not fixed here:** `UNLOCK` is not a reserved word. In a list of `DISPLAY` or `OPEN` operands, the word that follows is read as another operand, not as a new statement. It is a COBOL-85 fix of its own; the twin test ends those statements with a period.
+- **Web modules:** as in 2.0.542, the runtime's new routines renumber the function types a browser module carries. Every instruction and data byte is otherwise the same. The PowerAnalyticsWeb pin (AC16) is re-recorded for that reason, the player fixtures are regenerated, and the shipped web player is rebuilt (its sources changed).
+- **ABI:** amendment A35 adds one import, `f_tx`, to the indexed-file capability.
+- **Tests:**
+  - the generator: 34 test programs, 122 passed, 0 failed; the runner: 6 test programs, 8 passed, 0 failed; the ABI and the runtime routines: every test passes;
+  - the compiler's subset and runner-gap tests pass; the web player's freshness test passes 6 of 6;
+  - the interpreter is not changed by this task;
+  - the System KB is regenerated (4 414 records).
+
 ## 2.0.542 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T38): a desktop program built on the WebAssembly path now reads and writes files on disk of every organisation — sequential, line sequential, relative and indexed — with the same `FILE STATUS` values and the same file contents as the interpreter.**

@@ -1463,8 +1463,24 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - NIST on the interpreter, all eight finished modules, 0 failures: NC 95/95, SQ 85/85, IX 41/41, RL 34/34, ST 39/39, IF 45/45, IC 25/25, SM 16/16.
       - The System KB regenerated (4 412 records); `prebuilt_chunked_kb_matches_the_published_documentation` green.
 
-- [ ] **T39 — `SORT` and `MERGE` with `USING`/`GIVING`; `COMMIT`, `ROLLBACK`, `UNLOCK`** (R11)
+- [x] **T39 — `SORT` and `MERGE` with `USING`/`GIVING`; `COMMIT`, `ROLLBACK`, `UNLOCK`** (R11)
   - Verify: runner tests equal to the interpreter's output and files. The native column moves these entries to `Host(sort)` or `Host(files.*)`.
+  - *Done 2026-11-16 (2.0.543):*
+    - **ABI A35** (`specs/WASM-ABI-v1.md`, `cobolt-wasm-abi/src/files.rs`, `codes.rs`): one `prn` import, `f_tx(op, id, slot)`, with `verb::TX_UNLOCK`, `TX_COMMIT`, `TX_ROLLBACK`. It joins the `files.indexed` set (`codes::INDEXED_FILE_IMPORTS`: A34's seven verbs plus `f_tx`).
+    - **The generator** (`lower_idx.rs`, `lower_nfile.rs`, `module.rs`): under `native`, `SORT … USING` and `MERGE … USING` read each file through `rt_nf_sort_using` (`cobolt-wasm-rt/src/nfile.rs`: `f_open` INPUT, `f_read` NEXT until a status other than `00`, `f_close`), which overlays each record on the sort record area and keeps it at its own length, as the interpreter does. `GIVING` writes through `rt_nf_sort_giving`: at each record's own length after `USING`, at the sort record's length after an `INPUT PROCEDURE`. The in-module sort (A27) is unchanged. `UNLOCK` (on an INDEXED file), `COMMIT` and `ROLLBACK` call `rt_nf_tx`. A relative or indexed `USING`/`GIVING` file and `COLLATING SEQUENCE` are refused with their line. The browser path is unchanged: there, `SORT` with files and these statements are still refused.
+    - **The runner** (`cobolt-runner/src/files.rs`, `lib.rs`): `f_tx` unlocks one indexed file, and commits or rolls back every indexed file of the calling instance, as each window's interpreter does.
+    - **The native column:** `SORT`, `MERGE`, `UNLOCK`, `COMMIT` and `ROLLBACK` become `Native::Files`; the `D_SORT` and `D_FILES_M3` reasons are gone.
+    - **Known edge differences:** `GIVING` on the runner applies a variable-length file's record range, as `WRITE` does (status 44, record not written), where the interpreter's raw write does not. A short record's fields past its end after `RETURN` hold whatever was there before, and that may differ between the paths.
+    - **Found:**
+      - `UNLOCK` is not a reserved word (`stmt.rs` parses it by name), so a `DISPLAY` or `OPEN` operand list swallows the word. The twin test ends those statements with a period. A fix of its own.
+      - The interpreter's `SORT … USING` reads only sequential and line-sequential files: a relative or indexed `USING` file gives no records. A COBOL-85 fix of its own; the WebAssembly path refuses such a file until both paths read it.
+    - **Web modules (AC16):** the runtime's new routines renumber the blob's function types again; every instruction and data byte of the player fixtures is otherwise equal (checked on the WAT). The PowerAnalyticsWeb pin is re-recorded, the player fixtures regenerated and the shipped player rebuilt (`freshness` 6 of 6).
+    - **Measured:**
+      - `cobolt-runner --test files`: sorting 44 lines and 7 files (439 bytes), transactions 12 lines and 3 files (20 480 bytes), under the runner and `rcrun run`, compared byte for byte; with T38's programs, 88 of 88 checks. `ROLLBACK` undid record 3 on both paths.
+      - `native_desktop_refusals` 18 of 18.
+      - `cargo test -p cobolt-wasm`: 34 test programs, 122 passed, 0 failed. `cobolt-runner`: 6, 8 passed. `cobolt-wasm-abi` and `cobolt-wasm-rt`: green. The compiler's subset and runner-gap tests green. The player's `freshness` 6 of 6.
+      - The interpreter is not changed (no `cobolt-runtime` edit), so its NIST counts stand as at T38.
+      - The System KB regenerated (4 414 records); `prebuilt_chunked_kb_matches_the_published_documentation` green.
 
 - [ ] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
   - Verify:

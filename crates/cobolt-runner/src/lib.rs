@@ -84,6 +84,7 @@ pub const PROVIDED_IMPORTS: &[(u32, &str, &str)] = &[
     (1, NATIVE_IMPORT_MODULE, "f_rewrite"),
     (1, NATIVE_IMPORT_MODULE, "f_delete"),
     (1, NATIVE_IMPORT_MODULE, "f_start"),
+    (1, NATIVE_IMPORT_MODULE, "f_tx"),
 ];
 
 /// `pr_run`'s answers (the generator's `ret`): the run finished, or `STOP RUN`.
@@ -626,6 +627,14 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                             caller.data_mut().files.start(id as u32, slot as u32, op, kor as u32, key.as_deref(), rel)
                         },
                     )
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "f_tx") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "f_tx", |mut caller: Caller<'_, State>, op: i32, id: i32, slot: i32| -> i32 {
+                        caller.data_mut().files.tx(op, id, slot);
+                        0
+                    })
                     .map_err(fail)?;
             }
             // `missing_imports` let only the rows of PROVIDED_IMPORTS through.

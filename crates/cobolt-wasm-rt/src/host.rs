@@ -77,6 +77,8 @@ mod imp {
         pub fn f_rewrite(id: u32, slot: u32, rec: u32, len: u32, rel: i64) -> i32;
         pub fn f_delete(id: u32, slot: u32, key: u32, key_len: i32, rel: i64) -> i32;
         pub fn f_start(id: u32, slot: u32, op: u32, kor: u32, key: u32, key_len: i32, rel: i64) -> i32;
+        /// `UNLOCK`, `COMMIT`, `ROLLBACK` (A35): `op` is `verb::TX_*`; the file is `NONE` for the last two.
+        pub fn f_tx(op: u32, id: u32, slot: u32) -> i32;
     }
 }
 
@@ -204,6 +206,9 @@ mod imp {
     pub unsafe fn f_start(id: u32, slot: u32, op: u32, kor: u32, key: u32, key_len: i32, rel: i64) -> i32 {
         let _ = key;
         file_call("f_start", &[id as i64, slot as i64, op as i64, kor as i64, key_len as i64, rel])
+    }
+    pub unsafe fn f_tx(op: u32, id: u32, slot: u32) -> i32 {
+        file_call("f_tx", &[op as i64, id as i32 as i64, slot as i32 as i64])
     }
 }
 

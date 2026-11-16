@@ -26,6 +26,9 @@ pub enum Native {
     /// (`files.sequential`, `files.line-sequential`, `files.relative` or `files.indexed`, ABI A34;
     /// DESKTOP-WASM-001 T38). A file the runner cannot keep yet sends the Build to the Cargo path at
     /// its first verb, naming the file and why.
+    /// `SORT` and `MERGE` sort in the module and read their `USING` files and write their `GIVING`
+    /// files through the runner; `UNLOCK`, `COMMIT` and `ROLLBACK` reach an INDEXED file's engine
+    /// (`files.indexed`, A35; T39).
     Files,
     /// Compiled into a form's program and served by the runner's ABI host with the form, its
     /// controls and the application object (DESKTOP-WASM-001 M2, T33). A program with no form
@@ -39,8 +42,6 @@ pub enum Native {
 /// Why a program with no form takes the Cargo path for an entry of class [`Native::Form`] (DESKTOP-WASM-001 T33).
 pub const D_FORMS: &str = "a program with no form has no controls or application object in its module, so it takes the Cargo path for them (DESKTOP-WASM-001 M2 serves them to a form's program)";
 const D_FILE_BUILTINS: &str = "the file and image built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
-pub(crate) const D_SORT: &str = "SORT with USING or GIVING files is not on the WebAssembly path yet (DESKTOP-WASM-001 M3); with an INPUT and an OUTPUT PROCEDURE it is compiled into the module";
-const D_FILES_M3: &str = "MERGE, COMMIT, ROLLBACK and UNLOCK are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
 const D_SQL: &str = "SQL is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
 const D_HTTP: &str = "HTTP is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
 const D_POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module yet (DESKTOP-WASM-001 M5)";
@@ -387,7 +388,7 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("CALL", Support::Module, Native::Module),
     ("CANCEL", Support::Module, Native::Module),
     ("CLOSE", Support::MemoryFiles(DISK_FILES), Native::Files),
-    ("COMMIT", Support::BackendOnly(BACKEND_FILES), Native::Cargo(D_FILES_M3)),
+    ("COMMIT", Support::BackendOnly(BACKEND_FILES), Native::Files),
     ("COMPUTE", Support::Module, Native::Module),
     ("CONTINUE", Support::Module, Native::Module),
     ("DELETE", Support::MemoryFiles(DISK_FILES), Native::Files),
@@ -404,7 +405,7 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("INITIALIZE", Support::Module, Native::Module),
     ("INSPECT", Support::Module, Native::Module),
     ("INVOKE", Support::Module, Native::Form),
-    ("MERGE", Support::BackendOnly("MERGE reads files, which are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"), Native::Cargo(D_FILES_M3)),
+    ("MERGE", Support::BackendOnly("MERGE reads files, which are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"), Native::Files),
     ("MOVE", Support::Module, Native::Module),
     ("MOVE CORRESPONDING", Support::Module, Native::Module),
     ("MULTIPLY", Support::Module, Native::Module),
@@ -415,10 +416,10 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("RELEASE", Support::MemoryFiles(SORT_FILES), Native::Module),
     ("RETURN", Support::MemoryFiles(SORT_FILES), Native::Module),
     ("REWRITE", Support::MemoryFiles(DISK_FILES), Native::Files),
-    ("ROLLBACK", Support::BackendOnly(BACKEND_FILES), Native::Cargo(D_FILES_M3)),
+    ("ROLLBACK", Support::BackendOnly(BACKEND_FILES), Native::Files),
     ("SEARCH", Support::Module, Native::Module),
     ("SET (pointer)", Support::BackendOnly(POINTERS), Native::Cargo(D_POINTERS)),
-    ("SORT", Support::MemoryFiles(SORT_FILES), Native::Cargo(D_SORT)),
+    ("SORT", Support::MemoryFiles(SORT_FILES), Native::Files),
     ("START", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("STOP", Support::Module, Native::Module),
     ("STRING", Support::Module, Native::Module),
@@ -426,7 +427,7 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("SUBTRACT CORRESPONDING", Support::Module, Native::Module),
     ("THROW", Support::Module, Native::Cargo(D_EXCEPTIONS)),
     ("TRY", Support::Module, Native::Cargo(D_EXCEPTIONS)),
-    ("UNLOCK", Support::BackendOnly(BACKEND_FILES), Native::Cargo(D_FILES_M3)),
+    ("UNLOCK", Support::BackendOnly(BACKEND_FILES), Native::Files),
     ("UNSTRING", Support::Module, Native::Module),
     ("WRITE", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("control assignment", Support::Module, Native::Form),

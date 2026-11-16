@@ -410,6 +410,272 @@ PROCEDURE DIVISION.
     STOP RUN.
 ";
 
+/// SORT and MERGE (T39): USING and GIVING, two GIVING files (one LINE SEQUENTIAL), USING with an
+/// OUTPUT PROCEDURE, an INPUT PROCEDURE with GIVING, MERGE with GIVING and with an OUTPUT PROCEDURE,
+/// variable-length records kept at their own length, equal keys in release order, and a USING file
+/// that is absent (its OPEN 35, then its CLOSE 42). Every FILE STATUS the sort leaves is printed.
+const SORTING: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T39SRT.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT IN-FILE ASSIGN TO \"in.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-FS-IN.
+    SELECT OUT-FILE ASSIGN TO \"out.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-FS-OUT.
+    SELECT OUT-COPY ASSIGN TO \"copy.txt\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS-CPY.
+    SELECT MRG-A ASSIGN TO \"a.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-FS-IN.
+    SELECT MRG-B ASSIGN TO \"b.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-FS-IN.
+    SELECT VAR-IN ASSIGN TO \"varin.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-FS-IN.
+    SELECT VAR-OUT ASSIGN TO \"varout.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-FS-OUT.
+    SELECT MISSING-FILE ASSIGN TO \"missing.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-FS-IN.
+    SELECT SORT-FILE ASSIGN TO \"sort.tmp\".
+    SELECT VSORT-FILE ASSIGN TO \"vsort.tmp\".
+DATA DIVISION.
+FILE SECTION.
+FD IN-FILE.
+01 IN-REC.
+   05 IN-CITY PIC X(8).
+   05 IN-AMT  PIC 9(4).
+   05 IN-NAME PIC X(8).
+FD OUT-FILE.
+01 OUT-REC PIC X(20).
+FD OUT-COPY.
+01 COPY-REC PIC X(20).
+FD MRG-A.
+01 A-REC PIC X(20).
+FD MRG-B.
+01 B-REC PIC X(20).
+FD VAR-IN
+   RECORD VARYING FROM 4 TO 30 CHARACTERS DEPENDING ON WS-VLEN.
+01 VIN-REC PIC X(30).
+FD VAR-OUT
+   RECORD VARYING FROM 4 TO 30 CHARACTERS DEPENDING ON WS-VLEN.
+01 VOUT-REC PIC X(30).
+FD MISSING-FILE.
+01 MISSING-REC PIC X(20).
+SD SORT-FILE.
+01 SORT-REC.
+   05 S-CITY PIC X(8).
+   05 S-AMT  PIC 9(4).
+   05 S-NAME PIC X(8).
+SD VSORT-FILE.
+01 VSORT-REC.
+   05 VS-KEY PIC X(3).
+   05 VS-TXT PIC X(27).
+WORKING-STORAGE SECTION.
+01 WS-FS-IN  PIC XX.
+01 WS-FS-OUT PIC XX.
+01 WS-FS-CPY PIC XX.
+01 WS-EOF    PIC X.
+01 WS-VLEN   PIC 99.
+01 WS-COUNT  PIC 99.
+PROCEDURE DIVISION.
+MAIN-PARA.
+    OPEN OUTPUT IN-FILE
+    MOVE \"RIO     0300ANA     \" TO IN-REC
+    WRITE IN-REC
+    MOVE \"SAO     0100BRUNO   \" TO IN-REC
+    WRITE IN-REC
+    MOVE \"RIO     0900CARLA   \" TO IN-REC
+    WRITE IN-REC
+    MOVE \"BELEM   0500DAVI    \" TO IN-REC
+    WRITE IN-REC
+    MOVE \"SAO     0700EVA     \" TO IN-REC
+    WRITE IN-REC
+    MOVE \"RIO     0300FABIO   \" TO IN-REC
+    WRITE IN-REC
+    CLOSE IN-FILE
+    SORT SORT-FILE ON ASCENDING KEY S-CITY DESCENDING KEY S-AMT
+        USING IN-FILE GIVING OUT-FILE OUT-COPY
+    DISPLAY \"using giving in \" WS-FS-IN \" out \" WS-FS-OUT \" copy \" WS-FS-CPY
+    PERFORM SHOW-OUT
+    OPEN INPUT OUT-COPY
+    MOVE \"N\" TO WS-EOF
+    PERFORM UNTIL WS-EOF = \"Y\"
+        READ OUT-COPY
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END DISPLAY \"copy [\" COPY-REC \"]\"
+        END-READ
+    END-PERFORM
+    CLOSE OUT-COPY
+    SORT SORT-FILE ON DESCENDING KEY S-NAME
+        USING IN-FILE OUTPUT PROCEDURE IS TAKE-SORTED
+    DISPLAY \"using output procedure \" WS-FS-IN
+    SORT SORT-FILE ON ASCENDING KEY S-AMT
+        INPUT PROCEDURE IS GIVE-RECORDS GIVING OUT-FILE
+    DISPLAY \"input procedure giving \" WS-FS-OUT
+    PERFORM SHOW-OUT
+    OPEN OUTPUT MRG-A
+    MOVE \"BELEM   0001A1      \" TO A-REC
+    WRITE A-REC
+    MOVE \"RIO     0002A2      \" TO A-REC
+    WRITE A-REC
+    MOVE \"SAO     0003A3      \" TO A-REC
+    WRITE A-REC
+    CLOSE MRG-A
+    OPEN OUTPUT MRG-B
+    MOVE \"CURITIBA0004B1      \" TO B-REC
+    WRITE B-REC
+    MOVE \"RIO     0005B2      \" TO B-REC
+    WRITE B-REC
+    CLOSE MRG-B
+    MERGE SORT-FILE ON ASCENDING KEY S-CITY
+        USING MRG-A MRG-B GIVING OUT-FILE
+    DISPLAY \"merge giving \" WS-FS-IN \" \" WS-FS-OUT
+    PERFORM SHOW-OUT
+    MERGE SORT-FILE ON DESCENDING KEY S-CITY
+        USING MRG-A MRG-B OUTPUT PROCEDURE IS TAKE-SORTED
+    OPEN OUTPUT VAR-IN
+    MOVE 4 TO WS-VLEN
+    MOVE \"BBB4\" TO VIN-REC
+    WRITE VIN-REC
+    MOVE 30 TO WS-VLEN
+    MOVE \"CCC thirty bytes, the longest.\" TO VIN-REC
+    WRITE VIN-REC
+    MOVE 12 TO WS-VLEN
+    MOVE \"AAA twelve..\" TO VIN-REC
+    WRITE VIN-REC
+    CLOSE VAR-IN
+    SORT VSORT-FILE ON DESCENDING KEY VS-KEY
+        USING VAR-IN GIVING VAR-OUT
+    DISPLAY \"varying \" WS-FS-IN \" \" WS-FS-OUT
+    OPEN INPUT VAR-OUT
+    MOVE \"N\" TO WS-EOF
+    PERFORM UNTIL WS-EOF = \"Y\"
+        READ VAR-OUT
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END DISPLAY \"var \" WS-VLEN \" [\" VOUT-REC \"]\"
+        END-READ
+    END-PERFORM
+    CLOSE VAR-OUT
+    SORT SORT-FILE ON ASCENDING KEY S-CITY
+        USING MISSING-FILE GIVING OUT-FILE
+    DISPLAY \"missing using \" WS-FS-IN \" out \" WS-FS-OUT
+    PERFORM SHOW-OUT
+    STOP RUN.
+SHOW-OUT.
+    MOVE 0 TO WS-COUNT
+    OPEN INPUT OUT-FILE
+    MOVE \"N\" TO WS-EOF
+    PERFORM UNTIL WS-EOF = \"Y\"
+        READ OUT-FILE
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END ADD 1 TO WS-COUNT
+                       DISPLAY \"out \" WS-COUNT \" [\" OUT-REC \"]\"
+        END-READ
+    END-PERFORM
+    CLOSE OUT-FILE
+    DISPLAY \"out records \" WS-COUNT.
+TAKE-SORTED.
+    MOVE \"N\" TO WS-EOF
+    PERFORM UNTIL WS-EOF = \"Y\"
+        RETURN SORT-FILE
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END DISPLAY \"returned [\" SORT-REC \"]\"
+        END-RETURN
+    END-PERFORM.
+GIVE-RECORDS.
+    MOVE \"X       0042LAST    \" TO SORT-REC
+    RELEASE SORT-REC
+    MOVE \"Y       0007FIRST   \" TO SORT-REC
+    RELEASE SORT-REC
+    MOVE \"Z       0019MIDDLE  \" TO SORT-REC
+    RELEASE SORT-REC.
+";
+
+/// UNLOCK, COMMIT and ROLLBACK (T39) on an INDEXED file opened I-O, each followed by what the file
+/// then holds: they act only on an INDEXED file's engine and set no FILE STATUS.
+/// `UNLOCK` is not a reserved word to the front end, so an open operand list (`DISPLAY`, `OPEN`) would
+/// take it as operands: the sentence before each `UNLOCK` ends with a period.
+const TRANSACTIONS: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T39TX.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT ITEMS ASSIGN TO \"items.idx\"
+        ORGANIZATION IS INDEXED
+        ACCESS MODE IS DYNAMIC
+        RECORD KEY IS IT-ID
+        FILE STATUS IS WS-FS.
+    SELECT LOG-FILE ASSIGN TO \"log.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-FS.
+DATA DIVISION.
+FILE SECTION.
+FD ITEMS.
+01 IT-REC.
+   05 IT-ID   PIC 9(3).
+   05 IT-NAME PIC X(7).
+FD LOG-FILE.
+01 LOG-REC PIC X(10).
+WORKING-STORAGE SECTION.
+01 WS-FS  PIC XX.
+01 WS-EOF PIC X.
+PROCEDURE DIVISION.
+MAIN-PARA.
+    OPEN OUTPUT ITEMS
+    MOVE 1 TO IT-ID
+    MOVE \"ONE\" TO IT-NAME
+    WRITE IT-REC
+    CLOSE ITEMS
+    OPEN I-O ITEMS
+    MOVE 2 TO IT-ID
+    MOVE \"TWO\" TO IT-NAME
+    WRITE IT-REC
+    DISPLAY \"write 2 \" WS-FS
+    COMMIT
+    DISPLAY \"commit \" WS-FS
+    MOVE 3 TO IT-ID
+    MOVE \"THREE\" TO IT-NAME
+    WRITE IT-REC
+    DISPLAY \"write 3 \" WS-FS
+    ROLLBACK
+    DISPLAY \"rollback \" WS-FS
+    MOVE 1 TO IT-ID
+    READ ITEMS
+    DISPLAY \"read 1 \" WS-FS \" \" IT-NAME.
+    UNLOCK ITEMS
+    DISPLAY \"unlock \" WS-FS
+    PERFORM SHOW-ITEMS
+    CLOSE ITEMS
+    OPEN OUTPUT LOG-FILE.
+    UNLOCK LOG-FILE
+    DISPLAY \"unlock sequential \" WS-FS
+    CLOSE LOG-FILE
+    OPEN INPUT ITEMS
+    DISPLAY \"after close\"
+    PERFORM SHOW-ITEMS
+    CLOSE ITEMS
+    STOP RUN.
+SHOW-ITEMS.
+    MOVE 0 TO IT-ID
+    START ITEMS KEY IS NOT LESS THAN IT-ID
+    MOVE \"N\" TO WS-EOF
+    PERFORM UNTIL WS-EOF = \"Y\"
+        READ ITEMS NEXT RECORD
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END DISPLAY \"item \" IT-ID \" \" IT-NAME
+        END-READ
+    END-PERFORM.
+";
+
 /// The programs, by organisation, with lines each must print: the statuses the cases are there for.
 const PROGRAMS: &[(&str, &str, &[&str])] = &[
     (
@@ -434,6 +700,25 @@ const PROGRAMS: &[(&str, &str, &[&str])] = &[
         INDEXED,
         &["write 10 again invalid 22", "read 99 invalid 23", "by id 00020 BRUNO SILVA", "by city RIO        00040 DAVI", "seq write 4 out of order 21", "seq 005 FIVE"],
     ),
+    (
+        "sort",
+        SORTING,
+        &[
+            "using giving in 00 out 00 copy 00",
+            "out 01 [BELEM   0500DAVI    ]",
+            "out 03 [RIO     0300ANA     ]",
+            "out 04 [RIO     0300FABIO   ]",
+            "copy [SAO     0100BRUNO   ]",
+            "returned [SAO     0100BRUNO   ]",
+            "out 01 [Y       0007FIRST   ]",
+            "out 02 [CURITIBA0004B1      ]",
+            "var 30 [CCC thirty bytes, the longest.]",
+            "var 04 [BBB4",
+            "missing using 42 out 00",
+            "out records 00",
+        ],
+    ),
+    ("transactions", TRANSACTIONS, &["commit 00", "rollback 00", "unlock sequential 00", "after close"]),
 ];
 
 /// A folder of its own under the system's temporary folder, removed at the end.
@@ -570,6 +855,10 @@ fn files_of_every_organisation_match_the_interpreter() {
     println!("              dynamic WRITE/duplicate (22)/READ/missing (23)/REWRITE/DELETE/START/READ NEXT");
     println!("  indexed:    dynamic with alternate key WITH DUPLICATES, duplicate (22), missing (23), REWRITE, DELETE,");
     println!("              START on both keys, READ NEXT; sequential access out of order (21)");
+    println!("  sort:       SORT USING/GIVING (two GIVING files, one LINE SEQUENTIAL), USING with an OUTPUT PROCEDURE,");
+    println!("              INPUT PROCEDURE with GIVING, MERGE with GIVING and with an OUTPUT PROCEDURE, VARYING 4 TO 30");
+    println!("              records at their own length, equal keys in release order, an absent USING file (35, then 42 at its CLOSE)");
+    println!("  transactions: COMMIT, ROLLBACK, UNLOCK on an INDEXED file opened I-O; UNLOCK on a SEQUENTIAL file");
     for r in &rows {
         println!("{r}");
     }

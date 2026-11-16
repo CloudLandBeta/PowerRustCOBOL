@@ -72,16 +72,45 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
         e.subject == "file RPT" && e.line == line_of(&linage, "OPEN OUTPUT") && e.message.contains("LINAGE") && e.message.contains("M3") && e.program == "T16G",
     );
 
-    // SORT with USING and GIVING: refused, with M3's reason.
+    // SORT and MERGE with USING and GIVING: compiled (T39); the files reach the runner. A relative
+    // or indexed USING file, which the interpreter does not read, and COLLATING SEQUENCE are refused.
     let using = format!(
-        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT W ASSIGN TO \"w\".\n    SELECT IN-F ASSIGN TO \"in\".\n\
-         DATA DIVISION.\nFILE SECTION.\nSD W.\n01 W-REC PIC X(5).\nFD IN-F.\n01 IN-REC PIC X(5).\nPROCEDURE DIVISION.\n    SORT W ON ASCENDING KEY W-REC USING IN-F GIVING IN-F.\n    STOP RUN.\n"
+        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT W ASSIGN TO \"w\".\n    SELECT IN-F ASSIGN TO \"in\".\n    SELECT OUT-F ASSIGN TO \"out\".\n\
+         DATA DIVISION.\nFILE SECTION.\nSD W.\n01 W-REC PIC X(5).\nFD IN-F.\n01 IN-REC PIC X(5).\nFD OUT-F.\n01 OUT-REC PIC X(5).\nPROCEDURE DIVISION.\n    SORT W ON ASCENDING KEY W-REC USING IN-F GIVING OUT-F\n    MERGE W ON ASCENDING KEY W-REC USING IN-F OUT-F GIVING OUT-F\n    STOP RUN.\n"
     );
-    let e = refusal(&using);
+    let caps_of = |src: &str| -> Option<Vec<String>> {
+        let m = compile_program(&common::parse(src), &native()).ok()?;
+        Some(cobolt_wasm_abi::scan::scan_module(&m.wasm).ok()?.embedded_manifest().ok()?.capabilities)
+    };
     check(
-        "SORT … USING/GIVING: refused at its line, SORT files (M3)".into(),
-        e.subject == "SORT … USING/GIVING" && e.line == line_of(&using, "SORT W") && e.message.contains("SORT with USING or GIVING") && e.message.contains("M3"),
+        "SORT … USING/GIVING and MERGE compile: capability files.sequential".into(),
+        caps_of(&using).is_some_and(|c| c == ["files.sequential"]),
     );
+    let indexed_using = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT W ASSIGN TO \"w\".\n    SELECT IX ASSIGN TO \"ix\"\n        ORGANIZATION IS INDEXED\n        RECORD KEY IS IX-KEY.\n    SELECT OUT-F ASSIGN TO \"out\".\n\
+         DATA DIVISION.\nFILE SECTION.\nSD W.\n01 W-REC PIC X(5).\nFD IX.\n01 IX-REC.\n    05 IX-KEY PIC X(5).\nFD OUT-F.\n01 OUT-REC PIC X(5).\nPROCEDURE DIVISION.\n    SORT W ON ASCENDING KEY W-REC USING IX GIVING OUT-F.\n    STOP RUN.\n"
+    );
+    let e = refusal(&indexed_using);
+    check(
+        "SORT … USING an indexed file: refused at its line, naming the file (M3)".into(),
+        e.subject == "SORT … USING/GIVING" && e.line == line_of(&indexed_using, "SORT W") && e.message.contains("USING IX") && e.message.contains("M3"),
+    );
+    let collating = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\nSPECIAL-NAMES.\n    ALPHABET REV IS \"Z\" THRU \"A\".\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT W ASSIGN TO \"w\".\n    SELECT IN-F ASSIGN TO \"in\".\n\
+         DATA DIVISION.\nFILE SECTION.\nSD W.\n01 W-REC PIC X(5).\nFD IN-F.\n01 IN-REC PIC X(5).\nPROCEDURE DIVISION.\n    SORT W ON ASCENDING KEY W-REC COLLATING SEQUENCE IS REV USING IN-F GIVING IN-F.\n    STOP RUN.\n"
+    );
+    let e = refusal(&collating);
+    check("SORT … COLLATING SEQUENCE: refused at its line".into(), e.line == line_of(&collating, "SORT W") && e.message.contains("COLLATING SEQUENCE"));
+    // COMMIT, ROLLBACK and UNLOCK reach an INDEXED file's engine through the runner (A35).
+    let tx = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT IX ASSIGN TO \"ix\"\n        ORGANIZATION IS INDEXED\n        RECORD KEY IS IX-KEY.\n\
+         DATA DIVISION.\nFILE SECTION.\nFD IX.\n01 IX-REC.\n    05 IX-KEY PIC X(5).\nPROCEDURE DIVISION.\n    OPEN I-O IX\n    COMMIT\n    ROLLBACK\n    CLOSE IX.\n    UNLOCK IX\n    STOP RUN.\n"
+    );
+    let tx_ok = compile_program(&common::parse(&tx), &native())
+        .ok()
+        .and_then(|m| cobolt_wasm_abi::scan::scan_module(&m.wasm).ok())
+        .is_some_and(|s| s.imports.iter().any(|i| i.name == "f_tx") && s.embedded_manifest().is_ok_and(|m| m.capabilities == ["files.indexed"]));
+    check("COMMIT, ROLLBACK and UNLOCK compile: import f_tx, capability files.indexed".into(), tx_ok);
 
     // SORT with an INPUT and an OUTPUT PROCEDURE: compiled into the module.
     let procs = format!(

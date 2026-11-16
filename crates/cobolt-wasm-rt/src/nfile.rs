@@ -307,3 +307,138 @@ pub fn start(base: u32, d: u32, op: u32, kor: u32, ks: u32, rel_opd: u32) -> u32
     set_status(base, &f, code);
     code
 }
+
+// ── SORT and MERGE with USING and GIVING; UNLOCK, COMMIT, ROLLBACK (DESKTOP-WASM-001 T39) ──
+//
+// The interpreter's `SORT … USING` opens each file INPUT, reads every record as it is on disk and
+// closes it; `GIVING` opens each file OUTPUT, writes every sorted record and closes it. Its reads
+// and writes set no FILE STATUS and perform no USE procedure: only the OPEN and the CLOSE do. The
+// generator lowers that OPEN and CLOSE as the program's own; these two routines are the loop.
+//
+// A record read from a file keeps its own length, which the module's sort (`crate::idx`, whose
+// records are the SD record's length) has no place for. Such a record is a heap block of
+//
+//   [the SD record area after the record's bytes are put over it: rec_len bytes]
+//   [the record's length: 4 bytes]
+//   [the bytes past rec_len, when the record is longer]
+//
+// so the sort compares, and a `RETURN` delivers, the first part as it does a released record, and
+// `GIVING` writes the record at its own length. The first part is what the interpreter's sort sees:
+// it puts each record's bytes over the SD record in turn, so a field past a short record's end keeps
+// the previous record's value.
+//
+// The exports live here, not in `lib.rs`, and nothing here can panic: a panic's location is read-only
+// data every module carries, and a browser module must not move for a desktop routine (AC16).
+
+/// The SORT descriptor's words this part reads: the record's length, the SD record area's region
+/// offset, and the region offset of the work file's state (`[vec, count, cap, next]`).
+fn sort_words(base: u32, sd: u32) -> (u32, u32, u32) {
+    (mem::rd_u32(sd), base + mem::rd_u32(sd + 4), base + mem::rd_u32(sd + 12))
+}
+
+/// A block joins the work file, as `idx::sort_release` adds one.
+fn sort_push(state: u32, p: u32) {
+    let (count, cap) = (mem::rd_u32(state + 4), mem::rd_u32(state + 8));
+    if count == cap {
+        let new_cap = if cap == 0 { 64 } else { cap * 2 };
+        let v = crate::idx::heap_alloc(4 * new_cap);
+        if v == 0 {
+            crate::fail(crate::state::err::MEMORY_FULL);
+        }
+        let old = mem::rd_u32(state);
+        mem::copy(old, v, 4 * count);
+        crate::idx::heap_free(old);
+        mem::wr_u32(state, v);
+        mem::wr_u32(state + 8, new_cap);
+    }
+    mem::wr_u32(mem::rd_u32(state) + 4 * count, p);
+    mem::wr_u32(state + 4, count + 1);
+}
+
+/// `SORT … USING file` (and `MERGE`), between the OPEN and the CLOSE the generator lowers: every
+/// record of the open file `d` joins the work file of the SORT `sd`, at its own length.
+pub fn sort_using(base: u32, d: u32, sd: u32) {
+    let f = desc(d);
+    let (rec_len, area, state) = sort_words(base, sd);
+    let (s, cap) = scratch();
+    let (buf, room) = (s + OUT, cap - OUT);
+    loop {
+        mem::wr_u32(s, 0);
+        // SAFETY: the runner writes at most `room` bytes at `buf` and 16 at `s`.
+        let code = unsafe { host::f_read(f.id, base + f.handle_off, 0, 0, buf, NONE, NONE as i64, buf, room, s) };
+        if code != 0 {
+            return;
+        }
+        let len = mem::rd_u32(s).min(room);
+        mem::copy(buf, area, len.min(rec_len));
+        let p = crate::idx::heap_alloc(rec_len.max(len) + 4);
+        if p == 0 {
+            crate::fail(crate::state::err::MEMORY_FULL);
+        }
+        mem::copy(area, p, rec_len);
+        mem::wr_u32(p + rec_len, len);
+        if len > rec_len {
+            mem::copy(buf + rec_len, p + rec_len + 4, len - rec_len);
+        }
+        sort_push(state, p);
+    }
+}
+
+/// `SORT … GIVING file`, between the OPEN and the CLOSE: every sorted record of the SORT `sd`, in
+/// order, written to the open file `d`. `raw` is 1 when the records came from `USING` files (each at
+/// its own length), 0 when an INPUT PROCEDURE released them (each the SD record's length).
+pub fn sort_giving(base: u32, d: u32, sd: u32, raw: u32) {
+    let f = desc(d);
+    let (rec_len, _, state) = sort_words(base, sd);
+    let (s, cap) = scratch();
+    let (v, n) = (mem::rd_u32(state), mem::rd_u32(state + 4));
+    for i in 0..n {
+        let p = mem::rd_u32(v + 4 * i);
+        let (rec, len) = if raw == 0 {
+            (p, rec_len)
+        } else {
+            let len = mem::rd_u32(p + rec_len);
+            if len <= rec_len {
+                (p, len)
+            } else {
+                // The record whole, in the scratch place after `OUT`.
+                let len = len.min(cap - OUT);
+                mem::copy(p, s + OUT, rec_len);
+                mem::copy(p + rec_len + 4, s + OUT + rec_len, len - rec_len);
+                (s + OUT, len)
+            }
+        };
+        // SAFETY: the runner reads `len` bytes at `rec` and writes 8 at `s`.
+        let _ = unsafe { host::f_write(f.id, base + f.handle_off, rec, len, NONE as i64, s) };
+    }
+}
+
+/// `UNLOCK file` (`op` = `TX_UNLOCK`, `d` its descriptor), `COMMIT` or `ROLLBACK` (`d` = 0).
+pub fn tx(base: u32, op: u32, d: u32) {
+    let (id, slot) = if d == 0 {
+        (NONE as u32, NONE as u32)
+    } else {
+        let f = desc(d);
+        (f.id, base + f.handle_off)
+    };
+    // SAFETY: no memory crosses.
+    let _ = unsafe { host::f_tx(op, id, slot) };
+}
+
+/// `SORT … USING`: see [`sort_using`].
+#[no_mangle]
+pub extern "C" fn rt_nf_sort_using(base: u32, d: u32, sd: u32) {
+    sort_using(base, d, sd);
+}
+
+/// `SORT … GIVING`: see [`sort_giving`].
+#[no_mangle]
+pub extern "C" fn rt_nf_sort_giving(base: u32, d: u32, sd: u32, raw: u32) {
+    sort_giving(base, d, sd, raw);
+}
+
+/// `UNLOCK`, `COMMIT`, `ROLLBACK`: see [`tx`].
+#[no_mangle]
+pub extern "C" fn rt_nf_tx(base: u32, op: u32, d: u32) {
+    tx(base, op, d);
+}

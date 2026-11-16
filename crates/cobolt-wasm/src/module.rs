@@ -690,7 +690,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // environment ones of a desktop module's. Each is backed by a host import
     // of the same name, in the `pr` namespace or, for a desktop capability, in
     // `prn` (ABI A27, A29).
-    const GLUE_ORDER: [&str; 22] = [
+    const GLUE_ORDER: [&str; 23] = [
         "flush",
         "abort",
         "query",
@@ -713,6 +713,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         "f_rewrite",
         "f_delete",
         "f_start",
+        "f_tx",
     ];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
@@ -790,6 +791,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             "f_write" => (ty_f_write, ty_f_write),
             "f_rewrite" | "f_delete" => (ty_f_rewrite, ty_f_rewrite),
             "f_start" => (ty_f_start, ty_f_start),
+            // A35: UNLOCK, COMMIT, ROLLBACK.
+            "f_tx" => (ty_i32_i32_i32_ret, ty_i32_i32_i32_ret),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
         }
     };
@@ -1115,6 +1118,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         ("f_rewrite", 5),
         ("f_delete", 5),
         ("f_start", 7),
+        ("f_tx", 3),
     ] {
         if let Some(&at) = glue_final.get(g) {
             let mut f = Function::new([]);

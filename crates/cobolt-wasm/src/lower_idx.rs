@@ -509,6 +509,18 @@ impl Lower<'_, '_> {
                 collating.as_deref(),
                 line,
             )),
+            // MERGE is the interpreter's SORT of its USING files with no INPUT PROCEDURE; a browser
+            // module still refuses it (its files are on the backend).
+            Stmt::Merge { file, keys, using, giving, output_proc, collating, .. } if self.native => Some(self.sort_(
+                file,
+                keys,
+                using,
+                giving,
+                None,
+                output_proc.as_ref(),
+                collating.as_deref(),
+                line,
+            )),
             Stmt::Release { record, from, .. } => Some((|| {
                 let (name, fi) = self.file_of_record(record, line)?;
                 if fi.kind != FileKind::Sort {
@@ -910,11 +922,9 @@ impl Lower<'_, '_> {
         collating: Option<&str>,
         line: u32,
     ) -> GenResult<()> {
-        // A desktop module sorts in memory too; USING and GIVING files wait for M3 (DESKTOP-WASM-001 T16).
-        if self.native && (!using.is_empty() || !giving.is_empty()) {
-            return self.err_kind(line, ErrorKind::Other, "SORT … USING/GIVING", format!("SORT … USING/GIVING: {}", crate::support::D_SORT));
-        }
-        if !using.is_empty() || !giving.is_empty() {
+        // A desktop module sorts in memory too, and reads its USING files and writes its GIVING files
+        // through the runner (DESKTOP-WASM-001 T39); a browser module's files are on the backend.
+        if !self.native && (!using.is_empty() || !giving.is_empty()) {
             return self.err_kind(
                 line,
                 ErrorKind::BackendOnly,
@@ -988,11 +998,19 @@ impl Lower<'_, '_> {
         self.base();
         self.i32c(desc as i32);
         self.call_rt("rt_sort_begin");
-        procedure(self, input_proc, "INPUT")?;
+        if input_proc.is_none() && self.native {
+            self.sort_using_files(using, desc, line)?;
+        } else {
+            procedure(self, input_proc, "INPUT")?;
+        }
         self.base();
         self.i32c(desc as i32);
         self.call_rt("rt_sort_sort");
-        procedure(self, output_proc, "OUTPUT")?;
+        if output_proc.is_none() && self.native {
+            self.sort_giving_files(giving, desc, input_proc.is_none(), line)?;
+        } else {
+            procedure(self, output_proc, "OUTPUT")?;
+        }
         self.base();
         self.i32c(desc as i32);
         self.call_rt("rt_sort_end");

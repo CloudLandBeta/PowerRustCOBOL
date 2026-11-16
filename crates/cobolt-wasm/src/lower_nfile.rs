@@ -362,8 +362,97 @@ impl Lower<'_, '_> {
                 self.key_outcome(file, fi, invalid_key, not_invalid_key)
             })(),
             Stmt::Start { file, key, invalid_key, not_invalid_key, .. } => self.n_start(file, key.as_ref(), invalid_key, not_invalid_key, line),
+            // The interpreter releases an INDEXED file's record locks, and makes durable or undoes
+            // the changes of every INDEXED file the program has open; nothing for another
+            // organisation, and no FILE STATUS (T39, A35).
+            Stmt::Unlock { file, .. } => (|| {
+                let fi = self.native_file(file, line)?;
+                if self.file_meta[fi.meta].org == FileOrganization::Indexed {
+                    self.base();
+                    self.i32c(verb::TX_UNLOCK);
+                    self.i32c(fi.desc as i32);
+                    self.call_rt("rt_nf_tx");
+                }
+                Ok(())
+            })(),
+            Stmt::Commit { .. } | Stmt::Rollback { .. } => {
+                self.base();
+                self.i32c(if matches!(s, Stmt::Commit { .. }) { verb::TX_COMMIT } else { verb::TX_ROLLBACK });
+                self.i32c(0);
+                self.call_rt("rt_nf_tx");
+                Ok(())
+            }
             _ => return None,
         })
+    }
+
+    /// `SORT … USING` (and `MERGE`) in a desktop module: each file opened INPUT, read whole into the
+    /// work file of the SORT `sort_desc`, and closed, as the interpreter's `read_all_records` does.
+    /// The OPEN and the CLOSE are the program's own (FILE STATUS, USE procedures); the reads set
+    /// neither (T39).
+    pub(crate) fn sort_using_files(&mut self, files: &[String], sort_desc: u32, line: u32) -> GenResult<()> {
+        for f in files {
+            let fi = self.sort_file(f, "USING", line)?;
+            self.sort_open_close(f, fi, Some(verb::OPEN_INPUT));
+            self.base();
+            self.i32c(fi.desc as i32);
+            self.i32c(sort_desc as i32);
+            self.call_rt("rt_nf_sort_using");
+            self.sort_open_close(f, fi, None);
+        }
+        Ok(())
+    }
+
+    /// `SORT … GIVING` in a desktop module: each file opened OUTPUT, given every sorted record and
+    /// closed, as the interpreter's `write_all_records` does. `raw` is whether the records came from
+    /// `USING` files, each at its own length.
+    pub(crate) fn sort_giving_files(&mut self, files: &[String], sort_desc: u32, raw: bool, line: u32) -> GenResult<()> {
+        for f in files {
+            let fi = self.sort_file(f, "GIVING", line)?;
+            self.sort_open_close(f, fi, Some(verb::OPEN_OUTPUT));
+            self.base();
+            self.i32c(fi.desc as i32);
+            self.i32c(sort_desc as i32);
+            self.i32c(raw as i32);
+            self.call_rt("rt_nf_sort_giving");
+            self.sort_open_close(f, fi, None);
+        }
+        Ok(())
+    }
+
+    /// A `USING` or `GIVING` file. The interpreter reads and writes only a sequential or line
+    /// sequential one there: a relative or indexed file is refused, so the Build keeps it on the
+    /// Cargo path rather than copy that gap into the module.
+    fn sort_file(&mut self, f: &str, phrase: &str, line: u32) -> GenResult<FileInfo> {
+        let fi = self.native_file(f, line)?;
+        if matches!(self.file_meta[fi.meta].org, FileOrganization::Relative | FileOrganization::Indexed) {
+            return self.err_kind(
+                line,
+                ErrorKind::Other,
+                "SORT … USING/GIVING",
+                format!("SORT … {phrase} {f}: a relative or indexed {phrase} file is not on the WebAssembly path (DESKTOP-WASM-001 M3)"),
+            );
+        }
+        Ok(fi)
+    }
+
+    /// The OPEN (`mode`) or, with `None`, the CLOSE a `USING` or `GIVING` file gets, lowered as the
+    /// program's own.
+    fn sort_open_close(&mut self, f: &str, fi: FileInfo, mode: Option<i32>) {
+        self.base();
+        self.i32c(fi.desc as i32);
+        match mode {
+            Some(m) => {
+                self.i32c(m);
+                self.i32c(0);
+                self.call_rt("rt_nf_open");
+            }
+            None => {
+                self.i32c(verb::CLOSE_PLAIN);
+                self.call_rt("rt_nf_close");
+            }
+        }
+        self.file_verb_done_cover(f, fi.handle_off, Cover::None);
     }
 
     #[allow(clippy::too_many_arguments)]
