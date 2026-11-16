@@ -2,6 +2,19 @@
 
 
 
+## 2.0.538 — 2026-11-16
+
+**Integration: eight fixes made on their own branches since 2.0.500 reach main.** Each was cut from main at 2.0.500 and tested there, but none had been merged. They were already on `features-2x-desktop-wasm`, so main lagged behind it. Each is cherry-picked with its own number and its entry below, and its code is identical to the original commit's:
+- **2.0.501:** a recursion with no end stops with a runtime error instead of crashing (`fixes-2x-perform-stack`).
+- **2.0.504:** the WebAssembly generator's tests follow the workspace's Rust floor and recognise every timing line (`fixes-2x-wasm-red-tests`).
+- **2.0.505:** the form host's example-corpus golden follows the SideMenu fix of 2.0.311 (`fixes-2x-powerchat-golden`). This turns `corpus_golden` green on main again.
+- **2.0.506:** the IDE's live crates.io tests no longer depend on what crates.io publishes next (`fixes-2x-egui-alias-tests`).
+- **2.0.508:** a program compiled to WebAssembly no longer loses its output when it ends past its last statement (`fixes-2x-run-end-flush`).
+- **2.0.509:** a RETURN-CODE too large for an exit code is held at the nearest end instead of wrapping around (`fixes-2x-exit-code-wrap`).
+- **2.0.515:** the example CALL check knows a Web or Mobile project's Backend programs (`fixes-2x-oficina-calls`).
+- **2.0.534:** the picture of a form matches Run Form in every pixel (`fixes-2x-snapshot-visuals`).
+- **The version goes to 2.0.538,** because main already stood at 2.0.535 and 2.0.536 and 2.0.537 belong to `features-2x-desktop-wasm`.
+
 ## 2.0.535 — 2026-11-16
 
 **Fix: a form larger than the screen is zoomed just enough to fit, and the zoom settles.** The report came from a two-monitor setup. An application built and first run on a 2K monitor, then run on the laptop's smaller screen, "does not adapt": its text and icons stayed very small. When a window and the windows docked to it do not fit the screen, the whole application is zoomed down until they do. That zoom did not stop at what the group needed.
