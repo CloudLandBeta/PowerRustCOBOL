@@ -97,7 +97,7 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     );
 
     // SORT and MERGE with USING and GIVING: compiled (T39); the files reach the runner. A relative
-    // or indexed USING file, which the interpreter does not read, and COLLATING SEQUENCE are refused.
+    // or indexed USING file, which the interpreter does not read, is refused; COLLATING SEQUENCE compiles.
     let using = format!(
         "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT W ASSIGN TO \"w\".\n    SELECT IN-F ASSIGN TO \"in\".\n    SELECT OUT-F ASSIGN TO \"out\".\n\
          DATA DIVISION.\nFILE SECTION.\nSD W.\n01 W-REC PIC X(5).\nFD IN-F.\n01 IN-REC PIC X(5).\nFD OUT-F.\n01 OUT-REC PIC X(5).\nPROCEDURE DIVISION.\n    SORT W ON ASCENDING KEY W-REC USING IN-F GIVING OUT-F\n    MERGE W ON ASCENDING KEY W-REC USING IN-F OUT-F GIVING OUT-F\n    STOP RUN.\n"
@@ -123,8 +123,10 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
         "{HEAD}ENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\nSPECIAL-NAMES.\n    ALPHABET REV IS \"Z\" THRU \"A\".\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT W ASSIGN TO \"w\".\n    SELECT IN-F ASSIGN TO \"in\".\n\
          DATA DIVISION.\nFILE SECTION.\nSD W.\n01 W-REC PIC X(5).\nFD IN-F.\n01 IN-REC PIC X(5).\nPROCEDURE DIVISION.\n    SORT W ON ASCENDING KEY W-REC COLLATING SEQUENCE IS REV USING IN-F GIVING IN-F.\n    STOP RUN.\n"
     );
-    let e = refusal(&collating);
-    check("SORT … COLLATING SEQUENCE: refused at its line".into(), e.line == line_of(&collating, "SORT W") && e.message.contains("COLLATING SEQUENCE"));
+    check(
+        "SORT … COLLATING SEQUENCE IS alphabet compiles: capability files.sequential".into(),
+        caps_of(&collating).is_some_and(|c| c == ["files.sequential"]),
+    );
     // COMMIT, ROLLBACK and UNLOCK reach an INDEXED file's engine through the runner (A35).
     let tx = format!(
         "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT IX ASSIGN TO \"ix\"\n        ORGANIZATION IS INDEXED\n        RECORD KEY IS IX-KEY.\n\

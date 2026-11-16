@@ -82,6 +82,16 @@ fn up(s: &str) -> String {
 }
 
 impl Lower<'_, '_> {
+    /// The collating table of the alphabet `name` (see `crate::collate::table`), or `None`
+    /// when it is the native order or no alphabet of the program has that name.
+    pub(crate) fn alphabet_table(&self, name: &str) -> Option<Vec<u8>> {
+        self.prog
+            .alphabets
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .and_then(|(_, spec)| crate::collate::table(spec))
+    }
+
     /// The files a `SORT`, `MERGE`, `RELEASE` or `RETURN` of the unit names: its
     /// SORT work files.
     pub(crate) fn sort_file_names(
@@ -939,9 +949,11 @@ impl Lower<'_, '_> {
                 ),
             );
         }
-        if collating.is_some() {
-            return self.err_kind(line, ErrorKind::Unsupported, "SORT … COLLATING SEQUENCE", "SORT … COLLATING SEQUENCE is not available in a browser module yet; sort by the program collating sequence");
-        }
+        // `COLLATING SEQUENCE IS alphabet-name` orders THIS sort's alphanumeric keys by that
+        // alphabet (CCVS85 ST139A/ST140A): its table is in force while the records are ordered,
+        // and the program's own sequence comes back after. NATIVE, STANDARD-1/-2 and an unknown
+        // name leave the program's sequence in force, as the interpreter does.
+        let sort_table = collating.and_then(|name| self.alphabet_table(name));
         let fi = self.file(file, line)?;
         if fi.kind != FileKind::Sort {
             return self.err(line, format!("SORT names {file}, which is not a sort file"));
@@ -1022,9 +1034,23 @@ impl Lower<'_, '_> {
         } else {
             procedure(self, input_proc, "INPUT")?;
         }
+        if let Some(t) = &sort_table {
+            let addr = self.pool.intern(t);
+            self.i32c(addr as i32);
+            self.call_rt("rt_set_collation");
+        }
         self.base();
         self.i32c(desc as i32);
         self.call_rt("rt_sort_sort");
+        if sort_table.is_some() {
+            let prog = self.prog;
+            let back = match prog.collating_sequence.as_deref().and_then(|n| self.alphabet_table(n)) {
+                Some(t) => self.pool.intern(&t),
+                None => 0,
+            };
+            self.i32c(back as i32);
+            self.call_rt("rt_set_collation");
+        }
         if output_proc.is_none() && self.native {
             self.sort_giving_files(giving, desc, input_proc.is_none(), line)?;
         } else {

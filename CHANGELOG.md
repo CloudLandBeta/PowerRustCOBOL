@@ -2,6 +2,22 @@
 
 
 
+## 2.0.549 — 2026-11-16
+
+**Fix: on the WebAssembly path, `SORT` and `MERGE` with `COLLATING SEQUENCE IS alphabet-name` now compile and order the records by that alphabet, as COBOL-85 requires.**
+- **What was wrong:** the generator refused the phrase in every module ("SORT … COLLATING SEQUENCE is not available in a browser module yet"), so a browser program could not use it and a desktop program took the Cargo path. NIST ST139A and ST140A were refused for this alone. The interpreter accepts the phrase.
+- **The fix:** the module puts the alphabet's collating table in force while it orders the records, then puts the program's own sequence back: the `PROGRAM COLLATING SEQUENCE` if there is one, otherwise the native order. So `INPUT` and `OUTPUT` procedures, and everything after the sort, compare as before.
+- **As in the interpreter:**
+  - only alphanumeric keys follow the alphabet; numeric keys compare by value;
+  - an alphabet that is `NATIVE` or `STANDARD-1`/`STANDARD-2` leaves the program's sequence in force.
+- **Tests:**
+  - a new test sorts 5 records under 4 programs: no sequence; the sort's alphabet with a native program; the sort's alphabet under a `PROGRAM COLLATING SEQUENCE`; and the sort's `NATIVE` alphabet under a `PROGRAM COLLATING SEQUENCE`. Its 24 of 24 lines equal the interpreter's on both memory layouts, including which sequence is in force after the sort, and every program also compiles for the desktop's WebAssembly path;
+  - the desktop refusal test now expects `SORT … COLLATING SEQUENCE … USING … GIVING` to compile with the capability `files.sequential` (20 of 20 checks);
+  - the generator's tests: 34 test programs, 126 passed, 0 failed;
+  - browser module bytes are unchanged (the PowerAnalyticsWeb pin and the player fixtures match);
+  - the generator's NIST gate is unchanged: IC (Inter-Program Communication) 25 of 25 programs, 309 PASS, 0 FAIL, 4 DELETED; NC (Nucleus) 95 of 95, 4612/0/5; IF (Intrinsic Functions) 45 of 45, 841/0/0.
+- `specs/WASM-ABI-v1.md` A35 no longer lists `COLLATING SEQUENCE` among the refusals.
+
 ## 2.0.548 — 2026-11-16
 
 **Fix: on the WebAssembly path, a `SORT` or `MERGE` key can now be in any record description of the sort file, as COBOL-85 allows.**

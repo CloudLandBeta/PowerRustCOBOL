@@ -498,3 +498,53 @@ fn a_sort_key_may_be_in_any_record_of_the_sd() {
         want.len()
     );
 }
+
+/// `SORT … COLLATING SEQUENCE IS alphabet-name` orders that sort's alphanumeric keys by the
+/// alphabet, and the program's own sequence is back in force after it (CCVS85 ST139A/ST140A).
+/// A NATIVE alphabet leaves the program's sequence in force, as the interpreter does.
+#[test]
+fn a_sort_orders_by_its_own_collating_sequence() {
+    let src = |prog: &str, coll: &str| {
+        format!(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. SCS.\nENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\nOBJECT-COMPUTER. THIS-MACHINE{prog}.\n\
+             SPECIAL-NAMES.\n    ALPHABET MKA IS \"M\" \"K\" \"A\"\n    ALPHABET ZED IS \"Z\"\n    ALPHABET MACHINE IS NATIVE.\n\
+             INPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT WORK-FILE ASSIGN TO \"work.tmp\".\n\
+             DATA DIVISION.\nFILE SECTION.\nSD WORK-FILE.\n01 S-REC.\n    05 S-NAME PIC X(4).\n    05 S-NUM PIC 99.\n\
+             WORKING-STORAGE SECTION.\n01 K PIC 9.\n01 EOF PIC 9.\n01 T-DATA PIC X(30) VALUE \"ALFA10KILO20MIKE30ZULU40KILO05\".\n\
+             01 T-ROWS REDEFINES T-DATA.\n    05 T-ROW OCCURS 5 PIC X(6).\n\
+             PROCEDURE DIVISION.\nMAIN-PARA.\n    SORT WORK-FILE ON ASCENDING KEY S-NAME ON DESCENDING KEY S-NUM{coll}\n\
+             \x20       INPUT PROCEDURE IS GIVE-RECORDS\n        OUTPUT PROCEDURE IS TAKE-RECORDS\n\
+             \x20   IF \"Z\" < \"A\" DISPLAY \"after: Z before A\" ELSE DISPLAY \"after: A before Z\" END-IF\n    STOP RUN.\n\
+             GIVE-RECORDS.\n    PERFORM VARYING K FROM 1 BY 1 UNTIL K > 5\n        MOVE T-ROW (K) TO S-REC\n        RELEASE S-REC\n    END-PERFORM.\n\
+             TAKE-RECORDS.\n    MOVE 0 TO EOF\n    PERFORM UNTIL EOF = 1\n        RETURN WORK-FILE AT END MOVE 1 TO EOF\n            NOT AT END DISPLAY S-NAME \" \" S-NUM\n        END-RETURN\n    END-PERFORM.\n"
+        )
+    };
+    let by_mka = ["MIKE 30", "KILO 20", "KILO 05", "ALFA 10", "ZULU 40"];
+    let cases: [(&str, &str, &str, Vec<&str>); 4] = [
+        ("no sequence anywhere", "", "", vec!["ALFA 10", "KILO 20", "KILO 05", "MIKE 30", "ZULU 40", "after: A before Z"]),
+        ("the sort's MKA, native program", "", " COLLATING SEQUENCE IS MKA", [&by_mka[..], &["after: A before Z"]].concat()),
+        ("the sort's MKA, program ZED", " PROGRAM COLLATING SEQUENCE IS ZED", " SEQUENCE MKA", [&by_mka[..], &["after: Z before A"]].concat()),
+        ("the sort's NATIVE, program ZED", " PROGRAM COLLATING SEQUENCE IS ZED", " COLLATING SEQUENCE IS MACHINE",
+         vec!["ZULU 40", "ALFA 10", "KILO 20", "KILO 05", "MIKE 30", "after: Z before A"]),
+    ];
+    let mut lines = 0;
+    for (what, prog, coll, want) in &cases {
+        let p = src(prog, coll);
+        let got = common::run_interpreter(&p);
+        assert_eq!(&got, want, "{what}: the interpreter's order");
+        for multi in [true, false] {
+            let o = common::run_wasm(&p, &Options { multi_memory: multi, ..Options::default() });
+            assert!(o.trapped.is_none() && o.errors.is_empty(), "{what}, multi={multi}: {:?} {:?}", o.trapped, o.errors);
+            assert_eq!(&common::wasm_lines(&o), want, "{what}, multi={multi}");
+        }
+        let native = cobolt_wasm::compile_program(&common::parse(&p), &Options { native: true, ..Options::default() });
+        assert!(native.is_ok(), "{what}: the desktop module compiles too: {:?}", native.err().map(|e| e.message));
+        lines += want.len();
+    }
+    println!(
+        "SORT COLLATING SEQUENCE: {} programs (none, the sort's alphabet under a native and under a PROGRAM sequence, \
+         the sort's NATIVE under a PROGRAM sequence) x 5 records; {lines} of {lines} lines equal to the interpreter on both \
+         memory layouts, including the sequence in force after the sort; every program compiles for the desktop too",
+        cases.len()
+    );
+}
