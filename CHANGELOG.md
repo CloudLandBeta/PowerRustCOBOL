@@ -2,6 +2,18 @@
 
 
 
+## 2.0.548 — 2026-11-16
+
+**Fix: on the WebAssembly path, a `SORT` or `MERGE` key can now be in any record description of the sort file, as COBOL-85 allows.**
+- **What was wrong:** the generator accepted a key only in the SD's first record description. A program whose key was in another one, such as NIST ST110A, which sorts on `MEDIUM-KEY-1` of its second record `MEDIUM-SORT`, was refused with "the SORT key … is not in the record of …". The interpreter accepts that program.
+- **The fix:** every record description of the SD begins at the same place, so a key in any of them is accepted.
+- **What is still refused:** the sort compares each record over the length of the SD's first record description, so a key that ends past that length is refused at its line, naming the key.
+- **Tests:**
+  - a new test sorts 5 records twice, once on a key of the SD's second record description and once on keys from both. Its 12 of 12 lines equal the interpreter's, in both memory layouts, and the program also compiles for the desktop's WebAssembly path. A key past the first record's end is refused, naming it;
+  - the generator's tests: 34 test programs, 125 passed, 0 failed;
+  - browser module bytes are unchanged (the PowerAnalyticsWeb pin and the player fixtures match);
+  - the generator's NIST gate is unchanged: IC (Inter-Program Communication) 25 of 25 programs, 309 PASS, 0 FAIL, 4 DELETED; NC (Nucleus) 95 of 95, 4612/0/5; IF (Intrinsic Functions) 45 of 45, 841/0/0.
+
 ## 2.0.547 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T39b): `LINAGE` files with `LINAGE-COUNTER`, and `SAME [RECORD] AREA`, now run on the desktop's WebAssembly path. Printed lines and files match the interpreter's.**

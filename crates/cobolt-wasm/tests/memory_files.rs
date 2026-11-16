@@ -453,3 +453,48 @@ fn a_record_is_qualified_by_its_file_name() {
     assert_eq!(lines, ["wrote 00", "read 00 FOUR       WORKING   "]);
     println!("record qualified by its file: 2 of 2 lines equal to the interpreter (7 names qualified by the file, both memory layouts)");
 }
+
+/// A SORT key may be in any record description of the SD, as COBOL-85 allows (NIST ST110A keys on
+/// the second). Each record is compared over the first description's length, so a key past its end
+/// is refused naming it.
+#[test]
+fn a_sort_key_may_be_in_any_record_of_the_sd() {
+    let src = |keys: &str| {
+        format!(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. SKR.\nENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT WORK-FILE ASSIGN TO \"work.tmp\".\n\
+             DATA DIVISION.\nFILE SECTION.\nSD WORK-FILE.\n01 S-SHORT.\n    05 S-TAG PIC X.\n    05 S-DATA PIC X(9).\n\
+             01 S-LONG.\n    05 L-TAG PIC X.\n    05 L-KEY PIC X(4).\n    05 L-REST PIC X(15).\n\
+             WORKING-STORAGE SECTION.\n01 K PIC 9.\n01 EOF PIC 9.\n01 T-DATA PIC X(40) VALUE \"AMANG011BKIWI022CAPPL033DFIG 044EKIWI055\".\n\
+             01 T-ROWS REDEFINES T-DATA.\n    05 T-ROW OCCURS 5 PIC X(8).\n\
+             PROCEDURE DIVISION.\nMAIN-PARA.\n    SORT WORK-FILE {keys}\n        INPUT PROCEDURE IS GIVE-RECORDS\n        OUTPUT PROCEDURE IS TAKE-RECORDS\n\
+             \x20   SORT WORK-FILE ON DESCENDING KEY L-KEY ON DESCENDING KEY S-TAG\n        INPUT PROCEDURE IS GIVE-RECORDS\n        OUTPUT PROCEDURE IS TAKE-RECORDS\n    STOP RUN.\n\
+             GIVE-RECORDS.\n    PERFORM VARYING K FROM 1 BY 1 UNTIL K > 5\n        MOVE T-ROW (K) TO S-SHORT\n        RELEASE S-SHORT\n    END-PERFORM.\n\
+             TAKE-RECORDS.\n    MOVE 0 TO EOF\n    PERFORM UNTIL EOF = 1\n        RETURN WORK-FILE AT END MOVE 1 TO EOF DISPLAY \"--\"\n            NOT AT END DISPLAY L-TAG \" \" L-KEY \" \" S-DATA\n        END-RETURN\n    END-PERFORM.\n"
+        )
+    };
+    let ok = src("ON ASCENDING KEY L-KEY");
+    let want = common::run_interpreter(&ok);
+    assert_eq!(
+        want,
+        ["C APPL APPL033  ", "D FIG  FIG 044  ", "B KIWI KIWI022  ", "E KIWI KIWI055  ", "A MANG MANG011  ", "--",
+         "A MANG MANG011  ", "E KIWI KIWI055  ", "B KIWI KIWI022  ", "D FIG  FIG 044  ", "C APPL APPL033  ", "--"],
+        "the interpreter's order"
+    );
+    for multi in [true, false] {
+        let o = common::run_wasm(&ok, &Options { multi_memory: multi, ..Options::default() });
+        assert!(o.trapped.is_none() && o.errors.is_empty(), "multi={multi}: {:?} {:?}", o.trapped, o.errors);
+        assert_eq!(common::wasm_lines(&o), want, "multi={multi}");
+    }
+    let native = cobolt_wasm::compile_program(&common::parse(&ok), &Options { native: true, ..Options::default() });
+    assert!(native.is_ok(), "the desktop module compiles too: {:?}", native.err().map(|e| e.message));
+
+    let past = src("ON ASCENDING KEY L-REST");
+    let e = cobolt_wasm::compile_program(&common::parse(&past), &Options::default()).err().expect("a key past the first record is refused");
+    assert!(e.message.contains("L-REST") && e.message.contains("first record description"), "{}", e.message);
+    println!(
+        "sort key in the SD's second record: 2 sorts x 5 records, {} of {} lines equal to the interpreter on both memory layouts; \
+         the desktop module compiles; a key past the first record's end is refused naming L-REST",
+        want.len(),
+        want.len()
+    );
+}

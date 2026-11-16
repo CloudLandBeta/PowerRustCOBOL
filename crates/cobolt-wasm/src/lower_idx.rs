@@ -957,7 +957,22 @@ impl Lower<'_, '_> {
                 while let Some(p) = self.layout.items[root].parent {
                     root = p;
                 }
-                if root != m.record {
+                // A key may be in any record description of the SD (COBOL-85; NIST ST110A keys
+                // on its second): they all begin at the record area. The comparison reads the
+                // first record's length of each record, so a key must end within it.
+                let of_this_file = root == m.record
+                    || (self.layout.items[root].off == m.area_off
+                        && self.record_file.get(&root).is_some_and(|f| f.eq_ignore_ascii_case(file)));
+                if of_this_file && it.off + it.size > m.area_off + m.rec_len {
+                    return self.err(
+                        line,
+                        format!(
+                            "the SORT key {} lies past the end of {file}'s first record description, which is the part of each record the sort compares",
+                            it.name.clone().unwrap_or_default()
+                        ),
+                    );
+                }
+                if !of_this_file {
                     return self.err(
                         line,
                         format!(
