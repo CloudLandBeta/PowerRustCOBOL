@@ -57,19 +57,19 @@
       "sha256": "1af48a93d648192f9f33a29f8fd546b365b0a5466abacb9148c6566ebf786b1f"
     },
     {
-      "bytes": 4180049,
+      "bytes": 4180122,
       "path": "plain/player_bg.wasm",
-      "sha256": "317a75b32631459c77f80042b691084f2cb36f8bc33526fecdbcff8177d5cfc4"
+      "sha256": "564997f813b0b542bf79d092010efbf4a5f976d3e611843c2450d7aa4f1b8a82"
     },
     {
       "bytes": 108295,
       "path": "threaded/player.js",
-      "sha256": "4f984e7d7bf0f2b23ab46744c356b500dc544ab7fa327592bc45d0e43650e94e"
+      "sha256": "dae47b2377d6dba8085526e44f75ac6a477fc6565c506941da725a8e37e3650a"
     },
     {
-      "bytes": 3989471,
+      "bytes": 3989276,
       "path": "threaded/player_bg.wasm",
-      "sha256": "73b955f0c3a8577b590bd84662d71ab7a247e131f97758b8839e70aa40c61c8c"
+      "sha256": "eafda26a51eadb531029a0daef4455b1697e72c5608a17b2c1d72f0f6b8b0094"
     },
     {
       "bytes": 4556,
@@ -87,20 +87,20 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 4561671,
-      "after_wasm_opt_bytes": 4180049,
-      "cargo_output_bytes": 6070319,
+      "after_bindgen_bytes": 4562094,
+      "after_wasm_opt_bytes": 4180122,
+      "cargo_output_bytes": 6070858,
       "glue_js_bytes": 102017,
-      "gzip_bytes": 1449806,
+      "gzip_bytes": 1449950,
       "opt_level": "s",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 4317710,
-      "after_wasm_opt_bytes": 3989471,
-      "cargo_output_bytes": 5837153,
+      "after_bindgen_bytes": 4317678,
+      "after_wasm_opt_bytes": 3989276,
+      "cargo_output_bytes": 5837166,
       "glue_js_bytes": 108295,
-      "gzip_bytes": 1428540,
+      "gzip_bytes": 1428512,
       "opt_level": "s",
       "variant": "threaded"
     }
@@ -160,7 +160,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "2772bcd127b65311e9b0edf88a82042f263fb166155f123adbb14ed216781110",
+  "source_hash": "2995130f5e63449c6c39f4da18a74b394472d5162e396257304ff422524d3070",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",

@@ -24,6 +24,8 @@
 
 pub mod batch;
 pub mod codes;
+/// The `prfiles` section: a desktop module's files (A34).
+pub mod files;
 pub mod manifest;
 
 #[cfg(feature = "scan")]

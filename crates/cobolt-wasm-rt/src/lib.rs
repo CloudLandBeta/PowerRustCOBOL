@@ -57,6 +57,7 @@ pub mod idx;
 pub mod json;
 pub mod mem;
 pub mod mv;
+pub mod nfile;
 pub mod opd;
 pub mod remote;
 pub mod state;
@@ -358,6 +359,44 @@ pub extern "C" fn rt_file_write(base: u32, fd: u32, rec: u32, adv: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn rt_file_read(base: u32, fd: u32, rec: u32) -> u32 {
     file::read(base, fd, rec)
+}
+
+// ── A desktop module's files, kept by the runner (ABI A34, `nfile`) ─────────
+
+/// `OPEN`: the file status.
+#[no_mangle]
+pub extern "C" fn rt_nf_open(base: u32, d: u32, mode: u32, flags: u32) -> u32 {
+    nfile::open(base, d, mode, flags)
+}
+
+#[no_mangle]
+pub extern "C" fn rt_nf_close(base: u32, d: u32, how: u32) -> u32 {
+    nfile::close(base, d, how)
+}
+
+#[no_mangle]
+pub extern "C" fn rt_nf_read(base: u32, d: u32, how: u32, kor: u32, ks: u32) -> u32 {
+    nfile::read(base, d, how, kor, ks)
+}
+
+#[no_mangle]
+pub extern "C" fn rt_nf_write(base: u32, d: u32, declared: u32) -> u32 {
+    nfile::write(base, d, declared)
+}
+
+#[no_mangle]
+pub extern "C" fn rt_nf_rewrite(base: u32, d: u32, declared: u32) -> u32 {
+    nfile::rewrite(base, d, declared)
+}
+
+#[no_mangle]
+pub extern "C" fn rt_nf_delete(base: u32, d: u32, ks: u32) -> u32 {
+    nfile::delete(base, d, ks)
+}
+
+#[no_mangle]
+pub extern "C" fn rt_nf_start(base: u32, d: u32, op: u32, kor: u32, ks: u32, rel_opd: u32) -> u32 {
+    nfile::start(base, d, op, kor, ks, rel_opd)
 }
 
 /// `INSPECT target <spec>`.

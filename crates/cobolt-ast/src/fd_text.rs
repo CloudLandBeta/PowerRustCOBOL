@@ -40,7 +40,7 @@
 //! was made from — the tests of `cobolt-runtime` hold that to every clause.
 
 use crate::data::{
-    ConditionValue, DataDecl, FileDescription, OccursClause, PicKind, RecordSizing, Usage,
+    ConditionValue, DataDecl, FileDescription, OccursClause, PicKind, RecordSizing, SignClause, Usage,
 };
 use crate::expr::{FigurativeConstant, Literal};
 
@@ -312,6 +312,114 @@ pub fn render_literal(l: &Literal) -> String {
 
 fn quoted(prefix: &str, s: &str) -> String {
     format!("{prefix}\"{}\"", s.replace('"', "\"\""))
+}
+
+/// The FD as text, each item with the bytes it takes: what an INDEXED file a
+/// program creates carries inside itself. The interpreter and a desktop Build
+/// (for the native runner, DESKTOP-WASM-001 T38) both write it from here.
+pub fn file_definition(fd: &FileDescription) -> String {
+    let extents: Vec<_> = fd.records.iter().map(item_extents).collect();
+    render_file_description_with(fd, &extents)
+}
+
+/// Where each item of the record description sits in the record, in the order
+/// this module lists them: the record, then everything under it, depth first.
+/// `(offset, length)` in bytes from the start of the record; the length of an
+/// item with `OCCURS` covers all its occurrences. `None` for an entry that
+/// holds no bytes of its own — a condition name.
+///
+/// The record layout of `cobolt-runtime` follows the same rules, and its tests
+/// hold the two to each other: a group is its members laid end to end, a
+/// `REDEFINES` item shares the bytes of the item it redefines, a national or
+/// UTF-8 field takes its image's bytes, a separate sign takes one more.
+pub fn item_extents(record: &DataDecl) -> Extents {
+    let mut out = Vec::new();
+    let mut offset = 0usize;
+    place(record, record.sign, &mut offset, Some(&mut out));
+    out
+}
+
+/// A group holds members other than condition names.
+fn has_members(d: &DataDecl) -> bool {
+    d.children.iter().any(|c| c.level != 88)
+}
+
+/// The bytes an elementary item's picture takes: a national item two per
+/// character, a UTF-8 one four (or its `BYTE-LENGTH`), any other its digits and
+/// a separate sign.
+fn elementary_width(d: &DataDecl, pic: &crate::data::PicClause, sign: Option<SignClause>) -> usize {
+    let n = (pic.digits as usize).max(1);
+    match pic.kind {
+        PicKind::National => 2 * n,
+        PicKind::Utf8 => match d.byte_length {
+            Some(b) => (b as usize).max(1),
+            None => 4 * n,
+        },
+        _ => {
+            let sep = usize::from(matches!(pic.kind, PicKind::Numeric) && sign.is_some_and(|s| s.separate));
+            (pic.digits as usize + pic.decimals as usize + sep).max(1)
+        }
+    }
+}
+
+/// Place `d` at `*offset`, advance `*offset` past it, and — when `out` is given —
+/// record its extent and its members' (first occurrence only) in listing order.
+fn place(d: &DataDecl, sign: Option<SignClause>, offset: &mut usize, mut out: Option<&mut Extents>) {
+    let slot = out.as_deref_mut().map(|o| {
+        o.push(None);
+        o.len() - 1
+    });
+    let times = d.occurs.as_ref().map(|o| o.max.max(1) as usize).unwrap_or(1);
+    let sign = d.sign.or(sign);
+    let began = *offset;
+    let mut holds_bytes = false;
+    for i in 0..times {
+        let sink = if i == 0 { out.as_deref_mut() } else { None };
+        if has_members(d) {
+            holds_bytes = true;
+            place_siblings(&d.children, sign, offset, sink);
+        } else if let Some(pic) = &d.picture {
+            holds_bytes = true;
+            *offset += elementary_width(d, pic, sign);
+            // An 88 under an elementary item takes its place in the listing.
+            if i == 0 {
+                if let Some(o) = out.as_deref_mut() {
+                    for _ in &d.children {
+                        o.push(None);
+                    }
+                }
+            }
+        }
+    }
+    if let (Some(slot), Some(o)) = (slot, out) {
+        if holds_bytes {
+            o[slot] = Some((began, *offset - began));
+        }
+    }
+}
+
+/// [`place`] for one group's members, a `REDEFINES` item sharing the bytes of
+/// the item it redefines.
+fn place_siblings(children: &[DataDecl], sign: Option<SignClause>, offset: &mut usize, mut out: Option<&mut Extents>) {
+    let mut placed: Vec<(String, usize)> = Vec::new();
+    for c in children {
+        let target = c.redefines.as_ref().and_then(|t| {
+            let t = t.to_ascii_uppercase();
+            placed.iter().find(|(n, _)| *n == t).map(|(_, at)| *at)
+        });
+        let resume = *offset;
+        if let Some(at) = target {
+            *offset = at;
+        }
+        let began = *offset;
+        place(c, sign, offset, out.as_deref_mut());
+        if target.is_some() {
+            *offset = resume.max(*offset);
+        }
+        if let Some(n) = &c.name {
+            placed.push((n.to_ascii_uppercase(), began));
+        }
+    }
 }
 
 #[cfg(test)]

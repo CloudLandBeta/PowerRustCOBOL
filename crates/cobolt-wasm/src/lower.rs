@@ -88,6 +88,8 @@ pub(crate) enum FileKind {
     Memory,
     /// A `SORT` work file.
     Sort,
+    /// On disk, kept by the desktop runner (`crate::lower_nfile`, DESKTOP-WASM-001 T38).
+    Native,
 }
 
 /// The names the host commands refer to by number (ABI v1 §5): properties,
@@ -100,6 +102,10 @@ pub struct Names {
     /// The verbs of the application object (`COBOL::`, ctrl 2) the program
     /// uses: the manifest's `builtins` (ABI A7).
     pub builtins: std::collections::BTreeSet<String>,
+    /// A desktop module's files, by number: the `prfiles` section (DESKTOP-WASM-001 T38, ABI A34).
+    pub native_files: Vec<cobolt_wasm_abi::files::FileDecl>,
+    /// The capabilities of the organisations whose files a verb of the program uses.
+    pub file_caps: std::collections::BTreeSet<&'static str>,
 }
 
 impl Names {
@@ -315,6 +321,12 @@ pub struct Lower<'a, 'b> {
     pub(crate) unit_base: usize,
     /// `EXTERNAL` files: name -> the region slot holding the one open handle.
     pub(crate) external_handles: HashMap<String, u32>,
+    /// A desktop module's files (DESKTOP-WASM-001 T38): name -> its number in `prfiles` and the
+    /// region offset of its place, one per name in the program as the interpreter keeps one open
+    /// file per name.
+    pub(crate) native_ids: HashMap<String, (u32, u32)>,
+    /// A desktop module's files the runner cannot keep yet: name -> why, said at the verb.
+    pub(crate) native_refusals: HashMap<String, String>,
     /// What the in-memory and SORT files of every unit are (`FileInfo::meta`).
     pub(crate) file_meta: Vec<crate::lower_idx::FileMeta>,
     /// The program holds records in the file heap (in-memory files, SORT).
@@ -486,6 +498,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             startup_resume: None,
             unit_base,
             external_handles: HashMap::new(),
+            native_ids: HashMap::new(),
+            native_refusals: HashMap::new(),
             file_meta: Vec::new(),
             uses_heap: false,
             programs: order.iter().map(|(p, _)| *p).collect(),
@@ -763,11 +777,13 @@ impl<'a, 'b> Lower<'a, 'b> {
         // record names per file, from the FILE SECTION
         let mut records: HashMap<String, Vec<String>> = HashMap::new();
         let mut external_fds: HashSet<String> = HashSet::new();
+        let mut fd_of: HashMap<String, &cobolt_ast::data::FileDescription> = HashMap::new();
         self.global_files.clear();
         if let Some(d) = &prog.data {
             for sec in &d.sections {
                 if let DataSection::FileSection(fds) = sec {
                     for fd in fds {
+                        fd_of.insert(up(&fd.name), fd);
                         if fd.is_global {
                             self.global_files.insert(up(&fd.name));
                         }
@@ -792,6 +808,16 @@ impl<'a, 'b> Lower<'a, 'b> {
                     rec_items.push(i);
                     self.record_file.insert(i, name.clone());
                 }
+            }
+            // A desktop module: the runner keeps every file but a SORT work file (DESKTOP-WASM-001
+            // T38), one declared STORAGE IS MEMORY too, which on the desktop is read from its file.
+            // A file it cannot keep yet is refused at its first verb.
+            if self.native && !sort_files.contains(&name) {
+                let same_area = io.same_areas.iter().any(|g| g.iter().any(|f| up(f) == name));
+                if let Ok(fi) = self.build_native_file(fc, fd_of.get(&name).copied(), &rec_items, same_area) {
+                    self.files.insert(name, fi);
+                }
+                continue;
             }
             let in_memory = fc.organization == cobolt_ast::program::FileOrganization::Indexed
                 && fc.storage_mode == cobolt_ast::program::StorageMode::Memory
@@ -854,14 +880,24 @@ impl<'a, 'b> Lower<'a, 'b> {
                 }
             }
         }
+        // A desktop module's file is kept by the runner (DESKTOP-WASM-001 T38), unless it is one the
+        // runner cannot keep yet: then the Build takes the Cargo path, naming the file and why.
+        let refused = |me: &Self| -> GenResult<FileInfo> {
+            let why = me.native_refusals.get(&n).cloned().unwrap_or_default();
+            me.err_kind(line, crate::error::ErrorKind::Other, format!("file {name}"), format!("file {name}: {why}"))
+        };
         match found {
-            // A desktop module holds no file until M3: on the desktop every file is on disk, and one
-            // declared `STORAGE IS MEMORY` is read from its file, opens for INPUT only without `WITH
-            // PERSISTENCE` (status 37) and is saved back with it, none of which a module without the
-            // runner's file capabilities can do the same way (T24; R27; WASM-PARITY #15).
+            Some(f) if f.kind == FileKind::Native => {
+                if self.native_refusals.contains_key(&n) {
+                    refused(self)
+                } else {
+                    Ok(f)
+                }
+            }
             // A `SORT` work file is the module's own on both.
             Some(f) if f.kind == FileKind::Sort || (f.kind == FileKind::Memory && !self.native) || self.conformance => Ok(f),
-            _ if self.native => self.err_kind(line, crate::error::ErrorKind::Other, format!("file {name}"), format!("file {name}: {}", crate::support::D_FILES)),
+            _ if self.native && self.native_refusals.contains_key(&n) => refused(self),
+            _ if self.native => Err(GenError::new(line, format!("file {name} is not defined"))),
             _ if !self.conformance => {
                 let persistent = self
                     .prog
@@ -1949,6 +1985,10 @@ impl<'a, 'b> Lower<'a, 'b> {
                 let name = crate::support::stmt_name(s);
                 return self.err_kind(line, crate::error::ErrorKind::Other, name, format!("{name}: {why}"));
             }
+        }
+        // A desktop module's files, kept by the runner (`lower_nfile`).
+        if let Some(r) = self.native_file_stmt(s, line) {
+            return r;
         }
         // Files held in memory and SORT work files (`lower_idx`).
         if let Some(r) = self.memory_file_stmt(s, line) {

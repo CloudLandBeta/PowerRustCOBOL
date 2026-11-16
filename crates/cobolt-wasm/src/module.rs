@@ -569,6 +569,10 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let builtin_list: Vec<String> = names.builtins.iter().cloned().collect();
     // A desktop module that asks the operator for a file or a folder needs the runner's dialogs (A33).
     let uses_dialogs = builtin_list.iter().any(|b| crate::lower_remote::is_desktop_dialog(b));
+    // A desktop module's disk files: their declarations go to the `prfiles` section and their
+    // organisations to the capabilities (T38, A34).
+    let file_caps: BTreeSet<&'static str> = names.file_caps.clone();
+    let native_files: Vec<cobolt_wasm_abi::files::FileDecl> = std::mem::take(&mut names.native_files);
 
     // ── image and memory map, continued ──────────────────────────────────
     let mut built: Vec<Built> = Vec::new();
@@ -686,7 +690,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // environment ones of a desktop module's. Each is backed by a host import
     // of the same name, in the `pr` namespace or, for a desktop capability, in
     // `prn` (ABI A27, A29).
-    const GLUE_ORDER: [&str; 15] = [
+    const GLUE_ORDER: [&str; 22] = [
         "flush",
         "abort",
         "query",
@@ -702,6 +706,13 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         "env_get",
         "exit",
         "tz_offset",
+        "f_open",
+        "f_close",
+        "f_read",
+        "f_write",
+        "f_rewrite",
+        "f_delete",
+        "f_start",
     ];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
@@ -749,6 +760,11 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let ty_i32_ret1 = types.intern(&[ValType::I32], &[ValType::I32]);
     // (host import type, glue function type)
     let ty_f64_ret = types.intern(&[], &[ValType::F64]);
+    let ty_f_open = types.intern(&[ValType::I32; 6], &[ValType::I32]);
+    let ty_f_read = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64, ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]);
+    let ty_f_write = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64, ValType::I32], &[ValType::I32]);
+    let ty_f_rewrite = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64], &[ValType::I32]);
+    let ty_f_start = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64], &[ValType::I32]);
     let glue_types = |name: &str| -> (u32, u32) {
         match name {
             "now" | "random" => (ty_f64_ret, ty_f64_ret),
@@ -767,6 +783,13 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             "exit" => (ty_i32_void, ty_i32_void),
             // A31: minutes east of UTC.
             "tz_offset" => (ty_i32_ret, ty_i32_ret),
+            // A34: the runner's disk files; a RELATIVE record number crosses as an i64.
+            "f_open" => (ty_f_open, ty_f_open),
+            "f_close" => (ty_i32_i32_i32_ret, ty_i32_i32_i32_ret),
+            "f_read" => (ty_f_read, ty_f_read),
+            "f_write" => (ty_f_write, ty_f_write),
+            "f_rewrite" | "f_delete" => (ty_f_rewrite, ty_f_rewrite),
+            "f_start" => (ty_f_start, ty_f_start),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
         }
     };
@@ -1080,7 +1103,19 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     }
     // The desktop runner reads and writes memory 0 itself (A29): the glue only
     // passes its arguments on, as it does the exit code (A30).
-    for (g, args) in [("con_read", 2u32), ("env_get", 4), ("exit", 1), ("tz_offset", 0)] {
+    for (g, args) in [
+        ("con_read", 2u32),
+        ("env_get", 4),
+        ("exit", 1),
+        ("tz_offset", 0),
+        ("f_open", 6),
+        ("f_close", 3),
+        ("f_read", 10),
+        ("f_write", 6),
+        ("f_rewrite", 5),
+        ("f_delete", 5),
+        ("f_start", 7),
+    ] {
         if let Some(&at) = glue_final.get(g) {
             let mut f = Function::new([]);
             for i in 0..args {
@@ -1533,7 +1568,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         capabilities: cobolt_wasm_abi::codes::cap::ALL
             .iter()
             .filter(|c| {
-                glue_list.iter().any(|g| native_cap(g) == Some(**c))
+                glue_list.iter().any(|g| !cobolt_wasm_abi::codes::FILE_IMPORTS.contains(g) && native_cap(g) == Some(**c))
+                    || file_caps.contains(*c)
                     || (**c == cobolt_wasm_abi::codes::cap::DIALOGS && uses_dialogs)
             })
             .map(|c| c.to_string())
@@ -1549,6 +1585,12 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     module.section(&CustomSection { name: std::borrow::Cow::Borrowed("prmanifest"), data: std::borrow::Cow::Borrowed(&manifest_bytes) });
     let lines_bytes = serde_json::to_vec(&line_table).unwrap();
     module.section(&CustomSection { name: std::borrow::Cow::Borrowed("prlines"), data: std::borrow::Cow::Borrowed(&lines_bytes) });
+    // A34: the disk files a desktop module's routines name by number.
+    if opts.native && !native_files.is_empty() {
+        let files = cobolt_wasm_abi::files::FilesSection { format: cobolt_wasm_abi::files::FILES_FORMAT, files: native_files };
+        let bytes = files.encode();
+        module.section(&CustomSection { name: std::borrow::Cow::Borrowed(cobolt_wasm_abi::files::FILES_SECTION), data: std::borrow::Cow::Borrowed(&bytes) });
+    }
 
     let wasm = module.finish();
     let _ = BTreeMap::<u8, u8>::new();

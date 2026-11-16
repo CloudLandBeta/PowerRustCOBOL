@@ -39,18 +39,38 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     let mut checks: Vec<(String, bool)> = Vec::new();
     let mut check = |what: String, ok: bool| checks.push((what, ok));
 
-    // A file on disk: refused at its verb, with M3's reason.
+    // A file on disk: the runner keeps it (T38). The module asks for its organisation's capability
+    // and carries its declaration in `prfiles`.
     let disk = format!(
         "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT LOG-F ASSIGN TO \"t16.log\"\n        ORGANIZATION IS LINE SEQUENTIAL.\n\
          DATA DIVISION.\nFILE SECTION.\nFD LOG-F.\n01 LOG-REC PIC X(20).\nPROCEDURE DIVISION.\n    OPEN OUTPUT LOG-F\n    CLOSE LOG-F\n    STOP RUN.\n"
     );
-    let e = refusal(&disk);
+    let module = compile_program(&common::parse(&disk), &native()).map(|m| m.wasm);
+    let scan = module.as_ref().ok().and_then(|m| cobolt_wasm_abi::scan::scan_module(m).ok());
+    let caps = scan.as_ref().and_then(|s| s.embedded_manifest().ok()).map(|m| m.capabilities).unwrap_or_default();
+    let files = scan
+        .as_ref()
+        .and_then(|s| s.custom(cobolt_wasm_abi::files::FILES_SECTION))
+        .and_then(|b| cobolt_wasm_abi::files::FilesSection::decode(b).ok())
+        .map(|f| f.files)
+        .unwrap_or_default();
     check(
-        format!("a file on disk: \"file LOG-F\" at line {}, files are not on the path yet (M3), unit T16G", line_of(&disk, "OPEN OUTPUT")),
-        e.subject == "file LOG-F" && e.line == line_of(&disk, "OPEN OUTPUT") && e.message.contains("files are not on the WebAssembly path yet") && e.message.contains("M3") && e.program == "T16G",
+        "a LINE SEQUENTIAL file on disk compiles: capability files.line-sequential, LOG-F in prfiles (20-byte record)".into(),
+        caps == ["files.line-sequential"] && files.len() == 1 && files[0].name == "LOG-F" && files[0].record_len == 20,
     );
     let browser = compile_program(&common::parse(&disk), &Options::default()).err().map(|e| e.message).unwrap_or_default();
     check("the same file in a browser module keeps the browser's refusal".into(), !browser.is_empty() && !browser.contains("WebAssembly path"));
+
+    // A file the runner does not keep yet: refused at its first verb, with M3's reason.
+    let linage = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT RPT ASSIGN TO \"t38.rpt\".\n\
+         DATA DIVISION.\nFILE SECTION.\nFD RPT\n    LINAGE IS 10 LINES.\n01 RPT-REC PIC X(20).\nPROCEDURE DIVISION.\n    OPEN OUTPUT RPT\n    CLOSE RPT\n    STOP RUN.\n"
+    );
+    let e = refusal(&linage);
+    check(
+        format!("a LINAGE file: \"file RPT\" at line {}, LINAGE is not on the path yet (M3), unit T16G", line_of(&linage, "OPEN OUTPUT")),
+        e.subject == "file RPT" && e.line == line_of(&linage, "OPEN OUTPUT") && e.message.contains("LINAGE") && e.message.contains("M3") && e.program == "T16G",
+    );
 
     // SORT with USING and GIVING: refused, with M3's reason.
     let using = format!(

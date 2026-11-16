@@ -167,6 +167,11 @@ fn every_statement_and_builtin_has_a_native_class() {
                 host += 1;
                 caps.insert(c);
             }
+            // A file verb: the capability of the file's organisation (T38, ABI A34).
+            Some(Native::Files) => {
+                host += 1;
+                caps.insert("files.*");
+            }
             Some(Native::Form) => form += 1,
             Some(Native::Cargo(_)) => cargo += 1,
             None => {}
@@ -190,6 +195,8 @@ fn every_statement_and_builtin_has_a_native_class() {
         ("STOP", statement_native("STOP") == Some(Native::Module)),
         ("GOBACK", statement_native("GOBACK") == Some(Native::Module)),
         ("MOVE", statement_native("MOVE") == Some(Native::Module)),
+        // T38: the file verbs are the runner's, by the file's organisation.
+        ("READ", statement_native("READ") == Some(Native::Files)),
         // T33: a form's program is served the controls and the application object.
         ("INVOKE", statement_native("INVOKE") == Some(Native::Form)),
         ("SET-PROPERTY", builtin_entry("SET-PROPERTY").map(|b| b.native) == Some(Native::Form)),
@@ -208,7 +215,7 @@ fn every_statement_and_builtin_has_a_native_class() {
         "native column (DESKTOP-WASM-001 T10, AC10)\n  \
          entries: {} statements + {} built-ins = {checked}\n  \
          classes: {module} in the module, {host} through the runner ({caps:?}), {form} in a form's program, {cargo} on the Cargo path\n  \
-         fixed points: {fixed_ok} of {} (EXEC RUST, ACCEPT, STOP, GOBACK, MOVE; INVOKE, SET-PROPERTY in a form)\n  \
+         fixed points: {fixed_ok} of {} (EXEC RUST, ACCEPT, STOP, GOBACK, MOVE, READ; INVOKE, SET-PROPERTY in a form)\n  \
          faults: {}; Cargo reasons with no milestone: {}\n  \
          time: {:.3} ms\n  \
          result: {}",

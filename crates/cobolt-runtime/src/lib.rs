@@ -63,6 +63,8 @@ pub mod environment;
 pub mod error;
 pub mod esql;
 pub mod exec_rust;
+/// DESKTOP-WASM-001 T38 — the file verbs on an open file, shared with the native runner.
+pub mod file_core;
 pub mod files;
 // Spec 106 — the record image of a DataGrid row a Button column was clicked on.
 pub(crate) mod datagrid_row;

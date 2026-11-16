@@ -31,6 +31,7 @@
 //! The runner never names itself after its crate: its words are "the PowerRustCOBOL runner".
 
 pub mod app;
+pub mod files;
 pub mod forms;
 pub mod messages;
 pub mod pins;
@@ -48,8 +49,17 @@ use wasmtime::{Caller, Engine, Linker, Memory, Store};
 pub use messages::{Lang, Msg};
 pub use pins::Pins;
 
-/// The capabilities this runner provides (A27). T15: console programs; T32: the file dialogs (A33).
-pub const PROVIDED_CAPABILITIES: &[&str] = &[cap::CONSOLE, cap::ENV, cap::DIALOGS];
+/// The capabilities this runner provides (A27). T15: console programs; T32: the file dialogs (A33);
+/// T38: files on disk of every organisation (A34).
+pub const PROVIDED_CAPABILITIES: &[&str] = &[
+    cap::CONSOLE,
+    cap::ENV,
+    cap::DIALOGS,
+    cap::FILES_SEQUENTIAL,
+    cap::FILES_LINE_SEQUENTIAL,
+    cap::FILES_RELATIVE,
+    cap::FILES_INDEXED,
+];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row
 /// is never removed, so a module of any earlier ABI finds every import it was built with (R5).
@@ -66,6 +76,14 @@ pub const PROVIDED_IMPORTS: &[(u32, &str, &str)] = &[
     (1, NATIVE_IMPORT_MODULE, "env_get"),
     (1, NATIVE_IMPORT_MODULE, "exit"),
     (1, NATIVE_IMPORT_MODULE, "tz_offset"),
+    // T38: files on disk (A34).
+    (1, NATIVE_IMPORT_MODULE, "f_open"),
+    (1, NATIVE_IMPORT_MODULE, "f_close"),
+    (1, NATIVE_IMPORT_MODULE, "f_read"),
+    (1, NATIVE_IMPORT_MODULE, "f_write"),
+    (1, NATIVE_IMPORT_MODULE, "f_rewrite"),
+    (1, NATIVE_IMPORT_MODULE, "f_delete"),
+    (1, NATIVE_IMPORT_MODULE, "f_start"),
 ];
 
 /// `pr_run`'s answers (the generator's `ret`): the run finished, or `STOP RUN`.
@@ -132,8 +150,8 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
     }
     // A module with forms is a form application: its windows, and its programs on one thread (T30).
     if !checked.sections.forms.is_empty() {
-        let Checked { abi, imports, manifest, sections } = checked;
-        return match app::run(engine, loaded.module, abi, imports, manifest, sections, lang, pins) {
+        let Checked { abi, imports, manifest, sections, files } = checked;
+        return match app::run(engine, loaded.module, abi, imports, manifest, sections, files, lang, pins) {
             Ok(code) => code,
             Err(msg) => refuse(lang, msg),
         };
@@ -142,7 +160,9 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
         Ok(l) => l,
         Err(msg) => return refuse(lang, msg),
     };
-    let mut store = Store::new(&engine, State::new(lang, pins));
+    let mut st = State::new(lang, pins);
+    st.files = files::Files::new(checked.files.clone());
+    let mut store = Store::new(&engine, st);
     let instance = match linker.instantiate(&mut store, &loaded.module) {
         Ok(i) => i,
         Err(e) => return refuse(lang, Msg::CannotStart(format!("{e:#}"))),
@@ -184,6 +204,8 @@ struct Checked {
     manifest: Manifest,
     /// The forms, menus, settings and art the Build put beside the code (T28).
     sections: cobolt_program_package::DesktopSections,
+    /// The files on disk the program declares, and the engine new INDEXED files take (T38).
+    files: files::FileSetup,
 }
 
 /// Read the module's manifest and imports: the ABI must be one this runner runs (1 to
@@ -210,7 +232,9 @@ fn check(module: &[u8]) -> Result<Checked, Msg> {
         return Err(Msg::Import(name));
     }
     let sections = cobolt_program_package::DesktopSections::decode(|name| scan.custom(name)).map_err(|e| Msg::Damaged(e.to_string()))?;
-    Ok(Checked { abi: manifest.abi, imports, manifest, sections })
+    let files = files::FileSetup::from_module(scan.custom(cobolt_wasm_abi::files::FILES_SECTION), &sections.settings.indexed_engine)
+        .map_err(|e| Msg::Damaged(format!("the program's `{}` section: {e}", cobolt_wasm_abi::files::FILES_SECTION)))?;
+    Ok(Checked { abi: manifest.abi, imports, manifest, sections, files })
 }
 
 /// The imports in `imports` this runner does not provide to a module of `abi`, as `module.name`.
@@ -260,11 +284,23 @@ pub struct State {
     fatal: Option<Msg>,
     /// A form module's ABI host and the regions of its arena (T30); `None` for a console program.
     pub(crate) forms: Option<forms::FormRun>,
+    /// The program's files on disk (T38).
+    pub(crate) files: files::Files,
 }
 
 impl State {
     fn new(lang: Lang, pins: Pins) -> Self {
-        State { lang, random: pins.random_state(), pins, arena: None, arena_base: 0, exit_code: None, fatal: None, forms: None }
+        State {
+            lang,
+            random: pins.random_state(),
+            pins,
+            arena: None,
+            arena_base: 0,
+            exit_code: None,
+            fatal: None,
+            forms: None,
+            files: files::Files::default(),
+        }
     }
 }
 
@@ -316,6 +352,23 @@ fn apply(batch: &[u8], st: &mut State, abort: bool) {
 /// The data memory, where `prn` imports read and write (A29).
 fn memory0(caller: &mut Caller<'_, State>) -> Option<Memory> {
     caller.get_export("memory").and_then(|e| e.into_memory())
+}
+
+/// What a file import answers when the module handed it memory it cannot reach: a permanent error.
+const FILE_FAILED: i32 = 30;
+
+/// `len` bytes of memory 0 at `addr`; `None` when they are not all there.
+fn read_mem(caller: &mut Caller<'_, State>, addr: i32, len: i32) -> Option<Vec<u8>> {
+    let mem = memory0(caller)?;
+    let mut buf = vec![0u8; len.max(0) as usize];
+    mem.read(&*caller, addr as u32 as usize, &mut buf).ok()?;
+    Some(buf)
+}
+
+/// Write `bytes` into memory 0 at `addr`; `None` when they do not fit.
+fn write_mem(caller: &mut Caller<'_, State>, addr: i32, bytes: &[u8]) -> Option<()> {
+    let mem = memory0(caller)?;
+    mem.write(&mut *caller, addr as u32 as usize, bytes).ok()
 }
 
 /// A linker with exactly `imports`, each as this runner implements it for a module of `abi`; an
@@ -458,6 +511,121 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                     .func_wrap(NATIVE_IMPORT_MODULE, "exit", |mut caller: Caller<'_, State>, code: i32| {
                         caller.data_mut().exit_code = Some(code);
                     })
+                    .map_err(fail)?;
+            }
+            // T38, A34: the files on disk. Each call names the file by its `prfiles` number and its
+            // slot, reads and writes memory 0, and answers the FILE STATUS as a number.
+            (NATIVE_IMPORT_MODULE, "f_open") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "f_open",
+                        |mut caller: Caller<'_, State>, id: i32, slot: i32, mode: i32, path: i32, path_len: i32, flags: i32| -> i32 {
+                            let Some(path) = read_mem(&mut caller, path, path_len) else { return FILE_FAILED };
+                            let path = String::from_utf8_lossy(&path).into_owned();
+                            let exclusive = flags & cobolt_wasm_abi::files::verb::OPEN_EXCLUSIVE != 0;
+                            caller.data_mut().files.open(id as u32, slot as u32, mode, &path, exclusive)
+                        },
+                    )
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "f_close") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "f_close", |mut caller: Caller<'_, State>, _id: i32, slot: i32, how: i32| -> i32 {
+                        caller.data_mut().files.close(slot as u32, how)
+                    })
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "f_read") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "f_read",
+                        |mut caller: Caller<'_, State>,
+                         id: i32,
+                         slot: i32,
+                         how: i32,
+                         kor: i32,
+                         key: i32,
+                         key_len: i32,
+                         rel: i64,
+                         rec: i32,
+                         cap: i32,
+                         out: i32|
+                         -> i32 {
+                            let key = if key_len >= 0 { read_mem(&mut caller, key, key_len) } else { None };
+                            let (status, record, delivered) =
+                                caller.data_mut().files.read(id as u32, slot as u32, how, kor as u32, key.as_deref(), rel);
+                            if let Some(record) = record {
+                                let n = record.len().min(cap.max(0) as usize);
+                                if write_mem(&mut caller, rec, &record[..n]).is_none()
+                                    || write_mem(&mut caller, out, &(record.len() as u32).to_le_bytes()).is_none()
+                                {
+                                    return FILE_FAILED;
+                                }
+                            }
+                            if let Some(at) = delivered {
+                                if write_mem(&mut caller, out.wrapping_add(8), &(at as i64).to_le_bytes()).is_none() {
+                                    return FILE_FAILED;
+                                }
+                            }
+                            status
+                        },
+                    )
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "f_write") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "f_write",
+                        |mut caller: Caller<'_, State>, id: i32, slot: i32, rec: i32, len: i32, rel: i64, out: i32| -> i32 {
+                            let Some(record) = read_mem(&mut caller, rec, len) else { return FILE_FAILED };
+                            let (status, assigned) = caller.data_mut().files.write(id as u32, slot as u32, &record, rel);
+                            if let Some(at) = assigned {
+                                if write_mem(&mut caller, out, &(at as i64).to_le_bytes()).is_none() {
+                                    return FILE_FAILED;
+                                }
+                            }
+                            status
+                        },
+                    )
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "f_rewrite") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "f_rewrite",
+                        |mut caller: Caller<'_, State>, id: i32, slot: i32, rec: i32, len: i32, rel: i64| -> i32 {
+                            let Some(record) = read_mem(&mut caller, rec, len) else { return FILE_FAILED };
+                            caller.data_mut().files.rewrite(id as u32, slot as u32, &record, rel)
+                        },
+                    )
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "f_delete") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "f_delete",
+                        |mut caller: Caller<'_, State>, id: i32, slot: i32, key: i32, key_len: i32, rel: i64| -> i32 {
+                            let key = if key_len >= 0 { read_mem(&mut caller, key, key_len) } else { None };
+                            caller.data_mut().files.delete(id as u32, slot as u32, key.as_deref(), rel)
+                        },
+                    )
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "f_start") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "f_start",
+                        |mut caller: Caller<'_, State>, id: i32, slot: i32, op: i32, kor: i32, key: i32, key_len: i32, rel: i64| -> i32 {
+                            let key = if key_len >= 0 { read_mem(&mut caller, key, key_len) } else { None };
+                            caller.data_mut().files.start(id as u32, slot as u32, op, kor as u32, key.as_deref(), rel)
+                        },
+                    )
                     .map_err(fail)?;
             }
             // `missing_imports` let only the rows of PROVIDED_IMPORTS through.

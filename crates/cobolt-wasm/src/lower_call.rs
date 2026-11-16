@@ -515,6 +515,15 @@ impl Lower<'_, '_> {
                 self.raw(I::I32Ne);
                 self.raw(I::I32And);
             }
+            Cover::AtEnd => {
+                for at_end in [10, 14] {
+                    self.base();
+                    self.raw(I::I32Load(wasm_encoder::MemArg { offset: hold as u64, align: 2, memory_index: 0 }));
+                    self.i32c(at_end);
+                    self.raw(I::I32Ne);
+                    self.raw(I::I32And);
+                }
+            }
             // 21 to 24, the INVALID KEY conditions: (status - 21) > 3, unsigned.
             Cover::Keys => {
                 self.base();
@@ -591,6 +600,8 @@ pub(crate) enum Cover {
     None,
     /// `AT END` handles status 10.
     Eof,
+    /// `AT END` on a file the desktop runner keeps handles 10 and 14 (DESKTOP-WASM-001 T38).
+    AtEnd,
     /// `INVALID KEY` on a keyed `READ` handles 21 to 24.
     Keys,
     /// The statement handles every status (an `INVALID KEY` phrase on

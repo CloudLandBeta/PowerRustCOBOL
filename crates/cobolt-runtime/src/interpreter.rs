@@ -351,6 +351,18 @@ enum OpenFile {
     },
 }
 
+/// An open file as the shared verbs take it (DESKTOP-WASM-001 T38); a report
+/// printed into a Viewer is not theirs to serve.
+fn file_handle(f: &mut OpenFile) -> crate::file_core::HandleMut<'_> {
+    use crate::file_core::HandleMut;
+    match f {
+        OpenFile::Sequential(s) => HandleMut::Sequential(s),
+        OpenFile::Indexed(e) => HandleMut::Indexed(e.as_mut()),
+        OpenFile::Relative(e) => HandleMut::Relative(e.as_mut()),
+        OpenFile::ViewerReport { .. } => HandleMut::Other,
+    }
+}
+
 // ── Nested program registry ───────────────────────────────────────────────────
 
 /// A compiled representation of one COBOL-85 nested program.
@@ -1016,11 +1028,7 @@ fn collect_file_specs(
                     let fkey = fd.name.to_ascii_uppercase();
                     // The FD as text, each item with the bytes it takes: what an
                     // indexed file this program creates carries inside itself.
-                    let extents: Vec<_> = fd.records.iter().map(crate::files::item_extents).collect();
-                    fd_text.insert(
-                        fkey.clone(),
-                        cobolt_ast::fd_text::render_file_description_with(fd, &extents),
-                    );
+                    fd_text.insert(fkey.clone(), crate::files::fd_definition(fd));
                     if let Some(first) = fd.records.first() {
                         fd_layout.insert(fkey.clone(), crate::files::compute_layout(first));
                     }
@@ -1135,41 +1143,6 @@ fn share_lock_is_exclusive(sharing: Option<cobolt_ast::stmt::ShareMode>, lock: b
     lock || matches!(sharing, Some(ShareMode::NoOther))
 }
 
-/// Which engine wrote this container, read from its own magic.
-///
-/// `None` when the file is absent, too short, or carries no magic we know — a
-/// file being created, in other words, where the configured engine decides.
-///
-/// **The file's format outranks the configured engine, always.** A program must
-/// not have to name the engine that happens to match its data: the same COBOL
-/// opens a redb container and a PRCIDXD1 one, each `SELECT` getting whichever
-/// engine wrote the file it points at. Before this, flipping the default left
-/// every container written by the previous one unreadable (status 39), which
-/// made the default a migration rather than a preference.
-///
-/// This also means a container keeps its format for life, `OPEN OUTPUT`
-/// included. That is deliberate: silently rewriting an ACID redb file as a
-/// non-transactional PRCIDXD1 one because a default moved is a worse surprise
-/// than keeping it. To change a file's format, delete it and let it be created
-/// afresh.
-fn detect_container_engine(path: &str) -> Option<crate::indexed::IndexedEngine> {
-    use crate::indexed::IndexedEngine;
-    use std::io::Read as _;
-
-    let mut head = [0u8; 8];
-    let n = std::fs::File::open(path).ok()?.read(&mut head).ok()?;
-    if n >= 4 && &head[0..4] == b"redb" {
-        return Some(IndexedEngine::Redb);
-    }
-    if n >= 8
-        && (&head == b"PRCIDXD1"      // the paged B+tree container
-            || &head == b"PRCIDX1\0"  // an in-memory file persisted on CLOSE
-            || &head == b"PRCISAM1")  // the legacy records-only container
-    {
-        return Some(IndexedEngine::Rust);
-    }
-    None
-}
 
 
 /// A declared key's runtime spec: its field's bytes, or — for a split key —
@@ -1232,9 +1205,7 @@ fn make_indexed_engine(
     log_level: crate::indexed_log::LogLevel,
     log_format: crate::indexed_log::LogFormat,
 ) -> Box<dyn crate::indexed::IndexedStore> {
-    use crate::indexed::{IndexedEngine, IndexedFile, KeySpec};
-    use crate::indexed_disk::DiskIndexedFile;
-    use crate::indexed_redb::RedbIndexedFile;
+    use crate::indexed::KeySpec;
     use cobolt_ast::program::StorageMode;
     let layout = &spec.layout;
     let reclen = layout.len.max(1);
@@ -1261,49 +1232,20 @@ fn make_indexed_engine(
             names.push(Some(ak.field.clone()));
         }
     }
-    let compressing = spec.data_compressing;
-    // Three sources, in this order of authority:
-    //
-    //   1. the container's own magic — an existing file names its engine, and
-    //      nothing overrides that, or the same COBOL could not read data
-    //      written by a different default;
-    //   2. `ENGINE IS …` on the SELECT — what the developer chose in the
-    //      Indexed File editor, which governs the file being CREATED;
-    //   3. the run's configured engine, for a new file with no clause.
-    let engine = detect_container_engine(path).unwrap_or_else(|| match spec.engine {
-        Some(cobolt_ast::program::EngineChoice::Redb) => IndexedEngine::Redb,
-        Some(cobolt_ast::program::EngineChoice::Prcidxd1) => IndexedEngine::Rust,
-        None => engine,
-    });
-    // The redb engine is a disk substrate; selecting it routes DISK storage to
-    // the crash-safe ACID engine. MEMORY storage always uses the in-RAM engine.
-    if engine == IndexedEngine::Redb && spec.storage_mode == StorageMode::Disk {
-        let mut e = RedbIndexedFile::new(path, reclen, primary, alts);
-        e.set_key_names(names);
-        e.set_compressing(compressing);
-        e.set_definition(spec.definition.clone());
-        e.set_log_level(log_level);
-        e.set_log_format(log_format);
-        return Box::new(e);
-    }
-    match spec.storage_mode {
-        StorageMode::Memory => {
-            let mut e = IndexedFile::new(path, reclen, primary, alts);
-            e.set_key_names(names);
-            e.set_compressing(compressing);
-            e.set_persist(spec.persist);
-            e.set_definition(spec.definition.clone());
-            Box::new(e)
-        }
-        StorageMode::Disk => {
-            // Rust / RM-COBOL / Fujitsu currently share the PRCIDXD1 container.
-            let mut e = DiskIndexedFile::new(path, reclen, primary, alts);
-            e.set_key_names(names);
-            e.set_compressing(compressing);
-            e.set_definition(spec.definition.clone());
-            Box::new(e)
-        }
-    }
+    // The engine itself, and which container it writes, are chosen where the
+    // native runner chooses them too (DESKTOP-WASM-001 T38).
+    let decl = crate::file_core::IndexedDecl {
+        reclen,
+        primary,
+        alts,
+        names,
+        memory: spec.storage_mode == StorageMode::Memory,
+        engine: spec.engine,
+        compressing: spec.data_compressing,
+        persist: spec.persist,
+        definition: spec.definition.clone(),
+    };
+    crate::file_core::indexed_engine(&decl, path, engine, log_level, log_format)
 }
 
 /// Which argument of a list is the greatest (or the least), by position.
@@ -1420,38 +1362,6 @@ fn two_args<'a>(
     }
 }
 
-/// The integer digit positions a PICTURE describes — the `9`s to the left of
-/// any `V`, with `9(n)` counting as *n* of them.
-///
-/// Only the integer side matters to the caller: a RELATIVE KEY is a whole
-/// record number, so what decides whether a number fits is how many digits the
-/// item has before the decimal point.
-fn pic_integer_digits(pic: &str) -> u32 {
-    let up = pic.to_ascii_uppercase();
-    let b = up.as_bytes();
-    let (mut total, mut i) = (0u32, 0usize);
-    while i < b.len() {
-        match b[i] {
-            // Everything from the implied decimal point on is fractional.
-            b'V' => break,
-            b'9' => {
-                i += 1;
-                // A parenthesised repeat count multiplies the position before it.
-                match (b.get(i), up[i..].find(')')) {
-                    (Some(b'('), Some(off)) => {
-                        let end = i + off;
-                        total += up[i + 1..end].trim().parse::<u32>().unwrap_or(1);
-                        i = end + 1;
-                    }
-                    _ => total += 1,
-                }
-            }
-            _ => i += 1,
-        }
-    }
-    total
-}
-
 /// Build the numbered-slot engine behind `ORGANIZATION IS RELATIVE`.
 ///
 /// The slot width is the *largest* record the FD describes, because every 01 of
@@ -1472,13 +1382,7 @@ fn make_relative_engine(spec: &FileSpec, path: &str) -> crate::relative::Relativ
         .as_ref()
         .and_then(|s| s.max)
         .unwrap_or(0) as usize;
-    let mut e = crate::relative::RelativeFile::new(
-        path,
-        widest.max(declared).max(1),
-        spec.storage_mode == StorageMode::Memory,
-    );
-    e.set_persist(spec.persist);
-    e
+    crate::file_core::relative_engine(path, widest.max(declared), spec.storage_mode == StorageMode::Memory, spec.persist)
 }
 
 /// Translate a COBOL relational operator (from `START`) to a key search op.
@@ -9485,54 +9389,23 @@ impl Interpreter {
     /// file take turns, writers excluding everybody and readers sharing, rather
     /// than the second being told the file is unavailable.
     fn acquire_share_lock_for(&mut self, file: &str, path: &str, exclusive: bool, wait: Option<std::time::Duration>) -> bool {
-        // `std::fs::File` has carried advisory locking since Rust 1.89 and the
-        // MSRV here is 1.92, so this needs no dependency at all — which is also
-        // why `fs2` was added and then removed again while writing this.
-        //
         // Already held from an earlier OPEN in this run unit: nothing to do.
         if self.share_locks.contains_key(file) {
             return true;
         }
-        let lck = format!("{path}.lck");
-        let handle = match std::fs::OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .truncate(false)
-            .open(&lck)
-        {
-            Ok(f) => f,
-            // The lock file cannot be made — a read-only directory, say. Do not
-            // refuse the open over it: locking is advisory, and failing here
-            // would make an unwritable directory stop programs that used to run.
-            Err(_) => return true,
-        };
-        let try_once = |h: &std::fs::File| if exclusive { h.try_lock() } else { h.try_lock_shared() };
-        let mut got = try_once(&handle);
-        if let (Err(std::fs::TryLockError::WouldBlock), Some(wait)) = (&got, wait) {
-            let deadline = std::time::Instant::now() + wait;
-            // A short nap, capped low: the holder of a file lock keeps it for
-            // one OPEN..CLOSE, usually milliseconds, so a long nap makes every
-            // waiter sleep past the moment the file came free.
-            let mut nap = std::time::Duration::from_millis(1);
-            while matches!(got, Err(std::fs::TryLockError::WouldBlock)) && std::time::Instant::now() < deadline {
-                std::thread::sleep(nap);
-                nap = (nap * 2).min(std::time::Duration::from_millis(8));
-                got = try_once(&handle);
-            }
-        }
-        match got {
-            Ok(()) => {
+        // The lock itself is taken where the native runner takes it too
+        // (DESKTOP-WASM-001 T38).
+        match crate::file_core::share_lock(path, exclusive, wait) {
+            crate::file_core::ShareLock::Held(handle) => {
                 self.share_locks.insert(file.to_owned(), handle);
                 true
             }
+            // A directory that cannot hold the lock file, or a platform
+            // without locks: advisory means advisory.
+            crate::file_core::ShareLock::NotLocked => true,
             // Another run unit holds a conflicting lock. This is the one case
             // that refuses the open, and the only one the caller turns into 93.
-            Err(std::fs::TryLockError::WouldBlock) => false,
-            // The platform could not lock at all — a filesystem without it, a
-            // network mount. Advisory means advisory: carry on rather than stop
-            // a program that ran perfectly well before this existed.
-            Err(std::fs::TryLockError::Error(_)) => true,
+            crate::file_core::ShareLock::Refused => false,
         }
     }
 
@@ -9542,6 +9415,47 @@ impl Interpreter {
     fn forget_failed_open(&mut self, file: &str) {
         self.open_modes.remove(file);
         self.share_locks.remove(file);
+    }
+
+    /// What the file verbs remember of `file` between statements, in the form
+    /// the shared verbs take it (DESKTOP-WASM-001 T38).
+    fn file_cursor(&self, file: &str) -> crate::file_core::Cursor {
+        crate::file_core::Cursor {
+            at_end: self.at_end_files.contains(file),
+            established: self.read_established.contains(file),
+            last_read: self.last_read.get(file).copied(),
+            last_write_key: self.last_write_key.get(file).cloned(),
+        }
+    }
+
+    /// Keep what a shared verb left in `cursor` for `file`.
+    fn put_file_cursor(&mut self, file: &str, cursor: crate::file_core::Cursor) {
+        if cursor.at_end {
+            self.at_end_files.insert(file.to_owned());
+        } else {
+            self.at_end_files.remove(file);
+        }
+        if cursor.established {
+            self.read_established.insert(file.to_owned());
+        } else {
+            self.read_established.remove(file);
+        }
+        match cursor.last_read {
+            Some(at) => {
+                self.last_read.insert(file.to_owned(), at);
+            }
+            None => {
+                self.last_read.remove(file);
+            }
+        }
+        match cursor.last_write_key {
+            Some(k) => {
+                self.last_write_key.insert(file.to_owned(), k);
+            }
+            None => {
+                self.last_write_key.remove(file);
+            }
+        }
     }
 
     fn exec_open(
@@ -9719,23 +9633,7 @@ impl Interpreter {
                 // answer the sequential branch already gives, where `INPUT` on
                 // an OPTIONAL file uses `create(true)`. Reads then find it empty
                 // and raise `AT END`, which is what the standard asks for.
-                let optional_absent = spec.optional
-                    && !existed
-                    && matches!(
-                        mode,
-                        OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
-                    );
-                let open_as = if optional_absent && mode == OpenMode::Input {
-                    OpenMode::InputOutput
-                } else {
-                    mode
-                };
-                let code = engine.open(map_open_mode(open_as));
-                let code = if optional_absent && (code == "00" || code == "35") {
-                    "05"
-                } else {
-                    code
-                };
+                let code = crate::file_core::open_keyed(spec.optional, existed, map_open_mode(mode), |m| engine.open(m));
                 // An unsuccessful OPEN leaves the file CLOSED (COBOL-85): a
                 // missing INPUT file (35) registered as open answered every
                 // later OPEN with 41, so a program could never create the file
@@ -9774,23 +9672,7 @@ impl Interpreter {
                 // otherwise be refused with 35, so the container is
                 // materialised by opening it I-O and the first READ then finds
                 // it empty.
-                let optional_absent = spec.optional
-                    && !existed
-                    && matches!(
-                        mode,
-                        OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
-                    );
-                let open_as = if optional_absent && mode == OpenMode::Input {
-                    OpenMode::InputOutput
-                } else {
-                    mode
-                };
-                let code = engine.open(map_open_mode(open_as));
-                let code = if optional_absent && (code == "00" || code == "35") {
-                    "05"
-                } else {
-                    code
-                };
+                let code = crate::file_core::open_keyed(spec.optional, existed, map_open_mode(mode), |m| engine.open(m));
                 if code.starts_with('0') {
                     self.open_files
                         .insert(file.clone(), OpenFile::Relative(Box::new(engine)));
@@ -9957,13 +9839,8 @@ impl Interpreter {
                 continue;
             }
             if let Some(mut handle) = self.open_files.remove(&file) {
-                let code = match &mut handle {
-                    OpenFile::Sequential(f) => f.close(),
-                    OpenFile::Indexed(engine) => engine.close(),
-                    OpenFile::Relative(engine) => engine.close(),
-                    // Taken by the branch above, which consumes the sink.
-                    OpenFile::ViewerReport { .. } => unreachable!("handed over above"),
-                };
+                // A report printed into a Viewer was handed over above.
+                let code = crate::file_core::close(file_handle(&mut handle));
                 self.set_file_status(&file, code);
                 self.fire_declarative(&file, code, false)?;
             } else {
@@ -10309,10 +10186,6 @@ impl Interpreter {
         let seq_key = writes_in_key_order
             .then(|| self.record_key_of(&file, &buf))
             .flatten();
-        let out_of_sequence = match (&seq_key, self.last_write_key.get(&file)) {
-            (Some(now), Some(prev)) => now.as_slice() <= prev.as_slice(),
-            _ => false,
-        };
         // A RELATIVE write is addressed by record *number*. Under RANDOM or
         // DYNAMIC access the program set it in the RELATIVE KEY item; in the
         // sequential access mode the engine assigns the next slot and the
@@ -10328,17 +10201,8 @@ impl Interpreter {
             _ => Some(self.relative_key_of(s).unwrap_or(0)),
         });
         let mut rel_assigned: Option<u64> = None;
+        let mut cursor = self.file_cursor(&file);
         let code = match self.open_files.get_mut(&file) {
-            _ if out_of_range => "44",
-            _ if out_of_sequence => crate::indexed::status::SEQUENCE_ERROR,
-            // ── INDEXED ────────────────────────────────────────────────────
-            Some(OpenFile::Indexed(engine)) => engine.write(&buf),
-            // ── RELATIVE ───────────────────────────────────────────────────
-            Some(OpenFile::Relative(engine)) => {
-                let (code, n) = engine.write(&buf, rel_key);
-                rel_assigned = Some(n);
-                code
-            }
             // ── VIEWER report (spec 062) ───────────────────────────────────
             //
             // One record, one line of text, trailing spaces removed — the rule
@@ -10354,7 +10218,9 @@ impl Interpreter {
             // (plan D2): emitting it for every sequential file would rewrite
             // the bytes of every existing report program, the CCVS85 members
             // behind NIST NC and SQ included.
-            Some(OpenFile::ViewerReport { sink, org, .. }) => {
+            Some(OpenFile::ViewerReport { sink, org, .. }) if !out_of_range => {
+                // A WRITE displaces whatever record a READ had established.
+                cursor.established = false;
                 let text = String::from_utf8_lossy(&buf);
                 let line = text.trim_end();
                 // A printer at the end of a line: advancing n lines moves down
@@ -10395,40 +10261,39 @@ impl Interpreter {
                     }
                 }
             }
-            // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
-            Some(OpenFile::Sequential(f)) if f.is_output() => {
-                match f.write(&buf, line_buf.as_deref(), varying) {
-                    Some(Ok(())) => "00",
-                    Some(Err(e)) => {
-                        tracing::warn!("WRITE failed: {e}");
-                        "30"
-                    }
-                    // Not reached: the guard holds an output file.
-                    None => "48",
-                }
-            }
-            _ => {
-                tracing::warn!("WRITE to '{}' which is not open for output", file);
-                "48"
+            // ── SEQUENTIAL, LINE SEQUENTIAL, INDEXED, RELATIVE ─────────────
+            //
+            // The rule the native runner follows too (DESKTOP-WASM-001 T38):
+            // a length outside the FD's range is 44, an INDEXED file in the
+            // sequential access mode takes its records in ascending key order
+            // (21), a RELATIVE write in the sequential access mode is given
+            // the next slot, and a file not open for output is 48.
+            other => {
+                let out = crate::file_core::write(
+                    other.map(file_handle),
+                    &mut cursor,
+                    crate::file_core::WriteReq {
+                        rec: &buf,
+                        line: line_buf.as_deref(),
+                        varying,
+                        out_of_range,
+                        seq_key,
+                        rel_key,
+                    },
+                );
+                rel_assigned = out.rel_assigned;
+                out.status
             }
         };
-        // A WRITE is an I-O statement like any other: it displaces whatever
-        // record a previous READ had established.
-        self.read_established.remove(&file);
+        // What the WRITE leaves behind: no record established for a REWRITE,
+        // and the key the next WRITE in key order is judged against.
+        self.put_file_cursor(&file, cursor);
         // The slot a sequential RELATIVE write landed in goes back into the
         // RELATIVE KEY item. A random write already knows its number.
         if let (Some(spec), Some(n)) = (rel_spec.as_ref(), rel_assigned) {
             if code == "00" && rel_key.is_none() {
                 let spec = spec.clone();
                 self.set_relative_key(&spec, n);
-            }
-        }
-        // Only a record that actually went in moves the sequence forward; a
-        // rejected one leaves the previous key standing, so the next WRITE is
-        // judged against the last one written rather than the last attempted.
-        if code == "00" || code == "02" {
-            if let Some(k) = seq_key {
-                self.last_write_key.insert(file.clone(), k);
             }
         }
         self.set_file_status(&file, code);
@@ -10581,7 +10446,7 @@ impl Interpreter {
     fn relative_key_digits(&self, spec: &FileSpec) -> Option<u32> {
         let name = spec.relative_key.as_deref()?;
         let pic = self.env.symbol(name).map(|s| s.pic.clone())?;
-        let d = pic_integer_digits(&pic);
+        let d = cobolt_ast::data::pic_integer_digits(&pic);
         (d > 0).then_some(d)
     }
 
@@ -10840,123 +10705,29 @@ impl Interpreter {
         let rel_num = (spec.organization == FileOrganization::Relative)
             .then(|| self.relative_key_of(&spec).unwrap_or(0));
 
-        // A sequential READ once `AT END` has been reached is 46, not a second
-        // 10: the AT END left no valid next record, and reading on is a
-        // different error from reaching the end (SQ136A–SQ138A).
-        // 46 is class 4, not an AT END condition, so neither `AT END` nor
-        // `NOT AT END` runs — the statement cannot handle it and the file's
-        // USE declarative is what deals with it.
-        if !random && self.at_end_files.contains(&file) {
-            self.set_file_status(&file, "46");
-            self.fire_declarative(&file, "46", false)?;
-            return Ok(());
-        }
-
-        // Fetch one record + a status code, dispatched by organization.
-        // A record-SEQUENTIAL read also records where it found the record, so a
-        // following `REWRITE` knows what it is replacing.
-        let mut read_at: Option<LastRead> = None;
-        // Which slot a RELATIVE read actually delivered, so the RELATIVE KEY
-        // item can be told. A sequential read is how the program discovers it.
-        let mut rel_delivered: Option<u64> = None;
-        let (mut buf, mut code): (Option<Vec<u8>>, &str) = match self.open_files.get_mut(&file) {
-            Some(OpenFile::Indexed(engine)) => {
-                if random {
-                    engine.set_key_of_reference(kor);
-                    match &key_bytes {
-                        Some(kb) => engine.read_key(kb),
-                        None => (None, status::NOT_FOUND),
-                    }
-                } else {
-                    engine.read_seq(read_dir)
-                }
-            }
-            Some(OpenFile::Relative(engine)) => {
-                if random {
-                    engine.read_key(rel_num.unwrap_or(0))
-                } else {
-                    let (rec, n, code) = engine.read_seq(read_dir);
-                    if code == status::OK {
-                        rel_delivered = Some(n);
-                    }
-                    (rec, code)
-                }
-            }
-            // SEQUENTIAL / LINE SEQUENTIAL: newline-delimited text records, or
-            // records back to back. A national or UTF-8 field is text in the
-            // line and an image in the record (spec 077, D10).
-            Some(OpenFile::Sequential(f)) => {
-                use crate::seqfile::SeqRead;
-                match f.read(Some(&spec.layout), spec.is_varying()) {
-                    SeqRead::Record { bytes, place } => {
-                        // Where this record starts, so a `REWRITE` can replace it.
-                        read_at = place;
-                        (Some(bytes), status::OK)
-                    }
-                    SeqRead::End => (None, status::EOF),
-                    SeqRead::Failed(e) => {
-                        tracing::warn!("READ failed: {e}");
-                        (None, "30")
-                    }
-                    SeqRead::NotInput => (None, status::NOT_OPEN_INPUT),
-                }
-            }
-            _ => (None, status::NOT_OPEN_INPUT),
+        // The READ itself (the engine call, the 46 after an AT END, status 14,
+        // and what the file remembers for the next statement) is the rule the
+        // native runner follows too (DESKTOP-WASM-001 T38).
+        let rel_digits = self.relative_key_digits(&spec);
+        let mut cursor = self.file_cursor(&file);
+        let req = crate::file_core::ReadReq {
+            random,
+            dir: read_dir,
+            key: key_bytes.as_deref(),
+            kor,
+            rel_num,
+            rel_digits,
+            layout: Some(&spec.layout),
+            varying: spec.is_varying(),
+            no_lock: lock == Some(false),
         };
-
-        // **Status 14** — a sequential READ of a relative file whose record
-        // number has more significant digits than the RELATIVE KEY item can
-        // hold. The program asked to be told where each record sits and the
-        // item it supplied cannot say, so the read is unsuccessful: no record
-        // is delivered, the key item is left alone, and — 14 being an at-end
-        // class condition like 10 — the `AT END` phrase is what handles it.
-        if let Some(n) = rel_delivered {
-            if self
-                .relative_key_digits(&spec)
-                .is_some_and(|d| n.to_string().len() as u32 > d)
-            {
-                rel_delivered = None;
-                buf = None;
-                code = "14";
-            }
-        }
-
-        // `READ … WITH NO LOCK` releases the lock the engine takes under I-O.
-        if lock == Some(false) {
-            if let Some(OpenFile::Indexed(engine)) = self.open_files.get_mut(&file) {
-                engine.unlock();
-            }
-        }
-
-        // Latch / release the end-of-file position this READ leaves behind.
-        // 14 latches with 10: both are at-end class conditions that leave the
-        // file with no valid next record, so reading on again is 46.
-        if (code == status::EOF || code == "14") && !random {
-            self.at_end_files.insert(file.clone());
-        } else if code == status::OK {
-            self.at_end_files.remove(&file);
-        }
-        // Only a *successful* read establishes a record to REWRITE; anything
-        // else — including `AT END` — leaves the file with none, which is what
-        // makes a following `REWRITE` status 43 (SQ133A).
-        match read_at {
-            Some(at) if code == status::OK => {
-                self.last_read.insert(file.clone(), at);
-            }
-            _ => {
-                self.last_read.remove(&file);
-            }
-        }
-        // The same fact, for a file with no byte offset to remember it by.
-        if code == status::OK {
-            self.read_established.insert(file.clone());
-        } else {
-            self.read_established.remove(&file);
-        }
+        let out = crate::file_core::read(self.open_files.get_mut(&file).map(file_handle), &mut cursor, &req);
+        self.put_file_cursor(&file, cursor);
+        let (buf, code) = (out.bytes, out.status);
         // A sequential RELATIVE read reports the slot it delivered — the
         // program has no other way to learn the record's number, and RL103A
         // checks the key item after every one of them.
-        if let Some(n) = rel_delivered {
+        if let Some(n) = out.rel_delivered {
             self.set_relative_key(&spec, n);
         }
 
@@ -11114,48 +10885,22 @@ impl Interpreter {
         // A sequential REWRITE needs the file open I-O and a record established
         // by the immediately preceding READ.
         let io_mode = self.open_modes.get(&file).copied() == Some(OpenMode::InputOutput);
-        let last = self.last_read.get(&file).copied();
         // A RELATIVE rewrite under RANDOM or DYNAMIC access names its record by
         // number, from the RELATIVE KEY item.
         let rel_num = (spec.organization == FileOrganization::Relative)
             .then(|| self.relative_key_of(&spec).unwrap_or(0));
-        let code = match self.open_files.get_mut(&file) {
-            // In the sequential access mode a REWRITE replaces the record the
-            // previous READ delivered, so the standard requires one: with no
-            // successfully executed READ immediately before it, the statement
-            // has no record to replace and the status is 43 (IX120A rewrites
-            // with its READs commented out and expects its USE declarative to
-            // be entered on exactly that status).
-            Some(OpenFile::Indexed(_)) if !random && !self.read_established.contains(&file) => "43",
-            Some(OpenFile::Indexed(engine)) => {
-                engine.rewrite(&buf, if random { Some(buf.as_slice()) } else { None })
-            }
-            // The same rule for a numbered slot: a sequential REWRITE replaces
-            // the record the previous READ delivered, and needs one.
-            Some(OpenFile::Relative(_)) if !random && !self.read_established.contains(&file) => {
-                "43"
-            }
-            Some(OpenFile::Relative(engine)) => {
-                engine.rewrite(&buf, if random { rel_num } else { None })
-            }
-            // Record SEQUENTIAL, open I-O: replace the record the last READ
-            // delivered, in place (49 if not open I-O, 43 with no record read,
-            // 44 for a different length).
-            Some(OpenFile::Sequential(f)) if f.is_input() && !f.is_line_sequential() => {
-                f.rewrite(io_mode, last, &buf)
-            }
-            Some(_) => {
-                tracing::warn!("REWRITE on '{}', which is not open for I-O", file);
-                "49"
-            }
-            None => crate::indexed::status::NOT_OPEN_IO,
-        };
-        // The record is consumed either way: a second REWRITE with no READ
-        // between them is 43.
-        if !indexed {
-            self.last_read.remove(&file);
-        }
-        self.read_established.remove(&file);
+        // The REWRITE itself is the rule the native runner follows too
+        // (DESKTOP-WASM-001 T38): in the sequential access mode it replaces the
+        // record the previous READ delivered and needs one (43); a sequential
+        // file must be open I-O (49), and the record must keep its length (44).
+        // The record is consumed either way.
+        let mut cursor = self.file_cursor(&file);
+        let code = crate::file_core::rewrite(
+            self.open_files.get_mut(&file).map(file_handle),
+            &mut cursor,
+            crate::file_core::RewriteReq { rec: &buf, random, indexed, io_mode, rel_num },
+        );
+        self.put_file_cursor(&file, cursor);
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
         self.fire_declarative(&file, code, !invalid_key.is_empty())?;
@@ -11170,7 +10915,6 @@ impl Interpreter {
         _span: Span,
     ) -> Result<(), RuntimeError> {
         self.debug_io_verb = Some("DELETE");
-        use crate::indexed::status;
         let file = file_name.to_ascii_uppercase();
         let Some(spec) = self.file_specs.get(&file).cloned() else {
             return Ok(());
@@ -11186,31 +10930,19 @@ impl Interpreter {
         // number, from the RELATIVE KEY item.
         let rel_num = (spec.organization == FileOrganization::Relative)
             .then(|| self.relative_key_of(&spec).unwrap_or(0));
-        let code = match self.open_files.get_mut(&file) {
-            // Sequential DELETE removes the record the previous READ delivered,
-            // and so requires one — the same rule, and the same status 43, that
-            // governs a sequential REWRITE (IX119A).
-            Some(OpenFile::Indexed(_)) if !random && !self.read_established.contains(&file) => "43",
-            Some(OpenFile::Indexed(engine)) => {
-                engine.delete(if random { key_bytes.as_deref() } else { None })
-            }
-            Some(OpenFile::Relative(_)) if !random && !self.read_established.contains(&file) => {
-                "43"
-            }
-            // The slot is emptied, not removed: its number stays addressable,
-            // and the records after it do not move down.
-            Some(OpenFile::Relative(engine)) => {
-                engine.delete(if random { rel_num } else { None })
-            }
-            Some(_) => {
-                tracing::warn!("DELETE on a non-indexed file '{}' is not valid", file);
-                "37"
-            }
-            None => status::NOT_OPEN_IO,
-        };
-        // The record is consumed: a second DELETE with no READ between them
-        // is 43.
-        self.read_established.remove(&file);
+        // The DELETE itself is the rule the native runner follows too
+        // (DESKTOP-WASM-001 T38): in the sequential access mode it removes the
+        // record the previous READ delivered and needs one (43), a sequential
+        // file cannot delete (37), and the record is consumed.
+        let mut cursor = self.file_cursor(&file);
+        let code = crate::file_core::delete(
+            self.open_files.get_mut(&file).map(file_handle),
+            &mut cursor,
+            random,
+            key_bytes.as_deref(),
+            rel_num,
+        );
+        self.put_file_cursor(&file, cursor);
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
         self.fire_declarative(&file, code, !invalid_key.is_empty())?;
@@ -11226,7 +10958,6 @@ impl Interpreter {
         _span: Span,
     ) -> Result<(), RuntimeError> {
         self.debug_io_verb = Some("START");
-        use crate::indexed::status;
         let file = file_name.to_ascii_uppercase();
         let Some(spec) = self.file_specs.get(&file).cloned() else {
             return Ok(());
@@ -11259,32 +10990,20 @@ impl Interpreter {
                 .and_then(|v| u64::try_from(v).ok())
                 .unwrap_or(0)
         });
-        let code = match self.open_files.get_mut(&file) {
-            Some(OpenFile::Indexed(engine)) => {
-                engine.set_key_of_reference(kor);
-                match &key_bytes {
-                    Some(kb) => engine.start(map_start_op(op), kb),
-                    None => status::NOT_FOUND,
-                }
-            }
-            Some(OpenFile::Relative(engine)) => {
-                engine.start(map_start_op(op), rel_num.unwrap_or(0))
-            }
-            Some(_) => {
-                tracing::warn!("START on a non-indexed file '{}' is not valid", file);
-                "30"
-            }
-            None => status::NOT_OPEN_INPUT,
-        };
-        // A successful START establishes a record again, so a following
-        // sequential READ is a normal read, not the 46 that a past AT END
-        // would otherwise leave standing.
-        if code == status::OK {
-            self.at_end_files.remove(&file);
-        }
-        // START only positions the file; it delivers no record. A REWRITE or
-        // DELETE after it still has nothing to act on.
-        self.read_established.remove(&file);
+        // The START itself is the rule the native runner follows too
+        // (DESKTOP-WASM-001 T38): a successful START clears a past AT END, so
+        // the next sequential READ is a normal one, and it delivers no record
+        // for a REWRITE or DELETE to act on.
+        let mut cursor = self.file_cursor(&file);
+        let code = crate::file_core::start(
+            self.open_files.get_mut(&file).map(file_handle),
+            &mut cursor,
+            map_start_op(op),
+            kor,
+            key_bytes.as_deref(),
+            rel_num,
+        );
+        self.put_file_cursor(&file, cursor);
         self.set_file_status(&file, code);
         // START's "record not found" status (23) is the invalid-key condition.
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;

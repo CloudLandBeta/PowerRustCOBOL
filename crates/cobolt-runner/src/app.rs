@@ -101,6 +101,7 @@ pub(crate) fn run(
     imports: Vec<(String, String)>,
     manifest: Manifest,
     sections: DesktopSections,
+    files: crate::files::FileSetup,
     lang: Lang,
     pins: Pins,
 ) -> Result<i32, Msg> {
@@ -158,7 +159,7 @@ pub(crate) fn run(
         None
     };
 
-    let engine = WasmEngine::start(engine, module, abi, imports, manifest, forms, lang, pins)?;
+    let engine = WasmEngine::start(engine, module, abi, imports, manifest, forms, files, lang, pins)?;
 
     // The main form's instance: the same channels a Cargo-built program's interpreter is given.
     let mut flat: Vec<cobolt_forms::Control> = Vec::new();
@@ -202,7 +203,8 @@ pub(crate) fn run(
     .map_err(Msg::CannotStart)?;
 
     let exit = engine.clone();
-    let indexed_engine = cobolt_runtime::IndexedEngine::parse(&s.indexed_engine).unwrap_or_default();
+    // The project's engine, else COBOL_INDEXED_ENGINE, else the default: the Cargo path's order.
+    let indexed_engine = crate::files::indexed_engine(&s.indexed_engine);
     let art = Arc::new(sections.art.clone());
     let child_project_theme = project_theme.clone();
     let child_theme: cobolt_form_host::ChildThemeSource = Box::new(move |child| {

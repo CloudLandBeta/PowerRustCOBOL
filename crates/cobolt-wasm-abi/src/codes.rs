@@ -160,7 +160,20 @@ pub mod cap {
 /// The imports in [`NATIVE_IMPORT_MODULE`] each capability brings (A27). A capability's set is fixed
 /// when a release first uses it; the capabilities not listed get theirs from the task that implements
 /// them, which amends A27.
-pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[(cap::CONSOLE, &["con_read"]), (cap::ENV, &["env_get", "exit", "tz_offset"])];
+pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[
+    (cap::CONSOLE, &["con_read"]),
+    (cap::ENV, &["env_get", "exit", "tz_offset"]),
+    // A34: every organisation's verbs are the same imports; the manifest names the capability of
+    // each organisation the program opens.
+    (cap::FILES_SEQUENTIAL, FILE_IMPORTS),
+    (cap::FILES_LINE_SEQUENTIAL, FILE_IMPORTS),
+    (cap::FILES_RELATIVE, FILE_IMPORTS),
+    (cap::FILES_INDEXED, FILE_IMPORTS),
+];
+
+/// The file verbs in [`NATIVE_IMPORT_MODULE`] (A34): a file is named by its number in the module's
+/// `prfiles` section (`crate::files`), and records cross in memory 0.
+pub const FILE_IMPORTS: &[&str] = &["f_open", "f_close", "f_read", "f_write", "f_rewrite", "f_delete", "f_start"];
 
 /// The exports a module must provide (§4), besides its memories.
 pub const REQUIRED_EXPORTS: &[&str] = &[

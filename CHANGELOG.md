@@ -2,6 +2,27 @@
 
 
 
+## 2.0.542 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T38): a desktop program built on the WebAssembly path now reads and writes files on disk of every organisation — sequential, line sequential, relative and indexed — with the same `FILE STATUS` values and the same file contents as the interpreter.**
+- **What moves:** `OPEN`, `CLOSE`, `READ` (next, previous, keyed, `WITH NO LOCK`), `WRITE`, `REWRITE`, `DELETE` and `START` on a disk file no longer send the Build to Cargo. The PowerRustCOBOL runner keeps the files, using the same engines and containers as the interpreter: the project's indexed-file engine, a relative file's slots, a variable-length record's prefix, `SHARING WITH NO OTHER` and `WITH LOCK`.
+- **One file, several windows:** a file a form opens belongs to that window. Closing the window closes its files, as the interpreter does.
+- **Measured:** a twin test runs one program per organisation under the runner and under `rcrun run`. The printed lines, the files left on disk and their bytes are equal:
+  - sequential: 33 lines, 4 files (193 bytes);
+  - relative: 34 lines, 2 files (387 bytes);
+  - indexed: 26 lines, 4 files (45 056 bytes);
+  - 50 of 50 checks passed.
+- **Still on the Cargo path:**
+  - a `LINAGE` file (printer pages), named with its line;
+  - a DataGrid bound to an indexed file (`_BindingKind=IndexedFile`), which needs the grid's binding machinery (refresh and write-back). That gap is now labelled M6, not M3.
+- **Web modules:** the bytes of a browser module moved, though nothing in it behaves differently. The runtime's new file imports renumber its function types, and four bytes of panic line numbers changed. Every instruction and every data byte is otherwise the same. The PowerAnalyticsWeb pin (AC16) is re-recorded for this reason, and the shipped web player is rebuilt (its sources changed).
+- **Found, not fixed here:** the interpreter drops the leading zeros when an unsigned integer is moved into a reference-modified alphanumeric item (`MOVE WS-I TO WS-REC(5:2)` with `WS-I` = 1 gives `"1 "`, not `"01"`). It is a COBOL-85 fix of its own; the twin test avoids it.
+- **Tests:**
+  - the generator, the ABI, the runtime routines, the AST and the runner: every test passes;
+  - the runtime's file tests: 638 passed;
+  - NIST on the interpreter is unchanged in all eight finished modules, each with 0 failures: Nucleus 95/95, Sequential I/O 85/85, Indexed I/O 41/41, Relative I/O 34/34, Sort-Merge 39/39, Intrinsic Functions 45/45, Inter-program Communication 25/25, Source Text Manipulation 16/16;
+  - the System KB is regenerated (4 412 records).
+
 ## 2.0.541 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T37): sequential files and the sort's comparison now live in their own part of the runtime, so the runner can share them. A program behaves exactly as before.** This is the first task of milestone M3 (disk files on the WebAssembly path). It moves code out of the interpreter without changing what it does (plan correction C5).

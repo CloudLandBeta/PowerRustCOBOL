@@ -1441,13 +1441,27 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - `cargo test -p cobolt-runtime` green.
     - The NIST execution runs of SQ, IX, RL and ST give the counts recorded for the interpreter (GOLDEN RULE #9: every finished module's execution pass).
 
-- [ ] **T38 — Files of every organisation as capabilities** (R10, R11)
+- [x] **T38 — Files of every organisation as capabilities** (R10, R11)
   - Files:
     - `crates/cobolt-wasm/src/` (the file verbs lowered to the `prn` `f_*` imports under `native`);
     - `crates/cobolt-runner/src/` (the `files.*` capabilities over `SequentialFile`, `RelativeFile` and `IndexedStore`);
     - the native column.
   - Do: records cross by `(ptr, len)` in memory 0. `FILE STATUS` values are the interpreter's.
   - Verify: one runner test per organisation and verb. Its file contents and `FILE STATUS` values are equal to the interpreter's.
+  - *Done 2026-11-16 (2.0.542):*
+    - **ABI A34** (`specs/WASM-ABI-v1.md`, `cobolt-wasm-abi/src/files.rs`, `codes.rs`): the `prfiles` custom section (JSON, format 1: each file's organisation, access mode, record lengths, keys, engine, `STORAGE`/`WITH PERSISTENCE`, a RELATIVE KEY's digits and an INDEXED file's definition text) and seven `prn` imports, `f_open`, `f_close`, `f_read`, `f_write`, `f_rewrite`, `f_delete` and `f_start`. Each answers the `FILE STATUS` as a number; records and keys cross by `(ptr, len)` in memory 0. The capabilities `files.sequential`, `files.line-sequential`, `files.relative` and `files.indexed`.
+    - **The generator** (`lower_nfile.rs`, `module.rs`, `lower.rs`): under `native`, every file but a SORT work file is a runner file, one declared `STORAGE IS MEMORY` too (on the desktop it is read from its file, and opens for INPUT only without `WITH PERSISTENCE`). The verbs call the runtime's `rt_nf_*` routines (`cobolt-wasm-rt/src/nfile.rs`), which do the program's half of each statement as the interpreter does: the ASSIGN path, the key, the record number, a short record padded with spaces, `RECORD … DEPENDING ON`, the RELATIVE KEY and the FILE STATUS item. A `LINAGE` file is refused with its line.
+    - **The runner** (`cobolt-runner/src/files.rs`): files keyed by their slot, opened through `cobolt_runtime::file_core` (new, the interpreter's open and verb code shared, C5) with the engine the interpreter would choose: the project's `[ide] indexed_engine` (`prsettings`), else `COBOL_INDEXED_ENGINE`, else the default. A form's files belong to its window and close with it.
+    - **Shared with the interpreter, unchanged:** `cobolt_ast::fd_text::file_definition` and `item_extents` (an INDEXED file's definition text) and `cobolt_ast::data::pic_integer_digits` moved out of `cobolt-runtime`, which now calls them.
+    - **Decision:** a DataGrid bound to an indexed file (`_BindingKind=IndexedFile`) stays on the Cargo path, relabelled M6: it needs the grid's binding machinery (refresh, ledger, write-back, specs 094/095), not just the file verbs.
+    - **Web modules (AC16):** the runtime blob's new imports renumber its function types, and the blob's edits moved four bytes of panic line numbers, so a browser module's bytes moved with no instruction or data changed (checked on the player fixtures: equal code and data sections, the WAT equal but for type numbers). `nfile.rs` is written without a panicking call, so it adds nothing to the read-only data every module carries. The PowerAnalyticsWeb pin is re-recorded, the player fixtures regenerated and the shipped player rebuilt (`freshness` 6 of 6).
+    - **Found:** the interpreter drops leading zeros when an unsigned integer is moved into a reference-modified alphanumeric item (`MOVE WS-I TO WS-REC(5:2)`, `WS-I` = 1, gives `"1 "`). A COBOL-85 fix of its own; the twin test avoids it.
+    - **Measured:**
+      - `cobolt-runner --test files`, one program per organisation under the runner and `rcrun run`, lines and files compared byte for byte: sequential 33 lines and 4 files (193 bytes), relative 34 lines and 2 files (387 bytes), indexed 26 lines and 4 files (45 056 bytes); 50 of 50 checks.
+      - `native_desktop_refusals` 15 of 15 (a disk file compiles and names its capability; `LINAGE` refused with its line). `native_console` 2 of 2.
+      - `cargo test` of `cobolt-wasm`, `cobolt-wasm-abi`, `cobolt-wasm-rt`, `cobolt-ast` and `cobolt-runner`: green. `cobolt-runtime`: the library and the six file targets, 638 passed. The compiler's subset and runner-gap tests green.
+      - NIST on the interpreter, all eight finished modules, 0 failures: NC 95/95, SQ 85/85, IX 41/41, RL 34/34, ST 39/39, IF 45/45, IC 25/25, SM 16/16.
+      - The System KB regenerated (4 412 records); `prebuilt_chunked_kb_matches_the_published_documentation` green.
 
 - [ ] **T39 — `SORT` and `MERGE` with `USING`/`GIVING`; `COMMIT`, `ROLLBACK`, `UNLOCK`** (R11)
   - Verify: runner tests equal to the interpreter's output and files. The native column moves these entries to `Host(sort)` or `Host(files.*)`.

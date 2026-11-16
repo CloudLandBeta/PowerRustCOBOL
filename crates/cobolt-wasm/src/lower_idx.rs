@@ -19,7 +19,7 @@ use crate::error::{ErrorKind, GenError, GenResult};
 use crate::lower::{FileInfo, FileKind, Lower};
 use crate::lower_call::Cover;
 use cobolt_ast::expr::{CmpOp, Expr};
-use cobolt_ast::program::{AccessMode, FileControl};
+use cobolt_ast::program::{AccessMode, FileControl, FileOrganization};
 use cobolt_ast::stmt::{OpenMode, ReadDirection, SortKey, Stmt};
 use cobolt_wasm_rt::idx;
 use std::collections::{HashMap, HashSet};
@@ -61,11 +61,15 @@ pub(crate) struct FileMeta {
     /// SORT: the second record area and the 16 bytes of work-file state.
     pub b_off: u32,
     pub state_off: u32,
+    /// A file the desktop runner keeps: its organisation, and the RELATIVE KEY item's operand (0
+    /// for none).
+    pub org: FileOrganization,
+    pub relkey_opd: u32,
 }
 
 /// `name` and `quals` agree with `want_quals` when one chain is a subsequence
 /// of the other (the interpreter's `key_of_reference::agrees`).
-fn agrees(a: &[String], b: &[String]) -> bool {
+pub(crate) fn agrees(a: &[String], b: &[String]) -> bool {
     let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
     let mut it = long.iter();
     short.iter().all(|s| it.any(|l| l == s))
@@ -111,7 +115,7 @@ impl Lower<'_, '_> {
     }
 
     /// The first record description of a file: its item, offset and length.
-    fn first_record(&self, fc_name: &str, rec_items: &[usize]) -> GenResult<(usize, u32, u32)> {
+    pub(crate) fn first_record(&self, fc_name: &str, rec_items: &[usize]) -> GenResult<(usize, u32, u32)> {
         let Some(&first) = rec_items.first() else {
             return Err(GenError::new(
                 0,
@@ -124,7 +128,7 @@ impl Lower<'_, '_> {
 
     /// The item `name OF quals` when it lies in the record `record`: its region
     /// offset and length.
-    fn field_in_record(&self, record: usize, name: &str, quals: &[String]) -> Option<(u32, u32)> {
+    pub(crate) fn field_in_record(&self, record: usize, name: &str, quals: &[String]) -> Option<(u32, u32)> {
         let i = self.layout.lookup(name, quals).ok()?;
         let mut root = i;
         while let Some(p) = self.layout.items[root].parent {
@@ -138,7 +142,7 @@ impl Lower<'_, '_> {
     }
 
     /// A key the SELECT declares, as offsets in the record.
-    fn key_meta(
+    pub(crate) fn key_meta(
         &self,
         record: usize,
         area_off: u32,
@@ -251,6 +255,8 @@ impl Lower<'_, '_> {
             keys,
             b_off: 0,
             state_off: 0,
+            org: FileOrganization::Indexed,
+            relkey_opd: 0,
         });
         Ok(FileInfo {
             desc,
@@ -281,6 +287,8 @@ impl Lower<'_, '_> {
             keys: vec![],
             b_off,
             state_off,
+            org: FileOrganization::Sequential,
+            relkey_opd: 0,
         });
         Ok(FileInfo {
             desc,
@@ -559,7 +567,7 @@ impl Lower<'_, '_> {
         hold
     }
 
-    fn load_hold(&mut self, hold: u32) {
+    pub(crate) fn load_hold(&mut self, hold: u32) {
         self.base();
         self.raw(I::I32Load(wasm_encoder::MemArg {
             offset: hold as u64,
@@ -568,10 +576,20 @@ impl Lower<'_, '_> {
         }));
     }
 
+    /// 1 on the stack when the status in `hold` is 00 or 02: `(status | 2) == 2`.
+    pub(crate) fn key_success(&mut self, hold: u32) {
+        self.load_hold(hold);
+        self.i32c(2);
+        self.raw(I::I32Or);
+        self.i32c(2);
+        self.raw(I::I32Eq);
+    }
+
     /// After a `WRITE`, `REWRITE` or `DELETE` (status on the stack): the USE
-    /// procedures, then `NOT INVALID KEY` on 00 and `INVALID KEY` otherwise
+    /// procedures, then `NOT INVALID KEY` on 00 or 02 (a duplicate alternate
+    /// key, which only a file on disk reports) and `INVALID KEY` otherwise
     /// (`run_key_outcome`).
-    fn key_outcome(
+    pub(crate) fn key_outcome(
         &mut self,
         file: &str,
         fi: FileInfo,
@@ -591,8 +609,13 @@ impl Lower<'_, '_> {
         let ok_b = self.new_block("not-invalid-key");
         let bad_b = self.new_block("invalid-key");
         let join = self.new_block("end-key-verb");
-        self.load_hold(hold);
-        self.raw(I::I32Eqz);
+        // A file held in memory never answers 02, and its module keeps the bytes it had.
+        if fi.kind == FileKind::Native {
+            self.key_success(hold);
+        } else {
+            self.load_hold(hold);
+            self.raw(I::I32Eqz);
+        }
         self.branch(ok_b, bad_b);
         for (b, list) in [(ok_b, not_invalid), (bad_b, invalid)] {
             self.begin(b);
@@ -647,7 +670,7 @@ impl Lower<'_, '_> {
     /// The key of reference a `READ … KEY` / `START … KEY` names, and the spec
     /// of the value it searches for (`[n, (region offset, len) × n]`, 0 when the
     /// name is not a field of the record).
-    fn key_ref(&mut self, meta: usize, key: Option<&Expr>) -> (u32, u32) {
+    pub(crate) fn key_ref(&mut self, meta: usize, key: Option<&Expr>) -> (u32, u32) {
         let m = self.file_meta[meta].clone();
         let (name, quals) = match key {
             Some(e) => self.key_parts_of(e),
@@ -769,7 +792,7 @@ impl Lower<'_, '_> {
     /// `INTO` the item and the success phrase runs; on the condition the
     /// statement's phrase covers (10, or 21–24 for a keyed read) the failure
     /// phrase runs; on anything else neither.
-    fn read_outcome(
+    pub(crate) fn read_outcome(
         &mut self,
         hold: u32,
         fi: FileInfo,
@@ -795,6 +818,15 @@ impl Lower<'_, '_> {
             self.raw(I::I32Sub);
             self.i32c(3);
             self.raw(I::I32LeU);
+        } else if fi.kind == FileKind::Native {
+            // 10, or 14: a RELATIVE record number too long for its key item, which only a file
+            // on disk reports; both are at-end conditions.
+            self.i32c(10);
+            self.raw(I::I32Eq);
+            self.load_hold(hold);
+            self.i32c(14);
+            self.raw(I::I32Eq);
+            self.raw(I::I32Or);
         } else {
             self.i32c(10);
             self.raw(I::I32Eq);

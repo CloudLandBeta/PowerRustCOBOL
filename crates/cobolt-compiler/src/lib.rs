@@ -8008,6 +8008,10 @@ fn browser_subset_doc() -> String {
         match n {
             Native::Module => ("yes".into(), String::new()),
             Native::Host(cap) => (format!("yes, with the runner's `{cap}`"), String::new()),
+            Native::Files => (
+                "yes, with the runner's file capabilities".into(),
+                "the capability of the file's organisation: `files.sequential`, `files.line-sequential`, `files.relative` or `files.indexed`; a report printed into a Viewer, LINAGE, SAME AREA and OPEN … WITH REGISTERED USER take the Cargo path".into(),
+            ),
             Native::Form => ("yes, in a form's program".into(), "a program with no form takes the Cargo path for it".into()),
             Native::Cargo(why) => ("Cargo path".into(), why.to_string()),
         }
@@ -14224,7 +14228,7 @@ function_prefix = "sales-"
             ("Maps inside a Panel: MAIN, forms/main.cfrm, MAP-CITY, Maps, M6", is(&maps, "MAIN", "forms/main.cfrm", "MAP-CITY", "Maps", "(DESKTOP-WASM-001 M6)")),
             ("the message names the file, the form and the control", text.contains("forms/main.cfrm") && text.contains("MAIN") && text.contains("MAP-CITY (Maps)")),
             ("a Canvas2D on the second form: ORDERS, forms/orders.cfrm, CNV-PLOT", is(&canvas, "ORDERS", "forms/orders.cfrm", "CNV-PLOT", "Canvas2D", "(DESKTOP-WASM-001 M6)")),
-            ("a Label bound to an indexed file: LBL-TOTAL, Label, M3", is(&binding, "MAIN", "forms/main.cfrm", "LBL-TOTAL", "Label", "(DESKTOP-WASM-001 M3)")),
+            ("a Label bound to an indexed file: LBL-TOTAL, Label, M6", is(&binding, "MAIN", "forms/main.cfrm", "LBL-TOTAL", "Label", "(DESKTOP-WASM-001 M6)")),
         ];
         println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, R13) ==");
         println!("forms: 4 designs, 12 controls (3 nested), 1 binding; 4 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);

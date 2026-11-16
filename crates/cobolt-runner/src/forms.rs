@@ -123,13 +123,14 @@ impl WasmEngine {
         imports: Vec<(String, String)>,
         manifest: Manifest,
         forms: Vec<cobolt_forms::Form>,
+        files: crate::files::FileSetup,
         lang: Lang,
         pins: Pins,
     ) -> Result<WasmEngine, Msg> {
         let (tx, rx) = mpsc::channel::<ToProgram>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), Msg>>();
         let exit = Arc::new(AtomicI32::new(NO_EXIT));
-        let thread = Thread { engine, module, abi, imports, manifest, forms: forms.clone(), lang, pins, rx, tx: tx.clone(), exit: Arc::clone(&exit) };
+        let thread = Thread { engine, module, abi, imports, manifest, forms: forms.clone(), files, lang, pins, rx, tx: tx.clone(), exit: Arc::clone(&exit) };
         std::thread::Builder::new()
             .name("program".into())
             // The interpreter's program stack: a module's own stack is in its memory, but the host's
@@ -225,6 +226,7 @@ struct Thread {
     imports: Vec<(String, String)>,
     manifest: Manifest,
     forms: Vec<cobolt_forms::Form>,
+    files: crate::files::FileSetup,
     lang: Lang,
     pins: Pins,
     rx: mpsc::Receiver<ToProgram>,
@@ -261,16 +263,27 @@ impl Driver {
 
     /// Perform one call the ABI host asked for (ABI v1 §4), as the browser's loader does.
     fn perform(&mut self, call: &ModuleCall) -> CallResult {
+        // A file the program opens belongs to the instance the call acts on (T38).
+        self.store.data_mut().files.begin_call(call_inst(call));
         let r = (|| -> wasmtime::Result<CallResult> {
             Ok(match call {
                 ModuleCall::OpenForm { form, opener } => {
                     let inst = self.call::<(i32, i32), i32>("pr_open_form", (*form as i32, *opener))?;
+                    if let Ok(inst) = u32::try_from(inst) {
+                        self.store.data_mut().files.opened_form(inst);
+                    }
                     let status = self.call::<(), i32>("pr_status", ())?;
                     let task = self.task(status)?;
                     CallResult::Opened { inst, status, task }
                 }
                 ModuleCall::CloseForm { inst } => {
                     let status = self.call::<i32, i32>("pr_close_form", *inst as i32)?;
+                    // A closed window's program lets go of the files it left open, as the
+                    // interpreter of a closed form drops its own; a close still running (a task) has
+                    // not closed the window yet.
+                    if status != 1 && status != 2 {
+                        self.store.data_mut().files.forget_instance(*inst);
+                    }
                     CallResult::Status { status, task: self.task(status)? }
                 }
                 ModuleCall::Event { inst, ctrl, event, args, argc } => {
@@ -311,7 +324,7 @@ fn call_inst(call: &ModuleCall) -> Option<u32> {
 
 impl Thread {
     fn run(self, ready: mpsc::Sender<Result<(), Msg>>) {
-        let Thread { engine, module, abi, imports, manifest, forms, lang, pins, rx, tx, exit } = self;
+        let Thread { engine, module, abi, imports, manifest, forms, files, lang, pins, rx, tx, exit } = self;
         let layout = manifest.layout();
         let mut host = Host::new(manifest, HostOptions { desktop: true, ..HostOptions::default() });
         // A form the Build has no program for is designed but not in the manifest: it cannot open.
@@ -327,6 +340,7 @@ impl Thread {
             let linker = crate::linker_for(&engine, abi, &imports)?;
             let mut st = State::new(lang, pins);
             st.forms = Some(FormRun { host, layout });
+            st.files = crate::files::Files::new(files);
             let mut store = Store::new(&engine, st);
             let instance = linker.instantiate(&mut store, &module).map_err(|e| Msg::CannotStart(format!("{e:#}")))?;
             let fail = |e: wasmtime::Error| Msg::CannotStart(format!("{e:#}"));

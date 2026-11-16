@@ -174,7 +174,7 @@ impl Lower<'_, '_> {
                 let why = match b.native {
                     crate::support::Native::Cargo(why) => Some(why),
                     crate::support::Native::Form => (!forms_served).then_some(crate::support::D_FORMS),
-                    crate::support::Native::Module | crate::support::Native::Host(_) => None,
+                    crate::support::Native::Module | crate::support::Native::Host(_) | crate::support::Native::Files => None,
                 };
                 return match why {
                     Some(why) => {

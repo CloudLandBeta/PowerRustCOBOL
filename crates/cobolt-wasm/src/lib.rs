@@ -17,6 +17,8 @@ pub mod lower;
 pub mod lower_call;
 pub mod lower_form;
 pub mod lower_idx;
+/// A desktop module's files, kept by the runner (DESKTOP-WASM-001 T38).
+pub mod lower_nfile;
 pub mod lower_more;
 pub mod lower_remote;
 pub mod lower_super;

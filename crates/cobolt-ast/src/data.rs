@@ -340,3 +340,35 @@ pub struct ScreenItem {
     pub children: Vec<ScreenItem>,
     pub span: Span,
 }
+
+/// The integer digit positions a PICTURE describes — the `9`s to the left of
+/// any `V`, with `9(n)` counting as *n* of them.
+///
+/// Only the integer side matters to the caller: a RELATIVE KEY is a whole
+/// record number, so what decides whether a number fits is how many digits the
+/// item has before the decimal point.
+pub fn pic_integer_digits(pic: &str) -> u32 {
+    let up = pic.to_ascii_uppercase();
+    let b = up.as_bytes();
+    let (mut total, mut i) = (0u32, 0usize);
+    while i < b.len() {
+        match b[i] {
+            // Everything from the implied decimal point on is fractional.
+            b'V' => break,
+            b'9' => {
+                i += 1;
+                // A parenthesised repeat count multiplies the position before it.
+                match (b.get(i), up[i..].find(')')) {
+                    (Some(b'('), Some(off)) => {
+                        let end = i + off;
+                        total += up[i + 1..end].trim().parse::<u32>().unwrap_or(1);
+                        i = end + 1;
+                    }
+                    _ => total += 1,
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    total
+}

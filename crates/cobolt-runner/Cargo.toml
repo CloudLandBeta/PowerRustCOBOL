@@ -38,6 +38,8 @@ cobolt-abi-host  = { path = "../cobolt-abi-host" }
 cobolt-form-host = { path = "../cobolt-form-host", default-features = false }
 cobolt-forms     = { path = "../cobolt-forms", features = ["render"] }
 cobolt-runtime   = { path = "../cobolt-runtime", default-features = false }
+# The file declarations name an INDEXED file's engine choice as the parser does (T38).
+cobolt-ast       = { path = "../cobolt-ast" }
 
 [dev-dependencies]
 # The test compiles its console programs with the generator, as the Build will (T16), and packages
@@ -45,7 +47,6 @@ cobolt-runtime   = { path = "../cobolt-runtime", default-features = false }
 cobolt-wasm   = { path = "../cobolt-wasm", default-features = false }
 cobolt-lexer  = { path = "../cobolt-lexer" }
 cobolt-parser = { path = "../cobolt-parser" }
-cobolt-ast    = { path = "../cobolt-ast" }
 # A module whose manifest asks for a capability the generator does not make yet (`sql`).
 wasmparser    = "0.244"
 wasm-encoder  = "0.244"

@@ -85,8 +85,8 @@ const SCREEN_PD: &str = "    ACCEPT WS-KEY FROM ESCAPE KEY\n    ACCEPT WS-CRT FR
                          \x20   DISPLAY \"[\" WS-KEY \"][\" WS-CRT \"][\" WS-KEYN \"]\"\n";
 
 /// An INDEXED file held in the module's memory (WASM-010 Q8), written out of order and read back. A
-/// browser module holds it; a desktop module refuses it until M3, since on the desktop the file is
-/// read from disk and, without `WITH PERSISTENCE`, opens for INPUT only (T24, WASM-PARITY #15).
+/// browser module holds it; a desktop module keeps it through the runner (T38), since on the desktop the
+/// file is read from disk and, without `WITH PERSISTENCE`, opens for INPUT only (T24, WASM-PARITY #15).
 const INDEXED: &str = "IDENTIFICATION DIVISION.\nPROGRAM-ID. T12IDX.\nENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n\
     \x20   SELECT CUST ASSIGN TO \"data.idx\"\n        ORGANIZATION IS INDEXED\n        ACCESS MODE IS DYNAMIC\n        RECORD KEY IS C-ID\n\
     \x20       STORAGE IS MEMORY\n        FILE STATUS IS FS.\nDATA DIVISION.\nFILE SECTION.\nFD CUST.\n01 C-REC.\n    05 C-ID PIC 9(5).\n    05 C-NAME PIC X(5).\n\
@@ -280,7 +280,7 @@ fn the_console_and_the_environment_reach_the_runner_and_the_manifest_names_them(
         );
     }
     // An INDEXED file declared STORAGE IS MEMORY: the browser module holds it and reads it back in
-    // key order; the desktop module refuses it, naming the file and why (T24).
+    // key order.
     let idx = common::parse(INDEXED);
     for multi in [true, false] {
         match compile_program(&idx, &Options { multi_memory: multi, ..Options::default() }) {
@@ -290,12 +290,19 @@ fn the_console_and_the_environment_reach_the_runner_and_the_manifest_names_them(
             }
             Err(e) => check(false, format!("browser multi={multi}: the memory file is refused: {e}"), &mut failures),
         }
-        let refused = compile_program(&idx, &native(multi)).err().map(|e| e.to_string()).unwrap_or_default();
-        check(
-            refused.contains("file CUST") && refused.contains("STORAGE IS MEMORY is read from its file"),
-            format!("desktop multi={multi}: the memory file is refused with its reason: {refused:?}"),
-            &mut failures,
-        );
+        // Since T38 the desktop module keeps it as the interpreter does on the desktop: through the
+        // runner, read from its file (`crates/cobolt-runner/tests/files.rs` runs it).
+        match compile_program(&idx, &native(multi)) {
+            Ok(desk) => {
+                let (caps, prn) = needs(&desk);
+                check(
+                    caps.iter().any(|c| c == "files.indexed") && prn.iter().any(|i| i == "f_open"),
+                    format!("desktop multi={multi}: the memory file names files.indexed and f_open: {caps:?} {prn:?}"),
+                    &mut failures,
+                );
+            }
+            Err(e) => check(false, format!("desktop multi={multi}: the memory file is refused: {e}"), &mut failures),
+        }
     }
     // `RETURN-CODE` compiles in a desktop module only (T15, `tests/native_return_code.rs`); the
     // browser build refuses it, as before.

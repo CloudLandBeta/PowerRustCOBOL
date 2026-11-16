@@ -62,6 +62,21 @@ mod imp {
         /// bytes written are returned; kind 2 writes nothing and returns the
         /// count; -1 when there is no such variable or argument.
         pub fn env_get(kind: u32, n: u32, buf: u32, cap: u32) -> i32;
+        // A desktop module only (ABI A34): the runner's files, each named by
+        // its number in the `prfiles` section; every call answers the file
+        // status as a number (`crate::nfile`). `slot` is the address of the
+        // file's place in the region of the program instance that holds it.
+        /// `OPEN`: the path is the `path_len` bytes at `path`.
+        pub fn f_open(id: u32, slot: u32, mode: u32, path: u32, path_len: u32, flags: u32) -> i32;
+        pub fn f_close(id: u32, slot: u32, how: u32) -> i32;
+        /// `READ`: the record goes to `rec` (at most `cap` bytes); its length
+        /// goes to `out`, and at `out + 8` the slot a RELATIVE read delivered.
+        pub fn f_read(id: u32, slot: u32, how: u32, kor: u32, key: u32, key_len: i32, rel: i64, rec: u32, cap: u32, out: u32) -> i32;
+        /// `WRITE`: at `out` the slot a sequential RELATIVE write was given.
+        pub fn f_write(id: u32, slot: u32, rec: u32, len: u32, rel: i64, out: u32) -> i32;
+        pub fn f_rewrite(id: u32, slot: u32, rec: u32, len: u32, rel: i64) -> i32;
+        pub fn f_delete(id: u32, slot: u32, key: u32, key_len: i32, rel: i64) -> i32;
+        pub fn f_start(id: u32, slot: u32, op: u32, kor: u32, key: u32, key_len: i32, rel: i64) -> i32;
     }
 }
 
@@ -138,6 +153,57 @@ mod imp {
     }
     pub unsafe fn random() -> f64 {
         0.5
+    }
+
+    std::thread_local! {
+        /// The file imports called on this thread, each with its arguments (A34).
+        pub static FILE_CALLS: RefCell<Vec<(&'static str, Vec<i64>)>> = const { RefCell::new(Vec::new()) };
+        /// The status the next file import answers, and what a `f_read` delivers: the record and
+        /// the slot (-1 none).
+        pub static FILE_ANSWER: RefCell<(i32, Vec<u8>, i64)> = const { RefCell::new((0, Vec::new(), -1)) };
+    }
+    fn file_call(name: &'static str, args: &[i64]) -> i32 {
+        FILE_CALLS.with(|c| c.borrow_mut().push((name, args.to_vec())));
+        FILE_ANSWER.with(|a| a.borrow().0)
+    }
+    pub unsafe fn f_open(id: u32, slot: u32, mode: u32, path: u32, path_len: u32, flags: u32) -> i32 {
+        let _ = (path, path_len);
+        file_call("f_open", &[id as i64, slot as i64, mode as i64, path_len as i64, flags as i64])
+    }
+    pub unsafe fn f_close(id: u32, slot: u32, how: u32) -> i32 {
+        file_call("f_close", &[id as i64, slot as i64, how as i64])
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn f_read(id: u32, slot: u32, how: u32, kor: u32, key: u32, key_len: i32, rel: i64, rec: u32, cap: u32, out: u32) -> i32 {
+        let _ = key;
+        let code = file_call("f_read", &[id as i64, slot as i64, how as i64, kor as i64, key_len as i64, rel]);
+        let (_, bytes, at) = FILE_ANSWER.with(|a| a.borrow().clone());
+        if code == 0 {
+            let n = bytes.len().min(cap as usize);
+            crate::mem::bytes_mut(rec, n as u32).copy_from_slice(&bytes[..n]);
+            crate::mem::wr_u32(out, bytes.len() as u32);
+            crate::mem::bytes_mut(out + 8, 8).copy_from_slice(&at.to_le_bytes());
+        }
+        code
+    }
+    pub unsafe fn f_write(id: u32, slot: u32, rec: u32, len: u32, rel: i64, out: u32) -> i32 {
+        let _ = rec;
+        let code = file_call("f_write", &[id as i64, slot as i64, len as i64, rel]);
+        let at = FILE_ANSWER.with(|a| a.borrow().2);
+        crate::mem::bytes_mut(out, 8).copy_from_slice(&at.to_le_bytes());
+        code
+    }
+    pub unsafe fn f_rewrite(id: u32, slot: u32, rec: u32, len: u32, rel: i64) -> i32 {
+        let _ = rec;
+        file_call("f_rewrite", &[id as i64, slot as i64, len as i64, rel])
+    }
+    pub unsafe fn f_delete(id: u32, slot: u32, key: u32, key_len: i32, rel: i64) -> i32 {
+        let _ = key;
+        file_call("f_delete", &[id as i64, slot as i64, key_len as i64, rel])
+    }
+    pub unsafe fn f_start(id: u32, slot: u32, op: u32, kor: u32, key: u32, key_len: i32, rel: i64) -> i32 {
+        let _ = key;
+        file_call("f_start", &[id as i64, slot as i64, op as i64, kor as i64, key_len as i64, rel])
     }
 }
 

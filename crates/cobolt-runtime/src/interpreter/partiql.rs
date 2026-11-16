@@ -520,7 +520,7 @@ impl Interpreter {
             .chain(def.keys.alternates.iter().map(|k| k.name.clone()))
             .collect();
         let text = Some(crate::indexed_ide::definition_text_of(def));
-        let engine = super::detect_container_engine(path).unwrap_or(self.indexed_engine);
+        let engine = crate::file_core::detect_container_engine(path).unwrap_or(self.indexed_engine);
         if engine == IndexedEngine::Redb && def.storage == cobolt_indexed::StorageMode::Disk {
             let mut e = RedbIndexedFile::new(path, reclen, primary, alts);
             e.set_key_names(names);

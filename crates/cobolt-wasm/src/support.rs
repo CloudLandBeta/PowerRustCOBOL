@@ -22,6 +22,11 @@ pub enum Native {
     /// Compiled into the module, and served by the desktop runner through a capability (a name of
     /// `cobolt_wasm_abi::codes::cap`, WASM-ABI-v1 A27).
     Host(&'static str),
+    /// A file verb, served by the desktop runner through the capability of the file's organisation
+    /// (`files.sequential`, `files.line-sequential`, `files.relative` or `files.indexed`, ABI A34;
+    /// DESKTOP-WASM-001 T38). A file the runner cannot keep yet sends the Build to the Cargo path at
+    /// its first verb, naming the file and why.
+    Files,
     /// Compiled into a form's program and served by the runner's ABI host with the form, its
     /// controls and the application object (DESKTOP-WASM-001 M2, T33). A program with no form
     /// has none of them, so there it sends the Build to the Cargo path ([`D_FORMS`]).
@@ -33,7 +38,6 @@ pub enum Native {
 // The reasons of the Desktop column. Each names the milestone of DESKTOP-WASM-001 that moves the entry.
 /// Why a program with no form takes the Cargo path for an entry of class [`Native::Form`] (DESKTOP-WASM-001 T33).
 pub const D_FORMS: &str = "a program with no form has no controls or application object in its module, so it takes the Cargo path for them (DESKTOP-WASM-001 M2 serves them to a form's program)";
-pub(crate) const D_FILES: &str = "files are not on the WebAssembly path yet (DESKTOP-WASM-001 M3): on the desktop every file is on disk, and an INDEXED file declared STORAGE IS MEMORY is read from its file";
 const D_FILE_BUILTINS: &str = "the file and image built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
 pub(crate) const D_SORT: &str = "SORT with USING or GIVING files is not on the WebAssembly path yet (DESKTOP-WASM-001 M3); with an INPUT and an OUTPUT PROCEDURE it is compiled into the module";
 const D_FILES_M3: &str = "MERGE, COMMIT, ROLLBACK and UNLOCK are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
@@ -382,11 +386,11 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("ALTER", Support::Module, Native::Module),
     ("CALL", Support::Module, Native::Module),
     ("CANCEL", Support::Module, Native::Module),
-    ("CLOSE", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("CLOSE", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("COMMIT", Support::BackendOnly(BACKEND_FILES), Native::Cargo(D_FILES_M3)),
     ("COMPUTE", Support::Module, Native::Module),
     ("CONTINUE", Support::Module, Native::Module),
-    ("DELETE", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("DELETE", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("DISPLAY", Support::Module, Native::Module),
     ("DIVIDE", Support::Module, Native::Module),
     ("EVALUATE", Support::Module, Native::Module),
@@ -405,17 +409,17 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("MOVE CORRESPONDING", Support::Module, Native::Module),
     ("MULTIPLY", Support::Module, Native::Module),
     ("NEXT SENTENCE", Support::Module, Native::Module),
-    ("OPEN", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("OPEN", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("PERFORM", Support::Module, Native::Module),
-    ("READ", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("READ", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("RELEASE", Support::MemoryFiles(SORT_FILES), Native::Module),
     ("RETURN", Support::MemoryFiles(SORT_FILES), Native::Module),
-    ("REWRITE", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("REWRITE", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("ROLLBACK", Support::BackendOnly(BACKEND_FILES), Native::Cargo(D_FILES_M3)),
     ("SEARCH", Support::Module, Native::Module),
     ("SET (pointer)", Support::BackendOnly(POINTERS), Native::Cargo(D_POINTERS)),
     ("SORT", Support::MemoryFiles(SORT_FILES), Native::Cargo(D_SORT)),
-    ("START", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("START", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("STOP", Support::Module, Native::Module),
     ("STRING", Support::Module, Native::Module),
     ("SUBTRACT", Support::Module, Native::Module),
@@ -424,7 +428,7 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("TRY", Support::Module, Native::Cargo(D_EXCEPTIONS)),
     ("UNLOCK", Support::BackendOnly(BACKEND_FILES), Native::Cargo(D_FILES_M3)),
     ("UNSTRING", Support::Module, Native::Module),
-    ("WRITE", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),
+    ("WRITE", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("control assignment", Support::Module, Native::Form),
     ("end of sentence", Support::Module, Native::Module),
     ("member call", Support::Module, Native::Form),
@@ -452,7 +456,7 @@ pub fn desktop_refusal(s: &Stmt, in_form: bool) -> Option<&'static str> {
     match statement_native(stmt_name(s))? {
         Native::Cargo(why) => Some(why),
         Native::Form => (!in_form).then_some(D_FORMS),
-        Native::Module | Native::Host(_) => None,
+        Native::Module | Native::Host(_) | Native::Files => None,
     }
 }
 
@@ -495,7 +499,9 @@ pub fn desktop_control_gap(t: &cobolt_forms::model::ControlType) -> Option<&'sta
 /// path (DESKTOP-WASM-001 T33): a binding is filled by the interpreter's runtime, which a module
 /// does not carry yet. One row per source, in [`desktop_binding_gap`]'s order.
 pub const DESKTOP_BINDING_GAPS: &[(&str, &str)] = &[
-    ("an indexed file", "a control bound to an indexed file is not on the WebAssembly path yet (DESKTOP-WASM-001 M3)"),
+    // The program's own file verbs are the runner's since T38; a bound grid is filled, refreshed and
+    // saved back by the grid's binding, which moves with the other bound controls.
+    ("an indexed file", "a control bound to an indexed file is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)"),
     ("a SQL query", "a control bound to a SQL query is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)"),
     ("a REST endpoint", "a control bound to a REST endpoint is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)"),
     ("a COBOL table", "a control bound to a COBOL table is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)"),
