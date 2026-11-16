@@ -14,7 +14,7 @@ Flag-pt rect=[48 748 88 780] font=14
 KB-1 rect=[1200 208 1248 256] font=14
 Lbl-Status rect=[288 64 1176 88] font=14
 Lbl-Topic rect=[288 24 992 56] font=20
-SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1 rect=[0 0 264 594] font=14
 SideMenu-1-Footer rect=[0 720 264 792] font=14
 Txt-Input rect=[288 458 748 562] font=14
 Vwr-Chat rect=[288 96 876 442] font=14
@@ -126,7 +126,7 @@ Flag-pt rect=[48 748 88 780] font=14
 KB-1 rect=[1200 208 1248 256] font=14
 Lbl-Status rect=[288 64 1176 88] font=14
 Lbl-Topic rect=[288 24 992 56] font=20
-SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1 rect=[0 0 264 1188] font=14
 SideMenu-1-Footer rect=[0 720 264 792] font=14
 Txt-Input rect=[288 1052 1648 1156] font=14
 Vwr-Chat rect=[288 96 1776 1036] font=14
@@ -163,7 +163,7 @@ Flag-pt rect=[268 776 308 808] font=14
 KB-1 rect=[1420 236 1468 284] font=14
 Lbl-Status rect=[508 92 1396 116] font=14
 Lbl-Topic rect=[508 52 1212 84] font=20
-SideMenu-1 rect=[220 28 484 820] font=14
+SideMenu-1 rect=[220 28 484 1188] font=14
 SideMenu-1-Footer rect=[220 748 484 820] font=14
 Txt-Input rect=[508 1052 1648 1156] font=14
 Vwr-Chat rect=[508 124 1776 1036] font=14

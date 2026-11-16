@@ -14,6 +14,16 @@
   - **Without the fix**, after twelve frames on the laptop, the monitor-size path is at 0.747 and still moving. It fell to 0.5 on the second frame, then set 0.52, 0.54 … 0.75, one per frame. The window was left at a size matching none of them. The work-area path is at 0.5, the floor.
 - **Not changed, found while checking:** on Windows and Linux the fit places the window as if the screen started at the primary monitor's corner. A window started on a monitor to the right of or below the primary can therefore be pulled onto the primary.
 
+## 2.0.505 — 2026-11-15
+
+**Fix: the form host's example-corpus golden follows the SideMenu fix of 2.0.311.** `corpus_golden` (`cobolt-form-host`) failed on `PowerChat/chat-form.cfrm`: the rail was 594 high where the golden said 792. Since 2.0.311, a full-height SideMenu follows the form's laid-out height instead of its designed one. 2.0.360 brought the renderer's golden (`cobolt-forms`) up to that fix, but the form host keeps a second golden of the same corpus, and that one was never updated. No product code changes.
+- **The golden changes in three rows, all of them the rail following the laid-out height:**
+  - the Window at 0.75x: 594 high instead of 792;
+  - the Window at 1.5x: 1188 instead of 792;
+  - the ContentPane occupant at 1.5x: the rail now ends at the pane's bottom (y 1188) instead of at 820.
+- **The other 75 forms of the corpus are unchanged.** The footer Panel's row keeps its designed rect: at run time the rail draws the footer into its own footer band, so that row never shows where the footer is painted.
+- **Measured** (macOS arm64): the golden rewritten from `main` at 2.0.500 with `COBOLT_WRITE_GOLDEN=1`, then compared again without it. The test covers 76 forms of PowerDemo3 and PowerChat at 0.75x, 1x and 1.5x, with 465 renders and 10 227 control rows. The comparison run finds 0 forms differing, and all 124 designed-size renders with `responsive="true"` agree with the plain form; 240.4 s.
+
 ## 2.0.504 — 2026-11-15
 
 **Fix: the WebAssembly generator's test suite is green again: its dependency guard follows the workspace's own Rust floor, and its corpus comparison recognises every timing line.** Two targets of `cargo test -p cobolt-wasm` had been red since before DESKTOP-WASM-001, and every task of it reported them. Neither red was a fault in the product: each test held a rule that the code had moved past.
