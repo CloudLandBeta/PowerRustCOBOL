@@ -263,6 +263,13 @@ pub struct FormTree {
     /// The size and breakpoint the program reads from `me::` (`me::Width`, `me::Height`, `me::Breakpoint`), kept as the
     /// desktop host keeps them; set by the host from what the page measures ([`LiveSize`]).
     pub live: LiveSize,
+    /// A program's write raises the observer events of the property it changed ([`FormTree::set`]);
+    /// off on the desktop, whose form host raises them ([`crate::host::HostOptions::observer_events`]).
+    pub observer_events: bool,
+    /// How the program spelled each property it last wrote, by `(control, key)`: `CAPTION` from a
+    /// `MOVE … TO LBL::Caption`, `Items` from `AddItem`. The desktop's form host keys a write by its
+    /// spelling, as it keys the interpreter's, so the runner sends each change under it (DESKTOP-WASM-001 T30).
+    pub spelled: BTreeMap<(usize, String), String>,
 }
 
 /// What the program of one instance is told about the room its form has (the PowerAnalyticsWeb parity job, P4).
@@ -555,6 +562,8 @@ impl FormTree {
             decimal_comma: cobolt_forms::picture::decimal_comma_from_special_names(&form.cobol_structure.special_names),
             currency: cobolt_forms::picture::currency_from_special_names(&form.cobol_structure.special_names),
             live: LiveSize::default(),
+            observer_events: true,
+            spelled: BTreeMap::new(),
         })
     }
 
@@ -829,12 +838,14 @@ impl FormTree {
             // Written under BOTH spellings so they can never disagree.
             for k in [SELECTED_PROP, CHECKED_PROP] {
                 self.ctls[ctl].props.insert(k.to_ascii_lowercase(), value.clone());
+                self.spelled.insert((ctl, k.to_ascii_lowercase()), k.to_owned());
                 self.touch(ctl, &k.to_ascii_lowercase());
             }
             // The program's own write reads canonically; a `Value` a click left stays as the click wrote it.
             self.ctls[ctl].ui_raw.retain(|k| k == "value");
         } else {
             self.ctls[ctl].props.insert(key.clone(), value.clone());
+            self.spelled.insert((ctl, key.clone()), name.trim().to_owned());
             self.touch(ctl, &key);
             self.ctls[ctl].ui_raw.retain(|k| *k != key);
         }
@@ -846,7 +857,7 @@ impl FormTree {
             self.ctls[ctl].timer_on = turned_on(&value);
         }
         // Observer events: only when the value actually changed.
-        let changed = before.as_deref() != Some(value.as_str());
+        let changed = self.observer_events && before.as_deref() != Some(value.as_str());
         let mut out = Vec::new();
         if changed {
             if let Kind::Control(t) = &self.ctls[ctl].kind {

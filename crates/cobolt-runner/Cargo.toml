@@ -6,7 +6,7 @@
 
 [package]
 name        = "cobolt-runner"
-description = "prc-runner, the PowerRustCOBOL runner (DESKTOP-WASM-001 T15): runs the Desktop program a Build put inside its own executable, a WebAssembly module and its machine code"
+description = "prc-runner, the PowerRustCOBOL runner (DESKTOP-WASM-001 T15, T30): runs the Desktop program a Build put inside its own executable, a WebAssembly module and its machine code, console or forms"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
@@ -31,6 +31,13 @@ serde_json = { workspace = true }
 wasmtime = { version = "=44.0.3", default-features = false, features = ["cranelift", "runtime", "std"] }
 # The pinned clock (`PRC_TEST_CLOCK`, RFC 3339) and the local offset, read as the interpreter reads them.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# A module with forms (T30): the ABI host drives its programs, as the browser's player does, and
+# the form host shows its windows, the very windows a program built on the Cargo path shows. The
+# runtime's optional parts (SQL, HTTP, maps, …) stay off until a milestone provides their capability.
+cobolt-abi-host  = { path = "../cobolt-abi-host" }
+cobolt-form-host = { path = "../cobolt-form-host", default-features = false }
+cobolt-forms     = { path = "../cobolt-forms", features = ["render"] }
+cobolt-runtime   = { path = "../cobolt-runtime", default-features = false }
 
 [dev-dependencies]
 # The test compiles its console programs with the generator, as the Build will (T16), and packages

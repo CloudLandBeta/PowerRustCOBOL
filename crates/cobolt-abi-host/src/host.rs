@@ -376,11 +376,16 @@ pub struct HostOptions {
     pub standalone: bool,
     /// The longest event queue before the oldest *movement* events are dropped.
     pub max_queue: usize,
+    /// A program's write raises the observer events of the property it changed (`onChange`,
+    /// `onValueChanged`, …) here, as the page needs. The desktop runner turns it off: its form host
+    /// raises them when the write reaches the window, as it does for the interpreter, so a handler
+    /// runs once (DESKTOP-WASM-001 T30).
+    pub observer_events: bool,
 }
 
 impl Default for HostOptions {
     fn default() -> Self {
-        HostOptions { debug_level: 0, standalone: false, max_queue: 4096 }
+        HostOptions { debug_level: 0, standalone: false, max_queue: 4096, observer_events: true }
     }
 }
 
@@ -1666,6 +1671,7 @@ impl Host {
         tree.platform = self.platform;
         tree.params = params;
         tree.live = self.live_at_open(&tree, mode);
+        tree.observer_events = self.opts.observer_events;
         self.trees.insert(inst, tree);
         // The grids the backend serves (WASM-005 R13, T16), from the form's own bindings.
         for (id, grid) in crate::grid::remote_grids(&desc) {

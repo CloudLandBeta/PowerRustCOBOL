@@ -148,13 +148,21 @@ impl Lower<'_, '_> {
         ))
     }
 
-    /// A desktop module has no form, controls or application object before M2, and a built-in
+    /// A desktop console module has no form, controls or application object, and a built-in
     /// waits for its own milestone (DESKTOP-WASM-001 T10, T16): a member that reaches the host is
-    /// refused there with the reason of its Desktop class, so the Build takes the Cargo path.
+    /// refused there with the reason of its Desktop class, so the Build takes the Cargo path. A
+    /// desktop module with forms has them (M2, T30): there only a built-in that waits for a later
+    /// milestone than the forms' is refused.
     /// `root` is the chain's first name and `first` its first segment's; on the application object
     /// the segment names the built-in.
     pub(crate) fn desktop_gate(&self, ctrl: u32, root: &Expr, first: Option<&str>, line: u32) -> GenResult<()> {
         if !self.native {
+            return Ok(());
+        }
+        // A desktop module with forms is run by the runner's ABI host, which serves the form, its controls and
+        // the application object (M2, T30): only what waits for a later milestone is refused.
+        let forms_served = self.form.is_some();
+        if forms_served && ctrl != CTRL_APP {
             return Ok(());
         }
         let root = match root {
@@ -164,14 +172,18 @@ impl Lower<'_, '_> {
         if ctrl == CTRL_APP {
             if let Some(b) = first.and_then(|n| crate::support::builtin_entry(&n.to_ascii_uppercase())) {
                 return match b.native {
-                    crate::support::Native::Cargo(why) => {
+                    crate::support::Native::Cargo(why) if !(forms_served && why == crate::support::D_FORMS) => {
                         let subject = format!("COBOL::\"{}\"", b.name);
                         let message = format!("{subject}: {why}");
                         self.err_kind(line, crate::error::ErrorKind::Other, subject, message)
                     }
                     crate::support::Native::Module | crate::support::Native::Host(_) => Ok(()),
+                    crate::support::Native::Cargo(_) => Ok(()),
                 };
             }
+        }
+        if forms_served {
+            return Ok(());
         }
         let subject = first.map(|n| format!("{root}::{n}")).unwrap_or_else(|| root.to_string());
         self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_FORMS))

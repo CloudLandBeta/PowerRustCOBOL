@@ -1201,7 +1201,42 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - `pixel-parity --cargo` matches every golden: the refactor moved no pixel.
     - `engine_reference_form_parity_static_vs_faces` green.
 
-- [ ] **T30 — `WasmEngine`: one form** (R9, R10, R28 runner half)
+- [x] **T30 — `WasmEngine`: one form** (R9, R10, R28 runner half)
+  - *Done 2026-11-16 (2.0.529):*
+    - **`cobolt-runner::forms` (new):**
+      - `WasmEngine` is the runner's `ProgramEngine`. It answers a form's design from the module's `prforms` section, and starts an instance by handing its channels to the one program thread.
+      - The program thread owns the module's instance and the ABI host (`HostOptions { observer_events: false }`). It performs the host's calls as the browser's loader does (`pr_open_form`, `pr_event`, `pr_resume`, `pr_close_form`, `pr_cancel`).
+      - **Events in:** before each event, the user's edits are stored without an echo (`ui_set`). An event leaves `pending` when it is taken, as the interpreter takes it. An input wake only drains the input. A closed window ends its form's program.
+      - **Changes out:** each property write is sent as a `StateUpdate` spelled as the program spelled it.
+      - **`DISPLAY` and run-time errors** go to the window's display.
+      - **Timers:** `Sleep` timers run on the form host's clock. A Timer control is run by the form host, as for the interpreter.
+      - `now` and `tz_offset` answer the interpreter's clock (`test_pins::now()`), which follows the headless run's virtual time.
+    - **`cobolt-runner::app` (new):**
+      - The glue mirrors `run_form_app`: the assets anchor, the connections, locale, currency, link schemes, focus ring and menus from `prsettings` and `prmenus`, the theme packs from `prart`, the window effects, the shell decision, and the main form's instance.
+      - `HostHooks::program_engine` gives the host the `WasmEngine`.
+      - `PRC_HEADLESS_SCRIPT`, `PRC_HEADLESS_LIMIT` and `PRC_HEADLESS_SHOTS` run the script as a Cargo-built program does.
+      - `run_module` takes this path when the module has forms. The runner now provides `pr.query`.
+    - **`cobolt-abi-host`:**
+      - `HostOptions::observer_events` (on by default; the player sets it on). The form host raises a write's observer events itself, so a handler runs once.
+      - `FormTree::spelled` records how the program spelled each property it last wrote. The form host keys a write by that spelling: `CAPTION` from COBOL, `Items` from `AddItem`, `Interval` from `SetInterval`. A toggle is sent under its control's one name (`Checked` or `Selected`), as the interpreter sends it.
+      - The player is rebuilt: plain 4 163 331 bytes, threaded 3 974 495.
+    - **The Build (`cobolt-compiler`):**
+      - A form project is compiled as one module: the main form's program, then each form whose program the Build has (`cobolt_wasm::compile_project`, now re-exported).
+      - **The temporary switch `PRC_WASM_FORMS=1`** lets a form project take that path. Every other form project stays on the Cargo path, as at M1, until T33 replaces the switch with the controls check.
+      - The generator's member and statement gates let a module with forms reach its controls and the application object. A built-in of a later milestone is still refused.
+    - **`rcrun run-form --headless`** honours `PRC_HEADLESS_SHOTS`, so both engines take the same pictures.
+    - **Deviation:** the test is `crates/cobolt-cli/tests/runner_one_form.rs`, not a `cobolt-runner` test. It needs `rcrun` for both the interpreter's run and the Build, and only `cobolt-cli`'s tests have it built.
+    - **`interpreter_and_wasm_engine_agree_on_one_form`:**
+      - **The fixture:** one form with a Label ×4, a TextBox, a CheckBox, a ListBox, a Timer and four Buttons. The handlers do `MOVE` from a property, an `IF` on `Checked`, `AddItem`, `GetCount`, and a Timer started by a click whose `onTick` stops it.
+      - **The run:** headless under `PRC_TEST_CLOCK` and `PRC_TEST_SEED`, under `rcrun run-form` and in the program `rcrun build` made on the WebAssembly path.
+      - **Result:** 15 of 15 checks. All 5 dumps are equal, and all 5 pictures are equal in every pixel (640×420 each, 1 344 000 pixels compared, 0 differing). The program's results are seen in the runner (Ann; checked; 2; ticked).
+      - **Timings:** Build 6.5 s; interpreter run 7.1 s; runner run 5.5 s.
+    - **`desktop_wasm_build` (AC15):** the bare runner now holds the text `STOP RUN.` itself (the runtime and form crates it links). The check now names a line the bare runner already holds and leaves it out: 7 lines searched, 1 in the runner itself, 0 of the other 6 in the built file; 28 of 28.
+    - **Size:** the debug runner is 172.1 MB, against 46.2 MB with the console only (T16). The release size is measured at M2's close (T36), with C12.
+    - **Tests:**
+      - `cargo test --no-fail-fast` over the eight crates T30 touches, with every `test result:` line read: 950 passed, 1 failed (`desktop_wasm_build`, corrected above, then 28 of 28), 9 ignored.
+      - Per crate: `cobolt-abi-host` 261; `cobolt-compiler` 302 with the correction, 9 ignored, 18 binaries; `cobolt-form-host` 219; `cobolt-wasm` 121; `cobolt-wasm-abi` 26; `cobolt-program-package` 10; `cobolt-runner` 7; `cobolt-runner-engine` 5.
+      - Then the player's `freshness` (6), the T1 gate `desktop_wasm_unchanged` (1) and the whole `cobolt-cli` suite (its 27 binaries, the `rcrun` host tests and `runner_one_form` among them): 76 passed, 0 failed, 6 ignored.
   - Files: `crates/cobolt-runner/src/` (`WasmEngine`, one program thread, the ABI host from T27).
   - Do:
     - Run one form: its controls, properties, methods, events and timers.

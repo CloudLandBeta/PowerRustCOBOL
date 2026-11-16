@@ -2,6 +2,15 @@
 
 
 
+## 2.0.529 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T30): the PowerRustCOBOL runner now shows a form from the WebAssembly module, and it behaves exactly as the interpreter does.**
+- **The same windows:** the runner opens the form in the very form host a Cargo-built program uses, with the settings, theme art and menus the module carries. Its controls, properties, methods, events and timers work.
+- **The module's programs run on one program thread,** driven by the same ABI host the browser's player uses. What the user types reaches the program before each event, and what the program writes reaches the window under the same property name the interpreter uses.
+- **Scripted runs:** the runner honours `PRC_HEADLESS_SCRIPT`, `PRC_HEADLESS_LIMIT` and `PRC_HEADLESS_SHOTS` as a Cargo-built program does, and `rcrun run-form --headless` now writes pictures to `PRC_HEADLESS_SHOTS` too.
+- **For now a form project takes this path only when `PRC_WASM_FORMS=1` is set,** and every other form project Build stays on the Cargo path. A later task replaces the switch with a check that names any control the runner cannot serve yet.
+- **Checked:** one form with a Label, a TextBox, a CheckBox, a ListBox, a Timer and four Buttons was run by a script under the interpreter and in the runner, both under a pinned clock. All 5 state dumps are equal, and all 5 pictures are equal in every pixel (1 344 000 pixels compared, 0 differing): 15 of 15 checks.
+
 ## 2.0.528 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T29): the form host now asks a program engine to run each form's program, so the desktop runner can run them from the WebAssembly module while every other host keeps the interpreter.**

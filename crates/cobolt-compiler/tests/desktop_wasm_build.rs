@@ -339,10 +339,17 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     let dist_out = run(&dir.join("dist").join(&exe_name));
     check("dist/<name> runs too", dist_out.status.success() && String::from_utf8_lossy(&dist_out.stdout).contains(EXPECTED));
 
-    // AC15: no PROCEDURE DIVISION statement line of the project is in the built file.
+    // AC15: no PROCEDURE DIVISION statement line of the project is in the built file. A line the
+    // bare runner already holds (`STOP RUN.` is text in the runtime and form crates it links since
+    // T30) is the runner's own, not the program's: it is named, and left out of the count.
     let lines: Vec<String> = statement_lines(MAIN).into_iter().chain(statement_lines(COMMON)).collect();
-    let found: Vec<&String> = lines.iter().filter(|l| contains(&exe_bytes, l.as_bytes())).collect();
-    check(&format!("none of the {} statement lines is in the built file", lines.len()), !lines.is_empty() && found.is_empty());
+    let bare = fs::read(&runner).unwrap_or_default();
+    let in_runner: Vec<&String> = lines.iter().filter(|l| contains(&bare, l.as_bytes())).collect();
+    let found: Vec<&String> = lines.iter().filter(|l| !in_runner.contains(l) && contains(&exe_bytes, l.as_bytes())).collect();
+    check(
+        &format!("none of the {} statement lines the bare runner lacks is in the built file", lines.len() - in_runner.len()),
+        lines.len() > in_runner.len() && found.is_empty(),
+    );
 
     // ── 2. EXEC RUST takes the Cargo path before anything is compiled (AC12) ──
     let rust_line = line_of(EXEC_RUST, "EXEC RUST");
@@ -440,7 +447,13 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
         println!("     {:<13} {:>9.1} ms", phase.name(), took.as_secs_f64() * 1000.0);
     }
     println!("   bin/<name> ran in {run_ms:.1} ms and printed {:?}", stdout.trim_end());
-    println!("   statement lines searched in the built file: {}, found: {}", lines.len(), found.len());
+    println!(
+        "   statement lines searched in the built file: {}, in the bare runner itself: {} {:?}, found: {}",
+        lines.len(),
+        in_runner.len(),
+        in_runner,
+        found.len()
+    );
     println!("2. EXEC RUST at src/main.cbl line {rust_line}: Cargo path named in {rust_ms:.1} ms");
     println!("3. refused: {files_reason:?} in {files_ms:.1} ms");
     println!("   refused: {http_reason:?} in {http_ms:.1} ms");

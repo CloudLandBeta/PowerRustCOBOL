@@ -89,7 +89,7 @@ impl Pins {
 }
 
 /// Milliseconds since 1970-01-01T00:00 of a date and time on the wall clock, with the fraction.
-fn wall_ms(t: chrono::NaiveDateTime) -> f64 {
+pub(crate) fn wall_ms(t: chrono::NaiveDateTime) -> f64 {
     let u = t.and_utc();
     u.timestamp() as f64 * 1000.0 + f64::from(u.timestamp_subsec_nanos()) / 1_000_000.0
 }

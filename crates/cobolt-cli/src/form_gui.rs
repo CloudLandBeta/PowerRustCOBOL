@@ -794,12 +794,16 @@ pub fn cmd_run_form(args: &[String]) {
             .unwrap_or_default();
         let limit = arg_after("--headless-limit").and_then(|v| v.parse::<u64>().ok()).unwrap_or(20).clamp(1, 120);
         let png = arg_after("--headless-png").map(PathBuf::from);
-        let mut report = cobolt_form_host::headless::run_headless(
+        // DESKTOP-WASM-001 R28: the folder the script's `shot` steps write their pictures to, as a
+        // built program reads it, so the two can be held to the same pictures (T30).
+        let shots = std::env::var_os("PRC_HEADLESS_SHOTS").map(PathBuf::from);
+        let mut report = cobolt_form_host::headless::run_headless_with(
             config,
             shell_mode.then_some(root_menu),
             &script,
             std::time::Duration::from_secs(limit),
             png.as_deref(),
+            shots.as_deref(),
         );
         if let Some(e) = error_slot.lock().ok().and_then(|mut s| s.take()) {
             report["runtime_error"] = serde_json::Value::String(e);

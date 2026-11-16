@@ -1552,6 +1552,8 @@ fn resolve_main(proj: &CoboltProject, dir: &Path) -> Option<String> {
 /// block registry, so their blocks are generated together with the main
 /// program's (spec 041 R2).
 struct FormProgramUnit {
+    /// The form's ID (its `.cfrm` stem in capitals), as `gather_forms` names it.
+    id: String,
     /// The generated `.cbl`, relative to the project — what a diagnostic names.
     rel: String,
     /// The text it was parsed from, for exact block positions.
@@ -2004,6 +2006,12 @@ impl std::fmt::Display for CargoReason {
 
 /// The environment variable that names the PowerRustCOBOL runner a Build uses (DESKTOP-WASM-001 T16).
 pub const RUNNER_ENV: &str = "PRC_RUNNER";
+
+/// While the runner learns forms (DESKTOP-WASM-001 M2, T30–T32), a form project takes the WebAssembly
+/// path only when this is set to `1`, so the runner's form engine can be tested on real Builds; every
+/// other Build of a form project takes the Cargo path, as at M1. T33 replaces it with the check that
+/// sends a form whose controls the runner lacks to the Cargo path, naming them.
+pub const WASM_FORMS_ENV: &str = "PRC_WASM_FORMS";
 
 /// The runner's file name, beside the IDE and `rcrun`.
 pub const RUNNER_NAME: &str = if cfg!(windows) { "prc-runner.exe" } else { "prc-runner" };
@@ -2592,9 +2600,11 @@ fn classify<'p>(
             return Err(CargoReason::ExecRust { file: file.to_string(), line });
         }
     }
-    // Until M2 the runner shows no window: a program with forms takes the Cargo path, which says
-    // which form (DESKTOP-WASM-001 T10's reason for forms).
-    if let Some((id, file)) = main_form {
+    // Until the runner has every form verb (M2), a program with forms takes the Cargo path, which
+    // says which form (DESKTOP-WASM-001 T10's reason for forms), unless `PRC_WASM_FORMS=1` asks for
+    // the WebAssembly path ([`WASM_FORMS_ENV`], T30).
+    let forms_asked = std::env::var(WASM_FORMS_ENV).is_ok_and(|v| v.trim() == "1");
+    if let Some((id, file)) = main_form.filter(|_| !forms_asked) {
         return Err(CargoReason::Refused {
             construct: format!("the form {id}"),
             reason: cobolt_wasm::support::D_FORMS.to_string(),
@@ -3113,6 +3123,7 @@ fn build_core(
         gz.write_all(&bytes).unwrap();
         form_programs.push((id.clone(), gz.finish()?));
         form_units.push(FormProgramUnit {
+            id: id.clone(),
             rel: cbl
                 .strip_prefix(&project_dir)
                 .unwrap_or(&cbl)
@@ -3155,7 +3166,31 @@ fn build_core(
             clock.enter(BuildPhase::Generate);
             report(0.50, "Generating the WebAssembly module…");
             let wasm_opts = cobolt_wasm::Options { native: true, name: bin_name.clone(), ..cobolt_wasm::Options::default() };
-            match cobolt_wasm::compile_program(&program, &wasm_opts) {
+            // A form project is one module with every form whose program the Build has: the main
+            // form's (the program above) first, then each openable form's (T30). A refusal in a
+            // form's program names that form's generated file.
+            let designs: Vec<(String, cobolt_forms::Form)> = forms
+                .iter()
+                .filter_map(|(id, raw)| {
+                    let form = cobolt_forms::load_form_from_str(std::str::from_utf8(raw).ok()?).ok()?;
+                    Some((id.clone(), form))
+                })
+                .collect();
+            let compiled = match designs.first() {
+                Some((_, main)) => {
+                    let mut specs = vec![form_spec(main, &program, true, Vec::new())];
+                    for u in &form_units {
+                        if let Some((_, f)) = designs.iter().skip(1).find(|(id, _)| *id == u.id) {
+                            specs.push(form_spec(f, &u.program, false, Vec::new()));
+                        }
+                    }
+                    cobolt_wasm::compile_project(&specs, &wasm_opts)
+                }
+                None => cobolt_wasm::compile_program(&program, &wasm_opts),
+            };
+            let mut files = common_files.clone();
+            files.extend(form_units.iter().map(|u| (u.program.identification.program_id.to_ascii_uppercase(), u.rel.clone())));
+            match compiled {
                 Ok(mut module) => {
                     // T28: the settings, forms, menus and theme art beside the code (C1). The
                     // backend is read from the program as the Cargo path reads it.
@@ -3165,7 +3200,7 @@ fn build_core(
                     cobolt_wasm::module::append_custom_sections(&mut module.wasm, &sections.encode());
                     Ok((runner, module))
                 }
-                Err(e) => Err(refused(&e, main_rel, &common_files)),
+                Err(e) => Err(refused(&e, main_rel, &files)),
             }
         }
         Err(reason) => Err(reason),

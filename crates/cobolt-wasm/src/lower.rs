@@ -1944,7 +1944,8 @@ impl<'a, 'b> Lower<'a, 'b> {
         // A desktop module refuses what the runner cannot serve yet, with the reason of the
         // statement's Desktop class, so the Build takes the Cargo path and says why (DESKTOP-WASM-001 T16).
         if self.native {
-            if let Some(why) = crate::support::desktop_refusal(s) {
+            // A module with forms has its controls and the application object (M2, T30).
+            if let Some(why) = crate::support::desktop_refusal(s).filter(|w| !(self.form.is_some() && *w == crate::support::D_FORMS)) {
                 let name = crate::support::stmt_name(s);
                 return self.err_kind(line, crate::error::ErrorKind::Other, name, format!("{name}: {why}"));
             }

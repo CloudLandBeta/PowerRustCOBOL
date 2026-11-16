@@ -30,4 +30,4 @@ pub mod support;
 pub mod host;
 
 pub use error::{ErrorKind, GenError, GenWarning, WarningKind};
-pub use module::{compile_program, compile_web_project, Compiled, Options, WebModules};
+pub use module::{compile_program, compile_project, compile_web_project, Compiled, FormSpec, Options, WebModules};

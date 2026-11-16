@@ -2515,11 +2515,15 @@ name = "cobolt-runner"
 version = "0.2.0"
 dependencies = [
  "chrono",
+ "cobolt-abi-host",
  "cobolt-ast",
+ "cobolt-form-host",
+ "cobolt-forms",
  "cobolt-lexer",
  "cobolt-parser",
  "cobolt-program-package",
  "cobolt-runner-engine",
+ "cobolt-runtime",
  "cobolt-wasm",
  "cobolt-wasm-abi",
  "flate2",

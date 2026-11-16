@@ -18,12 +18,20 @@
 //!    console part of `prn` (A27, A29, A30);
 //! 6. runs the program to its end and exits with the code it handed to `prn.exit` (0 when none).
 //!
+//! A module with forms (its `prforms` section is not empty) is a form application ([`app`], T30):
+//! its windows are the form host's, the very windows a program built on the Cargo path shows, and
+//! its programs run on one program thread, driven by the ABI host the browser's player uses
+//! ([`forms`]). That links the form host, the forms' painter and the interpreter's runtime crate,
+//! whose clock and channels the form host shares; the interpreter itself never runs here.
+//!
 //! What `DISPLAY` writes goes to standard output, a line per command; `ACCEPT` from the console
 //! reads standard input; the environment and the arguments are this process's own. The clock and
 //! the random source honour the test pins ([`pins`], R28).
 //!
 //! The runner never names itself after its crate: its words are "the PowerRustCOBOL runner".
 
+pub mod app;
+pub mod forms;
 pub mod messages;
 pub mod pins;
 
@@ -45,13 +53,15 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[cap::CONSOLE, cap::ENV];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row
 /// is never removed, so a module of any earlier ABI finds every import it was built with (R5).
-/// Not yet provided: `pr.query` and `pr.remote` (forms and the backend, M2), and the conformance
-/// imports, which a desktop Build never makes.
+/// Not yet provided: `pr.remote` (the backend), and the conformance imports, which a desktop Build
+/// never makes.
 pub const PROVIDED_IMPORTS: &[(u32, &str, &str)] = &[
     (1, IMPORT_MODULE, "flush"),
     (1, IMPORT_MODULE, "abort"),
     (1, IMPORT_MODULE, "now"),
     (1, IMPORT_MODULE, "random"),
+    // A form module asks the ABI host for what the program reads (T30).
+    (1, IMPORT_MODULE, "query"),
     (1, NATIVE_IMPORT_MODULE, "con_read"),
     (1, NATIVE_IMPORT_MODULE, "env_get"),
     (1, NATIVE_IMPORT_MODULE, "exit"),
@@ -120,6 +130,14 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
         let why = loaded.skipped.as_ref().map(|s| format!(" ({s:?})")).unwrap_or_default();
         eprintln!("prc-runner: loaded by {:?}{why} in {:.1} ms", loaded.path, loaded.ms);
     }
+    // A module with forms is a form application: its windows, and its programs on one thread (T30).
+    if !checked.sections.forms.is_empty() {
+        let Checked { abi, imports, manifest, sections } = checked;
+        return match app::run(engine, loaded.module, abi, imports, manifest, sections, lang, pins) {
+            Ok(code) => code,
+            Err(msg) => refuse(lang, msg),
+        };
+    }
     let linker = match linker_for(&engine, checked.abi, &checked.imports) {
         Ok(l) => l,
         Err(msg) => return refuse(lang, msg),
@@ -163,6 +181,9 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
 struct Checked {
     abi: u32,
     imports: Vec<(String, String)>,
+    manifest: Manifest,
+    /// The forms, menus, settings and art the Build put beside the code (T28).
+    sections: cobolt_program_package::DesktopSections,
 }
 
 /// Read the module's manifest and imports: the ABI must be one this runner runs (1 to
@@ -188,7 +209,8 @@ fn check(module: &[u8]) -> Result<Checked, Msg> {
     if let Some(name) = missing_imports(manifest.abi, &imports).into_iter().next() {
         return Err(Msg::Import(name));
     }
-    Ok(Checked { abi: manifest.abi, imports })
+    let sections = cobolt_program_package::DesktopSections::decode(|name| scan.custom(name)).map_err(|e| Msg::Damaged(e.to_string()))?;
+    Ok(Checked { abi: manifest.abi, imports, manifest, sections })
 }
 
 /// The imports in `imports` this runner does not provide to a module of `abi`, as `module.name`.
@@ -236,20 +258,23 @@ pub struct State {
     exit_code: Option<i32>,
     /// What ended the run, when the module aborted.
     fatal: Option<Msg>,
+    /// A form module's ABI host and the regions of its arena (T30); `None` for a console program.
+    pub(crate) forms: Option<forms::FormRun>,
 }
 
 impl State {
     fn new(lang: Lang, pins: Pins) -> Self {
-        State { lang, random: pins.random_state(), pins, arena: None, arena_base: 0, exit_code: None, fatal: None }
+        State { lang, random: pins.random_state(), pins, arena: None, arena_base: 0, exit_code: None, fatal: None, forms: None }
     }
 }
 
-/// The batch the module staged at the start of its arena.
+/// The batch the module staged in its arena's batch region (at its start, in a console module).
 fn read_batch(caller: &Caller<'_, State>, len: i32) -> Vec<u8> {
     let st = caller.data();
+    let at = st.arena_base + st.forms.as_ref().map_or(0, |f| f.layout.batch_off);
     let mut buf = vec![0u8; len.max(0) as usize];
     if let Some(mem) = st.arena {
-        let _ = mem.read(caller, st.arena_base as usize, &mut buf);
+        let _ = mem.read(caller, at as usize, &mut buf);
     }
     buf
 }
@@ -307,7 +332,11 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                 linker
                     .func_wrap(IMPORT_MODULE, "flush", |mut caller: Caller<'_, State>, len: i32| {
                         let batch = read_batch(&caller, len);
-                        apply(&batch, caller.data_mut(), false);
+                        let st = caller.data_mut();
+                        match st.forms.as_mut() {
+                            Some(f) => f.host.flush(&batch),
+                            None => apply(&batch, st, false),
+                        }
                     })
                     .map_err(fail)?;
             }
@@ -315,13 +344,50 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                 linker
                     .func_wrap(IMPORT_MODULE, "abort", |mut caller: Caller<'_, State>, len: i32| -> wasmtime::Result<()> {
                         let batch = read_batch(&caller, len);
-                        apply(&batch, caller.data_mut(), true);
+                        let st = caller.data_mut();
+                        match st.forms.as_mut() {
+                            // The ABI host reports the error to the form, and the trap ends the run.
+                            Some(f) => f.host.abort(&batch),
+                            None => apply(&batch, st, true),
+                        }
                         Err(wasmtime::Error::msg("run-time error"))
                     })
                     .map_err(fail)?;
             }
+            (IMPORT_MODULE, "query") => {
+                linker
+                    .func_wrap(IMPORT_MODULE, "query", |mut caller: Caller<'_, State>, len: i32| -> i32 {
+                        let bad = cobolt_wasm_abi::codes::err::BAD_ARGUMENT;
+                        let batch = read_batch(&caller, len);
+                        let (at, mem, answer) = {
+                            let st = caller.data_mut();
+                            let Some(f) = st.forms.as_mut() else { return bad };
+                            (st.arena_base + f.layout.answer_off, st.arena, f.host.query(&batch))
+                        };
+                        match (answer, mem) {
+                            (Ok(answer), Some(mem)) => match mem.write(&mut caller, at as usize, &answer) {
+                                Ok(()) => answer.len() as i32,
+                                Err(_) => bad,
+                            },
+                            (Ok(_), None) => bad,
+                            (Err(code), _) => code,
+                        }
+                    })
+                    .map_err(fail)?;
+            }
             (IMPORT_MODULE, "now") => {
-                linker.func_wrap(IMPORT_MODULE, "now", |caller: Caller<'_, State>| -> f64 { caller.data().pins.now_ms() }).map_err(fail)?;
+                // A form program's clock moves with a deterministic headless run's virtual time, as the
+                // interpreter's does (T8); a console program's stays at the pin.
+                linker
+                    .func_wrap(IMPORT_MODULE, "now", |caller: Caller<'_, State>| -> f64 {
+                        let st = caller.data();
+                        if st.forms.is_some() {
+                            forms::now_ms()
+                        } else {
+                            st.pins.now_ms()
+                        }
+                    })
+                    .map_err(fail)?;
             }
             (IMPORT_MODULE, "random") => {
                 linker
@@ -377,7 +443,14 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
             }
             (NATIVE_IMPORT_MODULE, "tz_offset") => {
                 linker
-                    .func_wrap(NATIVE_IMPORT_MODULE, "tz_offset", |caller: Caller<'_, State>| -> i32 { caller.data().pins.offset_minutes() })
+                    .func_wrap(NATIVE_IMPORT_MODULE, "tz_offset", |caller: Caller<'_, State>| -> i32 {
+                        let st = caller.data();
+                        if st.forms.is_some() {
+                            forms::offset_minutes()
+                        } else {
+                            st.pins.offset_minutes()
+                        }
+                    })
                     .map_err(fail)?;
             }
             (NATIVE_IMPORT_MODULE, "exit") => {
