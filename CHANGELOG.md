@@ -14,6 +14,15 @@
   - **Without the fix**, after twelve frames on the laptop, the monitor-size path is at 0.747 and still moving. It fell to 0.5 on the second frame, then set 0.52, 0.54 … 0.75, one per frame. The window was left at a size matching none of them. The work-area path is at 0.5, the floor.
 - **Not changed, found while checking:** on Windows and Linux the fit places the window as if the screen started at the primary monitor's corner. A window started on a monitor to the right of or below the primary can therefore be pulled onto the primary.
 
+## 2.0.509 — 2026-11-15
+
+**Fix: a `RETURN-CODE` too large for an exit code is held at the nearest end instead of wrapping around.** Since 2.0.498 a console program ends with the exit code `RETURN-CODE` holds, held to the 32 bits an exit code has. `RETURN-CODE` has no size of its own, though, and the value was first cut to 64 bits by a conversion that wraps around: a program whose `RETURN-CODE` reached 2^64 (18446744073709551616) ended with 0, as if it had succeeded, and −(2^64)+5 ended with 5.
+- **The fix:** the exit code reads the whole number, every digit of it, and then holds it at 2147483647 or −2147483648. A shell on Linux or macOS sees 255 and 0, Windows the whole value. Every value that fitted before ends exactly as before.
+- **Where:** one place serves both `rcrun run` and the program that `rcrun build` or the IDE's **Build** makes, so both are fixed together.
+- **The Developer's Guide** says so in the caveat of "The exit code is `RETURN-CODE`".
+- **Found** while comparing `RETURN-CODE` in desktop WebAssembly modules (2.0.507) with the interpreter.
+- **Measured** (macOS arm64): `return_code_exit` (`rcrun run`) and `return_code_exit_build` (the built program), 11 cases each, the 9 of 2.0.498 plus 2^64 and −(2^64)+5, which now end with 255 and 0 on macOS (before the fix: 0 and 5, as `native_return_code` measured through the same function at 2.0.507). `rcrun run` 11 of 11 in 4044.3 ms; the built program 11 of 11, build 20.6 s (debug), runs 955.1 ms. `cobolt-runtime`'s library tests 566 passed, 0 failed. The function has no other caller than these two hosts, so its 207 integration targets were not rebuilt for this change.
+
 ## 2.0.508 — 2026-11-15
 
 **Fix: a program compiled to WebAssembly no longer loses its output when it ends by running past its last statement.** A program module runs to its end and hands what it DISPLAYed to the host in batches. `STOP RUN`, `GOBACK` and `EXIT PROGRAM` handed over the last batch, but a main program that simply ran past its last statement ended without it, so every line still waiting was lost. A program of one `DISPLAY` and no `STOP RUN` showed nothing.

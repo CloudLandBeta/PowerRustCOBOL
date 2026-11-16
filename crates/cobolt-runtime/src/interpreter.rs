@@ -2376,12 +2376,16 @@ impl Interpreter {
     /// dropped, and a value beyond the 32 bits an exit status carries is held
     /// at the nearest end. The operating system decides what the shell sees:
     /// Linux and macOS keep the low eight bits (300 shows as 44, -1 as 255),
-    /// Windows the whole value.
+    /// Windows the whole value. A number is read whole, all of its digits, so
+    /// one past the 64-bit range is held at the nearest end too instead of
+    /// wrapping (2^64 used to end with 0).
     pub fn return_code(&self) -> i32 {
-        self.env
-            .get("RETURN-CODE")
-            .and_then(|v| v.as_i64())
-            .map_or(0, |n| n.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32)
+        let whole: i128 = match self.env.get("RETURN-CODE") {
+            Some(CobolValue::Numeric(n)) => cobolt_decimal::pow10(u32::from(n.decimals)).map_or(0, |p| n.mantissa / p),
+            Some(v) => v.as_i64().map_or(0, i128::from),
+            None => 0,
+        };
+        whole.clamp(i128::from(i32::MIN), i128::from(i32::MAX)) as i32
     }
 
     /// 037 — connect this interpreter to the multi-form window supervisor:

@@ -16532,7 +16532,9 @@ rcrun run nightly.cbl || echo "the nightly run failed with code $?"
 > a shell there sees a value from 0 to 255: 300 arrives as 44, and −1 as 255.
 > Windows passes on the whole value. Keep the codes between 0 and 255 to read
 > the same number on every system. A fraction is dropped: 7.9 ends the program
-> with 7.
+> with 7. A value too large for an exit code is held at the nearest end,
+> 2147483647 or −2147483648, however many digits it has; a shell on Linux or
+> macOS then sees 255 or 0.
 
 > **Note.** Before 2.0.498 a console program ended with 0 whatever
 > `RETURN-CODE` held. A runtime error still ends the run with 1, whatever
