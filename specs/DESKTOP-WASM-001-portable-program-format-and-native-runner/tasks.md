@@ -1482,6 +1482,26 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - The interpreter is not changed (no `cobolt-runtime` edit), so its NIST counts stand as at T38.
       - The System KB regenerated (4 414 records); `prebuilt_chunked_kb_matches_the_published_documentation` green.
 
+- [x] **T39b — `LINAGE` and `SAME [RECORD] AREA`** (R11; added 2026-11-16)
+  - Why added: the generator's own refusals named both as M3 work ("LINAGE and SAME AREA are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)"). The first census through the runner found them in 13 NIST programs: SQ114A, SQ201M, SQ206A, SQ208M, SQ209M, SQ210M, IX105A, IX107A, IX205A, RL106A, ST131A, ST134A and ST135A. M3 cannot close with them refused.
+  - Verify: runner twins equal to the interpreter's printed lines and files. `native_desktop_refusals` names what still takes the Cargo path. AC16 unchanged.
+  - *Done 2026-11-16 (2.0.547):*
+    - **No ABI change.** Both are kept in the module, as the interpreter keeps them (`advance_linage`, and the peer copy in `exec_read`). The runner and `cobolt-wasm-rt` are unchanged.
+    - **`LINAGE`** (`lower_nfile.rs`: `LinageMeta`, `linage_open`, `linage_write`, `page_size`, `read_at_least`; `lower.rs`: `LINAGE-COUNTER`):
+      - the page lives in 24 hidden bytes per file: the counter, the lines to advance and a scratch slot. A page measure in a data item is read at each `WRITE`, and a value of 0 or less means the stated number.
+      - `LINAGE-COUNTER` is an 18-digit register the module sets after a successful `OPEN` (1) and after each `WRITE`. It is read wherever `RETURN-CODE` is.
+      - writing it (`MOVE`, arithmetic) is refused naming `LINAGE-COUNTER`, and so is `ADVANCING` a mnemonic-name (named `WRITE ADVANCING`). Both are at their line, so the Build takes the Cargo path for them.
+    - **`SAME [RECORD] AREA`** (`lower_nfile.rs`: `same_area_copy`, `area_extent`):
+      - after a `READ` that returns 00, the record area of each file joined to the one read takes the record: `memory.copy` of the shorter length, then spaces to the end of a longer area. This happens before `INTO` and the phrases, at the same point as in the interpreter.
+      - a peer can be a file the runner keeps or a `SORT` work file.
+    - **Docs:** the Desktop column's note on files (`cobolt-compiler`) and the module doc of `lower_nfile.rs`. The System KB was regenerated (4 420 records), and `prebuilt_chunked_kb_matches_the_published_documentation` passes.
+    - **Measured:**
+      - `cobolt-runner --test files`: linage 23 lines and 2 files (96 bytes), same area 12 lines and 5 files (20 576 bytes), equal under the runner and `rcrun run`. With the earlier programs, 132 of 132 checks.
+      - `native_desktop_refusals`: 20 of 20.
+      - `cargo test -p cobolt-wasm`: 34 test programs, 124 passed, 0 failed. `cobolt-runner`: 8 passed, 0 failed.
+      - The PowerAnalyticsWeb pin and the player fixtures are unchanged.
+      - Generator NIST, unchanged: IC 25/25 (309/0/4), NC 95/95 (4 612/0/5), IF 45/45 (841/0/0).
+
 - [ ] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
   - Verify:
     - The NIST SQ, IX, RL and ST counts on both axes through the generator and the runner, reported separately.

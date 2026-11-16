@@ -676,6 +676,214 @@ SHOW-ITEMS.
     END-PERFORM.
 ";
 
+/// LINAGE (T39b): the page a WRITE moves down, which the module keeps as the interpreter does. A
+/// page with a stated body and footing, and one whose body and footing are data items (a footing
+/// item of 0 falls back to the stated number, so every line is past it, until the program sets
+/// it); ADVANCING by a number, by a data item and PAGE, and no phrase; AT END-OF-PAGE and NOT AT
+/// END-OF-PAGE; LINAGE-COUNTER displayed, moved and compared; a reopened file starts a new page,
+/// and a failed OPEN leaves the counter alone. The file's bytes do not change with the page.
+const LINAGE: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T39BLIN.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT REPORT-A ASSIGN TO \"page-a.txt\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS.
+    SELECT REPORT-B ASSIGN TO \"page-b.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-FS.
+    SELECT MISSING-REPORT ASSIGN TO \"absent.txt\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS.
+DATA DIVISION.
+FILE SECTION.
+FD REPORT-A
+    LINAGE IS 5 LINES WITH FOOTING AT 4 LINES AT TOP 1 LINES AT BOTTOM 1.
+01 A-LINE PIC X(20).
+FD REPORT-B
+    LINAGE IS WS-BODY LINES WITH FOOTING AT WS-FOOT.
+01 B-LINE PIC X(12).
+FD MISSING-REPORT
+    LINAGE IS 10 LINES.
+01 M-LINE PIC X(8).
+WORKING-STORAGE SECTION.
+01 WS-FS   PIC XX.
+01 WS-BODY PIC 99 VALUE 3.
+01 WS-FOOT PIC 99 VALUE 0.
+01 WS-STEP PIC 9 VALUE 2.
+01 WS-LC   PIC 999.
+01 WS-I    PIC 99.
+PROCEDURE DIVISION.
+MAIN-PARA.
+    OPEN OUTPUT REPORT-A
+    DISPLAY \"open a \" WS-FS \" lc \" LINAGE-COUNTER
+    PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 7
+        MOVE WS-I TO A-LINE
+        WRITE A-LINE AFTER ADVANCING 1 LINE
+            AT END-OF-PAGE DISPLAY \"a \" WS-I \" eop lc \" LINAGE-COUNTER
+            NOT AT END-OF-PAGE DISPLAY \"a \" WS-I \" lc \" LINAGE-COUNTER
+        END-WRITE
+    END-PERFORM
+    WRITE A-LINE AFTER ADVANCING 2 LINES
+        AT EOP DISPLAY \"a two eop lc \" LINAGE-COUNTER
+    END-WRITE
+    MOVE LINAGE-COUNTER TO WS-LC
+    DISPLAY \"moved \" WS-LC
+    WRITE A-LINE BEFORE ADVANCING PAGE
+    DISPLAY \"page lc \" LINAGE-COUNTER
+    WRITE A-LINE AFTER ADVANCING WS-STEP LINES
+    IF LINAGE-COUNTER = 3
+        DISPLAY \"item step lc 3\"
+    ELSE
+        DISPLAY \"item step lc \" LINAGE-COUNTER
+    END-IF
+    WRITE A-LINE
+    DISPLAY \"no phrase lc \" LINAGE-COUNTER
+    CLOSE REPORT-A
+    OPEN OUTPUT REPORT-A
+    DISPLAY \"reopen \" WS-FS \" lc \" LINAGE-COUNTER
+    CLOSE REPORT-A
+    OPEN OUTPUT REPORT-B
+    PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 5
+        MOVE \"B\" TO B-LINE
+        WRITE B-LINE
+            AT EOP DISPLAY \"b \" WS-I \" eop lc \" LINAGE-COUNTER
+            NOT AT EOP DISPLAY \"b \" WS-I \" lc \" LINAGE-COUNTER
+        END-WRITE
+    END-PERFORM
+    MOVE 2 TO WS-FOOT
+    MOVE 4 TO WS-BODY
+    PERFORM VARYING WS-I FROM 6 BY 1 UNTIL WS-I > 8
+        WRITE B-LINE
+            AT EOP DISPLAY \"b \" WS-I \" eop lc \" LINAGE-COUNTER
+            NOT AT EOP DISPLAY \"b \" WS-I \" lc \" LINAGE-COUNTER
+        END-WRITE
+    END-PERFORM
+    CLOSE REPORT-B
+    OPEN INPUT MISSING-REPORT
+    DISPLAY \"missing \" WS-FS \" lc \" LINAGE-COUNTER
+    STOP RUN.
+";
+
+const SAME_AREA: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T39BSAME.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT IN-A ASSIGN TO \"same-a.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-FS.
+    SELECT IN-B ASSIGN TO \"same-b.txt\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS.
+    SELECT IN-C ASSIGN TO \"same-c.dat\"
+        ORGANIZATION IS RELATIVE
+        ACCESS MODE IS SEQUENTIAL
+        FILE STATUS IS WS-FS.
+    SELECT IN-D ASSIGN TO \"same-d.idx\"
+        ORGANIZATION IS INDEXED
+        ACCESS MODE IS DYNAMIC
+        RECORD KEY IS D-KEY
+        FILE STATUS IS WS-FS.
+    SELECT SORT-W ASSIGN TO \"same.tmp\".
+I-O-CONTROL.
+    SAME RECORD AREA FOR IN-A IN-B IN-C
+    SAME RECORD AREA FOR SORT-W IN-D.
+DATA DIVISION.
+FILE SECTION.
+FD IN-A.
+01 A-REC.
+   05 A-KEY  PIC X(4).
+   05 A-TEXT PIC X(8).
+FD IN-B.
+01 B-REC PIC X(20).
+FD IN-C.
+01 C-REC PIC X(6).
+FD IN-D.
+01 D-REC.
+   05 D-KEY  PIC X(4).
+   05 D-TEXT PIC X(10).
+SD SORT-W.
+01 W-REC.
+   05 W-KEY  PIC X(4).
+   05 W-REST PIC X(12).
+WORKING-STORAGE SECTION.
+01 WS-FS   PIC XX.
+01 WS-EOF  PIC X VALUE \"N\".
+01 WS-HOLD PIC X(20).
+PROCEDURE DIVISION.
+MAIN-PARA.
+    OPEN OUTPUT IN-A
+    MOVE \"A001\" TO A-KEY
+    MOVE \"ALPHA\" TO A-TEXT
+    WRITE A-REC
+    MOVE \"A002\" TO A-KEY
+    MOVE \"BETA\" TO A-TEXT
+    WRITE A-REC
+    CLOSE IN-A
+    OPEN OUTPUT IN-B
+    MOVE \"LINE-B-ONE-IS-TWENTY\" TO B-REC
+    WRITE B-REC
+    MOVE \"SHORT B\" TO B-REC
+    WRITE B-REC
+    CLOSE IN-B
+    OPEN OUTPUT IN-C
+    MOVE \"CCC111\" TO C-REC
+    WRITE C-REC
+    CLOSE IN-C
+    OPEN OUTPUT IN-D
+    MOVE \"K003\" TO D-KEY
+    MOVE \"THIRD\" TO D-TEXT
+    WRITE D-REC
+    MOVE \"K001\" TO D-KEY
+    MOVE \"FIRST\" TO D-TEXT
+    WRITE D-REC
+    MOVE \"K002\" TO D-KEY
+    MOVE \"SECOND\" TO D-TEXT
+    WRITE D-REC
+    CLOSE IN-D
+    OPEN INPUT IN-A IN-B IN-C
+    READ IN-A
+    DISPLAY \"read a \" WS-FS \" b [\" B-REC \"] c [\" C-REC \"]\"
+    READ IN-B
+    DISPLAY \"read b \" WS-FS \" a [\" A-REC \"] c [\" C-REC \"]\"
+    READ IN-B
+    DISPLAY \"short b \" WS-FS \" a [\" A-REC \"] c [\" C-REC \"]\"
+    READ IN-C INTO WS-HOLD
+    DISPLAY \"read c \" WS-FS \" a [\" A-REC \"] b [\" B-REC \"] hold [\" WS-HOLD \"]\"
+    READ IN-C
+        AT END DISPLAY \"c at end \" WS-FS \" a [\" A-REC \"] b [\" B-REC \"]\"
+    END-READ
+    READ IN-A
+    DISPLAY \"second a \" WS-FS \" b [\" B-REC \"] key \" A-KEY
+    CLOSE IN-A IN-B IN-C
+    SORT SORT-W ON DESCENDING KEY W-KEY
+        INPUT PROCEDURE IS FEED
+        OUTPUT PROCEDURE IS DRAIN
+    STOP RUN.
+FEED.
+    OPEN INPUT IN-D
+    PERFORM UNTIL WS-FS NOT = \"00\"
+        READ IN-D NEXT
+            AT END CONTINUE
+            NOT AT END
+                DISPLAY \"feed [\" W-REC \"]\"
+                RELEASE W-REC
+        END-READ
+    END-PERFORM
+    CLOSE IN-D.
+DRAIN.
+    PERFORM UNTIL WS-EOF = \"Y\"
+        RETURN SORT-W
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END DISPLAY \"drain [\" W-REC \"]\"
+        END-RETURN
+    END-PERFORM.
+";
+
 /// The programs, by organisation, with lines each must print: the statuses the cases are there for.
 const PROGRAMS: &[(&str, &str, &[&str])] = &[
     (
@@ -719,6 +927,43 @@ const PROGRAMS: &[(&str, &str, &[&str])] = &[
         ],
     ),
     ("transactions", TRANSACTIONS, &["commit 00", "rollback 00", "unlock sequential 00", "after close"]),
+    (
+        "linage",
+        LINAGE,
+        &[
+            "open a 00 lc 1",
+            "a 03 lc 3",
+            "a 04 eop lc 4",
+            "a 06 lc 1",
+            "a two eop lc 4",
+            "moved 004",
+            "page lc 1",
+            "item step lc 3",
+            "no phrase lc 4",
+            "reopen 00 lc 1",
+            "b 01 eop lc 1",
+            "b 04 eop lc 1",
+            "b 07 eop lc 4",
+            "b 08 lc 1",
+            "missing 35 lc 1",
+        ],
+    ),
+    (
+        "same area",
+        SAME_AREA,
+        &[
+            "read a 00 b [A001ALPHA           ] c [A001AL]",
+            "read b 00 a [LINE-B-ONE-I] c [LINE-B]",
+            "short b 00 a [SHORT B     ] c [SHORT ]",
+            "read c 00 a [CCC111      ] b [CCC111              ] hold [CCC111              ]",
+            "c at end 10 a [CCC111      ] b [CCC111              ]",
+            "second a 00 b [A002BETA            ] key A002",
+            "feed [K001FIRST       ]",
+            "feed [K003THIRD       ]",
+            "drain [K003THIRD       ]",
+            "drain [K001FIRST       ]",
+        ],
+    ),
 ];
 
 /// A folder of its own under the system's temporary folder, removed at the end.
@@ -859,6 +1104,10 @@ fn files_of_every_organisation_match_the_interpreter() {
     println!("              INPUT PROCEDURE with GIVING, MERGE with GIVING and with an OUTPUT PROCEDURE, VARYING 4 TO 30");
     println!("              records at their own length, equal keys in release order, an absent USING file (35, then 42 at its CLOSE)");
     println!("  transactions: COMMIT, ROLLBACK, UNLOCK on an INDEXED file opened I-O; UNLOCK on a SEQUENTIAL file");
+    println!("  linage:     LINAGE stated and in data items (a footing item of 0 falls back), ADVANCING 1, 2, PAGE, a data item");
+    println!("              and none, AT/NOT AT END-OF-PAGE, LINAGE-COUNTER displayed/moved/compared, reopen, a failed OPEN");
+    println!("  same area:  SAME RECORD AREA across SEQUENTIAL, LINE SEQUENTIAL and RELATIVE files (longer peer padded, shorter cut),");
+    println!("              READ INTO, AT END leaves the peers alone; an INDEXED file READ NEXT through its SORT peer, RELEASEd and RETURNed");
     for r in &rows {
         println!("{r}");
     }

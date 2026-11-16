@@ -8010,7 +8010,7 @@ fn browser_subset_doc() -> String {
             Native::Host(cap) => (format!("yes, with the runner's `{cap}`"), String::new()),
             Native::Files => (
                 "yes, with the runner's file capabilities".into(),
-                "the capability of the file's organisation: `files.sequential`, `files.line-sequential`, `files.relative` or `files.indexed`; a report printed into a Viewer, LINAGE, SAME AREA and OPEN … WITH REGISTERED USER take the Cargo path".into(),
+                "the capability of the file's organisation: `files.sequential`, `files.line-sequential`, `files.relative` or `files.indexed`; `LINAGE` with `LINAGE-COUNTER` and `SAME [RECORD] AREA` are kept in the module; a report printed into a Viewer, OPEN … WITH REGISTERED USER, ADVANCING a mnemonic-name on a LINAGE file and LINAGE-COUNTER as a receiving item take the Cargo path".into(),
             ),
             Native::Form => ("yes, in a form's program".into(), "a program with no form takes the Cargo path for it".into()),
             Native::Cargo(why) => ("Cargo path".into(), why.to_string()),

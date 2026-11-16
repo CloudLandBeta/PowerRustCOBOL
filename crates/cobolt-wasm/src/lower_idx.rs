@@ -65,6 +65,8 @@ pub(crate) struct FileMeta {
     /// for none).
     pub org: FileOrganization,
     pub relkey_opd: u32,
+    /// A desktop file with `LINAGE`: its page (DESKTOP-WASM-001 T39b).
+    pub linage: Option<crate::lower_nfile::LinageMeta>,
 }
 
 /// `name` and `quals` agree with `want_quals` when one chain is a subsequence
@@ -257,6 +259,7 @@ impl Lower<'_, '_> {
             state_off: 0,
             org: FileOrganization::Indexed,
             relkey_opd: 0,
+            linage: None,
         });
         Ok(FileInfo {
             desc,
@@ -289,6 +292,7 @@ impl Lower<'_, '_> {
             state_off,
             org: FileOrganization::Sequential,
             relkey_opd: 0,
+            linage: None,
         });
         Ok(FileInfo {
             desc,

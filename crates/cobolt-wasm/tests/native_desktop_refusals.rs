@@ -61,15 +61,39 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     let browser = compile_program(&common::parse(&disk), &Options::default()).err().map(|e| e.message).unwrap_or_default();
     check("the same file in a browser module keeps the browser's refusal".into(), !browser.is_empty() && !browser.contains("WebAssembly path"));
 
-    // A file the runner does not keep yet: refused at its first verb, with M3's reason.
+    // A LINAGE file and SAME RECORD AREA compile (T39b); ADVANCING a mnemonic-name on a LINAGE
+    // file, which the interpreter reads as a data item, is refused at its WRITE.
     let linage = format!(
-        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT RPT ASSIGN TO \"t38.rpt\".\n\
-         DATA DIVISION.\nFILE SECTION.\nFD RPT\n    LINAGE IS 10 LINES.\n01 RPT-REC PIC X(20).\nPROCEDURE DIVISION.\n    OPEN OUTPUT RPT\n    CLOSE RPT\n    STOP RUN.\n"
+        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT RPT ASSIGN TO \"t38.rpt\".\n    SELECT OTHER-RPT ASSIGN TO \"t38.oth\".\n\
+         I-O-CONTROL.\n    SAME RECORD AREA FOR RPT OTHER-RPT.\n\
+         DATA DIVISION.\nFILE SECTION.\nFD RPT\n    LINAGE IS 10 LINES.\n01 RPT-REC PIC X(20).\nFD OTHER-RPT.\n01 OTHER-REC PIC X(30).\n\
+         PROCEDURE DIVISION.\n    OPEN OUTPUT RPT\n    WRITE RPT-REC\n    DISPLAY LINAGE-COUNTER\n    CLOSE RPT\n    OPEN INPUT OTHER-RPT\n    READ OTHER-RPT\n    CLOSE OTHER-RPT\n    STOP RUN.\n"
     );
-    let e = refusal(&linage);
+    let linage_caps = compile_program(&common::parse(&linage), &native())
+        .ok()
+        .and_then(|m| cobolt_wasm_abi::scan::scan_module(&m.wasm).ok()?.embedded_manifest().ok())
+        .map(|m| m.capabilities);
     check(
-        format!("a LINAGE file: \"file RPT\" at line {}, LINAGE is not on the path yet (M3), unit T16G", line_of(&linage, "OPEN OUTPUT")),
-        e.subject == "file RPT" && e.line == line_of(&linage, "OPEN OUTPUT") && e.message.contains("LINAGE") && e.message.contains("M3") && e.program == "T16G",
+        "a LINAGE file with LINAGE-COUNTER and a SAME RECORD AREA peer compiles: capability files.sequential".into(),
+        linage_caps.is_some_and(|c| c == ["files.sequential"]),
+    );
+    let mnemonic = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\nSPECIAL-NAMES.\n    C01 IS NEXT-PAGE.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT RPT ASSIGN TO \"t38.rpt\".\n\
+         DATA DIVISION.\nFILE SECTION.\nFD RPT\n    LINAGE IS 10 LINES.\n01 RPT-REC PIC X(20).\nPROCEDURE DIVISION.\n    OPEN OUTPUT RPT\n    WRITE RPT-REC AFTER ADVANCING NEXT-PAGE\n    CLOSE RPT\n    STOP RUN.\n"
+    );
+    let e = refusal(&mnemonic);
+    check(
+        format!("ADVANCING a mnemonic-name on a LINAGE file: \"WRITE ADVANCING\" at line {}, the Cargo path, unit T16G", line_of(&mnemonic, "WRITE RPT-REC")),
+        e.subject == "WRITE ADVANCING" && e.line == line_of(&mnemonic, "WRITE RPT-REC") && e.message.contains("Cargo path") && e.program == "T16G",
+    );
+    let written = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT RPT ASSIGN TO \"t38.rpt\".\n\
+         DATA DIVISION.\nFILE SECTION.\nFD RPT\n    LINAGE IS 10 LINES.\n01 RPT-REC PIC X(20).\nPROCEDURE DIVISION.\n    OPEN OUTPUT RPT\n    MOVE 3 TO LINAGE-COUNTER\n    CLOSE RPT\n    STOP RUN.\n"
+    );
+    let e = refusal(&written);
+    check(
+        format!("LINAGE-COUNTER as a receiving item: \"LINAGE-COUNTER\" at line {}, the Cargo path, unit T16G", line_of(&written, "MOVE 3")),
+        e.subject == "LINAGE-COUNTER" && e.line == line_of(&written, "MOVE 3") && e.message.contains("Cargo path") && e.program == "T16G",
     );
 
     // SORT and MERGE with USING and GIVING: compiled (T39); the files reach the runner. A relative
@@ -218,7 +242,7 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
 
     let took = t.elapsed().as_secs_f64() * 1000.0;
     println!("== native_desktop_refusals (DESKTOP-WASM-001 T16, T32, R13) ==");
-    println!("programs compiled: {} (9 as desktop modules refused or accepted, {} desktop form modules, 2 browser modules, 1 plain console program) in {took:.1} ms", 12 + 1 + page_verbs.len(), 1 + page_verbs.len());
+    println!("programs compiled: {} (11 as desktop modules refused or accepted, {} desktop form modules, 2 browser modules, 1 plain console program) in {took:.1} ms", 14 + 1 + page_verbs.len(), 1 + page_verbs.len());
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "pass" } else { "FAIL" });

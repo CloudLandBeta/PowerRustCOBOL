@@ -37,6 +37,11 @@ pub(crate) const RETURN_CODE: &str = "RETURN-CODE";
 const RC_OTHER_USE: &str = "RETURN-CODE is used here other than as a number: a desktop module compiles it in MOVE, ADD, SUBTRACT, MULTIPLY, COMPUTE, DISPLAY and comparisons with a number, so this program takes the Cargo path";
 const RC_NOT_WHOLE: &str = "RETURN-CODE receives a value that may carry a fraction or characters: a desktop module holds it as a whole number, so this program takes the Cargo path";
 const RC_SIZE_ERROR: &str = "RETURN-CODE has no size to exceed, so ON SIZE ERROR on it is not compiled in a desktop module, and this program takes the Cargo path";
+/// The page line of a `LINAGE` file, which a desktop module holds as RETURN-CODE is held: a whole
+/// number the program reads (DESKTOP-WASM-001 T39b).
+pub(crate) const LINAGE_COUNTER: &str = "LINAGE-COUNTER";
+const LC_READ_ONLY: &str = "LINAGE-COUNTER is written here: only a WRITE to a LINAGE file and its OPEN set it, so a desktop module does not compile this, and this program takes the Cargo path";
+const LC_OTHER_USE: &str = "LINAGE-COUNTER is used here other than as a number: a desktop module compiles it in MOVE to a numeric item, arithmetic, DISPLAY and comparisons with a number, so this program takes the Cargo path";
 
 /// Where the `PERFORM` stack lies inside the region: each instance of a form
 /// has its own, so a form that is waiting for an event keeps its frames.
@@ -265,6 +270,11 @@ pub struct Lower<'a, 'b> {
     /// named, and whether the statement being lowered is one where it may be named.
     pub(crate) rc_reg: Option<usize>,
     pub(crate) rc_ok: bool,
+    /// `LINAGE-COUNTER` in a desktop module (T39b): whether a file of the module declares
+    /// `LINAGE`, and the register's layout item, made with the first such file. It is read where
+    /// RETURN-CODE may be read.
+    pub(crate) uses_linage: bool,
+    pub(crate) lc_reg: Option<usize>,
     /// The program calls `FUNCTION RANDOM`: in a desktop program module, its first statement reads
     /// `PRC_TEST_SEED` (DESKTOP-WASM-001 R28, T15; [`Self::pin_random`]).
     pub(crate) uses_random: bool,
@@ -473,6 +483,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             native_regs: None,
             rc_reg: None,
             rc_ok: false,
+            uses_linage: false,
+            lc_reg: None,
             uses_random: false,
             files: HashMap::new(),
             record_file: HashMap::new(),
@@ -813,8 +825,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             // T38), one declared STORAGE IS MEMORY too, which on the desktop is read from its file.
             // A file it cannot keep yet is refused at its first verb.
             if self.native && !sort_files.contains(&name) {
-                let same_area = io.same_areas.iter().any(|g| g.iter().any(|f| up(f) == name));
-                if let Ok(fi) = self.build_native_file(fc, fd_of.get(&name).copied(), &rec_items, same_area) {
+                if let Ok(fi) = self.build_native_file(fc, fd_of.get(&name).copied(), &rec_items) {
                     self.files.insert(name, fi);
                 }
                 continue;
@@ -1483,6 +1494,12 @@ impl<'a, 'b> Lower<'a, 'b> {
                     return self.err(line, RC_OTHER_USE);
                 }
                 Ok(self.return_code_item())
+            }
+            Err(_) if self.native && self.uses_linage && quals.is_empty() && name.eq_ignore_ascii_case(LINAGE_COUNTER) => {
+                if !self.rc_ok {
+                    return self.err_kind(line, crate::error::ErrorKind::Other, LINAGE_COUNTER, LC_OTHER_USE);
+                }
+                Ok(self.linage_counter_item())
             }
             Err(m) => {
                 // The CCVS85 X-cards stand for names the installation supplies;
@@ -3271,12 +3288,32 @@ impl<'a, 'b> Lower<'a, 'b> {
         i
     }
 
-    /// Whether `e` is the register: `RETURN-CODE` in a desktop module that declares no item of
-    /// that name.
+    /// `LINAGE-COUNTER`'s layout item (T39b), the same whole-number register as RETURN-CODE's.
+    pub(crate) fn linage_counter_item(&mut self) -> usize {
+        if let Some(i) = self.lc_reg {
+            return i;
+        }
+        use cobolt_wasm_rt::fd::{Fd, F_SIGNED};
+        let i = self.layout.add_register(LINAGE_COUNTER, Fd::binary(18, 0, F_SIGNED, 8), cobolt_ast::data::Usage::Binary);
+        self.lc_reg = Some(i);
+        i
+    }
+
+    /// Whether `e` is a register: `RETURN-CODE` in a desktop module that declares no item of
+    /// that name, or `LINAGE-COUNTER` in one with a `LINAGE` file (T39b).
     pub(crate) fn names_return_code(&self, e: &Expr) -> bool {
         self.native
             && matches!(e, Expr::Identifier(n, _) if n.eq_ignore_ascii_case(RETURN_CODE))
             && self.layout.lookup(RETURN_CODE, &[]).is_err()
+            || self.names_linage_counter(e)
+    }
+
+    /// Whether `e` is `LINAGE-COUNTER`, which the program reads and never writes.
+    fn names_linage_counter(&self, e: &Expr) -> bool {
+        self.native
+            && self.uses_linage
+            && matches!(e, Expr::Identifier(n, _) if n.eq_ignore_ascii_case(LINAGE_COUNTER))
+            && self.layout.lookup(LINAGE_COUNTER, &[]).is_err()
     }
 
     /// Whether `e` names the register anywhere in it.
@@ -3338,6 +3375,9 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// A MOVE that names the register: into it only a whole number; out of it only into
     /// numeric items.
     fn return_code_move(&mut self, from: &Expr, to: &[Expr], line: u32) -> GenResult<()> {
+        if to.iter().any(|t| self.names_linage_counter(t)) {
+            return self.err_kind(line, crate::error::ErrorKind::Other, LINAGE_COUNTER, LC_READ_ONLY);
+        }
         if to.iter().any(|t| self.names_return_code(t)) && !self.whole(from) {
             return self.err(line, RC_NOT_WHOLE);
         }
@@ -3382,6 +3422,9 @@ impl<'a, 'b> Lower<'a, 'b> {
                 if giving.is_empty() {
                     receivers.extend([lhs, by]);
                 }
+                if receivers.iter().any(|e| self.names_linage_counter(e)) {
+                    return self.err_kind(line, crate::error::ErrorKind::Other, LINAGE_COUNTER, LC_READ_ONLY);
+                }
                 if receivers.iter().any(|e| self.names_return_code(e)) {
                     return self.err(line, RC_NOT_WHOLE);
                 }
@@ -3392,6 +3435,9 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
             _ => return Ok(false),
         };
+        if receivers.iter().any(|e| self.names_linage_counter(e)) {
+            return self.err_kind(line, crate::error::ErrorKind::Other, LINAGE_COUNTER, LC_READ_ONLY);
+        }
         if receivers.iter().any(|e| self.names_return_code(e)) {
             if size_error {
                 return self.err(line, RC_SIZE_ERROR);

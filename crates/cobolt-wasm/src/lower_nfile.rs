@@ -15,9 +15,13 @@
 //! does the rest with the interpreter's own code (`cobolt_runtime::file_core`), so a file's
 //! contents and its `FILE STATUS` are the interpreter's.
 //!
+//! `LINAGE` and `SAME [RECORD] AREA` are kept by the module itself (T39b), as the interpreter keeps
+//! them: the page and `LINAGE-COUNTER` change no byte of the file, and a READ copies its record
+//! into the areas of the files joined to it.
+//!
 //! What the runner does not keep yet is refused at the file's first verb, so the Build takes the
-//! Cargo path and says why: a report printed into a Viewer, `LINAGE`, `SAME AREA`, `OPEN … WITH
-//! REGISTERED USER`, and national or UTF-8 text in a LINE SEQUENTIAL record.
+//! Cargo path and says why: a report printed into a Viewer, `OPEN … WITH REGISTERED USER`, and
+//! national or UTF-8 text in a LINE SEQUENTIAL record.
 
 use crate::error::{ErrorKind, GenResult};
 use crate::lower::{FileInfo, FileKind, Lower};
@@ -30,35 +34,51 @@ use cobolt_ast::stmt::{OpenMode, ReadDirection, ShareMode, Stmt};
 use cobolt_wasm_abi::codes::cap;
 use cobolt_wasm_abi::files::{verb, Access, FileDecl, KeyDecl, Org};
 use cobolt_wasm_rt::nfile;
+use wasm_encoder::Instruction as I;
 
 fn up(s: &str) -> String {
     s.to_ascii_uppercase()
 }
 
+/// An 8-byte slot of the region.
+fn m64(off: u32) -> wasm_encoder::MemArg {
+    wasm_encoder::MemArg { offset: u64::from(off), align: 3, memory_index: 0 }
+}
+
 /// Why a desktop module does not hold a file the runner cannot keep yet.
 const D_REPORT: &str = "a report printed into a Viewer is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
-const D_LINAGE: &str = "LINAGE and SAME AREA are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
+const D_ADVANCING: &str = "ADVANCING a mnemonic-name or an expression on a LINAGE file is not on the WebAssembly path: the interpreter reads it as a data item, which it is not, so this program takes the Cargo path";
+
+/// A `LINAGE` file's page (DESKTOP-WASM-001 T39b). The module keeps it, as the interpreter does
+/// (`advance_linage`): the page changes no byte of the file, only `LINAGE-COUNTER` and which of
+/// `AT END-OF-PAGE` and `NOT AT END-OF-PAGE` runs.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LinageMeta {
+    /// Region offset of three 8-byte slots: the lines written into the page body, then two
+    /// scratch values.
+    pub slot: u32,
+    /// The body's and the footing's lines: the number the clause states, and the operand of the
+    /// data item that holds it instead (0 for none).
+    pub body: (u32, u32),
+    pub footing: (u32, u32),
+}
 const D_LINE_TEXT: &str = "national and UTF-8 text in a LINE SEQUENTIAL record is not on the WebAssembly path yet (DESKTOP-WASM-001 M5)";
 const D_REGISTERED: &str = "OPEN … WITH REGISTERED USER is not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
 
 impl Lower<'_, '_> {
     /// Lay out a file the desktop runner keeps: its description in the module's `prfiles` section,
-    /// its place in the region and its descriptor among the constants. `fd` is its FD, and
-    /// `same_area` says whether I-O-CONTROL joins it to another file's record area.
+    /// its place in the region and its descriptor among the constants. `fd` is its FD.
     pub(crate) fn build_native_file(
         &mut self,
         fc: &FileControl,
         fd: Option<&FileDescription>,
         rec_items: &[usize],
-        same_area: bool,
     ) -> GenResult<FileInfo> {
         let name = up(&fc.name);
         let refuse = |why: &str| (name.clone(), why.to_string());
         let mut refusal: Option<(String, String)> = None;
         if fc.viewer_target.is_some() || fc.assign.trim().eq_ignore_ascii_case("VIEWER") || fc.organization.is_rendered() {
             refusal = Some(refuse(D_REPORT));
-        } else if fd.is_some_and(|f| f.linage.is_some()) || same_area {
-            refusal = Some(refuse(D_LINAGE));
         }
         let (record, area_off, rec_len) = match self.first_record(&fc.name, rec_items) {
             Ok(r) => r,
@@ -202,6 +222,23 @@ impl Lower<'_, '_> {
             FileOrganization::Indexed => nfile::ORG_INDEXED,
             _ => nfile::ORG_SEQUENTIAL,
         };
+        // `LINAGE` (T39b): the page the module keeps, and LINAGE-COUNTER with it.
+        let linage = match fd.and_then(|f| f.linage.as_ref()) {
+            Some(l) => {
+                self.uses_linage = true;
+                self.linage_counter_item();
+                let body = (l.lines, match &l.lines_name {
+                    Some(n) => item_opd(self, n)?,
+                    None => 0,
+                });
+                let footing = (l.footing, match &l.footing_name {
+                    Some(n) => item_opd(self, n)?,
+                    None => 0,
+                });
+                Some(LinageMeta { slot: self.layout.alloc_hidden(24), body, footing })
+            }
+            None => None,
+        };
         let flags = if fc.access == AccessMode::Sequential { nfile::F_SEQ_ACCESS } else { 0 };
         let desc = self.pool.spec(&[
             id, org, flags, status_opd, area_off, area_len, path_addr, path_len, path_opd, relkey_opd, depend_opd, handle_off,
@@ -216,8 +253,292 @@ impl Lower<'_, '_> {
             state_off: 0,
             org: fc.organization,
             relkey_opd,
+            linage,
         });
         Ok(FileInfo { desc, handle_off, rec_item: Some(longest), kind: FileKind::Native, meta: self.file_meta.len() - 1 })
+    }
+
+    /// `LINAGE-COUNTER` ← the value on the stack's top (an i64), pushed by `value`.
+    fn set_linage_counter(&mut self, line: u32, value: impl FnOnce(&mut Self)) -> GenResult<()> {
+        let lc = self.linage_counter_item();
+        let opd = self.item_operand(lc, &[], None, line)?;
+        self.base();
+        self.i32c(opd as i32);
+        value(self);
+        self.call_rt("rt_set_int");
+        Ok(())
+    }
+
+    /// After the `OPEN` of a `LINAGE` file: when it opened (status 00 or 05), the page starts at
+    /// its first line, `LINAGE-COUNTER` 1 and no line written into the body yet, on every OPEN
+    /// (the interpreter's `exec_open`; SQ201M opens its print file twice).
+    fn linage_open(&mut self, fi: FileInfo, line: u32) -> GenResult<()> {
+        let Some(lm) = self.file_meta[fi.meta].linage else { return Ok(()) };
+        let hold = self.status_slot();
+        let open = self.new_block("linage-open");
+        let join = self.new_block("linage-open-done");
+        self.load_hold(hold);
+        self.i32c(10);
+        self.raw(I::I32LtU);
+        self.branch(open, join);
+        self.begin(open);
+        self.base();
+        self.raw(I::I64Const(0));
+        self.raw(I::I64Store(m64(lm.slot)));
+        self.set_linage_counter(line, |me| me.raw(I::I64Const(1)))?;
+        self.jump(join);
+        self.begin(join);
+        Ok(())
+    }
+
+    /// After a `WRITE` to a `LINAGE` file, its status, `INVALID KEY` phrase and USE procedure
+    /// done: the page moves down by the `ADVANCING` lines (1 without the phrase); a record that
+    /// does not fit in the body begins the next page; `ADVANCING PAGE` begins one. Then
+    /// `LINAGE-COUNTER` is the line reached, and `AT END-OF-PAGE` runs when it reaches the
+    /// footing, `NOT AT END-OF-PAGE` otherwise (the interpreter's `advance_linage`). A body or
+    /// footing a data item holds is read now, and one that is not above 0 is the stated number;
+    /// neither is ever below 1.
+    fn linage_write(
+        &mut self,
+        fi: FileInfo,
+        advancing: Option<&cobolt_ast::stmt::AdvancingClause>,
+        at_eop: &[Stmt],
+        not_at_eop: &[Stmt],
+        line: u32,
+    ) -> GenResult<()> {
+        let Some(lm) = self.file_meta[fi.meta].linage else { return Ok(()) };
+        let (counter, lines, scratch) = (lm.slot, lm.slot + 8, lm.slot + 16);
+        // How far this write moves: `None` is ADVANCING PAGE.
+        let by: Option<Option<u32>> = match advancing.map(|a| &a.lines) {
+            None => Some(None),
+            Some(Expr::Identifier(n, _)) if n.eq_ignore_ascii_case("PAGE") => None,
+            Some(Expr::Literal(cobolt_ast::expr::Literal::Integer(n) | cobolt_ast::expr::Literal::IntegerDigits(n, _), _)) => {
+                self.base();
+                self.raw(I::I64Const(n.unsigned_abs() as i64));
+                self.raw(I::I64Store(m64(lines)));
+                Some(None)
+            }
+            Some(e @ (Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. })) => {
+                let named = match e {
+                    Expr::Subscript { base, .. } => base.as_ref(),
+                    other => other,
+                };
+                if self.resolve_item(named).is_err() {
+                    return self.err_kind(line, crate::error::ErrorKind::Other, "WRITE ADVANCING", D_ADVANCING);
+                }
+                let opd = self.operand_required(e, line)?;
+                Some(Some(opd))
+            }
+            Some(_) => return self.err_kind(line, crate::error::ErrorKind::Other, "WRITE ADVANCING", D_ADVANCING),
+        };
+        match by {
+            // ADVANCING PAGE: the record is the first line of a new page.
+            None => {
+                self.base();
+                self.raw(I::I64Const(1));
+                self.raw(I::I64Store(m64(counter)));
+            }
+            Some(item) => {
+                match (advancing, item) {
+                    // No phrase: one line.
+                    (None, _) => {
+                        self.base();
+                        self.raw(I::I64Const(1));
+                        self.raw(I::I64Store(m64(lines)));
+                    }
+                    // A data item: its value, never below 0.
+                    (Some(_), Some(opd)) => {
+                        self.read_at_least(opd, 0, lines);
+                    }
+                    // A number: stored above.
+                    (Some(_), None) => {}
+                }
+                // counter += lines
+                self.base();
+                self.base();
+                self.raw(I::I64Load(m64(counter)));
+                self.base();
+                self.raw(I::I64Load(m64(lines)));
+                self.raw(I::I64Add);
+                self.raw(I::I64Store(m64(counter)));
+                // Past the body: the record begins the next page, at max(lines, 1).
+                self.page_size(lm.body, scratch);
+                self.base();
+                self.raw(I::I64Load(m64(counter)));
+                self.base();
+                self.raw(I::I64Load(m64(scratch)));
+                self.raw(I::I64GtU);
+                let next = self.new_block("linage-next-page");
+                let fits = self.new_block("linage-fits");
+                self.branch(next, fits);
+                self.begin(next);
+                self.base();
+                self.base();
+                self.raw(I::I64Load(m64(lines)));
+                self.raw(I::I64Const(1));
+                self.base();
+                self.raw(I::I64Load(m64(lines)));
+                self.raw(I::I64Const(1));
+                self.raw(I::I64GeU);
+                self.raw(I::Select);
+                self.raw(I::I64Store(m64(counter)));
+                self.jump(fits);
+                self.begin(fits);
+            }
+        }
+        self.set_linage_counter(line, |me| {
+            me.base();
+            me.raw(I::I64Load(m64(counter)));
+        })?;
+        if at_eop.is_empty() && not_at_eop.is_empty() {
+            return Ok(());
+        }
+        // counter >= footing: AT END-OF-PAGE
+        self.page_size(lm.footing, scratch);
+        self.base();
+        self.raw(I::I64Load(m64(counter)));
+        self.base();
+        self.raw(I::I64Load(m64(scratch)));
+        self.raw(I::I64GeU);
+        let eop = self.new_block("end-of-page");
+        let not_eop = self.new_block("not-end-of-page");
+        let join = self.new_block("end-of-page-done");
+        self.branch(eop, not_eop);
+        for (b, list) in [(eop, at_eop), (not_eop, not_at_eop)] {
+            self.begin(b);
+            self.stmts(list)?;
+            if self.cur.is_some() {
+                self.jump(join);
+            }
+        }
+        self.begin(join);
+        Ok(())
+    }
+
+    /// The item `opd`'s whole value, `floor` if it is below `floor`, into the slot at `to`.
+    fn read_at_least(&mut self, opd: u32, floor: i64, to: u32) {
+        self.base();
+        self.base();
+        self.i32c(opd as i32);
+        self.call_rt("rt_int");
+        self.raw(I::I64Store(m64(to)));
+        self.base();
+        self.base();
+        self.raw(I::I64Load(m64(to)));
+        self.raw(I::I64Const(floor));
+        self.base();
+        self.raw(I::I64Load(m64(to)));
+        self.raw(I::I64Const(floor));
+        self.raw(I::I64GeS);
+        self.raw(I::Select);
+        self.raw(I::I64Store(m64(to)));
+    }
+
+    /// A page measure (`(stated, item operand)`) into the slot at `to`: the item's value when it
+    /// names one above 0, else the stated number; at least 1 (the interpreter's `linage_value`).
+    fn page_size(&mut self, (stated, opd): (u32, u32), to: u32) {
+        let stated = i64::from(stated.max(1));
+        if opd == 0 {
+            self.base();
+            self.raw(I::I64Const(stated));
+            self.raw(I::I64Store(m64(to)));
+            return;
+        }
+        // v = item; v > 0 ? v : stated
+        self.base();
+        self.base();
+        self.i32c(opd as i32);
+        self.call_rt("rt_int");
+        self.raw(I::I64Store(m64(to)));
+        self.base();
+        self.base();
+        self.raw(I::I64Load(m64(to)));
+        self.raw(I::I64Const(stated));
+        self.base();
+        self.raw(I::I64Load(m64(to)));
+        self.raw(I::I64Const(0));
+        self.raw(I::I64GtS);
+        self.raw(I::Select);
+        self.raw(I::I64Store(m64(to)));
+    }
+
+    /// After a `READ` of `file` that returned 00, the files I-O-CONTROL joins to it with
+    /// `SAME [RECORD] AREA` see the record just read through their own record names: each one's
+    /// area takes the bytes, cut at its length or padded with spaces (the interpreter's peer
+    /// copy in `exec_read`, its `set_group_bytes`). Only a READ copies, as there.
+    fn same_area_copy(&mut self, file: &str, fi: FileInfo, line: u32) {
+        let me = up(file);
+        let peers: Vec<String> = self
+            .prog
+            .environment
+            .as_ref()
+            .and_then(|e| e.input_output.as_ref())
+            .map(|io| {
+                io.same_areas
+                    .iter()
+                    .filter(|g| g.iter().any(|f| up(f) == me))
+                    .flat_map(|g| g.iter().map(|f| up(f)).filter(|f| *f != me))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if peers.is_empty() {
+            return;
+        }
+        let src = self.file_meta[fi.meta].area_off;
+        let src_len = self.area_extent(&me, src);
+        let mut targets: Vec<(u32, u32)> = Vec::new();
+        for p in &peers {
+            let Ok(pf) = self.file(p, line) else { continue };
+            let dst = self.file_meta[pf.meta].area_off;
+            let len = self.area_extent(p, dst);
+            if dst != src && len > 0 && !targets.iter().any(|t| t.0 == dst) {
+                targets.push((dst, len));
+            }
+        }
+        if targets.is_empty() || src_len == 0 {
+            return;
+        }
+        let hold = self.status_slot();
+        let copy = self.new_block("same-area");
+        let join = self.new_block("same-area-done");
+        self.load_hold(hold);
+        self.raw(I::I32Eqz);
+        self.branch(copy, join);
+        self.begin(copy);
+        for (dst, len) in targets {
+            let n = src_len.min(len);
+            self.base();
+            self.i32c(dst as i32);
+            self.raw(I::I32Add);
+            self.base();
+            self.i32c(src as i32);
+            self.raw(I::I32Add);
+            self.i32c(n as i32);
+            self.raw(I::MemoryCopy { src_mem: 0, dst_mem: 0 });
+            if len > n {
+                self.base();
+                self.i32c((dst + n) as i32);
+                self.raw(I::I32Add);
+                self.i32c(i32::from(b' '));
+                self.i32c((len - n) as i32);
+                self.raw(I::MemoryFill(0));
+            }
+        }
+        self.jump(join);
+        self.begin(join);
+    }
+
+    /// The length of `file`'s record area at `area_off`: the end of its longest record
+    /// description, every one of which begins there.
+    fn area_extent(&self, file: &str, area_off: u32) -> u32 {
+        self.record_file
+            .iter()
+            .filter(|(_, f)| f.as_str() == file)
+            .map(|(&i, _)| &self.layout.items[i])
+            .filter(|it| it.off == area_off)
+            .map(|it| it.size)
+            .max()
+            .unwrap_or(0)
     }
 
     /// Whether the record `r` holds a national or UTF-8 field.
@@ -291,6 +612,7 @@ impl Lower<'_, '_> {
                             self.i32c(flags);
                             self.call_rt("rt_nf_open");
                             self.file_verb_done_cover(f, fi.handle_off, Cover::None);
+                            self.linage_open(fi, line)?;
                         }
                     }
                     Ok(())
@@ -323,7 +645,7 @@ impl Lower<'_, '_> {
                 }
                 self.n_read(file, into.as_ref(), key.as_ref(), *direction, *lock, (at_end, not_at_end), (invalid_key, not_invalid_key), line)
             }
-            Stmt::Write { record, from, invalid_key, not_invalid_key, .. } => (|| {
+            Stmt::Write { record, from, advancing, invalid_key, not_invalid_key, at_eop, not_at_eop, .. } => (|| {
                 let (name, fi) = self.native_record_file(record, line)?;
                 if let Some(src) = from {
                     self.move_(src, std::slice::from_ref(record), line)?;
@@ -335,7 +657,8 @@ impl Lower<'_, '_> {
                 self.i32c(fi.desc as i32);
                 self.i32c(declared as i32);
                 self.call_rt("rt_nf_write");
-                self.key_outcome(&name, fi, invalid_key, not_invalid_key)
+                self.key_outcome(&name, fi, invalid_key, not_invalid_key)?;
+                self.linage_write(fi, advancing.as_ref(), at_eop, not_at_eop, line)
             })(),
             Stmt::Rewrite { record, from, invalid_key, not_invalid_key, .. } => (|| {
                 let (name, fi) = self.native_record_file(record, line)?;
@@ -502,6 +825,7 @@ impl Lower<'_, '_> {
             (false, false) => Cover::AtEnd,
         };
         self.file_verb_done_cover(file, fi.handle_off, cover);
+        self.same_area_copy(file, fi, line);
         let hold = self.status_slot();
         self.read_outcome(hold, fi, &into.cloned(), line, (ok_list, fail_list), random)
     }

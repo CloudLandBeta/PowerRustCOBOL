@@ -2,6 +2,31 @@
 
 
 
+## 2.0.547 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T39b): `LINAGE` files with `LINAGE-COUNTER`, and `SAME [RECORD] AREA`, now run on the desktop's WebAssembly path. Printed lines and files match the interpreter's.**
+- **Why now:** the generator's own refusals named these two as milestone M3 work ("LINAGE and SAME AREA are not on the WebAssembly path yet"), and the first NIST census through the runner found them in 13 programs: 6 Sequential I-O, 3 Indexed I-O, 1 Relative I-O and 3 Sort-Merge. Until now a program that used either took the Cargo path.
+- **`LINAGE`:** the program keeps track of the page itself, the same way the interpreter does. This changes no byte of the file; it only decides `LINAGE-COUNTER` and which of `AT END-OF-PAGE` and `NOT AT END-OF-PAGE` runs.
+  - The page size and footing can be numbers or data items. A data item is read at each `WRITE`, and a value of 0 or less means the stated number.
+  - `WRITE … ADVANCING` takes 1 line, a number, a data item or `PAGE`. A record that does not fit in the page body starts the next page.
+  - An `OPEN` that succeeds starts a new page.
+  - `LINAGE-COUNTER` works as a number: in `DISPLAY`, in `MOVE` to a numeric item, in arithmetic and in comparisons.
+- **`SAME [RECORD] AREA`:** after a `READ` that returns 00, every file that I-O-CONTROL joins to the file read sees the record through its own record names. A longer record is padded with spaces and a shorter one is cut, as in the interpreter. Joined files can be sequential, line sequential, relative, indexed or `SORT` work files. Only a `READ` copies the record, as in the interpreter; a READ that fails leaves the other files' records unchanged.
+- **Still taking the Cargo path, each named at its line:**
+  - `WRITE … ADVANCING` a mnemonic-name on a `LINAGE` file. The interpreter reads the mnemonic-name as a data item, which it is not.
+  - `LINAGE-COUNTER` as a receiving item. Only a `WRITE` and an `OPEN` may change it.
+  - `OPEN … WITH REGISTERED USER`, and a report printed into a Viewer.
+- **Tests:**
+  - **runner twins** (`cobolt-runner --test files`): two new programs run under the runner and under `rcrun run`, and their printed lines and files are compared byte for byte.
+    - **linage**, 23 lines and 2 files (96 bytes). It covers a stated page, a page in data items (a footing item of 0 falls back to the stated number), `ADVANCING` 1, 2, `PAGE`, a data item and none, both `END-OF-PAGE` phrases, `LINAGE-COUNTER` displayed, moved and compared, a reopen and an `OPEN` that fails.
+    - **same area**, 12 lines and 5 files (20 576 bytes). It covers a record joined across sequential, line sequential and relative files (a longer one padded, a shorter one cut), `READ … INTO`, `AT END`, and an indexed file read through its `SORT` peer whose record is then `RELEASE`d and `RETURN`ed.
+    - With the earlier programs: 132 of 132 checks pass.
+  - **`native_desktop_refusals`**: 20 of 20. It now checks that a `LINAGE` file with a `SAME RECORD AREA` peer compiles, and that the two remaining refusals are named at their lines.
+  - **the generator's tests**: 34 test programs, 124 passed, 0 failed.
+  - **browser module bytes are unchanged**: the PowerAnalyticsWeb pin and the player fixtures match.
+  - **NIST on generated modules is unchanged**, each with 0 failures: Nucleus 95/95 (4 612 assertions passed), Intrinsic Functions 45/45 (841), Inter-program Communication 25/25 (309).
+  - **The System KB** has been regenerated (4 420 records), and its freshness test passes.
+
 ## 2.0.546 — 2026-11-16
 
 **Fix: on the WebAssembly path, a record and its items can now be qualified by the name of their file (`WRITE PRINT-REC IN PRINT-FILE`), as COBOL-85 allows.**
