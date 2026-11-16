@@ -14,6 +14,14 @@
   - **Without the fix**, after twelve frames on the laptop, the monitor-size path is at 0.747 and still moving. It fell to 0.5 on the second frame, then set 0.52, 0.54 … 0.75, one per frame. The window was left at a size matching none of them. The work-area path is at 0.5, the floor.
 - **Not changed, found while checking:** on Windows and Linux the fit places the window as if the screen started at the primary monitor's corner. A window started on a monitor to the right of or below the primary can therefore be pulled onto the primary.
 
+## 2.0.508 — 2026-11-15
+
+**Fix: a program compiled to WebAssembly no longer loses its output when it ends by running past its last statement.** A program module runs to its end and hands what it DISPLAYed to the host in batches. `STOP RUN`, `GOBACK` and `EXIT PROGRAM` handed over the last batch, but a main program that simply ran past its last statement ended without it, so every line still waiting was lost. A program of one `DISPLAY` and no `STOP RUN` showed nothing.
+- **The fix:** that end of the run now hands over the last batch too, exactly as `GOBACK` does. It is the end the Desktop program built as WebAssembly (DESKTOP-WASM-001) takes, so its console output depended on it.
+- **Forms are unchanged:** a form's event handler that runs past its end already had its batch handed over by the form's dispatcher, so the change applies only to a program module, and a form module keeps its bytes (the web player's generated fixture, a form module, is byte-identical).
+- **Found** while testing `RETURN-CODE` in desktop modules (2.0.507), where a run past the last statement showed nothing.
+- **Measured** (macOS arm64): `run_end_flush`, 8 programs × 2 memory variants against the interpreter: one line, paragraphs with `PERFORM`, `GO TO` the last paragraph, sections, `WITH NO ADVANCING`, all past the end, and `STOP RUN`, `GOBACK`, `EXIT PROGRAM` showing their line once, not twice. Before the fix 6 of 16 checks passed (every past-the-end run showed nothing); after it 16 of 16, 28 lines handed over. The generator's suite on this branch: 110 tests passed; the 2 that fail are the two 2.0.504 fixes, which this branch does not carry.
+
 ## 2.0.506 — 2026-11-15
 
 **Fix: the IDE's live crates.io tests no longer depend on what crates.io publishes next.** Two tests of the External Crates panel failed after egui 0.37.0 was published: `live_resolver_verdicts` and `compatible_and_reserved_collisions_still_refuse`. Each added `egui` with no version, and so got crates.io's newest egui. Once that was 0.37, it no longer matched the 0.36 every program links. The panel did what specs 044 (AC6) and 045 (R1) say: it offered an alias instead of refusing the add as already available. The product is unchanged; only the tests were wrong.

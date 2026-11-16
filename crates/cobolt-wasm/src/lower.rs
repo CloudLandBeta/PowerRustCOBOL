@@ -608,6 +608,12 @@ impl<'a, 'b> Lower<'a, 'b> {
         // its caller by dropping every frame down to the call frame.
         self.begin(self.program_end);
         if u == 0 {
+            // A program module's run ends here, past its last statement: what it DISPLAYed is
+            // handed over as STOP RUN and GOBACK hand it (`pr_run` flushes nothing). A form's
+            // dispatcher flushes when the handler returns, so a form's bytes stay as they were.
+            if self.form.is_none() {
+                self.call_rt("rt_flush");
+            }
             self.emit(Ins::Raw(I::I32Const(ret::DONE)));
             self.finish_raw();
         } else {
