@@ -2,6 +2,18 @@
 
 
 
+## 2.0.544 — 2026-11-16
+
+**Fix: a program's handlers and other contained programs can now use the records of a `GLOBAL` file on the WebAssembly path, as COBOL-85 requires.**
+- **What was wrong:** the records of an FD declared `IS GLOBAL` were visible only in the program that declared them. A contained program that named one, such as a form's handler moving a value into the record and writing it, was refused with "… is not defined". The interpreter accepted the same program.
+- **Where it mattered:** a browser module with an in-memory indexed file shared by its handlers, and a desktop program built on the WebAssembly path. The ten-times reference project's Save handlers hit it as soon as disk files reached that path (DESKTOP-WASM-001 T38).
+- **The fix:** the records of a `GLOBAL` FD are global, as its other items already were.
+- **Tests:**
+  - a new test runs a contained program that writes two records into a `GLOBAL` indexed file and another that reads one back. Its 3 of 3 lines equal the interpreter's, in both memory layouts, and the program also compiles for the desktop's WebAssembly path. Without the fix it is refused ("C-ID is not defined");
+  - the generator's tests: 34 test programs, 123 passed, 0 failed;
+  - browser module bytes are unchanged: the PowerAnalyticsWeb pin and the player fixtures match;
+  - NIST on generated modules is unchanged, each with 0 failures: Nucleus 95/95 (4 612 assertions passed), Intrinsic Functions 45/45 (841), Inter-program Communication 25/25 (309).
+
 ## 2.0.543 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T39): on the WebAssembly path, `SORT` and `MERGE` now read their `USING` files and write their `GIVING` files on disk, and `UNLOCK`, `COMMIT` and `ROLLBACK` now work on indexed files. Files, records and printed lines match the interpreter's.**

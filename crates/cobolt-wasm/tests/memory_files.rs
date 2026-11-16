@@ -398,3 +398,38 @@ fn the_records_go_with_the_form_instance() {
         eprintln!("release (multi={multi}): {before} bytes before, {open} open, {full} with 50 records, {} after close", h.dbg_region_used());
     }
 }
+
+/// The records of a `GLOBAL` FD are global (COBOL-85): a contained program, as a form's handler
+/// is, writes and reads them by name, and the program containing it sees the same record area.
+/// Until 2.0.544 the generator refused the first such name ("C-ID is not defined"), in a browser
+/// module and on the desktop's WebAssembly path alike.
+#[test]
+fn a_contained_program_uses_the_records_of_a_global_fd() {
+    let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. OUTER.\nENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n\
+               \x20   SELECT CUST ASSIGN TO \"@PATH@\"\n        ORGANIZATION IS INDEXED\n        ACCESS MODE IS DYNAMIC\n\
+               \x20       RECORD KEY IS C-ID\n        @STORAGE@\n        FILE STATUS IS FS.\n\
+               DATA DIVISION.\nFILE SECTION.\nFD CUST IS GLOBAL.\n01 C-REC.\n    05 C-ID PIC 9(5).\n    05 C-NAME PIC X(10).\n\
+               01 C-ALT PIC X(15).\nWORKING-STORAGE SECTION.\n01 FS GLOBAL PIC XX.\n\
+               PROCEDURE DIVISION.\n    CALL \"SAVER\"\n    DISPLAY \"saved \" FS\n    CALL \"FINDER\"\n\
+               \x20   DISPLAY \"outer sees \" C-ID \" \" C-NAME\n    STOP RUN.\n\
+               IDENTIFICATION DIVISION.\nPROGRAM-ID. SAVER.\nPROCEDURE DIVISION.\n    OPEN OUTPUT CUST\n\
+               \x20   MOVE 7 TO C-ID\n    MOVE \"SEVEN\" TO C-NAME\n    WRITE C-REC\n\
+               \x20   MOVE 3 TO C-ID\n    MOVE \"THREE\" TO C-NAME\n    WRITE C-REC\n    CLOSE CUST\n    EXIT PROGRAM.\nEND PROGRAM SAVER.\n\
+               IDENTIFICATION DIVISION.\nPROGRAM-ID. FINDER.\nPROCEDURE DIVISION.\n    OPEN INPUT CUST\n\
+               \x20   MOVE 7 TO C-ID\n    READ CUST KEY IS C-ID\n    DISPLAY \"found \" C-ALT \" \" FS\n    CLOSE CUST\n    EXIT PROGRAM.\n\
+               END PROGRAM FINDER.\nEND PROGRAM OUTER.\n";
+    let lines = same("global-fd", src);
+    assert_eq!(lines, ["saved 00", "found 00007SEVEN      00", "outer sees 00007 SEVEN     "]);
+    // The desktop's WebAssembly path (`native`) lays the records out the same way.
+    let native = common::compile(
+        &variant(src, false, "data.idx"),
+        &Options {
+            native: true,
+            ..Options::default()
+        },
+    );
+    println!(
+        "global FD: 3 of 3 lines equal to the interpreter (browser module, both memory layouts); native module {} bytes",
+        native.wasm.len()
+    );
+}

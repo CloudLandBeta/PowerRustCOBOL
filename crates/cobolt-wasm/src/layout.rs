@@ -345,13 +345,14 @@ impl Layout {
     /// (COBOL-85: the records of an FD implicitly redefine each other), so each
     /// starts where the first does and the area is the longest of them.
     pub fn add_file_records(&mut self, decls: &[DataDecl]) -> GenResult<()> {
-        self.add_file_records_of("", false, decls)
+        self.add_file_records_of("", false, false, decls)
     }
 
     /// As [`Layout::add_file_records`] for the FD called `fd_name`; an
     /// `EXTERNAL` FD's record area is one storage for every unit that declares
-    /// it.
-    pub fn add_file_records_of(&mut self, fd_name: &str, external: bool, decls: &[DataDecl]) -> GenResult<()> {
+    /// it. The records of a `GLOBAL` FD are global (COBOL-85), so a contained
+    /// program, a form's handler among them, sees them by name.
+    pub fn add_file_records_of(&mut self, fd_name: &str, external: bool, global: bool, decls: &[DataDecl]) -> GenResult<()> {
         let key = format!("FD:{}", fd_name.to_ascii_uppercase());
         let shared = if external { self.externals.get(&key).copied() } else { None };
         let start = match shared {
@@ -365,6 +366,9 @@ impl Layout {
                 continue;
             }
             let idx = self.add_decl(d, None, start, None, Usage::Display)?;
+            if global {
+                self.items[idx].global = true;
+            }
             match first {
                 None => first = Some(idx),
                 Some(f) => self.items[idx].redefines = Some(f),

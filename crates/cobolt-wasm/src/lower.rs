@@ -400,7 +400,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                         DataSection::WorkingStorage(decls) | DataSection::LocalStorage(decls) => layout.add_section(decls)?,
                         DataSection::FileSection(fds) => {
                             for fd in fds {
-                                layout.add_file_records_of(&fd.name, fd.is_external, &fd.records)?;
+                                layout.add_file_records_of(&fd.name, fd.is_external, fd.is_global, &fd.records)?;
                             }
                         }
                         DataSection::Linkage(decls) => layout.add_linkage(decls)?,
