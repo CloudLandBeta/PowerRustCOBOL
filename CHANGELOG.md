@@ -14,6 +14,22 @@
   - **Without the fix**, after twelve frames on the laptop, the monitor-size path is at 0.747 and still moving. It fell to 0.5 on the second frame, then set 0.52, 0.54 … 0.75, one per frame. The window was left at a size matching none of them. The work-area path is at 0.5, the floor.
 - **Not changed, found while checking:** on Windows and Linux the fit places the window as if the screen started at the primary monitor's corner. A window started on a monitor to the right of or below the primary can therefore be pulled onto the primary.
 
+## 2.0.504 — 2026-11-15
+
+**Fix: the WebAssembly generator's test suite is green again: its dependency guard follows the workspace's own Rust floor, and its corpus comparison recognises every timing line.** Two targets of `cargo test -p cobolt-wasm` had been red since before DESKTOP-WASM-001, and every task of it reported them. Neither red was a fault in the product: each test held a rule that the code had moved past.
+- **`dependency_guard`:**
+  - **The cause:** the guard refused any package that needs a Rust newer than 1.92. That number was a copy of the workspace's own floor, and 2.0.469 raised the floor to 1.95 for egui 0.35. From then on the guard refused the workspace's own ten crates in the generator's tree (`cobolt-wasm`, `cobolt-ast`, `cobolt-lexer` and seven more), which inherit 1.95. No third-party crate was above 1.92.
+  - **The fix:** the guard reads the floor that cargo resolves for `cobolt-wasm`, the `rust-version` of the root `Cargo.toml`, instead of copying it. The `wasmtime` pin, `=44.0.3`, is unchanged.
+- **`corpus`:**
+  - **The cause:** the comparison of the module's output with the interpreter's compares only the label of a line that prints the clock. It recognised such a line by the words *elapsed*, *per second* or */second*. `conditionals/test-arith-relation-after-and.cbl` (2.0.461) prints its phases as `12 ms`, `in 460 ms` and `evaluations/sec`, which matched none of them, so two runs differed (430 ms in the module, 920 ms in the interpreter).
+  - **The fix:** a line that gives a number of milliseconds (`460 ms`) or a rate per `/sec` is a clock line too. A count with no unit, such as the program's `TIMED HITS`, is still compared whole, and so is every other line. The COBOL program is unchanged.
+  - **What it touches:** 3 lines, all in that one program. The 8 clock lines of the three other timed programs were already recognised. Each program's line in the listing now says how many of its lines were compared by label.
+- **Measured** (macOS arm64):
+  - **`dependency_guard`:** 3 of 3, 1.7 s. The real tree has 152 packages, 24 with a build script and 1 compiling C (the allowed one); the floor is 1.95 and the newest Rust declared is 1.95. The planted test now plants against a floor: at 1.95 it names 3 of 3 faults (a C build script, GPL, Rust 1.96) and passes 4 of 4 clean packages, including 1.95.0 and 1.95.7. At the old 1.92 it names 5.
+  - **`corpus`:** 2 of 2, 40.4 s. 62 programs: 18 compiled and identical (600 lines), 0 differ, 44 excluded with the construct named. 11 clock lines in 4 programs are compared by label. New: **`only_a_clock_line_is_compared_by_its_label`**: 7 of 7 clock pairs agree, and 8 of 8 planted differences are caught, among them `TIMED HITS` 1000 against 999, a changed label, and `msec`, which is not a unit the rule knows.
+  - **`cargo test -p cobolt-wasm --no-fail-fast`:** 29 of 29 targets green, 112 tests, 0 failed.
+- *(Fix branch `fixes-2x-wasm-red-tests`, cut from `main` at 2.0.500.)*
+
 ## 2.0.501 — 2026-11-15
 
 **Fix: a recursion with no end stops with a runtime error instead of crashing.** A `PERFORM` of the paragraph being performed, or a nested program that `CALL`s itself, overflowed the stack long before the limit of 512 `PERFORM` levels the interpreter promises: after about 200 levels in an unoptimised build, on `rcrun run`'s 8 MB main thread. An overflow cannot be caught, so the process ended with no runtime error. In the IDE's **Run**, which runs the program inside the IDE, it closed the IDE. `CALL` had no limit at all.

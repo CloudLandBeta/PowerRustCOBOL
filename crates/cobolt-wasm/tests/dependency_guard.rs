@@ -13,7 +13,9 @@
 //! * a package whose **build script** has a C compiler or a system-library finder among its build
 //!   dependencies (`cc`, `cmake`, `bindgen`, `pkg-config`, ...), except the one the operator
 //!   allowed on 2026-10-22: `wasmtime`'s `helpers.c`, compiled with `cc`;
-//! * a licence outside the permissive set, or a minimum Rust version above 1.92.
+//! * a licence outside the permissive set, or a minimum Rust version above the workspace's own
+//!   floor: the `rust-version` of the root `Cargo.toml`, which `cobolt-wasm` inherits, as cargo
+//!   resolves it (1.92 until 2.0.469 raised it to 1.95 for egui 0.35; 2.0.504 stopped copying it).
 //!
 //! The guard is a function over data, in the shape of `cobolt-graphics/tests/dependency_guard.rs`,
 //! and **it is tested to fail**: a real cargo project with a planted package whose build script
@@ -52,8 +54,6 @@ const ALLOWED_LICENCES: &[&str] = &[
     "Unlicense",
     "LLVM-exception",
 ];
-
-const MAX_MSRV: (u32, u32) = (1, 92);
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Pkg {
@@ -132,14 +132,29 @@ fn licence_ok(expr: &str) -> bool {
     })
 }
 
-fn msrv_ok(v: &str) -> bool {
+/// The major and minor of a Rust version (`1.95`, `1.95.0`).
+fn major_minor(v: &str) -> (u32, u32) {
     let mut it = v.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
-    let (major, minor) = (it.next().unwrap_or(0), it.next().unwrap_or(0));
-    (major, minor) <= MAX_MSRV
+    (it.next().unwrap_or(0), it.next().unwrap_or(0))
 }
 
-/// The guard: what is wrong with this tree. Empty means clean.
-fn violations(tree: &[Pkg], meta: &BTreeMap<(String, String), MetaPkg>) -> Vec<String> {
+fn msrv_ok(v: &str, floor: (u32, u32)) -> bool {
+    major_minor(v) <= floor
+}
+
+/// The newest Rust a dependency may need: the workspace's own floor, read from the
+/// `rust-version` cargo resolves for `cobolt-wasm` (inherited from the root `Cargo.toml`).
+fn workspace_floor(tree: &[Pkg], meta: &BTreeMap<(String, String), MetaPkg>) -> (u32, u32) {
+    let me = tree.iter().find(|p| p.name == "cobolt-wasm").expect("cobolt-wasm heads its own tree");
+    let v = meta
+        .get(&(me.name.clone(), me.version.clone()))
+        .and_then(|m| m.rust_version.clone())
+        .expect("cobolt-wasm declares a rust-version (rust-version.workspace = true)");
+    major_minor(&v)
+}
+
+/// The guard: what is wrong with this tree, for a Rust floor of `floor`. Empty means clean.
+fn violations(tree: &[Pkg], meta: &BTreeMap<(String, String), MetaPkg>, floor: (u32, u32)) -> Vec<String> {
     let mut bad = Vec::new();
     for p in tree {
         if let Some(m) = meta.get(&(p.name.clone(), p.version.clone())) {
@@ -155,8 +170,8 @@ fn violations(tree: &[Pkg], meta: &BTreeMap<(String, String), MetaPkg>) -> Vec<S
                 }
             }
             if let Some(v) = &m.rust_version {
-                if !msrv_ok(v) {
-                    bad.push(format!("{} {} needs Rust {v}, above 1.{}", p.name, p.version, MAX_MSRV.1));
+                if !msrv_ok(v, floor) {
+                    bad.push(format!("{} {} needs Rust {v}, above the workspace's {}.{}", p.name, p.version, floor.0, floor.1));
                 }
             }
         }
@@ -184,28 +199,52 @@ fn the_host_tree_of_cobolt_wasm_compiles_no_c_but_wasmtimes_helper_and_is_permis
         .iter()
         .filter(|p| meta.get(&(p.name.clone(), p.version.clone())).map(|m| m.has_build_script && m.build_deps.iter().any(|d| NATIVE_BUILD_TOOLS.contains(&d.as_str()) && tree.iter().any(|t| &t.name == d))).unwrap_or(false))
         .count();
-    eprintln!("dependency guard: {} packages in the host tree, {with_scripts} with a build script, {native} compiling C (allowed: {})", tree.len(), ALLOWED_NATIVE.len());
-    let bad = violations(&tree, &meta);
+    let floor = workspace_floor(&tree, &meta);
+    let newest = tree
+        .iter()
+        .filter_map(|p| meta.get(&(p.name.clone(), p.version.clone())).and_then(|m| m.rust_version.as_deref()).map(major_minor))
+        .max()
+        .unwrap_or((0, 0));
+    eprintln!(
+        "dependency guard: {} packages in the host tree, {with_scripts} with a build script, {native} compiling C (allowed: {}); Rust floor {}.{} (the workspace's), newest declared {}.{}",
+        tree.len(),
+        ALLOWED_NATIVE.len(),
+        floor.0,
+        floor.1,
+        newest.0,
+        newest.1
+    );
+    let bad = violations(&tree, &meta, floor);
     assert!(bad.is_empty(), "the host tree of cobolt-wasm breaks the dependency rules:\n  {}", bad.join("\n  "));
 }
 
 #[test]
 fn the_guard_fails_on_a_c_build_script_a_bad_licence_and_a_new_rust() {
     let p = |n: &str, l: &str| Pkg { name: n.into(), version: "1.0.0".into(), license: l.into() };
-    let tree = vec![p("fine", "MIT OR Apache-2.0"), p("sneaky-sys", "MIT"), p("gpl-thing", "GPL-3.0-only"), p("shiny", "MIT"), p("wasmtime", "Apache-2.0 WITH LLVM-exception"), p("cc", "MIT OR Apache-2.0")];
+    let tree = vec![p("fine", "MIT OR Apache-2.0"), p("sneaky-sys", "MIT"), p("gpl-thing", "GPL-3.0-only"), p("shiny", "MIT"), p("patched", "MIT"), p("wasmtime", "Apache-2.0 WITH LLVM-exception"), p("cc", "MIT OR Apache-2.0")];
     let mut meta = BTreeMap::new();
     let cc: BTreeSet<String> = ["cc".to_string()].into();
+    let rust = |v: &str| MetaPkg { has_build_script: false, build_deps: BTreeSet::new(), rust_version: Some(v.into()) };
     meta.insert(("sneaky-sys".to_string(), "1.0.0".to_string()), MetaPkg { has_build_script: true, build_deps: cc.clone(), rust_version: None });
-    meta.insert(("wasmtime".to_string(), "1.0.0".to_string()), MetaPkg { has_build_script: true, build_deps: cc, rust_version: Some("1.92.0".into()) });
-    meta.insert(("shiny".to_string(), "1.0.0".to_string()), MetaPkg { has_build_script: false, build_deps: BTreeSet::new(), rust_version: Some("1.93".into()) });
-    let bad = violations(&tree, &meta);
+    // At the floor exactly, and a patch release of it: both allowed.
+    meta.insert(("wasmtime".to_string(), "1.0.0".to_string()), MetaPkg { has_build_script: true, build_deps: cc, rust_version: Some("1.95.0".into()) });
+    meta.insert(("patched".to_string(), "1.0.0".to_string()), rust("1.95.7"));
+    // One minor release above the floor: refused.
+    meta.insert(("shiny".to_string(), "1.0.0".to_string()), rust("1.96"));
+    let floor = (1, 95);
+    let bad = violations(&tree, &meta, floor);
     let text = bad.join("\n");
     assert!(text.contains("sneaky-sys") && text.contains("compiles C"), "{text}");
     assert!(text.contains("gpl-thing") && text.contains("GPL-3.0-only"), "{text}");
-    assert!(text.contains("shiny") && text.contains("1.93"), "{text}");
+    assert!(text.contains("shiny") && text.contains("1.96") && text.contains("the workspace's 1.95"), "{text}");
+    assert!(!text.contains("patched"), "a patch release of the floor is the floor: {text}");
     assert!(!text.contains("wasmtime"), "wasmtime's helper is the one allowed C build script: {text}");
     assert_eq!(bad.len(), 3, "{text}");
+    // The same tree under the floor before 2.0.469 also refuses the packages at 1.95.
+    let old = violations(&tree, &meta, (1, 92));
+    assert_eq!(old.len(), 5, "{old:?}");
     assert!(licence_ok("Apache-2.0 WITH LLVM-exception"));
+    eprintln!("dependency guard, planted: 7 packages, floor 1.95: 3 of 3 faults named (C build script, GPL, Rust 1.96), 4 of 4 clean ones passed (1.95.0, 1.95.7 among them); floor 1.92: 5 named");
 }
 
 /// A real cargo project with a planted `sneaky-sys` whose build script build-depends on a stub
@@ -234,13 +273,15 @@ fn planting_a_c_build_script_in_a_real_cargo_project_makes_the_guard_fail() {
         std::fs::write(&manifest, format!("[package]\nname = \"guardprobe\"\nversion = \"0.0.0\"\nedition = \"2021\"\nlicense = \"MIT\"\n\n[dependencies]\n{deps}\n[workspace]\n")).unwrap();
     };
 
+    // The probe declares no rust-version, so the floor plays no part here.
+    let floor = (1, 95);
     write(false);
     let (t, m) = (tree(&manifest, None, None, true), metadata(&manifest));
-    assert!(violations(&t, &m).is_empty(), "the clean project passes");
+    assert!(violations(&t, &m, floor).is_empty(), "the clean project passes");
 
     write(true);
     let (t, m) = (tree(&manifest, None, None, true), metadata(&manifest));
-    let bad = violations(&t, &m);
+    let bad = violations(&t, &m, floor);
     assert_eq!(bad.len(), 1, "{bad:?}");
     assert!(bad[0].contains("sneaky-sys") && bad[0].contains("compiles C"), "{}", bad[0]);
     let _ = std::fs::remove_dir_all(&dir);
