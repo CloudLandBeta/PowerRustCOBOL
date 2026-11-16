@@ -1071,7 +1071,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - **Left out, each recorded:** WHEN-COMPILED (#5, the Build's input), the reference-modified MOVE of a numeric item (#57), TRY and THROW (#58), and the COBOL 2002 forms `ACCEPT … FROM DATE YYYYMMDD` and `DAY YYYYDDD`.
       - **Seen, the same on both engines:** `ACCEPT … FROM ARGUMENT-VALUE` answers the argument the pointer names and does not move it, so three ACCEPTs in a row give the first argument three times. The fixture sets the pointer each time. Moving to the next argument, as X/Open describes, would be an interpreter change, reported.
 
-- [ ] **T25 — The Developer's Guide and the System KB for M1** (GOLDEN RULE #3, #8; plan §7)
+- [x] **T25 — The Developer's Guide and the System KB for M1** (GOLDEN RULE #3, #8; plan §7)
   - Files:
     - `docs/developers-guide-en.md` §18, "Building a distributable binary":
       - the Desktop Build's default path;
@@ -1087,6 +1087,12 @@ The code says five things the plan did not settle. Each is applied in the tasks 
   - Verify:
     - `prebuilt_chunked_kb_matches_the_published_documentation` green.
     - `git status` shows the five translations deleted, never the English file.
+  - *Done 2026-11-16 (2.0.524), the System KB half; the Guide half waits for the merge into `main`:*
+    - **Why the Guide waits:** this work lives on the 2.x.x line, where `README.md` and `docs/` are never touched (CLAUDE.md, "Version 2.x.x"), and the operator ruled on 2026-10-30 that a 2.x-only feature's Guide text is written when 2.x.x merges into `main`, afresh, not kept on a branch. So `docs/developers-guide-en.md` and its five translations are unchanged here. **Owed at the merge into `main`:** §18 (the default path, the machine code and its setting, choosing Cargo, what still takes Cargo and why, a mermaid diagram of the two paths, a Caveat on `WASM-PARITY.md`'s known divergences, no Rust toolchain), §17 (`rcrun build --cargo`, `--no-machine-code`), then the five translations deleted (#8).
+    - **The System KB** (`cobolt-compiler` `system_documentation`, `project_model_and_settings.md`):
+      - a new section, **`[desktop]` — how a Desktop Build makes the program:** the two paths and how the Build names them; when it takes Cargo (chosen by `build_path = "cargo"` or `rcrun build --cargo`, Debug, External Crates, `EXEC RUST`, a construct the path does not build yet with its file and line, no runner); `machine_code` and `rcrun build --no-machine-code`; settings written only when they differ from the default; what happens with no Rust toolchain (the stop, `bin/` untouched, the IDE's offer, `rcrun`'s command);
+      - "What runs in a browser module" no longer says that every Desktop Build takes the Cargo path: its *On the Desktop* column is the default path's.
+    - **Regenerated:** 4 397 records from 8 documents, 15 552 512 → 15 581 184 bytes. `prebuilt_chunked_kb_matches_the_published_documentation` green; the compiler's 14 documentation tests green.
 
 - [ ] **T26 — M1 close**
   - Do: the milestone close (preamble).

@@ -7286,6 +7286,56 @@ project data and are not shared with a colleague who opens the project.
 `fixed_format` selects fixed-form COBOL (columns 7-72) rather than free form.
 Free form is the default for new projects.
 
+## `[desktop]` — how a Desktop Build makes the program
+
+A Desktop project's **Build** takes one of two paths, and its report names the path
+(`Path : WebAssembly` or `Path : Cargo`) and, for Cargo, the reason:
+
+- **The WebAssembly path — the default.** The program's COBOL is compiled to a
+  WebAssembly module, which goes inside a copy of the PowerRustCOBOL runner
+  (`prc-runner`, installed beside the IDE and `rcrun`) with the program's machine
+  code. The result is still one executable, `bin/<name>`, copied to the
+  destination folder as before. No Rust toolchain is used, so a machine with only
+  PowerRustCOBOL installed builds it.
+- **The Cargo path.** The program is compiled to a Rust project and built with
+  Cargo, as every Build did before. The machine that builds needs the Rust
+  toolchain; the binary it makes does not.
+
+The Build takes the Cargo path, and says why, when:
+
+- the project chooses it: `build_path = "cargo"` under `[desktop]` (Project
+  Settings, section *Desktop application*, *Build path*), or `rcrun build --cargo`;
+- it is a **Debug** Build: the debugger attaches to the Cargo binary;
+- the project registers External Crates (Project's Crates);
+- a program holds an `EXEC RUST` block (the file and line are named);
+- a program uses a construct the WebAssembly path does not build yet: the Build
+  names the construct, its file and its line. The path builds console programs
+  today. A project with forms takes the Cargo path, and so does a program with a
+  file (on the desktop an INDEXED file declared `STORAGE IS MEMORY` is read from
+  its disk file, so it counts as one), `EXEC SQL`, HTTP, national data, pointers,
+  `TRY` or `THROW`. The column *On the Desktop* of "What runs in a browser module"
+  below lists every statement and built-in;
+- the runner is not installed beside the IDE or `rcrun`, and the variable
+  `PRC_RUNNER` names none.
+
+**`machine_code`** — on by default: the WebAssembly path also makes the program's
+machine code, so the program starts at once. `machine_code = false` (Project
+Settings, *Include the machine code*, or `rcrun build --no-machine-code`) leaves it
+out: the file is smaller, and the program makes its machine code the first time it
+starts and keeps it in its cache.
+
+Both settings are written to the manifest only when they differ from the default,
+so the manifest of a default Desktop project does not change.
+
+**With no Rust toolchain.** A program the WebAssembly path takes builds as usual.
+One that must take the Cargo path stops before anything is compiled, with "this
+program is built with Cargo because …, and the Rust toolchain is required to build
+it that way", and leaves `bin/` as it was. The IDE then offers to install Rust;
+`rcrun build` prints the command that installs it.
+
+The same program behaves the same on either path: the same output, byte for byte,
+and the same exit code.
+
 ## Project kinds: Desktop, Web and Mobile
 
 A project has a **kind**: `kind = "web"` or `kind = "mobile"` under `[project]`.
@@ -7727,7 +7777,7 @@ fn browser_subset_doc() -> String {
          desktop runtime. A construct outside this subset is refused by the Build at its line, naming the construct and what to do \
          instead. This section is written from the generator's own tables, so it is what the Build accepts.\n\n\
          The column **On the Desktop** says how the same construct fares in a Desktop program built on the WebAssembly path, which \
-         is being built (today every Desktop Build takes the Cargo path, as before): *yes* is compiled into the module; *yes, with \
+         is the Desktop Build's default (see `[desktop]` above): *yes* is compiled into the module; *yes, with \
          the runner's* `name` is compiled into the module and served by the desktop runner's capability of that name; *Cargo path* \
          sends the Build to the Cargo path, which names the construct and the reason. `ACCEPT` from the console needs `console`, \
          and from the environment or the command line `env`; `STOP RUN` and `GOBACK` end the program in the module. There \

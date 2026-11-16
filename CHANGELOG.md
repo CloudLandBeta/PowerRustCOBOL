@@ -2,6 +2,17 @@
 
 
 
+## 2.0.524 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T25): the System Knowledge Base explains how a Desktop Build makes the program.**
+- **A new section, `[desktop]`:**
+  - the two paths, and how the Build's report names the one it took;
+  - when the Build takes the Cargo path, and how it says why;
+  - the settings `build_path` and `machine_code`, and the options `rcrun build --cargo` and `--no-machine-code`;
+  - what happens on a machine with no Rust toolchain.
+- **"What runs in a browser module"** no longer says that every Desktop Build takes the Cargo path.
+- **The Developer's Guide text for this comes when the 2.x line is merged into the main product.** The Guide is not changed on the 2.x line.
+
 ## 2.0.523 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T24): a console program prints the same on the WebAssembly path as on the Cargo path, byte for byte.**
