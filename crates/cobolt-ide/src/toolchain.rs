@@ -59,22 +59,6 @@ const RUSTC: &str = "rustc.exe";
 #[cfg(not(windows))]
 const RUSTC: &str = "rustc";
 
-/// The official one-shot installer, exactly as rustup.rs publishes it, asked for
-/// the Rust release PowerRustCOBOL is built with
-/// ([`cobolt_compiler::warmup::release_rust`]) rather than whatever is current:
-/// the libraries a release ships can only be used by that compiler (2.0.469).
-/// It is both what the dialog shows and what [`install_argv`] runs — the
-/// developer approves the command they can read, not a paraphrase of it.
-#[cfg(not(windows))]
-const INSTALL_COMMAND: &str =
-    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ";
-#[cfg(all(windows, target_arch = "aarch64"))]
-const INSTALL_COMMAND: &str = "$i = \"$env:TEMP\\rustup-init.exe\"; \
-     Invoke-WebRequest -Uri https://win.rustup.rs/aarch64 -OutFile $i; & $i -y --default-toolchain ";
-#[cfg(all(windows, not(target_arch = "aarch64")))]
-const INSTALL_COMMAND: &str = "$i = \"$env:TEMP\\rustup-init.exe\"; \
-     Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile $i; & $i -y --default-toolchain ";
-
 // ── Versions ─────────────────────────────────────────────────────────────────
 
 /// A Rust release, compared the way `rust-version` is compared.
@@ -377,10 +361,14 @@ fn probe_link(rustc: &Path) -> Option<String> {
 
 // ── Installing ───────────────────────────────────────────────────────────────
 
-/// The installer command, shown to the developer before they approve it.
+/// The installer command, shown to the developer before they approve it: the
+/// official rustup.rs one-shot installer, asked for the Rust release
+/// PowerRustCOBOL is built with ([`cobolt_compiler::rust_install_command`], the
+/// text `rcrun build` prints too). It is both what the dialog shows and what
+/// [`install_argv`] runs — the developer approves the command they can read, not
+/// a paraphrase of it.
 pub fn install_command() -> &'static str {
-    static COMMAND: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    COMMAND.get_or_init(|| format!("{INSTALL_COMMAND}{}", cobolt_compiler::warmup::release_rust()))
+    cobolt_compiler::rust_install_command()
 }
 
 /// The program and arguments that run [`install_command`]. Kept as one function

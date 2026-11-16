@@ -574,6 +574,24 @@ pub fn linker_install_command() -> &'static str {
     }
 }
 
+/// The official one-shot Rust installer, exactly as rustup.rs publishes it, asked for the Rust
+/// release PowerRustCOBOL is built with ([`warmup::release_rust`]) rather than whatever is current:
+/// the libraries a release ships can only be used by that compiler (2.0.469). The IDE shows it and
+/// runs it once the developer approves; `rcrun build` prints it when a Build that needs Cargo finds
+/// no toolchain (DESKTOP-WASM-001 R25, A4). One text, so the two cannot drift apart.
+pub fn rust_install_command() -> &'static str {
+    #[cfg(not(windows))]
+    const INSTALLER: &str = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ";
+    #[cfg(all(windows, target_arch = "aarch64"))]
+    const INSTALLER: &str = "$i = \"$env:TEMP\\rustup-init.exe\"; \
+         Invoke-WebRequest -Uri https://win.rustup.rs/aarch64 -OutFile $i; & $i -y --default-toolchain ";
+    #[cfg(all(windows, not(target_arch = "aarch64")))]
+    const INSTALLER: &str = "$i = \"$env:TEMP\\rustup-init.exe\"; \
+         Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile $i; & $i -y --default-toolchain ";
+    static COMMAND: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    COMMAND.get_or_init(|| format!("{INSTALLER}{}", warmup::release_rust()))
+}
+
 /// Where to send a developer who has to install [`linker_prerequisite`], and the
 /// name of the thing they are being sent for.
 ///
@@ -1968,7 +1986,9 @@ impl std::fmt::Display for CargoReason {
         let at = |file: &str, line: u32| if line > 0 { format!("{file} line {line}") } else { file.to_string() };
         match self {
             CargoReason::DebugBuild => f.write_str("it is a Debug Build, which the debugger attaches to"),
-            CargoReason::Chosen => f.write_str("the project chooses the Cargo path"),
+            CargoReason::Chosen => {
+                f.write_str("the Cargo path is chosen (the project's `[desktop] build_path = \"cargo\"`, or `rcrun build --cargo`)")
+            }
             CargoReason::ExternalCrate => f.write_str("the project uses External Crates, which only Cargo links"),
             CargoReason::ExecRust { file, line } => {
                 write!(f, "{} holds an EXEC RUST block, Rust compiled into the program", at(file, *line))

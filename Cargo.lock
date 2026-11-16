@@ -2106,6 +2106,7 @@ dependencies = [
  "cobolt-mcp",
  "cobolt-media",
  "cobolt-parser",
+ "cobolt-program-package",
  "cobolt-project-tools",
  "cobolt-runtime",
  "cobolt-semantic",

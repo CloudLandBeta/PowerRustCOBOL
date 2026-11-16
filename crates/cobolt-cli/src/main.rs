@@ -24,6 +24,11 @@
 //! --quiet          Suppress progress output
 //! --debug          Build the unoptimised binary the debugger attaches to
 //!                  (bin/<name>-debug); without it the binary is optimised
+//! --cargo          Take the Cargo path, which needs the Rust toolchain, even
+//!                  when the WebAssembly path could build the program
+//! --no-machine-code
+//!                  On the WebAssembly path, leave the machine code out: the
+//!                  runner makes it on the program's first start
 //! ```
 //!
 //! ## `rcrun package` flags
@@ -703,6 +708,8 @@ fn cmd_help() {
         "  rcrun build   [cobolt.toml]           Compile a project → bin/<name> (single executable)\n",
         "         [--quiet]                       Suppress build progress output\n",
         "         [--debug]                       Unoptimised build for the debugger (bin/<name>-debug)\n",
+        "         [--cargo]                       Take the Cargo path (needs the Rust toolchain)\n",
+        "         [--no-machine-code]             WebAssembly path: leave the machine code out\n",
         "  rcrun package [cobolt.toml]           Package project into a zip archive\n",
         "         [--output <path.zip>]           Override the output archive path\n",
         "  rcrun mcp     [--project <path>]      Serve the coding-agent tools (MCP) over stdio\n",
@@ -746,16 +753,26 @@ fn cmd_help() {
 ///
 /// The binary is optimised unless `--debug` asks for the unoptimised one the
 /// debugger attaches to (installed as `bin/<name>-debug`).
+///
+/// The Build takes the WebAssembly path when it can and the Cargo path otherwise,
+/// and says which (DESKTOP-WASM-001). `--cargo` takes the Cargo path anyway, and
+/// `--no-machine-code` leaves the machine code out of a WebAssembly-path file. A
+/// Build that needs Cargo on a machine with no Rust toolchain prints how to
+/// install the release PowerRustCOBOL is built with; `rcrun` installs nothing.
 fn cmd_build(args: &[String]) {
     let mut target: Option<std::path::PathBuf> = None;
     let mut quiet = false;
     let mut full = false;
     let mut debug = false;
+    let mut force_cargo = false;
+    let mut no_machine_code = false;
 
     for arg in args {
         match arg.as_str() {
             "--quiet" | "-q" => quiet = true,
             "--debug" => debug = true,
+            "--cargo" => force_cargo = true,
+            "--no-machine-code" => no_machine_code = true,
             // Discard every cached artefact first. The answer to "it behaves
             // oddly since I updated PowerRustCOBOL": the generated sources are
             // rewritten every build, but cargo's own artefacts survive, so an
@@ -766,6 +783,8 @@ fn cmd_build(args: &[String]) {
                 eprintln!("rcrun build: unknown flag '{other}'");
                 eprintln!("  --full (or --clean)  recompile the program from source; platform parts only where their sources changed");
                 eprintln!("  --debug              build the unoptimised binary the debugger attaches to");
+                eprintln!("  --cargo              take the Cargo path, which needs the Rust toolchain");
+                eprintln!("  --no-machine-code    WebAssembly path: leave the machine code out of the file");
                 eprintln!("  --quiet (or -q)      only report the outcome");
                 process::exit(2);
             }
@@ -785,10 +804,10 @@ fn cmd_build(args: &[String]) {
         regenerate_forms: true,
         debug,
         // The path the project chooses (DESKTOP-WASM-001): the WebAssembly one by default, with
-        // the runner found beside `rcrun`; Cargo when the project or its contents ask for it.
+        // the runner found beside `rcrun`; Cargo when the project, its contents or `--cargo` ask.
         runner: None,
-        force_cargo: false,
-        no_machine_code: false,
+        force_cargo,
+        no_machine_code,
     };
 
     let target = target.unwrap_or_else(|| std::path::PathBuf::from("cobolt.toml"));
@@ -831,12 +850,35 @@ fn cmd_build(args: &[String]) {
                 result.form_count,
                 result.ast_bytes,
             );
+            match &result.cargo {
+                Some(cargo) => println!("   Path   : {}, because {}", result.path.name(), cargo.reason),
+                None => println!("   Path   : {}", result.path.name()),
+            }
         }
         Err(e) => {
             eprintln!("rcrun build: {e}");
+            if matches!(
+                e,
+                cobolt_compiler::CompilerError::CargoNeedsToolchain { .. } | cobolt_compiler::CompilerError::Toolchain { .. }
+            ) {
+                eprintln!("{}", rust_install_hint());
+            }
             process::exit(1);
         }
     }
+}
+
+/// How to install the Rust release PowerRustCOBOL is built with, for a Build that needs Cargo on
+/// a machine without it (DESKTOP-WASM-001 R25, A4): the command the IDE's installer runs, printed
+/// for the developer to run. `rcrun` installs nothing by itself.
+fn rust_install_hint() -> String {
+    let shell = if cfg!(windows) { "in PowerShell" } else { "in a terminal" };
+    format!(
+        "\nTo install Rust {}, the release PowerRustCOBOL is built with, run {shell}:\n\n    {}\n\n\
+         then open a new terminal and run `rcrun build` again.",
+        cobolt_compiler::warmup::release_rust(),
+        cobolt_compiler::rust_install_command()
+    )
 }
 
 // ── Package command ───────────────────────────────────────────────────────────

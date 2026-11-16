@@ -76,3 +76,5 @@ serde_yaml = { workspace = true }
 # crates that signed them); the workspace's hmac 0.12 pairs with sha2 0.10.
 hmac = { workspace = true }
 sha2 = { workspace = true }
+# DESKTOP-WASM-001 T17 — the test reads the table of contents of the file `rcrun build` made.
+cobolt-program-package = { path = "../cobolt-program-package" }

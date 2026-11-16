@@ -814,16 +814,32 @@ The code says five things the plan did not settle. Each is applied in the tasks 
         - a refusal inside the nested program `INNER` names `INNER`;
         - the same disk file in a browser module keeps the browser's refusal;
         - a SORT with an INPUT and an OUTPUT PROCEDURE, and a plain console program, compile.
-      - **`cargo test -p cobolt-compiler --no-fail-fast`:** 18 targets, 298 passed, 1 failed, 9 ignored. The one red is `example_calls_name_only_what_exists`, red since PowerOficina came in (2.0.390): its 127 unresolved CALLs are all PowerOficina's test programs calling the programs it lists under `[files] backend`, which `common_code_names` does not read. No T16 change reaches it; it is a fix of its own.
+      - **`cargo test -p cobolt-compiler --no-fail-fast`:** 18 targets, 298 passed, 1 failed, 9 ignored. The one red is `example_calls_name_only_what_exists`, red since PowerOficina came in (2.0.390): its 127 unresolved CALLs are all PowerOficina's test programs calling the programs it lists under `[files] backend`, which `common_code_names` does not read. No T16 change reaches it. Fixed in 2.0.515 (`fixes-2x-oficina-calls`, picked here): `cobolt-compiler` is 299 passed, 0 failed.
       - **`cargo test -p cobolt-wasm --no-fail-fast`:** 34 targets, 120 passed, 0 failed. **`desktop_wasm_unchanged`:** 3 of 3 PowerAnalyticsWeb artefacts match their pins. **`web_golden`:** 10 match.
     - **Owed:** the release runner's size (C12, M1). Assembling takes 1.8 s with the 43 MB debug runner, most of the Build.
 
-- [ ] **T17 — `rcrun build --cargo`, `--no-machine-code`, and the install hint** (R15, R24, R25; A4; AC8 first half, AC17 CLI half)
+- [x] **T17 — `rcrun build --cargo`, `--no-machine-code`, and the install hint** (R15, R24, R25; A4; AC8 first half, AC17 CLI half)
   - Files: `crates/cobolt-cli/src/main.rs`.
   - Verify: new `cobolt-cli` tests, with `rcrun` built first:
     - `--cargo` gives path Cargo, reason `Chosen`;
     - `--no-machine-code` gives a file whose table of contents has no `MACHINE_CODE` entry, while the default Build's has one;
     - with no toolchain, an `EXEC RUST` project prints how to install Rust 1.95.0, exits non-zero, and leaves `bin/` untouched.
+  - *Done 2026-11-15 (2.0.516):*
+    - **`rcrun build --cargo`** sets `BuildOptions.force_cargo`, the same as `[desktop] build_path = "cargo"`; **`--no-machine-code`** sets `BuildOptions.no_machine_code`. The help text, the module doc and the unknown-flag message name both.
+    - **A successful Build prints its path:** `Path   : WebAssembly`, or `Path   : Cargo, because <reason>`. The `Chosen` reason now names both ways to choose it: "the Cargo path is chosen (the project's `[desktop] build_path = "cargo"`, or `rcrun build --cargo`)".
+    - **The install hint (R25, A4):** when the Build fails with `CargoNeedsToolchain` or `Toolchain`, `rcrun build` prints the error, then how to install Rust 1.95.0 (the release PowerRustCOBOL is built with) with the official rustup.rs command for this platform, and exits with 1. It installs nothing. Any other failure (a missing manifest, a compile error) prints no hint.
+    - **One install command:** `cobolt_compiler::rust_install_command()` is the text; the IDE's `toolchain::install_command()` now returns it (its three constants are gone), so the IDE's installer and `rcrun` cannot drift apart. `install_argv` is unchanged.
+    - **Settled while building:** the test checks the Cargo path through the stop it makes with no toolchain (the reason `Chosen`, the hint, `bin/` unchanged) rather than through a full Cargo Build, which the compiler's own tests already cover. `cobolt-program-package` is a dev-dependency of `cobolt-cli`, so the test reads the built file's table of contents.
+    - **Measured** (macOS arm64, Apple M3 Pro, debug build):
+      - **`build_path_flags`, 16 of 16** (one test; the runner is built beside `rcrun` first, in 668 ms; the no-toolchain cases run `rcrun` with `PATH`, `CARGO_HOME` and `RUSTUP_HOME` set to empty folders):
+        - the default Build takes 5 522.4 ms and makes a 46 195 088-byte file with parts `Module, MachineCode, MachineCodeEngine`; it prints `Path   : WebAssembly`, and the program prints `T17 TOTAL 000042`;
+        - `--no-machine-code` takes 1 686.9 ms and makes a 44 898 224-byte file with the part `Module` only; its first run, which makes the machine code at load, takes 674.2 ms and prints the same line (AC8 first half);
+        - `--cargo` with no toolchain stops in 16.2 ms, exits non-zero, names the Cargo path and the reason `Chosen`, prints the install hint, and leaves `bin/` as it was;
+        - `EXEC RUST` at `src/main.cbl` line 5 with no toolchain stops in 14.1 ms, exits with 1, names the line, prints the hint with the command in full, and leaves `bin/` (`keep.txt` only) as it was (AC17 CLI half);
+        - a manifest that is not there exits non-zero with no hint;
+        - the command printed on macOS: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.95.0`.
+      - **`cargo test -p cobolt-cli --no-fail-fast`:** 26 targets, 68 passed, 0 failed, 6 ignored (the six run with `--ignored`).
+      - **`cargo test -p cobolt-ide --bin cobolt-ide toolchain`:** 21 of 21, including `the_command_shown_is_the_command_run` (the command shown is the one `install_argv` runs). **`cargo test -p cobolt-compiler --lib missing_toolchain`:** 2 of 2.
 
 - [ ] **T18 — The IDE: the Build's path, its phases, the install offer, and the Desktop settings** (R18, R24, R25; AC17 IDE half; i18n)
   - Files:

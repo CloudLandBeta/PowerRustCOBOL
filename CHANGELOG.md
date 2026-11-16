@@ -2,6 +2,19 @@
 
 
 
+## 2.0.516 — 2026-11-15
+
+**Feature (DESKTOP-WASM-001 T17): `rcrun build --cargo` and `--no-machine-code`, and `rcrun build` says which path it took and how to install Rust when it needs it.**
+- **`--cargo`** takes the Cargo path even when the WebAssembly path could build the program, the same as `[desktop] build_path = "cargo"` in the project. The reason (`Chosen`) now reads "the Cargo path is chosen (the project's `[desktop] build_path = "cargo"`, or `rcrun build --cargo`)".
+- **`--no-machine-code`** leaves the machine code out of a WebAssembly-path file: the file carries the module only, and the runner makes the machine code when the program first starts.
+- **A successful Build says its path:** `Path   : WebAssembly`, or `Path   : Cargo, because …` with the reason.
+- **A Build that needs Cargo on a machine with no Rust toolchain** now prints, after the reason, the official rustup.rs command for Rust 1.95.0, the release PowerRustCOBOL is built with (PowerShell on Windows). It exits with 1 and leaves `bin/` as it was. `rcrun` installs nothing by itself (A4).
+- **One install command:** the IDE's Rust installer and `rcrun build` now take the same text from `cobolt_compiler::rust_install_command`, so what the IDE shows and runs and what `rcrun` prints cannot drift apart.
+- **Measured** (macOS arm64, Apple M3 Pro, debug build):
+  - **`build_path_flags`, 16 of 16.** The default Build takes 5 522.4 ms and makes a 46 195 088-byte file carrying the module, the machine code and its engine's hash; it prints `Path   : WebAssembly`, and the program prints its line. `--no-machine-code` takes 1 686.9 ms and makes a 44 898 224-byte file with the module only; its first run, which makes the machine code at load, takes 674.2 ms. With `PATH`, `CARGO_HOME` and `RUSTUP_HOME` set to empty folders, `--cargo` stops in 16.2 ms naming the reason `Chosen`, and an `EXEC RUST` block at `src/main.cbl` line 5 stops in 14.1 ms naming the line. Both print the install command, exit with 1, and leave `bin/` as it was. A missing manifest prints no hint.
+  - **`cargo test -p cobolt-cli --no-fail-fast`:** 26 targets, 68 passed, 0 failed, 6 ignored (the six run with `--ignored`).
+  - **The IDE's toolchain tests:** 21 of 21, including `the_command_shown_is_the_command_run`. **The compiler's `missing_toolchain` tests:** 2 of 2.
+
 ## 2.0.515 — 2026-11-15
 
 **Fix: the check that every example's `CALL` names something knows a Web or Mobile project's Backend programs.** `example_calls_name_only_what_exists` (`cobolt-compiler`) had been red since PowerOficina came in (2.0.390): it reported 127 `CALL`s that name nothing, all in PowerOficina's drivers under `tests/`, calling its Backend programs (`CUSTOMER-SAVE`, `QUOTE-SAVE`, `PAYMENT-CONFIRM`, …).
