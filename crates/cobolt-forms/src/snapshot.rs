@@ -155,6 +155,10 @@ pub fn render_form_image(form: &Form, opts: &SnapshotOptions) -> egui::ColorImag
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::fonts::base_font_definitions());
     ctx.set_zoom_factor(opts.scale.clamp(0.25, 3.0));
+    // The run host's baseline, set before the theme's own widget visuals as the host sets it: a
+    // fresh context is in dark mode, whose text coverage curve inks every glyph's edge darker
+    // than Run Form does (DESKTOP-WASM-001 T35 measured 1 486 such pixels on a 400 by 300 form).
+    ctx.set_visuals(egui::Visuals::light());
     let glass = install_theme(&ctx, form, opts);
     let mut raster = crate::raster::Rasterizer::new();
     let mut image_tex: Option<Option<egui::TextureHandle>> = None;

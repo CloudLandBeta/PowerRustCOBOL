@@ -2,6 +2,17 @@
 
 
 
+## 2.0.534 — 2026-11-16
+
+**Fix: the picture of a form, in the designer's preview and from the coding agent's `render_form` tool, now matches Run Form in every pixel.**
+- **What was wrong:** the picture is meant to show the form as Run Form draws it when it opens. Run Form draws every window on light visuals, but the picture was made in dark mode. Dark mode inks the edge of each letter and each anti-aliased line darker, so text and chart lines came out a shade heavier, while every filled shape matched.
+- **The fix:** the picture now starts from Run Form's light visuals. The form's theme is applied on top, as Run Form applies it.
+- **Measured:**
+  - A 400 by 300 form holding a label, a text box, a button and an area chart: 138 pixels differed before the fix, 0 now.
+  - The reference form of the designer's parity check (a panel holding an area chart, a picture box and a text box, plus a label): 1 486 pixels before, 0 now.
+- **Test:** `designer_picture_is_run_form` (form host) pictures one form both ways, the second through the real host and interpreter off screen, and requires 0 differing pixels.
+- *(Fix branch `fixes-2x-snapshot-visuals`, cut from `main` at 2.0.500.)*
+
 ## 2.0.533 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T34): pixel parity for forms. `cobolt-bench pixel-parity`, with no flag, builds each project both ways. It runs every form's script under both programs at three window sizes, and fails on one differing pixel, read or dump.**
