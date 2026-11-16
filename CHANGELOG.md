@@ -14,6 +14,16 @@
   - **Without the fix**, after twelve frames on the laptop, the monitor-size path is at 0.747 and still moving. It fell to 0.5 on the second frame, then set 0.52, 0.54 … 0.75, one per frame. The window was left at a size matching none of them. The work-area path is at 0.5, the floor.
 - **Not changed, found while checking:** on Windows and Linux the fit places the window as if the screen started at the primary monitor's corner. A window started on a monitor to the right of or below the primary can therefore be pulled onto the primary.
 
+## 2.0.534 — 2026-11-16
+
+**Fix: the picture of a form, in the designer's preview and from the coding agent's `render_form` tool, now matches Run Form in every pixel.**
+- **What was wrong:** the picture is meant to show the form as Run Form draws it when it opens. Run Form draws every window on light visuals, but the picture was made in dark mode. Dark mode inks the edge of each letter and each anti-aliased line darker, so text and chart lines came out a shade heavier, while every filled shape matched.
+- **The fix:** the picture now starts from Run Form's light visuals. The form's theme is applied on top, as Run Form applies it.
+- **Measured:**
+  - A 400 by 300 form holding a label, a text box, a button and an area chart: 138 pixels differed before the fix, 0 now.
+  - The reference form of the designer's parity check (a panel holding an area chart, a picture box and a text box, plus a label): 1 486 pixels before, 0 now.
+- **Test:** `designer_picture_is_run_form` (form host) pictures one form both ways, the second through the real host and interpreter off screen, and requires 0 differing pixels.
+
 ## 2.0.515 — 2026-11-15
 
 **Fix: the check that every example's `CALL` names something knows a Web or Mobile project's Backend programs.** `example_calls_name_only_what_exists` (`cobolt-compiler`) had been red since PowerOficina came in (2.0.390): it reported 127 `CALL`s that name nothing, all in PowerOficina's drivers under `tests/`, calling its Backend programs (`CUSTOMER-SAVE`, `QUOTE-SAVE`, `PAYMENT-CONFIRM`, …).
