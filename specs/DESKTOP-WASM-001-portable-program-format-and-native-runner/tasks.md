@@ -995,13 +995,32 @@ The code says five things the plan did not settle. Each is applied in the tasks 
         - **`corpus_entries_are_never_deleted`:** 7 of 7 checks in 31.3 ms. Planted: a deleted module, a changed byte, the last entry taken out, and a middle entry taken out of a three-entry corpus.
       - **`cargo test -p cobolt-runner --no-fail-fast`:** 5 targets, 7 passed, 0 failed.
 
-- [ ] **T22 — CI: no toolchain, Rust releases, and across platforms** (R2, R5; AC1, AC2, AC3 console)
+- [x] **T22 — CI: no toolchain, Rust releases, and across platforms** (R2, R5; AC1, AC2, AC3 console)
   - Files: new `.github/workflows/desktop-wasm.yml`, on tags and on dispatch.
   - Do:
     - **`no-toolchain`, on the four platforms:** a clean runner with Rust removed from `PATH`, `~/.cargo` and `~/.rustup`. It installs the release's IDE package, builds every project that takes the WebAssembly path at this milestone, and runs its check script.
     - **`determinism`:** generators built by Rust 1.95.0 and by `stable` compile the corpus and the reference projects with the same `SOURCE_DATE_EPOCH`, then compare the bytes. **Waits for F3.**
     - **`cross-platform`:** modules built on each platform run under the other three platforms' runners, compared as AC3 says.
   - Verify: dispatched once, outside the window; each job's result block is recorded in `WASM-PROGRESS.md`. AC1 is met only once every reference project takes the WebAssembly path. Until then the job lists those still on the Cargo path, with their reasons.
+  - *Done 2026-11-16 (2.0.521):*
+    - **New `.github/workflows/desktop-wasm.yml`** (tags `v*` and dispatch), five jobs:
+      - **`tools`** (four platforms): `rcrun`, `prc-runner` and the checks' helper, built in release and side by side (signed ad hoc on macOS); the console fixtures built by that platform's `rcrun`, their modules kept for `cross-platform`. The tools travel as a tar, which keeps the executable bits an artifact's zip loses.
+      - **`no-toolchain`** (four platforms): removes every folder holding `rustc`, `cargo` or `rustup`, with its home, from the machine and from `PATH`, plus `~/.cargo` and `~/.rustup`, and checks that none is left. Then `rcrun` builds and checks the fixtures, and builds the five reference projects, listing those on the Cargo path with the reason.
+      - **`determinism`** (Rust 1.95.0 and `stable`, both on `ubuntu-22.04`): `module_hashes` with `SOURCE_DATE_EPOCH=1767225600`.
+      - **`determinism-compare`**: the two lists must be identical.
+      - **`cross-platform`** (four platforms): every platform's modules on this platform's runner.
+    - **New `crates/cobolt-runner/examples/desktop_wasm_ci.rs`:** the helper (`fixtures`, `reference`, `cross`). It drives the real `rcrun build` as a separate program, recognises the path from `rcrun`'s `Path : WebAssembly` line and the reason from its `Cargo path:` line, and prints one result block for each check.
+    - **New `crates/cobolt-compiler/examples/module_hashes.rs`:** one line per program, sorted. It covers the corpus fixtures and the reference projects (built as a Desktop Build builds them, `PATH` emptied so the Cargo path stops at its toolchain check and gives its reason) and every program of `tests/cobol` compiled alone as a desktop module (its sha256, or the generator's refusal).
+    - **Settled while building:**
+      - **The deviation from "installs the release's IDE package":** the jobs use the tools this run built, laid out as the package lays them out (`rcrun` finds `prc-runner` beside it, T20). A package is made by `build-all-platforms.yml`, a separate workflow whose artifacts this one cannot reach without a token. The layout is the same, and so is the code.
+      - **"Every project that takes the WebAssembly path at this milestone"** is the module corpus's console fixtures: at M1 no reference project does, because all five have forms (M2).
+      - **The check script of a fixture** is its `run.toml`: its input and pins, and the output and exit code it must give.
+    - **Measured** (rehearsed on macOS arm64, Apple M3 Pro, debug build; `PATH`, `CARGO_HOME` and `RUSTUP_HOME` emptied):
+      - **`fixtures`:** console built on the WebAssembly path in 5 215 ms and ledger in 2 003 ms; each ran with identical output and exit code (7, 3). 2 of 2.
+      - **`reference`:** 0 on the WebAssembly path, 5 on the Cargo path, each naming its main form ("forms … are not on the WebAssembly path yet (DESKTOP-WASM-001 M2)"), 0 failed.
+      - **`cross`** (this platform's modules and a copy standing in for a second platform): 4 of 4 identical, each fixture's module the same file on both.
+      - **`module_hashes`, run twice with the same `SOURCE_DATE_EPOCH`:** 69 lines identical. They cover 19 modules (2 fixtures and 17 of the 62 `tests/cobol` programs; the other 45 are refused, each named), and the 5 reference projects with their reasons.
+      - **Owed to the operator:** one dispatch of **Actions → "Desktop WebAssembly path (DESKTOP-WASM-001)"**, once the file is on the default branch (GitHub dispatches from there), or a `v*` tag. `gh` is not on this machine. The four platforms' result blocks then go into `WASM-PROGRESS.md`.
 
 - [ ] **T23 — AC9 at M1, and the parity list** (R11, R21, R22; AC9)
   - Files: new `crates/cobolt-runner/examples/nist_runner_run.rs` (the `nist_wasm_run` pattern, with the module run by `prc-runner`); `specs/WASM-PARITY.md`.

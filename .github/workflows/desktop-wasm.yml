@@ -1,0 +1,283 @@
+# DESKTOP-WASM-001 T22 (R2, R5; AC1, AC2, AC3 console): the WebAssembly path of a Desktop Build,
+# checked on clean machines.
+#
+# - tools (four platforms): rcrun and prc-runner, built in release as the packages ship them and
+#   laid out side by side, as an installed IDE has them; the checks' helper (`desktop_wasm_ci`);
+#   and the console fixtures' modules this platform's Build makes, for `cross-platform`.
+# - no-toolchain (four platforms): Rust is taken off the machine (no rustc or cargo on PATH, no
+#   ~/.cargo, no ~/.rustup). rcrun then builds the module corpus's console fixtures, the projects
+#   that take the WebAssembly path at M1, and runs each one's check script. It also builds the five
+#   reference projects and lists those still on the Cargo path, with the reason (AC1 is met once
+#   all five take the WebAssembly path).
+#   Deviation, recorded in tasks.md: it uses the tools this run built, laid out as the package lays
+#   them out, rather than installing a package made by build-all-platforms.yml (a separate
+#   workflow, whose artifacts this one cannot rely on).
+# - determinism: the generator built by Rust 1.95.0 and by Rust stable, on the same machine type,
+#   writes the sha256 of every module it makes (the fixtures, the reference projects, every
+#   program of tests/cobol) with the same SOURCE_DATE_EPOCH; the lists must be identical (AC2).
+# - cross-platform (four platforms): every platform's fixture modules run on this platform's runner
+#   and must do what their fixture says (AC3, console part).
+#
+# Each check prints one result block. A dispatch needs this file on the default branch (GitHub
+# runs workflow_dispatch from there); a tag runs it from the tag.
+
+name: Desktop WebAssembly path (DESKTOP-WASM-001)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: desktop-wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Rust release the packages are built with (see build-all-platforms.yml).
+  RELEASE_RUST: "1.95.0"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  # The date every module's WHEN-COMPILED takes in these runs: 2026-01-01 00:00 UTC.
+  SOURCE_DATE_EPOCH: "1767225600"
+
+jobs:
+  tools:
+    name: tools (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+          - name: windows-x86_64
+            os: windows-latest
+          - name: macos-aarch64
+            os: macos-latest
+          - name: macos-x86_64
+            os: macos-15-intel
+    steps:
+      - uses: actions/checkout@v7
+
+      # The packages the release build installs: rcrun links the platform's audio library.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libxkbcommon-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libasound2-dev
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-wasm-tools
+
+      - name: Build rcrun, prc-runner and the checks' helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p cobolt-cli --bin rcrun -p cobolt-runner --bin prc-runner
+          cargo build --release --locked -p cobolt-runner --example desktop_wasm_ci
+          ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          mkdir -p tools
+          cp "target/release/rcrun$ext" "target/release/prc-runner$ext" "target/release/examples/desktop_wasm_ci$ext" tools/
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            for f in tools/*; do codesign --force --sign - "$f"; done
+          fi
+
+      # This platform's modules, made by its own Build (with Rust still here: the path is the same).
+      - name: Build the fixtures' modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          "tools/desktop_wasm_ci$ext" fixtures --rcrun "tools/rcrun$ext" --work "$RUNNER_TEMP/fixtures" \
+            --fixtures tests/module-corpus/fixtures --modules-out "modules/${{ matrix.name }}"
+
+      # A tar keeps the executable bits (and the macOS signatures) that an artifact's zip loses.
+      - name: Pack the tools
+        shell: bash
+        run: tar -cf "tools-${{ matrix.name }}.tar" tools
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tools-${{ matrix.name }}
+          path: tools-${{ matrix.name }}.tar
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: modules-${{ matrix.name }}
+          path: modules/${{ matrix.name }}
+
+  no-toolchain:
+    name: no toolchain (${{ matrix.name }})
+    needs: tools
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+          - name: windows-x86_64
+            os: windows-latest
+          - name: macos-aarch64
+            os: macos-latest
+          - name: macos-x86_64
+            os: macos-15-intel
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: tools-${{ matrix.name }}
+
+      # Everything happens in one step, so the PATH with no Rust on it is the one the Builds see.
+      - name: Take Rust off the machine, then build and check
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xf "tools-${{ matrix.name }}.tar"
+          ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          # Each folder that holds rustc, cargo or rustup goes, with the home it belongs to.
+          for tool in rustc cargo rustup; do
+            while p=$(command -v "$tool" 2>/dev/null); do
+              bin=$(dirname "$p")
+              home=$(dirname "$bin")
+              echo "removing $home (it holds $tool)"
+              rm -rf "$home"
+              PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$bin" | paste -sd: -)
+              hash -r
+            done
+          done
+          rm -rf "$HOME/.cargo" "$HOME/.rustup"
+          [ -n "${CARGO_HOME:-}" ] && rm -rf "$CARGO_HOME"
+          [ -n "${RUSTUP_HOME:-}" ] && rm -rf "$RUSTUP_HOME"
+          unset CARGO_HOME RUSTUP_HOME
+          if command -v rustc || command -v cargo; then echo "::error::Rust is still on PATH"; exit 1; fi
+          test ! -e "$HOME/.cargo" && test ! -e "$HOME/.rustup"
+          echo "no rustc, no cargo, no ~/.cargo, no ~/.rustup"
+
+          "tools/desktop_wasm_ci$ext" fixtures --rcrun "tools/rcrun$ext" --work "$RUNNER_TEMP/fixtures" \
+            --fixtures tests/module-corpus/fixtures
+          "tools/desktop_wasm_ci$ext" reference --rcrun "tools/rcrun$ext" --work "$RUNNER_TEMP/reference" \
+            examples/PowerCallOfDuty examples/PowerCloud examples/PowerCobolCraft examples/PowerGraphics examples/PowerSpatial
+
+  determinism:
+    name: determinism (Rust ${{ matrix.rust }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: ["1.95.0", "stable"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libxkbcommon-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libasound2-dev
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-wasm-determinism-${{ matrix.rust }}
+
+      # `stable` may be newer than the lock file's crates allow without --locked; the lock is kept.
+      - name: Hash every module this generator makes
+        run: |
+          set -euo pipefail
+          rustc -V
+          cargo build --release --locked -p cobolt-runner --bin prc-runner
+          cargo run --release --locked -p cobolt-compiler --example module_hashes -- \
+            --runner target/release/prc-runner --out "hashes-${{ matrix.rust }}.txt"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hashes-${{ matrix.rust }}
+          path: hashes-${{ matrix.rust }}.txt
+
+  determinism-compare:
+    name: determinism (compare)
+    needs: determinism
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: hashes-*
+          merge-multiple: true
+
+      - name: The two lists must be identical
+        run: |
+          set -euo pipefail
+          lines=$(wc -l < hashes-1.95.0.txt)
+          modules=$(grep -cE ' [0-9a-f]{64} ' hashes-1.95.0.txt || true)
+          echo "== modules made by generators built by Rust 1.95.0 and Rust stable (DESKTOP-WASM-001 T22: AC2) =="
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; lines $lines ($modules modules)"
+          if diff hashes-1.95.0.txt hashes-stable.txt; then
+            echo "identical: $lines of $lines lines, $modules of $modules modules"
+          else
+            same=$(comm -12 <(sort hashes-1.95.0.txt) <(sort hashes-stable.txt) | wc -l)
+            echo "::error::the generators disagree: $same of $lines lines identical"
+            exit 1
+          fi
+
+  cross-platform:
+    name: cross-platform (${{ matrix.name }})
+    needs: tools
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+          - name: windows-x86_64
+            os: windows-latest
+          - name: macos-aarch64
+            os: macos-latest
+          - name: macos-x86_64
+            os: macos-15-intel
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: tools-${{ matrix.name }}
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: modules-*
+          path: modules
+
+      - name: Every platform's modules on this platform's runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xf "tools-${{ matrix.name }}.tar"
+          ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          # download-artifact names each folder after its artifact: modules/modules-<platform>/.
+          "tools/desktop_wasm_ci$ext" cross --runner "tools/prc-runner$ext" --modules modules \
+            --fixtures tests/module-corpus/fixtures

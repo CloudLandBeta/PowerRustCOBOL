@@ -2,6 +2,21 @@
 
 
 
+## 2.0.521 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T22): a CI workflow checks the WebAssembly path on machines with no Rust, across Rust releases and across platforms.**
+- **`.github/workflows/desktop-wasm.yml`** runs on a `v*` tag or on dispatch:
+  - **`no-toolchain`, on the four platforms:** Rust is removed from the machine (no `rustc` or `cargo` on `PATH`, no `~/.cargo`, no `~/.rustup`). `rcrun` then builds the module corpus's console fixtures on the WebAssembly path and runs each one's check. It also builds the five reference projects and lists those still on the Cargo path, with the reason (AC1).
+  - **`determinism`:** the generator built by Rust 1.95.0 and by Rust stable makes every module with the same `SOURCE_DATE_EPOCH`, and the two lists of sha256 must be identical (AC2).
+  - **`cross-platform`, on the four platforms:** every platform's modules run on every other platform's runner with the same result (AC3, console).
+- **Two helpers, built by the workflow:** `desktop_wasm_ci`, which drives the real `rcrun build`, and `module_hashes`.
+- **Rehearsed on a Mac with no Rust on `PATH`:**
+  - fixtures 2 of 2 built and checked;
+  - reference projects 0 on the WebAssembly path and 5 on the Cargo path, each because of its forms (M2);
+  - cross 4 of 4 identical;
+  - module hashes identical over two runs (69 lines, 19 modules).
+- **Owed to the operator:** the first dispatch, from the default branch or a `v*` tag. `gh` is not on this machine.
+
 ## 2.0.520 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T21): the module corpus, kept for ever.**
