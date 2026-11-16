@@ -293,7 +293,7 @@ impl FileSpec {
     /// Whether this file's records vary in length, which is what decides how a
     /// record is stored: a fixed-length file is a plain run of equal-sized
     /// records, a variable-length one has to carry each record's length with it
-    /// (see [`VARYING_LEN_PREFIX`]).
+    /// (see [`crate::seqfile::VARYING_LEN_PREFIX`]).
     ///
     /// The FD's `RECORD` clause answers this outright when it is present. When
     /// it is absent the record descriptions themselves do: COBOL-85 makes the
@@ -324,54 +324,13 @@ impl FileSpec {
     }
 }
 
-/// Overwrite `len` bytes at `start` and leave the reader where it was.
-///
-/// A record-SEQUENTIAL file opened `I-O` is one handle used for both, so the
-/// rewrite has to put the read position back: the program's next `READ` must
-/// still deliver the record *after* the one just replaced. Seeking through the
-/// `BufReader` rather than the file underneath is what keeps the two in step —
-/// a seek drops the buffer, so the write below cannot be shadowed by bytes the
-/// reader had already buffered.
-fn rewrite_in_place(
-    r: &mut std::io::BufReader<std::fs::File>,
-    start: u64,
-    buf: &[u8],
-) -> std::io::Result<()> {
-    use std::io::{Seek, SeekFrom, Write};
-    let resume = r.stream_position()?;
-    r.seek(SeekFrom::Start(start))?;
-    r.get_mut().write_all(buf)?;
-    r.get_mut().flush()?;
-    r.seek(SeekFrom::Start(resume))?;
-    Ok(())
-}
-
-/// Bytes of length prefix in front of each record of a **variable-length**
-/// record-SEQUENTIAL file.
-///
-/// A fixed-length file needs no prefix — every record is the same size, so the
-/// reader knows where the next one starts. A variable-length file does: the
-/// length is part of the record's identity, and `READ` has to hand it back
-/// (through `DEPENDING ON`) exactly as `WRITE` was given it. The prefix is a
-/// big-endian `u32`, which keeps the record's own bytes at a readable offset in
-/// a hex dump and mirrors the record-descriptor word mainframe COBOL puts
-/// there. It is written and read only for files whose FD declares varying
-/// records, so no fixed-length file's bytes change.
-const VARYING_LEN_PREFIX: usize = 4;
-
 /// A currently-open file handle. The variant follows the file's ORGANIZATION,
 /// so the verbs dispatch by file type.
 enum OpenFile {
-    /// SEQUENTIAL / LINE SEQUENTIAL, opened for output/extend.
-    Writer {
-        w: std::io::BufWriter<std::fs::File>,
-        org: FileOrganization,
-    },
-    /// SEQUENTIAL / LINE SEQUENTIAL, opened for input.
-    Reader {
-        r: std::io::BufReader<std::fs::File>,
-        org: FileOrganization,
-    },
+    /// SEQUENTIAL / LINE SEQUENTIAL, opened for any mode (DESKTOP-WASM-001
+    /// T37: the file itself lives in [`crate::seqfile`], which the native
+    /// runner shares).
+    Sequential(crate::seqfile::SequentialFile),
     /// INDEXED (ISAM) — a keyed engine (in-memory or on-disk) handles every
     /// verb. The concrete backend is chosen by STORAGE MODE.
     Indexed(Box<dyn crate::indexed::IndexedStore>),
@@ -2064,14 +2023,8 @@ pub struct Interpreter {
     alphabets: Vec<(String, cobolt_ast::program::AlphabetSpec)>,
 }
 
-/// Where a sequential `READ` found the record it delivered.
-#[derive(Debug, Clone, Copy)]
-struct LastRead {
-    /// Byte offset of the record's data — past the length prefix, if any.
-    start: u64,
-    /// The record's length in bytes.
-    len: usize,
-}
+// Where a sequential `READ` found the record it delivered.
+use crate::seqfile::RecordPlace as LastRead;
 
 /// A runtime-ready `USE AFTER STANDARD ERROR` handler: which files / open-modes
 /// it covers and where its section sits in the declarative paragraph space.
@@ -9601,8 +9554,6 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         self.debug_io_verb = Some("OPEN");
-        use std::fs::OpenOptions;
-        use std::io::{BufReader, BufWriter};
 
         // `OPEN … WITH REGISTERED USER {literal | data-item}` — evaluate once for
         // this OPEN; recorded in the INDEXED observability log.
@@ -9858,68 +9809,19 @@ impl Interpreter {
             // without it. `I-O` and `EXTEND` were opened with `create(true)`
             // and so reported success on a file that did not exist (SQ130A,
             // SQ225A).
-            if !existed
-                && !spec.optional
-                && matches!(
-                    mode,
-                    OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
-                )
-            {
+            let seq_mode = map_open_mode(mode);
+            if crate::seqfile::SequentialFile::refuses_absent(existed, spec.optional, seq_mode) {
                 self.set_file_status(&file, "35");
                 self.fire_declarative(&file, "35", false)?;
                 continue;
             }
-            let result: std::io::Result<OpenFile> = match mode {
-                OpenMode::Output => std::fs::File::create(&path).map(|f| OpenFile::Writer {
-                    w: BufWriter::new(f),
-                    org,
-                }),
-                OpenMode::Extend => OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&path)
-                    .map(|f| OpenFile::Writer {
-                        w: BufWriter::new(f),
-                        org,
-                    }),
-                // `SELECT OPTIONAL` lets INPUT open a file that is not there:
-                // it is created so the handle is real, and the first `READ`
-                // then finds it empty and raises `AT END`, which is exactly what
-                // the standard asks for.
-                OpenMode::Input if spec.optional => OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .create(true)
-                    .open(&path)
-                    .map(|f| OpenFile::Reader {
-                        r: BufReader::new(f),
-                        org,
-                    }),
-                OpenMode::Input => std::fs::File::open(&path).map(|f| OpenFile::Reader {
-                    r: BufReader::new(f),
-                    org,
-                }),
-                OpenMode::InputOutput => OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .create(true)
-                    .open(&path)
-                    .map(|f| OpenFile::Reader {
-                        r: BufReader::new(f),
-                        org,
-                    }),
-            };
-
-            // A file that was not there and is `OPTIONAL` opens successfully,
-            // but the program is told so: status **05**, "the file was not
-            // present and was created". Without the word it is a plain 00 (or
-            // a 35 for INPUT, decided above).
-            let created_optional = spec.optional
-                && !existed
-                && matches!(
-                    mode,
-                    OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
-                );
+            let result = crate::seqfile::SequentialFile::open(
+                &path,
+                seq_mode,
+                spec.optional,
+                org == FileOrganization::LineSequential,
+            )
+            .map(OpenFile::Sequential);
 
             match result {
                 Ok(handle) => {
@@ -9941,19 +9843,19 @@ impl Interpreter {
                         self.linage_counters.insert(file.clone(), 0);
                         self.env.set_i64("LINAGE-COUNTER", 1);
                     }
-                    let code = if created_optional { "05" } else { "00" };
+                    // A file that was not there and is `OPTIONAL` opens
+                    // successfully, but the program is told so: status **05**.
+                    let code = crate::seqfile::SequentialFile::opened_status(
+                        existed,
+                        spec.optional,
+                        seq_mode,
+                    );
                     self.set_file_status(&file, code);
                     self.fire_declarative(&file, code, false)?;
                 }
                 Err(e) => {
                     tracing::warn!("OPEN '{}' ({}) failed: {}", raw, path, e);
-                    let code = if matches!(mode, OpenMode::Input)
-                        && e.kind() == std::io::ErrorKind::NotFound
-                    {
-                        "35"
-                    } else {
-                        "30"
-                    };
+                    let code = crate::seqfile::SequentialFile::failed_status(seq_mode, &e);
                     self.set_file_status(&file, code);
                     self.fire_declarative(&file, code, false)?;
                 }
@@ -9969,7 +9871,6 @@ impl Interpreter {
         reel: &[String],
     ) -> Result<(), RuntimeError> {
         self.debug_io_verb = Some("CLOSE");
-        use std::io::Write as _;
         let locked: std::collections::HashSet<String> =
             locked.iter().map(|f| f.to_ascii_uppercase()).collect();
         let reel: std::collections::HashSet<String> =
@@ -10057,11 +9958,7 @@ impl Interpreter {
             }
             if let Some(mut handle) = self.open_files.remove(&file) {
                 let code = match &mut handle {
-                    OpenFile::Writer { w, .. } => {
-                        let _ = w.flush();
-                        "00"
-                    }
-                    OpenFile::Reader { .. } => "00",
+                    OpenFile::Sequential(f) => f.close(),
                     OpenFile::Indexed(engine) => engine.close(),
                     OpenFile::Relative(engine) => engine.close(),
                     // Taken by the branch above, which consumes the sink.
@@ -10245,7 +10142,7 @@ impl Interpreter {
         });
         let recs = self.sort_buffers.remove(fkey).unwrap_or_default();
         // Precompute each record's (key-value, ascending) vector.
-        let mut keyed: Vec<(Vec<(CobolValue, bool)>, Vec<u8>)> = Vec::with_capacity(recs.len());
+        let mut keyed: Vec<crate::sort_core::KeyedRecord> = Vec::with_capacity(recs.len());
         for bytes in recs {
             spec.layout.distribute(&mut self.env, &bytes);
             let mut kv = Vec::new();
@@ -10256,22 +10153,9 @@ impl Interpreter {
             }
             keyed.push((kv, bytes));
         }
-        keyed.sort_by(|a, b| {
-            for ((av, asc), (bv, _)) in a.0.iter().zip(b.0.iter()) {
-                // A named sequence orders alphanumeric keys; numeric keys
-                // compare by value under any sequence.
-                let ord = match (&coll, av, bv) {
-                    (Some(c), CobolValue::String { .. }, CobolValue::String { .. }) => {
-                        c.compare(&av.as_display_string(), &bv.as_display_string())
-                    }
-                    _ => cob_ordering(av, bv),
-                };
-                if ord != std::cmp::Ordering::Equal {
-                    return if *asc { ord } else { ord.reverse() };
-                }
-            }
-            std::cmp::Ordering::Equal
-        });
+        // The order itself is the sort core's (DESKTOP-WASM-001 T37), which
+        // the native runner shares.
+        crate::sort_core::sort_keyed(&mut keyed, coll.as_ref());
         self.sort_buffers.insert(
             fkey.to_string(),
             keyed.into_iter().map(|(_, b)| b).collect(),
@@ -10281,7 +10165,6 @@ impl Interpreter {
 
     /// Open `file` for input, read every record (raw bytes), and close it.
     fn read_all_records(&mut self, file: &str) -> Vec<Vec<u8>> {
-        use std::io::{BufRead as _, Read as _};
         let fkey = file.to_ascii_uppercase();
         let _ = self.exec_open(
             OpenMode::Input,
@@ -10293,11 +10176,6 @@ impl Interpreter {
             None,
             Span::dummy(),
         );
-        let rlen = self
-            .file_specs
-            .get(&fkey)
-            .map(|s| s.layout.len.max(1))
-            .unwrap_or(1);
         // A variable-length file carries a length prefix before every record —
         // the same contract the ordinary READ honours. SORT's bulk reader used
         // a fixed-size read, which sheared every record of CCVS85 ST110A's
@@ -10308,56 +10186,14 @@ impl Interpreter {
             .get(&fkey)
             .is_some_and(|s| s.is_varying());
         // Spec 077, D10: a LINE SEQUENTIAL line carries national and UTF-8
-        // fields as text; the record holds their images.
-        let line_layout = self.file_specs.get(&fkey).map(|s| s.layout.clone());
+        // fields as text; the record holds their images. The layout also gives
+        // a fixed-length record its length.
+        let layout = self.file_specs.get(&fkey).map(|s| s.layout.clone());
         let mut out = Vec::new();
-        loop {
-            let rec = match self.open_files.get_mut(&fkey) {
-                Some(OpenFile::Reader { r, org }) => match org {
-                    FileOrganization::LineSequential => {
-                        let mut line = String::new();
-                        match r.read_line(&mut line) {
-                            Ok(0) => None,
-                            Ok(_) => {
-                                while line.ends_with('\n') || line.ends_with('\r') {
-                                    line.pop();
-                                }
-                                Some(match &line_layout {
-                                    Some(l) => l.line_to_image(line.as_bytes()),
-                                    None => line.into_bytes(),
-                                })
-                            }
-                            Err(_) => None,
-                        }
-                    }
-                    _ if varying => {
-                        let mut p = [0u8; VARYING_LEN_PREFIX];
-                        match r.read_exact(&mut p) {
-                            Ok(()) => {
-                                let n =
-                                    u32::from_be_bytes([p[0], p[1], p[2], p[3]]) as usize;
-                                let mut bytes = vec![0u8; n];
-                                match r.read_exact(&mut bytes) {
-                                    Ok(()) => Some(bytes),
-                                    Err(_) => None,
-                                }
-                            }
-                            Err(_) => None,
-                        }
-                    }
-                    _ => {
-                        let mut bytes = vec![0u8; rlen];
-                        match r.read_exact(&mut bytes) {
-                            Ok(()) => Some(bytes),
-                            Err(_) => None,
-                        }
-                    }
-                },
-                _ => None,
-            };
-            match rec {
-                Some(b) => out.push(b),
-                None => break,
+        while let Some(OpenFile::Sequential(f)) = self.open_files.get_mut(&fkey) {
+            match f.read(layout.as_ref(), varying) {
+                crate::seqfile::SeqRead::Record { bytes, .. } => out.push(bytes),
+                _ => break,
             }
         }
         let _ = self.exec_close(&[file.to_string()], &[], &[]);
@@ -10366,7 +10202,6 @@ impl Interpreter {
 
     /// Open `file` for output, write every record, and close it.
     fn write_all_records(&mut self, file: &str, recs: &[Vec<u8>]) -> Result<(), RuntimeError> {
-        use std::io::Write as _;
         let fkey = file.to_ascii_uppercase();
         self.exec_open(
             OpenMode::Output,
@@ -10386,17 +10221,8 @@ impl Interpreter {
             .get(&fkey)
             .is_some_and(|s| s.is_varying());
         for b in recs {
-            if let Some(OpenFile::Writer { w, org }) = self.open_files.get_mut(&fkey) {
-                let _ = match org {
-                    FileOrganization::LineSequential => {
-                        let s = String::from_utf8_lossy(b);
-                        writeln!(w, "{}", s.trim_end())
-                    }
-                    _ if varying => w
-                        .write_all(&(b.len() as u32).to_be_bytes())
-                        .and_then(|()| w.write_all(b)),
-                    _ => w.write_all(b),
-                };
+            if let Some(OpenFile::Sequential(f)) = self.open_files.get_mut(&fkey) {
+                let _ = f.write(b, None, varying);
             }
         }
         self.exec_close(&[file.to_string()], &[], &[])
@@ -10570,25 +10396,15 @@ impl Interpreter {
                 }
             }
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
-            Some(OpenFile::Writer { w, org }) => {
-                let r = match org {
-                    FileOrganization::LineSequential => {
-                        let s = String::from_utf8_lossy(line_buf.as_deref().unwrap_or(&buf));
-                        writeln!(w, "{}", s.trim_end())
-                    }
-                    // A variable-length record carries its own length, so the
-                    // reader can find where it ends.
-                    _ if varying => w
-                        .write_all(&(buf.len() as u32).to_be_bytes())
-                        .and_then(|()| w.write_all(&buf)),
-                    _ => w.write_all(&buf),
-                };
-                match r {
-                    Ok(()) => "00",
-                    Err(e) => {
+            Some(OpenFile::Sequential(f)) if f.is_output() => {
+                match f.write(&buf, line_buf.as_deref(), varying) {
+                    Some(Ok(())) => "00",
+                    Some(Err(e)) => {
                         tracing::warn!("WRITE failed: {e}");
                         "30"
                     }
+                    // Not reached: the guard holds an output file.
+                    None => "48",
                 }
             }
             _ => {
@@ -10974,7 +10790,6 @@ impl Interpreter {
         self.debug_io_verb = Some("READ");
         use crate::indexed::{status, ReadDir};
         use cobolt_ast::stmt::ReadDirection;
-        use std::io::BufRead as _;
 
         let file = file_name.to_ascii_uppercase();
         let Some(spec) = self.file_specs.get(&file).cloned() else {
@@ -11067,66 +10882,25 @@ impl Interpreter {
                     (rec, code)
                 }
             }
-            Some(OpenFile::Reader { r, org }) => match org {
-                // LINE SEQUENTIAL: newline-delimited text records.
-                FileOrganization::LineSequential => {
-                    let mut line = String::new();
-                    match r.read_line(&mut line) {
-                        Ok(0) => (None, status::EOF),
-                        Ok(_) => {
-                            while line.ends_with('\n') || line.ends_with('\r') {
-                                line.pop();
-                            }
-                            // A national or UTF-8 field is text in the line and
-                            // an image in the record (spec 077, D10).
-                            (Some(spec.layout.line_to_image(line.as_bytes())), status::OK)
-                        }
-                        Err(e) => {
-                            tracing::warn!("READ failed: {e}");
-                            (None, "30")
-                        }
+            // SEQUENTIAL / LINE SEQUENTIAL: newline-delimited text records, or
+            // records back to back. A national or UTF-8 field is text in the
+            // line and an image in the record (spec 077, D10).
+            Some(OpenFile::Sequential(f)) => {
+                use crate::seqfile::SeqRead;
+                match f.read(Some(&spec.layout), spec.is_varying()) {
+                    SeqRead::Record { bytes, place } => {
+                        // Where this record starts, so a `REWRITE` can replace it.
+                        read_at = place;
+                        (Some(bytes), status::OK)
                     }
-                }
-                // Record SEQUENTIAL: no terminator. A fixed-length file gives
-                // one record's worth of bytes per READ; a variable-length one
-                // reads its length prefix first and then that many bytes.
-                _ => {
-                    use std::io::{Read as _, Seek as _};
-                    // Where this record starts, so a `REWRITE` can replace it.
-                    let at = r.stream_position().unwrap_or(0);
-                    let mut read_exactly = |n: usize| -> Result<Vec<u8>, std::io::Error> {
-                        let mut bytes = vec![0u8; n];
-                        r.read_exact(&mut bytes)?;
-                        Ok(bytes)
-                    };
-                    let varying = spec.is_varying();
-                    let got = if varying {
-                        read_exactly(VARYING_LEN_PREFIX).and_then(|p| {
-                            let n = u32::from_be_bytes([p[0], p[1], p[2], p[3]]) as usize;
-                            read_exactly(n)
-                        })
-                    } else {
-                        read_exactly(spec.layout.len.max(1))
-                    };
-                    match got {
-                        Ok(bytes) => {
-                            let start = at + if varying { VARYING_LEN_PREFIX as u64 } else { 0 };
-                            read_at = Some(LastRead {
-                                start,
-                                len: bytes.len(),
-                            });
-                            (Some(bytes), status::OK)
-                        }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                            (None, status::EOF)
-                        }
-                        Err(e) => {
-                            tracing::warn!("READ failed: {e}");
-                            (None, "30")
-                        }
+                    SeqRead::End => (None, status::EOF),
+                    SeqRead::Failed(e) => {
+                        tracing::warn!("READ failed: {e}");
+                        (None, "30")
                     }
+                    SeqRead::NotInput => (None, status::NOT_OPEN_INPUT),
                 }
-            },
+            }
             _ => (None, status::NOT_OPEN_INPUT),
         };
 
@@ -11365,29 +11139,10 @@ impl Interpreter {
                 engine.rewrite(&buf, if random { rel_num } else { None })
             }
             // Record SEQUENTIAL, open I-O: replace the record the last READ
-            // delivered, in place.
-            Some(OpenFile::Reader { r, org }) if *org != FileOrganization::LineSequential => {
-                if !io_mode {
-                    "49" // REWRITE on a file not open I-O
-                } else {
-                    match last {
-                        // No successful READ since the file was positioned
-                        // here — there is no record to replace (SQ133A).
-                        None => "43",
-                        // A sequential REWRITE may not change the record's
-                        // length: the record after it would have to move
-                        // (SQ134A rewrites a 120-byte record over a 138-byte
-                        // one and expects 44).
-                        Some(at) if at.len != buf.len() => "44",
-                        Some(at) => match rewrite_in_place(r, at.start, &buf) {
-                            Ok(()) => "00",
-                            Err(e) => {
-                                tracing::warn!("REWRITE failed: {e}");
-                                "30"
-                            }
-                        },
-                    }
-                }
+            // delivered, in place (49 if not open I-O, 43 with no record read,
+            // 44 for a different length).
+            Some(OpenFile::Sequential(f)) if f.is_input() && !f.is_line_sequential() => {
+                f.rewrite(io_mode, last, &buf)
             }
             Some(_) => {
                 tracing::warn!("REWRITE on '{}', which is not open for I-O", file);
@@ -20499,7 +20254,7 @@ fn flatten_eq_comparisons<'a>(cond: &'a Condition, out: &mut Vec<(&'a Expr, &'a 
 
 /// Compare two `CobolValue`s using the given operator.
 /// Total ordering of two COBOL values, derived from `compare_values`, for SORT.
-fn cob_ordering(a: &CobolValue, b: &CobolValue) -> std::cmp::Ordering {
+pub(crate) fn cob_ordering(a: &CobolValue, b: &CobolValue) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     if compare_values(a, b, CmpOp::Eq) {
         Ordering::Equal

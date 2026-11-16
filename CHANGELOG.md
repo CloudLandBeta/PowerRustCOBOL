@@ -2,6 +2,22 @@
 
 
 
+## 2.0.541 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T37): sequential files and the sort's comparison now live in their own part of the runtime, so the runner can share them. A program behaves exactly as before.** This is the first task of milestone M3 (disk files on the WebAssembly path). It moves code out of the interpreter without changing what it does (plan correction C5).
+- **Sequential and line-sequential files:** opening, reading, writing, rewriting in place and closing are now one piece the interpreter calls. The same piece decides each `FILE STATUS`: 00, 05, 10, 30, 35, 43, 44, 47, 49. The runner will use it for its files in T38.
+- **`SORT` and `MERGE`:** the comparison of two records by their keys, with the program's collating sequence, is now shared too.
+- **Nothing a program can see has changed.** Every finished NIST module gives the same counts as before, each with 0 failures:
+  - Nucleus 95 of 95 (4 614 assertions passed);
+  - Sequential I/O 85 of 85 (624);
+  - Indexed I/O 41 of 41 (574);
+  - Relative I/O 34 of 34 (354);
+  - Sort-Merge 39 of 39 (735);
+  - Intrinsic Functions 45 of 45 (841);
+  - Inter-program Communication 25 of 25 (309);
+  - Source Text Manipulation 16 of 16 (311).
+- **Tests:** the runtime's 211 test programs pass: 1 678 tests, 0 failed, 29 ignored. Three new tests cover the shared file code: the statuses of an open, the round trip of fixed, variable and line records, and each refusal of a rewrite.
+
 ## 2.0.540 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T36): forms on the WebAssembly path (milestone M2) are closed and measured. A form program builds in under a second on that path, draws pixel for pixel as its Cargo-built twin, and the Cargo path itself has not moved a pixel. None of the five reference projects takes the new path yet, each for a reason it names.**

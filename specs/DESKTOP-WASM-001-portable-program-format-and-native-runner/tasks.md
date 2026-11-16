@@ -1429,7 +1429,13 @@ The code says five things the plan did not settle. Each is applied in the tasks 
 
 ## Phase M3 — Disk files, and `SORT` and `MERGE` with files
 
-- [ ] **T37 — `SequentialFile` and the sort core, extracted from the interpreter unchanged** (C5)
+- [x] **T37 — `SequentialFile` and the sort core, extracted from the interpreter unchanged** (C5)
+  - *Done 2026-11-16 (2.0.541):*
+    - **`crates/cobolt-runtime/src/seqfile.rs`:** `SequentialFile` holds a sequential or line-sequential file open in any mode. Its `open`, `read`, `write`, `rewrite` and `close` are the interpreter's former `Writer`/`Reader` arms, and it decides each status the same way: `refuses_absent` and `opened_status` (35, 05, 00), `failed_status` (35, 30), `SeqRead::status` (00, 10, 30, 47), and the rewrite's 49, 43, 44 and 00. `RecordPlace` (the interpreter's `LastRead`) and `VARYING_LEN_PREFIX` moved with it. Three unit tests cover the open statuses, the record round trip (fixed, variable with its four-byte prefix, line) and each rewrite refusal.
+    - **`crates/cobolt-runtime/src/sort_core.rs`:** `compare_keys` and `sort_keyed`, the comparison `SORT` and `MERGE` used: the collating sequence for two alphanumeric keys, `cob_ordering` (now `pub(crate)`) otherwise, and descending keys reversed.
+    - **The interpreter:** `OpenFile::Sequential(SequentialFile)` replaces `Writer` and `Reader`. `exec_open`, `exec_close`, `exec_read`, `exec_write`, `exec_rewrite`, `read_all_records`, `write_all_records` and `sort_records` call the two modules. 310 lines out, 67 in.
+    - **`cargo test -p cobolt-runtime`:** 211 test programs (the library, 209 integration targets, the doc test), 1 678 passed, 0 failed, 29 ignored. Run in batches of 30 targets, each batch's binaries deleted after it ran: the 209 targets together need about 47 GB.
+    - **NIST, execution on the interpreter (GOLDEN RULE #9, every finished module):** each count equals the ledger's and the run before this change, all with 0 failures. NC (Nucleus) 95 of 95, 4 614 assertions passed; SQ (Sequential I/O) 85 of 85, 624; IX (Indexed I/O) 41 of 41, 574; RL (Relative I/O) 34 of 34, 354; ST (Sort/Merge) 39 of 39, 735; IF (Intrinsic Functions) 45 of 45, 841; IC (Inter-program Communication) 25 of 25, 309; SM (Source Text Manipulation) 16 of 16, 311.
   - Files: new `crates/cobolt-runtime/src/seqfile.rs`, the sort core beside it, and the interpreter's file and `SORT` code calling them.
   - Verify:
     - `cargo test -p cobolt-runtime` green.
