@@ -1094,7 +1094,25 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - "What runs in a browser module" no longer says that every Desktop Build takes the Cargo path: its *On the Desktop* column is the default path's.
     - **Regenerated:** 4 397 records from 8 documents, 15 552 512 → 15 581 184 bytes. `prebuilt_chunked_kb_matches_the_published_documentation` green; the compiler's 14 documentation tests green.
 
-- [ ] **T26 — M1 close**
+- [x] **T26 — M1 close**
+  - *Done 2026-11-16 (2.0.525), on macOS arm64 (Apple M3 Pro, 11 cores, 18 GB; not a reference box):*
+    - **Tests:** the six crates passed 460 tests, with 0 failed and 9 ignored, in 66 test binaries.
+    - **`cobolt-ide --bin`:** 2 030 passed, 1 failed, 6 ignored. The red is the 2.x line's known `docs_embed::every_document_ships_in_every_language`. The System KB check is green, so T25's KB is current.
+    - **T1's test:** `desktop_wasm_unchanged` 3 of 3 artefacts match their pins.
+    - **`build-goal --runs 1`:** 6 of 6 Builds took the Cargo path, and each names its reason: its first form, "not on the WebAssembly path yet (DESKTOP-WASM-001 M2)".
+      - The slowest Builds: PowerCallOfDuty 178.6 s, PowerCloud 144.6 s, PowerCobolCraft 177.6 s, PowerGraphics 173.5 s, PowerSpatial 139.3 s, TenTimes 185.4 s.
+      - Peak memory: 4 783–5 549 MB.
+      - All six are over the 30 s goal, which M2 is the first to judge.
+      - The generator alone accepts PowerCallOfDuty (5.8 ms) and PowerGraphics (39.8 ms).
+      - `build-goal` now prints the reason for every Cargo Build and records it as `cargo_reason`. One run before that change measured the same paths, 141.3–185.5 s.
+    - **`pixel-parity --cargo`:** 408 of 408 golden frames match, and 22 of 22 forms are repeatable (14.8 min). No project moves at M1, so AC19 has no WebAssembly-built form to compare yet.
+    - **AC9 (NIST through the runner):**
+      - NC (Nucleus): compile 4 of 95, execution 4 of 95 with 0 failures.
+      - SQ (Sequential I/O): compile 3 of 85, execution 3 of 85 with 0 failures.
+      - The other 91 and 82 programs are refused for a file on disk (M3), as at T23.
+      - `tests/cobol`: 16 of 18 identical, with the 2 others differing only by `rcrun`'s warning line (#54).
+    - **The runner's size (C12):** the release `prc-runner` is 10 336 576 bytes (9.9 MiB) for macOS arm64 and needs only the system libraries (libSystem, CoreFoundation, libiconv). It links neither the interpreter (`cobolt-runtime`) nor the generator, so C12's expected "links `cobolt-runtime`, unused" did not happen. Measured on the tree carrying T27 and T28, whose `cobolt-forms` (without painting) is in the runner's tree but unused until T30; the build before them was 10 336 000 bytes.
+    - **Owed at the merge into `main`:** the Developer's Guide's list of what takes the Cargo path (with T25's §17 and §18).
   - Do: the milestone close (preamble).
   - Verify:
     - `cargo test -p cobolt-wasm -p cobolt-wasm-abi -p cobolt-runner-engine -p cobolt-program-package -p cobolt-runner -p cobolt-compiler --no-fail-fast`, every `test result:` line read.

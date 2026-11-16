@@ -2,6 +2,17 @@
 
 
 
+## 2.0.525 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T26): milestone M1 is closed. A console program builds into one runnable file with no Rust toolchain, and a form project still builds on the Cargo path, saying why.**
+- **`cobolt-bench build-goal`** now prints, for every Build on the Cargo path, the reason the Build gave, and records it as `cargo_reason`.
+- **Measured on macOS arm64** (Apple M3 Pro, 11 cores, 18 GB; not a reference box):
+  - **The Builds:** all six reference projects take the Cargo path because of their forms, which come to the WebAssembly path in M2. The slowest Builds take 139.3–185.4 s, all over the 30 s goal, with a peak of 4 783–5 549 MB.
+  - **The Cargo-built forms** still draw all 408 golden frames exactly (22 of 22 forms).
+  - **NIST, run by the runner:** NC (Nucleus) 4 of 95 and SQ (Sequential I/O) 3 of 85 compile and run with 0 failures. The rest are refused for a file on disk, which comes in M3.
+  - **The tests:** the six crates of the WebAssembly path passed 460 tests with none failed. The IDE passed 2 030, with only its known `docs_embed` red.
+  - **The release `prc-runner`:** 10 336 576 bytes (9.9 MiB) on macOS arm64. It needs only the system libraries, and contains neither the interpreter nor the generator.
+
 ## 2.0.524 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T25): the System Knowledge Base explains how a Desktop Build makes the program.**

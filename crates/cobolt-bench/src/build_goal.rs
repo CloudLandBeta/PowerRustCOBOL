@@ -113,6 +113,8 @@ struct BuildRun {
     phases: Vec<(cobolt_compiler::BuildPhase, Duration)>,
     peak: Option<u64>,
     path: cobolt_compiler::BuildPath,
+    /// Why the Build took the Cargo path; `None` on the WebAssembly path (DESKTOP-WASM-001 T26).
+    reason: Option<String>,
 }
 
 /// The generator on its own: the time over the whole project, or the first refusal and how many
@@ -276,7 +278,13 @@ fn measure_project(name: &str, source: &Path, scratch: &Path, runs: usize) -> Re
         let wall = t.elapsed();
         let _ = std::fs::remove_dir_all(&build_dir);
         match built {
-            Ok(b) => builds.push(BuildRun { wall, phases: b.phases, peak: b.peak_rss, path: b.path }),
+            Ok(b) => builds.push(BuildRun {
+                wall,
+                reason: b.cargo.as_ref().map(|c| c.reason.to_string()),
+                phases: b.phases,
+                peak: b.peak_rss,
+                path: b.path,
+            }),
             Err(e) => {
                 failed = Some(e.to_string());
                 break;
@@ -323,6 +331,7 @@ fn record_json(machine: &Machine, args: &Args, results: &[ProjectResult], ten: &
                 "project": r.name,
                 "forms": r.dims.forms, "cobol_lines": r.dims.cobol_lines, "indexed_files": r.dims.indexed,
                 "path": slowest.map(|b| path_name(b.path)),
+                "cargo_reason": slowest.and_then(|b| b.reason.clone()),
                 "builds": r.builds.len(),
                 "slowest_ms": slowest.map(|b| tenth(ms(b.wall))),
                 "over_goal": slowest.map(|b| b.wall > GOAL),
@@ -419,6 +428,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
             num(s.and_then(|b| phase_ms(b, P::Install)), 1.0),
             num(r.peak().map(|p| p as f64 / 1048576.0), 1.0),
         );
+        if let Some(why) = s.and_then(|b| b.reason.as_deref()) {
+            println!("  {} took the Cargo path because {why}", r.name);
+        }
         if let Some(e) = &r.failed {
             println!("  {} failed: {e}", r.name);
         }
