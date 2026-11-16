@@ -2,6 +2,15 @@
 
 
 
+## 2.0.515 — 2026-11-15
+
+**Fix: the check that every example's `CALL` names something knows a Web or Mobile project's Backend programs.** `example_calls_name_only_what_exists` (`cobolt-compiler`) had been red since PowerOficina came in (2.0.390): it reported 127 `CALL`s that name nothing, all in PowerOficina's drivers under `tests/`, calling its Backend programs (`CUSTOMER-SAVE`, `QUOTE-SAVE`, `PAYMENT-CONFIRM`, …).
+- **The cause:** the check knew only the project's Common Code (`[files] sources`). PowerOficina has none, and its server programs are listed under `[files] backend`.
+- **Now the Backend's programs** (its `.cbl` and `.cob` files and the programs they contain) count as existing for the Backend's own files and for the drivers. The backend links each of its programs into the others, and a driver is assembled with the programs it calls. **They do not count for the front end:** a plain `CALL` from Common Code or a form never reaches the backend, so it is still reported. The Check of a developer's program (`rcrun check`, the form runner, the `validate_source` tool) is unchanged.
+- **A guard in the same test** proves both sides for every project with a Backend: a driver's `CALL "NO-SUCH-BACKEND-PROGRAM"` is still reported, and the front end's `CALL` to a real backend program is still reported.
+- **Measured** (macOS arm64): 12 projects, 100 form programs and 62 sources, 35 Backend program names (seen by 45 backend and driver sources), 2 436 literal `CALL` targets resolved, **0 unresolved** (127 before), 2 747 ms. The guard passed in all 4 projects with a Backend: PowerAnalyticsWeb, PowerMobileHello, PowerOficina and PowerWebHello.
+- *(Fix branch `fixes-2x-oficina-calls`, cut from `main` at 2.0.500.)*
+
 ## 2.0.514 — 2026-11-15
 
 **Feature (DESKTOP-WASM-001 T16): the Desktop Build chooses its path. A console program that the WebAssembly path can serve now builds there by default, with no Rust toolchain; anything else takes the Cargo path, and the Build says why.**
