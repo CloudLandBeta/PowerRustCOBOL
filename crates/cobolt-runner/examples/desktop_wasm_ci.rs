@@ -17,21 +17,35 @@
 //! - `fixtures`: each console fixture of the module corpus becomes a project, `rcrun build` builds
 //!   it (it must take the WebAssembly path), and the built program runs with the fixture's input
 //!   and pins and must print and answer what its `run.toml` says: the fixture's check script.
-//!   `--modules-out` keeps each program's module, for `cross`.
+//!   Each form fixture of `cobolt-bench pixel-parity` (T35) is built the same way. Its program
+//!   then runs its scripts headless with the same pins, and must take every picture and meet the
+//!   fixture's expected reads. `--modules-out` keeps each program's module, for `cross`.
 //! - `reference`: each reference project, copied under `--work`, is built by `rcrun build`. One
 //!   that takes the WebAssembly path must build. One still on the Cargo path is listed with its
 //!   reason, which is what AC1 asks until every reference project takes the WebAssembly path.
 //! - `cross`: every platform's modules (`<dir>/<platform>/<name>.wasm`) run on this runner and
-//!   must do what their fixture says, as they did on their own platform (AC3). The result block
-//!   also says whether each fixture's module is the same file on every platform.
+//!   must do what their fixture says, as they did on their own platform (AC3). A form fixture's
+//!   modules must also draw the same pictures and give the same reads and dumps here, whichever
+//!   platform made them. The result block also says whether each fixture's module is the same
+//!   file on every platform.
 
 #[path = "../tests/support/corpus.rs"]
 mod corpus;
+#[path = "../../cobolt-bench/src/form_fixtures.rs"]
+mod form_fixtures;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Instant;
+
+use serde_json::Value;
+
+/// The pins of a form fixture's runs: those of `cobolt-bench pixel-parity`.
+const FORM_CLOCK: &str = "2026-01-02T03:04:05-03:00";
+const FORM_SEED: u64 = 20_261_114;
+/// A headless run's own time limit (`PRC_HEADLESS_LIMIT`), in seconds.
+const FORM_LIMIT_SECS: u64 = 60;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -133,6 +147,136 @@ fn run_program(path: &Path, run: &corpus::Run, cache: &Path) -> Result<(String, 
     Ok((String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n"), out.status.code(), t.elapsed().as_secs_f64() * 1000.0))
 }
 
+/// The module inside a built program.
+fn module_of(program: &Path) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(program).map_err(|e| format!("{}: {e}", program.display()))?;
+    let payload = cobolt_program_package::locate(&bytes).map_err(|e| e.to_string())?;
+    Ok(cobolt_program_package::decode(payload).map_err(|e| e.to_string())?.module().map_err(|e| e.to_string())?.to_vec())
+}
+
+/// `module` alone in a copy of `runner` (no machine code: the runner makes it, R16), written under
+/// `scratch` as `name`.
+fn embed_module(runner: &[u8], module: &[u8], scratch: &Path, name: &str) -> Result<PathBuf, String> {
+    use cobolt_program_package::Kind;
+    let payload = cobolt_program_package::encode(&[(Kind::Module, module)]);
+    let program = cobolt_program_package::embed(runner, &payload, name).map_err(|e| e.to_string())?;
+    let path = scratch.join(exe(name));
+    cobolt_program_package::write_executable(&path, &program).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// One headless run of a form program on one script.
+struct Headless {
+    /// Each picture's sha256, by shot name (the same runner writes the same pixels as the same bytes).
+    frames: BTreeMap<String, String>,
+    /// The report's steps, with what each `read` and `dump` saw.
+    steps: Vec<Value>,
+    timed_out: bool,
+    ms: f64,
+}
+
+/// Runs `program` headless on `steps`, showing the form `form_id`, with the pins; its pictures go
+/// under `out`.
+fn run_headless(program: &Path, cwd: &Path, form_id: &str, steps: &[Value], out: &Path) -> Result<Headless, String> {
+    let _ = std::fs::remove_dir_all(out);
+    let shots = out.join("shots");
+    std::fs::create_dir_all(&shots).map_err(|e| format!("{}: {e}", shots.display()))?;
+    let script = out.join("script.json");
+    std::fs::write(&script, Value::Array(steps.to_vec()).to_string()).map_err(|e| e.to_string())?;
+    let t = Instant::now();
+    let done = Command::new(program)
+        .current_dir(cwd)
+        .env("PRC_HEADLESS_SCRIPT", &script)
+        .env("PRC_HEADLESS_SHOTS", &shots)
+        .env("PRC_HEADLESS_LIMIT", FORM_LIMIT_SECS.to_string())
+        .env("PRC_TEST_CLOCK", FORM_CLOCK)
+        .env("PRC_TEST_SEED", FORM_SEED.to_string())
+        .env("PRC_RUNNER_CACHE", out.join("cache"))
+        .env("COBOLT_DESIGNER_FORM", form_id)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("{}: {e}", program.display()))?;
+    let ms = t.elapsed().as_secs_f64() * 1000.0;
+    let text = String::from_utf8_lossy(&done.stdout);
+    let Some(report) = text
+        .lines()
+        .rev()
+        .find_map(|l| l.trim_end().strip_prefix(cobolt_form_host::headless::RESULT_MARKER))
+        .and_then(|j| serde_json::from_str::<Value>(j).ok())
+    else {
+        let err = String::from_utf8_lossy(&done.stderr);
+        let tail: Vec<&str> = err.lines().rev().take(3).collect();
+        return Err(format!("{}: no result ({}): {}", program.display(), done.status, tail.into_iter().rev().collect::<Vec<_>>().join(" / ")));
+    };
+    let mut frames = BTreeMap::new();
+    for entry in std::fs::read_dir(&shots).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("png") {
+            let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            frames.insert(name, corpus::sha256_hex(&std::fs::read(&path).map_err(|e| e.to_string())?));
+        }
+    }
+    Ok(Headless {
+        frames,
+        steps: report.get("steps").and_then(Value::as_array).cloned().unwrap_or_default(),
+        timed_out: report.get("timed_out").and_then(Value::as_bool) == Some(true),
+        ms,
+    })
+}
+
+/// A form fixture's scripts, all run headless by one program.
+#[derive(Default)]
+struct FormRun {
+    /// Each picture's sha256, by `<script>/<shot>`.
+    frames: BTreeMap<String, String>,
+    /// Every `read` and `dump`, script by script, with what it saw.
+    reads: Vec<(String, Value)>,
+    /// The `shot` steps of the scripts.
+    shots: usize,
+    steps: usize,
+    /// The fixture's expected reads this run did not meet.
+    missed: Vec<String>,
+    timed_out: bool,
+    ms: f64,
+}
+
+impl FormRun {
+    fn ok(&self) -> bool {
+        !self.timed_out && self.missed.is_empty() && self.frames.len() == self.shots
+    }
+
+    /// `27 steps, 6 pictures of 6, 9 reads and dumps, expected reads 3 of 3, 2400 ms`.
+    fn summary(&self, expected: usize) -> String {
+        format!(
+            "{} steps, {} pictures of {}, {} reads and dumps, expected reads {} of {expected}{}, {:.0} ms",
+            self.steps,
+            self.frames.len(),
+            self.shots,
+            self.reads.len(),
+            expected - self.missed.len(),
+            if self.timed_out { ", TIMED OUT" } else { "" },
+            self.ms
+        )
+    }
+}
+
+fn run_fixture(f: &form_fixtures::FormFixture, program: &Path, cwd: &Path, out: &Path) -> Result<FormRun, String> {
+    let mut run = FormRun::default();
+    let mut all_steps = Vec::new();
+    for (stem, form_id, steps) in &f.scripts {
+        let h = run_headless(program, cwd, form_id, steps, &out.join(stem))?;
+        run.frames.extend(h.frames.into_iter().map(|(shot, hash)| (format!("{stem}/{shot}"), hash)));
+        run.reads.extend(form_fixtures::reads_of(&h.steps).into_iter().map(|(what, saw)| (format!("{stem} {what}"), saw)));
+        run.shots += steps.iter().filter(|s| s.get("shot").is_some()).count();
+        run.steps += steps.len();
+        run.timed_out |= h.timed_out;
+        run.ms += h.ms;
+        all_steps.extend(h.steps);
+    }
+    run.missed = form_fixtures::missed_expectations(&all_steps, &f.expect);
+    Ok(run)
+}
+
 fn fixtures(args: &[String]) -> Result<bool, String> {
     let (named, _) = options(args);
     let rcrun = required(&named, "rcrun")?;
@@ -177,19 +321,54 @@ fn fixtures(args: &[String]) -> Result<bool, String> {
         }
         if let Some(out) = &modules_out {
             std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
-            let bytes = std::fs::read(&program).map_err(|e| e.to_string())?;
-            let payload = cobolt_program_package::locate(&bytes).map_err(|e| e.to_string())?;
-            let module = cobolt_program_package::decode(payload).map_err(|e| e.to_string())?.module().map_err(|e| e.to_string())?.to_vec();
-            std::fs::write(out.join(format!("{name}.wasm")), module).map_err(|e| e.to_string())?;
+            std::fs::write(out.join(format!("{name}.wasm")), module_of(&program)?).map_err(|e| e.to_string())?;
         }
     }
-    println!("== console fixtures built by rcrun and run (DESKTOP-WASM-001 T22: AC1) ==");
+    // The form fixtures (T35): built the same way, then run headless on their scripts.
+    let forms = form_fixtures::all();
+    let mut forms_passed = 0;
+    for f in &forms {
+        let project = work.join(f.name);
+        let manifest = form_fixtures::lay_out(f, &project)?;
+        let built = rcrun_build(&rcrun, &manifest)?;
+        if !(built.ok && built.wasm) {
+            rows.push(format!("  FAIL {} (form): not built on the WebAssembly path ({:.0} ms)\n{}", f.name, built.ms, built.text));
+            continue;
+        }
+        let program = project.join("bin").join(exe(&f.name.to_ascii_lowercase()));
+        let run = run_fixture(f, &program, &project, &work.join("runs").join(f.name))?;
+        if run.ok() {
+            forms_passed += 1;
+        }
+        let size = std::fs::metadata(&program).map(|m| m.len()).unwrap_or(0);
+        rows.push(format!(
+            "  {} {} (form): built on the WebAssembly path in {:.0} ms ({size} bytes); ran headless: {}",
+            if run.ok() { "ok  " } else { "FAIL" },
+            f.name,
+            built.ms,
+            run.summary(f.expect.len())
+        ));
+        for m in &run.missed {
+            rows.push(format!("       {m}"));
+        }
+        if let Some(out) = &modules_out {
+            std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+            std::fs::write(out.join(format!("{}.wasm", f.name)), module_of(&program)?).map_err(|e| e.to_string())?;
+        }
+    }
+    println!("== console and form fixtures built by rcrun and run (DESKTOP-WASM-001 T22, T35: AC1) ==");
     println!("rcrun: {}; rustc on PATH: {}", rcrun.display(), Command::new("rustc").arg("-V").output().is_ok());
     for r in &rows {
         println!("{r}");
     }
-    println!("fixtures {}, built and checked {passed} of {}", list.len(), list.len());
-    Ok(passed == list.len() && !list.is_empty())
+    println!(
+        "console fixtures {}, built and checked {passed} of {}; form fixtures {}, built and checked {forms_passed} of {}",
+        list.len(),
+        list.len(),
+        forms.len(),
+        forms.len()
+    );
+    Ok(passed == list.len() && !list.is_empty() && forms_passed == forms.len())
 }
 
 /// `from`'s files, copied under `to`, without a previous Build's `bin/`, `target/` or `dist/`.
@@ -298,8 +477,52 @@ fn cross(args: &[String]) -> Result<bool, String> {
             ));
         }
     }
+    // The form fixtures (T35): each platform's module, run headless on this runner.
+    let forms = form_fixtures::all();
+    let (mut form_total, mut form_ok) = (0, 0);
+    let mut form_runs: BTreeMap<&str, Vec<(String, FormRun)>> = BTreeMap::new();
+    for platform in &platforms {
+        let from = platform.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
+        for f in &forms {
+            form_total += 1;
+            let path = platform.join(format!("{}.wasm", f.name));
+            let Ok(module) = std::fs::read(&path) else {
+                rows.push(format!("  FAIL {from}/{}.wasm is missing", f.name));
+                continue;
+            };
+            hashes.entry(f.name.to_owned()).or_default().insert(from.clone(), corpus::sha256_hex(&module));
+            let name = format!("cross-{from}-{}", f.name);
+            let program = embed_module(&runner, &module, &scratch, &name)?;
+            let run = run_fixture(f, &program, &scratch, &scratch.join("runs").join(&name))?;
+            if run.ok() {
+                form_ok += 1;
+            }
+            rows.push(format!("  {} built on {from}, {} (form): {}", if run.ok() { "ok  " } else { "FAIL" }, f.name, run.summary(f.expect.len())));
+            for m in &run.missed {
+                rows.push(format!("       {m}"));
+            }
+            form_runs.entry(f.name).or_default().push((from.clone(), run));
+        }
+    }
+    // Whichever platform made a fixture's module, this runner must draw and read the same.
+    let mut same = 0;
+    for (name, runs) in &form_runs {
+        let (first_from, first) = &runs[0];
+        let apart: Vec<&str> = runs.iter().filter(|(_, r)| r.frames != first.frames || r.reads != first.reads).map(|(p, _)| p.as_str()).collect();
+        if apart.is_empty() {
+            same += 1;
+            rows.push(format!(
+                "  ok   {name}: the modules of the {} platforms draw the same {} pictures and give the same {} reads and dumps here",
+                runs.len(),
+                first.frames.len(),
+                first.reads.len()
+            ));
+        } else {
+            rows.push(format!("  FAIL {name}: the modules built on {} draw or read otherwise than {first_from}'s", apart.join(", ")));
+        }
+    }
     let _ = std::fs::remove_dir_all(&scratch);
-    println!("== modules of every platform on this platform's runner (DESKTOP-WASM-001 T22: AC3, console) ==");
+    println!("== modules of every platform on this platform's runner (DESKTOP-WASM-001 T22, T35: AC3, console and forms) ==");
     println!("runner: {} on {}-{}", runner_path.display(), std::env::consts::OS, std::env::consts::ARCH);
     for r in &rows {
         println!("{r}");
@@ -308,6 +531,10 @@ fn cross(args: &[String]) -> Result<bool, String> {
         let distinct: std::collections::BTreeSet<&String> = by.values().collect();
         println!("  {name}: the module is {} on the {} platforms", if distinct.len() == 1 { "the same file" } else { "NOT the same file" }, by.len());
     }
-    println!("platforms {}, modules {total}, identical output and exit code {identical} of {total}", platforms.len());
-    Ok(identical == total && total > 0)
+    println!(
+        "platforms {}; console modules {total}, identical output and exit code {identical} of {total}; form modules {form_total}, checked {form_ok} of {form_total}, the same on this runner {same} of {} fixtures",
+        platforms.len(),
+        form_runs.len()
+    );
+    Ok(identical == total && total > 0 && form_ok == form_total && same == form_runs.len())
 }

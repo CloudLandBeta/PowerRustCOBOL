@@ -13,6 +13,10 @@
 //! Each fixture is written here, in code, as the runner twins write theirs. It has its forms, the
 //! project file, and a script per form. The project has forms only (no main program), so the Build
 //! generates every form's COBOL itself, from the `.cfrm` the fixture saves.
+//!
+//! T35: the checks of `.github/workflows/desktop-wasm.yml` include this file by path
+//! (`cobolt-runner/examples/desktop_wasm_ci.rs`). There a fixture is built by `rcrun` with no Rust
+//! toolchain on the machine, and its module runs on every platform's runner.
 
 use std::path::{Path, PathBuf};
 
@@ -159,6 +163,39 @@ fn parity_controls() -> FormFixture {
 /// Every fixture, in order.
 pub(crate) fn all() -> Vec<FormFixture> {
     vec![parity_controls()]
+}
+
+/// Every `read` and `dump` of a run's report, in order: what it was, and what it saw.
+pub(crate) fn reads_of(steps: &[Value]) -> Vec<(String, Value)> {
+    steps
+        .iter()
+        .filter_map(|st| {
+            let step = st.get("step").and_then(Value::as_u64).unwrap_or(0);
+            if let Some(what) = st.get("read").and_then(Value::as_str) {
+                Some((format!("step {step}: read {what}"), st.get("value").cloned().unwrap_or(Value::Null)))
+            } else if st.get("dump").is_some() {
+                Some((format!("step {step}: dump"), st.get("state").cloned().unwrap_or(Value::Null)))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// What `steps` (a run's report) missed of `expect`: each `(control::property, value)` must be the
+/// value of the run's last read of that control and property.
+pub(crate) fn missed_expectations(steps: &[Value], expect: &[(String, String)]) -> Vec<String> {
+    expect
+        .iter()
+        .filter_map(|(what, want)| {
+            let got = steps.iter().rev().find(|st| st.get("read").and_then(Value::as_str) == Some(what.as_str()));
+            match got.map(|st| st.get("value").cloned().unwrap_or(Value::Null)) {
+                Some(Value::String(s)) if s == *want => None,
+                Some(v) => Some(format!("{what} is {v}, expected {want:?}")),
+                None => Some(format!("{what} was never read, expected {want:?}")),
+            }
+        })
+        .collect()
 }
 
 /// Writes `fixture`'s forms and project file under `to`; the project file's path.

@@ -1,14 +1,15 @@
-# DESKTOP-WASM-001 T22 (R2, R5; AC1, AC2, AC3 console): the WebAssembly path of a Desktop Build,
-# checked on clean machines.
+# DESKTOP-WASM-001 T22, T35 (R2, R5; AC1, AC2, AC3 console and forms): the WebAssembly path of a
+# Desktop Build, checked on clean machines.
 #
 # - tools (four platforms): rcrun and prc-runner, built in release as the packages ship them and
 #   laid out side by side, as an installed IDE has them; the checks' helper (`desktop_wasm_ci`);
-#   and the console fixtures' modules this platform's Build makes, for `cross-platform`.
+#   and the console and form fixtures' modules this platform's Build makes, for `cross-platform`.
 # - no-toolchain (four platforms): Rust is taken off the machine (no rustc or cargo on PATH, no
 #   ~/.cargo, no ~/.rustup). rcrun then builds the module corpus's console fixtures, the projects
-#   that take the WebAssembly path at M1, and runs each one's check script. It also builds the five
-#   reference projects and lists those still on the Cargo path, with the reason (AC1 is met once
-#   all five take the WebAssembly path).
+#   that take the WebAssembly path at M1, and runs each one's check script. The form fixture of
+#   `cobolt-bench pixel-parity` is built the same way and run headless on its script (T35). It also
+#   builds the five reference projects and lists those still on the Cargo path, with the reason
+#   (AC1 is met once all five take the WebAssembly path).
 #   Deviation, recorded in tasks.md: it uses the tools this run built, laid out as the package lays
 #   them out, rather than installing a package made by build-all-platforms.yml (a separate
 #   workflow, whose artifacts this one cannot rely on).
@@ -16,7 +17,8 @@
 #   writes the sha256 of every module it makes (the fixtures, the reference projects, every
 #   program of tests/cobol) with the same SOURCE_DATE_EPOCH; the lists must be identical (AC2).
 # - cross-platform (four platforms): every platform's fixture modules run on this platform's runner
-#   and must do what their fixture says (AC3, console part).
+#   and must do what their fixture says (AC3). A form fixture's modules must also draw the same
+#   pictures and give the same reads and dumps here, whichever platform built them (T35).
 #
 # Each check prints one result block. A dispatch needs this file on the default branch (GitHub
 # runs workflow_dispatch from there); a tag runs it from the tag.

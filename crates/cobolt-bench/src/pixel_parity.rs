@@ -80,6 +80,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::build_goal::{platform, product_version, repo_root};
+use crate::form_fixtures::{missed_expectations, reads_of};
 use crate::ten_times;
 
 /// The pinned clock and seed every run takes (R28).
@@ -764,39 +765,6 @@ impl PairCompare {
         self.reads_equal += other.reads_equal;
         self.read_diffs.extend(other.read_diffs.into_iter().map(|d| format!("{at}/{d}")));
     }
-}
-
-/// Every `read` and `dump` of a run's report, in order: what it was, and what it saw.
-fn reads_of(steps: &[Value]) -> Vec<(String, Value)> {
-    steps
-        .iter()
-        .filter_map(|st| {
-            let step = st.get("step").and_then(Value::as_u64).unwrap_or(0);
-            if let Some(what) = st.get("read").and_then(Value::as_str) {
-                Some((format!("step {step}: read {what}"), st.get("value").cloned().unwrap_or(Value::Null)))
-            } else if st.get("dump").is_some() {
-                Some((format!("step {step}: dump"), st.get("state").cloned().unwrap_or(Value::Null)))
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-/// What `steps` (a run's report) missed of `expect`: each `(control::property, value)` must be the
-/// value of the run's last read of that control and property.
-fn missed_expectations(steps: &[Value], expect: &[(String, String)]) -> Vec<String> {
-    expect
-        .iter()
-        .filter_map(|(what, want)| {
-            let got = steps.iter().rev().find(|st| st.get("read").and_then(Value::as_str) == Some(what.as_str()));
-            match got.map(|st| st.get("value").cloned().unwrap_or(Value::Null)) {
-                Some(Value::String(s)) if s == *want => None,
-                Some(v) => Some(format!("{what} is {v}, expected {want:?}")),
-                None => Some(format!("{what} was never read, expected {want:?}")),
-            }
-        })
-        .collect()
 }
 
 fn area(png: &Path) -> u64 {

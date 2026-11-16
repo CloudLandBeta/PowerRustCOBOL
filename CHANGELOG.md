@@ -2,6 +2,22 @@
 
 
 
+## 2.0.535 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T35): the same form on every surface and on every platform. A form draws alike, pixel for pixel, in the designer's picture, under Run Form and in the program built on the WebAssembly path. The CI checks build a form program with no Rust toolchain on the machine, and run each platform's module on every platform's runner.**
+- **On every surface (AC14):**
+  - A new test pictures one reference form as it opens, three ways: the designer's picture (the designer's preview and the coding agent's `render_form`), `rcrun run-form`, and the program `rcrun build` makes on the WebAssembly path.
+  - The three pictures must be equal in every pixel. They are: 0 differing pixels in each of the three pairs, 360 000 pixels compared.
+  - Getting there took the fix in 2.0.534: the designer's picture inked text a shade darker than Run Form.
+- **On every platform (AC3, forms):**
+  - None of the five reference projects takes the WebAssembly path yet, so the checks use the form fixture of 2.0.533 (`ParityControls`, 20 controls). A reference project joins the same way once it moves.
+  - On each platform, the job with no Rust toolchain builds the fixture with `rcrun` and runs its script off screen. Every picture must be taken, and the handlers' results must be read back ("Ann", "2", "ticked").
+  - The cross-platform job runs every platform's module of the fixture on each platform's runner. Each must pass the same checks, and all must draw the same pictures and give the same reads and state dumps.
+- **Measured on this Mac (macOS, Apple silicon, debug tools):**
+  - Built and checked: console fixtures 2 of 2; the form fixture 1 of 1 (27 steps, 6 of 6 pictures, 3 of 3 expected reads).
+  - Modules laid out as two platforms on one runner: console 4 of 4 and form 2 of 2, with the same pictures and reads from both.
+  - The run of the workflow on the four platforms is owed to the operator.
+
 ## 2.0.534 — 2026-11-16
 
 **Fix: the picture of a form, in the designer's preview and from the coding agent's `render_form` tool, now matches Run Form in every pixel.**

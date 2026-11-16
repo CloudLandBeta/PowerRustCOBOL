@@ -1361,7 +1361,25 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - A project counts as moved only when it shows 0 differing pixels.
     - The CI job is dispatched once on the four platforms, outside the window, and its blocks are recorded.
 
-- [ ] **T35 — The same form on every surface and on every platform** (R2, R5, R9; AC3 forms, AC14)
+- [x] **T35 — The same form on every surface and on every platform** (R2, R5, R9; AC3 forms, AC14)
+  - *Done 2026-11-16 (2.0.535):*
+    - **AC14, the same form on every surface:** a new test, `runner_surfaces` (`cobolt-cli`), pictures the guard's reference form as it opens (a Panel holding an AreaChart, a PictureBox and a TextBox, and a Label, 400 by 300, no handler), three ways:
+      - by the designer's render path, `snapshot::render_form_image` (the picture of the designer's preview and of the agent's `render_form`);
+      - under `rcrun run-form` (the interpreter), headless with T30's pins;
+      - in the program `rcrun build` makes on the WebAssembly path (the runner), the same.
+      - Result: 6 of 6 checks. 0 differing pixels in each of the three pairs, 360 000 pixels compared (119 913 inked). The designer's picture took 650 ms, the interpreter run 4 805 ms, the runner run 2 703 ms, and the Build 7 976 ms.
+      - `engine_reference_form_parity_static_vs_faces` (the geometry half: the canvas entry `render_faces` against `render_form`) is green.
+      - **A fix found on the way (2.0.534, `fixes-2x-snapshot-visuals`, pushed, then picked into this branch):** the designer's picture differed from both runs by 1 486 pixels, at the edge of every glyph and anti-aliased line. Run Form's host draws on light visuals; the picture was made on a fresh context, in dark mode, whose text coverage curve inks darker. The picture now starts from the host's light visuals. Its own test, `designer_picture_is_run_form` (form host), compares the picture with the real host and interpreter: 138 differing pixels before, 0 after. With the fix, `cobolt-forms --features render` keeps 101 targets green (1 877 tests). Its one red, `example_corpus_golden`, is the three PowerDemo3 goldens recorded before this task, and that test does not call the snapshot. `desktop_comparison_chrome`, `page_border_look` and the designer's `designer_css_effective` stay green.
+    - **AC3, forms on every platform (decision, not in the task text):** at M2 no reference project has moved (T34), so "the form projects that moved" are none. The `cross-platform` job gains T34's form fixture instead, as T34's pairs mode did. A reference project joins the same way once it moves.
+      - `desktop_wasm_ci` includes `cobolt-bench/src/form_fixtures.rs` by path, so the fixture has one definition. The fixture's two read checks (`reads_of`, `missed_expectations`) moved into that file from `pixel_parity.rs`, unchanged.
+      - `fixtures` (the `tools` and `no-toolchain` jobs) builds each form fixture with `rcrun`, which must take the WebAssembly path. It then runs each script headless with the pins, and requires every picture and the expected reads. `--modules-out` keeps the module.
+      - `cross` runs every platform's module of the fixture headless on this platform's runner. Each must take every picture and meet the expected reads, and all must draw the same pictures (the PNG files' sha256) and give the same reads and dumps here.
+      - `desktop-wasm.yml`: only its header changes, since the jobs already run `fixtures` and `cross`.
+      - **Result on this Mac** (debug `rcrun`, `prc-runner` and helper):
+        - `fixtures`: console 2 of 2; ParityControls 1 of 1, built on the WebAssembly path in 13.2 s, 27 steps, 6 of 6 pictures, 9 reads and dumps, 3 of 3 expected reads, 11.1 s.
+        - `cross`, with this Mac's modules laid out twice as two platforms: console 4 of 4; form 2 of 2; the same on this runner 1 of 1. Each module is the same file both times.
+      - The dispatch on the four platforms is owed to the operator, with T22's.
+    - **Tests:** `cobolt-bench` 3 passed, 0 failed, among them the pairs test, which uses the moved checks.
   - Verify:
     - **AC14:** a test renders a reference form in the designer's render path, under `rcrun run-form` and under the runner, and gets equal pixels. `engine_reference_form_parity_static_vs_faces` green.
     - **AC3:** the `cross-platform` job of T22 gains the form projects that moved.
