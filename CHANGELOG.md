@@ -2,6 +2,17 @@
 
 
 
+## 2.0.546 — 2026-11-16
+
+**Fix: on the WebAssembly path, a record and its items can now be qualified by the name of their file (`WRITE PRINT-REC IN PRINT-FILE`), as COBOL-85 allows.**
+- **What was wrong:** the generator accepted only data names as qualifiers. It refused a name qualified by its file name, such as `C-ID IN CUST` or `C-NAME OF C-REC IN CUST`, with "… is not defined". The interpreter accepts these names. NIST SQ207M writes `WRITE PRINT-REC IN PRINT-FILE`, so the desktop's WebAssembly path refused that program.
+- **The fix:** the file's name qualifies its records, as the outermost qualifier. A name that is still not unique is reported as ambiguous, as before.
+- **Tests:**
+  - a new test writes and reads an indexed file using 7 names qualified by the file. Its 2 of 2 lines equal the interpreter's, in both memory layouts. Without the fix, the program is refused ("C-ID is not defined");
+  - the generator's tests: 34 test programs, 124 passed, 0 failed;
+  - browser module bytes are unchanged (the PowerAnalyticsWeb pin matches);
+  - NIST on generated modules is unchanged, each with 0 failures: Nucleus 95/95 (4 612 assertions passed), Intrinsic Functions 45/45 (841), Inter-program Communication 25/25 (309).
+
 ## 2.0.544 — 2026-11-16
 
 **Fix: a program's handlers and other contained programs can now use the records of a `GLOBAL` file on the WebAssembly path, as COBOL-85 requires.**

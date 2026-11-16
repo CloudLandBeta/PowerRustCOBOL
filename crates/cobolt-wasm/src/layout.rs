@@ -83,6 +83,9 @@ pub struct Layout {
     externals: HashMap<String, (u32, u32)>,
     /// Per unit: the region range its declared storage occupies.
     pub unit_ranges: Vec<(u32, u32)>,
+    /// A file's record (its top-level item) -> the upper-case name of its FD or
+    /// SD, which qualifies the record and its items (`PRINT-REC IN PRINT-FILE`).
+    record_file: HashMap<usize, String>,
 }
 
 impl Layout {
@@ -97,6 +100,7 @@ impl Layout {
             scope: vec![0],
             externals: HashMap::new(),
             unit_ranges: Vec::new(),
+            record_file: HashMap::new(),
         }
     }
 
@@ -368,6 +372,9 @@ impl Layout {
             let idx = self.add_decl(d, None, start, None, Usage::Display)?;
             if global {
                 self.items[idx].global = true;
+            }
+            if !fd_name.is_empty() {
+                self.record_file.insert(idx, fd_name.to_ascii_uppercase());
             }
             match first {
                 None => first = Some(idx),
@@ -705,17 +712,28 @@ impl Layout {
             if !self.visible(c) {
                 continue;
             }
-            // Every qualifier must name an ancestor, in order outward.
+            // Every qualifier must name an ancestor, in order outward; the
+            // outermost may name the file whose record holds the item (COBOL-85).
             let mut cur = self.items[c].parent;
+            let mut top = c;
+            let mut file_named = false;
             for q in quals {
+                if file_named {
+                    continue 'c;
+                }
                 let q = q.to_ascii_uppercase();
                 loop {
                     match cur {
                         Some(p) => {
                             cur = self.items[p].parent;
+                            top = p;
                             if self.items[p].name.as_deref() == Some(q.as_str()) {
                                 break;
                             }
+                        }
+                        None if self.record_file.get(&top) == Some(&q) => {
+                            file_named = true;
+                            break;
                         }
                         None => continue 'c,
                     }
