@@ -6600,9 +6600,22 @@ impl Interpreter {
             // Writing the group's own slot instead would leave every child at
             // its old value while the group read back as something else.
             if self.env.is_group(&name) {
-                // A group is alphanumeric, so a numeric sender contributes its
-                // zero-padded digit string — the same rule the alphanumeric
-                // receiver below already follows.
+                // A move to a group is alphanumeric with no conversion
+                // (COBOL-85 6.18.4), so a signed DISPLAY sender gives the
+                // characters it stores, its sign included: `+00001` from a
+                // `S9(5) SIGN LEADING SEPARATE` holding 1, not `00001` (CCVS85
+                // SQ111A moves one into a group and reads the digits after it).
+                if let Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } = from {
+                    let key = self.resolve_lvalue(from);
+                    if self.env.is_signed_display(&key) {
+                        let image = self.env.storage_image(&key);
+                        self.env.set_group_bytes(&name, &image);
+                        continue;
+                    }
+                }
+                // Any other numeric sender contributes its zero-padded digit
+                // string — the same rule the alphanumeric receiver below
+                // already follows.
                 if let Some(d) = src_digits.clone() {
                     self.env.set_group(&name, &d);
                     continue;

@@ -267,6 +267,9 @@ pub struct CobolEnvironment {
     /// its digit positions wide and the sign rides on the leading or trailing
     /// digit, which is the representation the store already has.
     sign_separate: IndexMap<String, bool>,
+    /// Signed numeric DISPLAY items, separate sign or embedded: their sign is
+    /// one of the characters they store. See [`Self::is_signed_display`].
+    signed_display: std::collections::HashSet<String>,
     /// `REDEFINES` descriptions that **share storage outright**, mapping each
     /// redefining item's template key to the corresponding key of the
     /// description it redefines (`ENTRY-1-1` → `ENTRY-1`).
@@ -1815,12 +1818,17 @@ impl CobolEnvironment {
                 }
                 if !pic.template.to_ascii_uppercase().contains('S') {
                     self.unsigned_numeric.insert(upper.to_string());
-                } else if let Some(sign) = decl.sign.filter(|s| s.separate) {
-                    // SEPARATE only means anything on a signed DISPLAY item:
-                    // an unsigned PICTURE has no sign to separate, and COMP
-                    // items are not stored as characters at all.
+                } else {
                     if matches!(decl.usage, Usage::Display) {
-                        self.sign_separate.insert(upper.to_string(), sign.leading);
+                        self.signed_display.insert(upper.to_string());
+                    }
+                    if let Some(sign) = decl.sign.filter(|s| s.separate) {
+                        // SEPARATE only means anything on a signed DISPLAY item:
+                        // an unsigned PICTURE has no sign to separate, and COMP
+                        // items are not stored as characters at all.
+                        if matches!(decl.usage, Usage::Display) {
+                            self.sign_separate.insert(upper.to_string(), sign.leading);
+                        }
                     }
                 }
             }
@@ -2615,6 +2623,14 @@ impl CobolEnvironment {
             }
         }
         Ok(())
+    }
+
+    /// `true` for a signed numeric `USAGE DISPLAY` item, whose sign is one of
+    /// the characters it stores (a separate sign, or an overpunched digit). A
+    /// group receiver takes those characters as they stand (COBOL-85 6.18.4).
+    pub fn is_signed_display(&self, name: &str) -> bool {
+        let key = name.to_ascii_uppercase();
+        self.signed_display.contains(&key) || self.signed_display.contains(base_name(&key))
     }
 
     /// `true` for a numeric item whose PICTURE carries no sign — it cannot

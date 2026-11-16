@@ -2,6 +2,26 @@
 
 
 
+## 2.0.550 — 2026-11-16
+
+**Fix: `MOVE` of a signed numeric `DISPLAY` item to a group now gives the characters the item stores, its sign included, as COBOL-85 requires. This holds in the interpreter and on the WebAssembly path.**
+- **What was wrong:** a move to a group is an alphanumeric move with no conversion, so the group should receive the sender's characters as they stand. Both engines gave the group only the sender's digits:
+  - with `S9(5) SIGN LEADING SEPARATE` holding 1, the group got `00001 `, not `+00001`. The sign was dropped and the digits moved one place left;
+  - an overpunched negative (`S9(4)` holding -123) lost its sign the same way: `0123`, not `012L`.
+- **How it was found:** NIST SQ111A moves such an item into a group of `PIC X` and `PIC 9(5)` and compares the digits with a record count. The digits held `0001 `, which is not a valid number. The interpreter read it as 1, so the program passed by accident; the desktop's WebAssembly runner read it as 10 and reported 595 records in error.
+- **The fix:** a signed `USAGE DISPLAY` sender, whether its sign is `SEPARATE` or overpunched, gives a group receiver its stored characters, in both engines. Nothing else changes:
+  - unsigned items, `COMP` items and literals still give their digits;
+  - an alphanumeric receiver still gets the unsigned digits (COBOL-85: the sign is not moved);
+  - in a `MOVE` with several receivers, each group gets the characters and each alphanumeric item gets the digits.
+- **Tests:**
+  - a new twin test moves `LEADING` and `TRAILING SEPARATE` items, an overpunched negative, a positive value, a table element, and an unsigned and a `COMP` item into a group, and one item into a group and an alphanumeric item in the same `MOVE`. Its 9 of 9 lines equal on both engines and both memory layouts, and match the standard's result;
+  - the interpreter's tests: 211 test programs, 1681 passed, 0 failed, 29 ignored (run in batches of 30 for disk space);
+  - the generator's tests: 34 test programs, 127 passed, 0 failed;
+  - browser module bytes are unchanged (the PowerAnalyticsWeb pin and the player fixtures match);
+  - NIST on the interpreter: the compile census holds at 420 of 420 in-scope programs, and every finished module runs as before with 0 failures: NC (Nucleus) 95 of 95, 4614 PASS; SQ (Sequential I-O) 85 of 85, 624; IX (Indexed I-O) 41 of 41, 574; RL (Relative I-O) 34 of 34, 354; IF (Intrinsic Functions) 45 of 45, 841; IC (Inter-Program Communication) 25 of 25, 309; ST (Sort-Merge) 39 of 39, 735; SM (Source Text Manipulation) 16 of 16, 311;
+  - the generator's NIST gate is unchanged: IC 25 of 25, 309/0/4; NC 95 of 95, 4612/0/5; IF 45 of 45, 841/0/0;
+  - SQ111A through the desktop's WebAssembly runner: 2 PASS, 0 FAIL (was 1 PASS, 1 FAIL).
+
 ## 2.0.549 — 2026-11-16
 
 **Fix: on the WebAssembly path, `SORT` and `MERGE` with `COLLATING SEQUENCE IS alphabet-name` now compile and order the records by that alphabet, as COBOL-85 requires.**

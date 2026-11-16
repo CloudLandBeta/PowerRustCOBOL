@@ -2221,6 +2221,43 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
     }
 
+    /// A signed `USAGE DISPLAY` data item (not reference-modified): its sign is one of the
+    /// characters it stores, separate or overpunched.
+    fn is_signed_display_item(&mut self, e: &Expr) -> bool {
+        let base = match e {
+            Expr::Identifier(..) | Expr::Qualified { .. } => e,
+            Expr::Subscript { base, .. } => base.as_ref(),
+            _ => return false,
+        };
+        self.resolve_item(base).is_ok_and(|i| {
+            let fd = &self.layout.items[i].fd;
+            fd.kind == cobolt_wasm_rt::fd::K_NUM_DISPLAY && fd.flags & cobolt_wasm_rt::fd::F_SIGNED != 0
+        })
+    }
+
+    /// A group item named without reference modification.
+    fn is_group_item(&mut self, e: &Expr) -> bool {
+        let base = match e {
+            Expr::Identifier(..) | Expr::Qualified { .. } => e,
+            Expr::Subscript { base, .. } => base.as_ref(),
+            _ => return false,
+        };
+        self.resolve_item(base).is_ok_and(|i| self.layout.items[i].fd.kind == cobolt_wasm_rt::fd::K_GROUP)
+    }
+
+    /// The operand of a data item's whole storage read as characters: a reference
+    /// modification from its first character to its end.
+    fn whole_item_chars(&mut self, e: &Expr) -> GenResult<u32> {
+        let line = e.span().line;
+        let (base, indices): (&Expr, &[Expr]) = match e {
+            Expr::Subscript { base, indices, .. } => (base.as_ref(), indices.as_slice()),
+            other => (other, &[]),
+        };
+        let idx = self.resolve_item(base)?;
+        let one = self.pool.opd_lit_num(1, 0);
+        self.item_operand(idx, indices, Some((one, 0)), line)
+    }
+
     pub(crate) fn move_(&mut self, from: &Expr, to: &[Expr], line: u32) -> GenResult<()> {
         // A MOVE whose receiver is an 88-level condition-name is `SET … TO TRUE`;
         // each such receiver is set, the others are moved to.
@@ -2282,7 +2319,26 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
             _ => self.operand(from)?,
         };
+        // A signed DISPLAY item moved to a group gives its stored characters, its sign
+        // included (COBOL-85 6.18.4: a move to a group is alphanumeric, with no conversion),
+        // so a group receiver takes the sender's whole storage as characters.
+        let as_chars = match src {
+            Some(_) if self.is_signed_display_item(from) && to.iter().any(|t| self.is_group_item(t)) => {
+                Some(self.whole_item_chars(from)?)
+            }
+            _ => None,
+        };
         match src {
+            Some(src) if as_chars.is_some() => {
+                for t in to {
+                    let opd = if self.is_group_item(t) { as_chars.unwrap_or(src) } else { src };
+                    let dst = self.receiver(t)?;
+                    self.base();
+                    self.i32c(opd as i32);
+                    self.i32c(dst as i32);
+                    self.call_rt("rt_move");
+                }
+            }
             Some(src) => {
                 if to.len() == 1 {
                     let dst = self.receiver(&to[0])?;

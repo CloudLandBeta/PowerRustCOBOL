@@ -391,3 +391,72 @@ PROCEDURE DIVISION.
         assert_eq!(wasm_lines(&o), vec![want]);
     }
 }
+
+/// SQ111A READ-TEST-GF-01: a move to a group is alphanumeric with no conversion
+/// (COBOL-85 6.18.4), so a signed DISPLAY sender gives the characters it
+/// stores, its sign included. SQ111A moves a `S9(5) SIGN LEADING SEPARATE`
+/// into a group of `X` and `9(5)` and compares the digits with a count: both
+/// engines gave `00001 ` (the sign dropped, the digits shifted left), which the
+/// interpreter read as 1 and the module as 10. Unsigned, COMP and alphanumeric
+/// receivers keep the digit rule.
+#[test]
+fn a_signed_display_item_moved_to_a_group_gives_its_stored_characters() {
+    let src = head(
+        r#"DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 S-LEAD PIC S9(5) SIGN LEADING SEPARATE VALUE +1.
+01 S-TRAIL PIC S9(3)V9 SIGN TRAILING SEPARATE VALUE -12.5.
+01 S-OVER PIC S9(4) VALUE -123.
+01 S-POS PIC S9(4) VALUE 77.
+01 U-NUM PIC 9(4) VALUE 42.
+01 C-NUM PIC S9(4) COMP VALUE -5.
+01 T-TAB.
+   05 T-EL PIC S9(3) SIGN LEADING SEPARATE OCCURS 2.
+01 G1.
+   05 G1-SIGN PIC X.
+   05 G1-NO PIC 9(5).
+01 G2.
+   05 G2-X PIC X(8).
+01 A-X PIC X(8).
+PROCEDURE DIVISION.
+MAIN.
+    MOVE S-LEAD TO G1.
+    DISPLAY "[" G1 "] " G1-NO.
+    IF G1-NO = 1 DISPLAY "count matches" ELSE DISPLAY "count differs".
+    MOVE S-TRAIL TO G2.
+    DISPLAY "[" G2 "]".
+    MOVE S-OVER TO G2.
+    DISPLAY "[" G2 "]".
+    MOVE S-POS TO G2.
+    DISPLAY "[" G2 "]".
+    MOVE U-NUM TO G2.
+    DISPLAY "[" G2 "]".
+    MOVE C-NUM TO G2.
+    DISPLAY "[" G2 "]".
+    MOVE -7 TO T-EL (2).
+    MOVE T-EL (2) TO G2.
+    DISPLAY "[" G2 "]".
+    MOVE S-LEAD TO G2 A-X.
+    DISPLAY "[" G2 "] [" A-X "]"."#,
+    );
+    let lines = same_output(&src);
+    let want = [
+        "[+00001] 00001",
+        "count matches",
+        "[0125-   ]",
+        "[012L    ]",
+        "[0077    ]",
+        "[0042    ]",
+        "[0005    ]",
+        "[-007    ]",
+        "[+00001  ] [00001   ]",
+    ];
+    assert_eq!(lines, want);
+    println!(
+        "signed DISPLAY to a group: {} of {} lines equal on both engines and both memory layouts \
+         (LEADING and TRAILING SEPARATE, an overpunched negative, a positive, a table element, \
+         a group and an alphanumeric receiver in one MOVE; unsigned and COMP keep their digits)",
+        lines.len(),
+        want.len()
+    );
+}
