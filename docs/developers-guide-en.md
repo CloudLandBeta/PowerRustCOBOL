@@ -9182,6 +9182,17 @@ so a 1000 × 600 dashboard with a toolbar, a rail and a tab strip around it
 still shows whole on a small laptop screen. A window you then move or resize
 stays where you put it.
 
+The zoom is the largest at which the group fits, worked out for the screen the
+window is on. Move the application to a larger monitor and it returns to full
+size; move it back and it is reduced again, just enough. To keep text at full
+size on smaller screens, give the form a responsive layout whose smallest
+layout fits them: the window then shrinks to that layout and nothing is zoomed.
+
+> **Note.** Before 2.0.535 the zoom did not stop at what the group needed. It
+> fell to half size and kept changing slightly while the window was open, so on
+> a laptop a form only a little too large for the screen showed its text and
+> icons at about half size. A form designed on a large monitor needs no change.
+
 > ⚠️ **Caveat.** A docked window follows its opener a frame behind, so a fast
 > drag can show the gap stretch for an instant before it settles. Docking is
 > read when the window opens; a form loaded into a shell's ContentPane has no

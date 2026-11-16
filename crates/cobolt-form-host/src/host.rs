@@ -659,6 +659,8 @@ impl FormHost {
             group_fit_seen: None,
             group_fit_started: None,
             group_fit_zoom: 1.0,
+            group_fit_pass_zoom: None,
+            screen_area: cobolt_os_blur::usable_screen_area,
             hooks,
             last_pane_backdrop_rect: None,
             last_pane_backdrop_fill: None,
@@ -4149,6 +4151,13 @@ pub struct FormHost {
     group_fit_started: Option<std::time::Instant>,
     /// The zoom the windows' limits and sizes were last sent at.
     group_fit_zoom: f32,
+    /// The zoom the previous pass ran at, which is the zoom this pass's
+    /// readings of the window and the monitor were taken at
+    /// ([`Self::fit_group`]).
+    group_fit_pass_zoom: Option<f32>,
+    /// Where the usable screen comes from: the platform's own answer
+    /// ([`cobolt_os_blur::usable_screen_area`]). A test gives it a screen.
+    screen_area: fn() -> Option<(f64, f64, f64, f64)>,
     /// 037 — the window lifecycle state machine (vetoes, cascades, handles).
     supervisor: cobolt_runtime::form_host::FormSupervisor,
     /// Requests from the interpreter thread (OpenForm*, handle methods, …).
@@ -4320,6 +4329,18 @@ impl FormHost {
     ) {
         use cobolt_forms::model::{DockEdge, DockedExtent};
         let zoom = ctx.zoom_factor();
+        // The platform measures the window and the monitor before a pass
+        // begins, at the zoom then in force, and a zoom set during a pass takes
+        // effect as the next one begins. In the pass right after a zoom, then,
+        // the readings below are in the old zoom's points while `zoom` is the
+        // new one. Fitted on that mix, the group came out at yet another zoom,
+        // which was set in turn, and so on every frame without settling
+        // (operator, 2026-11-16: on the laptop "the letters and icons stay very
+        // small"). Wait for readings taken at this zoom.
+        if self.group_fit_pass_zoom.replace(zoom).is_some_and(|was| (was - zoom).abs() > 1e-3) {
+            ctx.request_repaint();
+            return;
+        }
         let Some((monitor, outer, inner, whole_screen)) = ctx.input(|i| {
             let v = i.viewport();
             let whole = v.maximized.unwrap_or(false) || v.fullscreen.unwrap_or(false);
@@ -4355,7 +4376,7 @@ impl FormHost {
         }
         // The usable screen, in screen points: what the platform reports, or
         // the monitor less room for a task bar.
-        let area = cobolt_os_blur::usable_screen_area()
+        let area = (self.screen_area)()
             .map(|(x, y, w, h)| (x as f32, y as f32, w as f32, h as f32))
             .unwrap_or((0.0, 0.0, monitor.x * zoom, (monitor.y * zoom - 48.0).max(1.0)));
         let key: GroupFitKey = (
@@ -4372,15 +4393,21 @@ impl FormHost {
         let place = self.group_fit_seen.as_ref().is_none_or(|(a, _)| *a != key.0)
             || started.elapsed() < std::time::Duration::from_secs(2);
         self.group_fit_seen = Some(key);
-        let size = |r: egui::Rect| (r.width(), r.height());
-        let (min, max) = limits.map_or((size(inner), size(inner)), |(a, b)| ((a.x, a.y), (b.x, b.y)));
+        // The main window's size in the points of the form it holds. A zoom
+        // changes the points a window measures, not its pixels, so until its
+        // size is sent again at the new zoom the same window reads larger (or
+        // smaller) than its form. A window with no limits of its own was then
+        // fitted, and zoomed again, on a size it does not have.
+        let held = inner.size() * (zoom / self.group_fit_zoom);
+        let size = |v: egui::Vec2| (v.x, v.y);
+        let (min, max) = limits.map_or((size(held), size(held)), |(a, b)| ((a.x, a.y), (b.x, b.y)));
         let fit = cobolt_forms::model::fit_window_group(
             area,
             ((outer.width() - inner.width()) * zoom, (outer.height() - inner.height()) * zoom),
             fill,
             min,
             max,
-            size(inner),
+            size(held),
             (outer.min.x * zoom, outer.min.y * zoom),
             &docked,
             start,
@@ -11926,6 +11953,151 @@ mod parity {
         step(&mut app, 900.0, 964.0);
         step(&mut app, 900.0, 964.0);
         assert_eq!(names(&pipes), ["onResizing", "onResizing"], "no onResize for a size it already reported");
+    }
+
+    /// A window on a monitor as the platform keeps it: in pixels. Each frame
+    /// it is measured as egui-winit measures it, before the pass and so at the
+    /// zoom then in force (a zoom set in the last pass is not in the readings
+    /// yet), and the commands the pass sent are carried out as egui-winit
+    /// carries them out, at the zoom the pass ran with.
+    struct PixelScreen {
+        /// The monitor's scale factor (1.5 is Windows at 150 %).
+        native: f32,
+        monitor_px: egui::Vec2,
+        /// The window's outer top-left corner.
+        pos_px: egui::Pos2,
+        inner_px: egui::Vec2,
+        title_px: f32,
+    }
+
+    impl PixelScreen {
+        fn info(&self, zoom: f32) -> egui::ViewportInfo {
+            let ppp = self.native * zoom;
+            let title = egui::vec2(0.0, self.title_px);
+            egui::ViewportInfo {
+                focused: Some(true),
+                native_pixels_per_point: Some(self.native),
+                monitor_size: Some(self.monitor_px / ppp),
+                outer_rect: Some(egui::Rect::from_min_size(self.pos_px, self.inner_px + title) / ppp),
+                inner_rect: Some(egui::Rect::from_min_size(self.pos_px + title, self.inner_px) / ppp),
+                ..Default::default()
+            }
+        }
+
+        /// The window dragged onto another monitor. It keeps its size in
+        /// screen points, as Windows resizes a window whose scale changes.
+        fn move_to(&mut self, (native, monitor_px): (f32, egui::Vec2)) {
+            let ratio = native / self.native;
+            self.inner_px *= ratio;
+            self.title_px *= ratio;
+            self.pos_px = egui::pos2(40.0, 40.0);
+            self.native = native;
+            self.monitor_px = monitor_px;
+        }
+
+        /// `frames` frames of `app` in this window.
+        fn run(&mut self, app: &mut FormHost, ctx: &egui::Context, frames: usize) {
+            for _ in 0..frames {
+                let info = self.info(ctx.zoom_factor());
+                let mut input = egui::RawInput {
+                    screen_rect: info.inner_rect.map(|r| egui::Rect::from_min_size(egui::Pos2::ZERO, r.size())),
+                    ..Default::default()
+                };
+                input.viewports.insert(egui::ViewportId::ROOT, info);
+                let commands = frame(app, ctx, input);
+                let ppp = self.native * ctx.zoom_factor();
+                for c in commands {
+                    match c {
+                        egui::ViewportCommand::InnerSize(s) => self.inner_px = s * ppp,
+                        egui::ViewportCommand::OuterPosition(p) => self.pos_px = (p.to_vec2() * ppp).to_pos2(),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    /// A form larger than the screen it runs on is zoomed JUST enough to fit
+    /// it, on every screen, every time (operator, 2026-11-16: built and first
+    /// run on a 2K monitor, then run on the laptop, "it does not adapt: the
+    /// letters and icons stay very small"). The fit read the window in the
+    /// frame its own new zoom took effect, while the readings were still in
+    /// the old zoom's points and the window still at the old zoom's pixels,
+    /// and zoomed again on them. Here, without the fix, the second frame fell
+    /// to the 0.5 floor and every frame after it set another zoom (0.52, 0.54
+    /// … 0.75 by the twelfth), never settling, with the window at a size that
+    /// matched none of them.
+    ///
+    /// The laptop is 1920×1080 at 150 % (1280×720 points) scaled to the
+    /// 320×200 test form: 384×312 pixels at 1.5, a 24-pixel title bar, 48
+    /// points left for the task bar. The form needs 200 + 16 points of height
+    /// and has 160, so the zoom that fits is 144 / 200.
+    #[test]
+    fn a_form_larger_than_the_screen_zooms_just_enough_on_every_screen() {
+        let started = std::time::Instant::now();
+        let laptop = (1.5, egui::vec2(384.0, 312.0));
+        let big = (1.0, egui::vec2(2560.0, 1440.0));
+        let fits = 144.0 / 200.0;
+        let form = egui::vec2(320.0, 200.0);
+        // Windows and Linux: the platform gives no work area, so the
+        // monitor's size less a task bar. macOS: the platform's visible frame.
+        let paths: [(&str, fn() -> Option<(f64, f64, f64, f64)>); 2] = [
+            ("monitor size (Windows, Linux)", || None),
+            ("platform work area (macOS)", || Some((0.0, 0.0, 256.0, 160.0))),
+        ];
+        let (mut cases, mut frames) = (0, 0);
+        let mut check = |path: &str, ctx: &egui::Context, screen: &PixelScreen, zoom: f32| {
+            let now = ctx.zoom_factor();
+            assert!((now - zoom).abs() < 1e-3, "{path}: zoomed to {now}, the form fits at {zoom}");
+            let want = form * zoom * screen.native;
+            assert!(
+                (screen.inner_px - want).length() < 1.0,
+                "{path}: the window is {:?} pixels, the form at zoom {zoom} is {want:?}",
+                screen.inner_px
+            );
+            assert!(
+                screen.inner_px.y + screen.title_px <= screen.monitor_px.y - 48.0 * screen.native + 0.5,
+                "{path}: the window is taller than the screen: {:?}",
+                screen.inner_px
+            );
+            cases += 1;
+        };
+        for (path, area) in paths {
+            let (mut app, _pipes) = host_with("none:0:linear", "none:0:linear", false);
+            app.fx_entrance_done = true;
+            app.root.anim_started = true;
+            app.root.lifecycle_sent = true;
+            app.screen_area = area;
+            let ctx = egui::Context::default();
+            // The window opens at the form's size, on the laptop.
+            let mut screen = PixelScreen {
+                native: laptop.0,
+                monitor_px: laptop.1,
+                pos_px: egui::pos2(0.0, 0.0),
+                inner_px: form * laptop.0,
+                title_px: 24.0,
+            };
+            screen.run(&mut app, &ctx, 12);
+            frames += 12;
+            check(path, &ctx, &screen, fits);
+            if area().is_some() {
+                continue;
+            }
+            // Onto the 2K monitor, where it fits unzoomed, and back.
+            screen.move_to(big);
+            screen.run(&mut app, &ctx, 12);
+            check(path, &ctx, &screen, 1.0);
+            screen.move_to(laptop);
+            screen.run(&mut app, &ctx, 12);
+            check(path, &ctx, &screen, fits);
+            frames += 24;
+        }
+        println!(
+            "Fit on a smaller screen: {cases}/{cases} passed. Paths: monitor size (Windows, Linux) and platform work area (macOS); \
+             laptop 1280x720 points at 150 % -> 2K monitor at 100 % -> laptop. Zoom on the laptop {fits:.3}, on the 2K monitor 1.000; \
+             window always on the screen. {frames} frames in {:.1} ms.",
+            started.elapsed().as_secs_f64() * 1000.0
+        );
     }
 
     #[test]
