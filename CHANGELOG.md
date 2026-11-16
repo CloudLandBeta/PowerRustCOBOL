@@ -2,6 +2,20 @@
 
 
 
+## 2.0.523 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T24): a console program prints the same on the WebAssembly path as on the Cargo path, byte for byte.**
+- **`cobolt-bench pixel-parity --console`** builds each fixture in `tests/pixel-parity/console/` twice: on the Cargo path, and by default, which must take the WebAssembly path. It runs both programs with the same input, arguments, variables, clock and seed, and compares their standard output byte for byte and their exit codes.
+- **Three fixtures:**
+  - **`statements`:** the arithmetic verbs, edited pictures, the CORRESPONDING forms, STRING, UNSTRING, INSPECT, EVALUATE, the PERFORM forms, SEARCH ALL, intrinsic functions, GO TO DEPENDING and ALTER;
+  - **`console`:** keyboard input, variables, command-line arguments, the date and time with the zone, RANDOM, and the exit code;
+  - **`calls`:** CALL BY REFERENCE and BY CONTENT into Common Code, CANCEL, a contained program, sections, and SORT with an INPUT and an OUTPUT PROCEDURE.
+- **Measured on macOS arm64:** programs 3, identical output 3 of 3 (75 lines).
+- **FUNCTION CURRENT-DATE's last five characters,** the offset from UTC, are now the machine's zone in a program built on the WebAssembly path, as on the Cargo path. They used to read `+0000` (WASM-PARITY #53, closed).
+- **On the desktop, an INDEXED file declared `STORAGE IS MEMORY`** is read from its disk file, as the interpreter does, so a program that uses one is built on the Cargo path until files come to the WebAssembly path. A Web or Mobile application is unchanged.
+- **TRY and THROW** take the Cargo path, with the reason named: no generator compiles them yet.
+- **Two new rows in `WASM-PARITY.md`:** #57, a numeric item moved into a reference-modified item, which the interpreter gets wrong (a fix to report); and #58, TRY and THROW.
+
 ## 2.0.522 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T23): conformance of the WebAssembly path measured at M1, and the parity list updated.**

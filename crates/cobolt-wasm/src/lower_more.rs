@@ -184,10 +184,10 @@ impl Lower<'_, '_> {
         for a in args {
             flat.extend(self.all_elements(a)?.0);
         }
-        match self.function_id(&up, &flat) {
-            Some(id) if id >= 64 => {}
+        let fid = match self.function_id(&up, &flat) {
+            Some(id) if id >= 64 => id,
             _ => return Ok(None),
-        }
+        };
         let f = self.function_call(name, args, line)?;
         let k = self.ctemp_next;
         if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
@@ -199,6 +199,12 @@ impl Lower<'_, '_> {
         self.i32c(f.rec as i32);
         self.i32c(k as i32);
         self.call_rt("rt_func_chars");
+        // A desktop's clock is local: the routines' `+0000` becomes its offset (T24, A31).
+        if self.native && fid == cobolt_wasm_rt::func::id::CURRENT_DATE {
+            self.i32c(k as i32);
+            self.emit(crate::ir::Ins::CallGlue(crate::ir::Glue::TzOffset));
+            self.call_rt("rt_ctemp_zone");
+        }
         Ok(Some(self.pool.opd_ctemp(k)))
     }
 

@@ -30,13 +30,14 @@ pub enum Native {
 /// Why a project with forms takes the Cargo path until M2: the Desktop Build names it for a form (DESKTOP-WASM-001 T16).
 pub const D_FORMS: &str = "forms, their controls and the application object are not on the WebAssembly path yet (DESKTOP-WASM-001 M2)";
 const D_DIALOGS: &str = "the desktop's dialogs are not on the WebAssembly path yet (DESKTOP-WASM-001 M2)";
-pub(crate) const D_FILES: &str = "files on disk are not on the WebAssembly path yet (DESKTOP-WASM-001 M3); an INDEXED file declared STORAGE IS MEMORY is compiled into the module";
+pub(crate) const D_FILES: &str = "files are not on the WebAssembly path yet (DESKTOP-WASM-001 M3): on the desktop every file is on disk, and an INDEXED file declared STORAGE IS MEMORY is read from its file";
 const D_FILE_BUILTINS: &str = "the file and image built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
 pub(crate) const D_SORT: &str = "SORT with USING or GIVING files is not on the WebAssembly path yet (DESKTOP-WASM-001 M3); with an INPUT and an OUTPUT PROCEDURE it is compiled into the module";
 const D_FILES_M3: &str = "MERGE, COMMIT, ROLLBACK and UNLOCK are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
 const D_SQL: &str = "SQL is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
 const D_HTTP: &str = "HTTP is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
 const D_POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module yet (DESKTOP-WASM-001 M5)";
+const D_EXCEPTIONS: &str = "TRY, CATCH, FINALLY and THROW are not compiled into a module yet (DESKTOP-WASM-001 M5)";
 const D_CONTROLS: &str = "the non-visual controls, the keys and the model lists are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_MEDIA: &str = "audio, animation sequences and layouts are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_PHONE: &str = "the phone's secure storage is a Mobile built-in, where a desktop program stops; that stop is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
@@ -416,8 +417,8 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("STRING", Support::Module, Native::Module),
     ("SUBTRACT", Support::Module, Native::Module),
     ("SUBTRACT CORRESPONDING", Support::Module, Native::Module),
-    ("THROW", Support::Module, Native::Module),
-    ("TRY", Support::Module, Native::Module),
+    ("THROW", Support::Module, Native::Cargo(D_EXCEPTIONS)),
+    ("TRY", Support::Module, Native::Cargo(D_EXCEPTIONS)),
     ("UNLOCK", Support::BackendOnly(BACKEND_FILES), Native::Cargo(D_FILES_M3)),
     ("UNSTRING", Support::Module, Native::Module),
     ("WRITE", Support::MemoryFiles(DISK_FILES), Native::Cargo(D_FILES)),

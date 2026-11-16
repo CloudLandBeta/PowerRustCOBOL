@@ -59,7 +59,7 @@ PROCEDURE DIVISION.
     ACCEPT WS-DOW FROM DAY-OF-WEEK
     DISPLAY \"date \" WS-DATE \" time \" WS-TIME \" day \" WS-DAY \" dow \" WS-DOW
     MOVE FUNCTION CURRENT-DATE TO WS-STAMP
-    DISPLAY \"stamp \" WS-STAMP(1:16)
+    DISPLAY \"stamp \" WS-STAMP
     PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 3
         COMPUTE WS-R = FUNCTION RANDOM * 1000000
         DISPLAY \"random \" WS-I \" \" WS-R
@@ -72,9 +72,12 @@ PROCEDURE DIVISION.
 const STDIN: &str = "Ada Lovelace\r\n42\n";
 const ARGS: &[&str] = &["alpha", "beta gamma"];
 const VARS: &[(&str, &str)] = &[("PRC_T15_HOME", "/home/ada")];
-/// The pins of the pixel-parity harness's Cargo-path test (`cobolt-compiler`).
+/// The pins of the pixel-parity harness's Cargo-path test (`cobolt-compiler`), and a second clock
+/// in another zone: `CURRENT-DATE` ends with the zone's offset on both paths (T24, WASM-PARITY #53).
 const CLOCK: &str = "2026-01-02T03:04:05.67-03:00";
-const SEEDS: &[u64] = &[20_261_114, 7];
+const CLOCK_EAST: &str = "2026-07-01T23:59:59.99+05:30";
+/// Each run's clock and seed.
+const RUNS: &[(&str, u64)] = &[(CLOCK, 20_261_114), (CLOCK, 7), (CLOCK_EAST, 7)];
 
 /// A folder of its own under the system's temporary folder, removed at the end.
 struct Scratch(PathBuf);
@@ -146,8 +149,8 @@ fn rcrun() -> PathBuf {
 }
 
 /// Both runs get the same environment: the pins, the variables, English.
-fn with_env(mut cmd: Command, seed: u64, cache: &Path) -> Command {
-    cmd.env("PRC_TEST_CLOCK", CLOCK).env("PRC_TEST_SEED", seed.to_string()).env("PRC_RUNNER_CACHE", cache).env("LC_ALL", "en_US.UTF-8");
+fn with_env(mut cmd: Command, clock: &str, seed: u64, cache: &Path) -> Command {
+    cmd.env("PRC_TEST_CLOCK", clock).env("PRC_TEST_SEED", seed.to_string()).env("PRC_RUNNER_CACHE", cache).env("LC_ALL", "en_US.UTF-8");
     for (k, v) in VARS {
         cmd.env(k, v);
     }
@@ -209,11 +212,11 @@ fn a_packaged_console_program_matches_rcrun_run_byte_for_byte() {
     let mut checks = 0;
     let mut rows = Vec::new();
     let mut outputs = Vec::new();
-    for &seed in SEEDS {
-        let mut packaged = with_env(Command::new(&exe), seed, &cache);
+    for &(clock, seed) in RUNS {
+        let mut packaged = with_env(Command::new(&exe), clock, seed, &cache);
         packaged.args(ARGS).env("PRC_RUNNER_TRACE", "1");
         let (theirs, runner_ms) = run(packaged, STDIN);
-        let mut interp = with_env(Command::new(&rcrun), seed, &cache);
+        let mut interp = with_env(Command::new(&rcrun), clock, seed, &cache);
         interp.arg("run").arg(&src).args(ARGS).current_dir(&dir.0);
         let (ours, rcrun_ms) = run(interp, STDIN);
 
@@ -235,25 +238,26 @@ fn a_packaged_console_program_matches_rcrun_run_byte_for_byte() {
         assert!(!trace.to_ascii_lowercase().contains("cobolt"), "the runner never names its crate: {trace}");
         checks += 1;
         let lines = theirs.stdout.iter().filter(|&&b| b == b'\n').count();
-        rows.push(format!("seed {seed:>10}: {lines} lines, {} bytes, exit 7; runner {runner_ms:.1} ms, rcrun run {rcrun_ms:.1} ms", theirs.stdout.len()));
+        rows.push(format!("clock {clock}, seed {seed:>10}: {lines} lines, {} bytes, exit 7; runner {runner_ms:.1} ms, rcrun run {rcrun_ms:.1} ms", theirs.stdout.len()));
         outputs.push(String::from_utf8_lossy(&theirs.stdout).into_owned());
     }
     // The pins are not a no-op: the clock line is the pinned instant, and the seed moves RANDOM.
     let first = &outputs[0];
     assert!(first.contains("date 260102 time 03040567 day 26002 dow 5"), "{first}");
-    assert!(first.contains("stamp 2026010203040567"), "{first}");
+    assert!(first.contains("stamp 2026010203040567-0300"), "{first}");
+    assert!(outputs[2].contains("stamp 2026070123595999+0530"), "the other zone's offset: {}", outputs[2]);
     assert!(first.contains(&format!("name [{:<20}] qty 0042", "Ada Lovelace")), "{first}");
     assert!(first.contains(&format!("home [{:<30}]", "/home/ada")), "{first}");
     assert!(first.contains("none [      ]"), "{first}");
     assert!(first.contains("args 02 [alpha beta gamma"), "{first}");
     let randoms = |o: &str| o.lines().filter(|l| l.starts_with("random ")).map(str::to_owned).collect::<Vec<_>>();
     assert_ne!(randoms(&outputs[0]), randoms(&outputs[1]), "another seed, other RANDOM values");
-    checks += 7;
+    checks += 8;
 
     println!("── a_packaged_console_program_matches_rcrun_run_byte_for_byte ──");
     println!("  program: console ACCEPT ×2, ENVIRONMENT ×2 (set, not set), ARGUMENT-NUMBER, COMMAND-LINE, ARGUMENT-VALUE,");
     println!("           DATE, TIME, DAY, DAY-OF-WEEK, CURRENT-DATE, RANDOM ×3, RETURN-CODE 7");
-    println!("  pins: PRC_TEST_CLOCK={CLOCK}, PRC_TEST_SEED {SEEDS:?}");
+    println!("  pins (clock, seed): {RUNS:?}");
     println!("  module: {} bytes, ABI {}, prn imports {prn:?}, capabilities {:?}; compiled in {compile_ms:.1} ms", module.len(), manifest.abi, manifest.capabilities);
     println!("  machine code: {} bytes, made in {precompile_ms:.1} ms; packaged program {size} bytes, written in {package_ms:.1} ms", code.bytes.len());
     println!("  rcrun built (or found current) in {rcrun_build_ms:.0} ms");

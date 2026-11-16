@@ -1,0 +1,8 @@
+# The "console" fixture of the console-parity check (DESKTOP-WASM-001 T24): what both builds are
+# given. The clock and the seed are the harness's own (`cobolt-bench pixel-parity`).
+sources = ["main.cbl"]
+stdin = "Grace Hopper\n1234.5\n"
+args = ["alpha", "beta gamma", "δ-delta"]
+
+[env]
+PRC_PARITY_HOME = "/home/grace"

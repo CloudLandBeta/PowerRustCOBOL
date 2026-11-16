@@ -50,6 +50,9 @@ pub enum Glue {
     Abort,
     /// `glue.exit(code)` — the run's exit code, for the desktop runner (`prn.exit`, ABI A30).
     Exit,
+    /// `glue.tz_offset() -> minutes` — the desktop's offset from UTC, for `CURRENT-DATE`
+    /// (`prn.tz_offset`, ABI A31).
+    TzOffset,
 }
 
 #[derive(Debug, Clone)]

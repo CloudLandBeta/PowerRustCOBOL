@@ -19,8 +19,8 @@
 //! **The clock is the local one.** `now` answers milliseconds since 1970-01-01 of the *local* date
 //! and time (the instant plus the zone's offset): the module's routines read it as a calendar, so
 //! `ACCEPT … FROM DATE` and the date and time of `FUNCTION CURRENT-DATE` are the desktop's, as the
-//! interpreter shows them. The last five characters of `CURRENT-DATE` still read `+0000` (WASM-PARITY
-//! #6, open for the desktop).
+//! interpreter shows them. The last five characters of `CURRENT-DATE` are the zone's offset, which
+//! the module asks for after the date (`tz_offset`, T24, ABI A31; WASM-PARITY #53).
 
 use chrono::{DateTime, FixedOffset};
 
@@ -64,6 +64,15 @@ impl Pins {
         match self.clock {
             Some(t) => wall_ms(t.naive_local()),
             None => wall_ms(chrono::Local::now().naive_local()),
+        }
+    }
+
+    /// What `tz_offset` answers: the zone's offset from UTC in minutes east, the pinned value's or
+    /// the machine's now.
+    pub fn offset_minutes(&self) -> i32 {
+        match self.clock {
+            Some(t) => t.offset().local_minus_utc() / 60,
+            None => chrono::Local::now().offset().local_minus_utc() / 60,
         }
     }
 

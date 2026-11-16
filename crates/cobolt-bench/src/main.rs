@@ -43,6 +43,8 @@ mod build_goal;
 mod ten_times;
 // T7: the `pixel-parity` mode, the harness of R27.
 mod pixel_parity;
+// T24: its `--console` mode, the console part of R27.
+mod console_parity;
 
 use counting_alloc::{reset_peak, Counters};
 use std::time::{Duration, Instant};

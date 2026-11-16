@@ -160,7 +160,7 @@ pub mod cap {
 /// The imports in [`NATIVE_IMPORT_MODULE`] each capability brings (A27). A capability's set is fixed
 /// when a release first uses it; the capabilities not listed get theirs from the task that implements
 /// them, which amends A27.
-pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[(cap::CONSOLE, &["con_read"]), (cap::ENV, &["env_get", "exit"])];
+pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[(cap::CONSOLE, &["con_read"]), (cap::ENV, &["env_get", "exit", "tz_offset"])];
 
 /// The exports a module must provide (§4), besides its memories.
 pub const REQUIRED_EXPORTS: &[&str] = &[

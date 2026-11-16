@@ -19,7 +19,7 @@ cargo test -p cobolt-runner --test module_corpus -- --nocapture
 
 The fixtures today:
 - **console:** the console, the environment, the arguments, the pinned clock, `RANDOM` and `RETURN-CODE`.
-- **ledger:** arithmetic and rounding, edited pictures, strings, a table with `SEARCH`, a `CALL` into Common Code, an in-memory `INDEXED` file, and `SORT` with input and output procedures.
+- **ledger:** arithmetic and rounding, edited pictures, strings, a table with `SEARCH`, a `CALL` into Common Code, and `SORT` with input and output procedures. Until 2.0.522 it also wrote an `INDEXED` file declared `STORAGE IS MEMORY`, and the 2.0.520 entry keeps that version. From 2.0.523 a desktop module refuses such a file until disk files arrive (M3), because on the desktop it is read from its file on disk.
 
 When a fixture's output was recorded, it was first checked against `rcrun run`, the interpreter.
 

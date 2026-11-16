@@ -1,34 +1,25 @@
       *> DESKTOP-WASM-001 T21 corpus fixture "ledger": arithmetic and
       *> rounding, edited pictures, strings, a table with SEARCH, a CALL
-      *> into Common Code, an in-memory INDEXED file (write, read by key,
-      *> START and READ NEXT, REWRITE, DELETE) and SORT with INPUT and
-      *> OUTPUT PROCEDUREs: the statements a console module computes in
-      *> itself at M1.
+      *> into Common Code and SORT with INPUT and OUTPUT PROCEDUREs: the
+      *> statements a console module computes in itself at M1. Until
+      *> 2.0.521 it also wrote an INDEXED file declared STORAGE IS MEMORY;
+      *> a desktop module refuses one from 2.0.522 (T24), as on the
+      *> desktop that file is read from disk, which comes at M3.
        IDENTIFICATION DIVISION.
        PROGRAM-ID. CORPUSLEDGER.
        ENVIRONMENT DIVISION.
        INPUT-OUTPUT SECTION.
        FILE-CONTROL.
-           SELECT ACCOUNTS ASSIGN TO "accounts"
-               ORGANIZATION IS INDEXED
-               ACCESS MODE IS DYNAMIC
-               RECORD KEY IS ACC-ID
-               STORAGE IS MEMORY
-               FILE STATUS IS WS-FS.
            SELECT WORK-FILE ASSIGN TO "work".
        DATA DIVISION.
        FILE SECTION.
-       FD ACCOUNTS.
-       01 ACC-REC.
-          05 ACC-ID      PIC X(4).
-          05 ACC-NAME    PIC X(12).
-          05 ACC-BAL     PIC S9(7)V99.
        SD WORK-FILE.
        01 W-REC.
           05 W-BAL       PIC S9(7)V99.
           05 W-ID        PIC X(4).
        WORKING-STORAGE SECTION.
-       01 WS-FS          PIC XX.
+       01 WS-BALANCES.
+          05 WS-BAL      PIC S9(7)V99 OCCURS 4 TIMES.
        01 WS-SEED.
           05 FILLER      PIC X(25) VALUE "A001ADA LOVELACE00012550".
           05 FILLER      PIC X(25) VALUE "A002ALAN TURING 00009875".
@@ -58,17 +49,12 @@
        PROCEDURE DIVISION.
        MAIN-PARA.
            DISPLAY "corpus ledger fixture"
-           OPEN OUTPUT ACCOUNTS
            PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 4
-               MOVE WS-ID(WS-I) TO ACC-ID
-               MOVE WS-NAME(WS-I) TO ACC-NAME
-               COMPUTE ACC-BAL = WS-CENTS(WS-I) / 100
-               WRITE ACC-REC
-               ADD ACC-BAL TO WS-TOTAL
+               COMPUTE WS-BAL(WS-I) = WS-CENTS(WS-I) / 100
+               ADD WS-BAL(WS-I) TO WS-TOTAL
            END-PERFORM
-           CLOSE ACCOUNTS
            MOVE WS-TOTAL TO WS-SHOW
-           DISPLAY "total " WS-SHOW " status " WS-FS
+           DISPLAY "total " WS-SHOW
            DIVIDE WS-TOTAL BY 3 GIVING WS-Q REMAINDER WS-REM
            MOVE WS-REM TO WS-SHOW
            DISPLAY "thirds " WS-Q " remainder " WS-SHOW
@@ -76,35 +62,18 @@
            MOVE WS-AVG TO WS-SHOW
            DISPLAY "average " WS-SHOW
 
-           OPEN I-O ACCOUNTS
-           MOVE "A003" TO ACC-ID
-           READ ACCOUNTS KEY IS ACC-ID
-               INVALID KEY DISPLAY "A003 missing"
-           END-READ
-           CALL "CORPUSINTEREST" USING ACC-BAL WS-RATE WS-INTEREST
-           ADD WS-INTEREST TO ACC-BAL
-           REWRITE ACC-REC
+           *> CORPUSINTEREST: works out the interest on a balance at a rate,
+           *> rounded to the cent.
+           *> Uses:   WS-BAL(3) (310.00, account A003), WS-RATE (0.0375).
+           *> Result: WS-INTEREST becomes 11.63; WS-BAL(3) and WS-RATE are unchanged.
+           CALL "CORPUSINTEREST" USING WS-BAL(3) WS-RATE WS-INTEREST
+           ADD WS-INTEREST TO WS-BAL(3)
            MOVE WS-INTEREST TO WS-SHOW
-           DISPLAY "interest " WS-SHOW " status " WS-FS
-           MOVE "A002" TO ACC-ID
-           DELETE ACCOUNTS RECORD
-           DISPLAY "delete A002 status " WS-FS
-           MOVE "A009" TO ACC-ID
-           READ ACCOUNTS KEY IS ACC-ID
-               INVALID KEY DISPLAY "A009 missing status " WS-FS
-           END-READ
-           MOVE "A002" TO ACC-ID
-           START ACCOUNTS KEY IS NOT LESS THAN ACC-ID
-           MOVE "N" TO WS-EOF
-           PERFORM UNTIL WS-EOF = "Y"
-               READ ACCOUNTS NEXT RECORD
-                   AT END MOVE "Y" TO WS-EOF
-                   NOT AT END
-                       MOVE ACC-BAL TO WS-SHOW
-                       DISPLAY "  " ACC-ID " " ACC-NAME " " WS-SHOW
-               END-READ
+           DISPLAY "interest " WS-SHOW
+           PERFORM VARYING WS-I FROM 3 BY 1 UNTIL WS-I > 4
+               MOVE WS-BAL(WS-I) TO WS-SHOW
+               DISPLAY "  " WS-ID(WS-I) " " WS-NAME(WS-I) " " WS-SHOW
            END-PERFORM
-           CLOSE ACCOUNTS
 
            SET WS-IX TO 1
            SEARCH WS-ROW

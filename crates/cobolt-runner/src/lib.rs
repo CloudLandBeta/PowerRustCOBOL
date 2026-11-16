@@ -55,6 +55,7 @@ pub const PROVIDED_IMPORTS: &[(u32, &str, &str)] = &[
     (1, NATIVE_IMPORT_MODULE, "con_read"),
     (1, NATIVE_IMPORT_MODULE, "env_get"),
     (1, NATIVE_IMPORT_MODULE, "exit"),
+    (1, NATIVE_IMPORT_MODULE, "tz_offset"),
 ];
 
 /// `pr_run`'s answers (the generator's `ret`): the run finished, or `STOP RUN`.
@@ -372,6 +373,11 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                         let bytes = &text.as_bytes()[..text.len().min(cap.max(0) as usize)];
                         mem.write(&mut caller, buf as u32 as usize, bytes).map(|_| bytes.len() as i32).unwrap_or(NOT_THERE)
                     })
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "tz_offset") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "tz_offset", |caller: Caller<'_, State>| -> i32 { caller.data().pins.offset_minutes() })
                     .map_err(fail)?;
             }
             (NATIVE_IMPORT_MODULE, "exit") => {

@@ -84,7 +84,9 @@ const SCREEN_WS: &str = "01 WS-KEY PIC XX VALUE \"ZZ\".\n01 WS-CRT PIC X(4) VALU
 const SCREEN_PD: &str = "    ACCEPT WS-KEY FROM ESCAPE KEY\n    ACCEPT WS-CRT FROM CRT STATUS\n    ACCEPT WS-KEYN FROM ESCAPE KEY\n\
                          \x20   DISPLAY \"[\" WS-KEY \"][\" WS-CRT \"][\" WS-KEYN \"]\"\n";
 
-/// An INDEXED file held in the module's memory (WASM-010 Q8), written out of order and read back.
+/// An INDEXED file held in the module's memory (WASM-010 Q8), written out of order and read back. A
+/// browser module holds it; a desktop module refuses it until M3, since on the desktop the file is
+/// read from disk and, without `WITH PERSISTENCE`, opens for INPUT only (T24, WASM-PARITY #15).
 const INDEXED: &str = "IDENTIFICATION DIVISION.\nPROGRAM-ID. T12IDX.\nENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n\
     \x20   SELECT CUST ASSIGN TO \"data.idx\"\n        ORGANIZATION IS INDEXED\n        ACCESS MODE IS DYNAMIC\n        RECORD KEY IS C-ID\n\
     \x20       STORAGE IS MEMORY\n        FILE STATUS IS FS.\nDATA DIVISION.\nFILE SECTION.\nFD CUST.\n01 C-REC.\n    05 C-ID PIC 9(5).\n    05 C-NAME PIC X(5).\n\
@@ -173,7 +175,6 @@ fn cases() -> Vec<Case> {
             caps: &["console", "env"],
             want: Want::Lines(&["[hello][/home/ada]"]),
         },
-        Case { name: "in-memory-indexed", src: INDEXED.to_string(), input: NativeInput::default(), caps: &[], want: Want::Lines(INDEXED_WANT) },
         Case { name: "sort-procedures", src: SORTED.to_string(), input: NativeInput::default(), caps: &[], want: Want::Interpreter(&[]) },
     ]
 }
@@ -217,11 +218,12 @@ fn the_console_and_the_environment_reach_the_runner_and_the_manifest_names_them(
             let (caps, prn) = needs(&c);
             check(caps == case.caps, format!("{} multi={multi}: capabilities {caps:?}, want {:?}", case.name, case.caps), &mut failures);
             // Each capability's imports are what the module imports from `prn`, and nothing else
-            // (`exit` only in a program that names RETURN-CODE, which none of these does: T15).
+            // (`exit` only in a program that names RETURN-CODE, T15, and `tz_offset` only in one that
+            // reads CURRENT-DATE, T24; none of these does).
             let want_prn: Vec<String> = cobolt_wasm_abi::codes::NATIVE_IMPORTS
                 .iter()
                 .filter(|(cap, _)| case.caps.contains(cap))
-                .flat_map(|(_, names)| names.iter().filter(|n| **n != "exit").map(|n| n.to_string()))
+                .flat_map(|(_, names)| names.iter().filter(|n| !matches!(**n, "exit" | "tz_offset")).map(|n| n.to_string()))
                 .collect();
             check(prn == want_prn, format!("{} multi={multi}: prn imports {prn:?}, want {want_prn:?}", case.name), &mut failures);
             // A module with no capability is the module the browser path makes, byte for byte
@@ -277,6 +279,24 @@ fn the_console_and_the_environment_reach_the_runner_and_the_manifest_names_them(
             &mut failures,
         );
     }
+    // An INDEXED file declared STORAGE IS MEMORY: the browser module holds it and reads it back in
+    // key order; the desktop module refuses it, naming the file and why (T24).
+    let idx = common::parse(INDEXED);
+    for multi in [true, false] {
+        match compile_program(&idx, &Options { multi_memory: multi, ..Options::default() }) {
+            Ok(web) => {
+                let got = common::wasm_lines(&run_program(&web.wasm).expect("the browser module runs"));
+                check(got == INDEXED_WANT, format!("browser multi={multi}: the memory file reads back {got:?}"), &mut failures);
+            }
+            Err(e) => check(false, format!("browser multi={multi}: the memory file is refused: {e}"), &mut failures),
+        }
+        let refused = compile_program(&idx, &native(multi)).err().map(|e| e.to_string()).unwrap_or_default();
+        check(
+            refused.contains("file CUST") && refused.contains("STORAGE IS MEMORY is read from its file"),
+            format!("desktop multi={multi}: the memory file is refused with its reason: {refused:?}"),
+            &mut failures,
+        );
+    }
     // `RETURN-CODE` compiles in a desktop module only (T15, `tests/native_return_code.rs`); the
     // browser build refuses it, as before.
     let rc = common::parse(&program("T12RC", "", "    MOVE 4 TO RETURN-CODE\n"));
@@ -314,4 +334,42 @@ fn the_console_and_the_environment_reach_the_runner_and_the_manifest_names_them(
         println!("  FAIL {f}");
     }
     assert!(failures.is_empty(), "{} of {checks} checks failed:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// DESKTOP-WASM-001 T24 (WASM-PARITY #53, ABI A31): `FUNCTION CURRENT-DATE` in a desktop module
+/// ends with the desktop's offset, which the module asks the runner for (`prn.tz_offset`, under
+/// `env`); the same program for a browser asks nothing and keeps the routines' `+0000`. The test host
+/// answers −180 (−03:00) and +330 (+05:30) here; `cobolt-runner`'s `tests/console.rs` compares the
+/// real runner with the interpreter.
+#[test]
+fn current_date_asks_the_runner_for_the_offset_in_a_desktop_module_only() {
+    let t = Instant::now();
+    let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. T24ZONE.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-STAMP PIC X(21).\n01 WS-LINE PIC X(30).\n\
+               PROCEDURE DIVISION.\n    MOVE FUNCTION CURRENT-DATE TO WS-STAMP\n    DISPLAY WS-STAMP(17:5)\n\
+               \n    STRING \"at \" FUNCTION CURRENT-DATE DELIMITED BY SIZE INTO WS-LINE\n    DISPLAY WS-LINE(20:5)\n    STOP RUN.\n";
+    let prog = common::parse(src);
+    let mut checks: Vec<(String, bool)> = Vec::new();
+    for multi in [true, false] {
+        let c = compile_program(&prog, &native(multi)).expect("the desktop module compiles");
+        let (caps, prn) = needs(&c);
+        checks.push((format!("multi={multi}: desktop capabilities {caps:?} = [env]"), caps == ["env"]));
+        checks.push((format!("multi={multi}: desktop prn imports {prn:?} = [tz_offset]"), prn == ["tz_offset"]));
+        for (minutes, want) in [(-180, "-0300"), (330, "+0530"), (0, "+0000")] {
+            let o = run_native(&c.wasm, NativeInput { tz_offset: minutes, ..NativeInput::default() }).expect("the host runs it");
+            let lines = common::wasm_lines(&o);
+            checks.push((format!("multi={multi}: offset {minutes} min, desktop module prints {lines:?}"), lines == [want, want]));
+        }
+        let web = compile_program(&prog, &Options { multi_memory: multi, ..Options::default() }).expect("the browser module compiles");
+        let (caps, prn) = needs(&web);
+        checks.push((format!("multi={multi}: browser module asks for nothing ({caps:?}, {prn:?})"), caps.is_empty() && prn.is_empty()));
+        checks.push((format!("multi={multi}: the two modules differ"), web.wasm != c.wasm));
+    }
+    let failed: Vec<&(String, bool)> = checks.iter().filter(|(_, ok)| !ok).collect();
+    println!("── current_date_asks_the_runner_for_the_offset_in_a_desktop_module_only (DESKTOP-WASM-001 T24) ──");
+    println!("program: MOVE FUNCTION CURRENT-DATE, and CURRENT-DATE inside a STRING; desktop and browser builds, 2 memory variants");
+    for (what, ok) in &checks {
+        println!("  {} {what}", if *ok { "ok  " } else { "FAIL" });
+    }
+    println!("checks: {} of {} passed in {:.1} ms", checks.len() - failed.len(), checks.len(), t.elapsed().as_secs_f64() * 1000.0);
+    assert!(failed.is_empty(), "failed: {failed:?}");
 }

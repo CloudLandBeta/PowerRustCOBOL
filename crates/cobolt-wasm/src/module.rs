@@ -672,7 +672,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // environment ones of a desktop module's. Each is backed by a host import
     // of the same name, in the `pr` namespace or, for a desktop capability, in
     // `prn` (ABI A27, A29).
-    const GLUE_ORDER: [&str; 14] = [
+    const GLUE_ORDER: [&str; 15] = [
         "flush",
         "abort",
         "query",
@@ -687,6 +687,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         "con_read",
         "env_get",
         "exit",
+        "tz_offset",
     ];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
@@ -698,6 +699,13 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             return Err(GenError::new(0, "the program reaches the desktop runner's import prn.exit, which only a desktop module has"));
         }
         glue_needed.insert("exit");
+    }
+    // `CURRENT-DATE` in a desktop module ends with the desktop's offset from UTC (T24, A31).
+    if order.iter().any(|&b| blocks[b].code.iter().any(|i| matches!(i, Ins::CallGlue(Glue::TzOffset)))) {
+        if !opts.native {
+            return Err(GenError::new(0, "the program reaches the desktop runner's import prn.tz_offset, which only a desktop module has"));
+        }
+        glue_needed.insert("tz_offset");
     }
     for &i in &closure.imports {
         let (m, n) = blob.import_name(i);
@@ -743,6 +751,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             "env_get" => (ty_i32_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
             // A30: the run's exit code.
             "exit" => (ty_i32_void, ty_i32_void),
+            // A31: minutes east of UTC.
+            "tz_offset" => (ty_i32_ret, ty_i32_ret),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
         }
     };
@@ -813,6 +823,9 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
                 }
                 Ins::CallGlue(Glue::Exit) => {
                     f.instruction(&I::Call(glue_final["exit"]));
+                }
+                Ins::CallGlue(Glue::TzOffset) => {
+                    f.instruction(&I::Call(glue_final["tz_offset"]));
                 }
                 // Resolved when lowering ends (`Lower::resolve_run_ends`).
                 Ins::RunEnd => {}
@@ -1053,7 +1066,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     }
     // The desktop runner reads and writes memory 0 itself (A29): the glue only
     // passes its arguments on, as it does the exit code (A30).
-    for (g, args) in [("con_read", 2u32), ("env_get", 4), ("exit", 1)] {
+    for (g, args) in [("con_read", 2u32), ("env_get", 4), ("exit", 1), ("tz_offset", 0)] {
         if let Some(&at) = glue_final.get(g) {
             let mut f = Function::new([]);
             for i in 0..args {

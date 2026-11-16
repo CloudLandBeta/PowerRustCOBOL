@@ -45,8 +45,8 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     );
     let e = refusal(&disk);
     check(
-        format!("a file on disk: \"file LOG-F\" at line {}, files on disk (M3), unit T16G", line_of(&disk, "OPEN OUTPUT")),
-        e.subject == "file LOG-F" && e.line == line_of(&disk, "OPEN OUTPUT") && e.message.contains("files on disk") && e.message.contains("M3") && e.program == "T16G",
+        format!("a file on disk: \"file LOG-F\" at line {}, files are not on the path yet (M3), unit T16G", line_of(&disk, "OPEN OUTPUT")),
+        e.subject == "file LOG-F" && e.line == line_of(&disk, "OPEN OUTPUT") && e.message.contains("files are not on the WebAssembly path yet") && e.message.contains("M3") && e.program == "T16G",
     );
     let browser = compile_program(&common::parse(&disk), &Options::default()).err().map(|e| e.message).unwrap_or_default();
     check("the same file in a browser module keeps the browser's refusal".into(), !browser.is_empty() && !browser.contains("WebAssembly path"));

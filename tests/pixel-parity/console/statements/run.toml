@@ -1,0 +1,2 @@
+# The "statements" fixture of the console-parity check (DESKTOP-WASM-001 T24).
+sources = ["main.cbl"]

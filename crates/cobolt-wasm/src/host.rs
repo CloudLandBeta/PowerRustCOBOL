@@ -35,6 +35,8 @@ pub struct NativeInput {
     pub env: Vec<(String, String)>,
     /// The arguments, without the program's name.
     pub args: Vec<String>,
+    /// The desktop's offset from UTC in minutes east, which `tz_offset` answers (A31; 0 = UTC).
+    pub tz_offset: i32,
 }
 
 enum OpenFile {
@@ -544,6 +546,10 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
         .func_wrap(prn, "exit", |caller: Caller<'_, State>, code: i32| {
             caller.data().out.borrow_mut().exit_code = Some(code);
         })
+        .map_err(|e| e.to_string())?;
+    // A31: the run's offset; with no `NativeInput`, UTC, as a browser module's clock is.
+    linker
+        .func_wrap(prn, "tz_offset", |caller: Caller<'_, State>| -> i32 { caller.data().native.as_ref().map_or(0, |n| n.tz_offset) })
         .map_err(|e| e.to_string())?;
     if want("remote") {
         linker

@@ -373,7 +373,7 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     let text = r.as_ref().err().map(|e| e.to_string()).unwrap_or_default();
     check(
         &format!("a file on disk in Common Code → Refused at src/files.cbl line {open_line}"),
-        matches!(&files_reason, Ok(CargoReason::Refused { construct, file, line, reason }) if construct == "file LOG-FILE" && file == "src/files.cbl" && *line == open_line && reason.starts_with("files on disk")),
+        matches!(&files_reason, Ok(CargoReason::Refused { construct, file, line, reason }) if construct == "file LOG-FILE" && file == "src/files.cbl" && *line == open_line && reason.starts_with("files are not on the WebAssembly path")),
     );
     check("the message names the file, the line and why", text.contains(&format!("src/files.cbl line {open_line}")) && text.contains("WebAssembly path"));
     let http_line = line_of(HTTP, "HTTP-GET");

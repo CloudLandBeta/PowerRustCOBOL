@@ -855,8 +855,12 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
         }
         match found {
-            Some(f) if f.kind != FileKind::Seq || self.conformance => Ok(f),
-            // A desktop module holds the same files in memory; one on disk waits for M3 (T16).
+            // A desktop module holds no file until M3: on the desktop every file is on disk, and one
+            // declared `STORAGE IS MEMORY` is read from its file, opens for INPUT only without `WITH
+            // PERSISTENCE` (status 37) and is saved back with it, none of which a module without the
+            // runner's file capabilities can do the same way (T24; R27; WASM-PARITY #15).
+            // A `SORT` work file is the module's own on both.
+            Some(f) if f.kind == FileKind::Sort || (f.kind == FileKind::Memory && !self.native) || self.conformance => Ok(f),
             _ if self.native => self.err_kind(line, crate::error::ErrorKind::Other, format!("file {name}"), format!("file {name}: {}", crate::support::D_FILES)),
             _ if !self.conformance => {
                 let persistent = self

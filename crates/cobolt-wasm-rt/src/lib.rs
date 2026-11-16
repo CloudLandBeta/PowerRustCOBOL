@@ -806,6 +806,13 @@ pub extern "C" fn rt_accept_env(base: u32, target: u32, kind: u32, key: u32) {
     accept::accept_native_environment(base, target, kind, key);
 }
 
+/// After `FUNCTION CURRENT-DATE` in a desktop module (DESKTOP-WASM-001 T24): the last five
+/// characters of character temporary `k` become the desktop's offset from UTC, `minutes` east.
+#[no_mangle]
+pub extern "C" fn rt_ctemp_zone(k: u32, minutes: i32) {
+    func::ctemp_zone(k, minutes);
+}
+
 /// The first statement of a desktop program that uses `FUNCTION RANDOM`
 /// (DESKTOP-WASM-001 R28, T15): `PRC_TEST_SEED`, read through `env_get`, pins
 /// the generator as it pins the interpreter's. `name` is the literal's operand.

@@ -12,6 +12,7 @@
 //! cargo run -p cobolt-bench --release -- pixel-parity --cargo                 # against the goldens
 //! cargo run -p cobolt-bench --release -- pixel-parity --cargo --record        # write the goldens
 //! cargo run -p cobolt-bench --release -- pixel-parity --cargo --project PowerSpatial
+//! cargo run -p cobolt-bench --release -- pixel-parity --console               # console programs, T24
 //! ```
 //!
 //! **What it runs:** the five reference projects (C7) **as committed** (`HEAD`), never the working
@@ -66,8 +67,8 @@ use crate::build_goal::{platform, product_version, repo_root};
 use crate::ten_times;
 
 /// The pinned clock and seed every run takes (R28).
-const CLOCK: &str = "2026-01-02T03:04:05-03:00";
-const SEED: u64 = 20_261_114;
+pub(crate) const CLOCK: &str = "2026-01-02T03:04:05-03:00";
+pub(crate) const SEED: u64 = 20_261_114;
 /// A run's own time limit (`PRC_HEADLESS_LIMIT`), and how much longer the harness waits for it.
 const LIMIT_SECS: u64 = 60;
 const GRACE: Duration = Duration::from_secs(60);
@@ -94,29 +95,38 @@ const MARKER: &str = "@RUN-FORM-RESULT ";
 
 struct Args {
     write_scripts: bool,
+    /// T24: the console fixtures on both paths (`console_parity`).
+    console: bool,
     cargo: bool,
     record: bool,
     project: Option<String>,
 }
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
-    let mut out = Args { write_scripts: false, cargo: false, record: false, project: None };
+    let mut out = Args { write_scripts: false, console: false, cargo: false, record: false, project: None };
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--write-scripts" => out.write_scripts = true,
+            "--console" => out.console = true,
             "--cargo" => out.cargo = true,
             "--record" => out.record = true,
             "--project" => out.project = Some(it.next().ok_or("--project takes a reference project's name")?.clone()),
             other => {
                 return Err(format!(
-                    "pixel-parity: unknown argument {other} (known: --write-scripts, --cargo, --record, --project NAME)"
+                    "pixel-parity: unknown argument {other} (known: --write-scripts, --cargo, --record, --project NAME, --console)"
                 ))
             }
         }
     }
+    if out.console {
+        if out.write_scripts || out.cargo || out.record || out.project.is_some() {
+            return Err("pixel-parity: --console runs alone".into());
+        }
+        return Ok(out);
+    }
     if !out.write_scripts && !out.cargo {
-        return Err("pixel-parity: say what to do: --write-scripts, --cargo, or both".into());
+        return Err("pixel-parity: say what to do: --write-scripts, --cargo, both, or --console".into());
     }
     if out.record && !out.cargo {
         return Err("pixel-parity: --record needs --cargo".into());
@@ -702,6 +712,9 @@ fn run_project(name: &str, args: &Args, scratch: &Path, build_root: &Path, golde
 /// The `pixel-parity` mode.
 pub fn run(args: &[String]) -> Result<(), String> {
     let args = parse_args(args)?;
+    if args.console {
+        return crate::console_parity::run();
+    }
     let started = Instant::now();
     let commit = String::from_utf8_lossy(&git(&["rev-parse", "--short", "HEAD"])?).trim().to_owned();
     let scratch = std::env::temp_dir().join(format!("prc-pixel-parity-{}", std::process::id()));

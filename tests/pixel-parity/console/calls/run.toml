@@ -1,0 +1,3 @@
+# The "calls" fixture of the console-parity check (DESKTOP-WASM-001 T24): the main program first,
+# then its Common Code, one program per file.
+sources = ["main.cbl", "common.cbl", "double.cbl"]

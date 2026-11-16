@@ -880,6 +880,27 @@ pub fn ctemp_number(k: u32) -> Option<Val> {
     crate::codec::parse_text(mem::bytes(at, len)).map(Val::Dec)
 }
 
+/// `CURRENT-DATE`'s last five characters in character temporary `k`, from the desktop's offset
+/// from UTC in minutes (`prn.tz_offset`, DESKTOP-WASM-001 T24, ABI A31): `+hhmm` or `-hhmm`, as
+/// the interpreter writes the local clock's. A browser module never calls it: its clock is UTC.
+///
+/// It reads the temporary's place itself rather than through [`ctemp_loc`]: one more caller of a
+/// shared helper can change how the compiler inlines it into the routines a browser module links,
+/// and a browser module's bytes must not move (AC16).
+#[inline(never)]
+pub fn ctemp_zone(k: u32, minutes: i32) {
+    let k = (k as usize) % NCTEMP;
+    if st().ctemp_len[k] < 21 {
+        return;
+    }
+    let at = st().ws + WS_CTEMP + k as u32 * CTEMP_SIZE + 16;
+    let m = minutes.unsigned_abs().min(99 * 60 + 59);
+    let text = [if minutes < 0 { b'-' } else { b'+' }, b'0' + (m / 600) as u8, b'0' + (m / 60 % 10) as u8, b'0' + (m % 60 / 10) as u8, b'0' + (m % 10) as u8];
+    for (i, b) in text.into_iter().enumerate() {
+        mem::wr_u8(at + i as u32, b);
+    }
+}
+
 /// Widen character temporary `k` to `CTEMP_SIZE` bytes: its text, then spaces.
 /// It is no longer a number the host spelt.
 pub fn ctemp_widen(k: u32) {
