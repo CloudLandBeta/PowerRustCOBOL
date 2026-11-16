@@ -567,6 +567,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // The names the host commands carry by number (the manifest's `names`).
     let name_list: Vec<String> = names.list.clone();
     let builtin_list: Vec<String> = names.builtins.iter().cloned().collect();
+    // A desktop module that asks the operator for a file or a folder needs the runner's dialogs (A33).
+    let uses_dialogs = builtin_list.iter().any(|b| crate::lower_remote::is_desktop_dialog(b));
 
     // ── image and memory map, continued ──────────────────────────────────
     let mut built: Vec<Built> = Vec::new();
@@ -1526,10 +1528,14 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         rt_bytes,
         // A desktop capability's import is named with its namespace (A29).
         imports: glue_list.iter().map(|g| if native_cap(g).is_some() { format!("{}.{g}", import_module(g)) } else { g.to_string() }).collect(),
-        // A27: what the `prn` imports need, in the order of `cap::ALL`; none for a browser module.
+        // A27: what the `prn` imports need, in the order of `cap::ALL`; none for a browser module. The
+        // file dialogs are verbs of the application object, with no import of their own (A33).
         capabilities: cobolt_wasm_abi::codes::cap::ALL
             .iter()
-            .filter(|c| glue_list.iter().any(|g| native_cap(g) == Some(**c)))
+            .filter(|c| {
+                glue_list.iter().any(|g| native_cap(g) == Some(**c))
+                    || (**c == cobolt_wasm_abi::codes::cap::DIALOGS && uses_dialogs)
+            })
             .map(|c| c.to_string())
             .collect(),
         arena_total,

@@ -4,14 +4,15 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! DESKTOP-WASM-001 T16: what a desktop module refuses, and why. The Desktop Build turns each
+//! DESKTOP-WASM-001 T16 and T32: what a desktop module refuses, and why. The Desktop Build turns each
 //! refusal into the reason it takes the Cargo path, so each one must name its construct, carry
 //! the reason of its Desktop class (T10), stand at the line of its statement and say which
 //! program unit it is in. What the runner can serve is compiled; a browser module is unchanged.
 
 mod common;
 
-use cobolt_wasm::{compile_program, GenError, Options};
+use cobolt_wasm::lower_remote::{APP_VERBS, MOBILE_VERBS};
+use cobolt_wasm::{compile_program, compile_project, FormSpec, GenError, Options};
 use std::time::Instant;
 
 fn native() -> Options {
@@ -106,13 +107,68 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     let e = refusal(&nested);
     check("a refusal in the nested program INNER names INNER".into(), e.program == "INNER" && e.line == line_of(&nested, "ME::Title"));
 
+    // A file dialog waits while the operator chooses, which a desktop module does in a form's
+    // handler only (T32): outside one it is refused at its line, naming the built-in.
+    let dialog = format!(
+        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-PATH PIC X(80).\nPROCEDURE DIVISION.\n    COBOL::\"OPEN-FILE-DIALOG\" ( \"Open\" WS-PATH )\n    STOP RUN.\n"
+    );
+    let e = refusal(&dialog);
+    check(
+        "COBOL::\"OPEN-FILE-DIALOG\" outside a form's handler: refused at its line, naming it".into(),
+        e.subject == "COBOL::\"OPEN-FILE-DIALOG\"" && e.line == line_of(&dialog, "OPEN-FILE-DIALOG") && e.message.contains("form's handler"),
+    );
+    let browser = compile_program(&common::parse(&dialog), &Options::default()).err().map(|e| e.message).unwrap_or_default();
+    check("the same dialog in a browser module keeps the browser's refusal".into(), browser.contains("not available in a browser module"));
+
+    // In a form's handler the dialog compiles; the page's own verbs do not, since a desktop form has no
+    // message box (T6) and its windows are `ME`'s: each is refused at its line, naming it (T32).
+    let handler = |body: &str| {
+        format!(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. MAIN-FORM.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+             01 COBOL-QUIT PIC 9 VALUE 0.\n01 COBOL-EVENT-ID PIC X(64) VALUE SPACES.\n\
+             01 COBOL-CONTROL-ID PIC X(64) VALUE SPACES.\n01 FORM-NAME PIC X(64) VALUE 'MAIN-FORM'.\n\
+             PROCEDURE DIVISION.\nCOBOL-MAIN.\n    COBOL::\"INIT-FORM\" ( FORM-NAME )\n    PERFORM COBOL-EVENT-LOOP\n    STOP RUN.\n\
+             COBOL-EVENT-LOOP.\n    PERFORM UNTIL COBOL-QUIT = 1\n        COBOL::\"WAIT-EVENT\" ( COBOL-EVENT-ID COBOL-CONTROL-ID )\n\
+             \x20       EVALUATE COBOL-CONTROL-ID\n            WHEN \"BTN-1\"\n                CALL \"BTN-1--ONCLICK\"\n        END-EVALUATE\n    END-PERFORM.\n\
+             IDENTIFICATION DIVISION.\nPROGRAM-ID. BTN-1--ONCLICK IS COMMON PROGRAM.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-PATH PIC X(80).\n\
+             PROCEDURE DIVISION.\n{body}    GOBACK.\nEND PROGRAM BTN-1--ONCLICK.\nEND PROGRAM MAIN-FORM.\n"
+        )
+    };
+    let in_form = |src: &str| {
+        let program = common::parse(src);
+        let spec = FormSpec {
+            name: "MAIN-FORM".into(),
+            main: true,
+            instances: 1,
+            program: &program,
+            controls: vec![("BTN-1".into(), "Button".into())],
+            bindings: vec![("BTN-1".into(), "onClick".into())],
+            layers: vec![],
+            lines: vec![],
+        };
+        compile_project(&[spec], &native())
+    };
+    let opened = handler("    COBOL::\"OPEN-FILE-DIALOG\" ( \"Open\" WS-PATH )\n");
+    check("COBOL::\"OPEN-FILE-DIALOG\" in a form's handler compiles into a desktop module".into(), in_form(&opened).is_ok());
+    let page_verbs: Vec<&str> = APP_VERBS.iter().copied().filter(|v| !MOBILE_VERBS.contains(v)).collect();
+    let mut refused = 0;
+    for verb in &page_verbs {
+        let src = handler(&format!("    COBOL::\"{verb}\" ( \"x\" )\n"));
+        let e = in_form(&src).err().unwrap_or_else(|| GenError::new(0, "compiled"));
+        // The verb in quotes: `WAIT` alone is also in the loop's `"WAIT-EVENT"`.
+        if e.subject == format!("COBOL::\"{verb}\"") && e.line == line_of(&src, &format!("\"{verb}\"")) && e.message.contains("web page's application object") {
+            refused += 1;
+        }
+    }
+    check(format!("the page's {} own verbs (COBOL::\"MESSAGEBOX\" …) in a form's handler: {refused} refused at their line, naming each", page_verbs.len()), refused == page_verbs.len());
+
     // What the runner serves still compiles.
     let plain = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-N PIC 9(4) VALUE 1.\nPROCEDURE DIVISION.\n    ADD 41 TO WS-N\n    DISPLAY \"N=\" WS-N\n    STOP RUN.\n");
     check("a console program compiles into a desktop module".into(), compile_program(&common::parse(&plain), &native()).is_ok());
 
     let took = t.elapsed().as_secs_f64() * 1000.0;
-    println!("== native_desktop_refusals (DESKTOP-WASM-001 T16, R13) ==");
-    println!("programs compiled: 10 (8 as desktop modules refused or accepted, 1 browser module, 1 plain console program) in {took:.1} ms");
+    println!("== native_desktop_refusals (DESKTOP-WASM-001 T16, T32, R13) ==");
+    println!("programs compiled: {} (9 as desktop modules refused or accepted, {} desktop form modules, 2 browser modules, 1 plain console program) in {took:.1} ms", 12 + 1 + page_verbs.len(), 1 + page_verbs.len());
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "pass" } else { "FAIL" });

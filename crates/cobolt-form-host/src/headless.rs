@@ -27,7 +27,7 @@
 //! | `{"open_form": "ORDERS-FORM"}` | a shell application: load a form into the ContentPane, as its menu item would |
 //! | `{"size": [800, 600]}` | resizes the window: the next frames lay the form out at that size |
 //! | `{"shot": "after-save"}` | writes the frame as it is now to `after-save.png` in the folder for pictures (`PRC_HEADLESS_SHOTS` in a built application) |
-//! | `{"answer": {"path": "/tmp/out.csv"}}`, `{"answer": {"cancel": true}}` | queues the answer for the next file dialog (a program's open, save or folder dialog, a Viewer's Save As), which then shows no panel: put it before the step that opens the dialog |
+//! | `{"answer": {"path": "/tmp/out.csv"}}`, `{"answer": {"cancel": true}}` | queues the answer for the next file dialog (a program's open, save or folder dialog, a Viewer's Save As), which then shows no panel: put it before the step that opens the dialog. The report's `dialogs_asked` lists what each program's dialog so answered asked for (its kind, title, filters, folder and file name) |
 //!
 //! `set`, `event` and `read` act on the form on screen: in a shell, the form
 //! in the ContentPane. After every `set`, `event` (unless `"wait": false`), `open_form` and `size` the form is
@@ -179,8 +179,9 @@ pub fn run_headless_with(
         ticks.set(ticks.get() + 1);
         cobolt_runtime::test_pins::set_virtual_time(Duration::from_nanos(ticks.get() * 1_000_000_000 / 60));
     };
-    // Answers an earlier run in this process left are not this script's.
+    // Answers an earlier run in this process left are not this script's, nor what it asked.
     crate::file_dialog::clear_answers();
+    crate::file_dialog::take_asked();
     let ctx = egui::Context::default();
     ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
     let mut raster = cobolt_forms::raster::Rasterizer::new();
@@ -397,6 +398,7 @@ pub fn run_headless_with(
         cobolt_runtime::test_pins::stop_virtual_time();
     }
     let unused_answers = crate::file_dialog::clear_answers();
+    let dialogs_asked = crate::file_dialog::take_asked();
     let mut report = json!({
         "steps": steps,
         "reads": reads,
@@ -415,6 +417,9 @@ pub fn run_headless_with(
     }
     if unused_answers > 0 {
         report["answers_unused"] = json!(unused_answers);
+    }
+    if !dialogs_asked.is_empty() {
+        report["dialogs_asked"] = json!(dialogs_asked);
     }
     report
 }

@@ -4,8 +4,8 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! DESKTOP-WASM-001 T31: **the runner's form engine and the interpreter agree on several forms,
-//! the application shell and its SideMenu** (R9, R10, R27; AC14 part).
+//! DESKTOP-WASM-001 T31 and T32: **the runner's form engine and the interpreter agree on several
+//! forms, the application shell and its SideMenu, and the file dialogs** (R9, R10, R27; AC14 part).
 //!
 //! The runner twins of four `rcrun` host tests, on their fixtures:
 //!
@@ -18,7 +18,9 @@
 //! 4. `perspective_hosts_096`: a chart a program tilts, loaded into the same shell, with values
 //!    outside their ranges brought into them;
 //! 5. and one of its own, `several_forms`: a program that opens a form beside it, one that waits
-//!    for a modal form, and `super::` from the opened forms to their opener.
+//!    for a modal form, and `super::` from the opened forms to their opener;
+//! 6. T32's, `file_dialogs`: each kind of file dialog a program opens, answered by the script, and
+//!    what each asked the form host for.
 //!
 //! Each runs the same script headless twice, under the same pinned clock and seed: under
 //! `rcrun run-form` (the interpreter), and in the program `rcrun build` makes on the WebAssembly
@@ -726,6 +728,102 @@ fn several_forms_open_wait_and_reach_their_opener() {
     tally.finish(
         "several_forms_open_wait_and_reach_their_opener",
         "three forms: OpenFormAsync, OpenFormSync (the caller waits for the modal), onLoad in the opened forms, super::\"SetProperty\" to the opener, ME::\"GetProperty\", ME::\"Close\", the main form opened again (one window, no wait)",
+        &root,
+        build_ms,
+    );
+}
+
+// ── 6. file_dialogs (T32) ────────────────────────────────────────────────────────────────────────
+
+/// A handler with a `WORKING-STORAGE SECTION` of its own.
+fn bind_ws(form: &mut Form, id: &str, event: &str, storage: &[&str], statements: &[&str]) {
+    let ws = storage.iter().map(|s| format!("       {s}")).collect::<Vec<_>>().join("\n");
+    let body = statements.iter().map(|s| format!("           {s}")).collect::<Vec<_>>().join("\n");
+    let code = format!("       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n{ws}\n       PROCEDURE DIVISION.\n{body}\n");
+    let paragraph = format!("{}--{}", id.to_ascii_uppercase(), event.to_ascii_uppercase());
+    let c = form.controls.iter_mut().find(|c| c.id == id).expect("a control of the fixture");
+    c.events.push(EventBinding { event: event.into(), paragraph, code });
+}
+
+/// The next file dialog's answer: a path, or `None` to cancel it.
+fn answer(path: Option<&str>) -> Value {
+    match path {
+        Some(p) => json!({"answer": {"path": p}}),
+        None => json!({"answer": {"cancel": true}}),
+    }
+}
+
+#[test]
+fn file_dialogs_are_asked_and_answered_alike() {
+    let root = root("dialogs");
+    let mut main = Form::new("MAIN-FORM", "Dialogs", 640, 400);
+    main.main_form = true;
+    let path = ["01 WS-PATH PIC X(200)."];
+    // Each dialog kind, with the arguments a program may give it, and one the operator cancels.
+    let dialogs: [(&str, &str, &str); 4] = [
+        ("OPEN", "LBL-OPEN", "COBOL::\"OPEN-FILE-DIALOG\" ( \"Open a ledger\" \"Ledgers|csv,txt\" \"/tmp/ledgers\" WS-PATH )"),
+        ("SAVE", "LBL-SAVE", "COBOL::\"SAVE-FILE-DIALOG\" ( \"Save the ledger\" \"Ledgers|csv\" \"ledger.csv\" \"/tmp/out\" WS-PATH )"),
+        ("FOLDER", "LBL-FOLDER", "COBOL::\"FOLDER-DIALOG\" ( \"Pick a folder\" WS-PATH )"),
+        ("CANCEL", "LBL-CANCEL", "COBOL::\"OPEN-FILE-DIALOG\" ( \"Open\" WS-PATH )"),
+    ];
+    for (i, (name, label, call)) in dialogs.iter().enumerate() {
+        let y = 20 + 40 * i as i32;
+        control(&mut main, label, ControlType::Label, (220, y, 400, 24), Some("-"));
+        let id = format!("BTN-{name}");
+        control(&mut main, &id, ControlType::Button, (20, y, 180, 28), Some(&id));
+        let moved = format!("MOVE WS-PATH TO {label}::Caption");
+        let shown: Vec<&str> = if *name == "CANCEL" {
+            vec!["MOVE SPACES TO WS-PATH", call, "IF WS-PATH = SPACES", "    MOVE \"cancelled\" TO LBL-CANCEL::Caption", "ELSE", &moved, "END-IF"]
+        } else {
+            vec!["MOVE SPACES TO WS-PATH", call, &moved]
+        };
+        bind_ws(&mut main, &id, "onClick", &path, &shown);
+    }
+    let manifest = project(&root, "Dialogs", &[("main-form", main)], &[]);
+    let mut steps = vec![wait(600)];
+    for (name, label, answered) in [
+        ("OPEN", "LBL-OPEN", Some("/data/ledger.csv")),
+        ("SAVE", "LBL-SAVE", Some("/data/out.csv")),
+        ("FOLDER", "LBL-FOLDER", Some("/data/books")),
+        ("CANCEL", "LBL-CANCEL", None),
+    ] {
+        steps.extend([answer(answered), click(&format!("BTN-{name}")), wait(300), read(label, "Caption")]);
+    }
+    steps.extend([dump(), shot("dialogs")]);
+    let steps = script(&root, "steps", steps);
+    let (exe, build_ms) = build(&root, &manifest);
+    // The module the Build put in the program says it needs the runner's dialogs (ABI A27, A33).
+    let bytes = fs::read(&exe).unwrap_or_default();
+    let module = cobolt_program_package::locate(&bytes).ok().and_then(|p| cobolt_program_package::decode(p).ok()).and_then(|d| d.module().ok().map(<[u8]>::to_vec)).unwrap_or_default();
+    let needs = module.windows(26).any(|w| w == b"\"capabilities\":[\"dialogs\"]");
+    let home = root.join("home");
+    let a = interpreter(&root, "main-form", &steps, &home);
+    let b = runner(&root, &exe, &steps, &home);
+    let mut tally = Tally::default();
+    tally.check(format!("the module's manifest lists the capability `dialogs` ({} bytes searched)", module.len()), needs);
+    tally.compare("dialogs", &a, &b, &["dialogs"]);
+    // What each dialog was asked, as the form host received it.
+    let (qa, qb) = (&a.report["dialogs_asked"], &b.report["dialogs_asked"]);
+    for (who, q) in [("interpreter", qa), ("runner", qb)] {
+        for (i, d) in q.as_array().into_iter().flatten().enumerate() {
+            tally.lines.push(format!("    {who} asked {i}: {d}"));
+        }
+    }
+    tally.check("both engines asked the form host the same 4 dialogs", qa == qb && qa.as_array().is_some_and(|q| q.len() == 4));
+    let want = json!([
+        {"kind": "open", "title": "Open a ledger", "filters": [["Ledgers", ["csv", "txt"]]], "directory": "/tmp/ledgers", "file_name": null},
+        {"kind": "save", "title": "Save the ledger", "filters": [["Ledgers", ["csv"]]], "directory": "/tmp/out", "file_name": "ledger.csv"},
+        {"kind": "folder", "title": "Pick a folder", "filters": [], "directory": null, "file_name": null},
+        {"kind": "open", "title": "Open", "filters": [], "directory": null, "file_name": null},
+    ]);
+    tally.check("the runner asked what the program wrote: titles, filters, folders, names", *qb == want);
+    tally.check(
+        "the runner's program received each answer: a file, a save path, a folder, spaces when cancelled",
+        readings(&b.report) == ["/data/ledger.csv", "/data/out.csv", "/data/books", "cancelled"],
+    );
+    tally.finish(
+        "file_dialogs_are_asked_and_answered_alike",
+        "COBOL::\"OPEN-FILE-DIALOG\" (title, filter, start folder), \"SAVE-FILE-DIALOG\" (title, filter, file name, start folder), \"FOLDER-DIALOG\" (title), and an open dialog the operator cancels; each answered by the script's `answer` step",
         &root,
         build_ms,
     );

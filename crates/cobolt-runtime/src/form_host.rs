@@ -152,6 +152,72 @@ pub enum FileDialogKind {
     Folder,
 }
 
+/// What a program's file dialog asks for: `CALL "COBOL-OPEN-FILE-DIALOG"` (or `COBOL::"OPEN-FILE-DIALOG"`),
+/// `"COBOL-SAVE-FILE-DIALOG"` and `"COBOL-FOLDER-DIALOG"`. The interpreter and the desktop runner read a
+/// dialog's arguments with [`file_dialog_ask`], so both ask the same (DESKTOP-WASM-001 T32).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileDialogAsk {
+    pub kind: FileDialogKind,
+    pub title: String,
+    /// `(description, extensions)`; empty = any file.
+    pub filters: Vec<(String, Vec<String>)>,
+    /// The folder it opens in; `None` = the platform's choice.
+    pub directory: Option<String>,
+    /// The suggested file name (a save dialog).
+    pub file_name: Option<String>,
+}
+
+/// The file dialog `verb` names: `OPEN-FILE-DIALOG`, `SAVE-FILE-DIALOG` or `FOLDER-DIALOG`, with or
+/// without its `COBOL-` prefix, in any case.
+pub fn file_dialog_kind(verb: &str) -> Option<FileDialogKind> {
+    let v = verb.trim().to_ascii_uppercase();
+    match v.trim_start_matches("COBOL-") {
+        "OPEN-FILE-DIALOG" => Some(FileDialogKind::Open),
+        "SAVE-FILE-DIALOG" => Some(FileDialogKind::Save),
+        "FOLDER-DIALOG" => Some(FileDialogKind::Folder),
+        _ => None,
+    }
+}
+
+/// What a `kind` dialog asks for, from the `before_path` arguments that come before the item that
+/// receives the path: the title; the filter (`"Description|ext1,ext2"`), but not for a folder; the
+/// file name of a save dialog; then the start folder, which sits just before the path. `text(i)`
+/// answers argument `i` as trimmed text, and is asked only for the arguments the dialog uses, in
+/// that order.
+pub fn file_dialog_ask<E>(kind: FileDialogKind, before_path: usize, mut text: impl FnMut(usize) -> Result<String, E>) -> Result<FileDialogAsk, E> {
+    let last = before_path;
+    let fixed = match kind {
+        FileDialogKind::Open => 2,
+        FileDialogKind::Save => 3,
+        FileDialogKind::Folder => 1,
+    };
+    let title = text(0)?;
+    let filters = if kind == FileDialogKind::Folder || last < 2 { Vec::new() } else { dialog_filters(&text(1)?) };
+    let file_name = if kind == FileDialogKind::Save && last >= 3 { Some(text(2)?).filter(|s| !s.is_empty()) } else { None };
+    // The optional start folder sits just before `path`.
+    let directory = if last > fixed { Some(text(fixed)?).filter(|s| !s.is_empty()) } else { None };
+    Ok(FileDialogAsk { kind, title, filters, directory, file_name })
+}
+
+/// A dialog filter written as `"Description|ext1,ext2"` — or just the
+/// extensions, `"xml"` — as `(description, extensions)`. Empty is no filter.
+fn dialog_filters(spec: &str) -> Vec<(String, Vec<String>)> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Vec::new();
+    }
+    let (name, exts) = spec.split_once('|').unwrap_or((spec, spec));
+    let exts: Vec<String> = exts
+        .split([',', ';', ' '])
+        .map(|e| e.trim().trim_start_matches("*.").trim_start_matches('.').to_string())
+        .filter(|e| !e.is_empty())
+        .collect();
+    if exts.is_empty() {
+        return Vec::new();
+    }
+    vec![(name.trim().to_string(), exts)]
+}
+
 /// A COBOL procedure name: letters, digits and hyphens, starting with a
 /// letter or digit — what `super::"<Procedure>"()` may name.
 pub fn is_procedure_name(name: &str) -> bool {

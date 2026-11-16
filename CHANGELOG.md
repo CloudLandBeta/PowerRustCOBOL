@@ -2,6 +2,15 @@
 
 
 
+## 2.0.531 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T32): the PowerRustCOBOL runner now shows a program's file dialogs, exactly as the interpreter does.**
+- **The three file dialogs:** `COBOL::"OPEN-FILE-DIALOG"`, `COBOL::"SAVE-FILE-DIALOG"` and `COBOL::"FOLDER-DIALOG"` in a form's handler open the same dialog as under the interpreter, with the same title, filters, folder and file name. The last data item receives the path chosen, or spaces when the operator cancels. While the operator chooses, that form takes no event, and the other forms go on.
+- **Headless runs:** a script's `answer` step answers them under the runner as under the interpreter, and the run's report now lists what each dialog asked for (`dialogs_asked`).
+- **What a desktop module refuses, so the Build takes the Cargo path:** a file dialog outside a form's handler, and the 17 verbs of a web page's application object (`COBOL::"MESSAGEBOX"`, `"ALERT"`, `"CONFIRM"`, `"INPUTBOX"`, `"NAVIGATE"` and the rest), which a desktop program does not have. A desktop form has no message box, so there is none to show.
+- **The System KB** says which built-ins the runner serves: the three dialogs read "yes, with the runner's `dialogs`".
+- **Checked:** a scripted twin ran the four dialogs (an open dialog with a title, a filter and a start folder, a save dialog with a file name, a folder dialog, and an open dialog the operator cancels) under the interpreter and in the runner: both asked the same four dialogs, the program received the same four answers, and the pictures are equal in every pixel (8 of 8 checks). The six runner twins pass 60 of 60 checks, 16 pictures with 0 differing pixels.
+
 ## 2.0.530 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T31): the PowerRustCOBOL runner now runs an application of several forms from the WebAssembly module, with the shell, its SideMenu and the layers, exactly as the interpreter does.**

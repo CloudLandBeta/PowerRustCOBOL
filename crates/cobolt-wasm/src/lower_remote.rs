@@ -54,6 +54,18 @@ pub const APP_VERBS: &[&str] = &[
 /// (WASM-012 D-WebRefuse).
 pub const MOBILE_VERBS: &[&str] = &["SECURESTORE", "SECURELOAD", "SECUREDELETE"];
 
+/// The desktop's file dialogs (DESKTOP-WASM-001 T32, ABI A33): verbs of the application object only the
+/// desktop runner answers, through its form host, as the interpreter's `CALL "COBOL-OPEN-FILE-DIALOG"`
+/// and its two siblings are answered. The program waits while the operator chooses; the path chosen
+/// is the application's `DialogPath` when it goes on. A browser module refuses them (`support.rs`).
+pub const DESKTOP_DIALOGS: &[&str] = &["OPEN-FILE-DIALOG", "SAVE-FILE-DIALOG", "FOLDER-DIALOG"];
+
+/// Is `name` one of the desktop's file dialogs (any case)?
+pub fn is_desktop_dialog(name: &str) -> bool {
+    let n = name.trim().to_ascii_uppercase();
+    DESKTOP_DIALOGS.contains(&n.as_str())
+}
+
 /// Is `name` a verb only the phone shell answers (any case)?
 pub fn is_mobile_verb(name: &str) -> bool {
     let n = name.trim().to_ascii_uppercase();
@@ -75,6 +87,8 @@ pub fn suspends(ctrl: u32, verb: &str) -> bool {
             "MESSAGEBOX" | "ALERT" | "CONFIRM" | "INPUTBOX" | "SLEEP" | "WAIT" | "OPENFORMSYNC"
                 // A Tauri command answers through a promise: the task waits for it (A26).
                 | "SECURESTORE" | "SECURELOAD" | "SECUREDELETE"
+                // The operator chooses a file or a folder on the desktop (A33).
+                | "OPEN-FILE-DIALOG" | "SAVE-FILE-DIALOG" | "FOLDER-DIALOG"
         ),
         CTRL_FORM => v == "OPENFORMSYNC",
         _ => false,

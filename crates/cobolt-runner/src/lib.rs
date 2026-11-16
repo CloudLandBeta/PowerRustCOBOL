@@ -48,8 +48,8 @@ use wasmtime::{Caller, Engine, Linker, Memory, Store};
 pub use messages::{Lang, Msg};
 pub use pins::Pins;
 
-/// The capabilities this runner provides (A27). T15: console programs.
-pub const PROVIDED_CAPABILITIES: &[&str] = &[cap::CONSOLE, cap::ENV];
+/// The capabilities this runner provides (A27). T15: console programs; T32: the file dialogs (A33).
+pub const PROVIDED_CAPABILITIES: &[&str] = &[cap::CONSOLE, cap::ENV, cap::DIALOGS];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row
 /// is never removed, so a module of any earlier ABI finds every import it was built with (R5).

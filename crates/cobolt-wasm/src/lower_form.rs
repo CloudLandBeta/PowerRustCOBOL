@@ -775,6 +775,16 @@ impl Lower<'_, '_> {
                 self.call_rt("rt_ws_last_error");
                 Ok(())
             }
+            // On the desktop the runner answers the file dialogs (T32); a browser module refuses them below.
+            dialog if self.native && crate::lower_remote::is_desktop_dialog(dialog) => self.desktop_file_dialog(dialog, using, line),
+            // The page's own verbs (ABI §12.1) are not the desktop's: under the interpreter a form's
+            // windows are `ME`'s and a handle's, and a desktop form has no message box (T6, T32). A
+            // desktop module refuses them, so the Build takes the Cargo path, which reports them as the
+            // interpreter does.
+            page if self.native && crate::lower_remote::is_app_verb(page) && !crate::lower_remote::is_mobile_verb(page) => {
+                let subject = format!("COBOL::\"{page}\"");
+                self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} is a verb of a web page's application object, which a desktop program does not have"))
+            }
             other => {
                 // Any other service the page offers is a call on the application
                 // object with the arguments as text.
@@ -820,23 +830,61 @@ impl Lower<'_, '_> {
                 self.call_rt("rt_cmd_call");
                 self.suspend_if_waiting(CTRL_APP, other);
                 if let Some(dest) = receiver {
-                    let k = self.ctemp_next;
-                    if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
-                        return self.too_many_reads(line, "this statement reads more than four properties or character-valued functions; split it into statements that read at most four");
-                    }
-                    self.ctemp_next += 1;
-                    let value = Seg { name: "SecureValue", args: &[], parens: false };
-                    self.build_path(CTRL_APP, std::slice::from_ref(&value))?;
-                    self.i32c(Q_GET as i32);
-                    self.i32c(k as i32);
-                    self.i32c(1);
-                    self.call_rt("rt_cmd_query");
-                    let src = self.pool.opd_ctemp(k);
-                    self.move_operand_to(src, &dest, line)?;
+                    self.app_property_into("SecureValue", &dest, line)?;
                 }
                 Ok(())
             }
         }
+    }
+
+    /// The desktop's file dialogs (DESKTOP-WASM-001 T32, ABI A33): `COBOL::"OPEN-FILE-DIALOG"`,
+    /// `"SAVE-FILE-DIALOG"` and `"FOLDER-DIALOG"`, whose arguments are the interpreter's (the
+    /// title, the filter, the file name, the start folder, and always last the item that receives
+    /// the path). The arguments before the last go to the runner as text; the task waits while the
+    /// operator chooses; then the last receives the application's `DialogPath`, spaces when the
+    /// operator cancelled, as the interpreter moves the answer.
+    fn desktop_file_dialog(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
+        let subject = format!("COBOL::\"{name}\"");
+        if using.len() < 2 {
+            return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes the title and, last, the data item that receives the path"));
+        }
+        if self.form.is_none() {
+            return self.err_kind(
+                line,
+                crate::error::ErrorKind::Other,
+                subject.clone(),
+                format!("{subject} waits while the operator chooses, which a desktop module does in a form's handler only"),
+            );
+        }
+        let args: Vec<Expr> = using
+            .iter()
+            .map(|a| match a {
+                CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+            })
+            .collect();
+        let (sent, dest) = args.split_at(args.len() - 1);
+        let seg = Seg { name, args: sent, parens: true };
+        self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
+        self.call_rt("rt_cmd_call");
+        self.suspend_if_waiting(CTRL_APP, name);
+        self.app_property_into("DialogPath", &dest[0], line)
+    }
+
+    /// Move the application object's property `prop` (as text) into `dest`.
+    fn app_property_into(&mut self, prop: &str, dest: &Expr, line: u32) -> GenResult<()> {
+        let k = self.ctemp_next;
+        if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
+            return self.too_many_reads(line, "this statement reads more than four properties or character-valued functions; split it into statements that read at most four");
+        }
+        self.ctemp_next += 1;
+        let value = Seg { name: prop, args: &[], parens: false };
+        self.build_path(CTRL_APP, std::slice::from_ref(&value))?;
+        self.i32c(Q_GET as i32);
+        self.i32c(k as i32);
+        self.i32c(1);
+        self.call_rt("rt_cmd_query");
+        let src = self.pool.opd_ctemp(k);
+        self.move_operand_to(src, dest, line)
     }
 }
 

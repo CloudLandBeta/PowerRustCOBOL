@@ -45,8 +45,15 @@
 //!   (`FormRequest::HandleMethod`);
 //! * a write to a layer reaches the window under the layer's name, as the interpreter writes the
 //!   object of the layer's name.
+//!
+//! **File dialogs** (T32). A program's `COBOL::"OPEN-FILE-DIALOG"`, `"SAVE-FILE-DIALOG"` or
+//! `"FOLDER-DIALOG"` is sent to the form host as the interpreter sends it (`FormRequest::FileDialog`,
+//! its arguments read by the same `file_dialog_ask`), and the form host shows it, or answers it
+//! from a headless script's `answer` step. The program waits in the module, so its form takes no
+//! event meanwhile, while the thread serves the other forms; the answer comes back as a message.
 
 use std::collections::VecDeque;
+use std::convert::Infallible;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
@@ -54,7 +61,7 @@ use std::time::{Duration, Instant};
 use cobolt_abi_host::host::{CallResult, Effect, Host, HostOptions, ModuleCall, OpenMode};
 use cobolt_abi_host::tree::Change;
 use cobolt_form_host::engine::{ProgramEngine, ProgramRun, ProgramStart};
-use cobolt_runtime::form_host::{FormRequest, FormSupervisor};
+use cobolt_runtime::form_host::{file_dialog_ask, file_dialog_kind, FormRequest, FormSupervisor};
 use cobolt_runtime::{FormEvent, StateUpdate};
 use cobolt_wasm_abi::manifest::{ArenaLayout, Manifest};
 use wasmtime::{Engine, Instance, Module, Store};
@@ -87,6 +94,8 @@ enum ToProgram {
     Event { link: usize, ev: FormEvent },
     /// The window of link `link` is gone: its event channel closed.
     Gone { link: usize },
+    /// The operator chose `path` in file dialog `id` (T32), or cancelled it.
+    Answered { id: u32, path: Option<String> },
 }
 
 /// The engine the runner gives the form host: the forms' designs, from the module's `prforms`
@@ -446,6 +455,7 @@ impl Thread {
                         l.queue.push_back(ev);
                     }
                 }
+                Some(ToProgram::Answered { id, path }) => d.host().file_dialog_answer(id, path.as_deref()),
                 Some(ToProgram::Gone { link }) => {
                     links[link].gone = true;
                     if let Some(inst) = links[link].inst {
@@ -461,12 +471,12 @@ impl Thread {
             for id in due {
                 d.host().timer_fired(id);
             }
-            drive(&mut d, &mut links, &mut opening, &mut adopting, &mut parked, &mut timers, &mut stopped);
+            drive(&mut d, &mut links, &mut opening, &mut adopting, &mut parked, &mut timers, &mut stopped, &tx);
             // The events each free instance has waiting, in order; one may make it busy again.
             while let Some(at) = (0..links.len()).find(|&i| !links[i].queue.is_empty() && links[i].inst.is_some_and(|inst| !d.host().busy(inst))) {
                 let ev = links[at].queue.pop_front().expect("a waiting event");
                 take(&mut d, &links[at], ev);
-                drive(&mut d, &mut links, &mut opening, &mut adopting, &mut parked, &mut timers, &mut stopped);
+                drive(&mut d, &mut links, &mut opening, &mut adopting, &mut parked, &mut timers, &mut stopped, &tx);
             }
             if let Some(code) = d.store.data().exit_code {
                 exit.store(code, Ordering::SeqCst);
@@ -522,21 +532,68 @@ fn drive(
     parked: &mut Vec<(u32, Change)>,
     timers: &mut Vec<(Instant, u32)>,
     stopped: &mut bool,
+    tx: &mpsc::Sender<ToProgram>,
 ) {
     loop {
-        let Some(call) = d.host().next_call() else {
-            if d.host().has_yielded() {
-                d.host().allow_yielded();
-                continue;
-            }
+        loop {
+            let Some(call) = d.host().next_call() else {
+                if d.host().has_yielded() {
+                    d.host().allow_yielded();
+                    continue;
+                }
+                break;
+            };
+            let result = d.perform(&call);
+            d.host().complete(&call, result);
+            effects(d, links, (opening, adopting), timers, stopped, call_inst(&call));
+        }
+        effects(d, links, (opening, adopting), timers, stopped, None);
+        changes(d.host(), links, parked);
+        // A dialog with no window to show it in is answered at once: its program goes on.
+        if !file_dialogs(d.host(), links, tx) {
             break;
-        };
-        let result = d.perform(&call);
-        d.host().complete(&call, result);
-        effects(d, links, (opening, adopting), timers, stopped, call_inst(&call));
+        }
     }
-    effects(d, links, (opening, adopting), timers, stopped, None);
-    changes(d.host(), links, parked);
+}
+
+/// Show the file dialogs the programs opened (T32) through the form host, asked for as the
+/// interpreter asks for them; each answer comes back to the program thread as
+/// [`ToProgram::Answered`]. A dialog whose form has no window is cancelled at once, as the
+/// interpreter's is with no window to show it in: answers whether one was.
+fn file_dialogs(host: &mut Host, links: &[Link], tx: &mpsc::Sender<ToProgram>) -> bool {
+    let mut settled = false;
+    for ask in host.take_file_dialogs() {
+        let shown = match (file_dialog_kind(&ask.verb), link_of(links, ask.inst)) {
+            (Some(kind), Some(l)) if !l.gone => {
+                let parts = file_dialog_ask(kind, ask.args.len(), |i| Ok::<_, Infallible>(ask.args[i].trim().to_string())).unwrap_or_else(|never| match never {});
+                let (reply, answer) = mpsc::channel();
+                let asked = l.requests.send(FormRequest::FileDialog {
+                    kind,
+                    title: parts.title,
+                    filters: parts.filters,
+                    directory: parts.directory,
+                    file_name: parts.file_name,
+                    reply,
+                });
+                let back = tx.clone();
+                let id = ask.id;
+                asked.is_ok()
+                    && std::thread::Builder::new()
+                        .name("file-dialog".into())
+                        .spawn(move || {
+                            let path = answer.recv().ok().flatten();
+                            let _ = back.send(ToProgram::Answered { id, path });
+                        })
+                        .is_ok()
+            }
+            _ => false,
+        };
+        if !shown {
+            host.file_dialog_answer(ask.id, None);
+            settled = true;
+        }
+    }
+    settled
 }
 
 /// The link of instance `inst`.

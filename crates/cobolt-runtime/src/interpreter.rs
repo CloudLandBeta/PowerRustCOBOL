@@ -12525,42 +12525,22 @@ impl Interpreter {
             "COBOL-OPEN-FILE-DIALOG" | "COBOL-SAVE-FILE-DIALOG" | "COBOL-FOLDER-DIALOG"
                 if using.len() >= 2 =>
             {
-                use crate::form_host::{FileDialogKind, FormRequest};
-                let text = |i: usize, me: &mut Self| -> Result<String, RuntimeError> {
-                    Ok(me.eval_call_arg(&using[i], span)?.as_display_string().trim().to_string())
-                };
+                use crate::form_host::{file_dialog_ask, file_dialog_kind, FormRequest};
                 let last = using.len() - 1;
-                let (kind, fixed) = match prog_name.as_str() {
-                    "COBOL-OPEN-FILE-DIALOG" => (FileDialogKind::Open, 2),
-                    "COBOL-SAVE-FILE-DIALOG" => (FileDialogKind::Save, 3),
-                    _ => (FileDialogKind::Folder, 1),
-                };
-                let title = text(0, self)?;
-                let filters = if kind == FileDialogKind::Folder || last < 2 {
-                    Vec::new()
-                } else {
-                    dialog_filters(&text(1, self)?)
-                };
-                let file_name = if kind == FileDialogKind::Save && last >= 3 {
-                    Some(text(2, self)?).filter(|s| !s.is_empty())
-                } else {
-                    None
-                };
-                // The optional start folder sits just before `path`.
-                let directory = if last > fixed {
-                    Some(text(fixed, self)?).filter(|s| !s.is_empty())
-                } else {
-                    None
-                };
+                let kind = file_dialog_kind(&prog_name).expect("one of the three file dialogs");
+                // What the dialog asks for, read as the desktop runner reads it (DESKTOP-WASM-001 T32).
+                let ask = file_dialog_ask(kind, last, |i| -> Result<String, RuntimeError> {
+                    Ok(self.eval_call_arg(&using[i], span)?.as_display_string().trim().to_string())
+                })?;
                 let chosen = match self.form_host_tx.clone() {
                     Some(tx) => {
                         let (rtx, rrx) = mpsc::channel();
                         let sent = tx.send(FormRequest::FileDialog {
-                            kind,
-                            title,
-                            filters,
-                            directory,
-                            file_name,
+                            kind: ask.kind,
+                            title: ask.title,
+                            filters: ask.filters,
+                            directory: ask.directory,
+                            file_name: ask.file_name,
                             reply: rtx,
                         });
                         if sent.is_ok() {
@@ -26085,25 +26065,6 @@ mod cross_run_unit_lock_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
-}
-
-/// A dialog filter written as `"Description|ext1,ext2"` — or just the
-/// extensions, `"xml"` — as `(description, extensions)`. Empty is no filter.
-fn dialog_filters(spec: &str) -> Vec<(String, Vec<String>)> {
-    let spec = spec.trim();
-    if spec.is_empty() {
-        return Vec::new();
-    }
-    let (name, exts) = spec.split_once('|').unwrap_or((spec, spec));
-    let exts: Vec<String> = exts
-        .split([',', ';', ' '])
-        .map(|e| e.trim().trim_start_matches("*.").trim_start_matches('.').to_string())
-        .filter(|e| !e.is_empty())
-        .collect();
-    if exts.is_empty() {
-        return Vec::new();
-    }
-    vec![(name.trim().to_string(), exts)]
 }
 
 

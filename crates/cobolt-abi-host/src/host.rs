@@ -251,6 +251,17 @@ impl RunError {
 
 /// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
 /// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
+/// A file dialog a desktop program waits on (DESKTOP-WASM-001 T32, ABI A33): `COBOL::"OPEN-FILE-DIALOG"`,
+/// `"SAVE-FILE-DIALOG"` or `"FOLDER-DIALOG"`, with its arguments as text, the path's item left out. The
+/// runner reads them as the interpreter does and answers with [`Host::file_dialog_answer`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileDialogAsk {
+    pub id: u32,
+    pub inst: u32,
+    pub verb: String,
+    pub args: Vec<String>,
+}
+
 /// window state, x, y, width, height, then, for a Sync open, whether it is modal. An empty or absent
 /// one is the form's designed value, which the form host's supervisor applies.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -564,6 +575,8 @@ pub struct Host {
     /// The main form a program opened again on the desktop while it runs, as `(the opener's instance, the form, where it
     /// wanted it)`: the runner asks the supervisor, which focuses the running one, as for the interpreter (spec 037 R10).
     refocused: Vec<(u32, usize, Placement)>,
+    /// The file dialogs programs opened on the desktop and wait on (A33), for the runner to show.
+    file_dialogs: Vec<FileDialogAsk>,
     pub effects: Vec<Effect>,
     pub outbox: Vec<Outbound>,
     /// The ids of the requests made by a Timer's `onTick` handler and not yet handed to the transport (2.0.413): an
@@ -717,6 +730,7 @@ impl Host {
             held_opens: HashMap::new(),
             form_writes: Vec::new(),
             refocused: Vec::new(),
+            file_dialogs: Vec::new(),
             effects: Vec::new(),
             outbox: Vec::new(),
             automatic_requests: std::collections::HashSet::new(),
@@ -1219,6 +1233,11 @@ impl Host {
     /// The shell closed a dialog.
     pub fn dialog_result(&mut self, id: u32, result: &str) {
         self.app.insert("dialogresult".into(), result.to_owned());
+        self.settle_dialog(id);
+    }
+
+    /// The task waiting on dialog `id` may go on.
+    fn settle_dialog(&mut self, id: u32) {
         for t in self.tasks.values_mut() {
             if let TaskState::Suspended(Wait::Dialog { id: did, done }) = &mut t.state {
                 if *did == id {
@@ -2939,6 +2958,18 @@ impl Host {
         self.form_writes.push((target, key.trim().to_owned(), value.to_owned()));
     }
 
+    /// The file dialogs programs opened since the last call, on the desktop ([`HostOptions::desktop`]).
+    pub fn take_file_dialogs(&mut self) -> Vec<FileDialogAsk> {
+        std::mem::take(&mut self.file_dialogs)
+    }
+
+    /// The operator chose `path` in file dialog `id`, or cancelled it (`None`): the program reads the
+    /// application's `DialogPath` (empty when cancelled) and its task goes on (A33).
+    pub fn file_dialog_answer(&mut self, id: u32, path: Option<&str>) {
+        self.app.insert("dialogpath".into(), path.unwrap_or_default().to_owned());
+        self.settle_dialog(id);
+    }
+
     /// The main form programs opened again since the last call, on the desktop ([`HostOptions::desktop`]).
     pub fn take_refocused(&mut self) -> Vec<(u32, usize, Placement)> {
         std::mem::take(&mut self.refocused)
@@ -3124,6 +3155,16 @@ impl Host {
                     (arg(0), arg(1), arg(2), String::new())
                 };
                 self.effects.push(Effect::Dialog { id, kind, text, title, buttons, default });
+                if let Some(f) = &mut self.inflight {
+                    f.wait = Some(Wait::Dialog { id, done: false });
+                }
+                Ok(None)
+            }
+            // The desktop's file dialogs (A33): the runner shows them through its form host.
+            "OPEN-FILE-DIALOG" | "SAVE-FILE-DIALOG" | "FOLDER-DIALOG" if self.opts.desktop => {
+                let id = self.next_id;
+                self.next_id += 1;
+                self.file_dialogs.push(FileDialogAsk { id, inst, verb: m.clone(), args: args.iter().map(|a| a.to_string()).collect() });
                 if let Some(f) = &mut self.inflight {
                     f.wait = Some(Wait::Dialog { id, done: false });
                 }

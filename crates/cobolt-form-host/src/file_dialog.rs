@@ -92,6 +92,19 @@ pub fn queue_answer(answer: Option<PathBuf>) {
     scripted().lock().unwrap_or_else(|e| e.into_inner()).push_back(answer);
 }
 
+/// What each program's dialog a script answered asked for, in order (DESKTOP-WASM-001 T32): the
+/// headless report lists them, so two hosts can be shown to ask the same.
+fn asked() -> &'static Mutex<Vec<serde_json::Value>> {
+    static A: OnceLock<Mutex<Vec<serde_json::Value>>> = OnceLock::new();
+    A.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// The program dialogs the script answered since the last call: `kind` (`open`, `save`, `folder`),
+/// `title`, `filters` (`[[description, [extensions]]]`), `directory` and `file_name`.
+pub fn take_asked() -> Vec<serde_json::Value> {
+    std::mem::take(&mut *asked().lock().unwrap_or_else(|e| e.into_inner()))
+}
+
 /// Drops the queued answers no dialog took, and says how many there were.
 pub fn clear_answers() -> usize {
     let mut q = scripted().lock().unwrap_or_else(|e| e.into_inner());
@@ -243,6 +256,18 @@ pub fn answer_program(
 ) {
     use cobolt_runtime::form_host::FileDialogKind;
     if let Some(answer) = next_answer() {
+        let kind_name = match kind {
+            FileDialogKind::Open => "open",
+            FileDialogKind::Save => "save",
+            FileDialogKind::Folder => "folder",
+        };
+        asked().lock().unwrap_or_else(|e| e.into_inner()).push(serde_json::json!({
+            "kind": kind_name,
+            "title": title,
+            "filters": filters,
+            "directory": directory,
+            "file_name": file_name,
+        }));
         let _ = reply.send(answer.map(|p| p.to_string_lossy().into_owned()));
         return;
     }

@@ -29,7 +29,6 @@ pub enum Native {
 // The reasons of the Desktop column. Each names the milestone of DESKTOP-WASM-001 that moves the entry.
 /// Why a project with forms takes the Cargo path until M2: the Desktop Build names it for a form (DESKTOP-WASM-001 T16).
 pub const D_FORMS: &str = "forms, their controls and the application object are not on the WebAssembly path yet (DESKTOP-WASM-001 M2)";
-const D_DIALOGS: &str = "the desktop's dialogs are not on the WebAssembly path yet (DESKTOP-WASM-001 M2)";
 pub(crate) const D_FILES: &str = "files are not on the WebAssembly path yet (DESKTOP-WASM-001 M3): on the desktop every file is on disk, and an INDEXED file declared STORAGE IS MEMORY is read from its file";
 const D_FILE_BUILTINS: &str = "the file and image built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
 pub(crate) const D_SORT: &str = "SORT with USING or GIVING files is not on the WebAssembly path yet (DESKTOP-WASM-001 M3); with an INPUT and an OUTPUT PROCEDURE it is compiled into the module";
@@ -269,7 +268,7 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("FETCH-ROW", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("FILE-STATUS", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
     // `showDirectoryPicker` is Chrome's only: Q7's parity rule leaves it out.
-    c("FOLDER-DIALOG", Support::Unsupported("a browser page cannot choose a folder in every engine (showDirectoryPicker is Chrome's only)"), cargo(D_DIALOGS)),
+    c("FOLDER-DIALOG", Support::Unsupported("a browser page cannot choose a folder in every engine (showDirectoryPicker is Chrome's only)"), Native::Host(cap::DIALOGS)),
     c("GET-PROPERTY", Support::Module, cargo(D_FORMS)),
     c("HTTP-CLEAR-HEADERS", Support::BackendOnly(HTTP), cargo(D_HTTP)),
     c("HTTP-DELETE", Support::BackendOnly(HTTP), cargo(D_HTTP)),
@@ -295,7 +294,7 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("MODEL-TEST", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
     c("NEXT-ROW", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("OPEN-DB", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("OPEN-FILE-DIALOG", Support::Unsupported(NO_PATHS), cargo(D_DIALOGS)),
+    c("OPEN-FILE-DIALOG", Support::Unsupported(NO_PATHS), Native::Host(cap::DIALOGS)),
     c("PARTIQL", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
     c("PARTIQL-ERROR", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
     c("PARTIQL-FETCH", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
@@ -303,7 +302,7 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("PROVIDER-GET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
     c("RAISE-EVENT", Support::Module, cargo(D_FORMS)),
     c("ROW-COUNT", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("SAVE-FILE-DIALOG", Support::Unsupported(NO_PATHS), cargo(D_DIALOGS)),
+    c("SAVE-FILE-DIALOG", Support::Unsupported(NO_PATHS), Native::Host(cap::DIALOGS)),
     // The phone shell's verbs (WASM-012 R9, ABI A26): a Mobile module compiles
     // them onto the application object; a Web module refuses them at their
     // line before this row is read (`lower_remote::is_mobile_verb`).
