@@ -249,6 +249,50 @@ impl RunError {
     }
 }
 
+/// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
+/// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
+/// window state, x, y, width, height, then, for a Sync open, whether it is modal. An empty or absent
+/// one is the form's designed value, which the form host's supervisor applies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Placement {
+    pub sync: bool,
+    pub window_state: Option<String>,
+    pub x: Option<i64>,
+    pub y: Option<i64>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    /// A Sync open is modal unless its seventh argument says otherwise; an Async one never is.
+    pub modal: bool,
+}
+
+impl Placement {
+    pub fn from_args(sync: bool, rest: &[&str]) -> Placement {
+        let text = |i: usize| rest.get(i).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let number = |i: usize| text(i).and_then(|s| s.parse::<i64>().ok());
+        let modal = sync
+            && text(5).map(|s| s == "1" || s.eq_ignore_ascii_case("true") || s.eq_ignore_ascii_case("yes")).unwrap_or(true);
+        Placement { sync, window_state: text(0).map(str::to_owned), x: number(1), y: number(2), width: number(3), height: number(4), modal }
+    }
+
+    /// The caller waits until the form closes: a modal Sync open (spec 037 R28).
+    pub fn waits(&self) -> bool {
+        self.sync && self.modal
+    }
+}
+
+/// A window a program asked for on the desktop ([`HostOptions::desktop`]): the form opens in the
+/// module only once the form host has made it ([`Host::open_held`]), so its program starts in its
+/// window and the window shows from its first frame, as the interpreter's does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowAsk {
+    /// The handle the program was answered with.
+    pub handle: String,
+    /// The instance that opened the form.
+    pub opener: u32,
+    pub form: usize,
+    pub placement: Placement,
+}
+
 /// How a form opens (WASM-011 R2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpenMode {
@@ -376,16 +420,21 @@ pub struct HostOptions {
     pub standalone: bool,
     /// The longest event queue before the oldest *movement* events are dropped.
     pub max_queue: usize,
-    /// A program's write raises the observer events of the property it changed (`onChange`,
-    /// `onValueChanged`, …) here, as the page needs. The desktop runner turns it off: its form host
-    /// raises them when the write reaches the window, as it does for the interpreter, so a handler
-    /// runs once (DESKTOP-WASM-001 T30).
-    pub observer_events: bool,
+    /// The desktop's form host shows the forms (the runner, DESKTOP-WASM-001 T30, T31), not a page.
+    /// The form host raises a write's observer events (`onChange`, `onValueChanged`, …) and a form's
+    /// `onShow` and `onActivate` itself, as it does for the interpreter, so this host does not and a
+    /// handler runs once. A layer a program writes is recorded by layer, as the interpreter writes an
+    /// object of the layer's name. `OpenFormSync` and `OpenFormAsync` read the arguments after the
+    /// form's name as the desktop does (window state, x, y, width, height, and modal for a Sync
+    /// open), not as route parameters. Such a form opens only once the form host's supervisor has
+    /// made its window ([`Host::take_window_asks`], [`Host::open_held`]), so its program starts in
+    /// its window, as the interpreter's does; a Sync open waits for its form only when it is modal.
+    pub desktop: bool,
 }
 
 impl Default for HostOptions {
     fn default() -> Self {
-        HostOptions { debug_level: 0, standalone: false, max_queue: 4096, observer_events: true }
+        HostOptions { debug_level: 0, standalone: false, max_queue: 4096, desktop: false }
     }
 }
 
@@ -505,6 +554,16 @@ pub struct Host {
     next_id: u32,
     handles: HashMap<String, Handle>,
     next_handle: u32,
+    /// The windows programs asked for on the desktop, for the runner ([`HostOptions::desktop`]).
+    window_asks: Vec<WindowAsk>,
+    /// The opens that wait for their window, by handle: `(form, opener, mode)`.
+    held_opens: HashMap<String, (usize, u32, OpenMode)>,
+    /// A form's own properties another form wrote on the desktop (`super::Title`, `super::"SetProperty"`), as
+    /// `(the written form's instance, property, value)`: the runner sends each to the supervisor as the interpreter does.
+    form_writes: Vec<(u32, String, String)>,
+    /// The main form a program opened again on the desktop while it runs, as `(the opener's instance, the form, where it
+    /// wanted it)`: the runner asks the supervisor, which focuses the running one, as for the interpreter (spec 037 R10).
+    refocused: Vec<(u32, usize, Placement)>,
     pub effects: Vec<Effect>,
     pub outbox: Vec<Outbound>,
     /// The ids of the requests made by a Timer's `onTick` handler and not yet handed to the transport (2.0.413): an
@@ -654,6 +713,10 @@ impl Host {
             next_id: 1,
             handles: HashMap::new(),
             next_handle: 1,
+            window_asks: Vec::new(),
+            held_opens: HashMap::new(),
+            form_writes: Vec::new(),
+            refocused: Vec::new(),
             effects: Vec::new(),
             outbox: Vec::new(),
             automatic_requests: std::collections::HashSet::new(),
@@ -1301,6 +1364,13 @@ impl Host {
         self.tasks.len()
     }
 
+    /// Instance `inst` is inside a handler: one of its runs is suspended (a wait, a dialog, a form it
+    /// opened and waits for) or yielded. Its program takes no other event until it is free, as the
+    /// interpreter's does not while it is inside one (the desktop runner holds them, T31).
+    pub fn busy(&self, inst: u32) -> bool {
+        self.tasks.values().any(|t| t.inst == inst)
+    }
+
     // ── choosing the next call ──────────────────────────────────────────────
 
     /// The next call to make into the module, or `None` when there is nothing to do right now.
@@ -1441,8 +1511,9 @@ impl Host {
                 }
                 self.effects.push(Effect::Opened { inst: id, form, mode, handle });
                 // As the desktop host does once the form is up: `onShow`, then `onActivate`, each once and only
-                // when the form binds it (WASM-016 T17).
-                for name in ["onShow", "onActivate"] {
+                // when the form binds it (WASM-016 T17). On the desktop the form host raises them itself.
+                let lifecycle: &[&str] = if self.opts.desktop { &[] } else { &["onShow", "onActivate"] };
+                for name in lifecycle {
                     if let Some(event) = self.manifest.events.iter().position(|e| e.eq_ignore_ascii_case(name)) {
                         self.enqueue(id, ctrl::FORM, event as u32, Vec::new());
                     }
@@ -1671,7 +1742,7 @@ impl Host {
         tree.platform = self.platform;
         tree.params = params;
         tree.live = self.live_at_open(&tree, mode);
-        tree.observer_events = self.opts.observer_events;
+        tree.desktop = self.opts.desktop;
         self.trees.insert(inst, tree);
         // The grids the backend serves (WASM-005 R13, T16), from the form's own bindings.
         for (id, grid) in crate::grid::remote_grids(&desc) {
@@ -2154,6 +2225,9 @@ impl Host {
                     }
                 }
                 self.enqueue_requests(inst, ev);
+                if idx == 0 && seg.args.is_empty() {
+                    self.note_form_write(path.inst, inst, &name, value);
+                }
                 Ok(())
             }
             Target::Layer { inst, layer } => {
@@ -2293,7 +2367,13 @@ impl Host {
                 self.effects.push(Effect::SuperCall { name, args: args.iter().map(|a| (*a).to_owned()).collect() });
                 Ok(None)
             }
-            Target::Ctl { inst, idx } => self.call_ctl(inst, idx, &name, &args),
+            Target::Ctl { inst, idx } => {
+                let r = self.call_ctl(inst, idx, &name, &args);
+                if idx == 0 && r.is_ok() && name.trim().eq_ignore_ascii_case("SetProperty") {
+                    self.note_form_write(path.inst, inst, args.first().copied().unwrap_or(""), args.get(1).copied().unwrap_or(""));
+                }
+                r
+            }
             Target::Layer { inst, layer } => Err(CmdError::Unknown(format!("layer `{}` has no method `{name}`", self.trees[&inst].layers[layer].name))),
         }
     }
@@ -2304,17 +2384,44 @@ impl Host {
     /// is a command for the page, which holds the menu and the ContentPane (the page leaves a disabled row alone, as the
     /// shell does).
     fn control_method(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Result<methods::Outcome, MethodError> {
+        use cobolt_forms::menu::runtime as rt;
         let menus = &self.menus;
         let tree = self.trees.get_mut(&inst).expect("the instance is open");
-        if name.trim().eq_ignore_ascii_case("ActivateItem") && matches!(tree.ctls[idx].control_type(), Some(ControlType::SideMenu)) {
-            let id = args.first().map(|s| s.trim()).unwrap_or("");
+        if matches!(tree.ctls[idx].control_type(), Some(ControlType::SideMenu)) {
+            let m = name.trim().to_ascii_uppercase();
             let designed = menus.get(&tree.form_name, &tree.ctl(idx).name).map(|d| d.menu.as_slice()).unwrap_or(&[]);
-            let rows = cobolt_forms::menu::runtime::parse_rows(&tree.get(idx, cobolt_forms::menu::runtime::RUNTIME_ROWS_PROP));
-            if id.is_empty() || !cobolt_forms::menu::runtime::has_item(designed, &rows, id) {
-                return Ok(methods::Outcome { value: Some("0".into()), events: Vec::new() });
+            let mut rows = rt::parse_rows(&tree.get(idx, rt::RUNTIME_ROWS_PROP));
+            let answer = |v: &str| Ok(methods::Outcome { value: Some(v.into()), events: Vec::new() });
+            if m == "ACTIVATEITEM" {
+                let id = args.first().map(|s| s.trim()).unwrap_or("");
+                if id.is_empty() || !rt::has_item(designed, &rows, id) {
+                    return answer("0");
+                }
+                if tree.desktop {
+                    // The desktop's shell watches a request, a new one for each activation, as the
+                    // interpreter writes it (spec 049).
+                    tree.menu_activations += 1;
+                    let token = format!("{id}#{}", tree.menu_activations);
+                    let _ = tree.set(idx, rt::ACTIVATE_ITEM_PROP, &token);
+                } else {
+                    tree.command(idx, "activate-item", vec![id.to_owned()]);
+                }
+                return answer("1");
             }
-            tree.command(idx, "activate-item", vec![id.to_owned()]);
-            return Ok(methods::Outcome { value: Some("1".into()), events: Vec::new() });
+            // The rail itself, as the interpreter folds and opens it (049 R44): `Collapsed`, not a
+            // Panel's `Expanded`.
+            if m == "COLLAPSE" || m == "OPEN" {
+                let _ = tree.set(idx, "Collapsed", if m == "COLLAPSE" { "1" } else { "0" });
+                return answer("1");
+            }
+            // The rows the program adds and edits (spec 066): the interpreter's own dispatch.
+            let arg = |i: usize| args.get(i).map(|s| (*s).to_owned()).unwrap_or_default();
+            if let Some((value, changed)) = rt::row_method(designed, &mut rows, &m, &arg) {
+                if changed {
+                    let _ = tree.set(idx, rt::RUNTIME_ROWS_PROP, &rt::rows_json(&rows));
+                }
+                return answer(&value);
+            }
         }
         methods::call(tree, idx, name, args)
     }
@@ -2814,6 +2921,52 @@ impl Host {
         }
     }
 
+    /// The form properties other forms wrote since the last call, on the desktop ([`HostOptions::desktop`]).
+    pub fn take_form_writes(&mut self) -> Vec<(u32, String, String)> {
+        std::mem::take(&mut self.form_writes)
+    }
+
+    /// On the desktop, a write by `writer` to the form object of instance `target` is the
+    /// supervisor's to carry, as the interpreter's `super::` writes are (spec 049 R30): the target's
+    /// tree holds it (its program reads it at once) but its window is not told of it here.
+    fn note_form_write(&mut self, writer: u32, target: u32, key: &str, value: &str) {
+        if !self.opts.desktop || writer == target || key.contains('.') {
+            return;
+        }
+        if let Some(tree) = self.trees.get_mut(&target) {
+            tree.forget_change(0, key);
+        }
+        self.form_writes.push((target, key.trim().to_owned(), value.to_owned()));
+    }
+
+    /// The main form programs opened again since the last call, on the desktop ([`HostOptions::desktop`]).
+    pub fn take_refocused(&mut self) -> Vec<(u32, usize, Placement)> {
+        std::mem::take(&mut self.refocused)
+    }
+
+    /// The windows programs asked for since the last call, on the desktop ([`HostOptions::desktop`]).
+    pub fn take_window_asks(&mut self) -> Vec<WindowAsk> {
+        std::mem::take(&mut self.window_asks)
+    }
+
+    /// The window asked for under `handle` is made: the form opens in the module now. False when
+    /// nothing waits under that handle.
+    pub fn open_held(&mut self, handle: &str) -> bool {
+        let Some((form, opener, mode)) = self.held_opens.remove(handle) else { return false };
+        // An opener closed meanwhile is no one's `super::` any more.
+        let opener = self.trees.contains_key(&opener).then_some(opener);
+        self.work.push_back(Work::Open { form, opener, mode, handle: Some(handle.to_owned()), params: Vec::new() });
+        true
+    }
+
+    /// The window asked for under `handle` will never come (its opener's window is gone): the form
+    /// does not open, and a caller waiting for it goes on.
+    pub fn drop_held(&mut self, handle: &str) {
+        if self.held_opens.remove(handle).is_some() {
+            self.child_closed(handle);
+        }
+    }
+
     fn new_handle(&mut self) -> String {
         let h = format!("H{}", self.next_handle);
         self.next_handle += 1;
@@ -2841,6 +2994,36 @@ impl Host {
                 // held in a data item is only known here. A dialog or panel of an SPA is not a pane load.
                 if let Err(e) = self.may_open_standalone(form) {
                     return Err(CmdError::Bad(format!("{name}: {e}")));
+                }
+                // On the desktop the arguments after the form's name place its window, as the interpreter
+                // reads them (spec 037 R21): the form host's supervisor shows it.
+                if self.opts.desktop {
+                    let placement = Placement::from_args(sync, &args[1..]);
+                    // The main form is one window (spec 037 R10): opened again while it runs, no second instance
+                    // starts and the caller never waits. The handle answered is the running instance's.
+                    if form == self.manifest.main_form().id as usize {
+                        if let Some(running) = self.trees.values().find(|t| t.form_idx == form).map(|t| t.inst) {
+                            let handle = self.new_handle();
+                            if let Some(h) = self.handles.get_mut(&handle) {
+                                h.inst = Some(running);
+                            }
+                            self.refocused.push((inst, form, placement));
+                            return Ok(Some(Some(handle)));
+                        }
+                    }
+                    let handle = self.new_handle();
+                    let mode = if sync { OpenMode::Modal } else { OpenMode::Panel };
+                    let waits = placement.waits();
+                    // The form opens once the form host has made its window (`open_held`): its program
+                    // starts in its window, as the interpreter's does.
+                    self.held_opens.insert(handle.clone(), (form, inst, mode));
+                    self.window_asks.push(WindowAsk { handle: handle.clone(), opener: inst, form, placement });
+                    if waits {
+                        if let Some(f) = &mut self.inflight {
+                            f.wait = Some(Wait::Child { handle: handle.clone(), done: false });
+                        }
+                    }
+                    return Ok(Some(Some(handle)));
                 }
                 // The arguments after the form's name are its route parameters, `name=value` (WASM-011 R4).
                 let mut params = parse_params(&args[1..]).map_err(|e| CmdError::Bad(format!("{name}: {e}")))?;

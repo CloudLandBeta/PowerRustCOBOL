@@ -208,3 +208,35 @@ fn nav_tests_the_opener_sees_a_closed_window_as_a_closed_child() {
     assert!(h.handles[&handle].closed);
     assert!(queued(&h).is_empty(), "no event is invented for it");
 }
+
+#[test]
+fn nav_tests_on_the_desktop_a_form_a_program_opens_waits_for_its_window() {
+    // DESKTOP-WASM-001 T31: the module opens the form only once the form host has made its window, so its program
+    // starts in its window, as the interpreter's does, and the window shows from its first frame.
+    let mut h = host(false);
+    h.opts.desktop = true;
+    h.create_tree(4, 0, None, Vec::new()).unwrap();
+    h.inflight = Some(InFlight { inst: Some(4), opening: None, wait: None, task: None, event_desc: None });
+    let handle = h.form_verb(4, "OpenFormSync", &["both-form"]).unwrap().flatten().expect("a handle");
+    let wait = h.inflight.take().and_then(|f| f.wait).expect("a modal open's caller waits");
+    assert_eq!(wait, Wait::Child { handle: handle.clone(), done: false });
+    assert!(queued_opens(&h).is_empty(), "nothing opens before its window");
+    let asks = h.take_window_asks();
+    assert_eq!(asks.len(), 1, "one window is asked for");
+    assert_eq!((asks[0].handle.as_str(), asks[0].opener, asks[0].form), (handle.as_str(), 4, 3));
+    assert!(asks[0].placement.waits(), "modal by default, as the interpreter reads it");
+    assert!(h.take_window_asks().is_empty(), "taken once");
+    assert!(h.open_held(&handle), "the window came");
+    assert_eq!(queued_opens(&h), vec![(3, OpenMode::Modal)], "the form opens now");
+    assert!(!h.open_held(&handle), "and only once");
+
+    // A window that never comes (its opener's is gone): the form never opens and its caller goes on.
+    h.inflight = Some(InFlight { inst: Some(4), opening: None, wait: None, task: None, event_desc: None });
+    let other = h.form_verb(4, "OpenFormSync", &["both-form"]).unwrap().flatten().expect("a handle");
+    let wait = h.inflight.take().and_then(|f| f.wait).expect("the caller waits");
+    h.tasks.insert(9, Task { inst: 4, state: TaskState::Suspended(wait), closing: false, desc: None });
+    h.drop_held(&other);
+    assert!(matches!(&h.tasks[&9].state, TaskState::Suspended(Wait::Child { done: true, .. })), "the caller goes on");
+    assert!(!h.open_held(&other), "the form never opens");
+    assert_eq!(queued_opens(&h).len(), 1);
+}

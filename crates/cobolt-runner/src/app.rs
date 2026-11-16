@@ -189,7 +189,14 @@ pub(crate) fn run(
         finished: Arc::clone(&finished),
         super_handle: None,
         seed: Vec::new(),
-        designed_menus: Vec::new(),
+        // The main form's SideMenus' designed rows, from the menus registered above, as the form
+        // host hands every other form's (spec 066).
+        designed_menus: first_form
+            .controls
+            .iter()
+            .filter(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
+            .filter_map(|c| cobolt_forms::paint::registered_menu_for(&first_form.name, &c.id).map(|d| (c.id.clone(), (*d).clone())))
+            .collect(),
         debug: None,
     })
     .map_err(Msg::CannotStart)?;

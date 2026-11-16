@@ -2,6 +2,17 @@
 
 
 
+## 2.0.530 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T31): the PowerRustCOBOL runner now runs an application of several forms from the WebAssembly module, with the shell, its SideMenu and the layers, exactly as the interpreter does.**
+- **Several forms:** `me::OpenFormAsync` opens a form beside its caller, and `me::OpenFormSync` opens a modal one and waits for it to close before the caller goes on. The window's state, position, size and modality travel as they do under the interpreter, and the form's program starts once its window is there, as under the interpreter. `super::SetProperty` and `super::GetProperty` reach the form that opened the caller.
+- **The window's methods** (`SetWindowState`, `Focus`, `SetTitleVisible`, the breadcrumb detail) and `me::Close` reach the window, and a form closed before its window came is closed once, never twice.
+- **The main form stays one window:** a program that opens it again while it runs focuses it, as under the interpreter, and an `OpenFormSync` of it does not wait.
+- **Events wait, as the interpreter's do:** a form's events are taken only when its program is not inside a handler, a modal wait, a sleep or a dialog.
+- **The SideMenu's rows:** `AddItem`, `AddSection`, `RemoveItem`, the `SetItem…` methods, `Clear`, `GetCount`, `HasItem`, `Collapse`, `Open` and `ActivateItem` now give the same rows on the desktop and in the browser, because both now use the interpreter's own code for them, moved unchanged into the forms crate.
+- **Layers:** a program's writes to a layer reach the window as the interpreter's do.
+- **Checked:** five scripted twins ran under the interpreter and in the runner, both under a pinned clock: the shell's rail open and folded, a program's SideMenu rows, a layer, a tilted chart, and three forms that open, wait and write to their opener. All 52 checks pass, and all 15 pictures are equal in every pixel (7 140 000 pixels compared, 0 differing).
+
 ## 2.0.529 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T30): the PowerRustCOBOL runner now shows a form from the WebAssembly module, and it behaves exactly as the interpreter does.**

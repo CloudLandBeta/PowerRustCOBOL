@@ -263,9 +263,18 @@ pub struct FormTree {
     /// The size and breakpoint the program reads from `me::` (`me::Width`, `me::Height`, `me::Breakpoint`), kept as the
     /// desktop host keeps them; set by the host from what the page measures ([`LiveSize`]).
     pub live: LiveSize,
-    /// A program's write raises the observer events of the property it changed ([`FormTree::set`]);
-    /// off on the desktop, whose form host raises them ([`crate::host::HostOptions::observer_events`]).
-    pub observer_events: bool,
+    /// The desktop's form host shows this form ([`crate::host::HostOptions::desktop`]). A program's
+    /// write then raises no observer events here ([`FormTree::set`]): the form host raises them. A
+    /// write to a layer is recorded by layer ([`FormTree::layer_writes`]) instead of marking the
+    /// layer's controls for the page to redraw.
+    pub desktop: bool,
+    /// The layers a program wrote on the desktop, as `(layer, property as the program spelled it)`,
+    /// in order: the runner sends each to the window under the layer's name, as the interpreter
+    /// writes a layer (DESKTOP-WASM-001 T31).
+    pub layer_writes: Vec<(usize, String)>,
+    /// How many times the program activated a SideMenu row on the desktop: each request is a new
+    /// token, `<id>#<count>`, as the interpreter numbers them.
+    pub menu_activations: u32,
     /// How the program spelled each property it last wrote, by `(control, key)`: `CAPTION` from a
     /// `MOVE … TO LBL::Caption`, `Items` from `AddItem`. The desktop's form host keys a write by its
     /// spelling, as it keys the interpreter's, so the runner sends each change under it (DESKTOP-WASM-001 T30).
@@ -562,7 +571,9 @@ impl FormTree {
             decimal_comma: cobolt_forms::picture::decimal_comma_from_special_names(&form.cobol_structure.special_names),
             currency: cobolt_forms::picture::currency_from_special_names(&form.cobol_structure.special_names),
             live: LiveSize::default(),
-            observer_events: true,
+            desktop: false,
+            layer_writes: Vec::new(),
+            menu_activations: 0,
             spelled: BTreeMap::new(),
         })
     }
@@ -619,6 +630,10 @@ impl FormTree {
         } else {
             self.layers[l].props.insert(key.clone(), value.to_owned());
         }
+        if self.desktop {
+            self.layer_writes.push((l, name.trim().to_owned()));
+            return Ok(());
+        }
         let members: Vec<usize> = (1..self.ctls.len()).filter(|&i| self.ctls[i].layer == Some(l)).collect();
         for i in members {
             self.touch(i, &key);
@@ -643,6 +658,13 @@ impl FormTree {
 
     pub fn has_changes(&self) -> bool {
         !self.changes.is_empty()
+    }
+
+    /// Leave out the pending change of `ctl`'s `key`: the write is carried another way (a form's
+    /// property another form wrote on the desktop goes through the supervisor, [`crate::host::Host::take_form_writes`]).
+    pub fn forget_change(&mut self, ctl: usize, key: &str) {
+        let key = key.trim().to_ascii_lowercase();
+        self.changes.retain(|c| !matches!(c, Change::Prop { ctl: c_ctl, key: k } if *c_ctl == ctl && *k == key));
     }
 
     fn touch(&mut self, ctl: usize, key: &str) {
@@ -857,7 +879,7 @@ impl FormTree {
             self.ctls[ctl].timer_on = turned_on(&value);
         }
         // Observer events: only when the value actually changed.
-        let changed = self.observer_events && before.as_deref() != Some(value.as_str());
+        let changed = !self.desktop && before.as_deref() != Some(value.as_str());
         let mut out = Vec::new();
         if changed {
             if let Kind::Control(t) = &self.ctls[ctl].kind {

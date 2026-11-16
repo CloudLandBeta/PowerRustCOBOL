@@ -1426,8 +1426,8 @@ fn make_host(cfg: &PlayerConfig, manifest_json: &str) -> Result<Host, JsError> {
         debug_level: cfg.debug_level,
         standalone: cfg.standalone,
         max_queue: cfg.max_queue.unwrap_or(HostOptions::default().max_queue),
-        // The page raises a write's observer events itself (the desktop runner leaves them to its form host).
-        observer_events: true,
+        // The page shows the forms: it raises a write's observer events itself (the desktop runner leaves them to its form host).
+        desktop: false,
     };
     let mut host = Host::new(manifest, opts);
     host.set_auth_defaults(

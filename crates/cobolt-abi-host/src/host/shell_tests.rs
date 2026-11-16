@@ -118,3 +118,63 @@ fn activate_item_answers_from_the_menu_and_leaves_the_click_to_the_page() {
     assert!(h.control_method(2, lst, "ActivateItem", &["dash"]).is_err(), "only a SideMenu has the method");
     println!("ActivateItem on the web: 2 rows answered 1 with a click for the page, 3 ids answered 0 with none, a ListBox refused");
 }
+
+/// The SideMenu's run-time rows (spec 066) are the interpreter's on every surface: the same dispatch
+/// (`cobolt_forms::menu::runtime::row_method`), the same `RuntimeRows` written, the same answers. Before
+/// DESKTOP-WASM-001 T31 the host took `AddItem` for a list's and counted lines, so a program's rows
+/// never reached the menu. `Collapse` and `Open` write the rail's `Collapsed`, as the interpreter does;
+/// on the desktop `ActivateItem` writes the request the desktop's shell watches instead of a click
+/// for the page.
+#[test]
+fn side_menu_rows_are_the_interpreters_on_every_surface() {
+    use cobolt_forms::menu::runtime::{parse_rows, ACTIVATE_ITEM_PROP, RUNTIME_ROWS_PROP};
+    use cobolt_forms::menu::{MenuDefinition, MenuItem};
+    let mut summary = Vec::new();
+    for desktop in [false, true] {
+        let mut h = host(false);
+        let (mut tree, side) = crate::tree::testing::tree_with("SideMenu", "SIDEMENU-1", &[]);
+        tree.desktop = desktop;
+        let form = tree.form_name.clone();
+        h.trees.insert(1, tree);
+        let mut docs = MenuItem::new_action("docs", "Documents");
+        docs.items.push(MenuItem::new_action("docs-new", "New"));
+        h.menus.insert(&form, "SIDEMENU-1", MenuDefinition { menu: vec![MenuItem::new_action("home", "Home"), docs], hash: String::new() });
+        let call = |h: &mut Host, m: &str, args: &[&str]| h.control_method(1, side, m, args).unwrap().value.unwrap_or_default();
+        let answers = vec![
+            call(&mut h, "AddSection", &["Chats"]),
+            call(&mut h, "AddItem", &["chat-1", "First chat", "chat"]),
+            call(&mut h, "AddItem", &["part-1", "A part", "", "docs"]),
+            call(&mut h, "SetItemLabel", &["home", "Nope"]),
+            call(&mut h, "RemoveItem", &["docs"]),
+            call(&mut h, "GetCount", &[]),
+            call(&mut h, "HasItem", &["part-1"]),
+        ];
+        assert_eq!(answers, ["section-1", "1", "1", "1", "0", "3", "1"], "desktop {desktop}: AddSection's id, three changes, a designed row refused, 3 own rows");
+        let rows = parse_rows(&h.trees[&1].get(side, RUNTIME_ROWS_PROP));
+        let ids: Vec<&str> = rows.iter().map(|r| r.item.id.as_str()).collect();
+        assert_eq!(ids, ["section-1", "chat-1", "part-1", "home"], "desktop {desktop}: the rows, then the overlay on the designed `home`");
+        assert!(rows[3].overlay && rows[3].item.label == "Nope");
+        assert_eq!(call(&mut h, "Clear", &[]), "1");
+        assert_eq!(call(&mut h, "GetCount", &[]), "0", "Clear() leaves only the overlays");
+        assert_eq!(call(&mut h, "Collapse", &[]), "1");
+        let canonical = |v: &str| cobolt_forms::model::property_runtime_text("SideMenu", "Collapsed", v);
+        assert_eq!(h.trees[&1].get(side, "Collapsed"), canonical("1"));
+        assert_eq!(call(&mut h, "Open", &[]), "1");
+        assert_eq!(h.trees[&1].get(side, "Collapsed"), canonical("0"));
+        let _ = h.trees.get_mut(&1).unwrap().take_changes();
+        assert_eq!(call(&mut h, "ActivateItem", &["docs-new"]), "1");
+        assert_eq!(call(&mut h, "ActivateItem", &["docs-new"]), "1");
+        let clicks = h.trees.get_mut(&1).unwrap().take_changes().into_iter().filter(|c| matches!(c, Change::Command { name, .. } if name == "activate-item")).count();
+        let token = h.trees[&1].get(side, ACTIVATE_ITEM_PROP);
+        if desktop {
+            assert_eq!((clicks, token.as_str()), (0, "docs-new#2"), "the desktop's shell watches a new request each time");
+        } else {
+            assert_eq!((clicks, token.as_str()), (2, ""), "the page is sent a click each time");
+        }
+        summary.push(format!("{}: 7 row calls answered as the interpreter, 4 rows, Clear, Collapse/Open, ActivateItem ×2 ({})", if desktop { "desktop" } else { "web" }, if desktop { "request docs-new#2" } else { "2 clicks" }));
+    }
+    for line in &summary {
+        println!("{line}");
+    }
+    println!("result: 2 of 2 surfaces passed");
+}

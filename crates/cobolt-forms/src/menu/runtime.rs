@@ -357,6 +357,61 @@ pub fn has_item(designed: &[MenuItem], rows: &[RuntimeRow], id: &str) -> bool {
     find(&merge_rows(designed, rows), id.trim()).is_some()
 }
 
+/// A program's call of a SideMenu method that edits or asks about its run-time rows: `m` is the
+/// method's name in capitals, `arg(i)` its `i`-th argument as text. The answer the program reads
+/// and whether `rows` changed (the caller then writes [`RUNTIME_ROWS_PROP`]); `None` when `m` is
+/// not one of these methods. A change answers `1`, `AddSection` the section's id; a refused one (a
+/// designed row, an unknown id, too deep) answers `0` and leaves `rows` as they were.
+///
+/// The one dispatch every engine runs (the interpreter, and the ABI host on every surface;
+/// DESKTOP-WASM-001 T31), so a program's rows are the same wherever it runs. `ActivateItem`,
+/// `Collapse` and `Open` act on more than the rows and stay with their callers.
+pub fn row_method(designed: &[MenuItem], rows: &mut Vec<RuntimeRow>, m: &str, arg: &dyn Fn(usize) -> String) -> Option<(String, bool)> {
+    let truthy = |s: &str| matches!(s.trim().to_ascii_uppercase().as_str(), "1" | "TRUE" | "YES" | "ON");
+    let outcome: Result<(), Refusal> = match m {
+        // AddItem(id, label [, icon [, parent-id [, action]]])
+        "ADDITEM" => add_item(designed, rows, &arg(0), &arg(1), &arg(2), &arg(3), &arg(4)),
+        "ADDSECTION" => return Some((add_section(designed, rows, &arg(0)), true)),
+        "REMOVEITEM" => remove_item(designed, rows, &arg(0)),
+        // A designed row's label and enabled flag are the program's too
+        // (a translated interface; a menu that waits for set-up).
+        "SETITEMLABEL" => set_label(designed, rows, &arg(0), &arg(1)),
+        "SETITEMICON" => {
+            let v = arg(1);
+            set_field(designed, rows, &arg(0), |i| i.icon = Some(v).filter(|s| !s.is_empty()))
+        }
+        "SETITEMBADGE" => {
+            let v = arg(1);
+            set_field(designed, rows, &arg(0), |i| i.badge = Some(v).filter(|s| !s.is_empty()))
+        }
+        "SETITEMENABLED" => set_enabled(designed, rows, &arg(0), truthy(&arg(1))),
+        // Spec 066 Phase C — the control a run-time row hosts in place of
+        // its label (a designed row's is the designer's, so it is refused
+        // like the other fields). Empty gives the control back.
+        "SETITEMCONTROL" => {
+            let v = arg(1).trim().to_owned();
+            set_field(designed, rows, &arg(0), |i| i.control = Some(v).filter(|s| !s.is_empty()))
+        }
+        "SETITEMACTION" => {
+            let v = arg(1);
+            set_field(designed, rows, &arg(0), |i| i.action = Some(if v.is_empty() { DEFAULT_ACTION.to_owned() } else { v }))
+        }
+        // Only the program's rows: the designed menu is the developer's,
+        // and so is what the program set on it (its labels, its state).
+        "CLEAR" => {
+            rows.retain(|r| r.overlay);
+            Ok(())
+        }
+        "GETCOUNT" => return Some((own_row_count(rows).to_string(), false)),
+        "HASITEM" => return Some((if has_item(designed, rows, &arg(0)) { "1" } else { "0" }.into(), false)),
+        _ => return None,
+    };
+    Some(match outcome {
+        Ok(()) => ("1".into(), true),
+        Err(_) => ("0".into(), false),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

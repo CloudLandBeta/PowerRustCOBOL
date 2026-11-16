@@ -21,10 +21,30 @@
 //! * `DISPLAY` lines, and a run-time error's report, go to the window's display channel;
 //! * the run's end (`STOP RUN`) and the instance's close set `finished`.
 //!
-//! As for the interpreter, the window raises a write's observer events (`onChange`, …): the ABI
-//! host is told not to ([`HostOptions::observer_events`]). An event leaves `pending` when it is
-//! taken, before its handler runs, and an input wake only drains the input, so the window's
-//! headless scripts know when the program has handled what it was sent.
+//! As for the interpreter, the window raises a write's observer events (`onChange`, …) and the
+//! form's `onShow` and `onActivate`: the ABI host is told it runs on the desktop
+//! ([`HostOptions::desktop`]). An event leaves `pending` when it is taken, before its handler runs,
+//! and an input wake only drains the input, so the window's headless scripts know when the program
+//! has handled what it was sent.
+//!
+//! **Several forms** (T31). Every form shows in a window or a pane the form host made, as the
+//! interpreter's do:
+//!
+//! * a form the form host opens itself (the first form, a SideMenu's row, a headless `open_form`)
+//!   asks the engine for its program; the module opens an instance of it, whose opener, the form
+//!   `super::` names, is the form whose handle the host names as its `super_handle`;
+//! * a form the program opens (`OpenFormSync`, `OpenFormAsync`) gets its window first: the runner
+//!   asks the form host's supervisor for it, as the interpreter asks (`FormRequest::OpenForm`,
+//!   placed as the program said), and the module opens the form only when the window comes, so its
+//!   program starts in its window and the window shows from its first frame, as the interpreter's
+//!   does. A modal open's caller waits, in the module, until the instance is gone;
+//! * a form the program closes (`ME::"Close"()`) asks the supervisor to close its window
+//!   (`FormRequest::CloseSelf`); a window the host closes ends its instance in the module;
+//! * the window methods the ABI host keeps as commands (`SetWindowState`, `Focus`,
+//!   `SetTitleVisible`, the breadcrumb's detail) go to the supervisor as the interpreter's do
+//!   (`FormRequest::HandleMethod`);
+//! * a write to a layer reaches the window under the layer's name, as the interpreter writes the
+//!   object of the layer's name.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
@@ -34,7 +54,7 @@ use std::time::{Duration, Instant};
 use cobolt_abi_host::host::{CallResult, Effect, Host, HostOptions, ModuleCall, OpenMode};
 use cobolt_abi_host::tree::Change;
 use cobolt_form_host::engine::{ProgramEngine, ProgramRun, ProgramStart};
-use cobolt_runtime::form_host::FormSupervisor;
+use cobolt_runtime::form_host::{FormRequest, FormSupervisor};
 use cobolt_runtime::{FormEvent, StateUpdate};
 use cobolt_wasm_abi::manifest::{ArenaLayout, Manifest};
 use wasmtime::{Engine, Instance, Module, Store};
@@ -154,6 +174,15 @@ struct Link {
     object: String,
     /// The module's instance, once it is open.
     inst: Option<u32>,
+    /// The instance's handle in the form host's supervisor.
+    handle: String,
+    /// Requests to the form host: windows for the forms the program opens, window methods.
+    requests: mpsc::Sender<FormRequest>,
+    /// The window is gone, or going: nothing more is asked of it.
+    gone: bool,
+    /// Events the window raised that the program has not taken: it takes none while its instance
+    /// is busy in a handler, as the interpreter's program does not.
+    queue: VecDeque<FormEvent>,
     state: mpsc::Sender<StateUpdate>,
     display: mpsc::Sender<String>,
     input: mpsc::Receiver<StateUpdate>,
@@ -164,6 +193,18 @@ struct Link {
 impl Link {
     fn finish(&self) {
         self.finished.store(true, Ordering::Relaxed);
+    }
+
+    /// One event fewer waits for the program: it took it, or it never will.
+    fn taken(&self) {
+        let _ = self.pending.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_sub(1));
+    }
+
+    /// The events left in the queue will never be taken (the instance is gone).
+    fn drop_queue(&mut self) {
+        for _ in self.queue.drain(..) {
+            let _ = self.pending.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_sub(1));
+        }
     }
 }
 
@@ -263,7 +304,7 @@ impl Thread {
     fn run(self, ready: mpsc::Sender<Result<(), Msg>>) {
         let Thread { engine, module, abi, imports, manifest, forms, lang, pins, rx, tx, exit } = self;
         let layout = manifest.layout();
-        let mut host = Host::new(manifest, HostOptions { observer_events: false, ..HostOptions::default() });
+        let mut host = Host::new(manifest, HostOptions { desktop: true, ..HostOptions::default() });
         // A form the Build has no program for is designed but not in the manifest: it cannot open.
         for f in forms {
             if host.manifest.form_by_name(&f.name).is_some() {
@@ -306,6 +347,11 @@ impl Thread {
         let mut links: Vec<Link> = Vec::new();
         // Links whose instance the module has not opened yet, in the order they were asked for.
         let mut opening: VecDeque<usize> = VecDeque::new();
+        // Forms the programs opened, waiting for the window the form host was asked for: `(form, the
+        // handle the program holds)`. The form opens in the module when its window comes.
+        let mut adopting: VecDeque<(usize, String)> = VecDeque::new();
+        // Changes to an instance made before its window was joined to it.
+        let mut parked: Vec<(u32, Change)> = Vec::new();
         // `Sleep`'s timed waits: when each is due, by the host's clock (virtual in a deterministic run).
         let mut timers: Vec<(Instant, u32)> = Vec::new();
         let mut stopped = false;
@@ -328,14 +374,20 @@ impl Thread {
             };
             match msg {
                 Some(ToProgram::Open { form, run }) => {
-                    let ProgramRun { form_object, events, state, display, input, pending, finished, .. } = *run;
+                    let ProgramRun { handle, form_object, events, state, display, input, pending, finished, requests, super_handle, designed_menus, .. } = *run;
                     let Some(entry) = d.host().manifest.form_by_name(&form).map(|e| e.id as usize) else {
                         let _ = display.send(format!("Runtime error: the form {form} has no program in this application"));
                         finished.store(true, Ordering::Relaxed);
                         continue;
                     };
+                    // The SideMenus' designed rows, which the program may not edit (spec 066): the
+                    // same the form host hands the interpreter.
+                    for (ctl, def) in designed_menus {
+                        d.host().menus.insert(&form, &ctl, def);
+                    }
                     let id = links.len();
-                    links.push(Link { form: entry, object: form_object, inst: None, state, display, input, pending, finished });
+                    let opener = super_handle.as_deref().and_then(|h| links.iter().find(|l| l.handle == h)).and_then(|l| l.inst);
+                    links.push(Link { form: entry, object: form_object, inst: None, handle, requests, gone: false, queue: VecDeque::new(), state, display, input, pending, finished });
                     if stopped {
                         links[id].finish();
                         continue;
@@ -352,43 +404,50 @@ impl Thread {
                             let _ = forward.send(ToProgram::Gone { link: id });
                         })
                         .expect("cannot start the form's event thread");
-                    opening.push_back(id);
-                    // The first instance of the main form is the run's root, as the page opens it.
-                    let main = d.host().manifest.main_form().id as usize;
-                    if entry == main && !root_opened {
-                        root_opened = true;
-                        d.host().start();
+                    // The window of a form a program opened: the form opens in the module now, in it.
+                    if let Some(at) = adopting.iter().position(|(f, _)| *f == entry) {
+                        let (_, handle) = adopting.remove(at).expect("a position in the queue");
+                        if d.host().open_held(&handle) {
+                            opening.push_back(id);
+                        } else {
+                            // Nothing waits for it any more: the window goes too.
+                            let l = &mut links[id];
+                            l.gone = true;
+                            let _ = l.requests.send(FormRequest::CloseSelf { caller: l.handle.clone() });
+                            l.finish();
+                        }
                     } else {
-                        d.host().open_form(entry, None, OpenMode::Window);
+                        opening.push_back(id);
+                        // The first instance of the main form is the run's root, as the page opens it.
+                        let main = d.host().manifest.main_form().id as usize;
+                        if entry == main && !root_opened {
+                            root_opened = true;
+                            d.host().start();
+                        } else {
+                            // Loaded into a pane, the form's opener is the shell's form (`super::`).
+                            let mode = if opener.is_some() { OpenMode::Embedded } else { OpenMode::Window };
+                            d.host().open_form(entry, opener, mode);
+                        }
                     }
                 }
                 Some(ToProgram::Event { link, ev }) => {
-                    let l = &links[link];
-                    // Taken off the queue before it is handled, as the interpreter takes it.
-                    let _ = l.pending.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_sub(1));
-                    let Some(inst) = l.inst else { continue };
-                    // What the user changed reaches the program before the event, and is not echoed.
-                    let edits: Vec<StateUpdate> = l.input.try_iter().collect();
-                    for u in edits {
-                        if let Some(ctl) = control_index(d.host(), inst, &links[link].object, &u.ctrl_id) {
-                            d.host().ui_set(inst, ctl, &u.prop, &u.value);
-                        }
-                    }
-                    let _ = d.host().take_changes();
-                    if ev.event_id == FormSupervisor::INPUT_WAKE_EVENT {
-                        continue;
-                    }
+                    let l = &mut links[link];
                     if ev.ctrl_id == FormEvent::quit().ctrl_id {
-                        // The window was closed: this form's program is over.
-                        links[link].finish();
-                        continue;
-                    }
-                    if let Some(ctl) = control_index(d.host(), inst, &links[link].object, &ev.ctrl_id) {
-                        let args = if ev.value.is_empty() { Vec::new() } else { vec![ev.value.clone()] };
-                        d.host().dom_event(inst, ctl, &ev.event_id, args);
+                        // The window was closed: this form's program is over, as the module's own
+                        // `__QUIT__` ends it (and a caller waiting for it goes on).
+                        l.taken();
+                        l.gone = true;
+                        l.drop_queue();
+                        match l.inst {
+                            Some(inst) => d.host().close_instance(inst),
+                            None => l.finish(),
+                        }
+                    } else {
+                        l.queue.push_back(ev);
                     }
                 }
                 Some(ToProgram::Gone { link }) => {
+                    links[link].gone = true;
                     if let Some(inst) = links[link].inst {
                         d.host().close_instance(inst);
                     }
@@ -402,7 +461,13 @@ impl Thread {
             for id in due {
                 d.host().timer_fired(id);
             }
-            drive(&mut d, &mut links, &mut opening, &mut timers, &mut stopped);
+            drive(&mut d, &mut links, &mut opening, &mut adopting, &mut parked, &mut timers, &mut stopped);
+            // The events each free instance has waiting, in order; one may make it busy again.
+            while let Some(at) = (0..links.len()).find(|&i| !links[i].queue.is_empty() && links[i].inst.is_some_and(|inst| !d.host().busy(inst))) {
+                let ev = links[at].queue.pop_front().expect("a waiting event");
+                take(&mut d, &links[at], ev);
+                drive(&mut d, &mut links, &mut opening, &mut adopting, &mut parked, &mut timers, &mut stopped);
+            }
             if let Some(code) = d.store.data().exit_code {
                 exit.store(code, Ordering::SeqCst);
             }
@@ -410,6 +475,28 @@ impl Thread {
                 return;
             }
         }
+    }
+}
+
+/// The program takes one event its window raised: it leaves `pending` before its handler runs, as
+/// the interpreter takes it; what the user changed reaches the program first and is not echoed; an
+/// input wake only does that.
+fn take(d: &mut Driver, l: &Link, ev: FormEvent) {
+    l.taken();
+    let Some(inst) = l.inst else { return };
+    let edits: Vec<StateUpdate> = l.input.try_iter().collect();
+    for u in edits {
+        if let Some(ctl) = control_index(d.host(), inst, &l.object, &u.ctrl_id) {
+            d.host().ui_set(inst, ctl, &u.prop, &u.value);
+        }
+    }
+    let _ = d.host().take_changes();
+    if ev.event_id == FormSupervisor::INPUT_WAKE_EVENT {
+        return;
+    }
+    if let Some(ctl) = control_index(d.host(), inst, &l.object, &ev.ctrl_id) {
+        let args = if ev.value.is_empty() { Vec::new() } else { vec![ev.value.clone()] };
+        d.host().dom_event(inst, ctl, &ev.event_id, args);
     }
 }
 
@@ -423,8 +510,19 @@ fn control_index(host: &Host, inst: u32, object: &str, ctrl_id: &str) -> Option<
     tree.by_name(ctrl_id)
 }
 
+/// What the program thread keeps between messages, for [`drive`] and [`effects`].
+type Opening<'a> = (&'a mut VecDeque<usize>, &'a mut VecDeque<(usize, String)>);
+
 /// Run everything the ABI host has to do, then hand what it produced to the windows.
-fn drive(d: &mut Driver, links: &mut [Link], opening: &mut VecDeque<usize>, timers: &mut Vec<(Instant, u32)>, stopped: &mut bool) {
+fn drive(
+    d: &mut Driver,
+    links: &mut [Link],
+    opening: &mut VecDeque<usize>,
+    adopting: &mut VecDeque<(usize, String)>,
+    parked: &mut Vec<(u32, Change)>,
+    timers: &mut Vec<(Instant, u32)>,
+    stopped: &mut bool,
+) {
     loop {
         let Some(call) = d.host().next_call() else {
             if d.host().has_yielded() {
@@ -435,10 +533,10 @@ fn drive(d: &mut Driver, links: &mut [Link], opening: &mut VecDeque<usize>, time
         };
         let result = d.perform(&call);
         d.host().complete(&call, result);
-        effects(d, links, opening, timers, stopped, call_inst(&call));
+        effects(d, links, (opening, adopting), timers, stopped, call_inst(&call));
     }
-    effects(d, links, opening, timers, stopped, None);
-    changes(d.host(), links);
+    effects(d, links, (opening, adopting), timers, stopped, None);
+    changes(d.host(), links, parked);
 }
 
 /// The link of instance `inst`.
@@ -449,7 +547,7 @@ fn link_of(links: &[Link], inst: u32) -> Option<&Link> {
 /// Carry out what the ABI host left for the shell. A `DISPLAY` line goes to the window of the
 /// instance the call acted on (the first window when the call names none): the form host prints
 /// every window's lines alike.
-fn effects(d: &mut Driver, links: &mut [Link], opening: &mut VecDeque<usize>, timers: &mut Vec<(Instant, u32)>, stopped: &mut bool, inst: Option<u32>) {
+fn effects(d: &mut Driver, links: &mut [Link], (opening, adopting): Opening<'_>, timers: &mut Vec<(Instant, u32)>, stopped: &mut bool, inst: Option<u32>) {
     for e in d.host().take_effects() {
         let display = |links: &[Link], text: String| {
             let to = inst.and_then(|i| link_of(links, i)).or_else(|| links.first());
@@ -471,7 +569,13 @@ fn effects(d: &mut Driver, links: &mut [Link], opening: &mut VecDeque<usize>, ti
                 display(links, text);
             }
             Effect::Closed { inst } => {
-                if let Some(l) = link_of(links, inst) {
+                if let Some(l) = links.iter_mut().find(|l| l.inst == Some(inst)) {
+                    // The program closed it: the supervisor closes its window, as for the interpreter.
+                    if !l.gone {
+                        l.gone = true;
+                        let _ = l.requests.send(FormRequest::CloseSelf { caller: l.handle.clone() });
+                    }
+                    l.drop_queue();
                     l.finish();
                 }
             }
@@ -489,15 +593,52 @@ fn effects(d: &mut Driver, links: &mut [Link], opening: &mut VecDeque<usize>, ti
             }
         }
     }
+    // The windows the programs asked for: the form host's supervisor makes each, as it does for the
+    // interpreter, and the form opens in the module when its window comes.
+    for ask in d.host().take_window_asks() {
+        let name = d.host().manifest.forms[ask.form].name.clone();
+        let p = ask.placement;
+        let asked = link_of(links, ask.opener).is_some_and(|caller| {
+            let (reply, _) = mpsc::channel();
+            caller
+                .requests
+                .send(FormRequest::OpenForm {
+                    caller: caller.handle.clone(),
+                    form_id: name,
+                    sync: p.sync,
+                    window_state: p.window_state,
+                    x: p.x,
+                    y: p.y,
+                    width: p.width,
+                    height: p.height,
+                    modal: p.modal,
+                    reply,
+                })
+                .is_ok()
+        });
+        if asked {
+            adopting.push_back((ask.form, ask.handle));
+        } else {
+            // Its opener's window is gone: there is nowhere to show it.
+            d.host().drop_held(&ask.handle);
+        }
+    }
 }
 
 /// The module's property changes, as the windows' state updates: the property spelled as the
 /// program spelled its write (`CAPTION` from COBOL, `Items` from `AddItem`), the value as the
-/// program stored it. The interpreter's writes reach the window spelled the same way.
-fn changes(host: &mut Host, links: &[Link]) {
+/// program stored it. The interpreter's writes reach the window spelled the same way. A change to
+/// an instance whose window is not joined to it yet waits in `parked`.
+fn changes(host: &mut Host, links: &[Link], parked: &mut Vec<(u32, Change)>) {
     use cobolt_forms::model::{CHECKED_PROP, SELECTED_PROP};
-    for (inst, change) in host.take_changes() {
-        let (Some(l), Some(tree)) = (link_of(links, inst), host.trees.get(&inst)) else { continue };
+    let mut list = std::mem::take(parked);
+    list.extend(host.take_changes());
+    for (inst, change) in list {
+        let Some(tree) = host.trees.get(&inst) else { continue };
+        let Some(l) = link_of(links, inst) else {
+            parked.push((inst, change));
+            continue;
+        };
         match change {
             Change::Prop { ctl, key } => {
                 let Some(c) = tree.ctls.get(ctl) else { continue };
@@ -517,6 +658,11 @@ fn changes(host: &mut Host, links: &[Link]) {
                 let value = c.props.get(&key).cloned().unwrap_or_default();
                 let _ = l.state.send(StateUpdate::new(ctrl_id, prop, value));
             }
+            Change::Command { ctl: 0, name, args } if WINDOW_METHODS.contains(&name.as_str()) => {
+                // A window method of the form's own window: the supervisor's, as the interpreter's is.
+                let (reply, _) = mpsc::channel();
+                let _ = l.requests.send(FormRequest::HandleMethod { handle: l.handle.clone(), method: name.to_ascii_uppercase(), args, reply });
+            }
             Change::Command { ctl, name, args } => {
                 if std::env::var_os("PRC_RUNNER_TRACE").is_some() {
                     let who = tree.ctls.get(ctl).map(|c| c.name.as_str()).unwrap_or("?");
@@ -525,4 +671,44 @@ fn changes(host: &mut Host, links: &[Link]) {
             }
         }
     }
+    // A layer is an object of its own name to the window (spec 091 R33).
+    let insts: Vec<u32> = host.trees.keys().copied().collect();
+    for inst in insts {
+        let Some(l) = link_of(links, inst) else { continue };
+        let Some(tree) = host.trees.get_mut(&inst) else { continue };
+        for (layer, prop) in std::mem::take(&mut tree.layer_writes) {
+            let Ok(value) = tree.layer_get(layer, &prop) else { continue };
+            let _ = l.state.send(StateUpdate::new(tree.layers[layer].name.clone(), prop.to_ascii_uppercase(), value));
+        }
+    }
+    // A form's own property another form wrote (`super::Title`, `super::"SetProperty"`): the
+    // supervisor's to apply and publish, as the interpreter's `super::` writes are (spec 049 R30).
+    for (inst, key, value) in host.take_form_writes() {
+        if let Some(l) = link_of(links, inst) {
+            let (reply, _) = mpsc::channel();
+            let _ = l.requests.send(FormRequest::HandleMethod { handle: l.handle.clone(), method: "SETPROPERTY".into(), args: vec![key, value], reply });
+        }
+    }
+    // The main form opened again while it runs: the supervisor focuses its one window (spec 037 R10).
+    for (caller, form, placement) in host.take_refocused() {
+        if let Some(l) = link_of(links, caller) {
+            let (reply, _) = mpsc::channel();
+            let _ = l.requests.send(FormRequest::OpenForm {
+                caller: l.handle.clone(),
+                form_id: host.manifest.forms[form].name.clone(),
+                sync: placement.sync,
+                window_state: placement.window_state,
+                x: placement.x,
+                y: placement.y,
+                width: placement.width,
+                height: placement.height,
+                modal: placement.modal,
+                reply,
+            });
+        }
+    }
 }
+
+/// The window methods the ABI host keeps as commands of the form (`me::`), sent to the supervisor
+/// as the interpreter sends them.
+const WINDOW_METHODS: &[&str] = &["setwindowstate", "focus", "setfocus", "settitlevisible", "setbreadcrumbdetail", "clearbreadcrumbdetail"];
