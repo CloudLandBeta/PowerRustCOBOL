@@ -1814,7 +1814,7 @@ mod tests {
     /// The key source is `crypto.getRandomValues`, and `Math.random` is never a fallback for a key or a nonce.
     #[test]
     fn the_browser_key_source_is_get_random_values_and_never_math_random() {
-        let api = include_str!("api.rs");
+        let api = include_str!("../../cobolt-web-player/src/api.rs");
         let start = api.find("fn browser_entropy").expect("browser_entropy exists");
         let body = &api[start..start + 700];
         assert!(body.contains("get_random_values_with_js_u8_array"), "{body}");
@@ -2093,15 +2093,17 @@ mod tests {
         // And the connection's code never touches browser storage. The one value the player keeps
         // there is the hosted flow's random state (WASM-009 D5), in `auth_fetch.rs`, in this tab's
         // `sessionStorage` and under its one key: checked below.
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../cobolt-web-player/src");
         let fetch = std::fs::read_to_string(root.join("auth_fetch.rs")).unwrap();
         for line in fetch.lines().filter(|l| ["local_storage", "session_storage", "indexed_db", "_item("].iter().any(|w| l.contains(w))) {
             assert!(!line.contains("local_storage") && !line.contains("indexed_db"), "auth_fetch.rs: {line}");
             assert!(!line.contains("_item(") || line.contains("HOSTED_STATE_KEY"), "auth_fetch.rs keeps only the hosted state: {line}");
         }
         let mut hits = Vec::new();
-        for f in ["net.rs", "api.rs"] {
-            let text = std::fs::read_to_string(root.join(f)).unwrap();
+        // `net.rs` moved into this crate at T27 (DESKTOP-WASM-001); `api.rs` stayed in the player.
+        let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        for (dir, f) in [(&here, "net.rs"), (&root, "api.rs")] {
+            let text = std::fs::read_to_string(dir.join(f)).unwrap();
             let code = text.split("#[cfg(test)]").next().unwrap();
             for (n, line) in code.lines().enumerate() {
                 if ["local_storage", "session_storage", "indexed_db"].iter().any(|w| line.contains(w)) {
@@ -2116,7 +2118,9 @@ mod tests {
     #[test]
     fn grep_has_no_client_class_or_may_have_been_received() {
         let mut hits = Vec::new();
-        let mut walk = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
+        // This crate's sources and the player's: until T27 (DESKTOP-WASM-001) they were one folder.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut walk = vec![dir.join("src"), dir.join("../cobolt-web-player/src")];
         while let Some(d) = walk.pop() {
             for e in std::fs::read_dir(&d).unwrap().flatten() {
                 let p = e.path();

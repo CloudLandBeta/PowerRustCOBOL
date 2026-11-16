@@ -11,31 +11,17 @@
 //!
 //! | Layer | Modules | Touches the browser? |
 //! |---|---|---|
-//! | The ABI host (WASM-ABI-v1) | [`host`], [`tree`], [`methods`] | no |
+//! | The ABI host (WASM-ABI-v1), in `cobolt-abi-host` since DESKTOP-WASM-001 T27 | [`host`], [`tree`], [`methods`] | no |
 //! | Policy and front halves | [`hyperlink`], [`auth`], [`kinds`], [`net`], [`par`], [`value`], [`texts`] | no |
 //! | The JavaScript boundary and the page (drawn by Leptos) | `api`, `dom` | yes (`wasm32` only) |
 
-pub mod auth;
-pub mod base_css;
+// The ABI host and what it reads live in `cobolt-abi-host` (DESKTOP-WASM-001 T27), shared with the
+// desktop runner; each module keeps its path here.
+pub use cobolt_abi_host::{auth, base_css, css, grid, host, hyperlink, kinds, layout_css, methods, metrics, motion, net, par, tree, upload, value, zoom};
 pub mod calendar;
-pub mod css;
-pub mod grid;
-pub mod host;
-pub mod kinds;
-pub mod layout_css;
-pub mod methods;
-pub mod motion;
-pub mod metrics;
-pub mod net;
-pub mod upload;
-pub mod par;
 pub mod texts;
 pub mod theme_css;
-pub mod tree;
-pub mod value;
 pub mod view;
-pub mod hyperlink;
-pub mod zoom;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fingerprint;
 

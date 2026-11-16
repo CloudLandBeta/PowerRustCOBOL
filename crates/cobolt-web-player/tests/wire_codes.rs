@@ -67,7 +67,9 @@ fn constants(text: &str, opener: &str) -> Vec<(String, u32)> {
 #[test]
 fn every_code_the_player_emits_is_the_wires() {
     let src = root().join("src");
-    let net = std::fs::read_to_string(src.join("net.rs")).unwrap();
+    // `net.rs` is in the ABI host the player shares with the desktop runner (DESKTOP-WASM-001 T27).
+    let shared = root().join("../cobolt-abi-host/src");
+    let net = std::fs::read_to_string(shared.join("net.rs")).unwrap();
     let wire_text = std::fs::read_to_string(root().join("../cobolt-wire/src/error.rs")).unwrap();
     let mirror = constants(&net, "pub mod code {");
     let wire: BTreeMap<String, u32> = constants(&wire_text, "pub mod codes {").into_iter().collect();
@@ -82,7 +84,7 @@ fn every_code_the_player_emits_is_the_wires() {
     let mut used: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut literals = Vec::new();
     let mut files = 0;
-    let mut walk = vec![src.clone()];
+    let mut walk = vec![src.clone(), shared.clone()];
     while let Some(dir) = walk.pop() {
         for entry in std::fs::read_dir(&dir).unwrap().flatten() {
             let path = entry.path();

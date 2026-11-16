@@ -294,7 +294,7 @@ mod tests {
     /// falls to its `_ => {}`.
     #[test]
     fn open_and_open_in_queue_commands_the_page_handles() {
-        let src = include_str!("dom/instance.rs");
+        let src = include_str!("../../cobolt-web-player/src/dom/instance.rs");
         let body = &src[src.find("fn run_command").expect("run_command")..];
         let body = &body[..body.find("_ => {}").expect("the catch-all")];
         for c in PAGE_COMMANDS {

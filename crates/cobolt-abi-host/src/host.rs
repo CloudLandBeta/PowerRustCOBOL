@@ -581,7 +581,7 @@ pub struct Host {
     not_found: Option<String>,
     /// The menus the bundle carries, as the page has them (`Player::add_menu`): what `SideMenu::ActivateItem`
     /// answers from, as the interpreter answers from the designed menu.
-    pub menus: crate::view::MenuStore,
+    pub menus: crate::menus::MenuStore,
 }
 
 /// What a standalone window knows of the form that opened it in another window: a **replica** of that
@@ -690,7 +690,7 @@ impl Host {
             aborted: false,
             reported_in_call: false,
             remote_opener: None,
-            menus: crate::view::MenuStore::default(),
+            menus: crate::menus::MenuStore::default(),
         }
     }
 
@@ -3512,6 +3512,28 @@ impl Host {
 /// Is `event` (the text a handler run is described by: `onTick`, or `TMR-REFRESH onTick`) a Timer's tick?
 fn is_timer_tick(event: &str) -> bool {
     event.split_whitespace().last().is_some_and(|w| w.eq_ignore_ascii_case("ontick"))
+}
+
+/// The steps of a [`Host`] that its own tests take directly, for the player's view tests, which draw
+/// what a form becomes (the `testing` feature; DESKTOP-WASM-001 T27).
+#[cfg(any(test, feature = "testing"))]
+pub mod testing {
+    use super::{CmdError, Host, Path};
+
+    /// Opens form `form` as instance `inst`, with no opener and no parameters.
+    pub fn create_tree(h: &mut Host, inst: u32, form: usize) -> Result<(), String> {
+        h.create_tree(inst, form, None, Vec::new())
+    }
+
+    /// A `SET` the module sends.
+    pub fn cmd_set(h: &mut Host, path: &Path<'_>, value: &str) -> Result<(), CmdError> {
+        h.cmd_set(path, value)
+    }
+
+    /// Instance `inst` released.
+    pub fn destroy(h: &mut Host, inst: u32) {
+        h.destroy(inst)
+    }
 }
 
 #[cfg(test)]

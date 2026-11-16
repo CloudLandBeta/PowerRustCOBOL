@@ -2,6 +2,14 @@
 
 
 
+## 2.0.526 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T27): the part of the web player that drives a program module is now its own crate, `cobolt-abi-host`, so the desktop runner can drive forms with the same code as the browser.**
+- **What moved, unchanged:** the host that speaks ABI v1 to the module, the control tree, the methods and properties, the menus, links, sign-in state and backend frames, and the style tables they read, with their tests. The player uses the new crate and keeps every old path.
+- **The same tests pass:** 474 tests before the move, and 474 now (213 in the player, 261 in the new crate).
+- **The shipped player is rebuilt.** It is 28 561 bytes larger (+0.7%), most likely because some generic code is now instantiated in both crates.
+- **A Web application's module is unchanged.**
+
 ## 2.0.525 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T26): milestone M1 is closed. A console program builds into one runnable file with no Rust toolchain, and a form project still builds on the Cargo path, saying why.**

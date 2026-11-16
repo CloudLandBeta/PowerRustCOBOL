@@ -521,7 +521,7 @@ fn ancestry<'a>(form: &'a Form, id: &str) -> Vec<&'a Control> {
     path
 }
 
-/// The classes of a control's element, as `cobolt-web-player/src/css.rs::class_names` gives them.
+/// The classes of a control's element, as `cobolt-abi-host/src/css.rs::class_names` gives them.
 fn classes(c: &Control) -> Vec<String> {
     let mut v = vec!["pr-control".to_owned(), crate::web_themes::type_class(&c.control_type)];
     if let Some(cls) = c.get_prop("CssClass") {
@@ -1064,7 +1064,7 @@ fn is_chart(t: &ControlType) -> bool {
 }
 
 /// The CSS properties the player writes for `ctl`'s own properties, and whose they are: the rules
-/// of plan §0.2 (`cobolt-web-player/src/css.rs::appearance` and `view/style.rs::kind_decls`),
+/// of plan §0.2 (`cobolt-abi-host/src/css.rs::appearance` and `view/style.rs::kind_decls`),
 /// held to the player by its `props_layer` test over every control type. Names are the ones of
 /// `CSS_TO_PROPERTIES`; a CSS property not listed is not written from a property.
 pub fn props_layer(ctl: &Control, form: &Form) -> Vec<(&'static str, PropsDecl)> {

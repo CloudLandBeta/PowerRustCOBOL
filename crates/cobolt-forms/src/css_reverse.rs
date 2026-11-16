@@ -6,7 +6,7 @@
 
 //! The reverse table (WASM-036 R2, R3; plan §1.2): what a CSS declaration says about the model's
 //! properties, and the CSS text a property value is written as. The forward direction is the web
-//! player's (`cobolt-web-player/src/css.rs`); this is its inverse, one row per CSS property of
+//! player's (`cobolt-abi-host/src/css.rs`); this is its inverse, one row per CSS property of
 //! [`crate::css_overrides::CSS_TO_PROPERTIES`]. No egui and no `render` feature.
 //!
 //! A value the table cannot turn into model values is [`Reading::Unknown`] and keeps its CSS text:

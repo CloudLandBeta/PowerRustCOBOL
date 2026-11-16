@@ -1,0 +1,195 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! Form layers in the player (WASM-016 R18, R19, AC12; ABI A9; spec 091): a layer is addressed by the id
+//! that follows the form's controls, its `Visible` is the state of one form instance — hidden when the
+//! instance is created, gone with it — and a hidden layer's controls are neither drawn nor reachable.
+
+use super::*;
+use cobolt_forms::description::{describe, to_json};
+use cobolt_forms::xml::load_form_from_str;
+use cobolt_wasm_abi::batch::{Path, Seg};
+use cobolt_wasm_abi::manifest::{ControlEntry, FormEntry, LayerEntry, Limits, VariantInfo};
+
+const LAYERED: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="main-form" title="Layers" width="640" height="480" index-base="1">
+  <Layer name="LYR-DATA" color="#00000000"/>
+  <Layer name="LYR-POPUP" color="#10203040"/>
+  <Control id="BTN-BASE" type="Button" x="10" y="10" w="80" h="30" z-order="9"><Property name="Caption">Base</Property></Control>
+  <Control id="PNL-POP" type="Panel" x="100" y="100" w="200" h="200" z-order="0" layer="LYR-POPUP"></Control>
+  <Control id="LBL-IN" type="Label" x="10" y="10" w="80" h="20" parent="PNL-POP"><Property name="Caption">in popup</Property></Control>
+  <Control id="TXT-DATA" type="TextBox" x="10" y="60" w="200" h="26" layer="LYR-DATA"></Control>
+</Form>"##;
+
+/// The manifest the generator writes for [`LAYERED`]: three addressed controls, then the layers (`3 + n …`).
+fn manifest(layers: bool) -> Manifest {
+    let controls = vec![
+        ControlEntry {
+            id: 3,
+            name: "BTN-BASE".into(),
+            kind: "Button".into(),
+        },
+        ControlEntry {
+            id: 4,
+            name: "PNL-POP".into(),
+            kind: "Panel".into(),
+        },
+        ControlEntry {
+            id: 5,
+            name: "TXT-DATA".into(),
+            kind: "TextBox".into(),
+        },
+    ];
+    let layers = if layers {
+        vec![
+            LayerEntry {
+                id: 6,
+                name: "LYR-DATA".into(),
+                index: 0,
+            },
+            LayerEntry {
+                id: 7,
+                name: "LYR-POPUP".into(),
+                index: 1,
+            },
+        ]
+    } else {
+        vec![]
+    };
+    Manifest {
+        contract: None,
+        remote: Vec::new(),
+        capabilities: Vec::new(),
+        abi: 1,
+        generator: "test".into(),
+        project: "layers".into(),
+        variant: VariantInfo {
+            multi_memory: true,
+            conformance: false,
+        },
+        limits: Limits::default(),
+        names: vec!["Visible".into(), "Name".into(), "BackgroundColor".into()],
+        events: vec!["onLoad".into()],
+        forms: vec![FormEntry {
+            id: 0,
+            name: "main-form".into(),
+            main: true,
+            instances: 2,
+            region_size: 64,
+            controls,
+            handlers: vec![],
+            layers,
+        }],
+        builtins: vec![],
+        imports: vec![],
+        sizes: Default::default(),
+    }
+}
+
+fn host() -> Host {
+    let mut h = Host::new(manifest(true), HostOptions::default());
+    // Through the description, as the Build writes it and the player reads it.
+    h.add_description(&to_json(&describe(&load_form_from_str(LAYERED).unwrap())))
+        .unwrap();
+    h
+}
+
+fn on(ctrl: u32, name: u32) -> Path<'static> {
+    Path {
+        inst: 0,
+        ctrl,
+        segs: vec![Seg { name, args: vec![] }],
+    }
+}
+
+#[test]
+fn layer_ids_follow_the_controls_and_name_is_read_only() {
+    let mut h = host();
+    h.create_tree(0, 0, None, Vec::new()).unwrap();
+    assert_eq!(h.trees[&0].layer_by_abi(6), Some(0));
+    assert_eq!(h.trees[&0].layer_by_abi(7), Some(1));
+    assert!(
+        matches!(h.cmd_set(&on(6, 1), "OTHER"), Err(CmdError::Bad(m)) if m == cobolt_forms::model::layer_refusal("LYR-DATA", "Name")),
+        "Name is refused with -2"
+    );
+    h.cmd_set(&on(7, 2), "#FF000080").unwrap();
+    assert_eq!(
+        h.trees[&0].layer_get(1, "BackgroundColor").unwrap(),
+        "#FF000080"
+    );
+    assert_eq!(h.trees[&0].layer_get(1, "Name").unwrap(), "LYR-POPUP");
+    assert!(
+        matches!(h.cmd_call(&on(7, 0)), Err(CmdError::Unknown(_))),
+        "a layer has no methods"
+    );
+}
+
+#[test]
+fn layer_state_is_not_allocated_for_a_form_without_layers() {
+    let xml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="main-form" title="Plain" width="640" height="480" index-base="1">
+  <Control id="BTN-BASE" type="Button" x="10" y="10" w="80" h="30"></Control>
+  <Control id="PNL-POP" type="Panel" x="100" y="100" w="200" h="200"></Control>
+  <Control id="TXT-DATA" type="TextBox" x="10" y="60" w="200" h="26"></Control>
+</Form>"##;
+    let mut h = Host::new(manifest(false), HostOptions::default());
+    h.add_description(&to_json(&describe(&load_form_from_str(xml).unwrap())))
+        .unwrap();
+    h.create_tree(0, 0, None, Vec::new()).unwrap();
+    let t = &h.trees[&0];
+    assert!(
+        t.layers.is_empty() && t.layers.capacity() == 0,
+        "no layer state for a form with none"
+    );
+    assert!(t.ctls.iter().all(|c| c.layer.is_none()));
+}
+
+#[test]
+fn layer_a_program_built_with_a_layer_the_description_lacks_is_refused() {
+    let xml = LAYERED
+        .replace(r##"  <Layer name="LYR-DATA" color="#00000000"/>"##, "")
+        .replace(r#" layer="LYR-DATA""#, "");
+    let mut h = Host::new(manifest(true), HostOptions::default());
+    h.add_description(&to_json(&describe(&load_form_from_str(&xml).unwrap())))
+        .unwrap();
+    let err = h.create_tree(0, 0, None, Vec::new()).unwrap_err();
+    assert!(err.contains("layer `LYR-DATA`"), "{err}");
+}
+
+/// WASM-004 T17: each control's place in the stack is the model's (`Form::layer_of` + `Form::layer_rank`): a
+/// container's contents are in its layer, a name the form does not define is the base; every layer starts hidden in
+/// every instance; a write the model refuses is refused with the model's own text.
+#[test]
+fn layer_ranks_are_the_models_and_refusals_carry_its_text() {
+    let xml = LAYERED.replace(
+        "</Form>",
+        r#"  <Control id="LBL-GHOST" type="Label" x="400" y="10" w="80" h="20" layer="NO-SUCH-LAYER"></Control>
+</Form>"#,
+    );
+    let model = load_form_from_str(&xml).unwrap();
+    let mut h = Host::new(manifest(true), HostOptions::default());
+    h.add_description(&to_json(&describe(&model))).unwrap();
+    for inst in [0, 1] {
+        h.create_tree(inst, 0, None, Vec::new()).unwrap();
+        let t = &h.trees[&inst];
+        assert!(t.layers.iter().all(|l| !l.visible), "instance {inst}: every layer starts hidden");
+        for name in ["BTN-BASE", "PNL-POP", "LBL-IN", "TXT-DATA", "LBL-GHOST"] {
+            let rank = t.layer_of(t.by_name(name).unwrap()).map_or(0, |l| l + 1);
+            let expected = model.layer_rank(model.layer_of(name));
+            println!("instance {inst}: {name:<10} rank {rank} (model {expected})");
+            assert_eq!(rank, expected, "{name}");
+        }
+    }
+    let t = &h.trees[&0];
+    assert_eq!(t.layer_of(t.by_name("LBL-IN").unwrap()), Some(1), "inside PNL-POP, in LYR-POPUP");
+    assert_eq!(t.layer_of(t.by_name("LBL-GHOST").unwrap()), None, "an undefined layer name is the base");
+    let tree = h.trees.get_mut(&0).unwrap();
+    assert_eq!(tree.layer_set(1, "Name", "X"), Err(crate::tree::LayerWriteError::ReadOnly(cobolt_forms::model::layer_refusal("LYR-POPUP", "Name"))));
+    assert_eq!(tree.layer_set(1, "Bogus", "1"), Err(crate::tree::LayerWriteError::Unknown(cobolt_forms::model::layer_refusal("LYR-POPUP", "Bogus"))));
+    assert_eq!(tree.layer_get(1, "Bogus"), Err(crate::tree::LayerWriteError::Unknown(cobolt_forms::model::layer_refusal("LYR-POPUP", "Bogus"))));
+    tree.layer_set(1, "visible", "TRUE").unwrap();
+    assert!(tree.layers[1].visible, "every writable name, any letter case, as `layer_writable` answers");
+}

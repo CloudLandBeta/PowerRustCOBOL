@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# The ABI host (DESKTOP-WASM-001 T27; R9; plan §4.3): the pure half of the player (WASM-016) that
+# drives a program module through ABI v1 — `Host`, the form tree, the methods — with what they
+# read, moved out of `cobolt-web-player` unchanged so that the desktop runner drives a module with
+# the same code the browser does. Pure Rust: nothing here touches a browser or a window.
+#
+# It is a member of the main workspace and a path dependency of the player's own workspace, so its
+# dependencies are written out, not inherited, and each is one both lock files already hold.
+
+[package]
+name        = "cobolt-abi-host"
+description = "The PowerRustCOBOL ABI host — drives a program module (ABI v1): its forms, their controls and methods"
+# The player's version: `net` names the client as `prc-wasm/<this version>` in its hello frame.
+version     = "2.0.0"
+edition     = "2021"
+rust-version = "1.92"
+license     = "Apache-2.0"
+publish     = false
+
+[features]
+default = []
+# Rayon in `par` (DataGrid sorting and filtering on a worker pool): the player's `threaded` variant
+# turns it on; without it the same code runs sequentially.
+rayon = ["dep:rayon"]
+# The test helpers (`tree::testing`) for the player's own tests, which build forms with them.
+testing = []
+
+[dependencies]
+cobolt-forms    = { path = "../cobolt-forms", default-features = false }
+cobolt-wasm-abi = { path = "../cobolt-wasm-abi" }
+# The remote grids' endpoints and frame layouts (WASM-005 T16).
+cobolt-wire     = { path = "../cobolt-wire", features = ["channel"] }
+serde_json  = "1"
+# The incremental SHA-256 of an upload (`upload`).
+sha2        = "0.10"
+indexmap    = { version = "2", features = ["serde"] }
+rayon       = { version = "1", optional = true }
+
+[dev-dependencies]
+# `net`'s tests build the fixture module of the ABI crate.
+cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["fixture", "scan"] }

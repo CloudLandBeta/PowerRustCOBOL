@@ -376,6 +376,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
+name = "cobolt-abi-host"
+version = "2.0.0"
+dependencies = [
+ "cobolt-forms",
+ "cobolt-wasm-abi",
+ "cobolt-wire",
+ "indexmap",
+ "rayon",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "cobolt-ast"
 version = "0.2.0"
 dependencies = [
@@ -508,6 +521,7 @@ name = "cobolt-web-player"
 version = "2.0.0"
 dependencies = [
  "any_spawner",
+ "cobolt-abi-host",
  "cobolt-forms",
  "cobolt-wasm-abi",
  "cobolt-wire",
@@ -517,7 +531,6 @@ dependencies = [
  "leptos",
  "qrcode",
  "quick-xml",
- "rayon",
  "serde",
  "serde_json",
  "sha2",

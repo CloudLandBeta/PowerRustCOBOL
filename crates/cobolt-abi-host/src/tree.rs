@@ -1041,8 +1041,10 @@ impl FormTree {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod testing {
+/// Small forms and their manifest entries, for tests: this crate's, and the player's through the
+/// `testing` feature (DESKTOP-WASM-001 T27).
+#[cfg(any(test, feature = "testing"))]
+pub mod testing {
     use super::*;
     use cobolt_forms::xml::load_form_from_str;
     use cobolt_wasm_abi::manifest::{ControlEntry, HandlerEntry, Limits, VariantInfo};

@@ -42,10 +42,13 @@ pub mod svg;
 pub mod viewer;
 #[cfg(test)]
 mod xss;
+// Tests of the ABI host (now `cobolt-abi-host`) that read what the view draws (DESKTOP-WASM-001 T27).
+#[cfg(test)]
+mod css_tests;
+#[cfg(test)]
+mod layer_tests;
 
 use std::collections::BTreeMap;
-
-use cobolt_forms::menu::MenuDefinition;
 
 use crate::tree::FormTree;
 
@@ -361,21 +364,8 @@ pub enum MermaidState {
     Failed(String),
 }
 
-/// Menu definitions delivered with the bundle, by `(form name lower-case, control name upper-case)`.
-#[derive(Debug, Clone, Default)]
-pub struct MenuStore {
-    pub menus: BTreeMap<(String, String), MenuDefinition>,
-}
-
-impl MenuStore {
-    pub fn get(&self, form: &str, control: &str) -> Option<&MenuDefinition> {
-        self.menus.get(&(form.to_ascii_lowercase(), control.to_ascii_uppercase()))
-    }
-
-    pub fn insert(&mut self, form: &str, control: &str, def: MenuDefinition) {
-        self.menus.insert((form.to_ascii_lowercase(), control.to_ascii_uppercase()), def);
-    }
-}
+// The menus a bundle delivers: kept by the ABI host (DESKTOP-WASM-001 T27).
+pub use cobolt_abi_host::menus::MenuStore;
 
 /// Everything a view function may read.
 pub struct ViewCtx<'a> {

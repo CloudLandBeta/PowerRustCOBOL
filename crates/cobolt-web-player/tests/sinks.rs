@@ -85,6 +85,8 @@ fn the_players_sources_insert_no_markup_run_no_string_and_leak_no_closure() {
     let mut files = Vec::new();
     rust_files(&root.join("src"), &mut files);
     rust_files(&root.join("parts"), &mut files);
+    // The ABI host is compiled into the player too (DESKTOP-WASM-001 T27).
+    rust_files(&root.join("../cobolt-abi-host/src"), &mut files);
     files.sort();
     let mut problems = Vec::new();
     let mut lines_scanned = 0usize;

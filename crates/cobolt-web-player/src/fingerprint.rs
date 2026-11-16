@@ -19,7 +19,8 @@
 //!   (the tests and the target directories are not inputs of the wasm, so editing a test never makes the
 //!   player stale);
 //! * the crates it links from this repository: `cobolt-forms` (`src/`, `Cargo.toml`) and
-//!   `cobolt-wasm-abi` (`src/`, `Cargo.toml`), and `cobolt-ast`, which the model crate reads.
+//!   `cobolt-wasm-abi` (`src/`, `Cargo.toml`), `cobolt-abi-host` (the ABI host, moved out of this crate
+//!   by DESKTOP-WASM-001 T27), and `cobolt-ast`, which the model crate reads.
 //!
 //! Paths are written relative to the repository root with `/`, so the same tree gives the same value on
 //! every machine. Native only: the browser build never computes it.
@@ -41,6 +42,9 @@ pub const INPUTS: &[&str] = &[
     "crates/cobolt-forms/Cargo.toml",
     "crates/cobolt-wasm-abi/src",
     "crates/cobolt-wasm-abi/Cargo.toml",
+    // The ABI host, this crate's pure half until DESKTOP-WASM-001 T27.
+    "crates/cobolt-abi-host/src",
+    "crates/cobolt-abi-host/Cargo.toml",
     "crates/cobolt-ast/src",
     "crates/cobolt-ast/Cargo.toml",
     // The remote grids' endpoint names and frame layouts (WASM-005 T16).

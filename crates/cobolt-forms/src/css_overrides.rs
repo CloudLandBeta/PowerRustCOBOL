@@ -32,7 +32,7 @@ pub struct Override {
 }
 
 /// Each CSS property and the model properties it overrides. The first one named is the property
-/// whose CSS this is in the player's table (`cobolt-web-player/src/css.rs::TABLE`, which a player test
+/// whose CSS this is in the player's table (`cobolt-abi-host/src/css.rs::TABLE`, which a player test
 /// holds this list to).
 pub const CSS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     ("background-color", &["BackgroundColor"]),

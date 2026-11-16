@@ -73,8 +73,10 @@ impl Session {
         *self = Session::default();
     }
 
-    /// The raw token, for the transport's first message. Crate-private on purpose.
-    pub(crate) fn token(&self) -> Option<&str> {
+    /// The raw token, for the transport's first message, and for nothing else. It was
+    /// crate-private on purpose; it is public only because the transport (the player's
+    /// `api.rs`) is in another crate since DESKTOP-WASM-001 T27 moved the host out.
+    pub fn token(&self) -> Option<&str> {
         self.token.as_deref()
     }
 

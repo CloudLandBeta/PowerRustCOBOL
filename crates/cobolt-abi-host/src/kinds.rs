@@ -95,16 +95,16 @@ mod tests {
     /// Every property name the player's view reads by name (`tree.get(i, "…")`).
     fn names_the_view_reads() -> BTreeSet<String> {
         const SOURCES: &[&str] = &[
-            include_str!("view/mod.rs"),
-            include_str!("view/controls.rs"),
-            include_str!("view/interact.rs"),
-            include_str!("view/style.rs"),
-            include_str!("view/data.rs"),
-            include_str!("view/shell.rs"),
-            include_str!("view/charts.rs"),
-            include_str!("view/maps.rs"),
-            include_str!("view/viewer.rs"),
-            include_str!("view/auth.rs"),
+            include_str!("../../cobolt-web-player/src/view/mod.rs"),
+            include_str!("../../cobolt-web-player/src/view/controls.rs"),
+            include_str!("../../cobolt-web-player/src/view/interact.rs"),
+            include_str!("../../cobolt-web-player/src/view/style.rs"),
+            include_str!("../../cobolt-web-player/src/view/data.rs"),
+            include_str!("../../cobolt-web-player/src/view/shell.rs"),
+            include_str!("../../cobolt-web-player/src/view/charts.rs"),
+            include_str!("../../cobolt-web-player/src/view/maps.rs"),
+            include_str!("../../cobolt-web-player/src/view/viewer.rs"),
+            include_str!("../../cobolt-web-player/src/view/auth.rs"),
         ];
         let mut out = BTreeSet::new();
         for src in SOURCES {

@@ -630,7 +630,7 @@ mod tests {
                 Scoping::Scope | Scoping::Nested => {}
             }
         }
-        assert!(!include_str!("dom/sheets.rs").contains(concat!("Un", "scoped")));
+        assert!(!include_str!("../../cobolt-web-player/src/dom/sheets.rs").contains(concat!("Un", "scoped")));
         eprintln!("form sheet: @scope → Scope, nesting only → Nested, neither → refused ({e:?} for @import), sheet left empty both times");
     }
 

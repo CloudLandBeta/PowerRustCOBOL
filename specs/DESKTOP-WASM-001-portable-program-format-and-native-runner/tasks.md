@@ -1123,7 +1123,17 @@ The code says five things the plan did not settle. Each is applied in the tasks 
 
 ## Phase M2 — Forms
 
-- [ ] **T27 — `cobolt-abi-host`, extracted from the player unchanged** (R9; plan §4.3)
+- [x] **T27 — `cobolt-abi-host`, extracted from the player unchanged** (R9; plan §4.3)
+  - *Done 2026-11-16 (2.0.526):*
+    - **The move:** 35 files moved with their history (`git mv`) into the new `crates/cobolt-abi-host`, a member of the main workspace. With its new `lib.rs` and `menus.rs`, the crate has 37 `.rs` files and 19 021 lines.
+      - It holds `host` (with its tests and `streams`), `tree`, `methods`, the menus the bundle delivers (`MenuStore`, out of the player's `view`), and their closure: `auth`, `hyperlink`, `kinds`, `net`, `grid`, `par`, `value`, `upload`, `css`, `base_css`, `layout_css`, `zoom`, `motion`, `metrics`.
+      - The player depends on it, re-exports each module under its old path, and lists the crate in `fingerprint::INPUTS`.
+      - The test helpers (`tree::testing`, `host::testing`) are behind the new crate's `testing` feature, which only the player's tests turn on.
+    - **Code changes:** only paths and visibility. Two source-reading tests (`net`'s storage test, the player's `wire_codes` and `sinks`) now also read the new crate's `src/`. The session token's `token()` is now public, because the player's transport (`api.rs`, wasm32 only) is in another crate; the native tests could not see that, the wasm32 build did.
+    - **Test counts:** the player's source had 474 `#[test]` functions before the move. After it, the player `--lib` passes 213 and `cobolt-abi-host` 261, so 474 of 474 pass.
+    - **The player's other tests:** `abi_host` 28, `exposed` 2, `freshness` 6 (after the rebuild), `grid_calls` 1, `no_secret_in_console` 3, `sinks` 3, `wire_codes` 1. `dependency_guard` is 6 of 7: its Rust 1.92 check, red since 2.0.469 (the workspace needs 1.95), is to be reported as a 2.x fix.
+    - **The wasm32 build:** it succeeds, and the shipped player is rebuilt. Plain is now 4 159 011 bytes (+28 561, +0.7%; gzip 1 441 557) and threaded 3 970 623 (+25 719). The growth is most likely generic code instantiated in both crates: the profile is already `lto = true` with one codegen unit.
+    - **T1's test:** 3 of 3 artefacts match.
   - Files:
     - new `crates/cobolt-abi-host/`: the player's pure `Host`, `FormTree` (`tree.rs`), `methods.rs` and their closure, moved with their tests;
     - `crates/cobolt-web-player/Cargo.toml`: a path dependency, plus a re-export;
