@@ -1,0 +1,28 @@
+# The module corpus (DESKTOP-WASM-001 R5, R23; AC4): every module a release's Build made from the
+# fixtures in fixtures/, kept for ever. A module of any release must run on every later runner and
+# print what its .toml recorded (`cargo test -p cobolt-runner --test module_corpus`).
+#
+# APPEND-ONLY. An entry is never deleted or edited: each names its files with their sha256, and its
+# `chain` covers the previous entry's chain, so a removed or changed entry fails the test. A release
+# adds its entry with `cargo run -p cobolt-compiler --example module_corpus_add`, within 256 KiB.
+
+[[entry]]
+release = "2.0.520"
+added = "2026-11-16"
+chain = "92e2efd9bb234c1ae257f9a0512bf555a0c876820770bbeccb24f69e8a8e5142"
+
+[[entry.files]]
+path = "releases/2.0.520/console.wasm.gz"
+sha256 = "8d922cfa52bff7a926bac1fbe2d231665283b83049b5179848c99c9f7e626527"
+
+[[entry.files]]
+path = "releases/2.0.520/console.toml"
+sha256 = "f94a85c8b0f7839605b562c9e33ad3a009d8dad4814567605a23e3c0aa868d2f"
+
+[[entry.files]]
+path = "releases/2.0.520/ledger.wasm.gz"
+sha256 = "282f461c939757f55364bc4524dfc08341744cefd442bc9d37171ee69ff871ff"
+
+[[entry.files]]
+path = "releases/2.0.520/ledger.toml"
+sha256 = "e95e607b5d83815e224a3b66086f8925c141f682f0112b2a78cbf668bc79740c"

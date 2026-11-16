@@ -1,0 +1,3 @@
+# The module corpus is kept byte for byte on every platform: a line-ending conversion on checkout
+# would change the sha256 the index records (DESKTOP-WASM-001 T21).
+* -text

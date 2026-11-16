@@ -42,3 +42,8 @@ cobolt-ast    = { path = "../cobolt-ast" }
 # A module whose manifest asks for a capability the generator does not make yet (`sql`).
 wasmparser    = "0.244"
 wasm-encoder  = "0.244"
+# The module corpus (T21): its index, its compressed modules and their sha256.
+serde         = { workspace = true }
+toml          = { workspace = true }
+sha2          = { workspace = true }
+flate2        = { workspace = true }

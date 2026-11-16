@@ -961,7 +961,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - **Re-run green:** `desktop_wasm_build` (T16, 28 of 28 checks, "no runner → `RunnerUnavailable`" among them) and `cobolt-cli --test build_path_flags`.
       - **Owed to the operator:** the release workflow's dispatch. `gh` is not installed and no token is set, so an agent cannot dispatch it. Run **Actions → "Build PowerRustCOBOL (all platforms)"** on `features-2x-desktop-wasm` with *publish* off. Its new step shows the runner starting on each of the four platforms, and the `.deb`, `.rpm` and macOS signature checks cover the packages.
 
-- [ ] **T21 — The module corpus, kept for ever** (R5, R23; AC4)
+- [x] **T21 — The module corpus, kept for ever** (R5, R23; AC4)
   - Files:
     - new `tests/module-corpus/`: an index of every entry ever added, and its first entry, the console fixtures built by this release, with their expected outputs;
     - new `crates/cobolt-runner/tests/module_corpus.rs`.
@@ -969,6 +969,31 @@ The code says five things the plan did not settle. Each is applied in the tasks 
   - Verify: `cargo test -p cobolt-runner --test module_corpus -- --nocapture`:
     - **`corpus_runs_on_this_runner`:** every entry runs and gives its recorded output. The result block counts releases, modules and identical outputs.
     - **`corpus_entries_are_never_deleted`:** an entry in the index with its files missing fails, and a planted case proves it.
+  - *Done 2026-11-16 (2.0.520):*
+    - **New `tests/module-corpus/`:**
+      - `fixtures/console/` (the console, the environment, the arguments, the pinned clock, `RANDOM`, `RETURN-CODE` 7) and `fixtures/ledger/` (main and Common Code: arithmetic and `ROUNDED`, `DIVIDE … REMAINDER`, edited pictures, `STRING`/`UNSTRING`/`INSPECT`, `SEARCH`, `CALL`, an in-memory `INDEXED` file with `WRITE`, keyed `READ`, `REWRITE`, `DELETE`, `START` and `READ NEXT`, `SORT` with input and output procedures, `EVALUATE`, `RETURN-CODE` 3). Each has a `run.toml` with its input, pins, exit code and output.
+      - `releases/2.0.520/`: the two modules this release's Build made, compressed (`.wasm.gz`), each with its `run.toml` as it is now.
+      - `index.toml`: the first entry.
+      - `README.md`: the rules and how a release adds its entry.
+      - `.gitattributes` (`* -text`): no line-ending conversion, which would change the recorded sha256 on a Windows checkout.
+    - **New `crates/cobolt-runner/tests/support/corpus.rs`:** the format (index, entries, run descriptions), the chain, `problems` (the whole-corpus check), gzip, and `run_module`, which puts a module alone into a copy of the runner and runs it under the pins. The test and the tool share it; the tool includes it by path.
+    - **New `crates/cobolt-compiler/examples/module_corpus_add.rs`:** adds a release's entry. It builds each fixture through `build_project` (it must take the WebAssembly path), takes the module out of the built executable, and runs it alone on this checkout's runner. Unless the output and exit code are exactly the fixture's, it refuses. Otherwise it writes the files, checks the budget, appends the entry with its chain, and prints the `KNOWN` line.
+    - **New `crates/cobolt-runner/tests/module_corpus.rs`:** `corpus_runs_on_this_runner` and `corpus_entries_are_never_deleted`. The runner crate gains the dev-dependencies `serde`, `toml`, `sha2` and `flate2` (workspace versions).
+    - **Settled while building:**
+      - **The budget is met by compressing.** A console module is about 137 KB, so two raw modules would pass 256 KiB; gzip brings each to about 67 KB.
+      - **The modules are packaged alone, with no machine code.** Machine code belongs to one runner's engine (R16), so the corpus keeps only what lasts: the module. Each run also proves the runner makes the machine code itself.
+      - **Append-only is proved three ways:**
+        - each file's sha256 is in the index;
+        - each entry's `chain` covers the previous chain, so a middle entry taken out breaks the next;
+        - the test's `KNOWN` list names every entry, so even the last cannot go unnoticed.
+      - **The recorded outputs were checked against the interpreter.** `rcrun run` printed them byte for byte with the same exit codes. The ledger was run as one source file holding both programs, with its file declared `WITH PERSISTENCE`, because the interpreter does not write to a `STORAGE IS MEMORY` file without it (see `cobolt-wasm/tests/memory_files.rs`).
+      - **Line endings:** the test compares with a Windows console's CR LF read as LF.
+    - **Measured** (macOS arm64, Apple M3 Pro, debug build):
+      - **`module_corpus_add`:** console 137 161 bytes (66 586 compressed), ledger 147 516 bytes (69 114 compressed). Each ran in about 0.75 s with identical output. 135 700 of 262 144 bytes used.
+      - **`cargo test -p cobolt-runner --test module_corpus -- --nocapture`:**
+        - **`corpus_runs_on_this_runner`:** releases 1 (2.0.520), modules 2, identical output and exit code 2 of 2, in 4 630 ms (console 726 ms, ledger 704 ms, machine code made by the runner).
+        - **`corpus_entries_are_never_deleted`:** 7 of 7 checks in 31.3 ms. Planted: a deleted module, a changed byte, the last entry taken out, and a middle entry taken out of a three-entry corpus.
+      - **`cargo test -p cobolt-runner --no-fail-fast`:** 5 targets, 7 passed, 0 failed.
 
 - [ ] **T22 — CI: no toolchain, Rust releases, and across platforms** (R2, R5; AC1, AC2, AC3 console)
   - Files: new `.github/workflows/desktop-wasm.yml`, on tags and on dispatch.

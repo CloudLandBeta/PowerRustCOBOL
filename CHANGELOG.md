@@ -2,6 +2,23 @@
 
 
 
+## 2.0.520 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T21): the module corpus, kept for ever.**
+- **`tests/module-corpus/` keeps the WebAssembly modules every release's Build makes from the console fixtures**, from 2.0.520 on. A test runs each one on today's runner and requires the output and exit code its release recorded. A program built by any release keeps running, unchanged, on every later runner (R5, R23; AC4).
+- **Two fixtures in the first entry:**
+  - **console:** the console, the environment, the arguments, the pinned clock, `RANDOM` and `RETURN-CODE`.
+  - **ledger:** arithmetic and rounding, edited pictures, strings, `SEARCH`, a `CALL` into Common Code, an in-memory `INDEXED` file, and `SORT` with input and output procedures.
+
+  Their outputs were checked against `rcrun run`, byte for byte.
+- **Append-only, and checked.** Every file's sha256 is in the index, each entry's chain covers the one before it, and the test lists every entry. So a removed or changed module, or a removed entry (in the middle or the last), fails the test. Each release may add at most 256 KiB of compressed modules.
+- **A release adds its entry with `cargo run -p cobolt-compiler --example module_corpus_add`.** The tool builds each fixture as a Desktop Build does, takes the module out, runs it on this runner, and refuses unless it does exactly what the fixture says.
+- **Measured** (macOS arm64, Apple M3 Pro, debug build):
+  - **The first entry:** 2 modules, 284 677 bytes, 135 700 compressed.
+  - **`corpus_runs_on_this_runner`:** 2 of 2 identical in 4 630 ms, each module packaged alone with the machine code made by the runner.
+  - **`corpus_entries_are_never_deleted`:** 7 of 7 checks, with four planted cases.
+  - **`cargo test -p cobolt-runner`:** 7 passed, 0 failed.
+
 ## 2.0.519 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T20): the PowerRustCOBOL runner ships with the IDE.**
