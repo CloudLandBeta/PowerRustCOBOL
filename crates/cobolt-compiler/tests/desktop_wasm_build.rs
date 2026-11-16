@@ -28,7 +28,9 @@
 //!   the toolchain is looked for (the twin of `regenerate_before_build_tests`);
 //! - (T33) a form of controls the runner draws builds on the WebAssembly path; one holding a
 //!   control the runner does not serve yet (Maps, inside a Panel) takes the Cargo path, naming the
-//!   form, its file and the control.
+//!   form, its file and the control;
+//! - (T34) a Build asked for the WebAssembly path alone (`wasm_only`) stops where the Cargo path
+//!   would start, with the reason and nothing compiled, and builds a served form as before.
 
 use cobolt_compiler::{build_project, BuildOptions, BuildPath, BuildPhase, CargoReason, CompilerError};
 use sha2::{Digest, Sha256};
@@ -482,8 +484,34 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     check("the message names the file, the form, the control and Rust", text.contains("forms/main.cfrm") && text.contains("MAP-CITY") && text.contains("Rust toolchain is required"));
     check("nothing compiled: no bin/", !m.parent().unwrap().join("bin").exists());
 
+    // ── 8. wasm_only (T34): a Build asked for the WebAssembly path alone stops where the Cargo path
+    //       would start, with the reason; a project on the WebAssembly path builds as before ──
+    let wasm_only = |m: &Path| build_project(m, &BuildOptions { wasm_only: true, ..opts(Some(&runner)) });
+    let t = Instant::now();
+    let r = wasm_only(&m);
+    let only_maps_ms = ms(t);
+    check(
+        "wasm_only, Maps in a Panel → WasmOnly { DesktopControl MAP-CITY }",
+        matches!(&r, Err(CompilerError::WasmOnly { reason: CargoReason::DesktopControl { control, .. } }) if control == "MAP-CITY"),
+    );
+    check(
+        "its message says only the WebAssembly path was asked for, and names no toolchain",
+        r.as_ref().err().map(|e| e.to_string()).is_some_and(|t| t.contains("only the WebAssembly path was asked for") && !t.contains("toolchain")),
+    );
+    check("nothing compiled: still no bin/", !m.parent().unwrap().join("bin").exists());
+    let r = wasm_only(&root.join("prct16chosen").join("prct16chosen.project.toml"));
+    check("wasm_only, build_path = \"cargo\" → WasmOnly { Chosen }", matches!(&r, Err(CompilerError::WasmOnly { reason: CargoReason::Chosen })));
+    check("bin/'s tree hash is still the same", tree_hash(&bin_dir) == before);
+    let t = Instant::now();
+    let r = wasm_only(&root.join("prct33served").join("prct33served.project.toml"));
+    let only_served_ms = ms(t);
+    check(
+        "wasm_only, a form of a Button and a Label → WebAssembly path, as before",
+        r.as_ref().is_ok_and(|b| b.path == BuildPath::Wasm && b.binary_path.is_file()),
+    );
+
     // ── The result ──
-    println!("== desktop_wasm_build (DESKTOP-WASM-001 T16, T33: AC1 local half, AC11, AC12, AC13, AC15, AC17) ==");
+    println!("== desktop_wasm_build (DESKTOP-WASM-001 T16, T33, T34: AC1 local half, AC11, AC12, AC13, AC15, AC17) ==");
     println!("environment: PATH = an empty folder; CARGO_HOME and RUSTUP_HOME = empty folders");
     println!("runner: {} ({:.1} MB), built first in {runner_ms:.0} ms", runner.display(), runner_bytes as f64 / 1_048_576.0);
     println!("1. console project, main + Common Code, WebAssembly path: {wasm_ms:.1} ms, {} bytes", exe_bytes.len());
@@ -504,6 +532,7 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     println!("4. build_path = \"cargo\": stopped in {chosen_ms:.1} ms, bin/ unchanged");
     println!("7. a form of a Button and a Label: {served_path:?} in {served_ms:.1} ms");
     println!("   a form with Maps in a Panel: {maps_reason:?} in {maps_ms:.1} ms");
+    println!("8. wasm_only: the Maps form stopped in {only_maps_ms:.1} ms; the Button and Label form built in {only_served_ms:.1} ms");
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "pass" } else { "FAIL" });

@@ -790,6 +790,12 @@ pub enum CompilerError {
     )]
     CargoNeedsToolchain { reason: CargoReason, tool: String, detail: String },
 
+    /// The Build was asked for the WebAssembly path alone ([`BuildOptions::wasm_only`]) and would
+    /// take the Cargo path, for `reason` (DESKTOP-WASM-001 T34). It stops where the Cargo path would
+    /// start: nothing is staged or compiled for Cargo, and `bin/` is left as it was.
+    #[error("this program would be built with Cargo because {reason}; only the WebAssembly path was asked for")]
+    WasmOnly { reason: CargoReason },
+
     /// The WebAssembly path could not put the program into the PowerRustCOBOL runner: its file
     /// could not be read, or it is not an executable the program package knows (DESKTOP-WASM-001 T16).
     #[error("the PowerRustCOBOL runner at '{path}' could not take the program: {detail}")]
@@ -2281,6 +2287,11 @@ pub struct BuildOptions {
     /// the project's `[desktop] machine_code` says: the program then compiles when it first starts
     /// and keeps that in its cache (R15, R16).
     pub no_machine_code: bool,
+    /// Take the WebAssembly path or stop: a Build that would take the Cargo path ends with
+    /// [`CompilerError::WasmOnly`] and its reason, before anything is compiled for Cargo
+    /// (DESKTOP-WASM-001 T34). `cobolt-bench pixel-parity` learns a project's path this way without
+    /// a Cargo build. Off by default.
+    pub wasm_only: bool,
 }
 
 impl Default for BuildOptions {
@@ -2297,6 +2308,7 @@ impl Default for BuildOptions {
             runner: None,
             force_cargo: false,
             no_machine_code: false,
+            wasm_only: false,
         }
     }
 }
@@ -3251,6 +3263,9 @@ fn build_core(
         }
         Err(reason) => reason,
     };
+    if opts.wasm_only {
+        return Err(CompilerError::WasmOnly { reason });
+    }
 
     // ── 6. The toolchain, then the workspace root (where the cobolt-* crates live) ──
     clock.enter(BuildPhase::Cargo);

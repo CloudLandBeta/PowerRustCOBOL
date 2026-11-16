@@ -808,6 +808,7 @@ fn cmd_build(args: &[String]) {
         runner: None,
         force_cargo,
         no_machine_code,
+        wasm_only: false,
     };
 
     let target = target.unwrap_or_else(|| std::path::PathBuf::from("cobolt.toml"));

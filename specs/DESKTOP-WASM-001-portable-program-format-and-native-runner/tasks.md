@@ -1318,7 +1318,34 @@ The code says five things the plan did not settle. Each is applied in the tasks 
   - Files: `crates/cobolt-compiler/src/lib.rs` (`classify`: `DesktopControl { form, control }`), and the native column (T10) updated for what M2 covers.
   - Verify: a compiler test with a form holding one control the ABI host lacks. It builds on the Cargo path, and the message names the form and the control. The AC10 test stays green.
 
-- [ ] **T34 — Pixel parity for forms** (R27; AC19)
+- [x] **T34 — Pixel parity for forms** (R27; AC19)
+  - *Done 2026-11-16 (2.0.533):*
+    - **The pairs are the mode with no flag** (`cobolt-bench pixel-parity`). `--cargo` (T7's golden check), `--console` (T24) and `--write-scripts` keep their meaning.
+    - **How a project's path is learnt (decision):** a new `BuildOptions::wasm_only`. A Build that would take the Cargo path ends with `CompilerError::WasmOnly { reason }` right after classification, before the toolchain probe or anything compiled for Cargo, and `bin/` is left as it was. So the bench learns a project's path, with the Build's own reason, without a Cargo build. The IDE, `rcrun` and the agent's `build` tool keep it off.
+    - **Per project:**
+      - two copies are laid out (each with its pristine `data/`);
+      - the first is built with `wasm_only` into the runner beside the bench (`runner_near`);
+      - a project that stops has not moved, and its reason is printed;
+      - otherwise the second copy is built with `force_cargo`, and every script runs once under each program, at the three sizes, under the T7 pins.
+      - Compared: every frame by hash (a differing one pixel by pixel, a frame only one program drew counting all its pixels), every `read` and `dump` in order, the Cargo-built frames against the goldens (reference projects), and a fixture's expected reads under both programs.
+      - Moved means: the WebAssembly path, 0 differing pixels, every read and dump equal, the goldens met, and the expected reads met.
+    - **The form fixtures (decision, not in the task text):** at M2 no reference project takes the WebAssembly path, so the task's "for every reference project the WebAssembly path builds" would compare nothing. A form fixture, written in code like the runner twins (`crates/cobolt-bench/src/form_fixtures.rs`), gives the mode at least one pair from now on:
+      - `ParityControls`: one form, 720 by 460, of 20 controls the runner draws: three labels, a text box, a check box, a switch, two radio buttons, a progress bar, a slider, a gauge, a knob, a list box, a bar chart, a timer and five buttons. Its handlers copy text, toggle the switch from the check box, set four values, add to the list and count it, and start a timer that stops itself.
+      - Its script has 27 steps with 6 pictures, 6 dumps and 3 reads.
+      - **Expected reads (`expect`):** two runs that both did nothing would be equal. So the fixture says what its reads must see, under both programs: LBL-TITLE "Ann", LBL-COUNT "2", LBL-TICKS "ticked".
+    - **CI:** `pixel-parity.yml` builds `prc-runner` (release) after the golden step and runs the pairs on the four platforms. Its dispatch is owed to the operator (from the default branch, as T7's).
+    - **Result** (`cargo run -p cobolt-bench --release -- pixel-parity`, macOS aarch64, commit cb32e979 plus this change):
+      - ParityControls: WebAssembly path. 18 frames compared, 18 identical, 0 differing pixels. 27 of 27 reads and dumps equal. 18 of 18 expected reads met. Its WebAssembly Build took 0.2 s, its Cargo Build 152.7 s, and the runs 7.2 s; the whole mode 2.7 min.
+      - Not moved, each with the Build's reason:
+        - PowerCallOfDuty: CNV-3D (Canvas3D), M6;
+        - PowerCloud: Aws-Mcp (AwsMcp), M3, M4 and M6;
+        - PowerCobolCraft: CNV-DIORAMA (Canvas3D), M6;
+        - PowerGraphics: CNV-GAME (Canvas2D), M6;
+        - PowerSpatial: `src/ps-setting-get.cbl` line 46, SETTINGS-FILE on disk, M3.
+      - moved: 1 of 6.
+    - **Tests:**
+      - `desktop_wasm_build`: 38 of 38. Its section 8 is new: `wasm_only` stops the Maps form in 11.3 ms with `WasmOnly { DesktopControl MAP-CITY }` and nothing compiled; it stops `build_path = "cargo"` with `Chosen` and `bin/` unchanged; and it builds the Button and Label form on the WebAssembly path as before (6 676.6 ms).
+      - `cobolt-bench` unit tests: 3 passed. `a_pair_counts_every_differing_pixel_and_read` 7 of 7: 4 frames, 235 differing pixels, 3 reads with 1 equal, 3 expected reads with 1 met.
   - Files: `crates/cobolt-bench/src/pixel_parity.rs` (the pairs mode, the default), and `.github/workflows/pixel-parity.yml`.
   - Do: for every reference project the WebAssembly path builds:
     - build it both ways;

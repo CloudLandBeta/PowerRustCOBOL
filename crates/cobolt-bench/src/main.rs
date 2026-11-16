@@ -45,6 +45,8 @@ mod ten_times;
 mod pixel_parity;
 // T24: its `--console` mode, the console part of R27.
 mod console_parity;
+// T34: the form projects its pairs mode compares beside the reference projects.
+mod form_fixtures;
 
 use counting_alloc::{reset_peak, Counters};
 use std::time::{Duration, Instant};

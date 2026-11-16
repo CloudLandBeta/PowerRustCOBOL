@@ -424,6 +424,7 @@ fn start(shared: &Arc<Shared>, manifest: PathBuf, workspace_root: Option<PathBuf
             runner: None,
             force_cargo: false,
             no_machine_code: false,
+            wasm_only: false,
         };
         builder(&manifest, &opts)
     });

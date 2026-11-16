@@ -2,6 +2,29 @@
 
 
 
+## 2.0.533 — 2026-11-16
+
+**Feature (DESKTOP-WASM-001 T34): pixel parity for forms. `cobolt-bench pixel-parity`, with no flag, builds each project both ways. It runs every form's script under both programs at three window sizes, and fails on one differing pixel, read or dump.**
+- **The pairs:**
+  - Each of the five reference projects, and a new form fixture, is first built by default, asking for the WebAssembly path only.
+  - A project that would take the Cargo path is reported with the Build's own reason, and nothing more is done with it.
+  - A project that takes the WebAssembly path is built again on the Cargo path. Every script then runs once under each program, at the designed size, 800 wide and 480 wide, from the same data and under the same pinned clock and seed.
+  - Every frame, read and dump must be equal. A differing frame leaves both pictures and a picture of the differing pixels under `target/pixel-parity/pairs/`.
+  - A project counts as moved only when all of that holds, and the Cargo-built frames still match their goldens.
+- **The fixture `ParityControls`:**
+  - One form of the drawn controls the runner serves: a label, a text box, a check box, a switch, two radio buttons, a progress bar, a slider, a gauge, a knob, a list, a bar chart and a timer.
+  - Its handlers copy, toggle, set values, fill and count the list, and start a timer that stops itself.
+  - Its script also checks what the handlers wrote ("Ann", "2", "ticked"). So two programs that both did nothing cannot pass by being equal.
+- **The Build gains a WebAssembly-only mode** for tools: a Build that would take the Cargo path stops before anything is compiled for Cargo. It ends with the reason, and `bin/` is left as it was.
+- **The CI job `pixel-parity.yml`** builds the runner and runs the pairs after the golden check, on the four platforms.
+- **Measured on this Mac (macOS, Apple silicon):**
+  - `ParityControls` moved: 18 frames compared, 18 identical, 0 differing pixels; 27 of 27 reads and dumps equal; 18 of 18 expected reads met.
+  - The five reference projects have not moved yet; each names why:
+    - PowerCallOfDuty, PowerCobolCraft and PowerGraphics hold a 3D or 2D canvas (M6);
+    - PowerCloud holds AWS controls (M6);
+    - PowerSpatial's Common Code opens an indexed file on disk (M3).
+  - The Build test passed 38 of 38 checks; its new section shows the WebAssembly-only mode stopping the Maps form in 11.3 ms with nothing compiled.
+
 ## 2.0.532 — 2026-11-16
 
 **Feature (DESKTOP-WASM-001 T33): a Desktop project with forms now builds on the WebAssembly path. A form holding a control the PowerRustCOBOL runner does not serve yet takes the Cargo path, and the Build names the form, its file and the control.**

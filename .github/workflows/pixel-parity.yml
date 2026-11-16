@@ -1,5 +1,5 @@
-# DESKTOP-WASM-001 T7 (R27, R28; AC19's second guard, AC20): pixel parity on the four supported
-# platforms.
+# DESKTOP-WASM-001 T7 and T34 (R27, R28; AC19 and its second guard, AC20): pixel parity on the four
+# supported platforms.
 #
 # Each job runs `cobolt-bench pixel-parity --cargo`. That builds the five reference projects as
 # committed, on the Cargo path, and runs every form's base script (`tests/pixel-parity/scripts/`)
@@ -12,8 +12,14 @@
 # - On a dispatch, the job records instead (`--record`) and uploads its golden file, to be
 #   committed from the artefact.
 #
+# Then, on either trigger, the pairs (T34, AC19): `cobolt-bench pixel-parity` with no flag builds
+# each reference project and form fixture by default, WebAssembly only. A project that would take
+# the Cargo path is reported with its reason. One that takes the WebAssembly path is built again on
+# the Cargo path, and every script runs once under each program, at the three sizes. One differing
+# pixel, read or dump fails the job. The runner is built first: the pairs need it beside the bench.
+#
 # Either way the job uploads `target/pixel-parity/`: both frames and a picture of the differing
-# pixels, for every frame that differs between two runs or from its golden.
+# pixels, for every frame that differs between two runs, from its golden, or between the pair.
 #
 # A dispatch needs this file on the default branch (GitHub runs workflow_dispatch from there).
 
@@ -86,6 +92,14 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: cargo run -p cobolt-bench --release --locked -- pixel-parity --cargo --record
+
+      - name: Build the runner the pairs put the programs into
+        shell: bash
+        run: cargo build -p cobolt-runner --bin prc-runner --release --locked
+
+      - name: Compare each WebAssembly-built program with its Cargo-built twin (T34, AC19)
+        shell: bash
+        run: cargo run -p cobolt-bench --release --locked -- pixel-parity
 
       - uses: actions/upload-artifact@v7
         if: always()

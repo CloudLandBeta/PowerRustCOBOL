@@ -6236,6 +6236,7 @@ impl CoboltApp {
                 runner: None,
                 force_cargo: false,
                 no_machine_code: false,
+                wasm_only: false,
             };
             // Typed, so a missing toolchain is known by its variant, not by its words (T18).
             let result = build_project(&manifest, &opts).map_err(|e| crate::build_path_report::BuildFailure::from_error(&e));

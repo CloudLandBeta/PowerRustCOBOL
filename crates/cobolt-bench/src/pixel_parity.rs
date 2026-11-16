@@ -8,6 +8,9 @@
 //! AC20 for each form).
 //!
 //! ```sh
+//! cargo build --release -p cobolt-runner --bin prc-runner                     # the pairs need it
+//! cargo run -p cobolt-bench --release -- pixel-parity                         # the pairs (T34, AC19)
+//! cargo run -p cobolt-bench --release -- pixel-parity --project ParityControls
 //! cargo run -p cobolt-bench --release -- pixel-parity --write-scripts         # the base scripts
 //! cargo run -p cobolt-bench --release -- pixel-parity --cargo                 # against the goldens
 //! cargo run -p cobolt-bench --release -- pixel-parity --cargo --record        # write the goldens
@@ -53,6 +56,19 @@
 //! **Without `--record`** every recorded frame must equal its golden. A frame that differs fails
 //! the run. The frames of both runs and a picture of the differing pixels go under
 //! `target/pixel-parity/`.
+//!
+//! **The pairs (T34, AC19), the mode with no flag:** the five reference projects and the form
+//! fixtures (`form_fixtures`), each laid out twice. The first copy is built by default with
+//! `wasm_only`: the Build either takes the WebAssembly path or stops before anything is compiled for
+//! Cargo, naming why. A project that would take the Cargo path has not moved; its reason is
+//! printed and nothing more is done with it. A project that takes the WebAssembly path is built
+//! again on the Cargo path, from the second copy. Then every script runs once under each program,
+//! at the three sizes, from the same data and under the same pins. Every pair of frames must be
+//! equal in every pixel, and every read and dump equal. The Cargo-built frames of a reference
+//! project must also equal their goldens, and a fixture's reads must see what the fixture expects
+//! (`expect`), under both programs. A project counts as moved only when all of that holds.
+//! A differing frame leaves both pictures and a picture of the differing pixels under
+//! `target/pixel-parity/pairs/`. The runner must be beside this program.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -94,6 +110,8 @@ const ENTRANCE_WAIT_MS: u64 = cobolt_forms::window_fx::MATRIX_HARD_MAX_MS as u64
 const MARKER: &str = "@RUN-FORM-RESULT ";
 
 struct Args {
+    /// T34: the pairs, when no other mode is asked for.
+    pairs: bool,
     write_scripts: bool,
     /// T24: the console fixtures on both paths (`console_parity`).
     console: bool,
@@ -103,7 +121,7 @@ struct Args {
 }
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
-    let mut out = Args { write_scripts: false, console: false, cargo: false, record: false, project: None };
+    let mut out = Args { pairs: false, write_scripts: false, console: false, cargo: false, record: false, project: None };
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -125,15 +143,16 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         }
         return Ok(out);
     }
-    if !out.write_scripts && !out.cargo {
-        return Err("pixel-parity: say what to do: --write-scripts, --cargo, both, or --console".into());
-    }
     if out.record && !out.cargo {
         return Err("pixel-parity: --record needs --cargo".into());
     }
+    out.pairs = !out.write_scripts && !out.cargo;
     if let Some(p) = &out.project {
-        if !ten_times::REFERENCE_PROJECTS.contains(&p.as_str()) {
-            return Err(format!("pixel-parity: {p} is not a reference project ({})", ten_times::REFERENCE_PROJECTS.join(", ")));
+        let fixtures: Vec<&str> = if out.pairs { crate::form_fixtures::all().iter().map(|f| f.name).collect() } else { Vec::new() };
+        if !ten_times::REFERENCE_PROJECTS.contains(&p.as_str()) && !fixtures.contains(&p.as_str()) {
+            let mut known = ten_times::REFERENCE_PROJECTS.to_vec();
+            known.extend(fixtures);
+            return Err(format!("pixel-parity: {p} is not a project of this mode ({})", known.join(", ")));
         }
     }
     Ok(out)
@@ -400,6 +419,8 @@ struct Run {
     frames: BTreeMap<String, String>,
     shots_dir: PathBuf,
     timed_out: bool,
+    /// The report's steps, with what each `read` and `dump` saw (T34 compares them).
+    steps: Vec<Value>,
 }
 
 struct Launch<'a> {
@@ -479,7 +500,12 @@ impl Launch<'_> {
                 frames.insert(name, frame_hash(&path)?);
             }
         }
-        Ok(Run { frames, shots_dir: shots, timed_out: report.get("timed_out").and_then(Value::as_bool) == Some(true) })
+        Ok(Run {
+            frames,
+            shots_dir: shots,
+            timed_out: report.get("timed_out").and_then(Value::as_bool) == Some(true),
+            steps: report.get("steps").and_then(Value::as_array).cloned().unwrap_or_default(),
+        })
     }
 }
 
@@ -711,11 +737,458 @@ fn run_project(name: &str, args: &Args, scratch: &Path, build_root: &Path, golde
     res
 }
 
+// ── The pairs (T34, AC19) ────────────────────────────────────────────────────────────────────────
+
+/// How the two programs' runs of one script at one size compare.
+#[derive(Default, Debug)]
+struct PairCompare {
+    frames: usize,
+    identical: usize,
+    /// Pixels that differ, over every frame. A frame only one program drew, or drew at another
+    /// size, counts all of its pixels.
+    pixels: u64,
+    differing: Vec<String>,
+    /// The reads and dumps compared, and how many are equal.
+    reads: usize,
+    reads_equal: usize,
+    read_diffs: Vec<String>,
+}
+
+impl PairCompare {
+    fn absorb(&mut self, other: PairCompare, at: &str) {
+        self.frames += other.frames;
+        self.identical += other.identical;
+        self.pixels += other.pixels;
+        self.differing.extend(other.differing.into_iter().map(|d| format!("{at}/{d}")));
+        self.reads += other.reads;
+        self.reads_equal += other.reads_equal;
+        self.read_diffs.extend(other.read_diffs.into_iter().map(|d| format!("{at}/{d}")));
+    }
+}
+
+/// Every `read` and `dump` of a run's report, in order: what it was, and what it saw.
+fn reads_of(steps: &[Value]) -> Vec<(String, Value)> {
+    steps
+        .iter()
+        .filter_map(|st| {
+            let step = st.get("step").and_then(Value::as_u64).unwrap_or(0);
+            if let Some(what) = st.get("read").and_then(Value::as_str) {
+                Some((format!("step {step}: read {what}"), st.get("value").cloned().unwrap_or(Value::Null)))
+            } else if st.get("dump").is_some() {
+                Some((format!("step {step}: dump"), st.get("state").cloned().unwrap_or(Value::Null)))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// What `steps` (a run's report) missed of `expect`: each `(control::property, value)` must be the
+/// value of the run's last read of that control and property.
+fn missed_expectations(steps: &[Value], expect: &[(String, String)]) -> Vec<String> {
+    expect
+        .iter()
+        .filter_map(|(what, want)| {
+            let got = steps.iter().rev().find(|st| st.get("read").and_then(Value::as_str) == Some(what.as_str()));
+            match got.map(|st| st.get("value").cloned().unwrap_or(Value::Null)) {
+                Some(Value::String(s)) if s == *want => None,
+                Some(v) => Some(format!("{what} is {v}, expected {want:?}")),
+                None => Some(format!("{what} was never read, expected {want:?}")),
+            }
+        })
+        .collect()
+}
+
+fn area(png: &Path) -> u64 {
+    image::image_dimensions(png).map_or(0, |(w, h)| u64::from(w) * u64::from(h))
+}
+
+/// Compares the Cargo-built program's run with the WebAssembly-built program's run of the same
+/// script: every frame by its hash, a differing one pixel by pixel (its pictures go into `dir`),
+/// then every read and dump.
+fn compare_pair(cargo: &Run, wasm: &Run, dir: &Path) -> PairCompare {
+    let mut c = PairCompare::default();
+    let names: BTreeSet<&String> = cargo.frames.keys().chain(wasm.frames.keys()).collect();
+    for name in names {
+        c.frames += 1;
+        let png = format!("{name}.png");
+        let (a, b) = (cargo.shots_dir.join(&png), wasm.shots_dir.join(&png));
+        match (cargo.frames.get(name), wasm.frames.get(name)) {
+            (Some(x), Some(y)) if x == y => c.identical += 1,
+            (Some(_), Some(_)) => {
+                let n = match picture_difference(&a, &b, dir, name) {
+                    Ok(Some(n)) => n,
+                    _ => area(&a).max(area(&b)),
+                };
+                c.pixels += n;
+                c.differing.push(format!("{name}: {n} pixels differ"));
+            }
+            (drawn, _) => {
+                let (by, png) = if drawn.is_some() { ("Cargo-built", &a) } else { ("WebAssembly-built", &b) };
+                c.pixels += area(png);
+                c.differing.push(format!("{name}: drawn by the {by} program only"));
+            }
+        }
+    }
+    let (x, y) = (reads_of(&cargo.steps), reads_of(&wasm.steps));
+    c.reads = x.len().max(y.len());
+    for i in 0..c.reads {
+        match (x.get(i), y.get(i)) {
+            (Some(p), Some(q)) if p == q => c.reads_equal += 1,
+            (Some((what, _)), _) | (None, Some((what, _))) => c.read_diffs.push(what.clone()),
+            (None, None) => {}
+        }
+    }
+    c
+}
+
+/// A project the pairs mode builds both ways.
+enum PairSource {
+    Reference(&'static str),
+    Fixture(crate::form_fixtures::FormFixture),
+}
+
+impl PairSource {
+    fn name(&self) -> &str {
+        match self {
+            PairSource::Reference(n) => n,
+            PairSource::Fixture(f) => f.name,
+        }
+    }
+}
+
+/// A form's script: the form file's stem, the form's ID, its designed height, the steps, and what
+/// its reads must see (a fixture's; none for a reference project).
+struct PairScript {
+    stem: String,
+    id: String,
+    height: f32,
+    steps: Vec<Value>,
+    expect: Vec<(String, String)>,
+}
+
+/// One copy of a project: its project file, its pristine data, and the script of every form that
+/// has one.
+struct PairCopy {
+    manifest: PathBuf,
+    pristine: Option<PathBuf>,
+    forms: usize,
+    scripts: Vec<PairScript>,
+}
+
+fn lay_out_pair(source: &PairSource, dir: &Path, pristine: &Path, scratch: &Path) -> Result<PairCopy, String> {
+    let (manifest, forms, scripts) = match source {
+        PairSource::Reference(name) => {
+            copy_committed(name, dir)?;
+            let (_, forms) = ten_times::regenerate(dir)?;
+            let mut scripts = Vec::new();
+            for rel in &forms {
+                let stem = form_stem(rel);
+                let id = Path::new(rel).file_stem().map(|s| s.to_string_lossy().to_ascii_uppercase()).unwrap_or_default();
+                let text = std::fs::read_to_string(dir.join(rel)).map_err(|e| format!("{rel}: {e}"))?;
+                let form = cobolt_forms::xml::load_form_from_str(&text).map_err(|e| format!("{rel}: {e}"))?;
+                let steps = std::fs::read_to_string(scripts_dir(name).join(format!("{stem}.json")))
+                    .ok()
+                    .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                    .and_then(|v| v.get("steps").and_then(Value::as_array).cloned());
+                if let Some(steps) = steps {
+                    scripts.push(PairScript { stem, id, height: form.height as f32, steps, expect: Vec::new() });
+                }
+            }
+            let manifest = ten_times::manifest_of(dir)?;
+            cut_off_aws(&manifest, scratch)?;
+            (manifest, forms.len(), scripts)
+        }
+        PairSource::Fixture(f) => {
+            let scripts = f
+                .scripts
+                .iter()
+                .map(|(stem, id, steps)| {
+                    let height = f.forms.iter().find(|(_, form)| form.name.eq_ignore_ascii_case(id)).map_or(600, |(_, form)| form.height);
+                    PairScript { stem: stem.clone(), id: id.clone(), height: height as f32, steps: steps.clone(), expect: f.expect.clone() }
+                })
+                .collect();
+            (crate::form_fixtures::lay_out(f, dir)?, f.forms.len(), scripts)
+        }
+    };
+    let data = dir.join("data");
+    let pristine = if data.is_dir() {
+        ten_times::copy_project(&data, pristine).map_err(|e| format!("{}: {e}", pristine.display()))?;
+        Some(pristine.to_path_buf())
+    } else {
+        None
+    };
+    Ok(PairCopy { manifest, pristine, forms, scripts })
+}
+
+struct PairResult {
+    name: String,
+    /// `Ok` when the default Build took the WebAssembly path; otherwise why it would take Cargo.
+    path: Result<(), String>,
+    forms: usize,
+    scripted: usize,
+    steps: usize,
+    compare: PairCompare,
+    golden_match: usize,
+    golden_differ: Vec<String>,
+    /// The expected reads checked, over both programs' runs, and those missed.
+    expected: usize,
+    expect_missed: Vec<String>,
+    build_wasm: Duration,
+    build_cargo: Duration,
+    runs: Duration,
+    failed: Option<String>,
+}
+
+impl PairResult {
+    /// AC19: the WebAssembly path, every frame equal, every read and dump equal, the goldens met.
+    fn moved(&self) -> bool {
+        self.failed.is_none()
+            && self.path.is_ok()
+            && self.compare.frames > 0
+            && self.compare.pixels == 0
+            && self.compare.differing.is_empty()
+            && self.compare.read_diffs.is_empty()
+            && self.golden_differ.is_empty()
+            && self.expect_missed.is_empty()
+    }
+}
+
+fn run_pair(source: &PairSource, scratch: &Path, runner: &Path, golden: Option<&Golden>) -> PairResult {
+    let name = source.name().to_owned();
+    let mut res = PairResult {
+        name: name.clone(),
+        path: Err(String::new()),
+        forms: 0,
+        scripted: 0,
+        steps: 0,
+        compare: PairCompare::default(),
+        golden_match: 0,
+        golden_differ: Vec::new(),
+        expected: 0,
+        expect_missed: Vec::new(),
+        build_wasm: Duration::ZERO,
+        build_cargo: Duration::ZERO,
+        runs: Duration::ZERO,
+        failed: None,
+    };
+    let root = scratch.join("pairs");
+    let outcome = (|| -> Result<(), String> {
+        // ── The default Build, WebAssembly only ──
+        let wasm = lay_out_pair(source, &root.join("wasm").join(&name), &root.join("pristine-wasm").join(&name), scratch)?;
+        res.forms = wasm.forms;
+        eprintln!("pixel-parity: building {name} by default (the WebAssembly path only)…");
+        let t = Instant::now();
+        let opts = cobolt_compiler::BuildOptions {
+            verbose: false,
+            workspace_root: Some(repo_root()),
+            build_dir: Some(root.join("build-wasm")),
+            runner: Some(runner.to_path_buf()),
+            wasm_only: true,
+            ..Default::default()
+        };
+        let built_wasm = match cobolt_compiler::build_project(&wasm.manifest, &opts) {
+            Ok(b) => b,
+            Err(cobolt_compiler::CompilerError::WasmOnly { reason }) => {
+                res.build_wasm = t.elapsed();
+                res.path = Err(reason.to_string());
+                return Ok(());
+            }
+            Err(e) => return Err(format!("the default Build failed: {e}")),
+        };
+        res.build_wasm = t.elapsed();
+        if built_wasm.path != cobolt_compiler::BuildPath::Wasm {
+            return Err(format!("the default Build took the {} path", built_wasm.path.name()));
+        }
+        res.path = Ok(());
+
+        // ── The Cargo path, from the second copy ──
+        let cargo = lay_out_pair(source, &root.join("cargo").join(&name), &root.join("pristine-cargo").join(&name), scratch)?;
+        eprintln!("pixel-parity: building {name} on the Cargo path…");
+        let t = Instant::now();
+        let opts = cobolt_compiler::BuildOptions {
+            verbose: false,
+            workspace_root: Some(repo_root()),
+            build_dir: Some(root.join("build-cargo")),
+            force_cargo: true,
+            ..Default::default()
+        };
+        let built_cargo = cobolt_compiler::build_project(&cargo.manifest, &opts).map_err(|e| format!("the Cargo Build failed: {e}"))?;
+        res.build_cargo = t.elapsed();
+
+        // ── Every script, at every size, once under each program ──
+        let t = Instant::now();
+        let project_of = |m: &Path| m.parent().map(Path::to_path_buf).unwrap_or_default();
+        let (wasm_dir, cargo_dir) = (project_of(&wasm.manifest), project_of(&cargo.manifest));
+        let out_root = repo_root().join("target/pixel-parity/pairs").join(&name);
+        for PairScript { stem, id, height, steps, expect } in &wasm.scripts {
+            let height = *height;
+            res.scripted += 1;
+            res.steps += steps.len();
+            eprintln!("pixel-parity: {name}/{stem}, {} steps at {} sizes, once under each program…", steps.len(), SIZES.len());
+            let on_wasm = Launch { binary: &built_wasm.binary_path, project: &wasm_dir, pristine_data: wasm.pristine.as_deref(), form_id: id };
+            let on_cargo = Launch { binary: &built_cargo.binary_path, project: &cargo_dir, pristine_data: cargo.pristine.as_deref(), form_id: id };
+            for (size, width) in SIZES {
+                let mut script = Vec::new();
+                if let Some(w) = width {
+                    script.push(json!({"size": [w, height]}));
+                }
+                script.extend(steps.iter().cloned());
+                let work = root.join("runs").join(&name).join(stem).join(size);
+                let at = format!("{stem}/{size}");
+                let (c, w) = match (on_cargo.run(&script, &work.join("cargo")), on_wasm.run(&script, &work.join("wasm"))) {
+                    (Ok(c), Ok(w)) => (c, w),
+                    (c, w) => {
+                        for (by, r) in [("Cargo-built", c.err()), ("WebAssembly-built", w.err())] {
+                            if let Some(e) = r {
+                                res.compare.differing.push(format!("{at}: the {by} program: {e}"));
+                            }
+                        }
+                        continue;
+                    }
+                };
+                for (by, run) in [("Cargo-built", &c), ("WebAssembly-built", &w)] {
+                    if run.timed_out {
+                        res.compare.differing.push(format!("{at}: the {by} program reached its {LIMIT_SECS} s limit"));
+                    }
+                }
+                res.compare.absorb(compare_pair(&c, &w, &out_root.join(stem).join(size)), &at);
+                for (by, run) in [("Cargo-built", &c), ("WebAssembly-built", &w)] {
+                    res.expected += expect.len();
+                    res.expect_missed.extend(missed_expectations(&run.steps, expect).into_iter().map(|m| format!("{at}: the {by} program: {m}")));
+                }
+                if let Some(want) = golden.and_then(|g| g.frames.get(&name)).and_then(|p| p.get(stem.as_str())).and_then(|s| s.get(size)) {
+                    for (shot, hash) in want {
+                        match c.frames.get(shot) {
+                            Some(h) if h == hash => res.golden_match += 1,
+                            Some(_) => res.golden_differ.push(format!("{at}/{shot}")),
+                            None => res.golden_differ.push(format!("{at}/{shot} (not drawn)")),
+                        }
+                    }
+                }
+                let _ = std::fs::remove_dir_all(&work);
+            }
+        }
+        res.runs = t.elapsed();
+        Ok(())
+    })();
+    if let Err(e) = outcome {
+        res.failed = Some(e);
+    }
+    let _ = std::fs::remove_dir_all(root.join("wasm").join(&name));
+    let _ = std::fs::remove_dir_all(root.join("cargo").join(&name));
+    res
+}
+
+/// The pairs mode (T34).
+fn run_pairs(args: &Args) -> Result<(), String> {
+    let started = Instant::now();
+    let runner = cobolt_compiler::runner_near(&std::env::current_exe().map_err(|e| e.to_string())?).ok_or(
+        "pixel-parity: no prc-runner beside this program; build it first: cargo build --release -p cobolt-runner --bin prc-runner",
+    )?;
+    let commit = String::from_utf8_lossy(&git(&["rev-parse", "--short", "HEAD"])?).trim().to_owned();
+    let scratch = std::env::temp_dir().join(format!("prc-pixel-pairs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
+    let _ = std::fs::remove_dir_all(repo_root().join("target/pixel-parity/pairs"));
+    let golden: Option<Golden> = std::fs::read_to_string(golden_path()).ok().and_then(|t| toml::from_str(&t).ok());
+
+    let mut sources: Vec<PairSource> = crate::form_fixtures::all().into_iter().map(PairSource::Fixture).collect();
+    sources.extend(ten_times::REFERENCE_PROJECTS.iter().map(|p| PairSource::Reference(p)));
+    sources.retain(|s| args.project.as_deref().is_none_or(|p| p == s.name()));
+    let results: Vec<PairResult> = sources.iter().map(|s| run_pair(s, &scratch, &runner, golden.as_ref())).collect();
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    // The result block (GOLDEN RULE #7).
+    println!("== cobolt-bench pixel-parity (DESKTOP-WASM-001 T34: R27, AC19) ==");
+    println!(
+        "platform {}, version {}, commit {commit}; clock {CLOCK}, seed {SEED}; sizes: designed, 800 wide, 480 wide; each script once under each program",
+        platform(),
+        product_version()
+    );
+    println!("runner {}", runner.display());
+    println!(
+        "{:<16} {:<11} {:>5} {:>8} {:>6} {:>6} {:>9} {:>14} {:>11} {:>8} {:>8} {:>8} {:>8} {:>7}",
+        "project", "path", "forms", "scripted", "steps", "frames", "identical", "differing px", "reads equal", "expected", "golden", "wasm s", "cargo s", "runs s"
+    );
+    for r in &results {
+        let path = match (&r.failed, &r.path) {
+            (Some(_), _) => "failed",
+            (None, Ok(())) => "WebAssembly",
+            (None, Err(_)) => "Cargo",
+        };
+        let golden_text = if r.golden_match + r.golden_differ.len() == 0 { "-".to_owned() } else { format!("{}/{}", r.golden_match, r.golden_match + r.golden_differ.len()) };
+        let expected_text = if r.expected == 0 { "-".to_owned() } else { format!("{}/{}", r.expected - r.expect_missed.len(), r.expected) };
+        println!(
+            "{:<16} {:<11} {:>5} {:>8} {:>6} {:>6} {:>9} {:>14} {:>11} {:>8} {:>8} {:>8.1} {:>8.1} {:>7.1}",
+            r.name,
+            path,
+            r.forms,
+            r.scripted,
+            r.steps,
+            r.compare.frames,
+            r.compare.identical,
+            r.compare.pixels,
+            format!("{}/{}", r.compare.reads_equal, r.compare.reads),
+            expected_text,
+            golden_text,
+            r.build_wasm.as_secs_f64(),
+            r.build_cargo.as_secs_f64(),
+            r.runs.as_secs_f64()
+        );
+    }
+    let fell_back: Vec<&PairResult> = results.iter().filter(|r| r.failed.is_none() && r.path.is_err()).collect();
+    if !fell_back.is_empty() {
+        println!("not moved, the default Build would take the Cargo path:");
+        for r in &fell_back {
+            println!("  {}: {}", r.name, r.path.as_ref().err().map(String::as_str).unwrap_or_default());
+        }
+    }
+    let mut problems = 0;
+    for r in &results {
+        if let Some(e) = &r.failed {
+            println!("  {}: FAILED: {e}", r.name);
+            problems += 1;
+        }
+        for d in r.compare.differing.iter().chain(&r.compare.read_diffs).chain(&r.golden_differ).chain(&r.expect_missed) {
+            println!("  {}: {d}", r.name);
+            problems += 1;
+        }
+    }
+    let compared: Vec<&PairResult> = results.iter().filter(|r| r.path.is_ok()).collect();
+    let moved = results.iter().filter(|r| r.moved()).count();
+    let frames: usize = compared.iter().map(|r| r.compare.frames).sum();
+    let identical: usize = compared.iter().map(|r| r.compare.identical).sum();
+    let pixels: u64 = compared.iter().map(|r| r.compare.pixels).sum();
+    let reads: usize = compared.iter().map(|r| r.compare.reads).sum();
+    let reads_equal: usize = compared.iter().map(|r| r.compare.reads_equal).sum();
+    let expected: usize = compared.iter().map(|r| r.expected).sum();
+    let expected_met = expected - compared.iter().map(|r| r.expect_missed.len()).sum::<usize>();
+    println!(
+        "moved: {moved} of {} projects (the WebAssembly path, 0 differing pixels, every read and dump equal); frames compared {frames}, identical {identical}, differing pixels {pixels}; reads and dumps {reads_equal} of {reads} equal; expected reads met {expected_met} of {expected}; total {:.1} min",
+        results.len(),
+        started.elapsed().as_secs_f64() / 60.0
+    );
+    if pixels > 0 {
+        println!("pictures of the differences: {}", repo_root().join("target/pixel-parity/pairs").display());
+    }
+    if problems > 0 {
+        return Err(format!("pixel-parity: {problems} problem(s) above"));
+    }
+    if compared.is_empty() {
+        return Err("pixel-parity: no project took the WebAssembly path, so no pair was compared".into());
+    }
+    Ok(())
+}
+
 /// The `pixel-parity` mode.
 pub fn run(args: &[String]) -> Result<(), String> {
     let args = parse_args(args)?;
     if args.console {
         return crate::console_parity::run();
+    }
+    if args.pairs {
+        return run_pairs(&args);
     }
     let started = Instant::now();
     let commit = String::from_utf8_lossy(&git(&["rev-parse", "--short", "HEAD"])?).trim().to_owned();
@@ -961,5 +1434,85 @@ mod tests {
         }
         println!("checks: {passed} of {} passed", checks.len());
         assert_eq!(passed, checks.len(), "a check failed: see the result block\n{:#?}\n{}", script.steps, script.comment);
+    }
+
+    /// T34: the pair comparison. Two runs with three frames each: one equal, one with three pixels
+    /// changed, one drawn at another size; and a fourth frame drawn by one program only. Their
+    /// reads and dumps: one equal, one with another value, and one only one run has. Then three
+    /// expected reads against the first run: one met, one with another value, one never read.
+    #[test]
+    fn a_pair_counts_every_differing_pixel_and_read() {
+        let started = std::time::Instant::now();
+        let dir = std::env::temp_dir().join(format!("prc-pixel-pairs-unit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (a, b, diff) = (dir.join("cargo"), dir.join("wasm"), dir.join("diff"));
+        for d in [&a, &b] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let grey = |w: u32, h: u32| image::RgbaImage::from_pixel(w, h, image::Rgba([90, 90, 90, 255]));
+        grey(20, 10).save(a.join("00-open.png")).unwrap();
+        grey(20, 10).save(b.join("00-open.png")).unwrap();
+        grey(20, 10).save(a.join("01-step.png")).unwrap();
+        let mut changed = grey(20, 10);
+        for x in [0, 7, 19] {
+            changed.put_pixel(x, 3, image::Rgba([90, 91, 90, 255]));
+        }
+        changed.save(b.join("01-step.png")).unwrap();
+        grey(20, 10).save(a.join("02-size.png")).unwrap();
+        grey(16, 10).save(b.join("02-size.png")).unwrap();
+        grey(8, 4).save(a.join("03-only.png")).unwrap();
+        let run = |shots: &Path, steps: Vec<Value>| {
+            let mut frames = BTreeMap::new();
+            for e in std::fs::read_dir(shots).unwrap().flatten() {
+                let p = e.path();
+                frames.insert(p.file_stem().unwrap().to_string_lossy().into_owned(), frame_hash(&p).unwrap());
+            }
+            Run { frames, shots_dir: shots.to_path_buf(), timed_out: false, steps }
+        };
+        let cargo = run(
+            &a,
+            vec![
+                json!({"step": 1, "read": "LBL-COUNT::Caption", "value": "2"}),
+                json!({"step": 2, "dump": true, "state": {"LBL-X": {"props": {"CAPTION": "a"}}}}),
+                json!({"step": 3, "read": "LBL-X::Caption", "value": "a"}),
+            ],
+        );
+        let wasm = run(
+            &b,
+            vec![
+                json!({"step": 1, "read": "LBL-COUNT::Caption", "value": "2"}),
+                json!({"step": 2, "dump": true, "state": {"LBL-X": {"props": {"CAPTION": "b"}}}}),
+            ],
+        );
+        let c = compare_pair(&cargo, &wasm, &diff);
+        let expect: Vec<(String, String)> =
+            [("LBL-COUNT::Caption", "2"), ("LBL-X::Caption", "b"), ("LBL-Y::Caption", "c")].iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+        let missed = missed_expectations(&cargo.steps, &expect);
+        let diff_written = diff.join("01-step-diff.png").is_file();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let checks = [
+            ("4 frames compared, 1 identical", c.frames == 4 && c.identical == 1),
+            ("3 + 200 + 32 = 235 differing pixels (a changed frame, a resized one, one drawn once)", c.pixels == 3 + 200 + 32),
+            ("each differing frame named", c.differing == ["01-step: 3 pixels differ", "02-size: 200 pixels differ", "03-only: drawn by the Cargo-built program only"]),
+            ("a picture of the differing pixels written", diff_written),
+            ("3 reads and dumps compared, 1 equal", c.reads == 3 && c.reads_equal == 1),
+            ("the other dump and the missing read named", c.read_diffs == ["step 2: dump", "step 3: read LBL-X::Caption"]),
+            (
+                "of 3 expected reads, 1 met; the wrong value and the read never made named",
+                missed == ["LBL-X::Caption is \"a\", expected \"b\"", "LBL-Y::Caption was never read, expected \"c\""],
+            ),
+        ];
+        let passed = checks.iter().filter(|(_, ok)| *ok).count();
+        println!("== pixel_parity::a_pair_counts_every_differing_pixel_and_read (DESKTOP-WASM-001 T34, AC19) ==");
+        println!(
+            "fixture: 4 frames per run (20x10, one changed by 3 pixels, one 16 wide in the other run, one drawn once), 3 reads and dumps, 3 expected reads; compared in {:.1} ms",
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+        for (what, ok) in &checks {
+            println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
+        }
+        println!("checks: {passed} of {} passed", checks.len());
+        assert_eq!(passed, checks.len(), "{c:#?}");
     }
 }
