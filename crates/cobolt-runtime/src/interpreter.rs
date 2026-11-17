@@ -15348,74 +15348,22 @@ impl Interpreter {
     ///
     /// A zone holding nothing is not an error: it reports `0 of 0 copied`.
     fn commit_staged_files(&mut self, zone: &str) -> String {
-        use cobolt_forms::dropzone;
-
-        let lines = |s: String| -> Vec<String> {
-            s.lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty())
-                .map(str::to_owned)
-                .collect()
-        };
-        let staged = lines(self.obj_get(zone, "StagedFiles"));
-        let sizes: Vec<Option<u64>> = staged
-            .iter()
-            .map(|p| std::fs::metadata(p).ok().map(|m| m.len()))
-            .collect();
-
-        // Which rows are still ticked. With no list wired up there is nothing to
-        // untick, so everything staged is included.
+        // One definition with the desktop runner (`cobolt_forms::dropzone::commit_staged`,
+        // DESKTOP-WASM-001 T39c): the reads here, the copying and the answers there.
         let list = self.obj_get(zone, "FileListControl").trim().to_owned();
-        let ticked = (!list.is_empty()).then(|| lines(self.obj_get(&list, "CheckedItems")));
-        let included: Vec<bool> = staged
-            .iter()
-            .zip(&sizes)
-            .map(|(path, size)| match &ticked {
-                None => true,
-                Some(ticked) => {
-                    let label = dropzone::row_label(path, *size);
-                    ticked.iter().any(|t| *t == label)
-                }
-            })
-            .collect();
-
-        let to_copy: Vec<String> = staged
-            .iter()
-            .zip(&included)
-            .filter(|(_, keep)| **keep)
-            .map(|(p, _)| p.clone())
-            .collect();
-        let destination = self.obj_get(zone, "DestinationFolder");
-        let outcomes = dropzone::commit_files(&to_copy, &destination);
-
-        // Walk the staged list once, pairing each included file with its
-        // outcome, and build every answer as we go.
-        let mut next = outcomes.into_iter();
-        let mut rows: Vec<String> = Vec::with_capacity(staged.len());
-        let mut still_ticked: Vec<String> = Vec::new();
-        let mut landed: Vec<String> = Vec::new();
-        let mut paired: Vec<(Option<u64>, dropzone::CommitOutcome)> = Vec::new();
-        for ((path, size), keep) in staged.iter().zip(&sizes).zip(&included) {
-            if !keep {
-                rows.push(dropzone::excluded_row_label(path, *size));
-                continue;
-            }
-            let Some(outcome) = next.next() else { continue };
-            let row = dropzone::committed_row_label(path, *size, &outcome);
-            landed.push(outcome.path_or(path));
-            paired.push((*size, outcome));
-            still_ticked.push(row.clone());
-            rows.push(row);
+        let ticked = (!list.is_empty()).then(|| self.obj_get(&list, "CheckedItems"));
+        let done = cobolt_forms::dropzone::commit_staged(
+            &self.obj_get(zone, "StagedFiles"),
+            ticked.as_deref(),
+            &self.obj_get(zone, "DestinationFolder"),
+        );
+        if let Some((items, checked)) = done.list {
+            self.obj_set(&list, "Items", items);
+            self.obj_set(&list, "CheckedItems", checked);
         }
-
-        let summary = dropzone::commit_summary(&paired);
-        if !list.is_empty() {
-            self.obj_set(&list, "Items", rows.join("\n"));
-            self.obj_set(&list, "CheckedItems", still_ticked.join("\n"));
-        }
-        self.obj_set(zone, "DroppedFiles", landed.join("\n"));
-        self.obj_set(zone, "CommitSummary", summary.clone());
-        summary
+        self.obj_set(zone, "DroppedFiles", done.dropped);
+        self.obj_set(zone, "CommitSummary", done.summary.clone());
+        done.summary
     }
 
     /// Resolve a User Control property reference. `Child.Prop` is routed to the

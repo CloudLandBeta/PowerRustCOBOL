@@ -475,15 +475,16 @@ const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know 
 /// to data is judged by [`desktop_binding_gap`]), and since T50 the canvases and the graphics
 /// objects (class E), which the runner draws with the interpreter's own graphics library, and since
 /// T48 the AWS controls, whose operations the runner carries out with the interpreter's own
-/// connections and route table (A38). It does not serve yet: the other service controls (class C),
-/// the Maps control (its places and directions are a service), the Viewer (its documents and verbs)
-/// and a type it does not know (class D). A form holding one takes the Cargo path, which names the
-/// form and the control.
+/// connections and route table (A38), and since T39c the FileDropZone, whose files the form host
+/// takes in and whose `CommitFiles()` the runner copies with the interpreter's own code. It does not
+/// serve yet: the other service controls (class C), the Maps control (its places and directions are
+/// a service), the Viewer (its documents and verbs) and a type it does not know (class D). A form
+/// holding one takes the Cargo path, which names the form and the control.
 pub fn desktop_control_gap(t: &cobolt_forms::model::ControlType) -> Option<&'static str> {
     use cobolt_forms::model::ControlType as T;
     use cobolt_forms::web_class::{class_of, Class};
     match t {
-        T::DataGrid => None,
+        T::DataGrid | T::FileDropZone => None,
         t if t.is_aws() => None,
         T::Maps => Some(D_MAPS),
         T::Viewer => Some(D_VIEWER),

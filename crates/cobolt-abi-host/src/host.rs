@@ -275,6 +275,15 @@ pub trait AudioPort {
     fn release(&mut self, inst: u32);
 }
 
+/// The desktop's files a FileDropZone holds (DESKTOP-WASM-001 T39c), which the runner gives the host in
+/// [`Host::drop_zones`]: `CommitFiles()` copies a staged drop as the interpreter does
+/// ([`cobolt_forms::dropzone::commit_staged`]). A page has none: its zones hand their files to the backend.
+pub trait DropZonePort {
+    /// `CommitFiles()` of a zone holding `staged` (its `StagedFiles`), with its review list's ticked rows
+    /// (`None` when the zone names no list) and its `DestinationFolder`.
+    fn commit(&mut self, staged: &str, ticked: Option<&str>, destination: &str) -> cobolt_forms::dropzone::StagedCommit;
+}
+
 mod aws;
 pub use self::aws::{AwsControl, AwsEffects, AwsEvent, AwsPort};
 
@@ -604,6 +613,15 @@ pub struct Host {
     pub audio: Option<Box<dyn AudioPort>>,
     /// The desktop's AWS, which the runner gives the host (T48, A38); `None` in a page.
     pub aws: Option<Box<dyn AwsPort>>,
+    /// The desktop's FileDropZone copying, which the runner gives the host (T39c); `None` in a page.
+    pub drop_zones: Option<Box<dyn DropZonePort>>,
+    /// What the window wrote to a control the form does not hold, by instance and upper-case name (T39c):
+    /// a FileDropZone's `FileListControl` may name a list that is not there, and the interpreter keeps
+    /// what a drop writes to it and reads it back at `CommitFiles()`, so the desktop host does too.
+    absent: HashMap<(u32, String), Vec<(String, String)>>,
+    /// The program's writes to such a control, `(inst, name, property, value)`, for the runner to hand to
+    /// the window before the changes of [`Host::take_changes`], as the interpreter's reach it.
+    pub absent_out: Vec<(u32, String, String, String)>,
     pub effects: Vec<Effect>,
     pub outbox: Vec<Outbound>,
     /// The ids of the requests made by a Timer's `onTick` handler and not yet handed to the transport (2.0.413): an
@@ -769,6 +787,9 @@ impl Host {
             file_dialogs: Vec::new(),
             audio: None,
             aws: None,
+            drop_zones: None,
+            absent: HashMap::new(),
+            absent_out: Vec::new(),
             effects: Vec::new(),
             outbox: Vec::new(),
             automatic_requests: std::collections::HashSet::new(),
@@ -1201,6 +1222,26 @@ impl Host {
     /// The user's act changed a property whose observer events the act raises itself (a click on a
     /// list row sets `SelectedIndex` and then raises `onChange` and `onSelectedIndexChanged` in the
     /// order the desktop raises them): store it, raise nothing, and let the page redraw the control.
+    /// The window wrote `prop` of `name`, a control instance `inst`'s form does not hold (T39c): kept, as
+    /// the interpreter keeps it, for a FileDropZone whose review list is not there.
+    pub fn ui_set_absent(&mut self, inst: u32, name: &str, prop: &str, value: &str) {
+        let props = self.absent.entry((inst, name.trim().to_ascii_uppercase())).or_default();
+        match props.iter_mut().find(|(k, _)| k.eq_ignore_ascii_case(prop)) {
+            Some(kv) => kv.1 = value.to_owned(),
+            None => props.push((prop.to_owned(), value.to_owned())),
+        }
+    }
+
+    /// What the window or the program last wrote to `prop` of a control the form does not hold; empty
+    /// when nothing did, as the interpreter reads such a control.
+    fn absent_get(&self, inst: u32, name: &str, prop: &str) -> String {
+        self.absent
+            .get(&(inst, name.trim().to_ascii_uppercase()))
+            .and_then(|props| props.iter().find(|(k, _)| k.eq_ignore_ascii_case(prop)))
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default()
+    }
+
     pub fn ui_set(&mut self, inst: u32, ctl: usize, prop: &str, value: &str) {
         if let Some(tree) = self.trees.get_mut(&inst) {
             if ctl < tree.ctls.len() {
@@ -2630,6 +2671,10 @@ impl Host {
         if let Some(r) = self.aws_call(inst, idx, name, args) {
             return r;
         }
+        // A FileDropZone's `CommitFiles()` copies files: the runner's, on the desktop (T39c).
+        if let Some(r) = self.drop_zone_call(inst, idx, name) {
+            return r;
+        }
         let r = self.control_method(inst, idx, name, args);
         match r {
             Ok(o) => {
@@ -2639,6 +2684,48 @@ impl Host {
             Err(MethodError::Unsupported(m)) => Err(CmdError::Unknown(m)),
             Err(MethodError::Refused(m)) => Err(CmdError::Refused(m)),
         }
+    }
+
+    /// `CommitFiles()` on a FileDropZone of a desktop program (T39c): the runner copies the staged files,
+    /// and the answers are written as the interpreter writes them, in its order: the review list's
+    /// `Items` and `CheckedItems`, then the zone's `DroppedFiles` and `CommitSummary`, which is also the
+    /// method's answer. A zone naming a list the form does not hold reads and writes what was last
+    /// written to that name, as the interpreter does ([`Host::ui_set_absent`]): the rows a drop staged
+    /// there count as ticked, and after a commit only the committed ones are. `None` for any other call,
+    /// and in a page.
+    fn drop_zone_call(&mut self, inst: u32, idx: usize, name: &str) -> Option<Result<Option<String>, CmdError>> {
+        if !name.trim().eq_ignore_ascii_case("CommitFiles") {
+            return None;
+        }
+        if !matches!(self.trees.get(&inst)?.ctls[idx].control_type(), Some(ControlType::FileDropZone)) {
+            return None;
+        }
+        self.drop_zones.as_ref()?;
+        let tree = self.trees.get(&inst)?;
+        let list = tree.get(idx, "FileListControl").trim().to_owned();
+        let list_idx = if list.is_empty() { None } else { tree.by_name(&list) };
+        let ticked = match list_idx {
+            Some(l) => Some(tree.get(l, "CheckedItems")),
+            None => (!list.is_empty()).then(|| self.absent_get(inst, &list, "CheckedItems")),
+        };
+        let (staged, destination) = (tree.get(idx, "StagedFiles"), tree.get(idx, "DestinationFolder"));
+        let done = self.drop_zones.as_mut()?.commit(&staged, ticked.as_deref(), &destination);
+        if let (Some((items, checked)), None) = (&done.list, list_idx) {
+            for (prop, value) in [("Items", items), ("CheckedItems", checked)] {
+                self.ui_set_absent(inst, &list, prop, value);
+                self.absent_out.push((inst, list.clone(), prop.to_owned(), value.clone()));
+            }
+        }
+        let tree = self.trees.get_mut(&inst)?;
+        let mut events = Vec::new();
+        if let (Some((items, checked)), Some(l)) = (done.list, list_idx) {
+            events.extend(tree.set(l, "Items", &items));
+            events.extend(tree.set(l, "CheckedItems", &checked));
+        }
+        events.extend(tree.set(idx, "DroppedFiles", &done.dropped));
+        events.extend(tree.set(idx, "CommitSummary", &done.summary));
+        self.enqueue_requests(inst, events);
+        Some(Ok(Some(done.summary)))
     }
 
     // ── `super::` across windows (WASM-011 R11) ─────────────────────────────

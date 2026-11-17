@@ -482,6 +482,90 @@ pub fn apply_drop(zone_id: &str, paths: &[String], rules: ZoneRules<'_>) -> Drop
     writes
 }
 
+// ── The confirmation half: `CommitFiles()` ────────────────────────────────────
+
+/// What `CommitFiles()` writes, for the host to set in this order: the review
+/// list's `Items` and `CheckedItems` (when the zone names a list), then the
+/// zone's `DroppedFiles` and `CommitSummary`. The summary is also the method's
+/// answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StagedCommit {
+    /// The review list's rows, then the rows still ticked; `None` when the zone
+    /// names no list.
+    pub list: Option<(String, String)>,
+    pub dropped: String,
+    pub summary: String,
+}
+
+/// `FDZ::CommitFiles()`: copy the files a `StageOnly` drop is holding into
+/// `destination`, and say what happened. `staged` is the zone's `StagedFiles`;
+/// `ticked` the review list's `CheckedItems`, or `None` when the zone names no
+/// list (then every staged file is included). One definition for every engine:
+/// the interpreter and the desktop runner both call it (DESKTOP-WASM-001 T39c).
+pub fn commit_staged(staged: &str, ticked: Option<&str>, destination: &str) -> StagedCommit {
+    let lines = |s: &str| -> Vec<String> {
+        s.lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    let staged = lines(staged);
+    let sizes: Vec<Option<u64>> = staged
+        .iter()
+        .map(|p| std::fs::metadata(p).ok().map(|m| m.len()))
+        .collect();
+
+    // Which rows are still ticked. With no list wired up there is nothing to
+    // untick, so everything staged is included.
+    let ticked = ticked.map(lines);
+    let included: Vec<bool> = staged
+        .iter()
+        .zip(&sizes)
+        .map(|(path, size)| match &ticked {
+            None => true,
+            Some(ticked) => {
+                let label = row_label(path, *size);
+                ticked.iter().any(|t| *t == label)
+            }
+        })
+        .collect();
+
+    let to_copy: Vec<String> = staged
+        .iter()
+        .zip(&included)
+        .filter(|(_, keep)| **keep)
+        .map(|(p, _)| p.clone())
+        .collect();
+    let outcomes = commit_files(&to_copy, destination);
+
+    // Walk the staged list once, pairing each included file with its
+    // outcome, and build every answer as we go.
+    let mut next = outcomes.into_iter();
+    let mut rows: Vec<String> = Vec::with_capacity(staged.len());
+    let mut still_ticked: Vec<String> = Vec::new();
+    let mut landed: Vec<String> = Vec::new();
+    let mut paired: Vec<(Option<u64>, CommitOutcome)> = Vec::new();
+    for ((path, size), keep) in staged.iter().zip(&sizes).zip(&included) {
+        if !keep {
+            rows.push(excluded_row_label(path, *size));
+            continue;
+        }
+        let Some(outcome) = next.next() else { continue };
+        let row = committed_row_label(path, *size, &outcome);
+        landed.push(outcome.path_or(path));
+        paired.push((*size, outcome));
+        still_ticked.push(row.clone());
+        rows.push(row);
+    }
+
+    StagedCommit {
+        list: ticked.is_some().then(|| (rows.join("\n"), still_ticked.join("\n"))),
+        dropped: landed.join("\n"),
+        summary: commit_summary(&paired),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

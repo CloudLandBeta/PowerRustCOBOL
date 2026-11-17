@@ -2,6 +2,33 @@
 
 
 
+## 2.0.577 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T39c, in part): a desktop form's FileDropZone takes the WebAssembly path. A Desktop Build no longer falls back to the Cargo path for a form that holds one.**
+- **What runs:**
+  - **Taking files in** (a drop on the zone, or its picker) was already the form host's, shared by both engines. The form host judges the files by the zone's rules, copies them or stages them for review, and raises `onFilesDropped` and `onFilesRejected`. The runner gives the zone's new values to the program before the event, as for any edit on the form.
+  - **`CommitFiles()`** is now the runner's. The program hands over the zone's `StagedFiles`, its review list's ticked rows and its `DestinationFolder`. The runner copies with the interpreter's own code (`cobolt_forms::dropzone::commit_staged`, moved out of the interpreter unchanged), and the answers go back in the interpreter's order: the list's `Items` and `CheckedItems`, then the zone's `DroppedFiles` and `CommitSummary`, which is also the method's answer.
+  - A relative `DestinationFolder` starts at the application's folder on both paths.
+  - In a browser the call is refused as before; nothing changes for a Web or Mobile form.
+- **No ABI change:** `CommitFiles()` is an ordinary control call, and the module and its imports are as at 2.0.576.
+- **PowerCloud** no longer takes the Cargo path for its FileDropZone. A Build of it now stops at the generator: its main form reads `WS-OUTPUTS::Split( … )(2)::Split( … )(1)` (a value method's answer indexed, then another method on that part), which the WebAssembly path does not take yet and the interpreter does. That is the next step of T39c.
+- **Tests:**
+  - **The runner twin `file_drop_zones_take_stage_and_commit_alike`,** with four zones fed by the picker (the script's `answer` step and a real pointer click):
+    - one staging two files into a review ListBox, committed with `CommitFiles()`;
+    - one staging a file whose row is unticked before `CommitFiles()`;
+    - one copying at once, with a file refused by `AllowedExtensions`;
+    - one whose `FileListControl` names a list the form does not hold, committed twice.
+    - **The result:** 20 readings, one dump and 2 pictures (972 000 pixels, 0 differing) equal to `rcrun run-form`, and the same 4 files (2 845 bytes) copied; 10 of 10 checks.
+  - **The twin found** that the interpreter keeps what a drop writes to a review list the form does not hold, and reads it back at `CommitFiles()`: the rows the drop staged count as ticked, and after a commit only the committed ones do, so a second commit copies nothing, as with a real list. The runner first dropped those writes and copied nothing. It now keeps them too (the ABI host's values of an absent control, read and written by `CommitFiles()` and handed back to the window in the interpreter's order), before this commit.
+  - **The twin's project has an `assets/` folder,** as every project does. A built program anchors a relative folder at the folder above it that holds `assets/`, as a Cargo-built program does (else at `bin/`); `rcrun run-form` anchors at the project.
+  - **The code moved out of the interpreter:** the interpreter's `test_dropzone_commit` (3 of 3); `cobolt-forms` drop-zone tests (9 of 9); the form host's drop tests (6 of 6); the ABI host (271 of 271).
+  - **The classification:** `every_control_has_a_desktop_class` now reads 71 control types, 62 served and 9 on the Cargo path (61 and 10 before).
+  - **The sweep:** `cobolt-wasm`, `cobolt-wasm-abi`, `cobolt-wasm-rt`, `cobolt-runner` and `cobolt-web-tests`, 210 tests in 58 suites, with the AC16 pin and the player's generated fixture unchanged: no browser module's bytes moved. All 12 runner twins: 122 of 122 checks. The ABI host 271 of 271; the runner 12 of 12; the compiler's desktop and subset tests 5 of 5.
+  - **Known reds, not from this change:** `cobolt-web-tests` `examples::the_example_holds_no_secret_and_checks_and_builds` trips on untracked files in the working tree's PowerAnalyticsWeb example; the web player's `dependency_guard` still asks for Rust 1.92, while the workspace has asked for 1.95 since 2.0.469.
+  - **The web player** is rebuilt, as its inputs `cobolt-abi-host` and `cobolt-forms` changed; its freshness test passes, and 263 of its 264 tests (the 264th is the `dependency_guard` above).
+  - **The System KB:** regenerated, as the Desktop table of controls no longer lists FileDropZone (4 409 records); its test passes.
+- **Left in T39c:** `::Split( … )(n)` (PowerCloud's next refusal), the IndexedFile control with `FILE-STATUS`, `SORT` and `MERGE` with a relative or indexed file, and `OPEN … WITH REGISTERED USER`.
+
 ## 2.0.576 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T39c, in part): `COBOL::"APPEND-FILE"`, `"WRITE-FILE"`, `"IMAGE-FIT"` and `"IMAGE-INFO"` take the WebAssembly path. A Desktop Build no longer falls back to the Cargo path for a program that writes a text file or fits a picture.**

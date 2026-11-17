@@ -1098,6 +1098,142 @@ fn file_dialogs_are_asked_and_answered_alike() {
     );
 }
 
+// ── 6b. FileDropZone (T39c) ──────────────────────────────────────────────────────────────────────
+
+/// A FileDropZone of the fixture: its rules as designed properties.
+fn zone(form: &mut Form, id: &str, y: i32, props: &[(&str, &str)]) {
+    control(form, id, ControlType::FileDropZone, (20, y, 200, 110), None);
+    let c = form.controls.iter_mut().find(|c| c.id == id).expect("the zone just added");
+    for (k, v) in props {
+        c.set_prop(*k, PropValue::String((*v).into()));
+    }
+}
+
+/// The files under `dirs` of `root`, each as `<dir>/<name> <bytes>`, sorted; then the folders removed,
+/// so the next engine copies into empty ones.
+fn landed_and_cleared(root: &Path, dirs: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    for d in dirs {
+        for e in fs::read_dir(root.join(d)).into_iter().flatten().flatten() {
+            let len = e.metadata().map(|m| m.len()).unwrap_or(0);
+            out.push(format!("{d}/{} {len}", e.file_name().to_string_lossy()));
+        }
+        let _ = fs::remove_dir_all(root.join(d));
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn file_drop_zones_take_stage_and_commit_alike() {
+    let root = root("dropzone");
+    let mut main = Form::new("MAIN-FORM", "Drop zones", 900, 540);
+    main.main_form = true;
+    // A: staged for review in a list, every row left ticked, committed by a button.
+    zone(&mut main, "FDZ-A", 20, &[("StageOnly", "true"), ("FileListControl", "LST-A"), ("DestinationFolder", "inbox"), ("AllowedExtensions", "txt,csv")]);
+    control(&mut main, "LST-A", ControlType::ListBox, (240, 20, 300, 110), None);
+    control(&mut main, "LBL-A", ControlType::Label, (560, 20, 320, 24), Some("-"));
+    bind(&mut main, "FDZ-A", "onFilesDropped", &["MOVE \"staged\" TO LBL-A::Caption"]);
+    button(&mut main, "BTN-COMMIT-A", (560, 60), &["MOVE FDZ-A::CommitFiles() TO LBL-A::Caption"]);
+    // B: staged, every row unticked before the commit, so nothing is copied.
+    zone(&mut main, "FDZ-B", 150, &[("StageOnly", "true"), ("FileListControl", "LST-B"), ("DestinationFolder", "outbox")]);
+    control(&mut main, "LST-B", ControlType::ListBox, (240, 150, 300, 110), None);
+    control(&mut main, "LBL-B", ControlType::Label, (560, 150, 320, 24), Some("-"));
+    button(&mut main, "BTN-COMMIT-B", (560, 190), &["MOVE SPACES TO LST-B::CheckedItems", "MOVE FDZ-B::CommitFiles() TO LBL-B::Caption"]);
+    // C: copied at once (PowerCloud's use), one file refused by its extension.
+    zone(&mut main, "FDZ-C", 280, &[("DestinationFolder", "now"), ("AllowedExtensions", "txt")]);
+    control(&mut main, "LBL-C", ControlType::Label, (560, 280, 320, 24), Some("-"));
+    control(&mut main, "LBL-R", ControlType::Label, (560, 320, 320, 24), Some("-"));
+    bind(&mut main, "FDZ-C", "onFilesDropped", &["MOVE \"dropped\" TO LBL-C::Caption"]);
+    bind(&mut main, "FDZ-C", "onFilesRejected", &["MOVE \"refused\" TO LBL-R::Caption"]);
+    // D: staged with a review list the form does not hold, then committed.
+    zone(&mut main, "FDZ-D", 410, &[("StageOnly", "true"), ("FileListControl", "LST-GONE"), ("DestinationFolder", "gone")]);
+    control(&mut main, "LBL-D", ControlType::Label, (560, 410, 320, 24), Some("-"));
+    button(&mut main, "BTN-COMMIT-D", (560, 450), &["MOVE FDZ-D::CommitFiles() TO LBL-D::Caption"]);
+    let manifest = project(&root, "DropZones", &[("main-form", main)], &[]);
+    // A project has `assets/`: a built program anchors a relative folder at the folder above it that
+    // holds one (the project, as `rcrun run-form` does), as a Cargo-built program does; without it,
+    // at `bin/`.
+    fs::create_dir_all(root.join("assets")).unwrap();
+    // The files the operator picks, of four sizes.
+    let files = root.join("files");
+    fs::create_dir_all(&files).unwrap();
+    let picked: Vec<String> = [("ledger.txt", 1_234usize), ("notes.csv", 56), ("memo.txt", 7_890), ("tool.exe", 99), ("plan.txt", 321)]
+        .iter()
+        .map(|(name, len)| {
+            let p = files.join(name);
+            fs::write(&p, "x".repeat(*len)).unwrap();
+            p.display().to_string()
+        })
+        .collect();
+    let mut steps = vec![wait(600)];
+    for (file, zone) in [(0, "FDZ-A"), (1, "FDZ-A"), (2, "FDZ-B"), (3, "FDZ-C"), (4, "FDZ-C"), (0, "FDZ-D")] {
+        // A real pointer click: the zone opens its picker, which takes the queued answer.
+        steps.extend([answer(Some(&picked[file])), json!({"click": {"control": zone}}), wait(300)]);
+    }
+    steps.extend([
+        read("FDZ-A", "StagedFiles"),
+        read("LST-A", "Items"),
+        read("LST-A", "CheckedItems"),
+        read("LBL-A", "Caption"),
+        read("FDZ-B", "StagedFiles"),
+        read("FDZ-C", "DroppedFiles"),
+        read("FDZ-C", "RejectedFiles"),
+        read("LBL-C", "Caption"),
+        read("LBL-R", "Caption"),
+        shot("staged"),
+        click("BTN-COMMIT-A"),
+        wait(300),
+        click("BTN-COMMIT-B"),
+        wait(300),
+        click("BTN-COMMIT-D"),
+        wait(300),
+        read("LBL-A", "Caption"),
+        read("FDZ-A", "CommitSummary"),
+        read("FDZ-A", "DroppedFiles"),
+        read("LST-A", "Items"),
+        read("LST-A", "CheckedItems"),
+        read("LBL-B", "Caption"),
+        read("FDZ-B", "DroppedFiles"),
+        read("LST-B", "Items"),
+        read("LBL-D", "Caption"),
+        read("FDZ-D", "DroppedFiles"),
+        // A second commit of the zone whose list is not there: only the committed rows count as ticked.
+        click("BTN-COMMIT-D"),
+        wait(300),
+        read("LBL-D", "Caption"),
+        dump(),
+        shot("committed"),
+    ]);
+    let steps = script(&root, "steps", steps);
+    let (exe, build_ms) = build(&root, &manifest);
+    let home = root.join("home");
+    let dirs = ["inbox", "outbox", "now", "gone"];
+    let a = interpreter(&root, "main-form", &steps, &home);
+    let copied_a = landed_and_cleared(&root, &dirs);
+    let b = runner(&root, &exe, &steps, &home);
+    let copied_b = landed_and_cleared(&root, &dirs);
+    let mut tally = Tally::default();
+    tally.compare("drop zones", &a, &b, &["staged", "committed"]);
+    for (who, c) in [("interpreter", &copied_a), ("runner", &copied_b)] {
+        tally.lines.push(format!("    {who} copied: {}", c.join(", ")));
+    }
+    tally.check("both engines copied the same files, of the same sizes", copied_a == copied_b);
+    let want = ["gone/ledger.txt 1234", "inbox/ledger.txt 1234", "inbox/notes.csv 56", "now/plan.txt 321"];
+    tally.check("the runner copied the two ticked staged files, the one allowed at once and the one staged for a missing list, and nothing unticked or refused", copied_b == want);
+    tally.check("a second commit of the zone whose list is missing copied nothing", readings(&b.report).last().map(String::as_str) == Some("0 of 0 copied, 0.000 MB"));
+    let got = readings(&b.report);
+    tally.check("the runner's program heard the drop and the refusal", got.get(7).map(String::as_str) == Some("dropped") && got.get(8).map(String::as_str) == Some("refused"));
+    let summary = got.get(9).cloned().unwrap_or_default();
+    tally.check(format!("CommitFiles() answered its CommitSummary ({summary:?})"), !summary.is_empty() && got.get(10) == Some(&summary));
+    tally.finish(
+        "file_drop_zones_take_stage_and_commit_alike",
+        "four FileDropZones fed by the picker (the script's `answer`): one staging two files into a review ListBox and committed with `CommitFiles()`, one staging a file whose row is unticked before `CommitFiles()`, one copying at once with a file refused by AllowedExtensions, and one whose FileListControl names a list the form does not hold, committed twice; onFilesDropped and onFilesRejected handlers",
+        &root,
+        build_ms,
+    );
+}
+
 /// A silent WAV of `ms` milliseconds (8 kHz, 8-bit mono PCM), as the runtime's own sound tests make it.
 fn silent_wav(ms: u32) -> Vec<u8> {
     let rate: u32 = 8000;

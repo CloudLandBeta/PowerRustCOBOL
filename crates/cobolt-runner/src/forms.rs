@@ -324,6 +324,16 @@ impl Driver {
     }
 }
 
+/// The copy behind a FileDropZone's `CommitFiles()`: `cobolt_forms::dropzone::commit_staged`, the
+/// code the interpreter runs.
+struct DropZones;
+
+impl cobolt_abi_host::host::DropZonePort for DropZones {
+    fn commit(&mut self, staged: &str, ticked: Option<&str>, destination: &str) -> cobolt_forms::dropzone::StagedCommit {
+        cobolt_forms::dropzone::commit_staged(staged, ticked, destination)
+    }
+}
+
 /// The instance a call acts on, when the call names it.
 fn call_inst(call: &ModuleCall) -> Option<u32> {
     match call {
@@ -350,6 +360,9 @@ impl Thread {
             })
         };
         host.aws = Some(Box::new(aws.clone()));
+        // A FileDropZone's `CommitFiles()` (T39c): the interpreter's own copy, anchored at the
+        // application's folder as the interpreter anchors it.
+        host.drop_zones = Some(Box::new(DropZones));
         // The canvases and the graphics objects (T50).
         let graphics = crate::gfx::install(&mut host);
         // A form the Build has no program for is designed but not in the manifest: it cannot open.
@@ -548,6 +561,10 @@ fn take(d: &mut Driver, l: &Link, ev: FormEvent) -> Option<(u32, usize)> {
     for u in edits {
         if let Some(ctl) = control_index(d.host(), inst, &l.object, &u.ctrl_id) {
             d.host().ui_set(inst, ctl, &u.prop, &u.value);
+        } else {
+            // A control the form does not hold (a FileDropZone's review list that is not there): kept,
+            // as the interpreter keeps it (T39c).
+            d.host().ui_set_absent(inst, &u.ctrl_id, &u.prop, &u.value);
         }
     }
     let _ = d.host().take_changes();
@@ -764,6 +781,12 @@ fn effects(d: &mut Driver, links: &mut [Link], (opening, adopting): Opening<'_>,
 /// runs first, wherever its window is (T50): its pictures wait for the window instead.
 fn changes(host: &mut Host, links: &[Link], parked: &mut Vec<(u32, Change)>, graphics: &crate::gfx::Shared) {
     use cobolt_forms::model::{CHECKED_PROP, SELECTED_PROP};
+    // The program's writes to a control the form does not hold (T39c), first, as they were made first.
+    for (inst, ctrl_id, prop, value) in std::mem::take(&mut host.absent_out) {
+        if let Some(l) = link_of(links, inst) {
+            let _ = l.state.send(StateUpdate::new(ctrl_id, prop, value));
+        }
+    }
     let mut list = std::mem::take(parked);
     list.extend(host.take_changes());
     let pictures = graphics.borrow_mut().pump(host, &mut list);
