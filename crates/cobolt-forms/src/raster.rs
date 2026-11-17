@@ -178,6 +178,23 @@ pub fn to_png(image: &ColorImage) -> Result<Vec<u8>, String> {
     Ok(out.into_inner())
 }
 
+/// The largest texture side a frame drawn here reports: what a window of this
+/// product reports. Its `wgpu` device is asked for 2D textures of up to 8192
+/// pixels a side (`native_options` keeps egui-wgpu's request), and egui takes
+/// that as `max_texture_side`. Left unset, egui assumes 2048, and a picture
+/// wider or taller than that, which a window shows, stopped a headless run.
+pub const MAX_TEXTURE_SIDE: usize = 8192;
+
+/// The input of one frame drawn here.
+fn frame_input(size: egui::Vec2, time: f64) -> egui::RawInput {
+    egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+        time: Some(time),
+        max_texture_side: Some(MAX_TEXTURE_SIDE),
+        ..Default::default()
+    }
+}
+
 /// Run one egui frame at `time` seconds and rasterise it: the convenience
 /// every headless caller wants. `rasterizer` carries the textures across
 /// frames; advance `time` between calls so fades and animations settle.
@@ -189,9 +206,7 @@ pub fn render_frame(
     time: f64,
     ui: impl FnMut(&mut egui::Ui),
 ) -> ColorImage {
-    let mut input = egui::RawInput::default();
-    input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size));
-    input.time = Some(time);
+    let input = frame_input(size, time);
     let mut full = ctx.run_ui(input, ui);
     rasterizer.apply(&full.textures_delta);
     full.textures_delta.clear(); // applied — egui insists it is said
@@ -216,10 +231,8 @@ pub fn advance_frame_with(
     events: Vec<egui::Event>,
     ui: impl FnMut(&mut egui::Ui),
 ) {
-    let mut input = egui::RawInput::default();
+    let mut input = frame_input(size, time);
     input.events = events;
-    input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size));
-    input.time = Some(time);
     let mut full = ctx.run_ui(input, ui);
     rasterizer.apply(&full.textures_delta);
     full.textures_delta.clear();
@@ -311,5 +324,48 @@ mod tests {
         println!("pictures compared {compared}, identical {}, differing {differing} ({} ms)", compared - differing, started.elapsed().as_millis());
         assert!(inked > 60, "the texels were drawn");
         assert_eq!(differing, 0, "a picture depended on where its texels sit in the atlas");
+    }
+
+    /// A picture wider than 2048 pixels, which a window of this product shows, is drawn here too.
+    /// egui assumed 2048 when a frame did not say, and a debug build stopped at the first such
+    /// picture (PowerOficina's 2172 × 724 banner stopped its headless run). Pictures of 2049,
+    /// 2172 and 8192 pixels a side are each loaded and drawn into a 100 × 20 rectangle; each one's
+    /// colour must cover that rectangle.
+    #[test]
+    fn a_picture_wider_than_2048_pixels_is_drawn() {
+        let started = std::time::Instant::now();
+        let ctx = egui::Context::default();
+        let mut r = Rasterizer::new();
+        let size = egui::vec2(160.0, 60.0);
+        let bg = Color32::from_rgb(10, 10, 10);
+        let sides = [(2049usize, 4usize), (2172, 724), (4, 8192)];
+        let colours = [Color32::from_rgb(200, 30, 40), Color32::from_rgb(30, 200, 40), Color32::from_rgb(30, 40, 200)];
+        let mut covered = Vec::new();
+        for (&(w, h), &colour) in sides.iter().zip(&colours) {
+            let tex = std::cell::RefCell::new(None::<egui::TextureHandle>);
+            let draw = |ui: &mut egui::Ui| {
+                let mut slot = tex.borrow_mut();
+                let t = slot.get_or_insert_with(|| {
+                    ui.ctx().load_texture(format!("wide-{w}x{h}"), ColorImage::filled([w, h], colour), egui::TextureOptions::LINEAR)
+                });
+                let rect = egui::Rect::from_min_size(egui::pos2(30.0, 20.0), egui::vec2(100.0, 20.0));
+                let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                ui.painter().image(t.id(), rect, uv, Color32::WHITE);
+            };
+            let _ = render_frame(&ctx, &mut r, size, bg, 0.0, draw);
+            let img = render_frame(&ctx, &mut r, size, bg, 0.1, draw);
+            let at = |x: usize, y: usize| img.pixels[y * 160 + x];
+            let inside = (32..128).flat_map(|x| (22..38).map(move |y| (x, y))).filter(|&(x, y)| at(x, y) == colour).count();
+            assert_eq!(inside, 96 * 16, "the {w} × {h} picture covers its rectangle");
+            assert_eq!(at(5, 5), bg, "nothing outside it");
+            covered.push(format!("{w}x{h} {inside} px"));
+        }
+        println!(
+            "raster: max texture side {MAX_TEXTURE_SIDE}; pictures drawn {} of {} ({}); {} ms",
+            covered.len(),
+            sides.len(),
+            covered.join(", "),
+            started.elapsed().as_millis()
+        );
     }
 }

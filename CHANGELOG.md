@@ -2,6 +2,16 @@
 
 
 
+## 2.0.591 — 2026-11-17
+
+**Fix: a form drawn off screen shows a picture more than 2,048 pixels wide or tall, as its window does.** A headless run (`rcrun run-form --headless`, the `run_form` and `render_form` tools, a built program's scripted run) stopped at the first such picture: PowerOficina's 2172 × 724 logo stopped its run before the first frame.
+- **Cause:** every frame drawn off screen goes through the CPU rasteriser, and its frames never said how large a texture may be, so egui assumed 2048. A window of the product says 8192 (its `wgpu` device is asked for 2D textures of up to 8192 pixels a side, and egui takes that as the limit). A debug build checks the limit when a picture is loaded and stopped there; a release build went on.
+- **Now:** the rasteriser's frames say 8192, as a window does (`cobolt_forms::raster::MAX_TEXTURE_SIDE`), so a picture a window shows is drawn off screen too. The font atlas is as wide as a window's; the rasteriser samples a glyph the same wherever it sits in the atlas (`a_texture_samples_the_same_from_any_place_in_the_atlas`), so the pictures of forms do not change.
+- **Tests:**
+  - **The new test `a_picture_wider_than_2048_pixels_is_drawn`:** pictures of 2049 × 4, 2172 × 724 and 4 × 8192 pixels are loaded and drawn into a 100 × 20 rectangle; each one's colour covers all 1,536 pixels of it. With the old limit put back, the first picture stops the test as PowerOficina's logo stopped its run.
+  - **The sweeps:** `cobolt-forms` with `render`, 102 test binaries, 1,880 passed, 0 failed, the example goldens unchanged; `cobolt-form-host` 223 of 223; PowerCobolCraft pixel parity with the new limit, 66 of 66 frames identical and 66 of 66 golden hashes met.
+- **Developer's Guide:** the `render_form` tool's entry says how large a picture a form drawn off screen shows.
+
 ## 2.0.590 — 2026-11-17
 
 **Fix: a headless run ends as an operator ends it, so the program's `onClose` and closing work run before the result (WASM-PARITY #75).** `rcrun run-form --headless`, the `run_form` tool and a built program run with `PRC_HEADLESS_SCRIPT` share one headless driver. After the script's last step it wrote its report and returned while the program was still running, and the form was dropped under it. What a program does as it ends was then a race. That covers an `onClose` handler, the `CLOSE` that an IndexedFile control's `AutoOpen` puts after the event loop, and a last `DISPLAY`. The interpreter's program lost the race in every run observed: `onClose` never ran, and an indexed file it had written was left without its last pages (12 288 bytes against 20 480). The runner's program sometimes finished and sometimes was cut off half-way: in the run before this fix its log file was left empty.

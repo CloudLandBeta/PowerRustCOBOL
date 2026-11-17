@@ -14872,7 +14872,10 @@ The tools the agent has are these:
   a form your application loads into its ContentPane, the agent can ask for it
   **inside the shell** — beside the side menu, under the breadcrumb. To get
   there the application runs, so the main form's and that form's opening
-  handlers run too. Given a **`width` and `height`**, a responsive form is
+  handlers run too. A picture the form shows is drawn as its window draws it,
+  up to 8,192 pixels a side, the largest a window of PowerRustCOBOL AI shows
+  (until 2.0.591 a picture more than 2,048 pixels wide or tall stopped the
+  run). Given a **`width` and `height`**, a responsive form is
   laid out for a window of that size — the agent sees it on a small laptop
   and on a wide monitor. A form never lays out smaller than its minimum, as
   a running window cannot be made smaller; the answer says when it was held
