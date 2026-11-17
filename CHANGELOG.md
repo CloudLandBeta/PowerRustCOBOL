@@ -2,6 +2,21 @@
 
 
 
+## 2.0.586 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T39c, in part): `SORT` and `MERGE` with a relative or indexed `USING` or `GIVING` file take the WebAssembly path. Such a program no longer stops the Build at the generator.**
+- **What runs:** a `USING` or `GIVING` file of any organisation, as the interpreter takes it since 2.0.585:
+  - a **relative `USING`** file gives its records in record-number order, past its empty slots, and a record number with more digits than its `RELATIVE KEY` item holds ends the reading (14);
+  - an **indexed `USING`** file gives its records in ascending `RECORD KEY` order;
+  - a **relative `GIVING`** file receives slots 1, 2, 3, … in every access mode, and its `RELATIVE KEY` item is left on the last one;
+  - an **indexed `GIVING`** file in the sequential access mode takes its records in ascending key order.
+- **How:** the generator no longer refuses such a file. The runner already reads and writes every organisation with the interpreter's own file verbs. The runtime's `GIVING` now gives a relative file's record its slot number and sets the `RELATIVE KEY` item afterwards.
+- **AC16 unchanged:** the runtime changed, yet the pin and the player's fixtures pass without re-recording: no browser module's bytes moved.
+- **Tests:**
+  - the runner twin `files_of_every_organisation_match_the_interpreter` gains `sort keyed`, 28 lines printed and 9 files (41 404 bytes) equal to `rcrun run`. It covers an indexed `USING` file, a relative one past its empty slots, relative `GIVING` in the sequential and random access modes (the `RELATIVE KEY` left on 3), indexed `GIVING` in the sequential access mode, a `MERGE` of two indexed files into a relative file (the key left on 9), a record number wider than the `RELATIVE KEY` (14), and every `FILE STATUS` the sorts leave. The twin's ten programs: 189 of 189 checks;
+  - `native_desktop_refusals`: an indexed `USING` file and a relative `GIVING` file compile, asking for `files.indexed` or `files.relative` beside `files.sequential`; 21 of 21 checks.
+  - the whole `cobolt-wasm` suite: 36 test targets, 135 passed, 0 failed.
+
 ## 2.0.585 — 2026-11-17
 
 **Fix: `SORT` and `MERGE` read a relative or indexed `USING` file and write a relative or indexed `GIVING` file. Before, the sort took no record from such a `USING` file and wrote none to such a `GIVING` file, though it reported success.**

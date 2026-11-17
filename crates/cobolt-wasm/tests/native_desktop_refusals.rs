@@ -97,7 +97,7 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     );
 
     // SORT and MERGE with USING and GIVING: compiled (T39); the files reach the runner. A relative
-    // or indexed USING file, which the interpreter does not read, is refused; COLLATING SEQUENCE compiles.
+    // or indexed USING or GIVING file compiles too (T39c), and COLLATING SEQUENCE compiles.
     let using = format!(
         "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT W ASSIGN TO \"w\".\n    SELECT IN-F ASSIGN TO \"in\".\n    SELECT OUT-F ASSIGN TO \"out\".\n\
          DATA DIVISION.\nFILE SECTION.\nSD W.\n01 W-REC PIC X(5).\nFD IN-F.\n01 IN-REC PIC X(5).\nFD OUT-F.\n01 OUT-REC PIC X(5).\nPROCEDURE DIVISION.\n    SORT W ON ASCENDING KEY W-REC USING IN-F GIVING OUT-F\n    MERGE W ON ASCENDING KEY W-REC USING IN-F OUT-F GIVING OUT-F\n    STOP RUN.\n"
@@ -114,10 +114,17 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
         "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT W ASSIGN TO \"w\".\n    SELECT IX ASSIGN TO \"ix\"\n        ORGANIZATION IS INDEXED\n        RECORD KEY IS IX-KEY.\n    SELECT OUT-F ASSIGN TO \"out\".\n\
          DATA DIVISION.\nFILE SECTION.\nSD W.\n01 W-REC PIC X(5).\nFD IX.\n01 IX-REC.\n    05 IX-KEY PIC X(5).\nFD OUT-F.\n01 OUT-REC PIC X(5).\nPROCEDURE DIVISION.\n    SORT W ON ASCENDING KEY W-REC USING IX GIVING OUT-F.\n    STOP RUN.\n"
     );
-    let e = refusal(&indexed_using);
     check(
-        "SORT … USING an indexed file: refused at its line, naming the file (M3)".into(),
-        e.subject == "SORT … USING/GIVING" && e.line == line_of(&indexed_using, "SORT W") && e.message.contains("USING IX") && e.message.contains("M3"),
+        "SORT … USING an indexed file compiles: capabilities files.indexed and files.sequential".into(),
+        caps_of(&indexed_using).is_some_and(|c| c.len() == 2 && c.iter().any(|x| x == "files.indexed") && c.iter().any(|x| x == "files.sequential")),
+    );
+    let relative_giving = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT W ASSIGN TO \"w\".\n    SELECT IN-F ASSIGN TO \"in\".\n    SELECT RL ASSIGN TO \"rl\"\n        ORGANIZATION IS RELATIVE\n        RELATIVE KEY IS WS-RK.\n\
+         DATA DIVISION.\nFILE SECTION.\nSD W.\n01 W-REC PIC X(5).\nFD IN-F.\n01 IN-REC PIC X(5).\nFD RL.\n01 RL-REC PIC X(5).\nWORKING-STORAGE SECTION.\n01 WS-RK PIC 9(3).\nPROCEDURE DIVISION.\n    SORT W ON ASCENDING KEY W-REC USING IN-F GIVING RL.\n    STOP RUN.\n"
+    );
+    check(
+        "SORT … GIVING a relative file compiles: capabilities files.relative and files.sequential".into(),
+        caps_of(&relative_giving).is_some_and(|c| c.len() == 2 && c.iter().any(|x| x == "files.relative") && c.iter().any(|x| x == "files.sequential")),
     );
     let collating = format!(
         "{HEAD}ENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\nSPECIAL-NAMES.\n    ALPHABET REV IS \"Z\" THRU \"A\".\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT W ASSIGN TO \"w\".\n    SELECT IN-F ASSIGN TO \"in\".\n\

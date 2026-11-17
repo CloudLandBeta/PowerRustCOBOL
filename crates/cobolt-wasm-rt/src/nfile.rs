@@ -392,6 +392,12 @@ pub fn sort_giving(base: u32, d: u32, sd: u32, raw: u32) {
     let (rec_len, _, state) = sort_words(base, sd);
     let (s, cap) = scratch();
     let (v, n) = (mem::rd_u32(state), mem::rd_u32(state + 4));
+    // Each record is written as by `WRITE` (ISO 1989:1985 XI-4.4 GR 10). A RELATIVE file's records
+    // go to slots 1, 2, 3, …, by number under RANDOM or DYNAMIC access; in the sequential access
+    // mode the runner gives the next slot, which after the OPEN OUTPUT is the same one. Its RELATIVE
+    // KEY item is left on the last of them, as the interpreter's `write_all_records` leaves it.
+    let relative = f.org == ORG_RELATIVE;
+    let mut last = 0i64;
     for i in 0..n {
         let p = mem::rd_u32(v + 4 * i);
         let (rec, len) = if raw == 0 {
@@ -408,8 +414,15 @@ pub fn sort_giving(base: u32, d: u32, sd: u32, raw: u32) {
                 (s + OUT, len)
             }
         };
+        let rel = if relative { i as i64 + 1 } else { NONE as i64 };
         // SAFETY: the runner reads `len` bytes at `rec` and writes 8 at `s`.
-        let _ = unsafe { host::f_write(f.id, base + f.handle_off, rec, len, NONE as i64, s) };
+        let code = status(unsafe { host::f_write(f.id, base + f.handle_off, rec, len, rel, s) });
+        if relative && code == 0 {
+            last = rel;
+        }
+    }
+    if last > 0 && f.relkey_opd != 0 {
+        crate::rt_set_int(base, f.relkey_opd, last);
     }
 }
 

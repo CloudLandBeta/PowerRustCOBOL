@@ -1568,7 +1568,24 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - **The fix it needed (2.0.582, WASM-PARITY #74):** the module's `CONCATENATE` spelled a numeric argument by its picture (`n=0042`) where the interpreter spells its value (`n=42`).
     - **Tests:** `cobolt-wasm` `the_concatenation_operator_matches_the_interpreter`, 17 rows; `function_concatenate_spells_a_number_as_the_interpreter`, 9 rows; each equal on both engines and both memory variants.
     - **PowerCloud takes the WebAssembly path** (`cobolt-bench pixel-parity --project PowerCloud`, 2026-11-17): Build 0.4 s (Cargo 187.8 s); 5 forms, 49 steps at three sizes, 72 frame pairs identical, 0 differing pixels; the Cargo frames match the goldens, 72 of 72. All five reference projects now take the WebAssembly path.
-    - **Still open in T39c:** the IndexedFile control with `FILE-STATUS`, `SORT`/`MERGE` with a relative or indexed file, and `OPEN … WITH REGISTERED USER`.
+  - *`SORT`/`MERGE` with a relative or indexed file done 2026-11-17 (2.0.586), after the interpreter's own fix (2.0.585):*
+    - **The fix it needed first (2.0.585):** the interpreter's sort read and wrote only sequential files. From a relative or indexed `USING` file it took no record, and it wrote none to such a `GIVING` file. Both now go through the verbs `READ` and `WRITE` use. NIST ST execution is unchanged: 39 of 39 programs, 735 PASS, 0 FAIL.
+    - **What runs:** a `USING` or `GIVING` file of any organisation.
+      - The generator no longer refuses one.
+      - The runner already read and wrote every organisation with the interpreter's file verbs.
+      - The runtime's `GIVING` gives a relative file's records slots 1, 2, 3, … and leaves the `RELATIVE KEY` item on the last one, as the interpreter does.
+    - **Tests:**
+      - the runner twin `files_of_every_organisation_match_the_interpreter` gains `sort keyed`: 28 lines printed and 9 files (41 404 bytes) equal to `rcrun run`; 189 of 189 checks across the twin's ten programs. It covers:
+        - an indexed `USING` file in key order;
+        - a relative one past its empty slots;
+        - relative `GIVING` in the sequential and random access modes (the `RELATIVE KEY` left on 3);
+        - indexed `GIVING` in the sequential access mode;
+        - a `MERGE` of two indexed files into a relative file (the key left on 9);
+        - a record number wider than the `RELATIVE KEY` ending the reading (14);
+        - every `FILE STATUS` the sorts leave.
+      - `native_desktop_refusals`: an indexed `USING` file and a relative `GIVING` file compile; 21 of 21 checks.
+    - **AC16 unchanged:** the pin and the player's fixtures pass without re-recording.
+    - **Still open in T39c:** the IndexedFile control with `FILE-STATUS`, and `OPEN … WITH REGISTERED USER`.
 
 - [ ] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
   - Verify:

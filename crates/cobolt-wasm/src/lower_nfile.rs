@@ -711,11 +711,13 @@ impl Lower<'_, '_> {
 
     /// `SORT … USING` (and `MERGE`) in a desktop module: each file opened INPUT, read whole into the
     /// work file of the SORT `sort_desc`, and closed, as the interpreter's `read_all_records` does.
+    /// A file of any organisation (T39c): the runner reads a relative or indexed one as `READ … NEXT`
+    /// does, and `sort_giving_files` writes one as `WRITE` does.
     /// The OPEN and the CLOSE are the program's own (FILE STATUS, USE procedures); the reads set
     /// neither (T39).
     pub(crate) fn sort_using_files(&mut self, files: &[String], sort_desc: u32, line: u32) -> GenResult<()> {
         for f in files {
-            let fi = self.sort_file(f, "USING", line)?;
+            let fi = self.native_file(f, line)?;
             self.sort_open_close(f, fi, Some(verb::OPEN_INPUT));
             self.base();
             self.i32c(fi.desc as i32);
@@ -731,7 +733,7 @@ impl Lower<'_, '_> {
     /// `USING` files, each at its own length.
     pub(crate) fn sort_giving_files(&mut self, files: &[String], sort_desc: u32, raw: bool, line: u32) -> GenResult<()> {
         for f in files {
-            let fi = self.sort_file(f, "GIVING", line)?;
+            let fi = self.native_file(f, line)?;
             self.sort_open_close(f, fi, Some(verb::OPEN_OUTPUT));
             self.base();
             self.i32c(fi.desc as i32);
@@ -741,22 +743,6 @@ impl Lower<'_, '_> {
             self.sort_open_close(f, fi, None);
         }
         Ok(())
-    }
-
-    /// A `USING` or `GIVING` file. The interpreter reads and writes only a sequential or line
-    /// sequential one there: a relative or indexed file is refused, so the Build keeps it on the
-    /// Cargo path rather than copy that gap into the module.
-    fn sort_file(&mut self, f: &str, phrase: &str, line: u32) -> GenResult<FileInfo> {
-        let fi = self.native_file(f, line)?;
-        if matches!(self.file_meta[fi.meta].org, FileOrganization::Relative | FileOrganization::Indexed) {
-            return self.err_kind(
-                line,
-                ErrorKind::Other,
-                "SORT … USING/GIVING",
-                format!("SORT … {phrase} {f}: a relative or indexed {phrase} file is not on the WebAssembly path (DESKTOP-WASM-001 M3)"),
-            );
-        }
-        Ok(fi)
     }
 
     /// The OPEN (`mode`) or, with `None`, the CLOSE a `USING` or `GIVING` file gets, lowered as the

@@ -410,6 +410,159 @@ PROCEDURE DIVISION.
     STOP RUN.
 ";
 
+/// SORT and MERGE with RELATIVE and INDEXED files (T39c): an indexed USING file read in key order,
+/// a relative one read past its empty slots, a relative GIVING file written to slots 1, 2, 3, …
+/// with its RELATIVE KEY left on the last, an indexed GIVING file in the sequential access mode,
+/// a MERGE of two indexed files, and a record number wider than the RELATIVE KEY ending the
+/// reading (14). Every FILE STATUS the sort leaves is printed.
+const SORT_KEYED: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T39CSRT.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT IDX-IN ASSIGN TO \"idxin.dat\"
+        ORGANIZATION IS INDEXED ACCESS MODE IS DYNAMIC
+        RECORD KEY IS II-KEY
+        FILE STATUS IS WS-FS-IDX.
+    SELECT REL-IN ASSIGN TO \"relin.dat\"
+        ORGANIZATION IS RELATIVE ACCESS MODE IS RANDOM
+        RELATIVE KEY IS WS-RIN
+        FILE STATUS IS WS-FS-REL.
+    SELECT SEQ-OUT ASSIGN TO \"seqout.txt\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS-SEQ.
+    SELECT REL-OUT ASSIGN TO \"relout.dat\"
+        ORGANIZATION IS RELATIVE ACCESS MODE IS SEQUENTIAL
+        RELATIVE KEY IS WS-ROUT
+        FILE STATUS IS WS-FS-ROUT.
+    SELECT REL-RANDOM ASSIGN TO \"relrnd.dat\"
+        ORGANIZATION IS RELATIVE ACCESS MODE IS RANDOM
+        RELATIVE KEY IS WS-RRND
+        FILE STATUS IS WS-FS-ROUT.
+    SELECT IDX-OUT ASSIGN TO \"idxout.dat\"
+        ORGANIZATION IS INDEXED ACCESS MODE IS SEQUENTIAL
+        RECORD KEY IS IO-KEY
+        FILE STATUS IS WS-FS-IOUT.
+    SELECT REL-WIDE ASSIGN TO \"relnine.dat\"
+        ORGANIZATION IS RELATIVE ACCESS MODE IS RANDOM
+        RELATIVE KEY IS WS-RWIDE.
+    SELECT REL-NARROW ASSIGN TO \"relnine.dat\"
+        ORGANIZATION IS RELATIVE ACCESS MODE IS SEQUENTIAL
+        RELATIVE KEY IS WS-RNARROW
+        FILE STATUS IS WS-FS-REL.
+    SELECT SORT-FILE ASSIGN TO \"sortk.tmp\".
+DATA DIVISION.
+FILE SECTION.
+FD IDX-IN.
+01 II-REC.
+   05 II-KEY  PIC 9(2).
+   05 II-NAME PIC X(3).
+FD REL-IN.
+01 RI-REC PIC X(5).
+FD SEQ-OUT.
+01 SO-REC PIC X(5).
+FD REL-OUT.
+01 RO-REC PIC X(5).
+FD REL-RANDOM.
+01 RR-REC PIC X(5).
+FD IDX-OUT.
+01 IO-REC.
+   05 IO-KEY  PIC 9(2).
+   05 IO-NAME PIC X(3).
+FD REL-WIDE.
+01 RW-REC PIC X(5).
+FD REL-NARROW.
+01 RN-REC PIC X(5).
+SD SORT-FILE.
+01 SORT-REC.
+   05 S-KEY  PIC 9(2).
+   05 S-NAME PIC X(3).
+WORKING-STORAGE SECTION.
+01 WS-RIN     PIC 9(3).
+01 WS-ROUT    PIC 9(3).
+01 WS-RRND    PIC 9(3).
+01 WS-RWIDE   PIC 9(2).
+01 WS-RNARROW PIC 9.
+01 WS-FS-IDX  PIC XX.
+01 WS-FS-REL  PIC XX.
+01 WS-FS-SEQ  PIC XX.
+01 WS-FS-ROUT PIC XX.
+01 WS-FS-IOUT PIC XX.
+01 WS-EOF     PIC X.
+PROCEDURE DIVISION.
+    OPEN OUTPUT IDX-IN
+    MOVE \"30CCC\" TO II-REC WRITE II-REC
+    MOVE \"10AAA\" TO II-REC WRITE II-REC
+    MOVE \"20BBB\" TO II-REC WRITE II-REC
+    CLOSE IDX-IN
+    OPEN OUTPUT REL-IN
+    MOVE 5 TO WS-RIN MOVE \"50EEE\" TO RI-REC WRITE RI-REC
+    MOVE 2 TO WS-RIN MOVE \"60FFF\" TO RI-REC WRITE RI-REC
+    MOVE 7 TO WS-RIN MOVE \"40DDD\" TO RI-REC WRITE RI-REC
+    CLOSE REL-IN
+    SORT SORT-FILE ON DESCENDING KEY S-NAME
+        USING IDX-IN GIVING SEQ-OUT
+    DISPLAY \"indexed in \" WS-FS-IDX \" seq out \" WS-FS-SEQ
+    PERFORM SHOW-SEQ
+    MOVE 0 TO WS-ROUT
+    SORT SORT-FILE ON ASCENDING KEY S-KEY
+        USING REL-IN GIVING REL-OUT
+    DISPLAY \"relative in \" WS-FS-REL \" out \" WS-FS-ROUT \" key \" WS-ROUT
+    PERFORM SHOW-REL
+    MOVE 0 TO WS-RRND
+    SORT SORT-FILE ON DESCENDING KEY S-KEY
+        USING IDX-IN GIVING REL-RANDOM
+    DISPLAY \"random out \" WS-FS-ROUT \" key \" WS-RRND
+    SORT SORT-FILE ON ASCENDING KEY S-KEY
+        USING REL-IN IDX-IN GIVING IDX-OUT
+    DISPLAY \"indexed out \" WS-FS-IOUT
+    PERFORM SHOW-IDX
+    MERGE SORT-FILE ON ASCENDING KEY S-KEY
+        USING IDX-IN IDX-OUT GIVING REL-OUT
+    DISPLAY \"merged out \" WS-FS-ROUT \" key \" WS-ROUT
+    PERFORM SHOW-REL
+    OPEN OUTPUT REL-WIDE
+    MOVE 3 TO WS-RWIDE MOVE \"70GGG\" TO RW-REC WRITE RW-REC
+    MOVE 12 TO WS-RWIDE MOVE \"80HHH\" TO RW-REC WRITE RW-REC
+    CLOSE REL-WIDE
+    SORT SORT-FILE ON ASCENDING KEY S-KEY
+        USING REL-NARROW GIVING SEQ-OUT
+    DISPLAY \"narrow key in \" WS-FS-REL
+    PERFORM SHOW-SEQ
+    STOP RUN.
+SHOW-SEQ.
+    MOVE \"N\" TO WS-EOF
+    OPEN INPUT SEQ-OUT
+    PERFORM UNTIL WS-EOF = \"Y\"
+        READ SEQ-OUT
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END DISPLAY \"seq \" SO-REC
+        END-READ
+    END-PERFORM
+    CLOSE SEQ-OUT.
+SHOW-REL.
+    MOVE \"N\" TO WS-EOF
+    OPEN INPUT REL-OUT
+    PERFORM UNTIL WS-EOF = \"Y\"
+        READ REL-OUT NEXT
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END DISPLAY \"rel \" WS-ROUT \"=\" RO-REC
+        END-READ
+    END-PERFORM
+    CLOSE REL-OUT.
+SHOW-IDX.
+    MOVE \"N\" TO WS-EOF
+    OPEN INPUT IDX-OUT
+    PERFORM UNTIL WS-EOF = \"Y\"
+        READ IDX-OUT NEXT
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END DISPLAY \"idx \" IO-REC
+        END-READ
+    END-PERFORM
+    CLOSE IDX-OUT.
+";
+
 /// SORT and MERGE (T39): USING and GIVING, two GIVING files (one LINE SEQUENTIAL), USING with an
 /// OUTPUT PROCEDURE, an INPUT PROCEDURE with GIVING, MERGE with GIVING and with an OUTPUT PROCEDURE,
 /// variable-length records kept at their own length, equal keys in release order, and a USING file
@@ -1045,6 +1198,25 @@ const PROGRAMS: &[(&str, &str, &[&str])] = &[
             "out records 00",
         ],
     ),
+    (
+        "sort keyed",
+        SORT_KEYED,
+        &[
+            "indexed in 00 seq out 00",
+            "seq 30CCC",
+            "relative in 00 out 00 key 003",
+            "rel 001=40DDD",
+            "rel 003=60FFF",
+            "random out 00 key 003",
+            "indexed out 00",
+            "idx 60FFF",
+            "merged out 00 key 009",
+            "rel 002=10AAA",
+            "rel 009=60FFF",
+            "narrow key in 00",
+            "seq 70GGG",
+        ],
+    ),
     ("transactions", TRANSACTIONS, &["commit 00", "rollback 00", "unlock sequential 00", "after close"]),
     (
         "linage",
@@ -1233,6 +1405,9 @@ fn files_of_every_organisation_match_the_interpreter() {
     println!("  sort:       SORT USING/GIVING (two GIVING files, one LINE SEQUENTIAL), USING with an OUTPUT PROCEDURE,");
     println!("              INPUT PROCEDURE with GIVING, MERGE with GIVING and with an OUTPUT PROCEDURE, VARYING 4 TO 30");
     println!("              records at their own length, equal keys in release order, an absent USING file (35, then 42 at its CLOSE)");
+    println!("  sort keyed: SORT/MERGE with an indexed USING file (key order), a relative one (past empty slots), relative GIVING");
+    println!("              in the sequential and random access modes (slots 1, 2, 3, RELATIVE KEY on the last), indexed GIVING");
+    println!("              in the sequential access mode, a MERGE of two indexed files, a record number wider than the RELATIVE KEY (14)");
     println!("  transactions: COMMIT, ROLLBACK, UNLOCK on an INDEXED file opened I-O; UNLOCK on a SEQUENTIAL file");
     println!("  linage:     LINAGE stated and in data items (a footing item of 0 falls back), ADVANCING 1, 2, PAGE, a data item");
     println!("              and none, AT/NOT AT END-OF-PAGE, LINAGE-COUNTER displayed/moved (also to numeric-edited items)/compared, reopen, a failed OPEN");
