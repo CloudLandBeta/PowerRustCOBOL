@@ -38,7 +38,7 @@ use cobolt_abi_host::kinds::{player_kind, PlayerKind};
 use cobolt_abi_host::tree::{Change, GfxItem};
 use cobolt_graphics::handles::Handle;
 use cobolt_graphics::{ObjectKind, Registry};
-use cobolt_runtime::interpreter::graphics::{answer_text, desktop_registry, value_of_text};
+use cobolt_runtime::interpreter::graphics::{answer_text, desktop_registry, values_for};
 use cobolt_runtime::{canvas_frames, gpu_share, StateUpdate};
 
 /// The owner of every object a form instance makes (one registry per instance).
@@ -147,7 +147,7 @@ impl Graphics {
         self.run_pending(inst);
         let session = self.sessions.get_mut(&inst).expect("made above");
         let (h, _) = session.handles[&ctl];
-        let values: Vec<cobolt_graphics::Value> = args.iter().map(|a| value_of_text(a)).collect();
+        let values = values_for(kind, method, &args.iter().map(|a| (a.to_string(), false)).collect::<Vec<_>>());
         let answer = match session.registry.invoke(h, method, &values) {
             Ok(v) => GfxAnswer::Answer(answer_text(&v)),
             Err(e) => GfxAnswer::Refused(e.to_string()),
@@ -197,7 +197,7 @@ impl Graphics {
         let Some((h, _)) = session.handles.get(&ctl).copied() else { return };
         let outcome = match &item {
             GfxItem::Call(c) => {
-                let values: Vec<cobolt_graphics::Value> = c[1..].iter().map(|a| value_of_text(a)).collect();
+                let values = values_for(ObjectKind::Canvas2D, &c[0], &c[1..].iter().map(|a| (a.to_string(), false)).collect::<Vec<_>>());
                 session.registry.invoke(h, &c[0], &values).map(|_| ()).map_err(|e| format!("{} refused: {e}", c[0]))
             }
             GfxItem::List(bytes) => session.registry.draw_list(h, bytes).map(|_| ()).map_err(|e| format!("the drawing was refused: {e}")),

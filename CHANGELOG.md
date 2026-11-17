@@ -2,6 +2,28 @@
 
 
 
+## 2.0.564 — 2026-11-17
+
+**Fix: a canvas or graphics method that takes text now gets the program's text, whatever the data item holds. A `PIC X` item holding digits reached `DrawText` as a number, which it refuses, so nothing was drawn. A right-aligned `PIC X(80)` kept its trailing spaces, so the text ended short of where the program put it.**
+- **Why it is a fix:** `CNV-1::DrawText( WS-LABEL … )` draws the characters `WS-LABEL` holds. Under the interpreter (`rcrun run-form`, the IDE's Run, and a Cargo-built program) two cases went wrong:
+  - A text argument that read as a number became a number. `DrawText` takes text and refused it, with `LastError` set and nothing drawn. The balls of `examples/PowerGraphics`' pool table had no numbers.
+  - A text argument kept the spaces after it. Right-aligned or centred text was placed by its full width. The score line of the platform game ended about 240 pixels left of its `x`.
+  - A program built on the WebAssembly path drew both correctly: a module sends every argument as its text, without the spaces before and after it.
+- **How it was found:** pixel parity (DESKTOP-WASM-001 AC19) between the two builds of `examples/PowerGraphics`. The pool2d-form and pitfall-form frames differed in exactly those places.
+- **The fix:**
+  - The arguments of a graphics call are converted by the graphics library's own table of methods. A parameter the library takes as text gets the argument's text, without the spaces before and after it. Any other parameter takes a number when the argument reads as one, as before.
+  - The interpreter and the desktop runner share this one conversion, so a call draws the same under both.
+- **Pixel-parity goldens re-recorded for `examples/PowerGraphics` only.** The Cargo-path frames change on purpose:
+  - 16 of its 120 frames change: pitfall-form's 2 frames at all 3 sizes, and pool2d-form's 5 frames at the designed size and at 800 wide. At 480 wide pool2d-form's frames are unchanged.
+  - The other 104 frames of PowerGraphics, and every frame of the other four projects, are unchanged. After the re-recording, the Cargo path matches 408 of 408 frames, and 22 of 22 forms repeat themselves.
+- **Tests:**
+  - **New: `a_text_argument_is_the_programs_text_whatever_it_holds`** (`cobolt-runtime`): 8 of 8 checks.
+    - 5 conversions: digits in a `PIC X`, a `PIC X(80)` with 63 trailing spaces, a decimal number, a colour, and a table block for `SetSeriesFromTable`.
+    - Through a form's canvas: `DrawText("7 ")` draws 38 inked pixels with `LastError` empty. `"AB"` and 30 spaces, right-aligned at 190, draws 115 inked pixels in 160..192 and none in 40..150.
+    - Without the change the first conversion gives the number 7 and the test fails.
+  - `cobolt-runtime` graphics: 19 of 19. `cobolt-runner`: 10 of 10. The runner's twins in `cobolt-cli` (`runner_shell_hosts`, `runner_surfaces`, `runner_one_form`): 13 of 13.
+  - Pixel parity of PowerGraphics, the two builds compared: 117 of 120 frames identical (101 before this fix). The three left are charts-form's `BTN-BIG` frames, one per size: an argument too long for the module's path, the next fix.
+
 ## 2.0.563 — 2026-11-17
 
 **Fix: a console program built on the WebAssembly path now shows each `DISPLAY` line as it is written, as under the interpreter. Until now the lines waited in the module until about 68 KB had gathered or the program ended. A long run showed nothing while it ran.**

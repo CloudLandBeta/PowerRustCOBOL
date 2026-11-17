@@ -6,8 +6,8 @@
 # binary draw every frame the same; `not_repeatable` lists any other, which breaks AC20 and is not
 # recorded.
 
-version = "2.0.493"
-commit = "1cb58ded"
+version = "2.0.563"
+commit = "f65e4fb9"
 clock = "2026-01-02T03:04:05-03:00"
 seed = 20261114
 
@@ -302,16 +302,16 @@ seed = 20261114
 05-BTN-EDGE-onClick = "d428300a9fcd4e256d39f049eebc4aba6e70542ba957027f87340ef65fe4b0c1"
 
 [frames.PowerGraphics.pitfall-form.compact]
-00-open = "91fb6a1e99e2b12b31733efea0b9a732e630cf631a334d4f7435cc9ea739ba20"
-01-CNV-PIT-onFrame = "91fb6a1e99e2b12b31733efea0b9a732e630cf631a334d4f7435cc9ea739ba20"
+00-open = "013e91cf35a3cdeed80f769c87b36785de1a67bcc45266b188b105e873317227"
+01-CNV-PIT-onFrame = "013e91cf35a3cdeed80f769c87b36785de1a67bcc45266b188b105e873317227"
 
 [frames.PowerGraphics.pitfall-form.designed]
-00-open = "a1051e0fa859eff98a98aa3609591860d76463c606c12c63d1d602e5ff60d037"
-01-CNV-PIT-onFrame = "a1051e0fa859eff98a98aa3609591860d76463c606c12c63d1d602e5ff60d037"
+00-open = "428dc274e77fd6b2f3f21ed40fd34162fada25a26aa7bd48766278a0384a60c5"
+01-CNV-PIT-onFrame = "428dc274e77fd6b2f3f21ed40fd34162fada25a26aa7bd48766278a0384a60c5"
 
 [frames.PowerGraphics.pitfall-form.medium]
-00-open = "7ecab635708a0bee5dd9772fbc8874faf01524a676ff49cb43ce3b81dcb33a93"
-01-CNV-PIT-onFrame = "7ecab635708a0bee5dd9772fbc8874faf01524a676ff49cb43ce3b81dcb33a93"
+00-open = "187abf8ae664f7df950c9da44bdc0de4ce6f28d4d10fae544710e0ca9b70674a"
+01-CNV-PIT-onFrame = "187abf8ae664f7df950c9da44bdc0de4ce6f28d4d10fae544710e0ca9b70674a"
 
 [frames.PowerGraphics.pool2d-form.compact]
 00-open = "abcb00dfddcf38811fc1acd2c2f76ecd960f5a4d9452664dd8fb647e912dca7f"
@@ -321,18 +321,18 @@ seed = 20261114
 04-BTN-NEW-onClick = "17346aa89200bd804d7f40f43c10ddb523449581fc05797edb4fda08472b872d"
 
 [frames.PowerGraphics.pool2d-form.designed]
-00-open = "a0f1ce2963f571f6b47bab5a43fbb383b7855c56831feda76f2079d60c945fc2"
-01-CNV-POOL-onPointerMove = "a0f1ce2963f571f6b47bab5a43fbb383b7855c56831feda76f2079d60c945fc2"
-02-CNV-POOL-onPointerDown = "a0f1ce2963f571f6b47bab5a43fbb383b7855c56831feda76f2079d60c945fc2"
-03-CNV-POOL-onFrame = "bbbe630701d8f15400c6b34b7cf92a1087e9d242de680f21c233ecf4de36a276"
-04-BTN-NEW-onClick = "bbbe630701d8f15400c6b34b7cf92a1087e9d242de680f21c233ecf4de36a276"
+00-open = "b94e6b9707ce9ff868cbd9cf3e85471fab94f1a68d8c19c211bf95e2ba30293f"
+01-CNV-POOL-onPointerMove = "b94e6b9707ce9ff868cbd9cf3e85471fab94f1a68d8c19c211bf95e2ba30293f"
+02-CNV-POOL-onPointerDown = "b94e6b9707ce9ff868cbd9cf3e85471fab94f1a68d8c19c211bf95e2ba30293f"
+03-CNV-POOL-onFrame = "847cf77e9f9aa6fa6ddaa1f00fa9b12d289380aa947c25eb550e2697fb91f5f1"
+04-BTN-NEW-onClick = "847cf77e9f9aa6fa6ddaa1f00fa9b12d289380aa947c25eb550e2697fb91f5f1"
 
 [frames.PowerGraphics.pool2d-form.medium]
-00-open = "14fbf37ba9345008210819dbd97ee34dcb454c6c728b38b18ebc37ed2108a7cb"
-01-CNV-POOL-onPointerMove = "14fbf37ba9345008210819dbd97ee34dcb454c6c728b38b18ebc37ed2108a7cb"
-02-CNV-POOL-onPointerDown = "14fbf37ba9345008210819dbd97ee34dcb454c6c728b38b18ebc37ed2108a7cb"
-03-CNV-POOL-onFrame = "722fa4cc2bcadcfecd41c602faa8d5a5a78a69858fc7d73431858ce0943cc7aa"
-04-BTN-NEW-onClick = "722fa4cc2bcadcfecd41c602faa8d5a5a78a69858fc7d73431858ce0943cc7aa"
+00-open = "53876941e319ecb4d60af0d560d6167a2334ec37b33cc03839b6be1d8d6c6225"
+01-CNV-POOL-onPointerMove = "53876941e319ecb4d60af0d560d6167a2334ec37b33cc03839b6be1d8d6c6225"
+02-CNV-POOL-onPointerDown = "53876941e319ecb4d60af0d560d6167a2334ec37b33cc03839b6be1d8d6c6225"
+03-CNV-POOL-onFrame = "b62a2a20430e67c16379a61a781a3804f707309b7f642d17b940f453e778a801"
+04-BTN-NEW-onClick = "b62a2a20430e67c16379a61a781a3804f707309b7f642d17b940f453e778a801"
 
 [frames.PowerGraphics.pool3d-form.compact]
 00-open = "9075ecd742fa6b32ffcde5ff56f2b5fb507e5aed85d2449aa0cfb85ccc5237ab"

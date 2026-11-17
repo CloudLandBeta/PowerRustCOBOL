@@ -172,15 +172,31 @@ fn register_fonts(registry: &mut Registry) {
     }
 }
 
-/// A COBOL argument as the library's value: a number stays a number, anything else is text.
-fn to_value(v: &CobolValue) -> Value {
-    value_of(v.as_display_string(), v.is_numeric())
+/// Which parameters of the method `method` of an object of `kind` take text (the library's `text`
+/// kind), read once from the library's own table of methods.
+fn text_params(kind: ObjectKind, method: &str) -> &'static [bool] {
+    static TABLE: std::sync::OnceLock<HashMap<(ObjectKind, String), Vec<bool>>> = std::sync::OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        Registry::all_methods().into_iter().map(|m| ((m.object, m.name.to_ascii_uppercase()), m.params.iter().map(|(_, k, _)| *k == "text").collect())).collect()
+    });
+    table.get(&(kind, method.trim().to_ascii_uppercase())).map(Vec::as_slice).unwrap_or(&[])
 }
 
-/// An argument a program passed as text (a module's call, DESKTOP-WASM-001 T50) as the library's value, by the
-/// interpreter's rule for its own arguments: text that reads as a number is a number, anything else is text.
-pub fn value_of_text(text: &str) -> Value {
-    value_of(text.to_owned(), false)
+/// The arguments of a call of `method` on a graphics object of `kind` as the library's values: each
+/// argument's text, and whether it is a COBOL number. The interpreter and the desktop runner both
+/// call it (DESKTOP-WASM-001 T50), so a call draws the same under both.
+///
+/// A parameter the library takes as text gets the argument's text without the spaces before and
+/// after it, as a module sends every argument. A `PIC X(2)` holding `7 ` is the text `7`, not the
+/// number 7, which a text parameter refuses, and the text of a `PIC X(80)` right-aligned ends where
+/// its characters end. Any other parameter takes a number when the argument reads as one, and text
+/// otherwise.
+pub fn values_for(kind: ObjectKind, method: &str, args: &[(String, bool)]) -> Vec<Value> {
+    let text = text_params(kind, method);
+    args.iter()
+        .enumerate()
+        .map(|(i, (t, numeric))| if text.get(i).copied().unwrap_or(false) { Value::Text(t.trim().to_owned()) } else { value_of(t.clone(), *numeric) })
+        .collect()
 }
 
 fn value_of(text: String, numeric: bool) -> Value {
@@ -265,7 +281,8 @@ impl Interpreter {
             return Some(if held.split(',').any(|k| !name.trim().is_empty() && k.trim().eq_ignore_ascii_case(name.trim())) { "1" } else { "0" }.to_string());
         }
         let told = if kind == ObjectKind::Canvas3D { self.graphics_sync_gpu() } else { Vec::new() };
-        let values: Vec<Value> = args.iter().map(to_value).collect();
+        let texts: Vec<(String, bool)> = args.iter().map(|a| (a.as_display_string(), a.is_numeric())).collect();
+        let values = values_for(kind, m, &texts);
         let outcome = self.graphics_handle(obj, kind).and_then(|h| {
             let state = self.graphics.as_mut().expect("made with the handle");
             state.registry.invoke(h, m, &values).map_err(|e| e.to_string())
@@ -699,6 +716,53 @@ mod tests {
         println!("big table: {rows} rows through the interpreter in {:.1} ms, skipped {skipped:?}, LastError {err:?}", took.as_secs_f64() * 1e3);
         assert_eq!(err, "");
         assert_eq!(skipped, "0");
+    }
+
+    /// A text parameter takes the program's text (DESKTOP-WASM-001 AC19, found by pixel parity of
+    /// PowerGraphics). A `PIC X(2)` holding `7 ` reached `DrawText` as the number 7, which a text
+    /// parameter refuses, so the pool table's balls had no numbers. A `PIC X(80)` drawn right-aligned
+    /// kept its trailing spaces, so the platform game's score line ended about 240 pixels short of
+    /// where the program put it. A module sends both as trimmed text, and so does this conversion now.
+    #[test]
+    fn a_text_argument_is_the_programs_text_whatever_it_holds() {
+        use ObjectKind::{Canvas2D, Plot};
+        let t = |s: &str| (s.to_owned(), false);
+        let hud = format!("THE JUNGLE  1/100{}", " ".repeat(63));
+        let block = "000001000007000002000014000003000021000004000028".to_owned();
+        let cases: Vec<(ObjectKind, &str, Vec<(String, bool)>, Vec<Value>)> = vec![
+            (Canvas2D, "DrawText", vec![t("7 "), t("10"), t("12"), t("0"), t("1")], vec![Value::Text("7".into()), Value::Int(10), Value::Int(12), Value::Int(0), Value::Int(1)]),
+            (Canvas2D, "drawtext", vec![t(&hud), t("786"), t("10"), t("0"), t("1")], vec![Value::Text("THE JUNGLE  1/100".into()), Value::Int(786), Value::Int(10), Value::Int(0), Value::Int(1)]),
+            (Canvas2D, "DrawText", vec![("42.50".into(), true), t("0"), t("0"), t("0"), t("1")], vec![Value::Text("42.50".into()), Value::Int(0), Value::Int(0), Value::Int(0), Value::Int(1)]),
+            (Canvas2D, "SetFillColor", vec![t("#000000")], vec![Value::Text("#000000".into())]),
+            (Plot, "SetSeriesFromTable", vec![t("1"), t(&block), t("4"), t("12"), t("0:zoned(6,0); 6:zoned(6,0)")], vec![Value::Int(1), Value::Text(block.clone()), Value::Int(4), Value::Int(12), Value::Text("0:zoned(6,0); 6:zoned(6,0)".into())]),
+        ];
+        for (kind, method, args, want) in &cases {
+            assert_eq!(values_for(*kind, method, args), *want, "{method}");
+        }
+
+        // Through a form's canvas: the digits are drawn, and right-aligned text ends at its x.
+        let mut i = interp(&[("CANVAS-1", "Canvas2D", &[("Width", "200"), ("Height", "40")])]);
+        let ink = |i: &mut Interpreter, x0: u32, x1: u32| -> usize {
+            (x0..x1).flat_map(|x| (0..40u32).map(move |y| (x, y))).filter(|(x, y)| call(i, "CANVAS-1", "GetPixel", &[&x.to_string(), &y.to_string()]) != 0xFFFFFFFFu32.to_string()).count()
+        };
+        call(&mut i, "CANVAS-1", "Clear", &["#FFFFFF"]);
+        call(&mut i, "CANVAS-1", "SetFont", &["16px sans-serif"]);
+        call(&mut i, "CANVAS-1", "SetFillColor", &["#000000"]);
+        call(&mut i, "CANVAS-1", "SetTextAlign", &["4"]);
+        call(&mut i, "CANVAS-1", "SetTextBaseline", &["3"]);
+        call(&mut i, "CANVAS-1", "DrawText", &["7 ", "20", "20", "0", "1"]);
+        let digit_error = i.obj_get("CANVAS-1", "LastError");
+        let digit_ink = ink(&mut i, 10, 30);
+        call(&mut i, "CANVAS-1", "SetTextAlign", &["3"]);
+        call(&mut i, "CANVAS-1", "DrawText", &["AB                              ", "190", "20", "0", "1"]);
+        let (near, far) = (ink(&mut i, 160, 192), ink(&mut i, 40, 150));
+        println!("── a_text_argument_is_the_programs_text_whatever_it_holds ──");
+        println!("  conversions: {} calls (digits in PIC X, PIC X(80) with trailing spaces, a decimal number, a colour, a table block) as expected", cases.len());
+        println!("  DrawText(\"7 \") centred: LastError {digit_error:?}, {digit_ink} inked pixels; \"AB\" + 30 spaces right-aligned at 190: {near} inked pixels in 160..192, {far} in 40..150");
+        assert_eq!(digit_error, "", "DrawText takes the digits as text");
+        assert!(digit_ink > 0, "the digit is drawn");
+        assert!(near > 0 && far == 0, "right-aligned text ends at its x: {near} near, {far} far");
+        println!("  checks: {} of {} passed", cases.len() + 3, cases.len() + 3);
     }
 
     /// The drawn pixels come back: `GetPixel` after `Present`.
