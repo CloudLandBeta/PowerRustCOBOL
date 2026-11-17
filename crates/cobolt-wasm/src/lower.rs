@@ -275,6 +275,9 @@ pub struct Lower<'a, 'b> {
     /// RETURN-CODE may be read.
     pub(crate) uses_linage: bool,
     pub(crate) lc_reg: Option<usize>,
+    /// The pointer of a `STRING` lowered in parts (`string_`): a register made with the first such
+    /// statement, when it names no `POINTER` of its own.
+    pub(crate) sp_reg: Option<usize>,
     /// The program calls `FUNCTION RANDOM`: in a desktop program module, its first statement reads
     /// `PRC_TEST_SEED` (DESKTOP-WASM-001 R28, T15; [`Self::pin_random`]).
     pub(crate) uses_random: bool,
@@ -485,6 +488,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             rc_ok: false,
             uses_linage: false,
             lc_reg: None,
+            sp_reg: None,
             uses_random: false,
             files: HashMap::new(),
             record_file: HashMap::new(),

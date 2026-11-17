@@ -83,3 +83,68 @@ fn len_written_as_a_call_is_refused_by_the_generator() {
         assert!(err.contains("is a property of a data item") && err.contains("without the parentheses"), "{call}: {err}");
     }
 }
+
+/// A STRING whose sources read more values than the module's four character temporaries hold is
+/// lowered in parts that share one pointer: PowerCobolCraft's and PowerCloud's long STRINGs of
+/// `::Trim()` sources. Every case gives the interpreter's receiver and pointer; with an OVERFLOW
+/// phrase, which a part could answer differently, the statement is still refused.
+#[test]
+fn a_string_of_more_than_four_reads_is_built_in_parts() {
+    let six = |m: &str| format!("WS-A::{m}() \"/\" WS-B::{m}() \"/\" WS-C::{m}() \"/\" WS-D::{m}() \"/\" WS-E::{m}() \"/\" WS-F::{m}()");
+    let src = format!(
+        "IDENTIFICATION DIVISION.\nPROGRAM-ID. SP.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+         01 WS-A PIC X(8) VALUE \"  alpha \".\n01 WS-B PIC X(8) VALUE \" beta   \".\n\
+         01 WS-C PIC X(8) VALUE \"gamma   \".\n01 WS-D PIC X(8) VALUE \"  delta \".\n\
+         01 WS-E PIC X(8) VALUE \"eps     \".\n01 WS-F PIC X(8) VALUE \" zeta   \".\n\
+         01 WS-OUT PIC X(48).\n01 WS-SMALL PIC X(12).\n01 WS-P PIC 99.\n\
+         PROCEDURE DIVISION.\n\
+         \x20   MOVE SPACES TO WS-OUT\n\
+         \x20   STRING {trim} DELIMITED BY SIZE INTO WS-OUT\n\
+         \x20   DISPLAY \"[\" WS-OUT \"]\"\n\
+         \x20   MOVE ALL \".\" TO WS-OUT\n\
+         \x20   MOVE 4 TO WS-P\n\
+         \x20   STRING {upper} DELIMITED BY SIZE INTO WS-OUT WITH POINTER WS-P\n\
+         \x20   DISPLAY \"[\" WS-OUT \"] \" WS-P\n\
+         \x20   MOVE SPACES TO WS-OUT\n\
+         \x20   STRING FUNCTION TRIM(WS-A) DELIMITED BY SIZE FUNCTION UPPER-CASE(WS-B) DELIMITED BY SPACE\n\
+         \x20          \"+\" DELIMITED BY SIZE FUNCTION TRIM(WS-C) DELIMITED BY FUNCTION LOWER-CASE(\"M\")\n\
+         \x20          FUNCTION REVERSE(WS-D) DELIMITED BY SIZE WS-E::Trim() DELIMITED BY SIZE\n\
+         \x20          WS-F DELIMITED BY \"e\" INTO WS-OUT\n\
+         \x20   DISPLAY \"[\" WS-OUT \"]\"\n\
+         \x20   MOVE ALL \"-\" TO WS-SMALL\n\
+         \x20   STRING {trim} DELIMITED BY SIZE INTO WS-SMALL\n\
+         \x20   DISPLAY \"[\" WS-SMALL \"]\"\n\
+         \x20   MOVE ALL \"-\" TO WS-SMALL\n\
+         \x20   MOVE 3 TO WS-P\n\
+         \x20   STRING {trim} DELIMITED BY SIZE INTO WS-SMALL WITH POINTER WS-P\n\
+         \x20   DISPLAY \"[\" WS-SMALL \"] \" WS-P\n\
+         \x20   MOVE ALL \"-\" TO WS-SMALL\n\
+         \x20   MOVE 13 TO WS-P\n\
+         \x20   STRING {trim} DELIMITED BY SIZE INTO WS-SMALL WITH POINTER WS-P\n\
+         \x20   DISPLAY \"[\" WS-SMALL \"] \" WS-P\n\
+         \x20   STOP RUN.\n",
+        trim = six("Trim"),
+        upper = six("Upper"),
+    );
+    let out = common::same_output(&src);
+    assert_eq!(out[0], format!("[alpha/beta/gamma/delta/eps/zeta{}]", " ".repeat(17)), "{out:?}");
+    assert_eq!(out.len(), 6, "{out:?}");
+    for (i, l) in out.iter().enumerate() {
+        eprintln!("  case {}: {l}", i + 1);
+    }
+
+    // With an OVERFLOW phrase the statement keeps its refusal, at its line.
+    let guarded = src.replacen(
+        &format!("STRING {} DELIMITED BY SIZE INTO WS-SMALL\n", six("Trim")),
+        &format!("STRING {} DELIMITED BY SIZE INTO WS-SMALL\n        ON OVERFLOW DISPLAY \"full\"\n    END-STRING\n", six("Trim")),
+        1,
+    );
+    assert_ne!(guarded, src);
+    let err = match cobolt_wasm::compile_program(&common::parse(&guarded), &cobolt_wasm::Options::default()) {
+        Ok(_) => panic!("a long STRING with ON OVERFLOW compiled"),
+        Err(e) => e,
+    };
+    let refused = err.all_kinded().into_iter().filter(|e| e.kind == cobolt_wasm::ErrorKind::TooManyHostReads).count();
+    assert_eq!(refused, 1, "{err:?}");
+    eprintln!("STRING in parts: 6 statements of 6 reads each, {} lines equal on both engines and both memory variants; with ON OVERFLOW, 1 of 1 refused", out.len());
+}

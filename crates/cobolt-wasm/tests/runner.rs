@@ -81,10 +81,15 @@ fn run_script(wasm: &[u8], steps: &[Step]) -> Result<ScriptReport, String> {
 }
 
 fn greeting_form() -> String {
+    let greet = "    IF TXT-NAME::Text::Trim()::Len = 0\n        SET LBL-RESULT::Caption TO \"Type your name first.\"\n    ELSE\n        MOVE SPACES TO LBL-RESULT::Caption\n        STRING \"Hello, \" TXT-NAME::Text::Trim() DELIMITED BY SIZE INTO LBL-RESULT::Caption\n    END-IF\n    DISPLAY \"GREETED\"\n";
+    form_program(greet)
+}
+
+/// The main form's program, with `greet` as the handler of BTN-GREET's `onClick`.
+fn form_program(greet: &str) -> String {
     let handler = |c: &str, body: &str| {
         format!("IDENTIFICATION DIVISION.\nPROGRAM-ID. {c}--ONCLICK IS COMMON PROGRAM.\nPROCEDURE DIVISION.\n{body}    GOBACK.\nEND PROGRAM {c}--ONCLICK.\n")
     };
-    let greet = "    IF TXT-NAME::Text::Trim()::Len = 0\n        SET LBL-RESULT::Caption TO \"Type your name first.\"\n    ELSE\n        MOVE SPACES TO LBL-RESULT::Caption\n        STRING \"Hello, \" TXT-NAME::Text::Trim() DELIMITED BY SIZE INTO LBL-RESULT::Caption\n    END-IF\n    DISPLAY \"GREETED\"\n";
     let mut s = String::from(
         "IDENTIFICATION DIVISION.\nPROGRAM-ID. MAIN-FORM.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 COBOL-QUIT PIC 9 VALUE 0.\n01 COBOL-EVENT-ID PIC X(64) VALUE SPACES.\n01 COBOL-CONTROL-ID PIC X(64) VALUE SPACES.\n01 FORM-NAME PIC X(64) VALUE 'MAIN-FORM'.\nPROCEDURE DIVISION.\nCOBOL-MAIN.\n    COBOL::\"INIT-FORM\" ( FORM-NAME )\n    PERFORM COBOL-EVENT-LOOP\n    STOP RUN.\nCOBOL-EVENT-LOOP.\n    PERFORM UNTIL COBOL-QUIT = 1\n        COBOL::\"WAIT-EVENT\" ( COBOL-EVENT-ID COBOL-CONTROL-ID )\n        EVALUATE COBOL-CONTROL-ID\n            WHEN \"BTN-GREET\"\n                EVALUATE COBOL-EVENT-ID\n                    WHEN \"onClick\"\n                        CALL \"BTN-GREET--ONCLICK\"\n                END-EVALUATE\n        END-EVALUATE\n    END-PERFORM.\n",
     );
@@ -142,4 +147,44 @@ fn a_script_runs_twice_with_byte_identical_results_and_reads_what_a_handler_set(
         started.elapsed().as_millis()
     );
     println!("→ 12 checks passed, 0 failed (identical runs, SET-then-read, typed name, page-only step refused, no error, batches non-empty)");
+}
+
+/// A STRING into a control's property whose sources read six properties (PowerCobolCraft's info
+/// line, PowerCloud's rows) is built in parts: the receiver's temporary holds the text across them.
+#[test]
+fn a_string_of_six_property_reads_into_a_caption_is_built_in_parts() {
+    let names = ["TXT-A", "TXT-B", "TXT-C", "TXT-D", "TXT-E", "TXT-F"];
+    let sources = names.iter().map(|n| format!("{n}::Text::Trim()")).collect::<Vec<_>>().join(" \"/\" ");
+    let body = format!(
+        "    MOVE SPACES TO LBL-RESULT::Caption\n    STRING \"[\" {sources} \"]\"\n        DELIMITED BY SIZE INTO LBL-RESULT::Caption\n    DISPLAY \"BUILT\"\n"
+    );
+    let program = common::parse(&form_program(&body));
+    let mut controls: Vec<(String, String)> = names.iter().map(|n| (n.to_string(), "TextBox".to_string())).collect();
+    controls.push(("BTN-GREET".into(), "Button".into()));
+    controls.push(("LBL-RESULT".into(), "Label".into()));
+    let values = ["  one ", "two", " three", "four  ", "five", " six "];
+    let mut steps: Vec<Step> =
+        names.iter().zip(values).map(|(n, v)| Step::Set { control: n.to_string(), property: "Text".into(), value: v.into() }).collect();
+    steps.push(Step::Event { control: "BTN-GREET".into(), name: "onClick".into(), wait: true });
+    steps.push(Step::Read { control: "LBL-RESULT".into(), property: "Caption".into() });
+    let mut checked = 0;
+    for multi in [true, false] {
+        let specs = vec![FormSpec {
+            name: "MAIN-FORM".into(),
+            main: true,
+            instances: 1,
+            program: &program,
+            controls: controls.clone(),
+            bindings: vec![("BTN-GREET".into(), "onClick".into())],
+            layers: vec![],
+            lines: vec![],
+        }];
+        let wasm = compile_project(&specs, &Options { multi_memory: multi, name: "parts".into(), ..Options::default() }).expect("compiles").wasm;
+        let report = run_script(&wasm, &steps).expect("runs");
+        assert_eq!(report.reads, vec![("LBL-RESULT.Caption".to_string(), "[one/two/three/four/five/six]".to_string())], "multi={multi}");
+        assert_eq!(report.displayed.matches("BUILT").count(), 1, "{:?}", report.displayed);
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        checked += 1;
+    }
+    println!("STRING of 6 property reads into a Caption: {checked} of 2 memory variants read \"[one/two/three/four/five/six]\"");
 }

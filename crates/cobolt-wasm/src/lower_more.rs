@@ -362,18 +362,51 @@ impl Lower<'_, '_> {
             Some(p) => self.receiver(p)?,
             None => 0,
         };
-        let mut words = vec![operands.len() as u32, into_o, ptr];
+        // Sources that read more host values than the character temporaries hold are lowered in
+        // parts: each part a STRING of the next sources WITH POINTER, every part sharing one pointer,
+        // the statement's own or a register set to 1 first. Each source is read, and each character
+        // placed, in the order one statement would, so the receiver and the pointer end the same.
+        // Only the overflow flag could differ (one part fills the receiver to its last place and
+        // every later source is empty), so a statement with an OVERFLOW phrase keeps the refusal,
+        // as does one whose `super::` reads were asked before it (their temporaries must stay).
+        let splittable = on.is_empty() && not_on.is_empty() && self.super_reads.is_empty();
+        let (ctemp0, temp0) = (self.ctemp_next, self.temp_next);
+        let mut part: Vec<u32> = Vec::new();
+        let mut part_ptr: Option<u32> = None;
         for (src, delim) in operands {
-            words.push(self.operand_or_temp(src)?);
-            words.push(match delim {
-                Some(d) => self.operand_or_temp(d)?,
-                None => 0,
-            });
+            loop {
+                let cur = self.cur;
+                let mark = cur.map(|b| (self.blocks.len(), self.blocks[b].code.len()));
+                match self.string_source(src, delim.as_ref()) {
+                    Ok((s, d)) => {
+                        part.extend([s, d]);
+                        break;
+                    }
+                    // Undone only where nothing but the current block's code was added.
+                    Err(e)
+                        if splittable
+                            && e.kind == crate::error::ErrorKind::TooManyHostReads
+                            && !part.is_empty()
+                            && self.cur == cur
+                            && mark.is_some_and(|(n, _)| n == self.blocks.len()) =>
+                    {
+                        let (Some(b), Some((_, len))) = (cur, mark) else { return Err(e) };
+                        self.blocks[b].code.truncate(len);
+                        let p = match part_ptr {
+                            Some(p) => p,
+                            None => self.string_pointer(ptr)?,
+                        };
+                        part_ptr = Some(p);
+                        self.string_part(into_o, p, &part);
+                        self.raw(I::Drop);
+                        part.clear();
+                        (self.ctemp_next, self.temp_next) = (ctemp0, temp0);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
         }
-        let spec = self.pool.spec(&words);
-        self.base();
-        self.i32c(spec as i32);
-        self.call_rt("rt_string");
+        self.string_part(into_o, part_ptr.unwrap_or(ptr), &part);
         if let Some(k) = member_k {
             // The overflow flag stays on the stack below the write-back.
             self.i32c(k as i32);
@@ -381,6 +414,48 @@ impl Lower<'_, '_> {
             self.member_set(into, into_o, line)?;
         }
         self.overflow_tail(on, not_on)
+    }
+
+    /// One source of a STRING and its delimiter.
+    fn string_source(&mut self, src: &Expr, delim: Option<&Expr>) -> GenResult<(u32, u32)> {
+        let s = self.operand_or_temp(src)?;
+        let d = match delim {
+            Some(d) => self.operand_or_temp(d)?,
+            None => 0,
+        };
+        Ok((s, d))
+    }
+
+    /// `rt_string` of the sources in `pairs` (source, delimiter); it leaves the overflow flag.
+    fn string_part(&mut self, into_o: u32, ptr: u32, pairs: &[u32]) {
+        let mut words = vec![(pairs.len() / 2) as u32, into_o, ptr];
+        words.extend_from_slice(pairs);
+        let spec = self.pool.spec(&words);
+        self.base();
+        self.i32c(spec as i32);
+        self.call_rt("rt_string");
+    }
+
+    /// The pointer of a STRING lowered in parts: the statement's own, or the register, set to 1.
+    fn string_pointer(&mut self, ptr: u32) -> GenResult<u32> {
+        if ptr != 0 {
+            return Ok(ptr);
+        }
+        let i = match self.sp_reg {
+            Some(i) => i,
+            None => {
+                let i = self.layout.add_register("STRING POINTER", Fd::binary(9, 0, F_SIGNED, 4), cobolt_ast::data::Usage::Binary);
+                self.sp_reg = Some(i);
+                i
+            }
+        };
+        let opd = self.item_operand(i, &[], None, 0)?;
+        let one = self.pool.opd_lit_num(1, 0);
+        self.base();
+        self.i32c(one as i32);
+        self.i32c(opd as i32);
+        self.call_rt("rt_move");
+        Ok(opd)
     }
 
     #[allow(clippy::too_many_arguments)]

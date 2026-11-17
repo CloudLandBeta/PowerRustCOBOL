@@ -2,6 +2,25 @@
 
 
 
+## 2.0.551 — 2026-11-16
+
+**Fix: on the WebAssembly path, a `STRING` whose sources read more than four properties or character-valued functions now compiles, and gives the interpreter's result.**
+- **What was wrong:** a module keeps the text of each property read (`TXT-NAME::Text`), value method (`WS-DAY::Trim()`) or character-valued function (`FUNCTION TRIM`) in one of four temporaries. A statement that needed a fifth was refused: "this statement reads more than four properties or character-valued functions; split it into statements that read at most four". The developer had to rewrite valid COBOL, and a desktop program took the Cargo path. Five `STRING` statements in the reference projects were refused for this alone: PowerCobolCraft's information line (six `::Trim()` sources into `LBL-INFO::Caption`) and four in PowerCloud (JSON and table rows).
+- **The fix:** the generator builds such a `STRING` in parts. Each part is a `STRING` of the next sources `WITH POINTER`, and every part shares one pointer: the statement's own, or a hidden one set to 1 first. The sources are read, and their characters placed, in the order a single statement would use, so the receiver and the pointer end exactly as they would. A control's property as the receiver keeps its text across the parts.
+- **Still refused, at its line:**
+  - a statement with `ON OVERFLOW` or `NOT ON OVERFLOW`. One part can fill the receiver to its last position while every later source is empty, and only then would the overflow answer differ, so these statements are not split;
+  - a statement whose `super::` reads are asked before it;
+  - a single source that alone needs more than four temporaries;
+  - every other statement over the limit (`DISPLAY`, `MOVE`, …), as before.
+- Nothing changes for a statement that compiled before: its code is byte for byte what it was.
+- **Tests:**
+  - a new twin test runs six `STRING` statements of six reads each: value methods and functions, with and without `POINTER`, a function as a delimiter, and two that overflow without an `OVERFLOW` phrase. Its 6 of 6 lines equal the interpreter's on both memory layouts. The same statement with `ON OVERFLOW` is still refused, 1 of 1;
+  - a new form test builds a `Caption` from six `TextBox` texts with `::Trim()`, and reads "[one/two/three/four/five/six]" on both memory layouts;
+  - the generator's tests: 34 test programs, 129 passed, 0 failed;
+  - browser module bytes are unchanged (the PowerAnalyticsWeb pin and the player fixtures match);
+  - the generator's NIST gate is unchanged: IC (Inter-Program Communication) 25 of 25 programs, 309 PASS, 0 FAIL, 4 DELETED; NC (Nucleus) 95 of 95, 4612/0/5; IF (Intrinsic Functions) 45 of 45, 841/0/0.
+- **Measured on the reference projects:** with the desktop module's options, PowerCobolCraft now stops only at `COBOL::"AUDIO-PLAY"` (four statements) and its canvases, and PowerCloud no longer stops at any `STRING`.
+
 ## 2.0.550 — 2026-11-16
 
 **Fix: `MOVE` of a signed numeric `DISPLAY` item to a group now gives the characters the item stores, its sign included, as COBOL-85 requires. This holds in the interpreter and on the WebAssembly path.**
