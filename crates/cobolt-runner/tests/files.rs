@@ -812,6 +812,75 @@ NOT-PERFORMED.
     DISPLAY \"fell through\".
 ";
 
+/// A MERGE whose OUTPUT PROCEDURE no SORT shares: the procedure, a section whose paragraphs leave by
+/// GO TO, returns at its end to the statement after the MERGE (NIST ST140A and ST144A ran on past it,
+/// through the sections after it, until 2.0.553). The section after it is never reached.
+const MERGE_PROCEDURE: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T40MRGP.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT MRG-A ASSIGN TO \"mrga.dat\"
+        ORGANIZATION IS SEQUENTIAL.
+    SELECT MRG-B ASSIGN TO \"mrgb.dat\"
+        ORGANIZATION IS SEQUENTIAL.
+    SELECT MRG-OUT ASSIGN TO \"merged.txt\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS.
+    SELECT WORK-FILE ASSIGN TO \"mrgwork.tmp\".
+DATA DIVISION.
+FILE SECTION.
+FD MRG-A.
+01 A-REC PIC X(8).
+FD MRG-B.
+01 B-REC PIC X(8).
+FD MRG-OUT.
+01 O-REC PIC X(8).
+SD WORK-FILE.
+01 W-REC.
+    05 W-KEY PIC X(4).
+    05 W-TAG PIC X(4).
+WORKING-STORAGE SECTION.
+01 WS-FS PIC XX.
+01 WS-N  PIC 99 VALUE 0.
+PROCEDURE DIVISION.
+MAIN-LINE SECTION.
+MAIN-PARA.
+    OPEN OUTPUT MRG-A
+    MOVE \"A001AAAA\" TO A-REC
+    WRITE A-REC
+    MOVE \"C003AAAA\" TO A-REC
+    WRITE A-REC
+    CLOSE MRG-A
+    OPEN OUTPUT MRG-B
+    MOVE \"B002BBBB\" TO B-REC
+    WRITE B-REC
+    MOVE \"D004BBBB\" TO B-REC
+    WRITE B-REC
+    CLOSE MRG-B
+    MERGE WORK-FILE ON ASCENDING KEY W-KEY
+        USING MRG-A MRG-B
+        OUTPUT PROCEDURE IS TAKE-MERGED
+    DISPLAY \"after merge \" WS-N \" status \" WS-FS
+    STOP RUN.
+TAKE-MERGED SECTION.
+OPEN-OUT.
+    OPEN OUTPUT MRG-OUT.
+RETURN-NEXT.
+    RETURN WORK-FILE
+        AT END GO TO CLOSE-OUT.
+    ADD 1 TO WS-N
+    DISPLAY \"merged \" WS-N \" [\" W-REC \"]\"
+    WRITE O-REC FROM W-REC
+    GO TO RETURN-NEXT.
+CLOSE-OUT.
+    CLOSE MRG-OUT.
+NOT-PERFORMED SECTION.
+FELL-THROUGH.
+    DISPLAY \"fell through\".
+";
+
 
 const SAME_AREA: &str = "\
 IDENTIFICATION DIVISION.
@@ -1000,6 +1069,11 @@ const PROGRAMS: &[(&str, &str, &[&str])] = &[
         &["body 01 lc 1", "footing 01 lc 5", "footing 02 lc 6", "body 05 lc 1", "footing 04 lc 6", "body 09 lc 1", "footings 04 status 00"],
     ),
     (
+        "merge procedure",
+        MERGE_PROCEDURE,
+        &["merged 01 [A001AAAA]", "merged 02 [B002BBBB]", "merged 03 [C003AAAA]", "merged 04 [D004BBBB]", "after merge 04 status 00"],
+    ),
+    (
         "same area",
         SAME_AREA,
         &[
@@ -1158,6 +1232,7 @@ fn files_of_every_organisation_match_the_interpreter() {
     println!("  linage:     LINAGE stated and in data items (a footing item of 0 falls back), ADVANCING 1, 2, PAGE, a data item");
     println!("              and none, AT/NOT AT END-OF-PAGE, LINAGE-COUNTER displayed/moved/compared, reopen, a failed OPEN");
     println!("  eop perform: a PERFORM in AT END-OF-PAGE (2 TIMES, writing the footing to the same file) and in NOT AT END-OF-PAGE returns");
+    println!("  merge procedure: a MERGE's OUTPUT PROCEDURE (a section left by GO TO, shared with no SORT) returns after it");
     println!("  same area:  SAME RECORD AREA across SEQUENTIAL, LINE SEQUENTIAL and RELATIVE files (longer peer padded, shorter cut),");
     println!("              READ INTO, AT END leaves the peers alone; an INDEXED file READ NEXT through its SORT peer, RELEASEd and RETURNed");
     for r in &rows {

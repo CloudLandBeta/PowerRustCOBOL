@@ -2,6 +2,18 @@
 
 
 
+## 2.0.553 — 2026-11-16
+
+**Fix: on the WebAssembly path, a `MERGE`'s `OUTPUT PROCEDURE` now returns, at its end, to the statement after the `MERGE`.**
+- **What was wrong:** the generator decides before it lowers a program which paragraphs end a `PERFORM` range. It counted the `INPUT PROCEDURE` and `OUTPUT PROCEDURE` of a `SORT`, but not the `OUTPUT PROCEDURE` of a `MERGE`. Unless a `SORT` named the same procedure, its last paragraph had no return. When the procedure ended, the program ran on into the sections after it.
+- **How it was found:** NIST ST140A and ST144A through the desktop's WebAssembly runner. Each merges two files with `COLLATING SEQUENCE` into an `OUTPUT PROCEDURE` that ends a section. After it, the program fell into its closing section and ended, so 3 of its 11 tests ran (4 PASS, not 13). Each still reported 0 failures, so the shortfall showed only as fewer PASS than the interpreter (717 against 735 for ST).
+- **The fix:** the generator also counts a `MERGE`'s `OUTPUT PROCEDURE` (`cobolt-wasm`, the prescan in `lower.rs`). A browser module refuses `MERGE`, so its code is unchanged.
+- **Tests:**
+  - a new program in the runner's file twin test merges two files into an `OUTPUT PROCEDURE` that no `SORT` shares. The procedure is a section that leaves its paragraphs by `GO TO`, and a section after it must never run. The runner prints the interpreter's 5 lines and writes the same file. Without the fix it printed the 4 merged records, then "fell through", and never reached the statement after the `MERGE`;
+  - NIST ST through the desktop's WebAssembly runner: 39 of 39 programs, 735 PASS, 0 FAIL, as on the interpreter (717 before the fix); ST140A and ST144A each now report 13 PASS;
+  - the generator's tests: 34 test programs, 129 passed, 0 failed; browser module bytes are unchanged (the PowerAnalyticsWeb pin and the player fixtures match);
+  - the generator's NIST gate is unchanged: IC (Inter-Program Communication) 25 of 25, 309/0/4; NC (Nucleus) 95 of 95, 4612/0/5; IF (Intrinsic Functions) 45 of 45, 841/0/0.
+
 ## 2.0.552 — 2026-11-16
 
 **Fix: a `PERFORM` written in `AT END-OF-PAGE` or `NOT AT END-OF-PAGE` now returns at the end of the paragraph it performs, on the WebAssembly path. Every check that walks a program's statements now also sees the statements in those two phrases.**

@@ -1280,11 +1280,14 @@ impl<'a, 'b> Lower<'a, 'b> {
                         }
                     }
                     // SORT/MERGE procedures are performed too.
-                    if let Stmt::Sort { input_proc, output_proc, .. } = s {
-                        for p in [input_proc, output_proc].into_iter().flatten() {
-                            if let Ok(Some((_, to))) = self.name_range(&p.0, p.1.as_deref(), 0) {
-                                ends.push(to);
-                            }
+                    let procs: Vec<&(String, Option<String>)> = match s {
+                        Stmt::Sort { input_proc, output_proc, .. } => [input_proc, output_proc].into_iter().flatten().collect(),
+                        Stmt::Merge { output_proc, .. } => output_proc.iter().collect(),
+                        _ => Vec::new(),
+                    };
+                    for p in procs {
+                        if let Ok(Some((_, to))) = self.name_range(&p.0, p.1.as_deref(), 0) {
+                            ends.push(to);
                         }
                     }
                 });
