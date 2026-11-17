@@ -264,7 +264,9 @@ pub fn value(base: u32, o: &Opd) -> Val {
         }
         T_FIG if o.fig == FIG_ZERO => Val::ZERO,
         T_TEMP => crate::state::st().temps[(o.off as usize) % crate::state::NTEMP],
-        T_CTEMP => crate::func::ctemp_number(o.off).unwrap_or(Val::ZERO),
+        // A character temporary is text (a function's result, a property, a value method's
+        // answer), and text reads as the number it spells, as an alphanumeric item does.
+        T_CTEMP => crate::func::ctemp_text_number(o.off),
         T_ITEM => {
             let loc = locate(base, o);
             codec::load_value(&loc)

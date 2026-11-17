@@ -880,6 +880,14 @@ pub fn ctemp_number(k: u32) -> Option<Val> {
     crate::codec::parse_text(mem::bytes(at, len)).map(Val::Dec)
 }
 
+/// The number character temporary `k`'s text spells, or zero, whoever wrote it: an arithmetic
+/// operand reads text as the interpreter does (`CobolValue::as_exact`), so `::Trim`'s or
+/// `::Split`'s answer counts as the digits it holds, as `::Len`'s and a property's always did.
+pub fn ctemp_text_number(k: u32) -> Val {
+    let (at, len) = ctemp_loc(k);
+    crate::codec::parse_text(mem::bytes(at, len)).map(Val::Dec).unwrap_or(Val::ZERO)
+}
+
 /// `CURRENT-DATE`'s last five characters in character temporary `k`, from the desktop's offset
 /// from UTC in minutes (`prn.tz_offset`, DESKTOP-WASM-001 T24, ABI A31): `+hhmm` or `-hhmm`, as
 /// the interpreter writes the local clock's. A browser module never calls it: its clock is UTC.

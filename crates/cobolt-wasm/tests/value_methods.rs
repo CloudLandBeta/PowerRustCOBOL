@@ -148,3 +148,49 @@ fn a_string_of_more_than_four_reads_is_built_in_parts() {
     assert_eq!(refused, 1, "{err:?}");
     eprintln!("STRING in parts: 6 statements of 6 reads each, {} lines equal on both engines and both memory variants; with ON OVERFLOW, 1 of 1 refused", out.len());
 }
+
+/// A value method's answer in arithmetic reads as the number its text spells, as the interpreter
+/// reads any text (`CobolValue::as_exact`), and as zero when it spells none. The module read it as
+/// zero unless the method was `::Len` (WASM-PARITY #73).
+#[test]
+fn a_value_methods_answer_in_arithmetic_is_the_number_it_spells() {
+    let program = |stmts: &str| {
+        format!(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. VMARITH.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+             01 WS-T20 PIC X(6) VALUE \"  20  \".\n01 WS-TDEC PIC X(6) VALUE \"2.5\".\n\
+             01 WS-TNEG PIC X(6) VALUE \"-3\".\n01 WS-TABC PIC X(6) VALUE \"abc\".\n\
+             01 WS-CSV PIC X(8) VALUE \"10,20,30\".\n01 WS-N PIC 9(4).\n01 WS-S PIC S9(4).\n\
+             01 WS-D PIC 9(2)V9.\nPROCEDURE DIVISION.\n{stmts}    STOP RUN.\n"
+        )
+    };
+    let rows: Vec<(&str, &str, &str)> = vec![
+        ("Trim plus 1", "    COMPUTE WS-N = WS-T20::Trim + 1\n    DISPLAY WS-N\n", "0021"),
+        ("Upper times 2", "    COMPUTE WS-N = WS-T20::Upper * 2\n    DISPLAY WS-N\n", "0040"),
+        ("two answers added", "    COMPUTE WS-N = WS-T20::Trim + WS-T20::Lower\n    DISPLAY WS-N\n", "0040"),
+        ("a decimal text keeps its scale", "    COMPUTE WS-D = WS-TDEC::Trim * 3\n    DISPLAY WS-D\n", "075"),
+        ("a negative text", "    COMPUTE WS-S = WS-TNEG::Trim + 10\n    DISPLAY WS-S\n", "0007"),
+        ("a text that is no number reads as 0", "    COMPUTE WS-N = WS-TABC::Trim + 5\n    DISPLAY WS-N\n", "0005"),
+        ("Split's first part", "    COMPUTE WS-N = WS-CSV::Split(\",\") + 1\n    DISPLAY WS-N\n", "0011"),
+        ("Len is unchanged", "    COMPUTE WS-N = WS-T20::Trim::Len + 100\n    DISPLAY WS-N\n", "0102"),
+    ];
+    let t = std::time::Instant::now();
+    let mut expected = 0;
+    for (name, stmts, want) in &rows {
+        let out = common::same_output(&program(stmts));
+        let line = out.first().cloned().unwrap_or_default();
+        eprintln!("  {name:<38} {line:?}");
+        if line.starts_with(want) {
+            expected += 1;
+        } else {
+            eprintln!("    expected to start with {want:?}");
+        }
+    }
+    eprintln!("== a_value_methods_answer_in_arithmetic_is_the_number_it_spells (WASM-PARITY #73) ==");
+    eprintln!(
+        "rows {}: equal on both engines and both memory variants {}, as expected {expected}; {:.0} ms",
+        rows.len(),
+        rows.len(),
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    assert_eq!(expected, rows.len(), "a row printed what it should not");
+}

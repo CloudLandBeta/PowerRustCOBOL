@@ -2,6 +2,20 @@
 
 
 
+## 2.0.578 — 2026-11-17
+
+**Fix: on the WebAssembly path, a value method's answer used in arithmetic is the number its text spells, as in the interpreter (WASM-PARITY #73).**
+- **What was wrong:** `COMPUTE WS-N = WS-T::Trim + 1` with `WS-T` holding `"  20  "` gave 1 in a WebAssembly-built program and 21 under the interpreter. The module read a method's answer as a number only when the method was `::Len`; `::Trim`, `::Upper`, `::Lower`, `::Replace` and `::Split` read as zero.
+- **What changed:** an answer held for the statement (a method's answer, a property, a function's text) now reads in arithmetic as the number its text spells, or zero when it spells none. An alphanumeric data item already read this way, and so does the interpreter for any text. Comparisons are unchanged.
+- **Found** while serving `::Split( … )(n)` for PowerCloud (DESKTOP-WASM-001 T39c): a Split part added to a number gave the wrong sum.
+- **Browser modules:** the runtime routine that reads an operand's number is linked into every module, so the change reaches Web and Mobile programs too, with the same result.
+- **Tests:**
+  - **`cobolt-wasm` `a_value_methods_answer_in_arithmetic_is_the_number_it_spells`:** 8 rows (`::Trim` plus 1, `::Upper` times 2, two answers added, a decimal text keeping its scale, a negative text, a text that spells no number, `::Split`'s first part, and `::Len` unchanged), each equal on the interpreter and the module in both memory variants, and each printing what it should.
+  - **The sweep:** `cobolt-wasm`, `cobolt-wasm-abi`, `cobolt-wasm-rt`, `cobolt-runner` and `cobolt-web-tests`, 212 tests in 58 suites. Before re-recording, 209 passed: the AC16 pin and the player's generated fixture had moved, as below, and the third red is the known one.
+  - **AC16, on purpose:** the PowerAnalyticsWeb module's bytes move, because the routine that reads an operand's number is linked into every module. The pin is re-recorded with `UPDATE_PIN=1`, and the player's generated fixtures with `UPDATE_PLAYER_FIXTURE=1`; both tests then pass. The web player's ABI host tests, which run those fixtures, pass 28 of 28. The web player itself is not rebuilt: none of its inputs changed.
+  - **The runner twins:** all 12, 122 of 122 checks.
+  - **Known red, not from this change:** `cobolt-web-tests` `examples::the_example_holds_no_secret_and_checks_and_builds` trips on untracked files in the working tree's PowerAnalyticsWeb example.
+
 ## 2.0.577 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T39c, in part): a desktop form's FileDropZone takes the WebAssembly path. A Desktop Build no longer falls back to the Cargo path for a form that holds one.**
