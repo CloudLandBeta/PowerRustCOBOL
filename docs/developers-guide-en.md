@@ -9681,7 +9681,11 @@ extensions. Highlights a working COBOL programmer will rely on:
 > validation routine tries to spot negatives by looking for `"-"`.
 
 - **Tables:** `SORT` / `MERGE` (with `INPUT`/`OUTPUT PROCEDURE`, `USING`/`GIVING`,
-  `RELEASE`/`RETURN`); `SEARCH` (serial) and `SEARCH ALL` (binary search over an
+  `RELEASE`/`RETURN`). A `USING` or `GIVING` file may be sequential, line
+  sequential, relative or indexed. A relative `USING` file gives its records in
+  record-number order and an indexed one in record-key order. A relative
+  `GIVING` file receives them in slots 1, 2, 3, …, and its `RELATIVE KEY` item
+  is left on the last one. `SEARCH` (serial) and `SEARCH ALL` (binary search over an
   `ASCENDING`/`DESCENDING KEY` table).
 - **Sub-programs:** `CALL … USING` (with `ON EXCEPTION` / `NOT ON EXCEPTION`),
   `CANCEL`, `GOBACK`/`EXIT PROGRAM`, nested programs.

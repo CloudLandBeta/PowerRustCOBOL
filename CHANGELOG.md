@@ -2,6 +2,31 @@
 
 
 
+## 2.0.585 — 2026-11-17
+
+**Fix: `SORT` and `MERGE` read a relative or indexed `USING` file and write a relative or indexed `GIVING` file. Before, the sort took no record from such a `USING` file and wrote none to such a `GIVING` file, though it reported success.**
+- **What COBOL-85 asks** (ISO 1989:1985, SORT general rules):
+  - **`USING`:** each record is obtained as if by `READ … NEXT … AT END`.
+  - **`GIVING`:** each record is written as if by `WRITE`. A relative file's records go to slots 1, 2, 3, …, and its `RELATIVE KEY` item is left on the last one.
+- **What was wrong:** the sort's reader and writer served only sequential and line sequential files.
+- **What it does now:** both go through the same file verbs as `READ` and `WRITE`, for every organisation:
+  - A **relative `USING`** file gives its records in record-number order, past its empty slots. As with that `READ`, a record number with more digits than the `RELATIVE KEY` item holds ends the reading (status 14).
+  - An **indexed `USING`** file gives its records in ascending `RECORD KEY` order.
+  - A **relative `GIVING`** file receives slots 1, 2, 3, …, in the sequential, random and dynamic access modes alike, and its `RELATIVE KEY` item is left on the last one.
+  - An **indexed `GIVING`** file in the sequential access mode takes its records in ascending key order, as a `WRITE` there does (21 otherwise); in the other access modes it takes them in any order.
+  - Sequential and line sequential files are read and written as before.
+- **Where:** `read_all_records` and `write_all_records` in the interpreter, which every host shares (`rcrun run`, `rcrun run-form`, embedded child forms and a built program).
+- **Developer's Guide:** the COBOL coverage list says which files `USING` and `GIVING` take.
+- **Tests:**
+  - `sort_and_merge_use_relative_and_indexed_files` (`cobolt-runtime --test test_sort`): 24 of 24 lines as expected. Before the fix, 0 of the first 23. It covers:
+    - an indexed `USING` file;
+    - relative `USING` and `GIVING` (the `RELATIVE KEY` left on 3);
+    - both organisations in, into an indexed `GIVING` file;
+    - a `MERGE` of two indexed files into a relative file (the key left on 9);
+    - a slot-12 record behind a one-digit `RELATIVE KEY`.
+  - The other five `test_sort` tests pass.
+  - NIST ST (Sort-Merge) execution: 39 of 39 programs report 0 failures, 735 PASS, 0 FAIL, as recorded.
+
 ## 2.0.584 — 2026-11-17
 
 **Fix: the example-corpus golden follows the centred pie and donut of 2.0.413. `every_example_form_renders_as_its_golden` is green again.**

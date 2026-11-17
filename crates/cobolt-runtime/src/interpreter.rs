@@ -10072,13 +10072,42 @@ impl Interpreter {
         // fields as text; the record holds their images. The layout also gives
         // a fixed-length record its length.
         let layout = self.file_specs.get(&fkey).map(|s| s.layout.clone());
+        // Each record is obtained as if by `READ … NEXT … AT END` (ISO
+        // 1989:1985 XI-4.4 GR 9), whatever the file's organisation: a RELATIVE
+        // file gives its records in record-number order, past the empty slots,
+        // and an INDEXED file in ascending RECORD KEY order. Only a sequential
+        // file was read here, so a relative or indexed USING file gave the sort
+        // no record at all. As with that READ, a record number with more
+        // digits than the RELATIVE KEY item holds ends the reading (14).
+        let rel_digits = self
+            .file_specs
+            .get(&fkey)
+            .cloned()
+            .and_then(|s| self.relative_key_digits(&s));
+        let mut cursor = self.file_cursor(&fkey);
         let mut out = Vec::new();
-        while let Some(OpenFile::Sequential(f)) = self.open_files.get_mut(&fkey) {
-            match f.read(layout.as_ref(), varying) {
-                crate::seqfile::SeqRead::Record { bytes, .. } => out.push(bytes),
+        loop {
+            let got = crate::file_core::read(
+                self.open_files.get_mut(&fkey).map(file_handle),
+                &mut cursor,
+                &crate::file_core::ReadReq {
+                    random: false,
+                    dir: crate::indexed::ReadDir::Next,
+                    key: None,
+                    kor: 0,
+                    rel_num: None,
+                    rel_digits,
+                    layout: layout.as_ref(),
+                    varying,
+                    no_lock: false,
+                },
+            );
+            match got.bytes {
+                Some(bytes) if got.status.starts_with('0') => out.push(bytes),
                 _ => break,
             }
         }
+        self.put_file_cursor(&fkey, cursor);
         let _ = self.exec_close(&[file.to_string()], &[], &[]);
         out
     }
@@ -10103,10 +10132,45 @@ impl Interpreter {
             .file_specs
             .get(&fkey)
             .is_some_and(|s| s.is_varying());
-        for b in recs {
-            if let Some(OpenFile::Sequential(f)) = self.open_files.get_mut(&fkey) {
-                let _ = f.write(b, None, varying);
+        // Each record is written as if by `WRITE` (ISO 1989:1985 XI-4.4 GR
+        // 10), whatever the file's organisation. An INDEXED file in the
+        // sequential access mode takes its records in ascending key order, as
+        // a WRITE there does. A RELATIVE file's records go to slots 1, 2, 3, …
+        // and its RELATIVE KEY item is left on the last of them. Only a
+        // sequential file was written here, so a relative or indexed GIVING
+        // file was left empty.
+        let in_key_order = self.file_specs.get(&fkey).is_some_and(|s| {
+            s.organization == FileOrganization::Indexed && s.access == AccessMode::Sequential
+        });
+        let relative = self
+            .file_specs
+            .get(&fkey)
+            .filter(|s| s.organization == FileOrganization::Relative)
+            .cloned();
+        let mut cursor = self.file_cursor(&fkey);
+        let mut last_slot = None;
+        for (i, b) in recs.iter().enumerate() {
+            let seq_key = if in_key_order { self.record_key_of(&fkey, b) } else { None };
+            let rel_key = relative.is_some().then_some(i as u64 + 1);
+            let out = crate::file_core::write(
+                self.open_files.get_mut(&fkey).map(file_handle),
+                &mut cursor,
+                crate::file_core::WriteReq {
+                    rec: b,
+                    line: None,
+                    varying,
+                    out_of_range: false,
+                    seq_key,
+                    rel_key,
+                },
+            );
+            if out.status == "00" {
+                last_slot = rel_key.or(last_slot);
             }
+        }
+        self.put_file_cursor(&fkey, cursor);
+        if let (Some(spec), Some(n)) = (relative.as_ref(), last_slot) {
+            self.set_relative_key(spec, n);
         }
         self.exec_close(&[file.to_string()], &[], &[])
     }
