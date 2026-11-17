@@ -197,6 +197,35 @@ impl Call {
     fn int(&self, i: usize) -> i64 {
         to_i64(&self.val(i))
     }
+    /// The text of an argument as the interpreter's value of it (`as_display_string`): an item's or a
+    /// literal's characters, and a number — a numeric item, a numeric literal, a computed operand —
+    /// spelled from its value: `-` when negative, no leading zeros, and its scale's decimals (`42`, `-7`,
+    /// `1.50`), not its picture's digits.
+    fn text(&self, i: usize, buf: &mut [u8; 64]) -> (u32, u32) {
+        let o = self.opd(i);
+        let number = match o.tag {
+            T_FIG | T_LIT_ALNUM | T_ALL | T_CTEMP => None,
+            T_ITEM => {
+                let l = locate(self.base, &o);
+                if !l.fd.is_numeric() {
+                    return (l.addr, l.len);
+                }
+                Some(value(self.base, &o))
+            }
+            _ => Some(value(self.base, &o)),
+        };
+        let Some(v) = number else {
+            let mut small = [0u8; 40];
+            return self.bytes(i, &mut small);
+        };
+        let n = match &v {
+            Val::Dec(d) => crate::disp::format_dec(d, buf),
+            Val::F(f) => crate::float::format_f64(*f, buf),
+        };
+        let (at, _) = crate::mv::scratch();
+        mem::bytes_mut(at, n as u32).copy_from_slice(&buf[..n]);
+        (at, n as u32)
+    }
     /// The bytes of an argument: an item's or literal's characters, a
     /// number's digits.
     fn bytes(&self, i: usize, buf: &mut [u8; 40]) -> (u32, u32) {
@@ -800,8 +829,8 @@ pub fn eval_chars(base: u32, rec: u32, k: u32) {
         }
         CONCATENATE => {
             for i in 0..c.argc {
-                let mut buf = [0u8; 40];
-                let (a, l) = c.bytes(i, &mut buf);
+                let mut buf = [0u8; 64];
+                let (a, l) = c.text(i, &mut buf);
                 // A snapshot: the argument may live in this very slot.
                 let src = mem::bytes(a, l);
                 put(src, &mut len);

@@ -2,6 +2,19 @@
 
 
 
+## 2.0.582 — 2026-11-17
+
+**Fix: on the WebAssembly path, `FUNCTION CONCATENATE` spells a number among its arguments as the interpreter does (WASM-PARITY #74).**
+- **What was wrong:** `FUNCTION CONCATENATE( "n=" WS-NUM )`, with `WS-NUM PIC 9(4) VALUE 42`, gave `n=0042` in a WebAssembly-built program and `n=42` under the interpreter. The module joined the characters of a numeric item's picture, where the interpreter joins the text of its value.
+- **What changed:** a numeric argument (an item, a literal, a computed operand) is spelled from its value: `-` when negative, no leading zeros, and its scale's decimals (`42`, `-7`, `1.50`, `0.05`). That is the runtime's existing spelling of a number handed to the host as text. Text arguments are unchanged.
+- **Only `CONCATENATE` changes.** The other functions that read an argument's characters (`UPPER-CASE`, `LOWER-CASE`, `REVERSE`, `TRIM`, `ORD`, `NUMVAL` and the like) keep their reading.
+- **Found** while serving the concatenation operator `&` for PowerCloud (DESKTOP-WASM-001 T39c): `"n=" & WS-NUM` takes the interpreter's `CONCATENATE` rule, and its first numeric row differed.
+- **Browser modules:** the routine is linked into every module, so the change reaches Web and Mobile programs too.
+- **Tests:**
+  - **`cobolt-wasm` `function_concatenate_spells_a_number_as_the_interpreter`:** 9 rows, each equal on the interpreter and the module in both memory variants, and each printing what it should. The rows: an unsigned item, a negative item, a decimal item keeping its scale, a zero item, a fraction below one, a number literal, two numbers side by side, an item keeping its spaces, and two literals.
+  - **The sweep:** `cobolt-wasm`, `cobolt-wasm-abi`, `cobolt-wasm-rt`, `cobolt-runner` and `cobolt-web-tests`: 213 of 214 tests in 59 suites. `cobolt-runner` `files_of_every_organisation_match_the_interpreter` first failed only because the disk filled up during the run ("No space left on device"); it passed when rerun alone. The one red is the known `examples::the_example_holds_no_secret_and_checks_and_builds`, which trips on untracked files in the working tree's PowerAnalyticsWeb example. The web player's ABI host tests run the re-recorded fixtures and pass 28 of 28, with the freshness check 6 of 6.
+  - **AC16, on purpose:** the PowerAnalyticsWeb module's bytes move, because the routine is linked into every module. The pin is re-recorded with `UPDATE_PIN=1`, and the player's generated fixtures with `UPDATE_PLAYER_FIXTURE=1`.
+
 ## 2.0.581 — 2026-11-17
 
 **Fix: a Build accepts `me::LastException`, the property `onUnhandledException` reads, as the Developer's Guide and the System KB tell a program to.**
