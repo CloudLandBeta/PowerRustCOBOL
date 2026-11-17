@@ -2,6 +2,32 @@
 
 
 
+## 2.0.579 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T39c, in part): `X::Split( sep )( i )` takes the WebAssembly path. A program that picks one part of a split, then perhaps applies another method to it, no longer stops the Build at the generator.**
+- **What runs:**
+  - `WS-CSV::Split( "," )( 2 )` is part 2 of the text, counted from 1. The index is a number, a data item, an expression or a text that spells a number, read as the interpreter reads it:
+    - 0 or less reads as 1;
+    - a decimal is truncated;
+    - a text that spells no number reads as 1.
+  - A part past the last is empty.
+  - Parts are cut exactly as the interpreter cuts them. Two separators in a row leave an empty part, a separator held in a data item keeps its trailing spaces, and no separator means a space.
+  - A method may follow the part (`WS-CSV::Split( "," )( 2 )::Upper`), and a chain may hold two Splits, as PowerCloud's main form reads a role from a JSON answer: `WS-OUTPUTS::Split( … )( 2 )::Split( '"' )( 1 )`.
+  - The part may be moved, displayed, compared or used in arithmetic (with 2.0.578, a part that spells a number counts as that number).
+- **Browser modules:** the routine that answers a value method is linked into every module, so `Split( … )( i )` works in Web and Mobile programs too.
+- **Tests:**
+  - **`cobolt-wasm` `split_with_an_index_matches_the_interpreter`:** 19 rows, each equal on the interpreter and the module in both memory variants, and each printing what it should. They cover:
+    - parts 1, 2 and 3; a part past the last; index 0;
+    - an index from a data item, a computed index, a negative index, a decimal index, a text index, and a text that spells no number;
+    - a separator item with its trailing space; no separator; two spaces in a row;
+    - a method after the part; PowerCloud's two Splits in one chain;
+    - the part in `COMPUTE`, in `IF` and in `DISPLAY`.
+  - **The value-methods suite:** 6 of 6 tests.
+  - **The sweep:** `cobolt-wasm`, `cobolt-wasm-abi`, `cobolt-wasm-rt`, `cobolt-runner` and `cobolt-web-tests`, 213 tests in 58 suites. Before re-recording, 210 passed: the AC16 pin and the player's generated fixture had moved, as below, and the third red is the known one.
+  - **AC16, on purpose:** the PowerAnalyticsWeb module's bytes move again, because the routine that answers a value method is linked into every module. The pin is re-recorded with `UPDATE_PIN=1`, and the player's generated fixtures with `UPDATE_PLAYER_FIXTURE=1`; both tests then pass. The web player's ABI host tests run those fixtures and pass 28 of 28. The web player itself is not rebuilt: none of its inputs changed.
+  - **Known red, not from this change:** `cobolt-web-tests` `examples::the_example_holds_no_secret_and_checks_and_builds` trips on untracked files in the working tree's PowerAnalyticsWeb example.
+- **PowerCloud** (`cobolt-bench pixel-parity --project PowerCloud`) no longer stops at its Split. Its Build now stops at `INVOKE WS-WORK::Close()` in a timer's handler: a method called through a windowHandler (a `USAGE OBJECT` item bound by `ME::OpenFormAsync( … ) RETURNING`), which the WebAssembly path does not take yet. That is the next step of T39c.
+
 ## 2.0.578 — 2026-11-17
 
 **Fix: on the WebAssembly path, a value method's answer used in arithmetic is the number its text spells, as in the interpreter (WASM-PARITY #73).**

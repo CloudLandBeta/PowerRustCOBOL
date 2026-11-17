@@ -34,15 +34,31 @@ pub(crate) struct Seg<'e> {
     pub name: &'e str,
     pub args: &'e [Expr],
     pub parens: bool,
+    /// The part a `Split` answers, from the subscript written after it (`X::Split(",")(2)`): the
+    /// first index, as the interpreter reads it; `None` when none is written.
+    pub index: Option<&'e Expr>,
+}
+
+/// `X::Split(sep)` with a subscript after it is the part of that index (the interpreter's `eval_expr`
+/// of a subscripted `Split`): is `base` that `Split`?
+pub(crate) fn is_split_member(base: &Expr) -> bool {
+    matches!(base, Expr::Member { member, .. } if member.eq_ignore_ascii_case("SPLIT"))
 }
 
 impl Lower<'_, '_> {
-    /// A member chain's root and segments, outermost call last.
+    /// A member chain's root and segments, outermost call last. A subscript after a `Split` is that
+    /// segment's index.
     pub(crate) fn chain<'e>(e: &'e Expr) -> Option<(&'e Expr, Vec<Seg<'e>>)> {
         let mut segs = Vec::new();
         let mut cur = e;
-        while let Expr::Member { recv, member, args, parens, .. } = cur {
-            segs.push(Seg { name: member.as_str(), args: args.as_slice(), parens: *parens });
+        loop {
+            let (member_expr, index) = match cur {
+                Expr::Subscript { base, indices, .. } if is_split_member(base) && !indices.is_empty() => (base.as_ref(), indices.first()),
+                Expr::Member { .. } => (cur, None),
+                _ => break,
+            };
+            let Expr::Member { recv, member, args, parens, .. } = member_expr else { break };
+            segs.push(Seg { name: member.as_str(), args: args.as_slice(), parens: *parens, index });
             cur = recv.as_ref();
         }
         if segs.is_empty() {
@@ -501,7 +517,10 @@ impl Lower<'_, '_> {
                 Some(x) => self.operand_or_temp(x)?,
                 None => 0,
             };
-            let b = match s.args.get(1) {
+            // `Split` reads its separator alone (a second argument is ignored, as the interpreter
+            // ignores it); its second operand is the part's index, when one is written after it.
+            let second = if code == cobolt_wasm_rt::strings::VM_SPLIT { s.index } else { s.args.get(1) };
+            let b = match second {
                 Some(x) => self.operand_or_temp(x)?,
                 None => 0,
             };
@@ -541,7 +560,7 @@ impl Lower<'_, '_> {
         let Some(ctrl) = self.host_root(&root) else {
             return self.err(line, format!("INVOKE {object}: it is not a control of this form"));
         };
-        let seg = Seg { name: method, args, parens: true };
+        let seg = Seg { name: method, args, parens: true, index: None };
         if !on_exc.is_empty() || !not_exc.is_empty() {
             if ctrl != CTRL_SUPER || self.form.is_none() {
                 return self.err(
@@ -646,7 +665,7 @@ impl Lower<'_, '_> {
             WindowOperation::Close(w) => ("Close", w),
         };
         let _ = who;
-        let seg = Seg { name, args: &[], parens: true };
+        let seg = Seg { name, args: &[], parens: true, index: None };
         self.build_path(CTRL_FORM, std::slice::from_ref(&seg))?;
         self.call_rt("rt_cmd_call");
         let _ = line;
@@ -739,7 +758,7 @@ impl Lower<'_, '_> {
                 let Some(ctrl) = self.host_root(&root) else {
                     return self.err(line, format!("COBOL::\"{name}\": {o} is not a control of this form"));
                 };
-                let seg = Seg { name: p.as_str(), args: &[], parens: false };
+                let seg = Seg { name: p.as_str(), args: &[], parens: false, index: None };
                 if name == "SET-PROPERTY" {
                     let v = self.operand_or_temp(&third)?;
                     self.build_path(ctrl, std::slice::from_ref(&seg))?;
@@ -858,7 +877,7 @@ impl Lower<'_, '_> {
                 }
                 let receiver = if other == "SECURELOAD" { args.get(1).cloned() } else { None };
                 let sent: &[Expr] = if receiver.is_some() { &args[..1] } else { &args };
-                let seg = Seg { name: other, args: sent, parens: true };
+                let seg = Seg { name: other, args: sent, parens: true, index: None };
                 // `COBOL::"CHART-SET-TABLE"` reads its table at fixed offsets: the table goes whole,
                 // the spaces around its text kept, as the interpreter reads the item.
                 let whole = (other == "CHART-SET-TABLE").then_some(1);
@@ -900,7 +919,7 @@ impl Lower<'_, '_> {
             })
             .collect();
         let (sent, dest) = args.split_at(args.len() - 1);
-        let seg = Seg { name, args: sent, parens: true };
+        let seg = Seg { name, args: sent, parens: true, index: None };
         self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
         self.call_rt("rt_cmd_call");
         self.suspend_if_waiting(CTRL_APP, name);
@@ -938,7 +957,7 @@ impl Lower<'_, '_> {
             "AUDIO-STATE" => (&[], vec![("AudioState", args.first()), ("AudioPosition", args.get(1)), ("AudioDuration", args.get(2))]),
             _ => (&[], vec![("AudioStatus", args.first())]),
         };
-        let seg = Seg { name, args: sent, parens: true };
+        let seg = Seg { name, args: sent, parens: true, index: None };
         self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
         self.call_rt("rt_cmd_call");
         for (prop, dest) in answers {
@@ -985,7 +1004,7 @@ impl Lower<'_, '_> {
             "AWS-CREDENTIALS-SET" => (&args[..1], ("AwsFlag", args.get(1))),
             _ => (&args[..1], ("AwsStatus", args.get(1))),
         };
-        let seg = Seg { name, args: sent, parens: true };
+        let seg = Seg { name, args: sent, parens: true, index: None };
         self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
         self.call_rt("rt_cmd_call");
         if let (prop, Some(dest)) = answer {
@@ -1058,7 +1077,7 @@ impl Lower<'_, '_> {
             return self.too_many_reads(line, "this statement reads more than four properties or character-valued functions; split it into statements that read at most four");
         }
         self.ctemp_next += 1;
-        let value = Seg { name: prop, args: &[], parens: false };
+        let value = Seg { name: prop, args: &[], parens: false, index: None };
         self.build_path(CTRL_APP, std::slice::from_ref(&value))?;
         self.i32c(Q_GET as i32);
         self.i32c(k as i32);

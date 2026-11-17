@@ -194,3 +194,64 @@ fn a_value_methods_answer_in_arithmetic_is_the_number_it_spells() {
     );
     assert_eq!(expected, rows.len(), "a row printed what it should not");
 }
+
+/// `X::Split(sep)(i)`, part `i` of a value method's answer (DESKTOP-WASM-001 T39c): the index written
+/// after a `Split`, in every form the interpreter reads it, and what follows it in a chain. PowerCloud's
+/// main form reads a role from a JSON answer with two of them in one chain.
+#[test]
+fn split_with_an_index_matches_the_interpreter() {
+    let program = |stmts: &str| {
+        format!(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. VMSPLIT.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+             01 WS-CSV PIC X(16) VALUE \"red,green,blue\".\n01 WS-NUMS PIC X(8) VALUE \"10,20,30\".\n\
+             01 WS-WORDS PIC X(16) VALUE \"one two  three\".\n01 WS-PAIRS PIC X(10) VALUE \"a, b,c\".\n\
+             01 WS-SEP PIC X(2) VALUE \",\".\n01 WS-I PIC 9(2) VALUE 2.\n01 WS-NEG PIC S9(2) VALUE -3.\n\
+             01 WS-DEC PIC 9V9 VALUE 2.7.\n01 WS-TXT-I PIC X(3) VALUE \"3\".\n01 WS-TXT-X PIC X(3) VALUE \"x\".\n\
+             01 WS-JSON PIC X(80) VALUE '[{{\"OutputKey\":\"FunctionRoleArn\",\"OutputValue\":\"arn:aws:iam::role/deployer\"}}]'.\n\
+             01 WS-OUT PIC X(32).\n01 WS-N PIC 9(4).\nPROCEDURE DIVISION.\n{stmts}    STOP RUN.\n"
+        )
+    };
+    let show = |e: &str| format!("    MOVE {e} TO WS-OUT\n    DISPLAY \"[\" WS-OUT \"]\"\n");
+    let rows: Vec<(&str, String, &str)> = vec![
+        ("part 1", show("WS-CSV::Split(\",\")(1)"), "[red"),
+        ("part 2", show("WS-CSV::Split(\",\")(2)"), "[green"),
+        ("part 3, the last", show("WS-CSV::Split(\",\")(3)"), "[blue"),
+        ("part 4, past the last", show("WS-CSV::Split(\",\")(4)"), "[ "),
+        ("part 0 reads as 1", show("WS-CSV::Split(\",\")(0)"), "[red"),
+        ("a data item's index", show("WS-CSV::Split(\",\")(WS-I)"), "[green"),
+        ("a computed index", show("WS-CSV::Split(\",\")(WS-I + 1)"), "[blue"),
+        ("a negative index reads as 1", show("WS-CSV::Split(\",\")(WS-NEG)"), "[red"),
+        ("a decimal index, truncated", show("WS-CSV::Split(\",\")(WS-DEC)"), "[green"),
+        ("a text index", show("WS-CSV::Split(\",\")(WS-TXT-I)"), "[blue"),
+        ("a text that is no number reads as 1", show("WS-CSV::Split(\",\")(WS-TXT-X)"), "[red"),
+        ("a separator item keeps its spaces", show("WS-PAIRS::Split(WS-SEP)(2)"), "[b,c"),
+        ("no separator: a space", show("WS-WORDS::Split()(2)"), "[two"),
+        ("two spaces leave an empty part", show("WS-WORDS::Split()(3)"), "[ "),
+        ("a method after the part", show("WS-CSV::Split(\",\")(2)::Upper"), "[GREEN"),
+        ("two Splits in one chain (PowerCloud)", show("WS-JSON::Split( '\"OutputKey\":\"FunctionRoleArn\",\"OutputValue\":\"' )(2)::Split( '\"' )(1)"), "[arn:aws:iam::role/deployer"),
+        ("in COMPUTE", "    COMPUTE WS-N = WS-NUMS::Split(\",\")(2) + 1\n    DISPLAY WS-N\n".to_string(), "0021"),
+        ("in IF", "    IF WS-CSV::Split(\",\")(2) = \"green\"\n        DISPLAY \"yes\"\n    ELSE\n        DISPLAY \"no\"\n    END-IF\n".to_string(), "yes"),
+        ("in DISPLAY", "    DISPLAY WS-CSV::Split(\",\")(3)\n".to_string(), "blue"),
+    ];
+    let t = std::time::Instant::now();
+    let mut equal = 0;
+    let mut expected = 0;
+    for (name, stmts, want) in &rows {
+        let out = common::same_output(&program(stmts));
+        let line = out.first().cloned().unwrap_or_default();
+        eprintln!("  {name:<38} {line:?}");
+        equal += 1;
+        if line.starts_with(want) {
+            expected += 1;
+        } else {
+            eprintln!("    expected to start with {want:?}");
+        }
+    }
+    eprintln!("== split_with_an_index_matches_the_interpreter (DESKTOP-WASM-001 T39c) ==");
+    eprintln!(
+        "rows {}: equal on both engines and both memory variants {equal}, as expected {expected}; {:.0} ms",
+        rows.len(),
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    assert_eq!(expected, rows.len(), "a row printed what it should not");
+}

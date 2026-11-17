@@ -1536,6 +1536,20 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - **The twin found** that the interpreter keeps what a drop writes to a review list the form does not hold and reads it back at `CommitFiles()` (the staged rows count as ticked; after a commit only the committed ones do, so a second commit copies nothing, as with a real list). The ABI host now keeps the values of such an absent control too, and hands `CommitFiles()`'s writes to it back to the window in the interpreter's order.
     - **The twin's project has `assets/`,** as every project: a built program anchors a relative folder at the folder above it that holds `assets/`, as a Cargo-built program does (else at `bin/`).
     - **PowerCloud** no longer takes the Cargo path for its FileDropZone (`cobolt-bench pixel-parity --project PowerCloud`, 2026-11-17). Its Build now stops at the generator: its main form reads `WS-OUTPUTS::Split( … )(2)::Split( … )(1)`, a value method's answer indexed and then another method on that part, which the WebAssembly path does not take yet (the interpreter does). Next in T39c.
+  - *`::Split( … )( i )` done 2026-11-17 (2.0.579), with the fix it needed (2.0.578):*
+    - **What runs:**
+      - `X::Split( sep )( i )` is part `i` of the text, counted from 1, as the interpreter reads it:
+        - an index of 0 or less reads as 1;
+        - a decimal is truncated;
+        - a text that spells no number reads as 1;
+        - a part past the last is empty.
+      - A method may follow the part, and a chain may hold two Splits. The part can be moved, displayed, compared or used in arithmetic.
+    - **The fix it needed (2.0.578, WASM-PARITY #73):** a value method's answer used in arithmetic read as zero on the module, unless the method was `::Len`. It now reads as the number its text spells, as in the interpreter.
+    - **Tests:**
+      - `cobolt-wasm` `split_with_an_index_matches_the_interpreter`: 19 rows, equal on both engines and both memory variants.
+      - `a_value_methods_answer_in_arithmetic_is_the_number_it_spells`: 8 rows.
+    - **AC16, named:** the routine that answers a value method is in every module, so the PowerAnalyticsWeb pin and the player's generated fixtures were re-recorded at 2.0.578 and again at 2.0.579.
+    - **PowerCloud** (`cobolt-bench pixel-parity --project PowerCloud`, 2026-11-17) now stops at `INVOKE WS-WORK::Close()` in `TMR-EC2`'s `onTick`. That is a method called through a windowHandler, which the WebAssembly path does not take yet: `WS-WORK` is a `USAGE OBJECT` item bound by `ME::OpenFormAsync( "WORKING-FORM" ) RETURNING WS-WORK`. Next in T39c.
 
 - [ ] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
   - Verify:

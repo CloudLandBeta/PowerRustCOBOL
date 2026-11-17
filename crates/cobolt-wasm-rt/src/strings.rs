@@ -825,11 +825,33 @@ pub fn value_method(base: u32, method: u32, recv: u32, a: u32, b: u32, k: u32) {
             out.push(&num[..l]);
         }
         VM_SPLIT => {
-            // The separator is a space when none is given.
+            // The separator is a space when none is given. `b`, when given, is the part's index
+            // (`X::Split(sep)(i)`), counted from 1 as the interpreter counts it: an index of 0 or
+            // less reads as 1, and a part past the last is empty. Parts are cut as Rust's
+            // `str::split` cuts them, which the interpreter uses.
             let sep: &[u8] = if a == 0 { b" " } else { ta };
-            if !sep.is_empty() {
-                let end = find(t, sep, 0).unwrap_or(t.len());
-                out.push(&t[..end]);
+            let want = if b == 0 { 0 } else { crate::deskio::whole_number(base, b).saturating_sub(1).clamp(0, i64::from(u32::MAX)) as usize };
+            if sep.is_empty() {
+                // `split("")`: an empty part, then each character, then an empty part.
+                if want > 0 {
+                    if let Some(s) = char_starts(t).nth(want - 1) {
+                        let e = char_starts(t).nth(want).unwrap_or(t.len());
+                        out.push(&t[s..e]);
+                    }
+                }
+            } else {
+                let mut from = 0;
+                for part in 0.. {
+                    let end = find(t, sep, from);
+                    if part == want {
+                        out.push(&t[from..end.unwrap_or(t.len())]);
+                        break;
+                    }
+                    match end {
+                        Some(e) => from = e + sep.len(),
+                        None => break,
+                    }
+                }
             }
         }
         _ => crate::fail(err::BAD_OPERAND),

@@ -1589,6 +1589,11 @@ impl<'a, 'b> Lower<'a, 'b> {
                 let idx = self.resolve_item(e)?;
                 self.item_operand(idx, &[], None, line).map(Some)
             }
+            // `X::Split(sep)(i)`: the part of that index, a value method's answer (the interpreter's
+            // subscripted `Split`), not an occurrence of a table.
+            Expr::Subscript { base, indices, .. } if crate::lower_form::is_split_member(base) && !indices.is_empty() => {
+                self.member_value(e, line).map(Some)
+            }
             Expr::Subscript { base, indices, .. } => {
                 let idx = self.resolve_item(base)?;
                 self.item_operand(idx, indices, None, line).map(Some)

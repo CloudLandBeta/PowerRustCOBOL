@@ -77,7 +77,7 @@ fn arg_text(base: u32, o: u32, place: u32) -> (u32, u32) {
 /// decimals, and a text that is a whole number once trimmed (a sign allowed), else 0.
 /// A text's characters are read where they are, but a figurative constant's are made in place 0, so
 /// the numbers are read before the texts.
-fn whole_number(base: u32, raw: u32) -> i64 {
+pub(crate) fn whole_number(base: u32, raw: u32) -> i64 {
     let o = parse(raw);
     let numeric = match o.tag {
         T_LIT_NUM | T_TEMP => Some(value(base, &o)),
