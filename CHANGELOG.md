@@ -2,6 +2,38 @@
 
 
 
+## 2.0.592 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T40): milestone M3 closed, disk files on the WebAssembly path. Every NIST program of the four file modules builds on the WebAssembly path and runs clean through the runner, all six reference projects take that path, and every frame of every project they draw matches the Cargo-built program.**
+- **NIST through the runner (AC9), on both axes**, one module at a time:
+
+  | Module | Compiled (of in scope) | Ran clean, 0 failures | PASS markers | Census |
+  |---|---|---|---|---|
+  | SQ (Sequential I/O) | 85 of 85 | 85 | 624 | 965 s |
+  | IX (Indexed I/O) | 41 of 41 | 41 | 574 | 620 s |
+  | RL (Relative I/O) | 34 of 34 | 34 | 354 | 511 s |
+  | ST (Sort-Merge) | 39 of 39 | 39 | 735 | 683 s |
+
+  - RL and ST were run a second time, alone. The first run shared the machine with Cargo Builds and a test sweep: 17 ST programs and RL207A passed the harness's 20 s limit, and the programs that read the files those write (ST114M, ST117A, RL208A) reported FAILs. Nothing changed in the programs between the two runs.
+- **The reference projects' paths** (`cobolt-bench build-goal`, 5 Builds each, a fresh build folder each; the slowest shown): all six take the WebAssembly path, 30 of 30 Builds.
+
+  | Project | Path | Build | Against the 30 s goal |
+  |---|---|---|---|
+  | PowerCallOfDuty | WebAssembly | 0.4 s | within |
+  | PowerCloud | WebAssembly (since T39c) | 0.5 s | within |
+  | PowerCobolCraft | WebAssembly | 0.8 s | within |
+  | PowerGraphics | WebAssembly | 0.6 s | within |
+  | PowerSpatial | WebAssembly | 0.4 s | within |
+  | The ten-times project | WebAssembly | 70.9 s, the slowest of 5, beside the NIST runs; 61.4 s in one Build alone (front end 29.4 s, generator 33.3 s) | over |
+
+  - The goal is reported, not enforced (D24). The ten-times project's generator took 22.1 s at 2.0.566; the 11 s it has grown since is not yet explained.
+- **Pixel parity (AC19), the full run** (`cobolt-bench pixel-parity`): 6 projects, 426 frame pairs, 425 identical; reads and dumps 27 of 27 equal; expected reads 18 of 18. The Cargo-built frames match their goldens, 407 of 408 (ParityControls has none).
+  - PowerCloud moved: 72 of 72 frames.
+  - The one frame apart, PowerCobolCraft `title-form/medium/05-BTN-QUIT-onClick` (67 pixels), was drawn while NIST ran beside it, and its Cargo-built frame missed its golden the same way. Run again with the machine to itself: 66 of 66 identical, 66 of 66 goldens.
+- **The corpus** (`nist_runner_run compare`): 62 programs, 34 compiled, 28 refused with the construct named; 25 of 34 identical. 7 `fileiot*` programs print the same lines under both engines and reach the 20 s limit under both; 2 differ only by the interpreter's WARN line.
+- **The release runner** is 68.6 MiB (71 923 792 bytes).
+- **Specs:** T40 ticked with this record; WASM-PROGRESS, 42 of 58 tasks.
+
 ## 2.0.591 — 2026-11-17
 
 **Fix: a form drawn off screen shows a picture more than 2,048 pixels wide or tall, as its window does.** A headless run (`rcrun run-form --headless`, the `run_form` and `render_form` tools, a built program's scripted run) stopped at the first such picture: PowerOficina's 2172 × 724 logo stopped its run before the first frame.

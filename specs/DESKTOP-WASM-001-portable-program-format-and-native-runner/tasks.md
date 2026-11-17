@@ -1608,7 +1608,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - no refusal names M3; AC16 unchanged; the sweep of the five WebAssembly crates and the runner: 60 test binaries, 213 tests passed (the two reds: this refusal case, then corrected and rerun, and `cobolt-web-tests` `examples`, red from untracked operator files).
     - **Found on the way:** the end of a headless run is a race on both engines (WASM-PARITY #75), a fix of its own; and the IndexedFile paragraphs name the `.cidx` stem, not the form's `SELECT` name, when the two differ (PowerDemo3's `MENU` against `SELECT MENU-FILE`), a fix of its own.
 
-- [ ] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
+- [x] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
   - Verify:
     - The NIST SQ, IX, RL and ST counts on both axes through the generator and the runner, reported separately.
     - The ten-times project's path and time.
@@ -1636,6 +1636,23 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - **The full run** (`cobolt-bench pixel-parity`, 13.7 min): 354 frame pairs, **354 identical, 0 differing pixels**; reads and dumps 27 of 27 equal; expected reads 18 of 18.
       - Moved: ParityControls (18 of 18), PowerCallOfDuty (12 of 12), PowerCobolCraft (66 of 66), PowerGraphics (120 of 120) and PowerSpatial (138 of 138). The Cargo-built frames match their goldens, 336 of 336.
       - PowerCloud still takes the Cargo path, for its FileDropZone (T39c).
+  - *Closed 2026-11-17 (2.0.592), after T39c (2.0.588) and the fixes 2.0.589–2.0.591:*
+    - **NIST through the runner (AC9), on both axes:** each program built on the WebAssembly path by `nist_runner_run` and run by `prc-runner`, one module at a time; compiled and executed clean are the same count in every module.
+      - SQ: 85 of 85 compiled and clean, 624 PASS, 0 FAIL, 965 s.
+      - IX: 41 of 41, 574 PASS, 620 s.
+      - RL: 34 of 34, 354 PASS, 511 s.
+      - ST: 39 of 39, 735 PASS, 683 s.
+      - RL and ST were run a second time, alone. The first run shared the machine with Cargo Builds and a test sweep: 17 ST programs and RL207A passed the 20 s limit, and the programs that read their files (ST114M, ST117A, RL208A) reported FAILs. Run alone, every one is clean. The limit is the harness's; nothing changed in the programs.
+    - **The reference projects' paths** (`cobolt-bench build-goal`, 5 Builds each, a fresh build folder each): all six take the WebAssembly path, 30 of 30 Builds.
+      - PowerCallOfDuty 0.4 s, PowerCloud 0.5 s (on the WebAssembly path since T39c), PowerCobolCraft 0.8 s, PowerGraphics 0.6 s, PowerSpatial 0.4 s.
+      - The ten-times project: 70.9 s beside the NIST runs, 61.4 s alone (front end 29.4 s, generator 33.3 s, peak 6 745 MB), over the 30 s goal, which is reported, not enforced (D24; plan §5). The generator took 22.1 s at 2.0.566; the 11 s it has grown since is not yet explained.
+    - **Pixel parity (AC19), the full run** (`cobolt-bench pixel-parity`, 18.9 min): 6 projects, 426 frame pairs, 425 identical; reads and dumps 27 of 27 equal; expected reads 18 of 18. The Cargo-built frames match their goldens, 407 of 408 (ParityControls has none).
+      - PowerCloud moved: 72 of 72 frames, on the WebAssembly path.
+      - The one frame apart, PowerCobolCraft `title-form/medium/05-BTN-QUIT-onClick` (67 pixels), was drawn while NIST ran beside it; its Cargo-built frame missed its golden the same way. Run again with the machine to itself (2.0.591): 66 of 66 identical, 66 of 66 goldens.
+    - **The corpus** (`nist_runner_run compare`): 62 programs, 34 compiled, 28 refused with the construct named; 25 of 34 identical.
+      - 7 `fileiot*` programs print the same lines under both engines and reach the 20 s limit under both.
+      - 2 differ only by the interpreter's WARN line.
+    - The release runner is 68.6 MiB (71 923 792 bytes).
 
 ## Phase M4 — SQL and HTTP
 
