@@ -86,6 +86,9 @@ pub struct Outcome {
     pub super_pending: u32,
     /// How many of the `super::` reads were asked soft (A25: a statement that has an `ON EXCEPTION`).
     pub super_soft: u32,
+    /// The `PART` commands the module sent (A37), and the pieces still waiting for their command.
+    pub part_commands: u32,
+    pub parts: cobolt_wasm_abi::batch::Parts,
 }
 
 struct State {
@@ -131,6 +134,20 @@ fn apply(batch: &[u8], out: &mut Outcome) {
         }
     };
     for c in cmds {
+        // A37: the pieces of a long argument wait for the next command with a path.
+        if let Command::Part { seg, arg, text } = c {
+            out.parts.add(seg, arg, text);
+            out.part_commands += 1;
+            continue;
+        }
+        let mut whole = Vec::new();
+        let c = match out.parts.join(c, &mut whole) {
+            Ok(c) => c,
+            Err(m) => {
+                out.error_texts.push(m);
+                continue;
+            }
+        };
         match c {
             // One command is one line of the console (ABI §5, WASM-010 T21).
             Command::Display(t) => {
@@ -454,6 +471,9 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
                     let mut o = out.borrow_mut();
                     o.queries += 1;
                     apply(&batch[..prefix], &mut o);
+                    // The query's own path uses up the pieces sent ahead of it (A37).
+                    let mut whole = Vec::new();
+                    let _ = o.parts.join(query.clone(), &mut whole);
                 }
                 remember_sets(&batch[..prefix], &mut caller.data_mut().props);
                 // A24: the opener lives in another window, so a waiting `super::` read is answered

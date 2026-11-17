@@ -39,7 +39,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::rc::Rc;
 
 use cobolt_forms::model::{ControlType, Form};
-use cobolt_wasm_abi::batch::{encode_event_args, BatchReader, Command, DecodeError, Path};
+use cobolt_wasm_abi::batch::{encode_event_args, BatchReader, Command, DecodeError, Parts, Path};
 use cobolt_wasm_abi::codes::{ctrl, err, Status};
 use cobolt_wasm_abi::manifest::{ArenaLayout, Manifest};
 
@@ -559,6 +559,8 @@ pub struct Host {
     /// The display list a `flush` brought with it, read from the graphics region by the page (ABI A23); the batch's
     /// `DRAW` names a part of it. Taken by the first `DRAW` that uses it.
     gfx: Option<Vec<u8>>,
+    /// The pieces of long arguments sent ahead of the command whose path they belong to (ABI A37).
+    parts: Parts,
     /// Answers a read-back of a Canvas2D (`GetPixel`, `ToImage`, `MeasureText` ...) with the picture the Canvas part
     /// holds; set by the page. `None` in a host with no page (the tests of the host alone).
     pub gfx_sync: Option<Rc<dyn Fn(u32, usize, &str, &str, (f64, f64), &str, &[String], Vec<(usize, crate::tree::GfxItem)>) -> GfxAnswer>>,
@@ -727,6 +729,7 @@ impl Host {
         Host {
             manifest: Rc::new(manifest),
             gfx: None,
+            parts: Parts::new(),
             gfx_sync: None,
             layout,
             forms: vec![None; n],
@@ -2051,6 +2054,8 @@ impl Host {
         self.stats.aborts += 1;
         self.aborted = true;
         self.apply_batch(bytes, false);
+        // Pieces of an argument whose command never came (ABI A37) belong to no later command.
+        self.parts.clear();
     }
 
     // ── applying commands ───────────────────────────────────────────────────
@@ -2068,6 +2073,19 @@ impl Host {
                         return Some(Err(err::BAD_ARGUMENT));
                     }
                     return None;
+                }
+            };
+            // ABI A37: a piece of a long argument waits for the next command with a path, which gets the whole text.
+            if let Command::Part { seg, arg, text } = cmd {
+                self.parts.add(seg, arg, text);
+                continue;
+            }
+            let mut whole = Vec::new();
+            let cmd = match self.parts.join(cmd, &mut whole) {
+                Ok(c) => c,
+                Err(m) => {
+                    self.report_cmd_error(CmdError::Bad(m));
+                    continue;
                 }
             };
             self.stats.commands += 1;
@@ -2104,6 +2122,8 @@ impl Host {
                     }
                 }
                 Command::Display(t) => self.effects.push(Effect::Display(t.to_owned())),
+                // Kept above, before the command they belong to.
+                Command::Part { .. } => {}
                 Command::Log { level, text } => {
                     if level <= self.opts.debug_level {
                         self.effects.push(Effect::Log { level, text: text.to_owned() });
@@ -3870,6 +3890,8 @@ mod layer_tests;
 mod params_tests;
 #[cfg(test)]
 mod raise_tests;
+#[cfg(test)]
+mod long_args_tests;
 #[cfg(test)]
 mod resize_tests;
 #[cfg(test)]

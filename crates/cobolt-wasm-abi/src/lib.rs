@@ -34,6 +34,6 @@ pub mod scan;
 #[cfg(feature = "fixture")]
 pub mod fixture;
 
-pub use batch::{decode_batch, BatchReader, BatchWriter, Command, DecodeError, Path, PathSpec, Seg};
+pub use batch::{decode_batch, BatchReader, BatchWriter, Command, DecodeError, Parts, Path, PathSpec, Seg};
 pub use codes::{Status, ABI_VERSION};
 pub use manifest::{ArenaLayout, Manifest, ManifestError};

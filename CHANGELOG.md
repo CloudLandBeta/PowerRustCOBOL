@@ -2,6 +2,30 @@
 
 
 
+## 2.0.565 — 2026-11-17
+
+**Fix: a method call on the WebAssembly path can pass an argument of any length, as under the interpreter. An argument longer than the module's 2 KiB path buffer used to stop the handler. `examples/PowerGraphics` hands its chart a 1.2 MB table this way, and its chart stayed empty.**
+- **Why it is a fix:** `PLT-1::SetSeriesFromTable( WS-SER WS-BIG 100000 12 "…" )` passes a 1.2 MB data item. The interpreter and a Cargo-built program draw the chart. A program built on the WebAssembly path (the desktop default, and every browser build) stopped the handler with an internal overflow, because a call's arguments had to fit the module's path buffer of 2 KiB. The same limit stopped any call whose argument was longer, such as a long text handed to `AddItem` or a large table handed to `COBOL::"CHART-SET-TABLE"`.
+- **How it was found:** pixel parity (DESKTOP-WASM-001 AC19) between the two builds of `examples/PowerGraphics`: charts-form's `BTN-BIG` frames were the last three that differed, about 80 000 pixels each.
+- **The fix (ABI amendment A37):**
+  - An argument the path has no room for is sent ahead of its call as **`PART`** commands (opcode `0x09`), each one within a batch, and the path carries it empty. Batches are handed over between the parts as they fill.
+  - The host keeps the parts and makes the argument whole on the next command that has a path: its parts in order, then the path's own text. The browser player and the desktop runner share this host, and the test host does the same.
+  - Each part is whole UTF-8 characters. A byte that is not UTF-8 becomes U+FFFD, as it does in every other argument.
+  - A part that names an argument the path does not have is the module's error, and the call is not carried out. Parts left over when a module aborts are forgotten.
+  - A path that fits is the same bytes as before. Neither the arena nor the glue changes.
+- **What else moves:**
+  - Every module carries the new routines, so its bytes change. The player's 8 fixture modules are regenerated, and the PowerAnalyticsWeb pin (AC16) is re-recorded: `program.wasm`, `program.single.wasm`, and `manifest.json` (which records the module's sizes). A Web Build of the committed project, made from a clean copy, gives the same three hashes.
+  - The shipped web player is rebuilt (`assets/web-player`), since the ABI codec and host are among its inputs.
+- **Tests:**
+  - **New: `a_long_argument_reaches_the_host_whole`** (`cobolt-wasm`, both memory variants): 12 of 12 checks.
+    - A handler fills a 150 000-character item, puts one byte that is not UTF-8 in it, and calls `LST-1::AddItem( WS-BIG )`, then `PLT-1::SetSeriesFromTable` with it as the second of five arguments, then a plain `AddItem`.
+    - The host gets the 150 002-byte text whole in both calls, made from 10 parts over 8 batches; the other four arguments and the plain call are unchanged.
+    - Against the old routines the handler stops (status −10, trapped) and the test fails.
+  - **New: `parts_over_two_flushes_make_one_whole_argument`** (`cobolt-abi-host`): 4 of 4 checks. A 60 007-byte argument from 2 parts over 2 flushes; a misaddressed part refused with the call not made; parts forgotten at an abort.
+  - **New: `parts_make_the_next_paths_argument_whole`** (`cobolt-wasm-abi`): the codec's round trip and the joining, over two batches.
+  - `cobolt-wasm`: 131 of 131. `cobolt-abi-host`: 265 of 265. `cobolt-wasm-abi`: 23 of 23. The web player's own tests, the rebuilt player's freshness among them: 34 of 34. `cobolt-runner`: 10 of 10, and the runner's twins in `cobolt-cli`: 13 of 13. `desktop_wasm_unchanged` (AC16): 3 of 3 artefacts match the new pins.
+  - Pixel parity of PowerGraphics, the two builds compared: **120 of 120 frames identical, 0 differing pixels** (9 forms, 95 steps, three window sizes), against 117 of 120 before: the three charts-form `BTN-BIG` frames now match. The Cargo-built frames still match their goldens, 120 of 120.
+
 ## 2.0.564 — 2026-11-17
 
 **Fix: a canvas or graphics method that takes text now gets the program's text, whatever the data item holds. A `PIC X` item holding digits reached `DrawText` as a number, which it refuses, so nothing was drawn. A right-aligned `PIC X(80)` kept its trailing spaces, so the text ended short of where the program put it.**

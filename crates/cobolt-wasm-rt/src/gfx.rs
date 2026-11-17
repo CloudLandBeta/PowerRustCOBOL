@@ -104,6 +104,10 @@ fn varint(buf: &[u8], pos: &mut usize) -> Option<u32> {
 /// `(ctrl, args)` of the single-segment call the path buffer holds.
 fn read_path() -> Option<(u32, Args)> {
     let s = st();
+    // An argument that went ahead as `PART`s (ABI A37) is not in the path: the host draws the call.
+    if s.path_parts {
+        return None;
+    }
     let base = s.ws + WS_PATH;
     let buf = mem::bytes(base, s.path_len);
     let mut pos = 0;

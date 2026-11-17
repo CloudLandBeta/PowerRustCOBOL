@@ -156,6 +156,8 @@ pub struct State {
     pub path_len: u32,
     pub path_nseg_at: u32,
     pub path_nargs_at: u32,
+    /// An argument of the path being built went ahead as `PART`s (ABI A37): its text in the path is empty.
+    pub path_parts: bool,
     /// Character temporaries that hold a property read, whose text is a number
     /// when it spells one (bit `k`).
     pub ctemp_dynamic: u32,
@@ -191,7 +193,7 @@ pub struct State {
 
 impl State {
     pub const fn new() -> State {
-        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, ctemp_dynamic: 0, query_pending: false, query_failed: false, func_argc: u32::MAX, heap_base: 0, heap_end: 0, heap_rover: 0, json_path_len: 0, disp_len: 0, gfx_at: 0, gfx_cap: 0, gfx_len: 0, gfx_cmds: 0, gfx_ctrl: u32::MAX, gfx_inst: 0 }
+        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, path_parts: false, ctemp_dynamic: 0, query_pending: false, query_failed: false, func_argc: u32::MAX, heap_base: 0, heap_end: 0, heap_rover: 0, json_path_len: 0, disp_len: 0, gfx_at: 0, gfx_cap: 0, gfx_len: 0, gfx_cmds: 0, gfx_ctrl: u32::MAX, gfx_inst: 0 }
     }
 }
 

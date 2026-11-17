@@ -31,6 +31,9 @@ pub mod op {
     pub const RAISE: u8 = 0x07;
     /// Draw a canvas's display list, which the module left in the arena's graphics region (A23).
     pub const DRAW: u8 = 0x08;
+    /// A piece of an argument of the next command that has a path, sent ahead because the module's
+    /// path had no room for it (A37).
+    pub const PART: u8 = 0x09;
     /// First and last opcode of the queries.
     pub const QUERY_FIRST: u8 = 0x10;
     pub const QUERY_LAST: u8 = 0x1F;

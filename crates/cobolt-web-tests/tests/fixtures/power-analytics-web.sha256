@@ -1,5 +1,5 @@
 # DESKTOP-WASM-001 AC16: sha256 of the Web Build of examples/PowerAnalyticsWeb.
 # Re-record only with a change that names this in its CHANGELOG entry (UPDATE_PIN=1).
-program.wasm 144a83c0c987f83f8ab4d2f64c85936487f5e7f6d931a3d1e03a6b0c188bc4e3
-program.single.wasm 05f201f9d19279c07e8485b43e4a59e3a8f277f496034569e3842d117ee48a48
-manifest.json ea984c02aee4fd358c7ad9ad3f6a6fdd790f00aac7e072e4740c86e3da487552
+program.wasm 2b9cc00d9fb2aed9db38adcd2a7d3e9e16bf3c33f0245197378fae2679e13067
+program.single.wasm 999f567b4a4325bac8a44eeafb32031b0f4e4cf0f50b8c502d127afb0b434ed0
+manifest.json db7352e08577000a9b2c61457da324284edfd7b26c1148071c1f49d79052bf0d

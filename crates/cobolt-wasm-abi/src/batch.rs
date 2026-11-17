@@ -179,9 +179,38 @@ pub enum Command<'a> {
     /// canvas `ctrl` is the `len` bytes at `offset` of the arena's graphics region, written by the
     /// module before this batch was handed over and valid until the host returns.
     Draw { inst: u32, ctrl: u32, offset: u32, len: u32 },
+    /// `PART` (A37): `varint seg, varint arg, text` — a piece of argument `arg` of segment `seg`
+    /// (both counted from 0) of the next command that has a path; see [`Parts`].
+    Part { seg: u32, arg: u32, text: &'a str },
 }
 
-impl Command<'_> {
+impl<'a> Command<'a> {
+    /// The path of a command that has one: `SET`, `CALL` and the queries.
+    pub fn path(&self) -> Option<&Path<'a>> {
+        match self {
+            Command::Set { path, .. } | Command::Call { path } => Some(path),
+            Command::Get(p) | Command::CallR(p) | Command::Count(p) | Command::GetWait(p) | Command::CallRWait(p) | Command::GetWaitSoft(p) | Command::CallRWaitSoft(p) => Some(p),
+            _ => None,
+        }
+    }
+
+    /// The command with its path replaced by `path`; a command without a path comes back as it is.
+    pub fn with_path(self, path: Path<'a>) -> Command<'a> {
+        match self {
+            Command::Set { value, .. } => Command::Set { path, value },
+            Command::Call { .. } => Command::Call { path },
+            Command::Get(_) => Command::Get(path),
+            Command::CallR(_) => Command::CallR(path),
+            Command::Count(_) => Command::Count(path),
+            Command::GetWait(_) => Command::GetWait(path),
+            Command::CallRWait(_) => Command::CallRWait(path),
+            Command::GetWaitSoft(_) => Command::GetWaitSoft(path),
+            Command::CallRWaitSoft(_) => Command::CallRWaitSoft(path),
+            other => other,
+        }
+    }
+
+
     pub fn is_query(&self) -> bool {
         matches!(self, Command::Get(_) | Command::CallR(_) | Command::Count(_) | Command::GetWait(_) | Command::CallRWait(_) | Command::GetWaitSoft(_) | Command::CallRWaitSoft(_))
     }
@@ -202,6 +231,7 @@ impl Command<'_> {
             Command::SetNamed { .. } => op::SET_NAMED,
             Command::Raise { .. } => op::RAISE,
             Command::Draw { .. } => op::DRAW,
+            Command::Part { .. } => op::PART,
         }
     }
 }
@@ -305,6 +335,11 @@ impl<'a> BatchReader<'a> {
                 let offset = read_varint(buf, pos)?;
                 Command::Draw { inst, ctrl, offset, len: read_varint(buf, pos)? }
             }
+            op::PART => {
+                let seg = read_varint(buf, pos)?;
+                let arg = read_varint(buf, pos)?;
+                Command::Part { seg, arg, text: read_text(buf, pos)? }
+            }
             other => return Err(DecodeError::UnknownOp { op: other, at }),
         };
         if cmd.is_query() {
@@ -332,6 +367,70 @@ impl<'a> Iterator for BatchReader<'a> {
 /// Decode a whole batch, collecting the commands.
 pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Command<'_>>, DecodeError> {
     BatchReader::new(bytes).collect()
+}
+
+// ── long arguments (A37) ────────────────────────────────────────────────────
+
+/// The pieces of long arguments a host has been sent and has not used yet (A37).
+///
+/// A module builds a path in a buffer of 2 KiB. An argument the buffer has no room for (a table
+/// handed to `SetSeriesFromTable`, a long text) reaches the host as `PART` commands sent ahead of
+/// the command whose path it belongs to, perhaps over several batches; the path carries the rest
+/// of its text, empty. A host keeps one `Parts` for the module, gives it every [`Command::Part`]
+/// with [`Parts::add`], and passes every other command through [`Parts::join`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Parts {
+    pending: Vec<(u32, u32, String)>,
+}
+
+impl Parts {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Keep `text` as the next piece of argument `arg` of segment `seg` of the next path.
+    pub fn add(&mut self, seg: u32, arg: u32, text: &str) {
+        match self.pending.iter_mut().find(|(s, a, _)| *s == seg && *a == arg) {
+            Some((_, _, t)) => t.push_str(text),
+            None => self.pending.push((seg, arg, text.to_owned())),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+
+    /// Forget the pieces no command used (the module stopped between them and their command).
+    pub fn clear(&mut self) {
+        self.pending.clear();
+    }
+
+    /// `cmd` with every argument that has pieces made whole: its pieces in order, then the text
+    /// its path carries. The pieces are used up. A command without a path, or any command while
+    /// nothing is pending, comes back as it is. The whole texts are kept in `store`, which the
+    /// command returned borrows. Pieces naming an argument the path does not have are the
+    /// module's error, and are dropped.
+    pub fn join<'c>(&mut self, cmd: Command<'c>, store: &'c mut Vec<String>) -> Result<Command<'c>, String> {
+        if self.pending.is_empty() {
+            return Ok(cmd);
+        }
+        let Some(mut path) = cmd.path().cloned() else { return Ok(cmd) };
+        let first = store.len();
+        let mut at = Vec::with_capacity(self.pending.len());
+        for (seg, arg, mut text) in self.pending.drain(..) {
+            let Some(own) = path.segs.get(seg as usize).and_then(|s| s.args.get(arg as usize)) else {
+                return Err(format!("the module sent part of argument {} of segment {} of a path that has no such argument", arg + 1, seg + 1));
+            };
+            text.push_str(own);
+            store.push(text);
+            at.push((seg as usize, arg as usize));
+        }
+        let store: &'c Vec<String> = store;
+        for (k, (seg, arg)) in at.into_iter().enumerate() {
+            path.segs[seg].args[arg] = store[first + k].as_str();
+        }
+        Ok(cmd.with_path(path))
+    }
 }
 
 // ── writing ─────────────────────────────────────────────────────────────────
@@ -491,6 +590,14 @@ impl BatchWriter {
         write_varint(&mut self.buf, ctrl);
         write_varint(&mut self.buf, offset);
         write_varint(&mut self.buf, len);
+        self
+    }
+    /// `PART` (A37): a piece of argument `arg` of segment `seg` of the next command's path.
+    pub fn part(&mut self, seg: u32, arg: u32, text: &str) -> &mut Self {
+        self.buf.push(op::PART);
+        write_varint(&mut self.buf, seg);
+        write_varint(&mut self.buf, arg);
+        write_text(&mut self.buf, text);
         self
     }
 }
@@ -714,5 +821,47 @@ mod tests {
         let dec = decode_event_args(&enc, 3).unwrap();
         assert_eq!(dec, ["a", "日本語", "😀"]);
         assert!(decode_event_args(&enc, 4).is_err());
+    }
+
+    /// A37: the pieces of a long argument, sent ahead over two batches, make the argument whole on
+    /// the next command with a path; a command without a path passes through and keeps them waiting.
+    #[test]
+    fn parts_make_the_next_paths_argument_whole() {
+        let big = "0123456789".repeat(7_000);
+        let mut first = BatchWriter::new();
+        first.part(0, 1, &big[..40_000]);
+        let mut second = BatchWriter::new();
+        second.part(0, 1, &big[40_000..]).display("between").part(0, 3, "é…").call(&PathSpec::call(0, 5, 9, &["1", "", "15000", "z"])).call(&PathSpec::call(0, 5, 9, &["plain"]));
+        let mut parts = Parts::new();
+        let mut joined = Vec::new();
+        let mut kinds = Vec::new();
+        for bytes in [first.as_bytes(), second.as_bytes()] {
+            for cmd in decode_batch(bytes).unwrap() {
+                kinds.push(cmd.opcode());
+                if let Command::Part { seg, arg, text } = cmd {
+                    parts.add(seg, arg, text);
+                    continue;
+                }
+                let mut store = Vec::new();
+                let cmd = parts.join(cmd, &mut store).unwrap();
+                if let Command::Call { path } = cmd {
+                    joined.push(path.segs[0].args.iter().map(|a| a.to_string()).collect::<Vec<_>>());
+                }
+            }
+        }
+        assert_eq!(kinds, [op::PART, op::PART, op::DISPLAY, op::PART, op::CALL, op::CALL]);
+        assert_eq!(joined.len(), 2);
+        assert_eq!(joined[0], ["1".to_string(), big.clone(), "15000".to_string(), "é…z".to_string()]);
+        assert_eq!(joined[1], ["plain"], "the pieces were used up by the first call");
+        assert!(parts.is_empty());
+
+        // Pieces naming an argument the path does not have are the module's error, and are dropped.
+        parts.add(2, 0, "lost");
+        let mut store = Vec::new();
+        let call = Command::Call { path: Path { inst: 0, ctrl: 5, segs: vec![Seg { name: 9, args: vec!["x"] }] } };
+        let err = parts.join(call, &mut store).unwrap_err();
+        assert!(err.contains("argument 1 of segment 3"), "{err}");
+        assert!(parts.is_empty());
+        eprintln!("parts: a {}-byte argument in 2 pieces over 2 batches made whole, a 2-piece argument joined to its own text, 1 misaddressed piece refused", big.len());
     }
 }

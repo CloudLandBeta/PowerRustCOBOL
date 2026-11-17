@@ -556,6 +556,54 @@ fn a_bad_answer_or_a_call_without_on_exception() {
     }
 }
 
+/// ABI A37: an argument longer than the module's 2 KiB path reaches the host whole. It goes ahead of
+/// its call as `PART`s over several batches; a byte that is not UTF-8 becomes U+FFFD, as everywhere
+/// else. Until 2.0.565 such a call stopped the handler (`SCRATCH_OVERFLOW`); `examples/PowerGraphics`
+/// hands a chart a 1.2 MB table this way.
+#[test]
+fn a_long_argument_reaches_the_host_whole() {
+    let src = form_source(
+        "BIG-FORM",
+        "01 WS-BIG PIC X(150000) GLOBAL.\n01 WS-SER PIC 9 VALUE 1 GLOBAL.\n",
+        &[(
+            "BTN-GO",
+            "onClick",
+            "    MOVE ALL \"0123456789\" TO WS-BIG\n    MOVE X\"E9\" TO WS-BIG(70001:1)\n    LST-1::AddItem( WS-BIG )\n    \
+             PLT-1::SetSeriesFromTable( WS-SER WS-BIG 15000 10 \"0:zoned(5,0); 5:zoned(5,0)\" )\n    LST-1::AddItem( \"short\" )\n    DISPLAY \"DONE\"\n",
+        )],
+    );
+    let p = Project::new().form("BIG-FORM", true, 1, &[("BTN-GO", "Button"), ("LST-1", "ListBox"), ("PLT-1", "Plot")], &src);
+    let mut want = "0123456789".repeat(15_000);
+    want.replace_range(70_000..70_001, "\u{FFFD}");
+    let mut checks = 0;
+    for multi in [true, false] {
+        let c = p.compile(multi);
+        let click = manifest_of(&c).event_index("onClick").unwrap() as i32;
+        let mut host = FormHost::new(&c.wasm).unwrap();
+        let (inst, _) = host.open_form(0, -1);
+        let flushes_before = host.outcome().flushes;
+        let t = std::time::Instant::now();
+        assert_eq!(host.event(inst, 3, click, &[]), 0, "{:?} {:?}", host.outcome().error_texts, host.outcome().trapped);
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        let o = host.outcome();
+        assert_eq!(common::wasm_lines(&o), vec!["DONE"]);
+        let calls: Vec<&(u32, u32, Vec<u32>, Vec<String>)> = o.calls.iter().filter(|c| c.1 == 4 || c.1 == 5).collect();
+        assert_eq!(calls.len(), 3, "{:?}", o.calls.iter().map(|c| (c.1, c.3.iter().map(String::len).collect::<Vec<_>>())).collect::<Vec<_>>());
+        assert_eq!(calls[0].3, vec![want.clone()], "AddItem gets the whole text");
+        assert_eq!(calls[1].3, vec!["1".to_string(), want.clone(), "15000".into(), "10".into(), "0:zoned(5,0); 5:zoned(5,0)".into()], "the second of five arguments");
+        assert_eq!(calls[2].3, vec!["short".to_string()], "a call after them carries only its own text");
+        assert!(o.parts.is_empty() && o.error_texts.is_empty(), "{:?}", o.error_texts);
+        checks += 6;
+        eprintln!(
+            "long argument (multi={multi}): 2 calls of a {}-byte argument made whole from {} PARTs over {} batches in {ms:.1} ms; a 5-argument call keeps its other 4; the next call is plain",
+            want.len(),
+            o.part_commands,
+            o.flushes - flushes_before
+        );
+    }
+    eprintln!("a_long_argument_reaches_the_host_whole: {checks} of 12 checks passed");
+}
+
 /// ABI §12.1: a verb that waits (a message box) suspends the handler, and
 /// `pr_resume` continues it after the dialog.
 #[test]

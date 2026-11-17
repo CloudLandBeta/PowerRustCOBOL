@@ -59,6 +59,7 @@ fn put_varint(v: u32) {
 /// Start a path on control `ctrl` of the instance the module is running.
 pub fn path_begin(ctrl: u32) {
     st().path_len = 0;
+    st().path_parts = false;
     put_varint(st().inst);
     put_varint(ctrl);
     st().path_nseg_at = st().path_len;
@@ -148,10 +149,8 @@ fn trimmed(addr: u32, len: u32) -> (u32, u32) {
 /// Add argument `o` to the current segment.
 pub fn path_arg(base: u32, o: u32) {
     let mut num = [0u8; 64];
-    let (a, l) = text_of(base, &parse(o), &mut num);
-    let t = mem::bytes(a, l);
-    put_text(t);
-    bump(st().path_nargs_at);
+    let (a, l) = raw_text_of(base, &parse(o), &mut num);
+    put_arg(a, l);
 }
 
 /// Add argument `o` to the current segment with every character of a data item or a literal, the
@@ -172,9 +171,65 @@ pub fn path_arg_whole(base: u32, o: u32) {
             }
         }
     };
-    let (a, l) = disp::lossy(a, l);
-    put_text(mem::bytes(a, l));
+    put_arg(a, l);
+}
+
+/// The opcode of `PART` (ABI A37).
+pub const OP_PART: u8 = 0x09;
+
+/// Add the `l` bytes at `a` to the current segment as an argument's text (UTF-8, as the ABI
+/// requires: invalid bytes become U+FFFD, the interpreter's lossy text of them). When the path has
+/// no room for it, the text goes ahead as `PART`s and the path carries it empty (ABI A37).
+fn put_arg(a: u32, l: u32) {
+    if l <= PATH_SIZE {
+        let (ta, tl) = disp::lossy(a, l);
+        if st().path_len as usize + 5 + tl as usize <= PATH_SIZE as usize {
+            put_text(mem::bytes(ta, tl));
+            bump(st().path_nargs_at);
+            return;
+        }
+    }
+    send_parts(a, l);
+    put_varint(0);
     bump(st().path_nargs_at);
+}
+
+/// Send the text of the `l` bytes at `a` as the `PART`s of the argument being added: each part is
+/// whole characters and fits a batch; a sequence that is not UTF-8 becomes U+FFFD, as
+/// `String::from_utf8_lossy` (and [`disp::lossy`]) make it.
+fn send_parts(a: u32, l: u32) {
+    let s = st();
+    s.path_parts = true;
+    // The segment being built is the last one counted; its arguments so far number this one.
+    let seg = (mem::rd_u8(s.ws + WS_PATH + s.path_nseg_at) as u32).saturating_sub(1);
+    let arg = mem::rd_u8(s.ws + WS_PATH + s.path_nargs_at) as u32;
+    let room = crate::state::BATCH_SIZE as usize - 16;
+    let mut rest = mem::bytes(a, l);
+    while !rest.is_empty() {
+        let window = &rest[..rest.len().min(room)];
+        let (piece, used): (&[u8], usize) = match core::str::from_utf8(window) {
+            Ok(_) => (window, window.len()),
+            Err(e) if e.valid_up_to() > 0 => (&window[..e.valid_up_to()], e.valid_up_to()),
+            Err(e) => ("\u{FFFD}".as_bytes(), e.error_len().unwrap_or(window.len())),
+        };
+        part(seg, arg, piece);
+        rest = &rest[used..];
+    }
+}
+
+/// One `PART`: `varint seg`, `varint arg`, `text`.
+fn part(seg: u32, arg: u32, text: &[u8]) {
+    let mut head = [0u8; 16];
+    head[0] = OP_PART;
+    let mut n = 1;
+    for v in [seg, arg, text.len() as u32] {
+        n += disp::put_varint_pub(&mut head[n..], v);
+    }
+    if (st().batch_len as usize) + n + text.len() > crate::state::BATCH_SIZE as usize {
+        disp::flush();
+    }
+    disp::batch_put(&head[..n]);
+    disp::batch_put(text);
 }
 
 fn path_bytes() -> &'static [u8] {
