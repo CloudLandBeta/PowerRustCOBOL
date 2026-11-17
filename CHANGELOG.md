@@ -2,6 +2,19 @@
 
 
 
+## 2.0.552 — 2026-11-16
+
+**Fix: a `PERFORM` written in `AT END-OF-PAGE` or `NOT AT END-OF-PAGE` now returns at the end of the paragraph it performs, on the WebAssembly path. Every check that walks a program's statements now also sees the statements in those two phrases.**
+- **What was wrong:** the parser keeps the statements of a `WRITE`'s two END-OF-PAGE phrases (a `LINAGE` file), but the function that lists a statement's inner statements left them out. Every pass that walks a program missed them. The generator decides from such a walk which paragraphs end a `PERFORM`, so a paragraph performed only from one of these phrases had no return. After it ran, the program ran on into the paragraphs that follow it.
+- **How it was found:** NIST SQ201M through the desktop's WebAssembly runner. Its `AT END-OF-PAGE` performs `PRINT-FOOTING 6 TIMES`. After the first footing line the program ran on into the next paragraphs and its closing summary, so 17 of its 23 tests ran (6 PASS, not 12). It still reported 0 failures, so the shortfall showed only as fewer PASS than the interpreter (618 against 624 for SQ).
+- **The fix:** `child_stmts` and `child_lists_mut` (`cobolt-ast`) now list `AT END-OF-PAGE` and `NOT AT END-OF-PAGE` with a `WRITE`'s `INVALID KEY` phrases. The interpreter runs those phrases directly and never depended on the walk, so its results are unchanged.
+- **Tests:**
+  - a new program in the runner's file twin test writes a `LINAGE` file whose `AT END-OF-PAGE` performs a paragraph `2 TIMES` that writes footing lines to the same file, and whose `NOT AT END-OF-PAGE` performs another. A paragraph after them must never run. The runner prints the interpreter's 12 lines and writes the same file (59 bytes). Without the fix it printed "body 01 lc 1", "footing 01 lc 2", "fell through" and stopped. Together with the earlier programs, 147 of 147 checks;
+  - the front end's tests (`cobolt-ast`, `cobolt-parser`, `cobolt-semantic`): 492 passed, 0 failed;
+  - NIST on the interpreter, unchanged: the compile census holds at 420 of 420 in-scope programs, and every finished module runs as before with 0 failures: NC (Nucleus) 95 of 95, 4614 PASS; SQ (Sequential I-O) 85 of 85, 624; IX (Indexed I-O) 41 of 41, 574; RL (Relative I-O) 34 of 34, 354; IF (Intrinsic Functions) 45 of 45, 841; IC (Inter-Program Communication) 25 of 25, 309; ST (Sort-Merge) 39 of 39, 735; SM (Source Text Manipulation) 16 of 16, 311;
+  - NIST SQ through the desktop's WebAssembly runner: 85 of 85 programs, 624 PASS, as on the interpreter;
+  - the web player was rebuilt, as `cobolt-ast` is one of its inputs (its freshness tests: 6 of 6).
+
 ## 2.0.551 — 2026-11-16
 
 **Fix: on the WebAssembly path, a `STRING` whose sources read more than four properties or character-valued functions now compiles, and gives the interpreter's result.**

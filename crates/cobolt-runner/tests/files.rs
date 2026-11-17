@@ -767,6 +767,52 @@ MAIN-PARA.
     STOP RUN.
 ";
 
+/// A PERFORM inside AT END-OF-PAGE and NOT AT END-OF-PAGE: the paragraph performed writes the footing
+/// lines to the same file and returns, as any performed paragraph does (NIST SQ201M ran on past it into
+/// the paragraphs after it, until 2.0.552). The paragraph after it is never reached.
+const EOP_PERFORM: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T40EOPP.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT REPORT-F ASSIGN TO \"foot.txt\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS.
+DATA DIVISION.
+FILE SECTION.
+FD REPORT-F
+    LINAGE IS 6 LINES WITH FOOTING AT 4.
+01 F-LINE PIC X(16).
+WORKING-STORAGE SECTION.
+01 WS-FS   PIC XX.
+01 WS-I    PIC 99.
+01 WS-FEET PIC 99 VALUE 0.
+PROCEDURE DIVISION.
+MAIN-PARA.
+    OPEN OUTPUT REPORT-F
+    PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 9
+        MOVE WS-I TO F-LINE
+        WRITE F-LINE
+            AT END-OF-PAGE PERFORM FOOTING-LINE 2 TIMES
+            NOT AT END-OF-PAGE PERFORM BODY-LINE
+        END-WRITE
+    END-PERFORM
+    CLOSE REPORT-F
+    DISPLAY \"footings \" WS-FEET \" status \" WS-FS
+    STOP RUN.
+BODY-LINE.
+    DISPLAY \"body \" WS-I \" lc \" LINAGE-COUNTER.
+FOOTING-LINE.
+    ADD 1 TO WS-FEET
+    MOVE \"footing\" TO F-LINE
+    WRITE F-LINE
+    DISPLAY \"footing \" WS-FEET \" lc \" LINAGE-COUNTER.
+NOT-PERFORMED.
+    DISPLAY \"fell through\".
+";
+
+
 const SAME_AREA: &str = "\
 IDENTIFICATION DIVISION.
 PROGRAM-ID. T39BSAME.
@@ -949,6 +995,11 @@ const PROGRAMS: &[(&str, &str, &[&str])] = &[
         ],
     ),
     (
+        "eop perform",
+        EOP_PERFORM,
+        &["body 01 lc 1", "footing 01 lc 5", "footing 02 lc 6", "body 05 lc 1", "footing 04 lc 6", "body 09 lc 1", "footings 04 status 00"],
+    ),
+    (
         "same area",
         SAME_AREA,
         &[
@@ -1106,6 +1157,7 @@ fn files_of_every_organisation_match_the_interpreter() {
     println!("  transactions: COMMIT, ROLLBACK, UNLOCK on an INDEXED file opened I-O; UNLOCK on a SEQUENTIAL file");
     println!("  linage:     LINAGE stated and in data items (a footing item of 0 falls back), ADVANCING 1, 2, PAGE, a data item");
     println!("              and none, AT/NOT AT END-OF-PAGE, LINAGE-COUNTER displayed/moved/compared, reopen, a failed OPEN");
+    println!("  eop perform: a PERFORM in AT END-OF-PAGE (2 TIMES, writing the footing to the same file) and in NOT AT END-OF-PAGE returns");
     println!("  same area:  SAME RECORD AREA across SEQUENTIAL, LINE SEQUENTIAL and RELATIVE files (longer peer padded, shorter cut),");
     println!("              READ INTO, AT END leaves the peers alone; an INDEXED file READ NEXT through its SORT peer, RELEASEd and RETURNed");
     for r in &rows {

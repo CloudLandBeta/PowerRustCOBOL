@@ -1096,12 +1096,21 @@ impl Stmt {
                 out.extend(not_invalid_key.iter());
             }
 
+            // `AT END-OF-PAGE` and `NOT AT END-OF-PAGE` hold statements too: a PERFORM there
+            // performs its paragraph like any other.
             Stmt::Write {
                 invalid_key,
                 not_invalid_key,
+                at_eop,
+                not_at_eop,
                 ..
+            } => {
+                out.extend(invalid_key.iter());
+                out.extend(not_invalid_key.iter());
+                out.extend(at_eop.iter());
+                out.extend(not_at_eop.iter());
             }
-            | Stmt::Rewrite {
+            Stmt::Rewrite {
                 invalid_key,
                 not_invalid_key,
                 ..
@@ -1257,8 +1266,13 @@ impl Stmt {
                 out.push(invalid_key);
                 out.push(not_invalid_key);
             }
-            Stmt::Write { invalid_key, not_invalid_key, .. }
-            | Stmt::Rewrite { invalid_key, not_invalid_key, .. }
+            Stmt::Write { invalid_key, not_invalid_key, at_eop, not_at_eop, .. } => {
+                out.push(invalid_key);
+                out.push(not_invalid_key);
+                out.push(at_eop);
+                out.push(not_at_eop);
+            }
+            Stmt::Rewrite { invalid_key, not_invalid_key, .. }
             | Stmt::Delete { invalid_key, not_invalid_key, .. }
             | Stmt::Start { invalid_key, not_invalid_key, .. } => {
                 out.push(invalid_key);
