@@ -1,0 +1,26 @@
+# The "ledger" fixture of the module corpus (DESKTOP-WASM-001 T21): what it is given and what it
+# must print and answer. The output was checked against `rcrun run` (the interpreter) on 2026-11-16.
+# From 2.0.523 (T24) it keeps its balances in a table: its INDEXED file declared STORAGE IS MEMORY
+# went, since a desktop module refuses one until M3. The 2.0.520 entry keeps the file's version.
+sources = ["main.cbl", "common.cbl"]
+clock = "2026-01-02T03:04:05.67-03:00"
+seed = 20261114
+exit = 3
+stdout = '''
+corpus ledger fixture
+total      538.50
+thirds 0000179 remainder        1.50
+average      134.63
+interest       11.63
+  A003 GRACE HOPPER      321.63
+  A004 JOHN BACKUS         4.25
+found A003 at row 3
+words GRACE     /HOPPER     vowels 06
+dashed GRACE-BREWSTER-HOPPER-
+filed as [HOPPER, GRACE]
+sorted A003      310.00
+sorted A001      125.50
+sorted A002       98.75
+sorted A004        4.25
+band high
+'''

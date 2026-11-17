@@ -38,6 +38,7 @@ pub mod forms;
 mod gfx;
 pub mod messages;
 pub mod pins;
+mod sql;
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -54,7 +55,7 @@ pub use pins::Pins;
 
 /// The capabilities this runner provides (A27). T15: console programs; T32: the file dialogs (A33);
 /// T38: files on disk of every organisation (A34); T49: the sound player (A36); T48: the AWS controls (A38);
-/// T39c: the text files and pictures a built-in names by its path (A39).
+/// T39c: the text files and pictures a built-in names by its path (A39); T41: `EXEC SQL` (A41).
 pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::CONSOLE,
     cap::ENV,
@@ -67,6 +68,7 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::FILES_INDEXED,
     cap::FILES_TEXT,
     cap::IMAGES,
+    cap::SQL,
 ];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row
@@ -97,6 +99,8 @@ pub const PROVIDED_IMPORTS: &[(u32, &str, &str)] = &[
     (1, NATIVE_IMPORT_MODULE, "t_write"),
     (1, NATIVE_IMPORT_MODULE, "img_fit"),
     (1, NATIVE_IMPORT_MODULE, "img_info"),
+    // T41: `EXEC SQL` (A41).
+    (1, NATIVE_IMPORT_MODULE, "sql_exec"),
 ];
 
 /// `pr_run`'s answers (the generator's `ret`): the run finished, or `STOP RUN`.
@@ -163,8 +167,8 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
     }
     // A module with forms is a form application: its windows, and its programs on one thread (T30).
     if !checked.sections.forms.is_empty() {
-        let Checked { abi, imports, manifest, sections, files } = checked;
-        return match app::run(engine, loaded.module, abi, imports, manifest, sections, files, lang, pins) {
+        let Checked { abi, imports, manifest, sections, files, sql } = checked;
+        return match app::run(engine, loaded.module, abi, imports, manifest, sections, files, sql, lang, pins) {
             Ok(code) => code,
             Err(msg) => refuse(lang, msg),
         };
@@ -175,6 +179,7 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
     };
     let mut st = State::new(lang, pins);
     st.files = files::Files::new(checked.files.clone());
+    st.sql = checked.sql.clone().map(sql::SqlRun::new);
     let mut store = Store::new(&engine, st);
     let instance = match linker.instantiate(&mut store, &loaded.module) {
         Ok(i) => i,
@@ -200,6 +205,12 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
     let result = run.call(&mut store, ());
     let _ = std::io::stdout().flush();
     let st = store.data_mut();
+    // The end of the run unit's SQL work, as the interpreter ends it: committed after `STOP RUN` or
+    // the program's end, rolled back after an error (T41).
+    let normal = st.fatal.is_none() && matches!(result, Ok(RUN_DONE | RUN_STOP));
+    if let Some(sql) = st.sql.as_mut() {
+        sql.end(normal);
+    }
     if let Some(msg) = st.fatal.take() {
         return refuse(lang, msg);
     }
@@ -219,6 +230,8 @@ struct Checked {
     sections: cobolt_program_package::DesktopSections,
     /// The files on disk the program declares, and the engine new INDEXED files take (T38).
     files: files::FileSetup,
+    /// The program's `EXEC SQL` statements and the declarations they run against (T41).
+    sql: Option<sql::SqlSetup>,
 }
 
 /// Read the module's manifest and imports: the ABI must be one this runner runs (1 to
@@ -247,7 +260,9 @@ fn check(module: &[u8]) -> Result<Checked, Msg> {
     let sections = cobolt_program_package::DesktopSections::decode(|name| scan.custom(name)).map_err(|e| Msg::Damaged(e.to_string()))?;
     let files = files::FileSetup::from_module(scan.custom(cobolt_wasm_abi::files::FILES_SECTION), &sections.settings.indexed_engine)
         .map_err(|e| Msg::Damaged(format!("the program's `{}` section: {e}", cobolt_wasm_abi::files::FILES_SECTION)))?;
-    Ok(Checked { abi: manifest.abi, imports, manifest, sections, files })
+    let sql = sql::SqlSetup::from_module(scan.custom(cobolt_wasm_abi::sql::SQL_SECTION), &sections.settings.app_name)
+        .map_err(|e| Msg::Damaged(format!("the program's `{}` section: {e}", cobolt_wasm_abi::sql::SQL_SECTION)))?;
+    Ok(Checked { abi: manifest.abi, imports, manifest, sections, files, sql })
 }
 
 /// The imports in `imports` this runner does not provide to a module of `abi`, as `module.name`.
@@ -304,6 +319,8 @@ pub struct State {
     pub(crate) forms: Option<forms::FormRun>,
     /// The program's files on disk (T38).
     pub(crate) files: files::Files,
+    /// The program's `EXEC SQL` work (T41); `None` when it has none.
+    pub(crate) sql: Option<sql::SqlRun>,
 }
 
 impl State {
@@ -318,6 +335,7 @@ impl State {
             fatal: None,
             forms: None,
             files: files::Files::default(),
+            sql: None,
         }
     }
 }
@@ -769,6 +787,32 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                         out.push(b' ');
                         out.extend_from_slice(word.as_bytes());
                         (answer(&mut caller, buf, cap, &out) - 8).max(0)
+                    })
+                    .map_err(fail)?;
+            }
+            // T41, A41: one `EXEC SQL` statement, run by the interpreter's own SQL code. The cell values
+            // come in at `buf`; the answer goes back over them, at most `cap` bytes; answers its length.
+            (NATIVE_IMPORT_MODULE, "sql_exec") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "sql_exec", |mut caller: Caller<'_, State>, stmt: i32, buf: i32, len: i32, cap: i32| -> i32 {
+                        use cobolt_wasm_abi::sql::wire::FAILED;
+                        let Some(input) = read_mem(&mut caller, buf, len) else { return FAILED };
+                        let Some(sql) = caller.data_mut().sql.as_mut() else { return FAILED };
+                        let out = match sql.exec(stmt as u32, &input) {
+                            Ok(out) if out.len() <= cap.max(0) as usize => out,
+                            Ok(_) => {
+                                eprintln!("prc-runner: the answer to EXEC SQL statement {stmt} does not fit in its space");
+                                return FAILED;
+                            }
+                            Err(e) => {
+                                eprintln!("prc-runner: EXEC SQL statement {stmt}: {e}");
+                                return FAILED;
+                            }
+                        };
+                        match write_mem(&mut caller, buf, &out) {
+                            Some(()) => out.len() as i32,
+                            None => FAILED,
+                        }
                     })
                     .map_err(fail)?;
             }

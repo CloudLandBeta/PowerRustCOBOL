@@ -1656,9 +1656,54 @@ The code says five things the plan did not settle. Each is applied in the tasks 
 
 ## Phase M4 — SQL and HTTP
 
-- [ ] **T41 — `EXEC SQL`, the SQL object and the SqlDatabase control** (R10, R11)
+- [x] **T41 — `EXEC SQL`, the SQL object and the SqlDatabase control** (R10, R11)
   - Files: the `EXEC SQL` binding, extracted from `cobolt-runtime` unchanged (C5); `sql_exec`, with the statements in a `prsql` section; the runner's `sql` capability.
   - Verify: runner twins of the interpreter's `EXEC SQL` and backend tests give equal results. `cargo test -p cobolt-runtime` green.
+  - *Design, settled 2026-11-17 after a survey of the interpreter's SQL code:*
+    - **Three parts, each in its own commit:**
+      - **T41** proper: `EXEC SQL` in programs and handlers.
+      - **T41b:** the six SQL built-ins (`OPEN-DB`, `EXEC-SQL`, `FETCH-ROW`, `NEXT-ROW`, `ROW-COUNT`, `CLOSE-DB`).
+      - **T41c:** the SqlDatabase control and `COBOL::SqlDatabase`, its Async mode included.
+    - **Who does the work:**
+      - The runner runs every statement with the interpreter's own SQL code (`cobolt_runtime::esql`: the three backends, cursors, positioned updates, prepared statements, the catalog and the run unit). So the databases, the SQLSTATEs and the transactions are the same on both paths.
+      - The module keeps the host variables. It hands the runner each input's value and stores what the runner hands back.
+    - **The boundary is a value, not a record:** the interpreter's environment holds values, not the record's bytes (`display_bytes` renders a COMP-3 item as characters), so the module's memory cannot simply be copied into it.
+      - An input crosses as the SQL value the interpreter reads from the item (`sql_read_item`):
+        - a decimal for a numeric item, de-edited for a numeric-edited one;
+        - a float;
+        - otherwise the text without its trailing spaces;
+        - NULL when its indicator is negative.
+      - A target crosses back as the value already converted for its item, with its indicator.
+    - **As built (2026-11-17), simpler than the extraction first planned:** no SQL code moves. The runner keeps a small interpreter per program and form instance, built from the program's declarations (its data and cursors, without its procedure), and runs each statement with the interpreter's own `exec_sql`. `sql_convert`, `sql_read_item` and `sql_set_status` therefore stay exactly as they are.
+      - Before the statement the module sends the value of every **cell** (each elementary item the statement may read or write: host variables and the leaves of host structures, indicators, and the status items the program can see), in the form the interpreter holds it: a decimal, a float, or bytes.
+      - The runner sets them in that interpreter, runs the statement, and answers the `WHENEVER` condition and the cells whose value changed. The module stores those and branches.
+      - `cobolt-runtime` gains three public doors and nothing else: `exec_sql_outcome` (the statement's condition, with `WHENEVER` left to the caller; `exec_sql` now calls it), `sql_end` made public, and `sql_instance`/`set_sql_instance`, so the programs of one form instance share its prepared statements as the form's single interpreter does.
+      - **Handlers:** a form's handlers are programs contained in the form's program. Each handler's declarations carry the `GLOBAL` records of the programs that contain it (the nearest first) and their cursors, as the interpreter sees them. A host variable in a containing program's file record still takes the Cargo path.
+    - **ABI A41:**
+      - The capability `sql`, with one `prn` import, `sql_exec`.
+      - A `prsql` section holding each program's declarations, each statement as the parser left it (`cobolt_ast::sql::ExecSql`, which serializes), and its cells.
+      - The interpreter sets the status items (SQLSTATE, SQLCODE, SQLMSG, the SQLCA fields), which cross back as cells; the generated code follows `WHENEVER`.
+    - **The run unit:**
+      - One per run, shared by every window, as the form host shares one.
+      - The main program or main form ends it: a commit after a normal end, a rollback otherwise.
+      - The catalog is the built program's `sql-connections.toml`, read as the Cargo-built program reads it.
+    - **Left on the Cargo path:** `DESCRIBE` and the SQLDA, which need pointers (T45).
+  - *Done 2026-11-17 (2.0.593):*
+    - **Programs** (`cobolt-runner` `esql`): 10 programs of the interpreter's own embedded-SQL suite (`tests/cobol/esql`), each built on the WebAssembly path and run by the runner, print the same lines as under `rcrun run`, and every one reports no failure: 122 statements, 61 of 61 checks. `ac11_dynamic.cbl` is sent down the Cargo path, the descriptor area named among its reasons.
+    - **A form** (`cobolt-cli` `runner_sql_form`): 8 handlers of one form (CONNECT, CREATE, INSERT from a TextBox, COUNT and SUM INTO, a cursor the form's WORKING-STORAGE declares, PREPARE in one handler and EXECUTE in another, a failing DELETE), two scripts, the second after the first has ended: 5 dumps equal, 5 pictures with 0 differing pixels of 1 344 000, 19 of 19 checks.
+    - **The deployment** (`cobolt-compiler` `test_esql_build`, the new ungated twin `a_webassembly_built_program_reads_its_sql_connections_file`): the Build takes the WebAssembly path in 10.3 s; the `sql-connections.toml` beside the program, a missing database (08001), the edited file, the commit at `STOP RUN`, the rollback after a runtime error, `CRM_SQL_SALES_URL`, and a password in the file refused (28000) give the answers the gated Cargo-built test asserts; 15 of 15 checks. Its runtime error is a `CALL` of a program that is not there: `super::` sends a program with no form down the Cargo path.
+    - **The module corpus:** a new fixture, `sql`, and the entry 2.0.593 (console, ledger, sql; 189 824 bytes compressed of 262 144), each run alone on this runner with its output identical.
+    - **Unchanged:** `cobolt-runtime`'s SQL tests (9 test binaries, 30 tests passed, 18 ignored for want of a MySQL server or the samples) and its library tests (576); the whole `cobolt-runtime` suite is not run on this machine. The sweeps: `cobolt-wasm` 36 test binaries, 136 passed; `cobolt-runner` 8, 14 passed; the runner form tests of `cobolt-cli` 18 of 18; `cobolt-wasm-abi` and `cobolt-wasm-rt` 53 passed; 0 failed. The System KB is rebuilt for the native column of `EXEC SQL`, and its test passes.
+    - **AC16, on purpose:** the routines `rt.wasm` gained are linked into every module, so the PowerAnalyticsWeb pin is re-recorded (the manifest's bytes unchanged) and the player's generated fixtures with them; the shipped player is rebuilt, its bytes unchanged.
+    - **Reported, not changed (GOLDEN RULE #2):** the interpreter reads an indicator only when it follows its host variable with no space (`:HOST:IND`); `:HOST :IND` and `:HOST INDICATOR :IND` give SQLSTATE 42601 on both paths.
+
+- [ ] **T41b — The SQL built-ins** (R10, R11; added 2026-11-17)
+  - Do: `OPEN-DB`, `EXEC-SQL`, `FETCH-ROW`, `NEXT-ROW`, `ROW-COUNT` and `CLOSE-DB` on the runner, over the interpreter's `DbRegistry`.
+  - Verify: runner twins of `test_sql.rs` give the interpreter's output.
+
+- [ ] **T41c — The SqlDatabase control and `COBOL::SqlDatabase`** (R10, R11; added 2026-11-17)
+  - Do: the methods, properties and events, including Async mode. The interpreter's method code is moved where both engines call it, unchanged.
+  - Verify: runner twins of the interpreter's SqlDatabase tests and `test_sql_database_object.rs`; a form twin with a SqlDatabase on `:memory:`.
 
 - [ ] **T42 — HTTP and RestClient** (R10, R11)
   - Do: `http_call` suspends and resumes the module as `remote` does.

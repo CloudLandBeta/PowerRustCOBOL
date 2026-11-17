@@ -396,7 +396,7 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("DIVIDE", Support::Module, Native::Module),
     ("EVALUATE", Support::Module, Native::Module),
     ("EXEC RUST", Support::Unsupported("EXEC RUST needs a native build; move it to the backend"), Native::Cargo(D_EXEC_RUST)),
-    ("EXEC SQL", Support::BackendOnly("embedded SQL runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"), Native::Cargo(D_SQL)),
+    ("EXEC SQL", Support::BackendOnly("embedded SQL runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"), Native::Host(cobolt_wasm_abi::codes::cap::SQL)),
     ("EXIT", Support::Module, Native::Module),
     ("GO TO", Support::Module, Native::Module),
     ("GO TO DEPENDING", Support::Module, Native::Module),

@@ -21,6 +21,7 @@ pub mod lower_idx;
 pub mod lower_nfile;
 pub mod lower_more;
 pub mod lower_remote;
+pub mod lower_sql;
 pub mod lower_super;
 pub mod pic;
 pub mod pool;

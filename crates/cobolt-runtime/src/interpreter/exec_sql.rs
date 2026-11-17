@@ -155,7 +155,9 @@ impl Interpreter {
     /// `GOBACK`, the main window closing — and rolls it back after an error or
     /// a cancel (an IDE Stop), then closes every connection. A child form
     /// only releases its own cursors and prepared statements.
-    pub(crate) fn sql_end(&mut self, normal: bool) {
+    /// Public for the desktop runner, whose interpreters run a WebAssembly module's statements
+    /// (DESKTOP-WASM-001 T41).
+    pub fn sql_end(&mut self, normal: bool) {
         let Ok(mut unit) = self.sql_unit.lock() else { return };
         if !self.sql_root {
             unit.release_instance(self.sql_instance);
@@ -183,6 +185,18 @@ impl Interpreter {
         unit.current = None;
     }
 
+    /// This interpreter's identity in the run unit's tables of open cursors and prepared statements.
+    pub fn sql_instance(&self) -> u64 {
+        self.sql_instance
+    }
+
+    /// Take `instance` as this interpreter's identity in the run unit's tables. The desktop runner
+    /// keeps one interpreter per program of a form (DESKTOP-WASM-001 T41); the programs of one form
+    /// share one identity, so they share its prepared statements as the form's one interpreter does.
+    pub fn set_sql_instance(&mut self, instance: u64) {
+        self.sql_instance = instance;
+    }
+
     /// Give this run the SQL connections it can name (the IDE's in-process
     /// runner; other hosts install the catalog for the whole process).
     pub fn set_sql_catalog(&mut self, catalog: crate::esql::catalog::SqlCatalog) {
@@ -193,17 +207,7 @@ impl Interpreter {
 
     /// Run one `EXEC SQL` statement.
     pub(crate) fn exec_sql(&mut self, e: &ExecSql) -> Result<(), RuntimeError> {
-        if matches!(e.kind, SqlKind::Declarative) {
-            return Ok(());
-        }
-        let mut trace = Trace::default();
-        let done = match self.sql_run(&e.kind, &e.owner, &mut trace) {
-            Ok(d) => d,
-            Err(err) => Done::from(err),
-        };
-        self.sql_set_status(&done);
-        self.sql_trace(&trace, &done);
-        let target = match outcome(&done.state) {
+        let target = match self.exec_sql_outcome(e) {
             Outcome::Error => &e.whenever.sqlerror,
             Outcome::Warning => &e.whenever.sqlwarning,
             Outcome::NoData => &e.whenever.not_found,
@@ -213,6 +217,23 @@ impl Interpreter {
             Some(t) => Err(RuntimeError::GoTo { target: t.clone(), section: None }),
             None => Ok(()),
         }
+    }
+
+    /// Run one `EXEC SQL` statement and answer the condition it ended in, leaving `WHENEVER` to the
+    /// caller: [`Self::exec_sql`], and the desktop runner, which keeps the program's data in a
+    /// WebAssembly module and runs each statement here (DESKTOP-WASM-001 T41).
+    pub fn exec_sql_outcome(&mut self, e: &ExecSql) -> Outcome {
+        if matches!(e.kind, SqlKind::Declarative) {
+            return Outcome::Success;
+        }
+        let mut trace = Trace::default();
+        let done = match self.sql_run(&e.kind, &e.owner, &mut trace) {
+            Ok(d) => d,
+            Err(err) => Done::from(err),
+        };
+        self.sql_set_status(&done);
+        self.sql_trace(&trace, &done);
+        outcome(&done.state)
     }
 
     fn sql_lock(&self) -> Result<std::sync::MutexGuard<'_, crate::esql::SqlRunUnit>, SqlError> {

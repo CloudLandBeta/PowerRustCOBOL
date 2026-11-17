@@ -2,6 +2,26 @@
 
 
 
+## 2.0.593 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T41): `EXEC SQL` takes the WebAssembly path. A desktop program or form handler with embedded SQL no longer sends its Build down the Cargo path; the built program runs every statement with the interpreter's own SQL code, so the databases, SQLSTATEs, cursors and units of work are the same on both paths (ABI A41, capability `sql`).**
+- **How it runs:**
+  - The module keeps the program's host variables. Before a statement it hands the runner the value of every item the statement may read or write (its host variables and the leaves of host structures, their indicators, and the status items the program can see: `SQLSTATE`, `SQLCODE`, `SQLMSG` and the SQLCA fields), as the interpreter holds them: a decimal, a float, or bytes. One `prn` import, `sql_exec`, carries them.
+  - The runner keeps a small interpreter per program and form instance, made from the program's declarations without its procedure (a new `prsql` section of the module holds them, with each statement as the parser left it). It sets the values, runs the statement with the interpreter's own `EXEC SQL` code, and answers the `WHENEVER` condition and the values that changed; the module stores those and follows `WHENEVER`.
+  - A form's handlers see the form's `GLOBAL` items and the cursors its WORKING-STORAGE declares, as under the interpreter. The programs of one window share its prepared statements.
+  - **The run unit:** one per run. A console program's end commits after a normal end and rolls back after an error; for a form program the main window's closing ends it, and a child window's closing lets go of its cursors and prepared statements. The connections are the `sql-connections.toml` the Build writes beside the program, read by the same code as the Cargo-built program reads it: `<APP>_SQL_<NAME>_URL`, `_USER` and `_PASSWORD` in the environment override it, and the application's key store may hold the password.
+  - `cobolt-runtime` gains three public doors and nothing else: `exec_sql_outcome` (a statement's condition, `WHENEVER` left to the caller; `exec_sql` now calls it), `sql_end`, and `sql_instance`/`set_sql_instance`.
+- **Still on the Cargo path, each named by the Build:** `DESCRIBE` and the SQL descriptor area (pointers, T45); a host variable in a file record of the program around a handler; a host variable the program does not declare, or one inside a table; `OCCURS` inside a host structure; a status item inside a table; an indicator that is not a table of as many items as its host structure; and a statement whose values exceed 32 KB. The SQL built-ins (`OPEN-DB` …) are T41b, the SqlDatabase control T41c.
+- **Tests:**
+  - **Programs** (`cobolt-runner` `esql`): 10 programs of the interpreter's own embedded-SQL suite (`tests/cobol/esql`), built on the WebAssembly path, print what `rcrun run` prints and report no failure: 122 statements, 61 of 61 checks. `ac11_dynamic.cbl` takes the Cargo path, its descriptor area named among its reasons.
+  - **A form** (`cobolt-cli` `runner_sql_form`): 8 handlers, two scripts, the second after the first has ended; 5 dumps equal and 5 pictures with 0 differing pixels of 1 344 000; 19 of 19 checks.
+  - **The deployment** (`cobolt-compiler` `test_esql_build`, the new twin `a_webassembly_built_program_reads_its_sql_connections_file`, not gated): the Build takes the WebAssembly path in 10.3 s; a missing database (08001), the edited file, the commit at `STOP RUN`, the rollback after a runtime error, `CRM_SQL_SALES_URL` and a password in the file (28000) give the answers the gated Cargo-built test asserts; 15 of 15 checks.
+  - **The module corpus:** a new fixture, `sql`, and the entry 2.0.593 (console, ledger and sql; 189 824 bytes compressed of 262 144), each run alone on this runner with its output identical.
+  - **The sweeps:** `cobolt-wasm` 36 test binaries, 136 passed; `cobolt-runner` 8, 14 passed; the runner form tests of `cobolt-cli` 18 of 18; `cobolt-wasm-abi` and `cobolt-wasm-rt` 53 passed; `cobolt-runtime`'s SQL tests (9 test binaries, 30 passed, 18 ignored for want of a MySQL server or the samples) and its library tests (576 passed); 0 failed anywhere. The System KB is rebuilt for the native column of `EXEC SQL` (4 412 records), and its test passes.
+  - **AC16, on purpose:** the routines `rt.wasm` gained are linked into every module, so the PowerAnalyticsWeb module's bytes move (its manifest's do not). The pin is re-recorded with `UPDATE_PIN=1`, the player's generated fixtures with `UPDATE_PLAYER_FIXTURE=1`; the shipped player is rebuilt, its bytes unchanged.
+- **Specs:** `WASM-ABI-v1.md` A41; the T41 entry of `tasks.md`; WASM-PROGRESS.
+- **Gap found, reported, not changed (GOLDEN RULE #2):** the interpreter reads an indicator only when it follows its host variable with no space (`:HOST:IND`); the standard `:HOST :IND` and `:HOST INDICATOR :IND` give SQLSTATE 42601 on both paths.
+
 ## 2.0.592 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T40): milestone M3 closed, disk files on the WebAssembly path. Every NIST program of the four file modules builds on the WebAssembly path and runs clean through the runner, all six reference projects take that path, and every frame of every project they draw matches the Cargo-built program.**

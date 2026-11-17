@@ -130,13 +130,14 @@ impl WasmEngine {
         manifest: Manifest,
         forms: Vec<cobolt_forms::Form>,
         files: crate::files::FileSetup,
+        sql: Option<crate::sql::SqlSetup>,
         lang: Lang,
         pins: Pins,
     ) -> Result<WasmEngine, Msg> {
         let (tx, rx) = mpsc::channel::<ToProgram>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), Msg>>();
         let exit = Arc::new(AtomicI32::new(NO_EXIT));
-        let thread = Thread { engine, module, abi, imports, manifest, forms: forms.clone(), files, lang, pins, rx, tx: tx.clone(), exit: Arc::clone(&exit) };
+        let thread = Thread { engine, module, abi, imports, manifest, forms: forms.clone(), files, sql, lang, pins, rx, tx: tx.clone(), exit: Arc::clone(&exit) };
         std::thread::Builder::new()
             .name("program".into())
             // The interpreter's program stack: a module's own stack is in its memory, but the host's
@@ -233,6 +234,7 @@ struct Thread {
     manifest: Manifest,
     forms: Vec<cobolt_forms::Form>,
     files: crate::files::FileSetup,
+    sql: Option<crate::sql::SqlSetup>,
     lang: Lang,
     pins: Pins,
     rx: mpsc::Receiver<ToProgram>,
@@ -275,12 +277,18 @@ impl Driver {
     fn perform(&mut self, call: &ModuleCall) -> CallResult {
         // A file the program opens belongs to the instance the call acts on (T38).
         self.store.data_mut().files.begin_call(call_inst(call));
+        if let Some(sql) = self.store.data_mut().sql.as_mut() {
+            sql.begin_call(call_inst(call));
+        }
         let r = (|| -> wasmtime::Result<CallResult> {
             Ok(match call {
                 ModuleCall::OpenForm { form, opener } => {
                     let inst = self.call::<(i32, i32), i32>("pr_open_form", (*form as i32, *opener))?;
                     if let Ok(inst) = u32::try_from(inst) {
                         self.store.data_mut().files.opened_form(inst);
+                        if let Some(sql) = self.store.data_mut().sql.as_mut() {
+                            sql.opened_form(inst);
+                        }
                     }
                     let status = self.call::<(), i32>("pr_status", ())?;
                     let task = self.task(status)?;
@@ -293,6 +301,10 @@ impl Driver {
                     // not closed the window yet.
                     if status != 1 && status != 2 {
                         self.store.data_mut().files.forget_instance(*inst);
+                        // Its SQL cursors and prepared statements too; the main window's ends the run unit (T41).
+                        if let Some(sql) = self.store.data_mut().sql.as_mut() {
+                            sql.forget_instance(*inst);
+                        }
                     }
                     CallResult::Status { status, task: self.task(status)? }
                 }
@@ -344,7 +356,7 @@ fn call_inst(call: &ModuleCall) -> Option<u32> {
 
 impl Thread {
     fn run(self, ready: mpsc::Sender<Result<(), Msg>>) {
-        let Thread { engine, module, abi, imports, manifest, forms, files, lang, pins, rx, tx, exit } = self;
+        let Thread { engine, module, abi, imports, manifest, forms, files, sql, lang, pins, rx, tx, exit } = self;
         let layout = manifest.layout();
         // The display lists of a module with a Canvas2D cross in the region after frame-in (A23).
         let gfx = (manifest.limits.gfx_size > 0).then(|| (layout.frame_in_off + layout.frame_size, manifest.limits.gfx_size));
@@ -379,6 +391,7 @@ impl Thread {
             let mut st = State::new(lang, pins);
             st.forms = Some(FormRun { host, layout, gfx, graphics });
             st.files = crate::files::Files::new(files);
+            st.sql = sql.map(crate::sql::SqlRun::new);
             let mut store = Store::new(&engine, st);
             let instance = linker.instantiate(&mut store, &module).map_err(|e| Msg::CannotStart(format!("{e:#}")))?;
             let fail = |e: wasmtime::Error| Msg::CannotStart(format!("{e:#}"));
@@ -730,6 +743,10 @@ fn effects(d: &mut Driver, links: &mut [Link], (opening, adopting): Opening<'_>,
             }
             Effect::Stopped => {
                 *stopped = true;
+                // `STOP RUN` ends the run unit normally (T41).
+                if let Some(sql) = d.store.data_mut().sql.as_mut() {
+                    sql.end(true);
+                }
                 for l in links.iter() {
                     l.finish();
                 }

@@ -136,7 +136,7 @@ impl Layout {
 
     /// Does the current scope see item `i`? Its own unit's items, the `GLOBAL`
     /// items of the units containing it, and hidden items.
-    fn visible(&self, i: usize) -> bool {
+    pub(crate) fn visible(&self, i: usize) -> bool {
         let it = &self.items[i];
         it.unit == u32::MAX || it.unit == self.unit || (self.scope.contains(&it.unit) && self.is_global(i))
     }

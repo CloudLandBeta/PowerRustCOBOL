@@ -580,6 +580,9 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // organisations to the capabilities (T38, A34).
     let file_caps: BTreeSet<&'static str> = names.file_caps.clone();
     let native_files: Vec<cobolt_wasm_abi::files::FileDecl> = std::mem::take(&mut names.native_files);
+    // A desktop module's `EXEC SQL`: the `prsql` section (T41, A41).
+    let sql_programs = std::mem::take(&mut names.sql_programs);
+    let sql_statements = std::mem::take(&mut names.sql_statements);
 
     // ── image and memory map, continued ──────────────────────────────────
     let mut built: Vec<Built> = Vec::new();
@@ -697,7 +700,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // environment ones of a desktop module's. Each is backed by a host import
     // of the same name, in the `pr` namespace or, for a desktop capability, in
     // `prn` (ABI A27, A29).
-    const GLUE_ORDER: [&str; 26] = [
+    const GLUE_ORDER: [&str; 27] = [
         "flush",
         "abort",
         "query",
@@ -724,6 +727,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         "t_write",
         "img_fit",
         "img_info",
+        "sql_exec",
     ];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
@@ -809,6 +813,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             "t_write" => (ty_t_write, ty_t_write),
             "img_fit" => (ty_img_fit, ty_img_fit),
             "img_info" => (ty_i32_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
+            // A41: an `EXEC SQL` statement, run by the runner.
+            "sql_exec" => (ty_i32_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
         }
     };
@@ -1138,6 +1144,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         ("t_write", 7),
         ("img_fit", 8),
         ("img_info", 4),
+        ("sql_exec", 4),
     ] {
         if let Some(&at) = glue_final.get(g) {
             let mut f = Function::new([]);
@@ -1616,6 +1623,12 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         let files = cobolt_wasm_abi::files::FilesSection { format: cobolt_wasm_abi::files::FILES_FORMAT, files: native_files };
         let bytes = files.encode();
         module.section(&CustomSection { name: std::borrow::Cow::Borrowed(cobolt_wasm_abi::files::FILES_SECTION), data: std::borrow::Cow::Borrowed(&bytes) });
+    }
+    // A41: the `EXEC SQL` statements the runner runs, and the programs it builds them in.
+    if opts.native && !sql_statements.is_empty() {
+        let sql = cobolt_wasm_abi::sql::SqlSection { format: cobolt_wasm_abi::sql::SQL_FORMAT, programs: sql_programs, statements: sql_statements };
+        let bytes = serde_json::to_vec(&sql).expect("the prsql section serialises");
+        module.section(&CustomSection { name: std::borrow::Cow::Borrowed(cobolt_wasm_abi::sql::SQL_SECTION), data: std::borrow::Cow::Borrowed(&bytes) });
     }
 
     let wasm = module.finish();

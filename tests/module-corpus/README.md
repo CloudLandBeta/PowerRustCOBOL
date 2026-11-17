@@ -20,6 +20,7 @@ cargo test -p cobolt-runner --test module_corpus -- --nocapture
 The fixtures today:
 - **console:** the console, the environment, the arguments, the pinned clock, `RANDOM` and `RETURN-CODE`.
 - **ledger:** arithmetic and rounding, edited pictures, strings, a table with `SEARCH`, a `CALL` into Common Code, and `SORT` with input and output procedures. Until 2.0.522 it also wrote an `INDEXED` file declared `STORAGE IS MEMORY`, and the 2.0.520 entry keeps that version. From 2.0.523 a desktop module refuses such a file until disk files arrive (M3), because on the desktop it is read from its file on disk.
+- **sql** (from T41): `EXEC SQL` on an in-memory SQLite database. Host variables of every kind, a host structure, an indicator and NULL, a cursor read to its end under `WHENEVER NOT FOUND`, the status items, an error that continues, and `COMMIT`. Its modules carry the `prsql` section, so every later runner is checked against the parser's data shapes that section depends on.
 
 When a fixture's output was recorded, it was first checked against `rcrun run`, the interpreter.
 

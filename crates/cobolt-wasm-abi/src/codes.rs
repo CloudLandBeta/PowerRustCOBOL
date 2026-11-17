@@ -207,6 +207,9 @@ pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[
     // A39: the text files and pictures a built-in names by its path.
     (cap::FILES_TEXT, &["t_write"]),
     (cap::IMAGES, &["img_fit", "img_info"]),
+    // A41: every `EXEC SQL` statement, run by the runner with the interpreter's own SQL code
+    // (`crate::sql`).
+    (cap::SQL, &["sql_exec"]),
 ];
 
 /// The file verbs in [`NATIVE_IMPORT_MODULE`] (A34): a file is named by its number in the module's

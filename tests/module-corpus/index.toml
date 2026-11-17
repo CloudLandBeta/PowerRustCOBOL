@@ -26,3 +26,32 @@ sha256 = "282f461c939757f55364bc4524dfc08341744cefd442bc9d37171ee69ff871ff"
 [[entry.files]]
 path = "releases/2.0.520/ledger.toml"
 sha256 = "e95e607b5d83815e224a3b66086f8925c141f682f0112b2a78cbf668bc79740c"
+
+[[entry]]
+release = "2.0.593"
+added = "2026-11-17"
+chain = "869ffae935841d6de53a40ba3aeaea1642257e67f4dfb562755c34556b4498c1"
+
+[[entry.files]]
+path = "releases/2.0.593/console.wasm.gz"
+sha256 = "41fba7ed5921452226b046e1e09768df5c4a12215f35102fa397bf1d576d0cba"
+
+[[entry.files]]
+path = "releases/2.0.593/console.toml"
+sha256 = "f94a85c8b0f7839605b562c9e33ad3a009d8dad4814567605a23e3c0aa868d2f"
+
+[[entry.files]]
+path = "releases/2.0.593/ledger.wasm.gz"
+sha256 = "a70ff9ad4b09070bf9becab61c27c10891650cb89af760141ffe9cf2026243a2"
+
+[[entry.files]]
+path = "releases/2.0.593/ledger.toml"
+sha256 = "4707526eec9411885b77a570f9e00d2923e1da12e27d2f1d259b2d9d8b406387"
+
+[[entry.files]]
+path = "releases/2.0.593/sql.wasm.gz"
+sha256 = "bf004e7294b9b4498859ed1bc285ad7c3afe653a0b8b9237b27fe980d32921f7"
+
+[[entry.files]]
+path = "releases/2.0.593/sql.toml"
+sha256 = "113cf0e14c3bd803cd16bc4f057b88f739bf4c79adbc2bda6a5bf5cedd3fd8b5"

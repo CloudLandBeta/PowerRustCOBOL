@@ -102,6 +102,7 @@ pub(crate) fn run(
     manifest: Manifest,
     sections: DesktopSections,
     files: crate::files::FileSetup,
+    sql: Option<crate::sql::SqlSetup>,
     lang: Lang,
     pins: Pins,
 ) -> Result<i32, Msg> {
@@ -169,7 +170,7 @@ pub(crate) fn run(
         None
     };
 
-    let engine = WasmEngine::start(engine, module, abi, imports, manifest, forms, files, lang, pins)?;
+    let engine = WasmEngine::start(engine, module, abi, imports, manifest, forms, files, sql, lang, pins)?;
 
     // The main form's instance: the same channels a Cargo-built program's interpreter is given.
     let mut flat: Vec<cobolt_forms::Control> = Vec::new();

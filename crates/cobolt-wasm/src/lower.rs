@@ -111,6 +111,12 @@ pub struct Names {
     pub native_files: Vec<cobolt_wasm_abi::files::FileDecl>,
     /// The capabilities of the organisations whose files a verb of the program uses.
     pub file_caps: std::collections::BTreeSet<&'static str>,
+    /// A desktop module's `EXEC SQL` programs and statements, by number: the `prsql` section
+    /// (DESKTOP-WASM-001 T41, ABI A41).
+    pub sql_programs: Vec<cobolt_wasm_abi::sql::SqlProgram>,
+    pub sql_statements: Vec<cobolt_wasm_abi::sql::SqlStatement>,
+    /// Which program each `sql_programs` entry is, by the address of its AST.
+    pub sql_program_keys: HashMap<usize, u32>,
 }
 
 impl Names {
@@ -2046,6 +2052,10 @@ impl<'a, 'b> Lower<'a, 'b> {
             if let Some(why) = crate::support::desktop_refusal(s, self.form.is_some()) {
                 let name = crate::support::stmt_name(s);
                 return self.err_kind(line, crate::error::ErrorKind::Other, name, format!("{name}: {why}"));
+            }
+            // `EXEC SQL` runs on the runner with the interpreter's own SQL code (T41, A41).
+            if let Stmt::ExecSql(e) = s {
+                return self.exec_sql_native(e, line);
             }
         }
         // A desktop module's files, kept by the runner (`lower_nfile`).

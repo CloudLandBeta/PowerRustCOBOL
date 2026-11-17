@@ -12,11 +12,15 @@
 //!
 //! Gated: it builds a real binary. Run it with
 //! `cargo test -p cobolt-compiler --test test_esql_build -- --ignored`.
+//!
+//! DESKTOP-WASM-001 T41: its twin on the WebAssembly path,
+//! `a_webassembly_built_program_reads_its_sql_connections_file`, is not gated: that Build compiles
+//! nothing with Cargo.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use cobolt_compiler::{build_project, BuildOptions, SQL_CONNECTIONS_FILE};
+use cobolt_compiler::{build_project, BuildOptions, BuildPath, SQL_CONNECTIONS_FILE};
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().to_path_buf()
@@ -168,6 +172,131 @@ fn a_built_binary_reads_its_sql_connections_file() {
          CRM_SQL_SALES_URL → third.db; password in file → 28000; total {:.1} s",
         t_all.elapsed().as_secs_f32()
     );
+}
+
+/// The runtime error of [`PROGRAM`]'s `FAIL` mode, and the twin's: a program with no form has no
+/// application object in its module, so `super::Title` would send the Build down the Cargo path; a
+/// `CALL` of a program that is not there, with no `ON EXCEPTION`, ends the run in an error instead.
+const SUPER_FAILURE: &str = "        MOVE \"X\" TO super::Title\n";
+const CALL_FAILURE: &str = "        MOVE \"NO-SUCH-PROGRAM\" TO WS-ERR\n        CALL WS-ERR\n";
+
+/// The `OPEN-DB` branch of [`PROGRAM`]: the SQL built-ins take the Cargo path until T41b, so the
+/// WebAssembly twin's program leaves it out.
+const OPEN_DB_BRANCH: &str = "    IF WS-MODE = \"OPENDB\"
+        COBOL::\"OPEN-DB\" ( \"sql-connection:SALES\" WS-H WS-ERR )
+        IF WS-H > 0
+            DISPLAY \"OPEN-DB OK\"
+        ELSE
+            DISPLAY \"OPEN-DB \" WS-ERR
+        END-IF
+        STOP RUN
+    END-IF
+";
+
+/// DESKTOP-WASM-001 T41 (R10, R11): the same deployment, built on the WebAssembly path. The runner
+/// reads the `sql-connections.toml` the Build writes beside it with the interpreter's own catalog,
+/// so the file, the environment's override, the refused password and the end of the run unit
+/// behave as they do in the Cargo-built program above.
+#[test]
+fn a_webassembly_built_program_reads_its_sql_connections_file() {
+    let t_all = Instant::now();
+    let mut checks: Vec<(String, bool)> = Vec::new();
+    let mut check = |what: &str, ok: bool| checks.push((what.to_string(), ok));
+
+    // The runner the Build copies, built from this checkout.
+    let t = Instant::now();
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let status = std::process::Command::new(cargo)
+        .current_dir(workspace_root())
+        .args(["build", "-q", "-p", "cobolt-runner", "--bin", "prc-runner"])
+        .status()
+        .expect("run cargo");
+    assert!(status.success(), "cargo build -p cobolt-runner --bin prc-runner failed");
+    let exe = std::env::current_exe().unwrap();
+    let runner = exe.parent().and_then(Path::parent).unwrap().join(cobolt_compiler::RUNNER_NAME);
+    let runner_s = t.elapsed().as_secs_f32();
+
+    let root = std::env::temp_dir().join(format!("prc-t41-deploy-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let project = root.join("crm");
+    std::fs::create_dir_all(project.join("src")).unwrap();
+    std::fs::write(project.join("crm.project.toml"), MANIFEST).unwrap();
+    let program = PROGRAM.replace(OPEN_DB_BRANCH, "").replace(SUPER_FAILURE, CALL_FAILURE);
+    assert!(!program.contains("OPEN-DB") && program.contains("CALL WS-ERR"), "the OPEN-DB branch is cut out and the failure is a CALL");
+    std::fs::write(project.join("src/deployed.cbl"), &program).unwrap();
+    let project = project.canonicalize().unwrap();
+    let cache = root.join("runner-cache");
+    let opts = BuildOptions {
+        verbose: false,
+        workspace_root: Some(workspace_root()),
+        build_dir: Some(root.join("builds")),
+        runner: Some(runner),
+        ..Default::default()
+    };
+    let wasm = |bin: &Path, env: &[(&str, &str)]| {
+        let cache = cache.to_string_lossy().to_string();
+        let mut all = vec![("PRC_RUNNER_CACHE", cache.as_str())];
+        all.extend_from_slice(env);
+        run(bin, &all)
+    };
+
+    // ── Build: the WebAssembly path, the starting file beside the program ──
+    let t = Instant::now();
+    let built = build_project(&project.join("crm.project.toml"), &opts).unwrap_or_else(|e| panic!("build failed: {e}"));
+    let build_s = t.elapsed().as_secs_f32();
+    let reason = built.cargo.as_ref().map(|c| format!(" (the Cargo path: {:?})", c.reason)).unwrap_or_default();
+    check(&format!("the Build takes the WebAssembly path, no Cargo build{reason}"), built.path == BuildPath::Wasm && built.cargo.is_none());
+    let bin = built.binary_path.clone();
+    let beside = bin.parent().unwrap().join(SQL_CONNECTIONS_FILE);
+    let starting = std::fs::read_to_string(&beside).unwrap_or_default();
+    let db = project.join("data/sales.db");
+    check("the starting file is beside the program, with an absolute path", starting.contains(&format!("path = \"{}\"", db.display())));
+    check("the starting file holds no credentials", !starting.contains("user =") && !starting.contains("password ="));
+
+    // The project's file does not exist and is never created behind its back.
+    let (out, ok) = wasm(&bin, &[]);
+    check("a missing database is not created: CONNECT 08001", ok && out.first().map(String::as_str) == Some("CONNECT 08001"));
+    check("and the file still does not exist", !db.exists());
+
+    // ── The operator points SALES elsewhere ──
+    let other = project.join("elsewhere.db");
+    let edited = format!("[[connection]]\nname = \"SALES\"\npath = \"{}\"\ncreate-if-missing = true\n", other.display());
+    std::fs::write(&beside, &edited).unwrap();
+    check("the edited file is read: one row", wasm(&bin, &[]).0 == ["CONNECT 00000", "ROWS 001"]);
+    check("the first run's row was committed at STOP RUN: two rows", wasm(&bin, &[]).0 == ["CONNECT 00000", "ROWS 002"]);
+
+    // ── A runtime error rolls the open work back ──
+    let (out, ok) = wasm(&bin, &[("SALES_MODE", "FAIL")]);
+    check("a run that ends in an error fails", !ok);
+    check("it saw its own row before the error: three rows", out == ["CONNECT 00000", "ROWS 003"]);
+    check("the failed run's row was rolled back: three rows again", wasm(&bin, &[]).0 == ["CONNECT 00000", "ROWS 003"]);
+
+    // ── The environment overrides the file ──
+    let third = project.join("third.db");
+    let url = format!("sqlite:{}", third.display());
+    check("CRM_SQL_SALES_URL points SALES at another database", wasm(&bin, &[("CRM_SQL_SALES_URL", &url)]).0 == ["CONNECT 00000", "ROWS 001"]);
+    check("which the run created", third.is_file());
+
+    // ── A password in the file is refused, naming the file and the variable ──
+    std::fs::write(&beside, format!("{edited}password = \"secret\"\n")).unwrap();
+    let (out, _) = wasm(&bin, &[]);
+    check("a password in the file is refused: CONNECT 28000", out.first().map(String::as_str) == Some("CONNECT 28000"));
+    check(
+        "the message names the file and CRM_SQL_SALES_PASSWORD",
+        out.get(1).is_some_and(|l| l.contains(SQL_CONNECTIONS_FILE) && l.contains("CRM_SQL_SALES_PASSWORD")),
+    );
+    check("the password is never shown", !out.join("\n").contains("secret"));
+
+    let _ = std::fs::remove_dir_all(&root);
+    let passed = checks.iter().filter(|(_, ok)| *ok).count();
+    println!("== a_webassembly_built_program_reads_its_sql_connections_file (DESKTOP-WASM-001 T41: R10, R11) ==");
+    println!("program: CONNECT TO 'SALES', CREATE TABLE, INSERT, SELECT COUNT(*) INTO; SALES_MODE=FAIL ends in a runtime error (a CALL of a program that is not there)");
+    println!("timings: runner built {runner_s:.1} s; Build (WebAssembly path) {build_s:.1} s; total {:.1} s", t_all.elapsed().as_secs_f32());
+    for (what, ok) in &checks {
+        println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
+    }
+    println!("result: {passed} of {} checks passed", checks.len());
+    assert_eq!(passed, checks.len(), "the WebAssembly-built program differs from the Cargo-built one");
 }
 
 /// The verdict and the counts of an AC program's result block — never the

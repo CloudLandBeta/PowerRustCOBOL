@@ -91,6 +91,11 @@ mod imp {
         /// and the status word with one space between them (at most `cap - 8` bytes, whose length
         /// is returned).
         pub fn img_info(path: u32, path_len: u32, buf: u32, cap: u32) -> i32;
+        // A desktop module only (ABI A41): an `EXEC SQL` statement, run by the runner.
+        /// Statement `stmt` of the `prsql` section, with the `len` bytes of cell values at `buf`; the
+        /// answer is written over them (at most `cap` bytes) and its length returned, or a negative
+        /// number when the runner could not run the statement.
+        pub fn sql_exec(stmt: u32, buf: u32, len: u32, cap: u32) -> i32;
     }
 }
 
@@ -247,6 +252,22 @@ mod imp {
     /// The answer here is the whole record (the two words included); the import returns the length after them.
     pub unsafe fn img_info(path: u32, path_len: u32, buf: u32, cap: u32) -> i32 {
         (builtin_call("img_info", &[(path, path_len)], &[], buf, cap) - 8).max(0)
+    }
+
+    std::thread_local! {
+        /// The `EXEC SQL` statements run on this thread (A41): the statement and the cell values sent.
+        pub static SQL_CALLS: RefCell<Vec<(u32, Vec<u8>)>> = const { RefCell::new(Vec::new()) };
+        /// What the next one answers.
+        pub static SQL_ANSWER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    }
+    pub unsafe fn sql_exec(stmt: u32, buf: u32, len: u32, cap: u32) -> i32 {
+        SQL_CALLS.with(|c| c.borrow_mut().push((stmt, crate::mem::bytes(buf, len).to_vec())));
+        let ans = SQL_ANSWER.with(|a| a.borrow().clone());
+        if ans.len() > cap as usize {
+            return -1;
+        }
+        crate::mem::bytes_mut(buf, ans.len() as u32).copy_from_slice(&ans);
+        ans.len() as i32
     }
 }
 

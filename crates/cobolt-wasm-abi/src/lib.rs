@@ -27,6 +27,8 @@ pub mod codes;
 /// The `prfiles` section: a desktop module's files (A34).
 pub mod files;
 pub mod manifest;
+/// The `prsql` section: a desktop module's `EXEC SQL` statements (A41).
+pub mod sql;
 
 #[cfg(feature = "scan")]
 pub mod scan;

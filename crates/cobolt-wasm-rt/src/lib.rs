@@ -61,6 +61,7 @@ pub mod mv;
 pub mod nfile;
 pub mod opd;
 pub mod remote;
+pub mod sql;
 pub mod state;
 pub mod strings;
 #[cfg(not(target_arch = "wasm32"))]

@@ -20,7 +20,10 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 /// Every entry the corpus has had, with its chain: none may leave the index.
-const KNOWN: &[(&str, &str)] = &[("2.0.520", "92e2efd9bb234c1ae257f9a0512bf555a0c876820770bbeccb24f69e8a8e5142")];
+const KNOWN: &[(&str, &str)] = &[
+    ("2.0.520", "92e2efd9bb234c1ae257f9a0512bf555a0c876820770bbeccb24f69e8a8e5142"),
+    ("2.0.593", "869ffae935841d6de53a40ba3aeaea1642257e67f4dfb562755c34556b4498c1"),
+];
 
 /// A folder of its own under the system's temporary folder, removed at the end.
 struct Scratch(PathBuf);
