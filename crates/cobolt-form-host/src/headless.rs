@@ -34,6 +34,12 @@
 //! run until the program has handled everything sent to it (or the time limit
 //! runs out).
 //!
+//! After the last step, a program that has not ended has its main window closed as its close
+//! button closes it, and is given up to ten seconds to end, so its `onClose` and what follows run
+//! before the report (WASM-PARITY #75). The report's `program_ended` still says whether the program
+//! ended during the script; a `close` entry appears only when the form refused to close or the
+//! program did not end in time.
+//!
 //! **Deterministic mode** (DESKTOP-WASM-001 R28): when `PRC_TEST_CLOCK` pins the clock, frames
 //! are drawn at a virtual time that moves only when the script waits. `wait_ms` and the opening
 //! wait move it by 1/60 s per frame; a frame that only waits for the program does not move it. So
@@ -404,6 +410,54 @@ pub fn run_headless_with(
             }
         }
     }
+    // WASM-PARITY #75: the run ends as an operator ends it. Unless the program has already ended,
+    // the main window is closed as its close button closes it (the same veto, cascade and exit
+    // effect), and the program is given up to ten seconds to end: its `onClose`, its closing
+    // paragraphs and its `STOP RUN` run before the report, on every engine. Dropping the host while
+    // the program still ran left that to a race, which the interpreter's program usually lost, and
+    // its files' last pages never reached the disk. Said only when it goes wrong.
+    // The report says where the script left the application: taken before the close, which takes
+    // the windows and the pane's form with it.
+    let program_ended = host.host().script_finished();
+    let on_pane = host.host().active_occupant_form().map(str::to_owned);
+    let windows: Vec<Value> = host
+        .host()
+        .script_windows()
+        .into_iter()
+        .map(|(form, shell, on_pane)| json!({"form": form, "shell": shell, "on_pane": on_pane}))
+        .collect();
+    let mut close = None;
+    if !program_ended {
+        let close_by = Instant::now() + Duration::from_secs(10);
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size.get()));
+        input.time = Some(now());
+        input.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+        let mut full = ctx.run_ui(input, |ui| host.frame(ui));
+        raster.apply(&full.textures_delta);
+        full.textures_delta.clear();
+        loop {
+            if host.host().script_finished() {
+                // What the program DISPLAYed last reaches the output.
+                frame(&mut host, &mut raster);
+                break;
+            }
+            if !host.host().script_closing() {
+                close = Some(json!({"ended": false, "why": "the form refused to close"}));
+                break;
+            }
+            if Instant::now() >= close_by {
+                close = Some(json!({"ended": false, "why": "the program had not ended 10 s after its form was closed"}));
+                break;
+            }
+            frame(&mut host, &mut raster);
+            if deterministic {
+                tick();
+            } else {
+                std::thread::sleep(Duration::from_millis(16));
+            }
+        }
+    }
     // The run is over: the host's clock is real again.
     if deterministic {
         cobolt_runtime::test_pins::stop_virtual_time();
@@ -413,11 +467,9 @@ pub fn run_headless_with(
     let mut report = json!({
         "steps": steps,
         "reads": reads,
-        "program_ended": host.host().script_finished(),
-        "on_pane": host.host().active_occupant_form(),
-        "windows": host.host().script_windows().into_iter().map(|(form, shell, on_pane)| {
-            json!({"form": form, "shell": shell, "on_pane": on_pane})
-        }).collect::<Vec<_>>(),
+        "program_ended": program_ended,
+        "on_pane": on_pane,
+        "windows": windows,
         "timed_out": timed_out,
         "elapsed_ms": started.elapsed().as_millis() as u64,
         "picture": picture,
@@ -431,6 +483,9 @@ pub fn run_headless_with(
     }
     if !dialogs_asked.is_empty() {
         report["dialogs_asked"] = json!(dialogs_asked);
+    }
+    if let Some(close) = close {
+        report["close"] = close;
     }
     report
 }

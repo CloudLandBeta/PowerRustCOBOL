@@ -1461,8 +1461,8 @@ fn an_indexed_file_control_opens_writes_and_reads_alike() {
         (20, 108),
         &["MOVE \"XX\" TO WS-ST", "COBOL::\"FILE-STATUS\" ( \"NO-SUCH\" WS-ST )", "MOVE WS-ST TO LBL-X::Caption", "MOVE IXF-ITEMS::IsBusy() TO LBL-B::Caption"],
     );
-    // The file closed by the program itself, so what it leaves does not wait for the form's end: a
-    // headless run ends without waiting for the program to finish (WASM-PARITY #75).
+    // The file closed by the program itself, and the status its CLOSE leaves read back (00). The
+    // form's end would close it too (`AutoOpen`, WASM-PARITY #75, fixed in 2.0.590).
     button(&mut main, "BTN-CLOSE", (20, 152), &["CLOSE ITEM-FILE", "COBOL::\"FILE-STATUS\" ( \"ITEM-FILE\" WS-ST )", "MOVE WS-ST TO LBL-C::Caption"]);
     let manifest = project(&root, "IndexedItems", &[("main-form", main)], &[]);
     // A relative ASSIGN starts at the folder that holds `assets/` on both engines.
@@ -1515,6 +1515,82 @@ fn an_indexed_file_control_opens_writes_and_reads_alike() {
     tally.finish(
         "an_indexed_file_control_opens_writes_and_reads_alike",
         "an IndexedFile control with AutoOpen on an OPTIONAL INDEXED file the form declares GLOBAL, its OPEN WITH REGISTERED USER a data item, its StatusDataItem filled by COBOL::\"FILE-STATUS\"; handlers that WRITE (one a duplicate), READ (one key missing) and ask the status of a name that is no file, IsBusy(), and CLOSE the file",
+        &root,
+        build_ms,
+    );
+}
+
+/// WASM-PARITY #75: a headless run ends as an operator ends it, its form closed, and the program is
+/// given the time to end. Here the program's last work is done only at its end: the IndexedFile
+/// control's `AutoOpen` closes its file after the event loop, and `onClose` writes a log file and
+/// DISPLAYs a line. Nothing in the script closes anything. Before the fix the run's report came back
+/// while the program still ran, and the interpreter's program never got that far: no log, no line,
+/// and an indexed file whose last pages never reached the disk.
+#[test]
+fn the_end_of_a_headless_run_closes_the_form_on_both_engines() {
+    let root = root("headless-end");
+    let mut main = Form::new("MAIN-FORM", "End", 480, 240);
+    main.main_form = true;
+    main.cobol_structure.file_control = "           SELECT OPTIONAL ITEM-FILE ASSIGN TO \"data/items.idx\"\n               ORGANIZATION IS INDEXED\n               ACCESS MODE IS DYNAMIC\n               RECORD KEY IS IT-ID.\n           SELECT LOG-FILE ASSIGN TO \"data/closed.txt\"\n               ORGANIZATION IS LINE SEQUENTIAL.".into();
+    main.cobol_structure.file_section = "       FD ITEM-FILE IS GLOBAL.\n       01 IT-REC.\n           05 IT-ID   PIC 9(3).\n           05 IT-NAME PIC X(8).\n       FD LOG-FILE IS GLOBAL.\n       01 LOG-REC PIC X(24).".into();
+    main.user_ws_source = "       01 WS-IX-FS PIC XX GLOBAL.\n".into();
+    let mut ixf = Control::new("IXF-ITEMS", ControlType::IndexedFile, 0, 0);
+    for (k, v) in [("IndexedFile", "indexed/items.cidx"), ("OpenMode", "I-O"), ("RecordName", "IT-REC"), ("KeyName", "IT-ID"), ("StatusDataItem", "WS-IX-FS")] {
+        ixf.set_prop(k, PropValue::String(v.into()));
+    }
+    ixf.set_prop("AutoOpen", PropValue::Bool(true));
+    main.controls.push(ixf);
+    control(&mut main, "LBL-W", ControlType::Label, (240, 20, 200, 24), Some("-"));
+    button(
+        &mut main,
+        "BTN-WRITE",
+        (20, 20),
+        &[
+            "MOVE 1 TO IT-ID",
+            "MOVE \"ONE\" TO IT-NAME",
+            "WRITE IT-REC INVALID KEY CONTINUE END-WRITE",
+            "MOVE 2 TO IT-ID",
+            "MOVE \"TWO\" TO IT-NAME",
+            "WRITE IT-REC INVALID KEY CONTINUE END-WRITE",
+            "MOVE WS-IX-FS TO LBL-W::Caption",
+        ],
+    );
+    bind(
+        &mut main,
+        "MAIN-FORM",
+        "onClose",
+        &["OPEN OUTPUT LOG-FILE", "MOVE \"CLOSED BY ONCLOSE\" TO LOG-REC", "WRITE LOG-REC", "CLOSE LOG-FILE", "DISPLAY \"ONCLOSE RAN\""],
+    );
+    let manifest = project(&root, "HeadlessEnd", &[("main-form", main)], &[]);
+    fs::create_dir_all(root.join("assets")).unwrap();
+    let steps = script(&root, "steps", vec![wait(600), click("BTN-WRITE"), wait(300), read("LBL-W", "Caption"), dump(), shot("end")]);
+    let (exe, build_ms) = build(&root, &manifest);
+    let home = root.join("home");
+    let _ = data_and_cleared(&root);
+    let a = interpreter(&root, "main-form", &steps, &home);
+    let files_a = data_and_cleared(&root);
+    let b = runner(&root, &exe, &steps, &home);
+    let files_b = data_and_cleared(&root);
+    let mut tally = Tally::default();
+    tally.compare("headless end", &a, &b, &["end"]);
+    let listing = |files: &[(String, Vec<u8>)]| files.iter().map(|(n, d)| format!("{n} {}", d.len())).collect::<Vec<_>>().join(", ");
+    for (who, f) in [("interpreter", &files_a), ("runner", &files_b)] {
+        tally.lines.push(format!("    {who} left in data/: {}", listing(f)));
+    }
+    tally.check("both engines left the same data files, byte for byte", !files_a.is_empty() && files_a == files_b);
+    for (who, run, files) in [("interpreter", &a, &files_a), ("runner", &b, &files_b)] {
+        let log = files.iter().find(|(n, _)| n == "closed.txt").map(|(_, d)| String::from_utf8_lossy(d).trim_end().to_owned());
+        tally.check(format!("{who}: onClose wrote its log ({log:?})"), log.as_deref() == Some("CLOSED BY ONCLOSE"));
+        tally.check(format!("{who}: onClose's DISPLAY reached the output"), run.stdout.lines().any(|l| l.trim() == "ONCLOSE RAN"));
+        tally.check(format!("{who}: the indexed file was closed (no journal left)"), files.iter().any(|(n, _)| n == "items.idx") && !files.iter().any(|(n, _)| n.ends_with(".jrn")));
+        tally.check(
+            format!("{who}: the report says the script did not end the program, and the close went well"),
+            run.report["program_ended"] == Value::Bool(false) && run.report.get("close").is_none(),
+        );
+    }
+    tally.finish(
+        "the_end_of_a_headless_run_closes_the_form_on_both_engines",
+        "a form whose program does its last work at its end — the IndexedFile control's AutoOpen CLOSE after the event loop, an onClose that writes a LINE SEQUENTIAL log and DISPLAYs — run by a script that closes nothing (WASM-PARITY #75)",
         &root,
         build_ms,
     );

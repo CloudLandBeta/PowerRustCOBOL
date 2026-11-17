@@ -14883,7 +14883,12 @@ The tools the agent has are these:
   script: type into a control, click, wait, read a property back — and, in an
   application with a side menu, load a form into the ContentPane first. The agent
   gets what the program DISPLAYed, the values it read, any runtime error and a
-  picture of where the form ended up. A handler that never returns is stopped
+  picture of where the form ended up. When the script is done, the form is
+  closed as its close button closes it, so its `onClose` and whatever the
+  program does as it ends (closing its files, a last `DISPLAY`) run before the
+  agent gets the result; the program is given ten seconds for that, and the
+  agent is told if the form refused to close or the program did not end. A
+  form whose program ended during the script is not closed again. A handler that never returns is stopped
   at a time limit (20 seconds unless the agent asks for less or more, at most
   120). The program's real effects happen — the files it writes, the web
   services it calls — exactly as when you run it.

@@ -6154,6 +6154,12 @@ impl FormHost {
         self.root.finished.load(Ordering::Relaxed)
     }
 
+    /// WASM-PARITY #75: the main window's close was allowed — the program was sent its quit, or the
+    /// exit effect that ends with it is playing. False after a refused close (a waiting form).
+    pub(crate) fn script_closing(&self) -> bool {
+        self.quit_sent || self.fx_exit_start.is_some()
+    }
+
     /// DESKTOP-WASM-001 R28: whether an open child window's program can take what it is sent: it
     /// has not ended, and no modal child of its own holds it up.
     fn script_child_runs(&self, c: &ChildWindow) -> bool {
