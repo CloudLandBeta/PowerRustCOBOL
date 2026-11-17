@@ -29,8 +29,9 @@
 //! 32 path_opd    operand of the data item the ASSIGN names, or 0
 //! 36 relkey_opd  operand of the RELATIVE KEY item, or 0
 //! 40 depend_opd  operand of the RECORD … DEPENDING ON item of a variable-length file, or 0
-//! 44 handle_off  region offset of 8 bytes; the second word is the open mode + 1 (0 when the
-//!                file is not open in a mode), which the USE procedures that name a mode read
+//! 44 handle_off  region offset of 12 bytes; the second word is the open mode + 1 (0 when the
+//!                file is not open in a mode), which the USE procedures that name a mode read; the
+//!                third its last status + 1 (0 before any verb), which `COBOL::"FILE-STATUS"` reads
 //! ```
 //!
 //! A key spec is `[n, (region offset, length) × n]`: the key's value is those bytes joined.
@@ -47,6 +48,10 @@ pub const ORG_INDEXED: u32 = 3;
 
 /// `flags` bit 0: the file's access mode is sequential.
 pub const F_SEQ_ACCESS: u32 = 1;
+
+/// Where in a file's handle place its last status is kept, plus one (0: no verb yet), after the
+/// runner's handle and the open mode.
+const LAST_STATUS: u32 = 8;
 
 /// No key bytes, no record number (the imports' `-1`).
 const NONE: i32 = -1;
@@ -90,6 +95,9 @@ fn desc(d: u32) -> Desc {
 
 /// Two digits into the FILE STATUS item (PIC XX, 99, or a group of two characters).
 fn set_status(base: u32, f: &Desc, code: u32) {
+    // Every file's last status, FILE STATUS clause or not: what `COBOL::"FILE-STATUS"` reads, as the
+    // interpreter's `last_file_status` keeps it.
+    mem::wr_u32(base + f.handle_off + LAST_STATUS, code + 1);
     if f.status_opd == 0 {
         return;
     }
@@ -448,6 +456,16 @@ pub extern "C" fn rt_nf_sort_using(base: u32, d: u32, sd: u32) {
 #[no_mangle]
 pub extern "C" fn rt_nf_sort_giving(base: u32, d: u32, sd: u32, raw: u32) {
     sort_giving(base, d, sd, raw);
+}
+
+/// `COBOL::"FILE-STATUS" ( "file" item )` (T39c): the last status of the file whose handle place is
+/// at `handle_off` (`u32::MAX` for a name that is no file the runner keeps), `00` before any verb,
+/// into `target` as the interpreter puts it (a group or an elementary item, alphanumeric or numeric).
+#[no_mangle]
+pub extern "C" fn rt_nf_last_status(base: u32, handle_off: u32, target: u32) {
+    let code = if handle_off == u32::MAX { 0 } else { mem::rd_u32(base + handle_off + LAST_STATUS).saturating_sub(1) };
+    let digits = [b'0' + ((code / 10) % 10) as u8, b'0' + (code % 10) as u8];
+    crate::accept::put(base, target, &digits);
 }
 
 /// `UNLOCK`, `COMMIT`, `ROLLBACK`: see [`tx`].

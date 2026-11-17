@@ -262,6 +262,7 @@ fn every_control_has_a_desktop_class() {
         ("Canvas2D served (T50)", desktop_control_gap(&ControlType::Canvas2D).is_none()),
         ("Canvas3D served (T50)", desktop_control_gap(&ControlType::Canvas3D).is_none()),
         ("FileDropZone served (T39c)", desktop_control_gap(&ControlType::FileDropZone).is_none()),
+        ("IndexedFile served (T39c)", desktop_control_gap(&ControlType::IndexedFile).is_none()),
         ("an unknown type refused", desktop_control_gap(&ControlType::from_str("NoSuchControl")).is_some()),
     ];
     let fixed_ok = fixed.iter().filter(|(_, ok)| *ok).count();

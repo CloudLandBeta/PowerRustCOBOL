@@ -8106,6 +8106,15 @@ fn browser_subset_doc() -> String {
             d.push_str(&format!("| {} | {why} |\n", t.as_str()));
         }
     }
+    // T39c: the IndexedFile control is served through the program's own verbs; its PartiQL members
+    // are refused where they are used.
+    d.push_str(&format!(
+        "\nThe IndexedFile control is served: its generated paragraphs use the file verbs and `COBOL::\"FILE-STATUS\"`, which \
+         the WebAssembly path compiles. A form that uses one of its PartiQL members ({}) takes the Cargo path, which names the \
+         member and its line: {}.\n",
+        cobolt_wasm::support::PARTIQL_MEMBERS.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", "),
+        cobolt_wasm::support::D_PARTIQL
+    ));
     d.push_str("\nA control bound to data (Data Binding) takes the Cargo path too, whatever its type:\n\n| Bound to | Why |\n|---|---|\n");
     for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {
         d.push_str(&format!("| {source} | {why} |\n"));
@@ -14212,7 +14221,8 @@ function_prefix = "sales-"
         let ctl = |id: &str, t: T| Control::new(id, t, 10, 10);
         let mut panel = ctl("PNL-SIDE", T::Panel);
         panel.children.push(ctl("TXT-NAME", T::TextBox));
-        let served = form("MAIN", vec![ctl("BTN-GO", T::Button), ctl("LBL-HELLO", T::Label), panel.clone(), ctl("GRD-ROWS", T::DataGrid)]);
+        // Served since T39c: the IndexedFile control, whose paragraphs use the file verbs.
+        let served = form("MAIN", vec![ctl("BTN-GO", T::Button), ctl("LBL-HELLO", T::Label), panel.clone(), ctl("GRD-ROWS", T::DataGrid), ctl("IXF-ORDERS", T::IndexedFile)]);
         let mut nested = panel.clone();
         nested.children.push(ctl("MAP-CITY", T::Maps));
         let with_maps = form("MAIN", vec![ctl("BTN-GO", T::Button), nested]);
@@ -16721,6 +16731,11 @@ mod published_documentation_tests {
         }
         for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {
             assert!(controls.contains(&format!("| {source} | {why} |")), "binding to {source} is not listed");
+        }
+        // T39c: the IndexedFile control's PartiQL members are named, with their reason.
+        assert!(controls.contains(cobolt_wasm::support::D_PARTIQL), "the PartiQL members' reason is not there");
+        for m in cobolt_wasm::support::PARTIQL_MEMBERS {
+            assert!(controls.contains(&format!("`{m}`")), "the PartiQL member {m} is not named");
         }
         println!("browser subset: {builtins} built-ins and {statements} statements in the System KB");
         println!("controls on the Desktop: {listed} listed with their reason, {served} served and not listed, {} binding sources", cobolt_wasm::support::DESKTOP_BINDING_GAPS.len());

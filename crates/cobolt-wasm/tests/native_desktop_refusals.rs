@@ -155,6 +155,66 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
         .and_then(|m| cobolt_wasm_abi::scan::scan_module(&m.wasm).ok())
         .is_some_and(|s| s.imports.iter().any(|i| i.name == "f_tx") && s.embedded_manifest().is_ok_and(|m| m.capabilities == ["files.indexed"]));
     check("COMMIT, ROLLBACK and UNLOCK compile: import f_tx, capability files.indexed".into(), tx_ok);
+    // COBOL::"FILE-STATUS" reads in the module what the file verbs left there (T39c): it needs no
+    // capability of its own. The file is named by a literal, as the IndexedFile control's paragraphs
+    // name it; a name in a data item and a missing receiver are refused at the call.
+    let status_none = format!(
+        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-ST PIC XX.\nPROCEDURE DIVISION.\n    COBOL::\"FILE-STATUS\" ( \"NONE\" WS-ST )\n    DISPLAY WS-ST\n    STOP RUN.\n"
+    );
+    check(
+        "COBOL::\"FILE-STATUS\" on a name that is no file compiles, with no capability".into(),
+        caps_of(&status_none).is_some_and(|c| c.is_empty()),
+    );
+    let status_item = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT IX ASSIGN TO \"ix\"\n        ORGANIZATION IS INDEXED\n        RECORD KEY IS IX-KEY.\n\
+         DATA DIVISION.\nFILE SECTION.\nFD IX.\n01 IX-REC.\n    05 IX-KEY PIC X(5).\nWORKING-STORAGE SECTION.\n01 WS-NAME PIC X(8) VALUE \"IX\".\n01 WS-ST PIC XX.\n\
+         PROCEDURE DIVISION.\n    OPEN INPUT IX\n    COBOL::\"FILE-STATUS\" ( WS-NAME WS-ST )\n    STOP RUN.\n"
+    );
+    let e = refusal(&status_item);
+    check(
+        "COBOL::\"FILE-STATUS\" with the file's name in a data item: refused at its line, naming it".into(),
+        e.subject == "COBOL::\"FILE-STATUS\"" && e.line == line_of(&status_item, "FILE-STATUS") && e.message.contains("literal"),
+    );
+    let status_one = format!("{HEAD}PROCEDURE DIVISION.\n    COBOL::\"FILE-STATUS\" ( \"IX\" )\n    STOP RUN.\n");
+    let e = refusal(&status_one);
+    check(
+        "COBOL::\"FILE-STATUS\" with no receiver: refused at its line".into(),
+        e.subject == "COBOL::\"FILE-STATUS\"" && e.line == line_of(&status_one, "FILE-STATUS") && e.message.contains("data item that receives"),
+    );
+    let status_sort = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT W ASSIGN TO \"w\".\n    SELECT IN-F ASSIGN TO \"in\".\n\
+         DATA DIVISION.\nFILE SECTION.\nSD W.\n01 W-REC PIC X(5).\nFD IN-F.\n01 IN-REC PIC X(5).\nWORKING-STORAGE SECTION.\n01 WS-ST PIC XX.\n\
+         PROCEDURE DIVISION.\n    SORT W ON ASCENDING KEY W-REC USING IN-F GIVING IN-F\n    COBOL::\"FILE-STATUS\" ( \"W\" WS-ST )\n    STOP RUN.\n"
+    );
+    // A SORT work file answers 00, as under the interpreter (SORT, RELEASE and RETURN set no status
+    // under its name); a file only a nested program declares is read where its verbs left it.
+    check(
+        "COBOL::\"FILE-STATUS\" on a SORT work file compiles: capability files.sequential".into(),
+        caps_of(&status_sort).is_some_and(|c| c == ["files.sequential"]),
+    );
+    let nested_file = |name: &str, n: usize| {
+        let inner: String = (1..=n)
+            .map(|i| {
+                format!(
+                    "IDENTIFICATION DIVISION.\nPROGRAM-ID. INNER{i}.\nENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT {name} ASSIGN TO \"n{i}\".\n\
+                     DATA DIVISION.\nFILE SECTION.\nFD {name}.\n01 N{i}-REC PIC X(4).\nPROCEDURE DIVISION.\n    OPEN INPUT {name}\n    GOBACK.\nEND PROGRAM INNER{i}.\n"
+                )
+            })
+            .collect();
+        format!(
+            "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-ST PIC XX.\nPROCEDURE DIVISION.\n    CALL \"INNER1\"\n    COBOL::\"FILE-STATUS\" ( \"{name}\" WS-ST )\n    STOP RUN.\n{inner}END PROGRAM T16G.\n"
+        )
+    };
+    check(
+        "COBOL::\"FILE-STATUS\" on a file only a nested program declares compiles".into(),
+        caps_of(&nested_file("INNERF", 1)).is_some_and(|c| c == ["files.sequential"]),
+    );
+    // Two programs that declare one name share one file, as under the interpreter: the status read is
+    // the last verb's on either (the runner twin `file status` runs it).
+    check(
+        "COBOL::\"FILE-STATUS\" on a name two other programs declare compiles".into(),
+        caps_of(&nested_file("SHARED", 2)).is_some_and(|c| c == ["files.sequential"]),
+    );
 
     // SORT with an INPUT and an OUTPUT PROCEDURE: compiled into the module.
     let procs = format!(
@@ -235,7 +295,8 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
             main: true,
             instances: 1,
             program: &program,
-            controls: vec![("BTN-1".into(), "Button".into())],
+            // The IndexedFile control is served (T39c); only its PartiQL members are refused.
+            controls: vec![("BTN-1".into(), "Button".into()), ("IXF-1".into(), "IndexedFile".into())],
             bindings: vec![("BTN-1".into(), "onClick".into())],
             layers: vec![],
             lines: vec![],
@@ -256,13 +317,37 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     }
     check(format!("the page's {} own verbs (COBOL::\"MESSAGEBOX\" …) in a form's handler: {refused} refused at their line, naming each", page_verbs.len()), refused == page_verbs.len());
 
+    // The IndexedFile control (T39c): a form holding one compiles, and so do the members every control
+    // has; a PartiQL member (a method, a property a statement answers in, the binding query) is
+    // refused at its line, naming it, as T48 waits for them.
+    let plain_members = handler("    MOVE IXF-1::OpenMode TO WS-PATH\n    MOVE IXF-1::IsBusy() TO WS-PATH\n    MOVE \"I-O\" TO IXF-1::OpenMode\n");
+    check("a form with an IndexedFile control compiles, reading and writing its OpenMode and asking IsBusy()".into(), in_form(&plain_members).is_ok());
+    let mut partiql = 0;
+    let partiql_cases = [
+        ("    MOVE IXF-1::Execute( \"SELECT A FROM T\" ) TO WS-PATH\n", "IXF-1::EXECUTE"),
+        ("    MOVE IXF-1::Fetch() TO WS-PATH\n", "IXF-1::FETCH"),
+        ("    MOVE IXF-1::StatusCode TO WS-PATH\n", "IXF-1::STATUSCODE"),
+        ("    MOVE \"SELECT A FROM T\" TO IXF-1::BindingQuery\n", "IXF-1::BINDINGQUERY"),
+    ];
+    for (body, subject) in partiql_cases {
+        let src = handler(body);
+        let e = in_form(&src).err().unwrap_or_else(|| GenError::new(0, "compiled"));
+        if e.subject == subject && e.line == line_of(&src, "IXF-1::") && e.message.contains("PartiQL members") && e.message.contains("M6") {
+            partiql += 1;
+        }
+    }
+    check(
+        format!("the IndexedFile control's PartiQL members (Execute, Fetch, StatusCode read, BindingQuery written): {partiql} of {} refused at their line, naming each", partiql_cases.len()),
+        partiql == partiql_cases.len(),
+    );
+
     // What the runner serves still compiles.
     let plain = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-N PIC 9(4) VALUE 1.\nPROCEDURE DIVISION.\n    ADD 41 TO WS-N\n    DISPLAY \"N=\" WS-N\n    STOP RUN.\n");
     check("a console program compiles into a desktop module".into(), compile_program(&common::parse(&plain), &native()).is_ok());
 
     let took = t.elapsed().as_secs_f64() * 1000.0;
     println!("== native_desktop_refusals (DESKTOP-WASM-001 T16, T32, R13) ==");
-    println!("programs compiled: {} (11 as desktop modules refused or accepted, {} desktop form modules, 2 browser modules, 1 plain console program) in {took:.1} ms", 14 + 1 + page_verbs.len(), 1 + page_verbs.len());
+    println!("programs compiled: {} (23 as desktop modules refused or accepted, {} desktop form modules, 2 browser modules, 1 plain console program) in {took:.1} ms", 26 + 6 + page_verbs.len(), 6 + page_verbs.len());
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "pass" } else { "FAIL" });

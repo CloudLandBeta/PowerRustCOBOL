@@ -2,6 +2,32 @@
 
 
 
+## 2.0.588 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T39c, completing it): a desktop form's IndexedFile control and `COBOL::"FILE-STATUS"` take the WebAssembly path. A Desktop Build no longer falls back to the Cargo path for a form that holds an IndexedFile control, or for a program that asks a file's last status. T39c is complete: no refusal names M3.**
+- **What runs:**
+  - **`COBOL::"FILE-STATUS" ( "file" item )`** reads, in the module, the status the file's last verb left. Every file verb on the runner's files now keeps that status beside the file's handle (a third word in the handle's place, which grows from 8 to 12 bytes). The built-in needs no import and no capability.
+  - It answers as the interpreter does:
+    - `00` before any verb, and for a name no program declares;
+    - the name in any case, with spaces around it;
+    - `00` for a SORT work file, since `SORT`, `RELEASE` and `RETURN` set no status under its name;
+    - a file that other programs of the module declare is read where its verbs left its status. The module keeps one file per name, as the interpreter does, so programs that declare one name share it, and its status is the last verb's on any of them.
+    - The receiver is filled as the interpreter fills it: a group, an alphanumeric item (padded or cut), or a numeric item.
+  - **The IndexedFile control** is served. Without PartiQL it is a set of properties over the paragraphs the form generates (`OPEN … REGISTERED USER`, `START`, `READ`, `COMMIT`, `ROLLBACK`, `CLOSE`, each followed by `FILE-STATUS`). Those paragraphs use the program's own verbs, which the runner already keeps. `AutoOpen` opens the file as the form starts.
+  - **Its PartiQL members** are refused where they are used, naming the member and its line, so the Build takes the Cargo path (T48, M6): `Execute`, `ExecuteTransaction`, `Fetch`, `Get`, `ColumnNames`, `ColumnCount`, `RefreshBinding`, and the properties `ResultCount`, `StatusCode`, `LastError` and `BindingQuery`. A control bound to a PartiQL query was already refused.
+  - **Left to T45 (M5),** refused at the call: `FILE-STATUS` with the file's name in a data item.
+- **System Knowledge Base:** the Desktop table of controls no longer lists IndexedFile; the service controls' reason no longer names files, the cloud or M3; a new paragraph names the PartiQL members and their reason; `FILE-STATUS` is a module built-in in the Desktop column. `assets/knowledge/chunked.data` is regenerated (4 412 records); its test passes.
+- **The runtime module (`rt.wasm`)** is rebuilt. **AC16 unchanged:** the pin and the player's generated fixtures pass without re-recording, so no browser module's bytes moved. The web player is not rebuilt: none of its inputs changed.
+- **Tests:**
+  - **The runner twin `file status`** (in `files_of_every_organisation_match_the_interpreter`): 18 lines printed and 5 files (20 537 bytes) equal to `rcrun run`, across INDEXED, RELATIVE, LINE SEQUENTIAL and SEQUENTIAL files with and without a FILE STATUS clause, a SORT work file and its GIVING file, a file one nested program declares and a file two declare (the last verb's status, 42), into five shapes of receiver; 0 statuses differ. All the runner file twins: 235 of 235 checks.
+  - **The form twin `an_indexed_file_control_opens_writes_and_reads_alike`:** an IndexedFile control with `AutoOpen` on an OPTIONAL file, and handlers that write (and meet a duplicate key), read (a missing key, then a found one), ask a status by a name no program declares, and close. The 8 readings, the state dump and one picture (640 × 420, 268 800 pixels, 0 differing) equal `rcrun run-form`, and the data files are equal byte for byte. 6 of 6 checks.
+  - **`native_desktop_refusals`:** 30 of 30 checks, 49 programs compiled. `FILE-STATUS` on no file, a SORT work file, a file of one or two nested programs compiles; a name in a data item and a missing receiver are refused at the call; the IndexedFile control's plain members compile and four PartiQL members are refused naming the member.
+  - **The classification:** `every_control_has_a_desktop_class` now reads 71 control types, 63 served and 8 on the Cargo path (62 and 9 before); `desktop_controls_the_runner_lacks_are_named` holds a served IndexedFile control; the System KB section test names every PartiQL member.
+  - **The sweep:** the five WebAssembly crates and the runner, 60 test binaries, 213 tests passed. Two were red: the refusal test, whose case of a name two programs declare expected a refusal the module does not need (corrected, then 30 of 30), and `cobolt-web-tests` `examples`, red from untracked operator files.
+- **Found on the way, each a fix of its own:**
+  - **The end of a headless run is a race on both engines** (WASM-PARITY #75). The headless driver reports and returns while the program is still answering the form's close. The runner's program usually ran its `onClose` and closed the file; the interpreter's never did, so its file's last pages never reached the disk (12 288 bytes against 20 480 once the program closes it). The twin closes its file with the `CLOSE` verb meanwhile.
+  - **The IndexedFile paragraphs name the `.cidx` stem, not the form's `SELECT` name, when the two differ.** PowerDemo3's form declares `SELECT MENU-FILE`, and its paragraphs `OPEN I-O MENU`, a file no program declares. They are never performed there, but every paragraph is compiled, so that form takes the Cargo path naming `MENU`.
+
 ## 2.0.587 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T39c, in part): `OPEN … WITH REGISTERED USER` takes the WebAssembly path. A program that opens a file with it no longer stops the Build at the generator. The IndexedFile control's generated `OPEN` paragraph uses this phrase, so it is a step towards that control too.**

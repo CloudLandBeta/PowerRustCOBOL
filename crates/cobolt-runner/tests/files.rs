@@ -818,6 +818,178 @@ MAIN-PARA.
     STOP RUN.
 ";
 
+/// `COBOL::"FILE-STATUS"` (T39c), what the IndexedFile control's generated paragraphs call after
+/// every verb: a file's last status, `00` before any verb and for a name that is no file, the name
+/// written in any case and with spaces around it. Files with no FILE STATUS clause (INDEXED,
+/// RELATIVE, LINE SEQUENTIAL, an OPTIONAL SEQUENTIAL one absent) and one with the clause, whose item
+/// must agree; a SORT work file (`00`: no verb sets a status under its name) and its GIVING file; a
+/// file only a nested program declares, read from the outer one; into an alphanumeric item, a numeric
+/// one, a group of two, a wider and a narrower one.
+const FILE_STATUS: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T39CFST.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT ITEMS ASSIGN TO \"fst.idx\"
+        ORGANIZATION IS INDEXED
+        ACCESS MODE IS DYNAMIC
+        RECORD KEY IS IT-ID.
+    SELECT SLOTS ASSIGN TO \"fst.rel\"
+        ORGANIZATION IS RELATIVE
+        ACCESS MODE IS RANDOM
+        RELATIVE KEY IS WS-SLOT.
+    SELECT NOTES ASSIGN TO \"fst.txt\"
+        ORGANIZATION IS LINE SEQUENTIAL.
+    SELECT OPTIONAL MAYBE ASSIGN TO \"maybe.dat\"
+        ORGANIZATION IS SEQUENTIAL.
+    SELECT GONE ASSIGN TO \"gone.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-FS.
+    SELECT W ASSIGN TO \"w.tmp\".
+DATA DIVISION.
+FILE SECTION.
+FD ITEMS.
+01 IT-REC.
+   05 IT-ID   PIC 9(3).
+   05 IT-NAME PIC X(5).
+FD SLOTS.
+01 SLOT-REC PIC X(4).
+FD NOTES.
+01 NOTE-REC PIC X(8).
+FD MAYBE.
+01 MAYBE-REC PIC X(4).
+FD GONE.
+01 GONE-REC PIC X(4).
+SD W.
+01 W-REC PIC X(8).
+WORKING-STORAGE SECTION.
+01 WS-SLOT PIC 9(3).
+01 WS-FS   PIC XX.
+01 WS-ST   PIC XX.
+01 WS-NUM  PIC 99.
+01 WS-GRP.
+   05 WS-G1 PIC X.
+   05 WS-G2 PIC X.
+01 WS-WIDE PIC X(5).
+01 WS-ONE  PIC X.
+PROCEDURE DIVISION.
+MAIN-PARA.
+    MOVE \"XX\" TO WS-ST
+    COBOL::\"FILE-STATUS\" ( \"ITEMS\" WS-ST )
+    DISPLAY \"before \" WS-ST
+    MOVE \"XX\" TO WS-ST
+    COBOL::\"FILE-STATUS\" ( \"NO-SUCH-FILE\" WS-ST )
+    DISPLAY \"no file \" WS-ST
+    OPEN OUTPUT ITEMS
+    COBOL::\"FILE-STATUS\" ( \"ITEMS\" WS-ST )
+    DISPLAY \"open output \" WS-ST
+    MOVE 1 TO IT-ID
+    MOVE \"ONE\" TO IT-NAME
+    WRITE IT-REC INVALID KEY DISPLAY \"write refused\" END-WRITE
+    WRITE IT-REC INVALID KEY CONTINUE END-WRITE
+    COBOL::\"FILE-STATUS\" ( \"  items \" WS-ST )
+    DISPLAY \"duplicate \" WS-ST
+    CLOSE ITEMS
+    OPEN I-O ITEMS
+    MOVE 7 TO IT-ID
+    READ ITEMS INVALID KEY CONTINUE END-READ
+    COBOL::\"FILE-STATUS\" ( \"ITEMS\" WS-NUM )
+    DISPLAY \"missing key numeric \" WS-NUM
+    MOVE 1 TO IT-ID
+    READ ITEMS INVALID KEY CONTINUE END-READ
+    COBOL::\"FILE-STATUS\" ( \"Items\" WS-GRP )
+    DISPLAY \"found group \" WS-G1 \"/\" WS-G2 \" \" IT-NAME
+    READ ITEMS NEXT AT END CONTINUE END-READ
+    COBOL::\"FILE-STATUS\" ( \"ITEMS\" WS-WIDE )
+    DISPLAY \"past end wide [\" WS-WIDE \"]\"
+    CLOSE ITEMS
+    OPEN OUTPUT SLOTS
+    MOVE 2 TO WS-SLOT
+    MOVE \"TWO\" TO SLOT-REC
+    WRITE SLOT-REC INVALID KEY CONTINUE END-WRITE
+    CLOSE SLOTS
+    OPEN INPUT SLOTS
+    MOVE 5 TO WS-SLOT
+    READ SLOTS INVALID KEY CONTINUE END-READ
+    COBOL::\"FILE-STATUS\" ( \"SLOTS\" WS-ONE )
+    DISPLAY \"relative missing narrow \" WS-ONE
+    MOVE 2 TO WS-SLOT
+    READ SLOTS INVALID KEY CONTINUE END-READ
+    COBOL::\"FILE-STATUS\" ( \"slots\" WS-ST )
+    DISPLAY \"relative found \" WS-ST \" \" SLOT-REC
+    CLOSE SLOTS
+    OPEN OUTPUT NOTES
+    MOVE \"A NOTE\" TO NOTE-REC
+    WRITE NOTE-REC
+    CLOSE NOTES
+    COBOL::\"FILE-STATUS\" ( \"NOTES\" WS-ST )
+    DISPLAY \"notes closed \" WS-ST
+    OPEN INPUT NOTES
+    READ NOTES AT END CONTINUE END-READ
+    READ NOTES AT END CONTINUE END-READ
+    COBOL::\"FILE-STATUS\" ( \"NOTES\" WS-ST )
+    DISPLAY \"notes at end \" WS-ST
+    CLOSE NOTES
+    SORT W ON ASCENDING KEY W-REC USING NOTES GIVING NOTES
+    MOVE \"XX\" TO WS-ST
+    COBOL::\"FILE-STATUS\" ( \"W\" WS-ST )
+    DISPLAY \"sort work \" WS-ST
+    COBOL::\"FILE-STATUS\" ( \"NOTES\" WS-ST )
+    DISPLAY \"sorted notes \" WS-ST
+    OPEN INPUT MAYBE
+    COBOL::\"FILE-STATUS\" ( \"MAYBE\" WS-ST )
+    DISPLAY \"optional absent \" WS-ST
+    CLOSE MAYBE
+    OPEN INPUT GONE
+    COBOL::\"FILE-STATUS\" ( \"GONE\" WS-ST )
+    DISPLAY \"absent \" WS-ST \" clause \" WS-FS
+    CLOSE GONE
+    COBOL::\"FILE-STATUS\" ( \"GONE\" WS-ST )
+    DISPLAY \"close unopened \" WS-ST \" clause \" WS-FS
+    CALL \"INNER\"
+    COBOL::\"FILE-STATUS\" ( \"INNERF\" WS-ST )
+    DISPLAY \"other program \" WS-ST
+    CALL \"INNER2\"
+    COBOL::\"FILE-STATUS\" ( \"INNERF\" WS-ST )
+    DISPLAY \"two programs \" WS-ST
+    STOP RUN.
+IDENTIFICATION DIVISION.
+PROGRAM-ID. INNER.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT INNERF ASSIGN TO \"inner.dat\"
+        ORGANIZATION IS SEQUENTIAL
+        FILE STATUS IS WS-IFS.
+DATA DIVISION.
+FILE SECTION.
+FD INNERF.
+01 INNER-REC PIC X(4).
+WORKING-STORAGE SECTION.
+01 WS-IFS PIC XX.
+PROCEDURE DIVISION.
+    OPEN INPUT INNERF
+    GOBACK.
+END PROGRAM INNER.
+IDENTIFICATION DIVISION.
+PROGRAM-ID. INNER2.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT INNERF ASSIGN TO \"inner.dat\"
+        ORGANIZATION IS SEQUENTIAL.
+DATA DIVISION.
+FILE SECTION.
+FD INNERF.
+01 INNER2-REC PIC X(4).
+PROCEDURE DIVISION.
+    CLOSE INNERF
+    GOBACK.
+END PROGRAM INNER2.
+END PROGRAM T39CFST.
+";
+
 /// then holds: they act only on an INDEXED file's engine and set no FILE STATUS.
 /// `UNLOCK` is not a reserved word to the front end, so an open operand list (`DISPLAY`, `OPEN`) would
 /// take it as operands: the sentence before each `UNLOCK` ends with a period.
@@ -1287,6 +1459,30 @@ const PROGRAMS: &[(&str, &str, &[&str])] = &[
         REGISTERED,
         &["open output 00", "open i-o 00", "write 2 00", "open notes 00", "open both 00 00", "item 001 ONE", "item 002 TWO", "note 00 A NOTE"],
     ),
+    (
+        "file status",
+        FILE_STATUS,
+        &[
+            "before 00",
+            "no file 00",
+            "open output 00",
+            "duplicate 22",
+            "missing key numeric 23",
+            "found group 0/0 ONE",
+            "past end wide [10   ]",
+            "relative missing narrow 2",
+            "relative found 00 TWO",
+            "notes closed 00",
+            "notes at end 10",
+            "optional absent 05",
+            "absent 35 clause 35",
+            "close unopened 42 clause 42",
+            "sort work 00",
+            "sorted notes 00",
+            "other program 35",
+            "two programs 42",
+        ],
+    ),
     ("transactions", TRANSACTIONS, &["commit 00", "rollback 00", "unlock sequential 00", "after close"]),
     (
         "linage",
@@ -1480,6 +1676,11 @@ fn files_of_every_organisation_match_the_interpreter() {
     println!("              in the sequential access mode, a MERGE of two indexed files, a record number wider than the RELATIVE KEY (14)");
     println!("  registered: OPEN … WITH REGISTERED USER, a literal and a data item, on an INDEXED file (OUTPUT, I-O, INPUT),");
     println!("              a LINE SEQUENTIAL file, and a two-file OPEN; each followed by what the file then holds");
+    println!("  file status: COBOL::\"FILE-STATUS\" before any verb and for no file (00), after OPEN (00, 05, 35), a duplicate (22),");
+    println!("              a missing key (23), the end (10), a CLOSE of a closed file (42), on INDEXED, RELATIVE, LINE SEQUENTIAL and");
+    println!("              SEQUENTIAL files with and without a FILE STATUS clause, a SORT work file (00) and its GIVING file, a file one");
+    println!("              nested program declares (35) and a file two declare (the last verb's, 42); the name in any case;");
+    println!("              into PIC XX, 99, a group, X(5), X");
     println!("  transactions: COMMIT, ROLLBACK, UNLOCK on an INDEXED file opened I-O; UNLOCK on a SEQUENTIAL file");
     println!("  linage:     LINAGE stated and in data items (a footing item of 0 falls back), ADVANCING 1, 2, PAGE, a data item");
     println!("              and none, AT/NOT AT END-OF-PAGE, LINAGE-COUNTER displayed/moved (also to numeric-edited items)/compared, reopen, a failed OPEN");

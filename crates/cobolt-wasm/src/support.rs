@@ -41,7 +41,6 @@ pub enum Native {
 // The reasons of the Desktop column. Each names the milestone of DESKTOP-WASM-001 that moves the entry.
 /// Why a program with no form takes the Cargo path for an entry of class [`Native::Form`] (DESKTOP-WASM-001 T33).
 pub const D_FORMS: &str = "a program with no form has no controls or application object in its module, so it takes the Cargo path for them (DESKTOP-WASM-001 M2 serves them to a form's program)";
-const D_FILE_STATUS: &str = "a file's last status is not kept by a module yet: it comes with the IndexedFile control (DESKTOP-WASM-001 M3)";
 const D_SQL: &str = "SQL is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
 const D_HTTP: &str = "HTTP is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
 const D_POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module yet (DESKTOP-WASM-001 M5)";
@@ -275,7 +274,8 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("CLOSE-DB", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("EXEC-SQL", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("FETCH-ROW", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("FILE-STATUS", Support::BackendOnly(FILES), cargo(D_FILE_STATUS)),
+    // Every file verb leaves its status in the module, where this reads it (T39c).
+    c("FILE-STATUS", Support::BackendOnly(FILES), Native::Module),
     // `showDirectoryPicker` is Chrome's only: Q7's parity rule leaves it out.
     c("FOLDER-DIALOG", Support::Unsupported("a browser page cannot choose a folder in every engine (showDirectoryPicker is Chrome's only)"), Native::Host(cap::DIALOGS)),
     c("GET-PROPERTY", Support::Module, Native::Form),
@@ -463,7 +463,20 @@ pub fn desktop_refusal(s: &Stmt, in_form: bool) -> Option<&'static str> {
 
 // ── The controls of a desktop form (DESKTOP-WASM-001 T33, plan §4.3) ─────────────────────────────
 
-const D_SERVICE: &str = "the service controls (files, databases, HTTP, AI, search, cloud and sign-in) are not on the WebAssembly path yet (DESKTOP-WASM-001 M3, M4 and M6)";
+const D_SERVICE: &str = "the service controls (databases, HTTP, AI, search and sign-in) are not on the WebAssembly path yet (DESKTOP-WASM-001 M4 and M6)";
+/// Why a PartiQL member of the IndexedFile control sends the Build to the Cargo path (T39c serves the control).
+pub const D_PARTIQL: &str = "the IndexedFile control's PartiQL members are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+
+/// The members of the IndexedFile control that run or read a PartiQL statement: its methods, the
+/// properties a statement answers in, and the binding query (`partiql.rs` in the interpreter). The
+/// control's other members are the ones every control has.
+pub const PARTIQL_MEMBERS: &[&str] =
+    &["Execute", "ExecuteTransaction", "Fetch", "Get", "ColumnNames", "ColumnCount", "RefreshBinding", "ResultCount", "StatusCode", "LastError", "BindingQuery"];
+
+/// Is `member` one of [`PARTIQL_MEMBERS`] (in any case)?
+pub fn is_partiql_member(member: &str) -> bool {
+    PARTIQL_MEMBERS.iter().any(|m| m.eq_ignore_ascii_case(member))
+}
 const D_MAPS: &str = "the Maps control's places and directions are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_VIEWER: &str = "the Viewer's documents and verbs are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know takes the Cargo path (DESKTOP-WASM-001 M6)";
@@ -476,7 +489,9 @@ const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know 
 /// objects (class E), which the runner draws with the interpreter's own graphics library, and since
 /// T48 the AWS controls, whose operations the runner carries out with the interpreter's own
 /// connections and route table (A38), and since T39c the FileDropZone, whose files the form host
-/// takes in and whose `CommitFiles()` the runner copies with the interpreter's own code. It does not
+/// takes in and whose `CommitFiles()` the runner copies with the interpreter's own code, and the
+/// IndexedFile control, whose generated paragraphs reach the file with the program's own verbs and
+/// `COBOL::"FILE-STATUS"` (its PartiQL members wait for T48, [`is_partiql_member`]). It does not
 /// serve yet: the other service controls (class C), the Maps control (its places and directions are
 /// a service), the Viewer (its documents and verbs) and a type it does not know (class D). A form
 /// holding one takes the Cargo path, which names the form and the control.
@@ -484,7 +499,7 @@ pub fn desktop_control_gap(t: &cobolt_forms::model::ControlType) -> Option<&'sta
     use cobolt_forms::model::ControlType as T;
     use cobolt_forms::web_class::{class_of, Class};
     match t {
-        T::DataGrid | T::FileDropZone => None,
+        T::DataGrid | T::FileDropZone | T::IndexedFile => None,
         t if t.is_aws() => None,
         T::Maps => Some(D_MAPS),
         T::Viewer => Some(D_VIEWER),

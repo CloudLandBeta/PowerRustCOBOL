@@ -1370,6 +1370,154 @@ fn file_drop_zones_take_stage_and_commit_alike() {
     );
 }
 
+// ── 6c. IndexedFile (T39c) ───────────────────────────────────────────────────────────────────────
+
+/// The files a run left in `data/`, by name with their bytes, sorted; then the folder emptied, so the
+/// next engine starts with no file.
+fn data_and_cleared(root: &Path) -> Vec<(String, Vec<u8>)> {
+    let dir = root.join("data");
+    let mut out: Vec<(String, Vec<u8>)> = fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_file())
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), fs::read(e.path()).unwrap_or_default()))
+        .collect();
+    out.sort();
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    out
+}
+
+#[test]
+fn an_indexed_file_control_opens_writes_and_reads_alike() {
+    let root = root("indexedfile");
+    let mut main = Form::new("MAIN-FORM", "Items", 640, 420);
+    main.main_form = true;
+    // The file the control names, declared by the form (spec 108 R10: only such a form gets the
+    // generated paragraphs) and GLOBAL, so its handlers drive it with the verbs; OPTIONAL, so the
+    // OPEN the control makes as the form starts creates it (05). No FILE STATUS clause: every status
+    // the form shows is the one `COBOL::"FILE-STATUS"` reads, as the paragraphs read it.
+    main.cobol_structure.file_control = "           SELECT OPTIONAL ITEMS ASSIGN TO \"data/items.idx\"\n               ORGANIZATION IS INDEXED\n               ACCESS MODE IS DYNAMIC\n               RECORD KEY IS IT-ID.".into();
+    main.cobol_structure.file_section = "       FD ITEMS IS GLOBAL.\n       01 IT-REC.\n           05 IT-ID   PIC 9(3).\n           05 IT-NAME PIC X(8).".into();
+    main.user_ws_source = "       01 WS-IX-FS    PIC XX   GLOBAL VALUE \"99\".\n       01 WS-ST       PIC XX   GLOBAL.\n       01 WS-OPERATOR PIC X(8) GLOBAL VALUE \"ADA\".\n".into();
+    let mut ixf = Control::new("IXF-ITEMS", ControlType::IndexedFile, 0, 0);
+    for (k, v) in [
+        ("IndexedFile", "indexed/items.cidx"),
+        ("OpenMode", "I-O"),
+        ("RecordName", "IT-REC"),
+        ("KeyName", "IT-ID"),
+        ("StatusDataItem", "WS-IX-FS"),
+        ("OperatorName", "WS-OPERATOR"),
+    ] {
+        ixf.set_prop(k, PropValue::String(v.into()));
+    }
+    ixf.set_prop("AutoOpen", PropValue::Bool(true));
+    main.controls.push(ixf);
+    for (i, id) in ["LBL-OPEN", "LBL-W", "LBL-R", "LBL-N", "LBL-X", "LBL-B", "LBL-C"].iter().enumerate() {
+        control(&mut main, id, ControlType::Label, (240, 20 + 44 * i as i32, 360, 24), Some("-"));
+    }
+    // What the control's OPEN left in its StatusDataItem as the form started.
+    bind(&mut main, "MAIN-FORM", "onLoad", &["MOVE WS-IX-FS TO LBL-OPEN::Caption"]);
+    // Two records, then the first again: a duplicate key (22).
+    button(
+        &mut main,
+        "BTN-WRITE",
+        (20, 20),
+        &[
+            "MOVE 1 TO IT-ID",
+            "MOVE \"ONE\" TO IT-NAME",
+            "WRITE IT-REC INVALID KEY CONTINUE END-WRITE",
+            "MOVE 2 TO IT-ID",
+            "MOVE \"TWO\" TO IT-NAME",
+            "WRITE IT-REC INVALID KEY CONTINUE END-WRITE",
+            "MOVE 1 TO IT-ID",
+            "WRITE IT-REC INVALID KEY CONTINUE END-WRITE",
+            "COBOL::\"FILE-STATUS\" ( \"ITEMS\" WS-ST )",
+            "MOVE WS-ST TO LBL-W::Caption",
+        ],
+    );
+    // A key that is not there (23), then one that is.
+    button(
+        &mut main,
+        "BTN-READ",
+        (20, 64),
+        &[
+            "MOVE 7 TO IT-ID",
+            "READ ITEMS INVALID KEY CONTINUE END-READ",
+            "COBOL::\"FILE-STATUS\" ( \"ITEMS\" WS-ST )",
+            "MOVE WS-ST TO LBL-R::Caption",
+            "MOVE 2 TO IT-ID",
+            "READ ITEMS INVALID KEY CONTINUE END-READ",
+            "MOVE IT-NAME TO LBL-N::Caption",
+        ],
+    );
+    // A name that is no file (00), and the member every control answers.
+    button(
+        &mut main,
+        "BTN-OTHER",
+        (20, 108),
+        &["MOVE \"XX\" TO WS-ST", "COBOL::\"FILE-STATUS\" ( \"NO-SUCH\" WS-ST )", "MOVE WS-ST TO LBL-X::Caption", "MOVE IXF-ITEMS::IsBusy() TO LBL-B::Caption"],
+    );
+    // The file closed by the program itself, so what it leaves does not wait for the form's end: a
+    // headless run ends without waiting for the program to finish (WASM-PARITY #75).
+    button(&mut main, "BTN-CLOSE", (20, 152), &["CLOSE ITEMS", "COBOL::\"FILE-STATUS\" ( \"ITEMS\" WS-ST )", "MOVE WS-ST TO LBL-C::Caption"]);
+    let manifest = project(&root, "IndexedItems", &[("main-form", main)], &[]);
+    // A relative ASSIGN starts at the folder that holds `assets/` on both engines.
+    fs::create_dir_all(root.join("assets")).unwrap();
+    let steps = script(
+        &root,
+        "steps",
+        vec![
+            wait(600),
+            read("LBL-OPEN", "Caption"),
+            click("BTN-WRITE"),
+            wait(300),
+            click("BTN-READ"),
+            wait(300),
+            click("BTN-OTHER"),
+            wait(300),
+            click("BTN-CLOSE"),
+            wait(300),
+            read("LBL-W", "Caption"),
+            read("LBL-R", "Caption"),
+            read("LBL-N", "Caption"),
+            read("LBL-X", "Caption"),
+            read("LBL-B", "Caption"),
+            read("LBL-C", "Caption"),
+            read("IXF-ITEMS", "OpenMode"),
+            dump(),
+            shot("items"),
+        ],
+    );
+    let (exe, build_ms) = build(&root, &manifest);
+    let home = root.join("home");
+    let _ = data_and_cleared(&root);
+    let a = interpreter(&root, "main-form", &steps, &home);
+    let files_a = data_and_cleared(&root);
+    let b = runner(&root, &exe, &steps, &home);
+    let files_b = data_and_cleared(&root);
+    let mut tally = Tally::default();
+    tally.compare("indexed file", &a, &b, &["items"]);
+    let listing = |files: &[(String, Vec<u8>)]| files.iter().map(|(n, d)| format!("{n} {}", d.len())).collect::<Vec<_>>().join(", ");
+    for (who, f) in [("interpreter", &files_a), ("runner", &files_b)] {
+        tally.lines.push(format!("    {who} left in data/: {}", listing(f)));
+    }
+    tally.check("both engines left the same data files, byte for byte", !files_a.is_empty() && files_a == files_b);
+    let want = ["05", "22", "23", "TWO", "00", "0", "00", "I-O"];
+    let got = readings(&b.report);
+    tally.check(
+        format!("the runner's statuses are the engine's: OPEN of the absent OPTIONAL file 05, a duplicate 22, a missing key 23, no such file 00, CLOSE 00 ({got:?})"),
+        got == want,
+    );
+    tally.finish(
+        "an_indexed_file_control_opens_writes_and_reads_alike",
+        "an IndexedFile control with AutoOpen on an OPTIONAL INDEXED file the form declares GLOBAL, its OPEN WITH REGISTERED USER a data item, its StatusDataItem filled by COBOL::\"FILE-STATUS\"; handlers that WRITE (one a duplicate), READ (one key missing) and ask the status of a name that is no file, IsBusy(), and CLOSE the file",
+        &root,
+        build_ms,
+    );
+}
+
 /// A silent WAV of `ms` milliseconds (8 kHz, 8-bit mono PCM), as the runtime's own sound tests make it.
 fn silent_wav(ms: u32) -> Vec<u8> {
     let rate: u32 = 8000;

@@ -213,7 +213,7 @@ impl Lower<'_, '_> {
                 };
                 let id = self.names.native_files.len() as u32;
                 self.names.native_files.push(decl);
-                let h = self.layout.alloc_hidden(8);
+                let h = self.layout.alloc_hidden(12);
                 self.native_ids.insert(name.clone(), (id, h));
                 (id, h)
             }

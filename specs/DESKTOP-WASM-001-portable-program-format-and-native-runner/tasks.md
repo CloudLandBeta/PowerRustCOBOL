@@ -1502,7 +1502,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - The PowerAnalyticsWeb pin and the player fixtures are unchanged.
       - Generator NIST, unchanged: IC 25/25 (309/0/4), NC 95/95 (4 612/0/5), IF 45/45 (841/0/0).
 
-- [ ] **T39c — What M3 still sends to the Cargo path** (R11; added 2026-11-17)
+- [x] **T39c — What M3 still sends to the Cargo path** (R11; added 2026-11-17)
   - Why added: T40's measurement found refusals the generator still names as M3 work. M3 cannot close while they stand:
     - **The file and image built-ins** ("the file and image built-ins are not on the WebAssembly path yet"): `COBOL::"APPEND-FILE"`, `"WRITE-FILE"`, `"FILE-STATUS"`, `"IMAGE-FIT"` and `"IMAGE-INFO"`. PowerCloud calls `IMAGE-FIT` and `IMAGE-INFO` three times each, and PowerChat calls `APPEND-FILE` and `WRITE-FILE`.
     - **The file controls**, inside "the service controls (files, …)": the IndexedFile control and FileDropZone. PowerCloud holds a FileDropZone.
@@ -1594,7 +1594,19 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - the runner twin gains `registered`: 8 lines printed and 3 files (20 487 bytes) equal to `rcrun run`; 206 of 206 checks across its eleven programs. It covers a literal and a data item; an INDEXED file `OUTPUT`, `I-O` and `INPUT`; a LINE SEQUENTIAL file; and two files in one `OPEN`;
       - `native_desktop_refusals` 22 of 22.
     - The System Knowledge Base's Desktop column says so, and `chunked.data` is regenerated.
-    - **Still open in T39c:** the IndexedFile control with `FILE-STATUS`.
+  - *The IndexedFile control and `FILE-STATUS` done 2026-11-17 (2.0.588). T39c is complete:*
+    - **What runs:**
+      - `COBOL::"FILE-STATUS" ( "file" item )` reads, in the module, the status the file's last verb left: every file verb on the runner's files keeps it beside the file's handle (a third word in the handle's place, 12 bytes now). It needs no import and no capability.
+      - As the interpreter answers it: `00` before any verb and for a name no program declares; the name in any case, with spaces around it; a SORT work file `00` (`SORT`, `RELEASE` and `RETURN` set no status under its name); a file other programs of the module declare, read where its verbs left it (the module keeps one file per name, as the interpreter does, so programs that declare one name share it, and its status is the last verb's on any of them). The receiver is filled as the interpreter fills it: a group, an alphanumeric item (padded or cut), a numeric item.
+      - The IndexedFile control is served. Without PartiQL it is a set of properties over the paragraphs the form generates (`OPEN … REGISTERED USER`, `START`, `READ`, `COMMIT`, `ROLLBACK`, `CLOSE`, each followed by `FILE-STATUS`), which use the program's own verbs. `AutoOpen` opens the file as the form starts.
+      - Its PartiQL members (`Execute`, `ExecuteTransaction`, `Fetch`, `Get`, `ColumnNames`, `ColumnCount`, `RefreshBinding`, and the properties `ResultCount`, `StatusCode`, `LastError`, `BindingQuery`) are refused where they are used, naming the member and its line (T48, M6). A control bound to a PartiQL query was already refused (Data Binding).
+      - Left to T45 (M5), refused at the call: `FILE-STATUS` with the file's name in a data item.
+    - **Tests:**
+      - the runner twin gains `file status`: 18 lines printed and 5 files (20 537 bytes) equal to `rcrun run`, across INDEXED, RELATIVE, LINE SEQUENTIAL and SEQUENTIAL files with and without a FILE STATUS clause, a SORT, a nested program and a file two nested programs declare; 0 statuses differ; all runner file twins 235 of 235 checks;
+      - the form twin `an_indexed_file_control_opens_writes_and_reads_alike`: an IndexedFile control with `AutoOpen` on an OPTIONAL file, handlers that write, read and close; 8 readings, the dump and one picture (268 800 pixels, 0 differing) equal to `rcrun run-form`, the data files equal byte for byte; 6 of 6 checks;
+      - `native_desktop_refusals` (30 of 30 checks, 49 programs compiled), `every_control_has_a_desktop_class` (63 served, 8 on the Cargo path), `desktop_controls_the_runner_lacks_are_named`, the System Knowledge Base test;
+      - no refusal names M3; AC16 unchanged; the sweep of the five WebAssembly crates and the runner: 60 test binaries, 213 tests passed (the two reds: this refusal case, then corrected and rerun, and `cobolt-web-tests` `examples`, red from untracked operator files).
+    - **Found on the way:** the end of a headless run is a race on both engines (WASM-PARITY #75), a fix of its own; and the IndexedFile paragraphs name the `.cidx` stem, not the form's `SELECT` name, when the two differ (PowerDemo3's `MENU` against `SELECT MENU-FILE`), a fix of its own.
 
 - [ ] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
   - Verify:
@@ -1646,6 +1658,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
 
 - [ ] **T45 — `SET` pointer, and every other `Cargo(_)` entry but `EXEC RUST`** (R11, R12; AC10)
   - Do: lower `SET` pointer (reclassified by F2) and each remaining entry the native column sends to Cargo.
+  - Also (from T39c, 2.0.588): `COBOL::"FILE-STATUS"` with the file's name in a data item.
   - Verify: the AC10 test gains an assertion that `EXEC RUST` is the only `Cargo(_)` entry left. Each entry has a runner test equal to the interpreter.
 
 - [ ] **T46 — M5 close**

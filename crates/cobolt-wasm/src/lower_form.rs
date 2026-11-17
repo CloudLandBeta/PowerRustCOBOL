@@ -216,6 +216,18 @@ impl Lower<'_, '_> {
         // the application object (M2, T30): only what waits for a later milestone is refused.
         let forms_served = self.form.is_some();
         if forms_served && ctrl != CTRL_APP {
+            // The IndexedFile control serves its generated paragraphs' file through the program's own
+            // verbs (T39c); its PartiQL members run a statement over the file, which waits for T48.
+            if let (Some(f), Some(member)) = (&self.form, first) {
+                if f.indexed_files.contains(&ctrl) && crate::support::is_partiql_member(member) {
+                    let root = match root {
+                        Expr::Identifier(n, _) => n.as_str(),
+                        _ => "",
+                    };
+                    let subject = format!("{root}::{member}");
+                    return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_PARTIQL));
+                }
+            }
             return Ok(());
         }
         let root = match root {
@@ -882,6 +894,8 @@ impl Lower<'_, '_> {
             // On the desktop the runner writes a built-in's text file and reads and fits its pictures (T39c).
             "APPEND-FILE" | "WRITE-FILE" if self.native => self.desktop_text_write(name, using, line),
             "IMAGE-FIT" | "IMAGE-INFO" if self.native => self.desktop_image(name, using, line),
+            // On the desktop the module keeps every file's last status (T39c).
+            "FILE-STATUS" if self.native => self.desktop_file_status(using, line),
             // The page's own verbs (ABI §12.1) are not the desktop's: under the interpreter a form's
             // windows are `ME`'s and a handle's, and a desktop form has no message box (T6, T32). A
             // desktop module refuses them, so the Build takes the Cargo path, which reports them as the
@@ -1090,6 +1104,55 @@ impl Lower<'_, '_> {
         self.i32c(text as i32);
         self.i32c(status as i32);
         self.call_rt("rt_text_write");
+        Ok(())
+    }
+
+    /// `COBOL::"FILE-STATUS" ( "file" item )` in a desktop module (DESKTOP-WASM-001 T39c): the last status
+    /// of the file the program `SELECT`s under that name, `00` before any verb and for a name that is no
+    /// such file, as the interpreter's `last_file_status` answers. The IndexedFile control's generated
+    /// paragraphs call it after every verb. The file is named by a literal there; a name held in a data
+    /// item is refused (M5), so the Build takes the Cargo path, and so are fewer than two arguments.
+    fn desktop_file_status(&mut self, using: &[CallArg], line: u32) -> GenResult<()> {
+        let subject = "COBOL::\"FILE-STATUS\"".to_string();
+        if using.len() < 2 {
+            return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes the file's name and the data item that receives its status"));
+        }
+        let ex = |a: &CallArg| match a {
+            CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+        };
+        let Expr::Literal(Literal::String(file), _) = ex(&using[0]) else {
+            return self.err_kind(
+                line,
+                crate::error::ErrorKind::Other,
+                subject.clone(),
+                format!("{subject} with the file's name in a data item is not on the WebAssembly path yet (DESKTOP-WASM-001 M5); name the file with a literal"),
+            );
+        };
+        // The interpreter keeps one status per name for the whole run, whichever program's verb set
+        // it, and answers `00` for a name no verb has set. So a file of this program (or a GLOBAL one
+        // around it) is read where its verbs leave its status, and so is a file other programs of the
+        // module declare: the module keeps one file per name, as the interpreter does, so every program
+        // that declares the name shares one handle place, and the status there is the last verb's on
+        // any of them. A SORT work file answers `00`: `SORT`, `RELEASE` and `RETURN` set no status
+        // under its name. A name no program declares answers `00`. A file the runner refuses is
+        // refused here too.
+        let up = file.trim().to_ascii_uppercase();
+        let handle = match self.file(file.trim(), line) {
+            Ok(fi) if fi.kind == crate::lower::FileKind::Native => fi.handle_off,
+            Ok(_) => u32::MAX,
+            Err(e) if self.native_refusals.contains_key(&up) => return Err(e),
+            Err(_) => self
+                .file_tables
+                .iter()
+                .filter_map(|t| t.get(&up))
+                .find(|(fi, _)| fi.kind == crate::lower::FileKind::Native)
+                .map_or(u32::MAX, |(fi, _)| fi.handle_off),
+        };
+        let target = self.receiver(&ex(&using[1]))?;
+        self.base();
+        self.i32c(handle as i32);
+        self.i32c(target as i32);
+        self.call_rt("rt_nf_last_status");
         Ok(())
     }
 
