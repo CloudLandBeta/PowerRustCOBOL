@@ -48,6 +48,8 @@ cobolt-graphics  = { path = "../cobolt-graphics" }
 cobolt-ast       = { path = "../cobolt-ast" }
 
 [dev-dependencies]
+# The graphics pump's tests open a form's tree directly (`host::testing`).
+cobolt-abi-host = { path = "../cobolt-abi-host", features = ["testing"] }
 # The test compiles its console programs with the generator, as the Build will (T16), and packages
 # them into this crate's built runner.
 cobolt-wasm   = { path = "../cobolt-wasm", default-features = false }

@@ -53,7 +53,8 @@ struct Session {
     /// Control index -> its object and kind.
     handles: HashMap<usize, (Handle, ObjectKind)>,
     /// Drawing for a canvas whose object is not made yet (only a read-back of another canvas runs
-    /// before the window's pump has seen it): it runs, first, when the object is made.
+    /// before the window's pump has seen it): it runs, first, when the object is made, which the
+    /// next pump does.
     pending: HashMap<usize, VecDeque<GfxItem>>,
     /// This instance's slot in `canvas_frames` and `gpu_share`.
     slot: u64,
@@ -292,6 +293,26 @@ impl Graphics {
     /// write the `LastError`s they left; release the objects of instances that are gone. Answers the
     /// state updates for the windows: `(instance, update)`.
     pub(crate) fn pump(&mut self, host: &mut Host, list: &mut Vec<(u32, Change)>) -> Vec<(u32, StateUpdate)> {
+        // Drawing a read-back of another graphics object took ahead of it, for a Canvas2D whose
+        // object is not made yet (`sync`): the object is made now, with the size the program sees,
+        // and the drawing runs, ahead of anything newer. Waiting for the canvas's next drawing would
+        // lose the picture of a program that draws it once (PowerCobolCraft's hotbar, drawn when it
+        // changes, then `CNV-3D::IsKeyDown` in the same frame).
+        let parked: Vec<(u32, usize)> = self
+            .sessions
+            .iter()
+            .flat_map(|(inst, s)| s.pending.iter().filter(|(c, q)| !q.is_empty() && !s.handles.contains_key(c)).map(move |(c, _)| (*inst, *c)))
+            .collect();
+        for (inst, ctl) in parked {
+            let Some(tree) = host.trees.get(&inst) else { continue };
+            let num = |p: &str| tree.get(ctl, p).trim().parse::<f64>().unwrap_or(0.0);
+            let (size, ratio) = ((num("Width"), num("Height")), num("PixelRatio"));
+            let Some(session) = self.sessions.get_mut(&inst) else { continue };
+            match session.handle(ctl, ObjectKind::Canvas2D, size, ratio) {
+                Ok(_) => self.run_pending(inst),
+                Err(why) => self.out.push(Out::LastError { inst, ctl, text: format!("the canvas could not be made: {why}") }),
+            }
+        }
         let mut kept = Vec::with_capacity(list.len());
         for (inst, change) in std::mem::take(list) {
             let item = match &change {
@@ -398,4 +419,76 @@ pub(crate) fn auto_presents(host: &Host, inst: u32, ctl: usize, event: &str) -> 
     }
     let auto = tree.get(ctl, "AutoPresent");
     !matches!(auto.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cobolt_abi_host::host::HostOptions;
+    use cobolt_forms::description::{describe, to_json};
+    use cobolt_forms::xml::load_form_from_str;
+    use cobolt_wasm_abi::manifest::{ControlEntry, FormEntry, Limits, Manifest, VariantInfo};
+
+    const FORM: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="main-form" title="Canvas" width="640" height="480">
+  <Control id="CNV-HUD" type="Canvas2D" x="10" y="10" w="40" h="20"></Control>
+  <Control id="CNV-B" type="Canvas2D" x="10" y="40" w="40" h="20"></Control>
+</Form>"##;
+
+    fn host() -> Host {
+        let control = |id, name: &str| ControlEntry { id, name: name.into(), kind: "Canvas2D".into() };
+        let manifest = Manifest {
+            abi: 1,
+            generator: "test".into(),
+            project: "canvas".into(),
+            variant: VariantInfo { multi_memory: true, conformance: false },
+            limits: Limits { gfx_size: 4096, ..Limits::default() },
+            names: vec!["SetFillColor".into(), "FillRect".into(), "Present".into(), "GetPixel".into()],
+            events: vec!["onLoad".into()],
+            forms: vec![FormEntry {
+                id: 0,
+                name: "main-form".into(),
+                main: true,
+                instances: 1,
+                region_size: 64,
+                controls: vec![control(3, "CNV-HUD"), control(4, "CNV-B")],
+                handlers: vec![],
+                layers: vec![],
+            }],
+            builtins: vec![],
+            imports: vec![],
+            sizes: Default::default(),
+            contract: None,
+            remote: Vec::new(),
+            capabilities: Vec::new(),
+        };
+        let mut h = Host::new(manifest, HostOptions::default());
+        h.add_description(&to_json(&describe(&load_form_from_str(FORM).unwrap()))).unwrap();
+        cobolt_abi_host::host::testing::create_tree(&mut h, 0, 0).unwrap();
+        h
+    }
+
+    /// A canvas drawn once, then a read-back of another canvas before the window's pump: the
+    /// read-back takes the drawing ahead of it, and the canvas it was for has no object yet. The
+    /// next pump makes the object and draws it, so its picture is published (WASM-PARITY #71).
+    #[test]
+    fn drawing_a_read_back_took_for_a_canvas_not_made_yet_is_drawn_by_the_next_pump() {
+        let mut h = host();
+        let g = install(&mut h);
+        let _ = h.trees.get_mut(&0).unwrap().take_changes();
+        h.invoke(0, "CNV-HUD", "SetFillColor", &["#FF0000"]).unwrap();
+        h.invoke(0, "CNV-HUD", "FillRect", &["0", "0", "10", "10"]).unwrap();
+        h.invoke(0, "CNV-HUD", "Present", &[]).unwrap();
+        // The read-back of the other canvas: the HUD's three calls go to the hook ahead of it.
+        h.invoke(0, "CNV-B", "GetPixel", &["1", "1"]).unwrap();
+        let mut list: Vec<(u32, Change)> = h.trees.get_mut(&0).unwrap().take_changes().into_iter().map(|c| (0, c)).collect();
+        let left = list.iter().filter(|(_, c)| matches!(c, Change::Command { name, .. } if name == "canvas-call")).count();
+        assert_eq!(left, 0, "the read-back took the HUD's drawing out of the tree");
+        let updates = g.borrow_mut().pump(&mut h, &mut list);
+        let hud = h.trees[&0].ctls.iter().position(|c| c.name == "CNV-HUD").unwrap();
+        let pictures = updates.iter().filter(|(i, u)| *i == 0 && u.ctrl_id == "CNV-HUD" && u.prop == canvas_frames::FRAME_PROP).count();
+        assert_eq!(pictures, 1, "the HUD's picture is published: {:?}", updates.iter().map(|(_, u)| (&u.ctrl_id, &u.prop)).collect::<Vec<_>>());
+        assert_eq!(h.trees[&0].get(hud, "LastError"), "", "its drawing answered");
+        println!("a canvas drawn once, then a read-back of another before the pump: 3 calls taken by the read-back, 1 picture published by the next pump, LastError empty");
+    }
 }

@@ -2,6 +2,24 @@
 
 
 
+## 2.0.573 — 2026-11-17
+
+**Fix: on the desktop's WebAssembly path, a canvas drawn once just before a call to another graphics object is shown.**
+- **What was wrong.** The runner draws a Canvas2D's drawing when the program thread hands its changes to the windows. A call that answers at once can come first: a read-back of another canvas, or any method of a Canvas3D, Plot or other graphics object. That call takes all the drawing waiting ahead of it. For a canvas the runner had not made yet, the drawing was parked until the program drew on that canvas again. A program that draws a canvas only when its content changes never did, so the picture never appeared, with no error.
+  - **Found by** the pixel run of 2.0.572 (AC19). PowerCobolCraft's `world-form` draws its hotbar (`CNV-HUD`) once, in `CRAFT-HUD`, and then asks `CNV-3D::IsKeyDown` in the same frame. The hotbar never appeared under the runner. Run Form and the Cargo-built program draw it.
+- **What happens now.** The next hand-over makes the canvas, at the size the program sees, and draws what was parked for it ahead of anything newer, so its picture is published as under the interpreter.
+- **Not changed:** a browser page draws through its Canvas part, which this change does not touch.
+- **Tests:**
+  - **`cobolt-runner`:** `drawing_a_read_back_took_for_a_canvas_not_made_yet_is_drawn_by_the_next_pump`. A canvas draws three calls and presents, then a read-back of another canvas comes before the pump. The test expects 1 picture published by the next pump and `LastError` empty. Without the change it finds 0 pictures.
+  - **The runner's tests:** 11 of 11 (3 unit tests, then 5, 1 and 2 in `module_corpus` and `files`).
+  - **Pixel parity** (AC19, `cobolt-bench pixel-parity`). Two runs gave the same figures.
+    - **PowerCobolCraft:** 54 of 66 frames identical (41 at 2.0.572). `world-form` opened on its own now matches in 13 of its 14 designed frames and at the other two sizes. The Cargo frames meet their M0 golden hashes (66 of 66).
+    - **What still differs:**
+      - `world-form`'s Respawn frame at the three sizes (1 438–1 772 pixels): only the command box's focus ring, focused under one program and not the other.
+      - `title-form`'s Play, Continue and Quit (1 525–22 255 pixels). The world opened from the title is now complete under the runner, with its info line, hearts and hotbar. The Cargo-built program has not finished that start-up when the harness takes the picture, so these frames differ by more than before (22 255 against 1 165 for Continue). This is the harness's lateness found at 2.0.571 (R28: headless does not wait for a child form's start-up), not a fault of either program.
+    - **PowerSpatial:** still 138 of 138 frames identical and 138 of 138 golden hashes met.
+- **WASM-PARITY row 71.**
+
 ## 2.0.572 — 2026-11-17
 
 **Fix: on the WebAssembly path, a subscript outside its table reads the interpreter's blank and writes nowhere, instead of stopping the program.**
