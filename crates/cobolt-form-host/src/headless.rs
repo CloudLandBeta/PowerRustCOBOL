@@ -195,24 +195,35 @@ pub fn run_headless_with(
     };
     // The count of events sent when the form on the pane was last found at rest.
     let quiet = Cell::new(crate::host::events_sent());
+    // The count of windows opened when the open windows were last sent their wakes.
+    let quiet_windows = Cell::new(crate::host::windows_opened());
     // Deterministic mode: let the form on the pane finish everything it was sent (a long onLoad,
     // a timer's tick, a canvas frame) before the virtual clock moves on, so what the next frame
     // draws never depends on how fast the program ran. The program takes an event off its queue
     // before handling it, so a wake goes behind what it was sent (`script_barrier`); the wake is
-    // taken only once the handlers before it have returned. A form that a modal form holds up, or
-    // whose program has ended, is not waited for, and neither are events sent to a child window.
+    // taken only once the handlers before it have returned. The open child windows are waited for
+    // the same way, so a form opened by a click has finished its start-up (its `onLoad`) before the
+    // next frame is drawn. A form that a modal form holds up, or whose program has ended, is not
+    // waited for.
     let quiesce = |host: &mut Driven, raster: &mut cobolt_forms::raster::Rasterizer| {
         let held = |h: &Driven| h.host().script_finished() || h.host().root_modal_blocked();
+        let busy = |h: &Driven| (!held(h) && h.host().script_pending() > 0) || h.host().script_children_pending() > 0;
         // A frame that raises an event at every frame would never rest: a bound on the rounds.
         for _ in 0..16 {
-            if held(host) || Instant::now() >= deadline {
+            if Instant::now() >= deadline {
                 return;
             }
-            if crate::host::events_sent() == quiet.get() && host.host().script_pending() == 0 {
+            let calm = crate::host::events_sent() == quiet.get() && crate::host::windows_opened() == quiet_windows.get();
+            if calm && !busy(host) {
                 return;
             }
-            host.host_mut().script_barrier();
-            while host.host().script_pending() > 0 && !held(host) && Instant::now() < deadline {
+            // A window opened from here on, after its wake would have been sent, is another round.
+            quiet_windows.set(crate::host::windows_opened());
+            if !held(host) {
+                host.host_mut().script_barrier();
+            }
+            host.host_mut().script_children_barrier();
+            while busy(host) && Instant::now() < deadline {
                 frame(host, raster);
                 std::thread::sleep(Duration::from_millis(1));
             }

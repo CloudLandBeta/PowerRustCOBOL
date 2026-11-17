@@ -24,6 +24,16 @@ use crate::state::{state_entry_mut, CtrlState, LiveState};
 /// one (a timer's tick, a canvas frame, `onShow`) that it must wait for.
 static EVENTS_SENT: AtomicU64 = AtomicU64::new(0);
 
+/// DESKTOP-WASM-001 R28: how many child windows the host has opened in this process. The
+/// deterministic headless loop reads it, so a window opened after it sent its wakes (a click whose
+/// handler works a while before `OpenFormSync`) is waited for in another round.
+static WINDOWS_OPENED: AtomicU64 = AtomicU64::new(0);
+
+/// See [`WINDOWS_OPENED`].
+pub(crate) fn windows_opened() -> u64 {
+    WINDOWS_OPENED.load(Ordering::Relaxed)
+}
+
 /// See [`EVENTS_SENT`].
 pub(crate) fn events_sent() -> u64 {
     EVENTS_SENT.load(Ordering::Relaxed)
@@ -5242,6 +5252,19 @@ impl FormHost {
         !self.supervisor.modal_children_of(&occ.handle).is_empty()
     }
 
+    /// The child window `c` waits for a live modal child of its own (R28): one it opened, or one
+    /// the form on its own ContentPane opened (spec 085), which blocks the whole window, as on the
+    /// root.
+    fn child_modal_blocked(&self, c: &ChildWindow) -> bool {
+        !self.supervisor.modal_children_of(&c.handle).is_empty()
+            || c.pane.as_ref().is_some_and(|p| {
+                p.active_occupant
+                    .as_ref()
+                    .and_then(|k| p.occupants.get(k))
+                    .is_some_and(|o| !self.supervisor.modal_children_of(&o.handle).is_empty())
+            })
+    }
+
     /// 051 R19/R28 — while the root face is blocked (a live modal child, or
     /// the debugger), the overlay style the BLOCKED form designed: the active
     /// ContentPane occupant's, else the root form's own. `None` = not
@@ -5358,6 +5381,7 @@ impl FormHost {
             cobolt_forms::model::WindowState::Minimized => Some("Minimized".into()),
             cobolt_forms::model::WindowState::Normal => None,
         });
+        WINDOWS_OPENED.fetch_add(1, Ordering::Relaxed);
         self.children.push(ChildWindow {
             handle: handle.to_string(),
             body,
@@ -5615,18 +5639,7 @@ impl FormHost {
             // The window blocks while ITS OWN modal child lives (R28) — and
             // while the program is stopped in the debugger, which stops every
             // window of the application, not just the root one.
-            let blocked = crate::debug_link::is_paused() || {
-                let c = &self.children[i];
-                !self.supervisor.modal_children_of(&c.handle).is_empty()
-                    // Spec 085 — a modal child of the form on this window's
-                    // own ContentPane blocks the whole window, as on the root.
-                    || c.pane.as_ref().is_some_and(|p| {
-                        p.active_occupant
-                            .as_ref()
-                            .and_then(|k| p.occupants.get(k))
-                            .is_some_and(|o| !self.supervisor.modal_children_of(&o.handle).is_empty())
-                    })
-            };
+            let blocked = crate::debug_link::is_paused() || self.child_modal_blocked(&self.children[i]);
             // 051 R19/R28 — the OS-level half of "modal". egui/eframe/winit
             // at this version expose no owner/parent-window relationship
             // (`ViewportBuilder` has no such field, and `egui-winit` never
@@ -6139,6 +6152,35 @@ impl FormHost {
     /// The program has ended (STOP RUN, or the form closed).
     pub(crate) fn script_finished(&self) -> bool {
         self.root.finished.load(Ordering::Relaxed)
+    }
+
+    /// DESKTOP-WASM-001 R28: whether an open child window's program can take what it is sent: it
+    /// has not ended, and no modal child of its own holds it up.
+    fn script_child_runs(&self, c: &ChildWindow) -> bool {
+        !c.body.finished.load(Ordering::Relaxed) && !self.child_modal_blocked(c)
+    }
+
+    /// DESKTOP-WASM-001 R28: [`Self::script_barrier`] for every open child window whose program can
+    /// take it, so [`Self::script_children_pending`] stays above zero until each one has finished
+    /// its start-up (its `onLoad` runs before its program takes its first event) and handled all it
+    /// was sent.
+    pub(crate) fn script_children_barrier(&mut self) {
+        let runs: Vec<bool> = self.children.iter().map(|c| self.script_child_runs(c)).collect();
+        for (c, runs) in self.children.iter_mut().zip(runs) {
+            if runs {
+                let name = c.body.form_name.clone();
+                c.body.wake_for_input(&name);
+            }
+        }
+    }
+
+    /// Events sent to the open child windows whose programs can take them, and not yet handled.
+    pub(crate) fn script_children_pending(&self) -> usize {
+        self.children
+            .iter()
+            .filter(|c| self.script_child_runs(c))
+            .map(|c| c.body.pending.load(Ordering::Relaxed))
+            .sum()
     }
 
     /// `run_form` (spec 085): the open child windows — each one's form, and

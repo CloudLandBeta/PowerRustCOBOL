@@ -2,6 +2,30 @@
 
 
 
+## 2.0.574 — 2026-11-17
+
+**Fix: a headless run with the clock pinned waits for a window the program opened, as it waits for the form on the pane.**
+- **What was wrong.** With `PRC_TEST_CLOCK` set, a headless run (`PRC_HEADLESS_SCRIPT`) waits, before the virtual clock moves on, until the form on the pane has handled everything it was sent. It did not wait for the other windows. When a click opened a form modally (`OpenFormSync`), the form on the pane was held by that window, so the run went on at once. The picture after the click was taken while the opened form was still running its start-up (`onLoad`), and what it showed depended on how fast that program ran.
+  - **Found by** the pixel run of 2.0.573 (AC19). PowerCobolCraft's `title-form` opens `world-form` modally from Play and Continue. The Cargo-built program was pictured before the world's start-up had finished: no info line, no hearts, no hotbar.
+- **What happens now.**
+  - Each open window gets the same wake behind what it was sent, unless its program has ended or a modal window of its own holds it up.
+  - The run waits until each of these windows has finished its start-up and handled everything sent to it, then draws the next frame.
+  - A window opened while the run waited gets its wake in another round. Play's handler writes the settings file before it opens the world, so the world opens during the wait.
+  - Runs without the pinned clock are unchanged.
+- **Tests:**
+  - **`cobolt-form-host`:** new `headless_child_startup`.
+    - **The fixture:** a button works a while, then opens a form modally. That form's start-up loops 200 000 times, hands a value back (`super::SetProperty`) and closes.
+    - **What it checks:** after 100 ms of virtual time, the main form's label holds the value and no window is left open. 5 of 5 checks pass (2 224 ms real).
+    - **Without the change:** 3 of 5. The label still reads "not back yet" and the window is still open (596 ms real).
+    - **Without the second round alone:** also 3 of 5.
+  - **The form host's tests:** 223 of 223 (193 unit tests, then 30 in 11 test files).
+  - **Pixel parity** (AC19, `cobolt-bench pixel-parity`):
+    - **PowerCobolCraft:** 63 of 66 frames identical (54 at 2.0.573). Every `title-form` frame now matches: after Play, Continue and Quit both programs picture the finished world, with its info line, full help line, hearts and hotbar.
+      - Still different: `world-form`'s Respawn frame at the three sizes (1 438–1 772 pixels), the command box's focus ring. That is the interpreter's fault, fixed next.
+    - **Golden hashes re-recorded for PowerCobolCraft** (`--cargo --record --project PowerCobolCraft`). The 9 `title-form` frames after Play, Continue and Quit, at the three sizes, changed on purpose: the Cargo-built program is now pictured after the world's start-up, not before it. Three runs drew all 66 frames the same.
+    - **Every reference project against its goldens** (`--cargo`): 408 of 408 frames match, and 22 of 22 forms repeat. PowerCallOfDuty 12, PowerCloud 72, PowerCobolCraft 66, PowerGraphics 120, PowerSpatial 138. No other frame moved.
+    - **PowerSpatial:** still 138 of 138 frames identical under the two programs, and 138 of 138 golden hashes met.
+
 ## 2.0.573 — 2026-11-17
 
 **Fix: on the desktop's WebAssembly path, a canvas drawn once just before a call to another graphics object is shown.**
