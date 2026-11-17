@@ -433,3 +433,101 @@ fn external_switches_reach_the_program_as_rcrun_run_gives_them() {
     }
     println!("  checks: {checks} of {checks} passed");
 }
+
+/// A program that displays its lines, then keeps running for five seconds by the wall clock before
+/// it displays the last one. `CURRENT-DATE` is the host's clock (no test pin), and nothing in the
+/// loop hands the module's batch over.
+const PROMPT: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T56PROMPT.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-NOW.
+   05 FILLER PIC X(8).
+   05 WS-HH PIC 99.
+   05 WS-MM PIC 99.
+   05 WS-SS PIC 99.
+   05 FILLER PIC X(9).
+01 WS-START PIC 9(7).
+01 WS-AT PIC 9(7).
+01 WS-SPINS PIC 9(12) VALUE 0.
+PROCEDURE DIVISION.
+    DISPLAY \"LINE 1\"
+    DISPLAY \"LINE 2\"
+    DISPLAY \"PART \" WITH NO ADVANCING
+    DISPLAY \"ONE\"
+    MOVE FUNCTION CURRENT-DATE TO WS-NOW
+    COMPUTE WS-START = WS-HH * 3600 + WS-MM * 60 + WS-SS
+    MOVE WS-START TO WS-AT
+    PERFORM UNTIL WS-AT >= WS-START + 5 OR WS-AT < WS-START
+        ADD 1 TO WS-SPINS
+        MOVE FUNCTION CURRENT-DATE TO WS-NOW
+        COMPUTE WS-AT = WS-HH * 3600 + WS-MM * 60 + WS-SS
+    END-PERFORM
+    DISPLAY \"DONE\"
+    STOP RUN.
+";
+
+#[test]
+fn a_console_line_shows_while_the_program_is_still_running() {
+    use std::io::BufRead;
+    use std::time::Duration;
+
+    let dir = Scratch::new("prompt");
+    let src = dir.0.join("t56prompt.cbl");
+    std::fs::write(&src, PROMPT).unwrap();
+    let module = desktop_module(PROMPT);
+    let exe = dir.0.join(format!("t56prompt{}", std::env::consts::EXE_SUFFIX));
+    package(&[(Kind::Module, &module)], &exe);
+    let cache = dir.0.join("cache");
+    let want = ["LINE 1", "LINE 2", "PART ONE", "DONE"];
+
+    // Each line as it reaches the pipe, with the time it arrived.
+    let started = Instant::now();
+    let mut child = Command::new(&exe)
+        .env("PRC_RUNNER_CACHE", &cache)
+        .env("LC_ALL", "en_US.UTF-8")
+        .env_remove("PRC_TEST_CLOCK")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start the program");
+    let stdout = child.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+            let _ = tx.send((line, started.elapsed()));
+        }
+    });
+    let mut got: Vec<(String, Duration)> = Vec::new();
+    while let Ok(l) = rx.recv_timeout(Duration::from_secs(60)) {
+        got.push(l);
+    }
+    let status = child.wait().unwrap();
+    reader.join().unwrap();
+    let mut err = String::new();
+    std::io::Read::read_to_string(&mut child.stderr.take().unwrap(), &mut err).unwrap();
+    let lines: Vec<&str> = got.iter().map(|(l, _)| l.as_str()).collect();
+    assert_eq!(lines, want, "the program's lines\nstderr: {err}");
+    assert_eq!(status.code(), Some(0), "the program ends normally\nstderr: {err}");
+
+    // The first three lines came before the program's five-second wait ended, not with its end.
+    let (first, done) = (got[0].1, got[3].1);
+    let ahead = done.saturating_sub(got[2].1);
+    assert!(ahead >= Duration::from_secs(3), "the lines before the wait arrived {:.0} ms before the last one: they waited for the end", ahead.as_secs_f64() * 1000.0);
+
+    // The interpreter prints the same lines.
+    let mut interp = Command::new(rcrun());
+    interp.arg("run").arg(&src).current_dir(&dir.0).env("LC_ALL", "en_US.UTF-8").env_remove("PRC_TEST_CLOCK");
+    let (ours, rcrun_ms) = run(interp, "");
+    assert_eq!(String::from_utf8_lossy(&ours.stdout), "LINE 1\nLINE 2\nPART ONE\nDONE\n", "rcrun run\n{}", stderr(&ours));
+
+    println!("── a_console_line_shows_while_the_program_is_still_running ──");
+    println!("  program: three lines (one written in two parts, NO ADVANCING), a five-second wait on the wall clock, a last line; module {} bytes", module.len());
+    for (l, at) in &got {
+        println!("  {l:<10} arrived at {:>7.1} ms", at.as_secs_f64() * 1000.0);
+    }
+    println!("  first line {:.1} ms after the start; the lines before the wait arrived {:.1} ms ahead of the last one; rcrun run {rcrun_ms:.1} ms, same 4 lines", first.as_secs_f64() * 1000.0, ahead.as_secs_f64() * 1000.0);
+    println!("  checks: 4 of 4 passed");
+}

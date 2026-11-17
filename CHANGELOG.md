@@ -2,6 +2,26 @@
 
 
 
+## 2.0.563 — 2026-11-17
+
+**Fix: a console program built on the WebAssembly path now shows each `DISPLAY` line as it is written, as under the interpreter. Until now the lines waited in the module until about 68 KB had gathered or the program ended. A long run showed nothing while it ran.**
+- **Why it is a fix:** a `DISPLAY` statement's line reaches the console when the statement runs. `rcrun run` and a Cargo-built program write it then. A desktop program on the WebAssembly path wrote its lines only in large batches, so a progress line, or the last lines before a program was stopped, did not appear.
+- **How it was found:** at the M3 close, 7 programs of the test corpus's `fileio/` folder ran past the runner's time limit (a million-record loop) and the runner had printed nothing, while the interpreter had printed their first lines.
+- **The fix:** the generator hands the batch over after each line of a console program (`rt_flush` after `rt_display_end`).
+  - A program compiled without a project's forms is a console program.
+  - A line that `NO ADVANCING` leaves open goes with the next line, or before an `ACCEPT`, as before.
+  - A form's handler still hands its batch over when it returns.
+- **What did not change:**
+  - A project's modules, the browser's included: every module of a project has its forms. The PowerAnalyticsWeb pin (AC16) and the player's fixtures still match.
+  - A desktop module that uses nothing of the runner's is still the browser build's module, byte for byte. The browser build of a console program hands its lines over the same way; only tests and conformance runs build one.
+- **Tests:**
+  - **New: `a_console_line_shows_while_the_program_is_still_running`** (`cobolt-runner`, the packaged program against `rcrun run`): 4 of 4 checks.
+    - The program displays three lines, one of them in two parts (`NO ADVANCING`), waits five seconds by the wall clock, then displays `DONE`.
+    - Its three lines arrived at 1 949 ms, 4 710 ms ahead of `DONE`, and `rcrun run` prints the same 4 lines.
+    - Without the change the three lines arrive with `DONE`, 0 ms ahead, and the test fails.
+  - `cobolt-runner`: 10 of 10. `cobolt-wasm`: 130 of 130, including the three checks that a desktop module using nothing of the runner's is the browser module.
+  - `desktop_wasm_unchanged` (AC16): 3 of 3 artefacts match their pins.
+
 ## 2.0.562 — 2026-11-17
 
 **Fix: on the WebAssembly path a canvas now shows every drawing command, in the order the program wrote them, as under the interpreter. Two faults in the module's display list made the WebAssembly-built PowerGraphics draw differently from its Cargo-built twin: the chart gallery showed an empty canvas, and the pool table lost the table itself.**

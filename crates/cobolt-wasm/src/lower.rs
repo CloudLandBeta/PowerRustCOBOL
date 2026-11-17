@@ -3676,6 +3676,15 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
         self.i32c(no_adv as i32);
         self.call_rt("rt_display_end");
+        // A console program (one compiled without a project's forms) shows each line as it is
+        // displayed, as the interpreter does. A line kept in the batch until the batch fills or the
+        // program ends does not appear while a long run goes on. The desktop and the browser build
+        // do the same, so a desktop module that uses nothing of the runner's stays the browser's
+        // module, byte for byte. A form's handler hands its batch over when it returns; a line `NO
+        // ADVANCING` leaves open goes with the next line, or before an `ACCEPT`.
+        if self.form.is_none() && !no_adv {
+            self.call_rt("rt_flush");
+        }
         Ok(())
     }
 }
