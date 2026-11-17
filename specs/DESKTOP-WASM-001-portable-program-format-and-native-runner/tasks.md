@@ -1563,6 +1563,12 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - `cobolt-abi-host` `a_call_through_a_window_handle_reaches_the_form_of_that_window_and_a_closed_one_is_refused`: 10 of 10 checks.
       - Runner twin `a_window_handler_reaches_its_window_and_is_null_once_it_closes`: 3 readings, 3 dumps and 3 pictures (768 000 pixels, 0 differing) equal to `rcrun run-form`, 11 of 11 checks.
     - **PowerCloud** (`cobolt-bench pixel-parity --project PowerCloud`, 2026-11-17) gets past its windowHandler. Its Build now stops at the generator on `generated/main-form.cbl` line 2888: the concatenation operator `&` in a method's argument (`'{"StackName":"' & TXT-STACK::Text::Trim() & '"}'`), which the WebAssembly path does not take yet. Next.
+  - *The concatenation operator `&` done 2026-11-17 (2.0.583), with the fix it needed (2.0.582):*
+    - **What runs:** `a & b & c` is the texts of its parts joined, each as the interpreter's value of it: an item with its spaces, a method's answer, a number spelled from its value (`n=42`, `n=-7`, `n=1.50`). The interpreter's `&` and its `FUNCTION CONCATENATE` are one rule, so the generator makes `&` that function's call. The result can be moved, displayed, compared, passed as a method's argument, or used in arithmetic.
+    - **The fix it needed (2.0.582, WASM-PARITY #74):** the module's `CONCATENATE` spelled a numeric argument by its picture (`n=0042`) where the interpreter spells its value (`n=42`).
+    - **Tests:** `cobolt-wasm` `the_concatenation_operator_matches_the_interpreter`, 17 rows; `function_concatenate_spells_a_number_as_the_interpreter`, 9 rows; each equal on both engines and both memory variants.
+    - **PowerCloud takes the WebAssembly path** (`cobolt-bench pixel-parity --project PowerCloud`, 2026-11-17): Build 0.4 s (Cargo 187.8 s); 5 forms, 49 steps at three sizes, 72 frame pairs identical, 0 differing pixels; the Cargo frames match the goldens, 72 of 72. All five reference projects now take the WebAssembly path.
+    - **Still open in T39c:** the IndexedFile control with `FILE-STATUS`, `SORT`/`MERGE` with a relative or indexed file, and `OPEN … WITH REGISTERED USER`.
 
 - [ ] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
   - Verify:

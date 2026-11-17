@@ -2,6 +2,29 @@
 
 
 
+## 2.0.583 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T39c, in part): the concatenation operator `&` takes the WebAssembly path. A program that joins texts with `&` no longer stops the Build at the generator.**
+- **What runs:**
+  - `a & b` is the text of `a` followed by the text of `b`, as in the interpreter. A chain joins every part, left to right: `'{"StackName":"' & TXT-STACK::Text::Trim() & '"}'` is how PowerCloud builds a JSON request.
+  - Each part is its text as the interpreter's value of it:
+    - a data item keeps its trailing spaces;
+    - a method's answer is what the method gave;
+    - a number is spelled from its value (`"n=" & WS-NUM` is `n=42`, a negative `n=-7`, a decimal `n=1.50`);
+    - a computed part (`"n=" & WS-NUM + 1`) is computed first, since `&` binds last.
+  - The result may be moved, displayed, compared, passed as a method's argument, or used in arithmetic, where it counts as the number its text spells.
+  - The interpreter's `&` and its `FUNCTION CONCATENATE` are one rule, so the generator makes `&` that function's call. With 2.0.582 the module's `CONCATENATE` spells numbers as the interpreter does.
+- **Browser modules:** `&` now works in Web and Mobile programs too. A module that does not use it is unchanged, so the AC16 pin did not move.
+- **Tests:**
+  - **`cobolt-wasm` `the_concatenation_operator_matches_the_interpreter`:** 17 rows, each equal on the interpreter and the module in both memory variants, and each printing what it should. They cover:
+    - two literals; an item keeping its spaces; a method's answer, with and without parentheses; three parts;
+    - PowerCloud's request;
+    - an unsigned, a negative and a decimal number, a number literal, a computed part, a figurative constant;
+    - a receiver too short for the result;
+    - `&` in `DISPLAY`, in `IF`, as a method's argument, and in `COMPUTE`.
+  - **The sweep:** `cobolt-wasm`, `cobolt-wasm-abi`, `cobolt-wasm-rt`, `cobolt-runner` and `cobolt-web-tests`: 214 of 215 tests in 60 suites, the AC16 pin among them. The one red is the known `examples::the_example_holds_no_secret_and_checks_and_builds`, which trips on untracked files in the working tree's PowerAnalyticsWeb example.
+- **PowerCloud takes the WebAssembly path** (`cobolt-bench pixel-parity --project PowerCloud`): its Build makes the program in 0.4 s, where the Cargo path takes 187.8 s. All 5 forms ran their scripts (49 steps at three window sizes): 72 frame pairs, 72 identical, 0 differing pixels. The Cargo-built frames match the goldens, 72 of 72. With it, all five reference projects take the WebAssembly path.
+
 ## 2.0.582 — 2026-11-17
 
 **Fix: on the WebAssembly path, `FUNCTION CONCATENATE` spells a number among its arguments as the interpreter does (WASM-PARITY #74).**

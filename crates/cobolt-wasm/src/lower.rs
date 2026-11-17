@@ -1620,6 +1620,13 @@ impl<'a, 'b> Lower<'a, 'b> {
             Expr::FunctionCall { name, args, .. } => self.function_operand(name, args, line),
             // A control's property or method result is read from the host.
             Expr::Member { .. } => self.member_value(e, line).map(Some),
+            // `a & b & c`: the texts of the parts joined, each as the interpreter displays it — its `&` and
+            // its `FUNCTION CONCATENATE` are one rule, so the parts become that function's arguments.
+            Expr::Arithmetic { op: ArithOp::Concat, .. } => {
+                let mut parts = Vec::new();
+                concat_parts(e, &mut parts);
+                self.function_operand("CONCATENATE", &parts, line)
+            }
             _ => Ok(None),
         }
     }
@@ -3721,6 +3728,17 @@ fn split_relative(e: &Expr) -> (&Expr, i32) {
         }
     }
     (e, 0)
+}
+
+/// The parts of a chain of `&`, left to right: `a & b & c` (parsed `(a & b) & c`) is `[a, b, c]`.
+fn concat_parts(e: &Expr, out: &mut Vec<Expr>) {
+    match e {
+        Expr::Arithmetic { op: ArithOp::Concat, lhs, rhs, .. } => {
+            concat_parts(lhs, out);
+            concat_parts(rhs, out);
+        }
+        other => out.push(other.clone()),
+    }
 }
 
 fn split_name(e: &Expr) -> (String, Vec<String>) {
