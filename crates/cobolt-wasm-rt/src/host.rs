@@ -79,6 +79,18 @@ mod imp {
         pub fn f_start(id: u32, slot: u32, op: u32, kor: u32, key: u32, key_len: i32, rel: i64) -> i32;
         /// `UNLOCK`, `COMMIT`, `ROLLBACK` (A35): `op` is `verb::TX_*`; the file is `NONE` for the last two.
         pub fn f_tx(op: u32, id: u32, slot: u32) -> i32;
+        // A desktop module only (ABI A39): a built-in's text file or picture, named by its path.
+        /// `APPEND-FILE` (`append` 1) or `WRITE-FILE` (0): the `text_len` bytes at `text` as one line
+        /// of the file whose path is the `path_len` bytes at `path`. The answer is the length of why
+        /// it failed, written at `buf` (at most `cap` bytes): 0 when the line was written.
+        pub fn t_write(append: u32, path: u32, path_len: u32, text: u32, text_len: u32, buf: u32, cap: u32) -> i32;
+        /// `IMAGE-FIT`: the picture at `src` fitted to `width` × `height` and written to `dst`; the
+        /// status word goes to `buf` (at most `cap` bytes) and its length is returned.
+        pub fn img_fit(src: u32, src_len: u32, dst: u32, dst_len: u32, width: i64, height: i64, buf: u32, cap: u32) -> i32;
+        /// `IMAGE-INFO`: at `buf` the width and the height (two little-endian words), then the format
+        /// and the status word with one space between them (at most `cap - 8` bytes, whose length
+        /// is returned).
+        pub fn img_info(path: u32, path_len: u32, buf: u32, cap: u32) -> i32;
     }
 }
 
@@ -209,6 +221,32 @@ mod imp {
     }
     pub unsafe fn f_tx(op: u32, id: u32, slot: u32) -> i32 {
         file_call("f_tx", &[op as i64, id as i32 as i64, slot as i32 as i64])
+    }
+
+    std::thread_local! {
+        /// What the built-ins' imports were given on this thread (A39): the import, then its texts.
+        pub static BUILTIN_CALLS: RefCell<Vec<(&'static str, Vec<Vec<u8>>, Vec<i64>)>> = const { RefCell::new(Vec::new()) };
+        /// What the next one answers at `buf`.
+        pub static BUILTIN_ANSWER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    }
+    fn builtin_call(name: &'static str, texts: &[(u32, u32)], numbers: &[i64], buf: u32, cap: u32) -> i32 {
+        let texts = texts.iter().map(|&(a, n)| crate::mem::bytes(a, n).to_vec()).collect();
+        BUILTIN_CALLS.with(|c| c.borrow_mut().push((name, texts, numbers.to_vec())));
+        let ans = BUILTIN_ANSWER.with(|a| a.borrow().clone());
+        let n = ans.len().min(cap as usize);
+        crate::mem::bytes_mut(buf, n as u32).copy_from_slice(&ans[..n]);
+        n as i32
+    }
+    pub unsafe fn t_write(append: u32, path: u32, path_len: u32, text: u32, text_len: u32, buf: u32, cap: u32) -> i32 {
+        builtin_call("t_write", &[(path, path_len), (text, text_len)], &[append as i64], buf, cap)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn img_fit(src: u32, src_len: u32, dst: u32, dst_len: u32, width: i64, height: i64, buf: u32, cap: u32) -> i32 {
+        builtin_call("img_fit", &[(src, src_len), (dst, dst_len)], &[width, height], buf, cap)
+    }
+    /// The answer here is the whole record (the two words included); the import returns the length after them.
+    pub unsafe fn img_info(path: u32, path_len: u32, buf: u32, cap: u32) -> i32 {
+        (builtin_call("img_info", &[(path, path_len)], &[], buf, cap) - 8).max(0)
     }
 }
 

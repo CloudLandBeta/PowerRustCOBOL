@@ -41,7 +41,7 @@ pub enum Native {
 // The reasons of the Desktop column. Each names the milestone of DESKTOP-WASM-001 that moves the entry.
 /// Why a program with no form takes the Cargo path for an entry of class [`Native::Form`] (DESKTOP-WASM-001 T33).
 pub const D_FORMS: &str = "a program with no form has no controls or application object in its module, so it takes the Cargo path for them (DESKTOP-WASM-001 M2 serves them to a form's program)";
-const D_FILE_BUILTINS: &str = "the file and image built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
+const D_FILE_STATUS: &str = "a file's last status is not kept by a module yet: it comes with the IndexedFile control (DESKTOP-WASM-001 M3)";
 const D_SQL: &str = "SQL is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
 const D_HTTP: &str = "HTTP is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
 const D_POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module yet (DESKTOP-WASM-001 M5)";
@@ -252,7 +252,7 @@ const fn cargo(why: &'static str) -> Native {
 /// name of `BUILTINS` has no row here, or a row names no built-in (R8).
 pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("ANIMATIONSEQUENCE", Support::Unsupported("the player has no scheduler for timed SHOW / HIDE / PLAY entries yet (spec 109 S7, WASM-PARITY #46)"), cargo(D_MEDIA)),
-    c("APPEND-FILE", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
+    c("APPEND-FILE", Support::BackendOnly(FILES), Native::Host(cap::FILES_TEXT)),
     web("AUDIO-PAUSE", "HTMLAudioElement", BOTH, Native::Host(cap::AUDIO)),
     web("AUDIO-PLAY", "HTMLAudioElement", BOTH, Native::Host(cap::AUDIO)),
     web("AUDIO-RESUME", "HTMLAudioElement", BOTH, Native::Host(cap::AUDIO)),
@@ -275,7 +275,7 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("CLOSE-DB", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("EXEC-SQL", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("FETCH-ROW", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("FILE-STATUS", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
+    c("FILE-STATUS", Support::BackendOnly(FILES), cargo(D_FILE_STATUS)),
     // `showDirectoryPicker` is Chrome's only: Q7's parity rule leaves it out.
     c("FOLDER-DIALOG", Support::Unsupported("a browser page cannot choose a folder in every engine (showDirectoryPicker is Chrome's only)"), Native::Host(cap::DIALOGS)),
     c("GET-PROPERTY", Support::Module, Native::Form),
@@ -286,8 +286,8 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("HTTP-POST", Support::BackendOnly(HTTP), cargo(D_HTTP)),
     c("HTTP-PUT", Support::BackendOnly(HTTP), cargo(D_HTTP)),
     c("HTTP-SET-HEADER", Support::BackendOnly(HTTP), cargo(D_HTTP)),
-    c("IMAGE-FIT", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
-    c("IMAGE-INFO", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
+    c("IMAGE-FIT", Support::BackendOnly(FILES), Native::Host(cap::IMAGES)),
+    c("IMAGE-INFO", Support::BackendOnly(FILES), Native::Host(cap::IMAGES)),
     c("INIT-FORM", Support::Module, Native::Form),
     c("KEY-IS-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
     c("KEY-REMOVE", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
@@ -320,7 +320,7 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     web("SECURESTORE", PHONE_STORE, BOTH, cargo(D_PHONE)),
     c("SET-PROPERTY", Support::Module, Native::Form),
     c("WAIT-EVENT", Support::Module, Native::Form),
-    c("WRITE-FILE", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
+    c("WRITE-FILE", Support::BackendOnly(FILES), Native::Host(cap::FILES_TEXT)),
     c("WS-CANCELLED", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
     c("WS-CLAIM", Support::BackendOnly(BACKEND_VERB), cargo(D_REMOTE)),
     c("WS-DOWNLOAD", Support::Unsupported(NO_PATHS), cargo(D_REMOTE)),

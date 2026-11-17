@@ -89,7 +89,7 @@ fn clock_text(kind: u32, ms: f64, out: &mut [u8; 16]) -> usize {
 
 /// Put characters into the receiver the way `MOVE` of an unsigned integer
 /// string does.
-fn put(base: u32, target: u32, text: &[u8]) {
+pub(crate) fn put(base: u32, target: u32, text: &[u8]) {
     let loc = locate(base, &parse(target));
     if loc.fd.is_numeric() {
         if let Some(n) = codec::parse_text(text) {

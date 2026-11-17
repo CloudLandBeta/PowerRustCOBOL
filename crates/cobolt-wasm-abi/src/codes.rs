@@ -158,11 +158,29 @@ pub mod cap {
     /// The desktop's AWS controls and the keys typed in at run time: `COBOL::"AWS-SET-CREDENTIALS"` and
     /// its two siblings (A38).
     pub const AWS: &str = "aws";
+    /// A line of text written to a file the program names: `COBOL::"APPEND-FILE"` and `"WRITE-FILE"` (A39).
+    pub const FILES_TEXT: &str = "files.text";
+    /// A picture's size read, and a picture fitted to a size: `COBOL::"IMAGE-INFO"` and `"IMAGE-FIT"` (A39).
+    pub const IMAGES: &str = "images";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
-    pub const ALL: &[&str] =
-        &[CONSOLE, ENV, FILES_SEQUENTIAL, FILES_LINE_SEQUENTIAL, FILES_RELATIVE, FILES_INDEXED, SORT, SQL, HTTP, DIALOGS, AUDIO, AWS];
+    pub const ALL: &[&str] = &[
+        CONSOLE,
+        ENV,
+        FILES_SEQUENTIAL,
+        FILES_LINE_SEQUENTIAL,
+        FILES_RELATIVE,
+        FILES_INDEXED,
+        SORT,
+        SQL,
+        HTTP,
+        DIALOGS,
+        AUDIO,
+        AWS,
+        FILES_TEXT,
+        IMAGES,
+    ];
 }
 
 /// The imports in [`NATIVE_IMPORT_MODULE`] each capability brings (A27). A capability's set is fixed
@@ -178,6 +196,9 @@ pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[
     (cap::FILES_RELATIVE, FILE_IMPORTS),
     // A35: an INDEXED file's transactions and record locks add `f_tx`.
     (cap::FILES_INDEXED, INDEXED_FILE_IMPORTS),
+    // A39: the text files and pictures a built-in names by its path.
+    (cap::FILES_TEXT, &["t_write"]),
+    (cap::IMAGES, &["img_fit", "img_info"]),
 ];
 
 /// The file verbs in [`NATIVE_IMPORT_MODULE`] (A34): a file is named by its number in the module's

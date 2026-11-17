@@ -89,6 +89,11 @@ pub struct Outcome {
     /// The `PART` commands the module sent (A37), and the pieces still waiting for their command.
     pub part_commands: u32,
     pub parts: cobolt_wasm_abi::batch::Parts,
+    /// What the built-ins handed the runner (A39), in order: the import, then its texts as the module sent
+    /// them, then its numbers (`t_write`: 1 to add the line, 0 to replace the file). This host writes and
+    /// reads no file: a line counts as written, and a picture is answered `NOFEATURE`, as an interpreter
+    /// built without pictures answers it.
+    pub builtin_calls: Vec<(String, Vec<Vec<u8>>, Vec<i64>)>,
 }
 
 struct State {
@@ -570,6 +575,54 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
     // A31: the run's offset; with no `NativeInput`, UTC, as a browser module's clock is.
     linker
         .func_wrap(prn, "tz_offset", |caller: Caller<'_, State>| -> i32 { caller.data().native.as_ref().map_or(0, |n| n.tz_offset) })
+        .map_err(|e| e.to_string())?;
+    // A39: what a built-in hands the runner, recorded (`Outcome::builtin_calls`); no file is touched.
+    fn texts(caller: &mut Caller<'_, State>, spans: &[(i32, i32)]) -> Option<Vec<Vec<u8>>> {
+        let mem = caller.get_export("memory").and_then(|e| e.into_memory())?;
+        spans
+            .iter()
+            .map(|&(at, n)| {
+                let mut b = vec![0u8; n.max(0) as usize];
+                mem.read(&*caller, at as u32 as usize, &mut b).ok().map(|_| b)
+            })
+            .collect()
+    }
+    fn answer(caller: &mut Caller<'_, State>, at: i32, cap: i32, bytes: &[u8]) -> i32 {
+        let Some(mem) = caller.get_export("memory").and_then(|e| e.into_memory()) else { return 0 };
+        let n = bytes.len().min(cap.max(0) as usize);
+        mem.write(&mut *caller, at as u32 as usize, &bytes[..n]).map(|_| n as i32).unwrap_or(0)
+    }
+    linker
+        .func_wrap(
+            prn,
+            "t_write",
+            |mut caller: Caller<'_, State>, append: i32, path: i32, path_len: i32, text: i32, text_len: i32, _buf: i32, _cap: i32| -> i32 {
+                let t = texts(&mut caller, &[(path, path_len), (text, text_len)]).unwrap_or_default();
+                caller.data().out.borrow_mut().builtin_calls.push(("t_write".into(), t, vec![i64::from(append)]));
+                0
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    linker
+        .func_wrap(
+            prn,
+            "img_fit",
+            |mut caller: Caller<'_, State>, src: i32, src_len: i32, dst: i32, dst_len: i32, w: i64, h: i64, buf: i32, cap: i32| -> i32 {
+                let t = texts(&mut caller, &[(src, src_len), (dst, dst_len)]).unwrap_or_default();
+                caller.data().out.borrow_mut().builtin_calls.push(("img_fit".into(), t, vec![w, h]));
+                answer(&mut caller, buf, cap, b"NOFEATURE")
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    linker
+        .func_wrap(prn, "img_info", |mut caller: Caller<'_, State>, path: i32, path_len: i32, buf: i32, cap: i32| -> i32 {
+            let t = texts(&mut caller, &[(path, path_len)]).unwrap_or_default();
+            caller.data().out.borrow_mut().builtin_calls.push(("img_info".into(), t, vec![]));
+            // 0 × 0, no format, and the word.
+            let mut record = vec![0u8; 8];
+            record.extend_from_slice(b" NOFEATURE");
+            (answer(&mut caller, buf, cap, &record) - 8).max(0)
+        })
         .map_err(|e| e.to_string())?;
     if want("remote") {
         linker

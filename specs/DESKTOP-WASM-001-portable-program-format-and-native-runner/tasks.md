@@ -1514,6 +1514,18 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - `IMAGE-FIT` (source, target, width, height, status) and `IMAGE-INFO` (path, width, height, format, status): through the runtime's image code.
     - A relative path starts at the application's folder, as an `ASSIGN` does.
   - Verify: runner twins equal to `rcrun run` in printed lines and in the files written. `native_desktop_refusals` and `desktop_controls_the_runner_lacks_are_named` no longer name them. No refusal names M3. AC16 unchanged.
+  - *The file and image built-ins done 2026-11-17 (2.0.576); FILE-STATUS, FileDropZone, the IndexedFile control, `SORT`/`MERGE` with a relative or indexed file and `OPEN … WITH REGISTERED USER` are still open, so the box stays empty:*
+    - **What runs (ABI A39, capabilities `files.text` and `images`):** `COBOL::"APPEND-FILE"`, `"WRITE-FILE"`, `"IMAGE-FIT"` and `"IMAGE-INFO"` compile to three `prn` imports, `t_write`, `img_fit` and `img_info`, in a form's handler and in a program with no form alike.
+      - The module hands each path and text whole, as the interpreter's value of the argument (a number as its text, a figurative constant as its character), and a width or a height as its whole number (`deskio.rs`).
+      - The runner does the work with the interpreter's own code: the path trimmed and anchored at the application's folder, the line's trailing spaces dropped, `std::fs` with the same options; `cobolt_runtime::image_runtime` for the pictures (the runner's runtime gains the `images` feature).
+      - Each answer goes into its receiver as the interpreter sets it: a word as `set_str` does; a width or a height as `set_i64` does, which puts a number into an item of characters right-justified, keeping the digits' left end when they do not fit.
+    - **FILE-STATUS** stays on the Cargo path, with a reason of its own: its answer is the last status of a file the IndexedFile control keeps, so it comes with that control.
+    - **Tests:**
+      - the runner twin `text_files_and_pictures_match_the_interpreter`: 15 lines printed and 6 files (1 490 bytes: two text files and the PNG and JPEG pictures IMAGE-FIT writes) equal byte for byte to `rcrun run`, 27 of 27 checks. It covers a padded path, a value method (`::Trim()`), numeric, signed and figurative texts, a missing folder's status, a decimal width and a text height, the refusals `BADSIZE`, `BADEXT`, `NOFILE` and `BADIMAGE`, and numeric, alphanumeric and too-short receivers;
+      - the manifest of a program that only appends asks for `files.text` and imports `t_write` alone.
+      - The twin found that `IMAGE-INFO` must put a number into an alphanumeric receiver right-justified (`    40`, not `40    `), as the interpreter's `set_i64` does.
+    - **AC16, named:** the task asks for AC16 unchanged, and a browser module's bytes did move, as at 2.0.542 (T38). The generator copies the runtime's whole type section and data segment into every module: the two new import signatures renumber its function types, and the panic messages naming `deskio.rs` move later data by 64 bytes. With type numbers and data addresses masked, every instruction of the player's fixture module is the same, so nothing a browser module does changed. The pin was re-recorded, the player's fixtures regenerated and the web player rebuilt. Keeping a browser module's bytes still across runtime changes would need the generator to copy only the types and data its closure uses: a change of its own, not made here.
+    - **PowerCloud's** only reason left is its FileDropZone.
 
 - [ ] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
   - Verify:
@@ -1538,6 +1550,11 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - 2 differ only by the interpreter's WARN line.
       - 29 are refused, with the construct named.
     - The release runner is 78.4 MiB.
+  - *Pixel parity re-measured 2026-11-17 (2.0.575), after the fixes the 2.0.566 run found (2.0.570–2.0.575):*
+    - **The fixes:** a desktop handler that fails stops there and the form shows the interpreter's notice (2.0.570); an out-of-range reference modification takes the interpreter's positions (2.0.571); a subscript outside its table reads the interpreter's blank and writes nowhere (2.0.572); a canvas drawn once just before a call to another graphics object is shown (2.0.573); a headless run with the clock pinned waits for a window the program opened (2.0.574); `Show`, `Hide`, `Enable`, `Disable` and `SetFocus` work on the graphics controls under the interpreter too (2.0.575).
+    - **The full run** (`cobolt-bench pixel-parity`, 13.7 min): 354 frame pairs, **354 identical, 0 differing pixels**; reads and dumps 27 of 27 equal; expected reads 18 of 18.
+      - Moved: ParityControls (18 of 18), PowerCallOfDuty (12 of 12), PowerCobolCraft (66 of 66), PowerGraphics (120 of 120) and PowerSpatial (138 of 138). The Cargo-built frames match their goldens, 336 of 336.
+      - PowerCloud still takes the Cargo path, for its FileDropZone (T39c).
 
 ## Phase M4 — SQL and HTTP
 

@@ -45,6 +45,7 @@ pub mod call;
 pub mod cmd;
 pub mod cmp;
 pub mod codec;
+pub mod deskio;
 pub mod disp;
 pub mod edited;
 pub mod fd;
@@ -405,6 +406,26 @@ pub extern "C" fn rt_nf_delete(base: u32, d: u32, ks: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn rt_nf_start(base: u32, d: u32, op: u32, kor: u32, ks: u32, rel_opd: u32) -> u32 {
     nfile::start(base, d, op, kor, ks, rel_opd)
+}
+
+// ── A desktop module's text-file and picture built-ins (ABI A39, `deskio`) ────
+
+/// `COBOL::"APPEND-FILE"` (`append` 1) and `"WRITE-FILE"` (0); `status` 0 when the program wrote none.
+#[no_mangle]
+pub extern "C" fn rt_text_write(base: u32, append: u32, path: u32, text: u32, status: u32) {
+    deskio::text_write(base, append, path, text, status);
+}
+
+/// `COBOL::"IMAGE-FIT" ( source target width height status )`.
+#[no_mangle]
+pub extern "C" fn rt_image_fit(base: u32, source: u32, target: u32, width: u32, height: u32, status: u32) {
+    deskio::image_fit(base, source, target, width, height, status);
+}
+
+/// `COBOL::"IMAGE-INFO" ( path width height format status )`.
+#[no_mangle]
+pub extern "C" fn rt_image_info(base: u32, path: u32, width: u32, height: u32, format: u32, status: u32) {
+    deskio::image_info(base, path, width, height, format, status);
 }
 
 /// `INSPECT target <spec>`.

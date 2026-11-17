@@ -2,6 +2,34 @@
 
 
 
+## 2.0.576 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T39c, in part): `COBOL::"APPEND-FILE"`, `"WRITE-FILE"`, `"IMAGE-FIT"` and `"IMAGE-INFO"` take the WebAssembly path. A Desktop Build no longer falls back to the Cargo path for a program that writes a text file or fits a picture.**
+- **What runs** (ABI amendment A39, the capabilities `files.text` and `images`):
+  - The four built-ins compile to three imports of the runner: `t_write` (a line added to a file or replacing it), `img_fit` and `img_info`. They work in a form's handler and in a program with no form alike.
+  - **The module's half** (`deskio.rs` in the module runtime): each path and text goes to the runner whole, as the interpreter takes the argument's value (a number as its text, a figurative constant as its character); a width or a height goes as the argument's whole number (a number without its decimals, a text that is a whole number once trimmed, else 0).
+  - **The runner's half** is the interpreter's own code: the path trimmed and anchored at the application's folder, the line's trailing spaces dropped, the file opened with the same options; `cobolt_runtime::image_runtime` for the pictures. The runner's runtime gains the `images` feature.
+  - **The answers** go into the receivers as the interpreter sets them: a status or a format word as `set_str` does; a width or a height as `set_i64` does. An item of characters gets the number right-justified, keeping the digits' left end when they do not fit.
+- **`FILE-STATUS`** stays on the Cargo path, with a reason of its own: its answer is the last status of a file the IndexedFile control keeps, so it comes with that control.
+- **Web modules:** a browser module keeps its classes for these built-ins and behaves as before, but its bytes moved, as at 2.0.542. The generator copies the module runtime's whole type section and data segment into every module:
+  - the runtime's two new import signatures renumber the function types;
+  - the runtime's panic messages, which now name `deskio.rs`, move later data by 64 bytes, so the addresses in the code follow.
+  - With type numbers and data addresses masked, every instruction of the player's fixture module is the same. The PowerAnalyticsWeb pin (AC16) is re-recorded, the player's generated fixtures are regenerated, and the web player is rebuilt (its input `cobolt-wasm-abi` gained the two capability names).
+- **PowerCloud** still takes the Cargo path. Its only reason left is its FileDropZone.
+- **Tests:**
+  - **The runner twin** `text_files_and_pictures_match_the_interpreter`: one program, packaged into the runner and run under `rcrun run`, prints 15 lines and leaves 6 files (1 490 bytes: two text files and the PNG and JPEG pictures `IMAGE-FIT` writes), equal byte for byte. 27 of 27 checks. It covers:
+    - a padded path, a literal path and a value method (`::Trim()`);
+    - texts from a literal with trailing spaces, `PIC 9(4)`, `PIC S9(3)V99`, `ZERO`, `SPACES` and an empty item; the status left out, written, and a missing folder's error;
+    - a decimal width and a text height; the refusals `BADSIZE`, `BADEXT`, `NOFILE` and `BADIMAGE`;
+    - numeric, alphanumeric and too-short receivers.
+  - The twin found that a number put into an alphanumeric receiver must be right-justified (`    40`, not `40    `), as the interpreter's `set_i64` puts it; fixed in the module before this commit.
+  - The manifest of a program that only appends asks for `files.text` and imports `t_write` alone.
+  - **The sweep:** `cobolt-wasm` (with its test host), `cobolt-wasm-abi`, `cobolt-wasm-rt`, `cobolt-runner` and the AC16 pin, 196 of 196 tests in 49 suites, the pin and the player fixture after their re-recording. The web player's freshness, wire-code and ABI-host tests, 35 of 35. The compiler's desktop and subset tests, 5 of 5.
+  - **The System KB:** regenerated (4 409 records), as the Desktop column of the four built-ins changed; its test passes.
+- **The release runner**, built on its own, is 68.5 MiB (71 868 304 bytes), 508 368 bytes more than at 2.0.567, with the picture decoders.
+- **Also recorded:** the full pixel run at 2.0.575 (AC19): 354 of 354 frames identical, 0 differing pixels, reads and dumps 27 of 27; PowerCobolCraft (66 of 66) and PowerSpatial (138 of 138) now move with the others.
+- **Left in T39c:** FileDropZone, the IndexedFile control with `FILE-STATUS`, `SORT` and `MERGE` with a relative or indexed file, and `OPEN … WITH REGISTERED USER`.
+
 ## 2.0.575 — 2026-11-17
 
 **Fix: `Show`, `Hide`, `Enable`, `Disable` and `SetFocus` work on a canvas, a plot, an image buffer, a physics world and a 3D scene, as on every control.**

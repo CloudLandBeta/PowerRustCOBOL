@@ -807,6 +807,9 @@ impl Lower<'_, '_> {
             audio if self.native && crate::lower_remote::is_desktop_audio(audio) => self.desktop_audio(audio, using, line),
             // On the desktop the runner keeps an AWS connection's keys (T48).
             aws if self.native && crate::lower_remote::is_desktop_aws(aws) => self.desktop_aws(aws, using, line),
+            // On the desktop the runner writes a built-in's text file and reads and fits its pictures (T39c).
+            "APPEND-FILE" | "WRITE-FILE" if self.native => self.desktop_text_write(name, using, line),
+            "IMAGE-FIT" | "IMAGE-INFO" if self.native => self.desktop_image(name, using, line),
             // The page's own verbs (ABI §12.1) are not the desktop's: under the interpreter a form's
             // windows are `ME`'s and a handle's, and a desktop form has no message box (T6, T32). A
             // desktop module refuses them, so the Build takes the Cargo path, which reports them as the
@@ -988,6 +991,63 @@ impl Lower<'_, '_> {
         if let (prop, Some(dest)) = answer {
             self.app_property_into(prop, dest, line)?;
         }
+        Ok(())
+    }
+
+    /// `COBOL::"APPEND-FILE" ( path text [status] )` and `"WRITE-FILE"` in a desktop module (DESKTOP-WASM-001
+    /// T39c, ABI A39): the runner writes the line as the interpreter does, in a program with or without a
+    /// form. Fewer than two arguments are refused, so the Build takes the Cargo path, which reports them as
+    /// the interpreter does; arguments after the status are ignored, as it ignores them.
+    fn desktop_text_write(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
+        let subject = format!("COBOL::\"{name}\"");
+        if using.len() < 2 {
+            return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes the file's path and the text"));
+        }
+        let ex = |a: &CallArg| match a {
+            CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+        };
+        let path = self.operand_or_temp(&ex(&using[0]))?;
+        let text = self.operand_or_temp(&ex(&using[1]))?;
+        let status = match using.get(2) {
+            Some(a) => self.receiver(&ex(a))?,
+            None => 0,
+        };
+        self.base();
+        self.i32c(i32::from(name == "APPEND-FILE"));
+        self.i32c(path as i32);
+        self.i32c(text as i32);
+        self.i32c(status as i32);
+        self.call_rt("rt_text_write");
+        Ok(())
+    }
+
+    /// `COBOL::"IMAGE-FIT" ( source target width height status )` and `"IMAGE-INFO" ( path width height
+    /// format status )` in a desktop module (DESKTOP-WASM-001 T39c, ABI A39): the runner reads and fits the
+    /// picture with the interpreter's own code, in a program with or without a form. Fewer than five
+    /// arguments are refused, so the Build takes the Cargo path, which reports them as the interpreter does.
+    fn desktop_image(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
+        let subject = format!("COBOL::\"{name}\"");
+        if using.len() < 5 {
+            let what = if name == "IMAGE-FIT" {
+                "the source, the target, the width, the height and the data item that receives the status"
+            } else {
+                "the path and the data items that receive the width, the height, the format and the status"
+            };
+            return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes {what}"));
+        }
+        let ex = |a: &CallArg| match a {
+            CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+        };
+        let mut opds = [0u32; 5];
+        let sent = if name == "IMAGE-FIT" { 4 } else { 1 };
+        for (i, a) in using.iter().take(5).enumerate() {
+            opds[i] = if i < sent { self.operand_or_temp(&ex(a))? } else { self.receiver(&ex(a))? };
+        }
+        self.base();
+        for o in opds {
+            self.i32c(o as i32);
+        }
+        self.call_rt(if name == "IMAGE-FIT" { "rt_image_fit" } else { "rt_image_info" });
         Ok(())
     }
 

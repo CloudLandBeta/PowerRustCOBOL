@@ -53,7 +53,8 @@ pub use messages::{Lang, Msg};
 pub use pins::Pins;
 
 /// The capabilities this runner provides (A27). T15: console programs; T32: the file dialogs (A33);
-/// T38: files on disk of every organisation (A34); T49: the sound player (A36); T48: the AWS controls (A38).
+/// T38: files on disk of every organisation (A34); T49: the sound player (A36); T48: the AWS controls (A38);
+/// T39c: the text files and pictures a built-in names by its path (A39).
 pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::CONSOLE,
     cap::ENV,
@@ -64,6 +65,8 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::FILES_LINE_SEQUENTIAL,
     cap::FILES_RELATIVE,
     cap::FILES_INDEXED,
+    cap::FILES_TEXT,
+    cap::IMAGES,
 ];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row
@@ -90,6 +93,10 @@ pub const PROVIDED_IMPORTS: &[(u32, &str, &str)] = &[
     (1, NATIVE_IMPORT_MODULE, "f_delete"),
     (1, NATIVE_IMPORT_MODULE, "f_start"),
     (1, NATIVE_IMPORT_MODULE, "f_tx"),
+    // T39c: APPEND-FILE and WRITE-FILE, IMAGE-FIT and IMAGE-INFO (A39).
+    (1, NATIVE_IMPORT_MODULE, "t_write"),
+    (1, NATIVE_IMPORT_MODULE, "img_fit"),
+    (1, NATIVE_IMPORT_MODULE, "img_info"),
 ];
 
 /// `pr_run`'s answers (the generator's `ret`): the run finished, or `STOP RUN`.
@@ -394,6 +401,14 @@ fn read_mem(caller: &mut Caller<'_, State>, addr: i32, len: i32) -> Option<Vec<u
     Some(buf)
 }
 
+/// An answer for the module: at most `cap` bytes of `bytes` written at `buf`; their count (0 when
+/// memory 0 cannot take them).
+fn answer(caller: &mut Caller<'_, State>, buf: i32, cap: i32, bytes: &[u8]) -> i32 {
+    let bytes = &bytes[..bytes.len().min(cap.max(0) as usize)];
+    let Some(mem) = memory0(caller) else { return 0 };
+    mem.write(&mut *caller, buf as u32 as usize, bytes).map(|_| bytes.len() as i32).unwrap_or(0)
+}
+
 /// Write `bytes` into memory 0 at `addr`; `None` when they do not fit.
 fn write_mem(caller: &mut Caller<'_, State>, addr: i32, bytes: &[u8]) -> Option<()> {
     let mem = memory0(caller)?;
@@ -678,6 +693,82 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                     .func_wrap(NATIVE_IMPORT_MODULE, "f_tx", |mut caller: Caller<'_, State>, op: i32, id: i32, slot: i32| -> i32 {
                         caller.data_mut().files.tx(op, id, slot);
                         0
+                    })
+                    .map_err(fail)?;
+            }
+            // T39c, A39: APPEND-FILE (`append` 1) and WRITE-FILE (0), with the interpreter's own
+            // steps: the path trimmed and anchored at the application's folder, the text's trailing
+            // spaces dropped, one line written. Answers the length of why it failed (0 when written).
+            (NATIVE_IMPORT_MODULE, "t_write") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "t_write",
+                        |mut caller: Caller<'_, State>, append: i32, path: i32, path_len: i32, text: i32, text_len: i32, buf: i32, cap: i32| -> i32 {
+                            let (Some(path), Some(text)) = (read_mem(&mut caller, path, path_len), read_mem(&mut caller, text, text_len)) else {
+                                return answer(&mut caller, buf, cap, b"the program handed the runner memory it does not have");
+                            };
+                            let path = cobolt_runtime::interpreter::anchor_relative_path(String::from_utf8_lossy(&path).trim());
+                            let text = String::from_utf8_lossy(&text);
+                            let append = append != 0;
+                            let written = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(append)
+                                .write(true)
+                                .truncate(!append)
+                                .open(&path)
+                                .and_then(|mut f| writeln!(f, "{}", text.trim_end()));
+                            match written {
+                                Ok(()) => 0,
+                                Err(e) => answer(&mut caller, buf, cap, e.to_string().as_bytes()),
+                            }
+                        },
+                    )
+                    .map_err(fail)?;
+            }
+            // IMAGE-FIT: the interpreter's picture code, the paths anchored as it anchors them;
+            // answers the length of the status word.
+            (NATIVE_IMPORT_MODULE, "img_fit") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "img_fit",
+                        |mut caller: Caller<'_, State>, src: i32, src_len: i32, dst: i32, dst_len: i32, width: i64, height: i64, buf: i32, cap: i32| -> i32 {
+                            use cobolt_runtime::image_runtime as image;
+                            let (Some(src), Some(dst)) = (read_mem(&mut caller, src, src_len), read_mem(&mut caller, dst, dst_len)) else {
+                                return answer(&mut caller, buf, cap, image::NOFILE.as_bytes());
+                            };
+                            let anchored = |b: &[u8]| PathBuf::from(cobolt_runtime::interpreter::anchor_relative_path(String::from_utf8_lossy(b).trim()));
+                            let word = match image::fit(&anchored(&src), &anchored(&dst), width, height) {
+                                Ok(()) => image::OK,
+                                Err(word) => word,
+                            };
+                            answer(&mut caller, buf, cap, word.as_bytes())
+                        },
+                    )
+                    .map_err(fail)?;
+            }
+            // IMAGE-INFO: the width and the height as two little-endian words, then "FORMAT STATUS"
+            // (no format on a refusal, and 0 × 0); answers the length after the two words.
+            (NATIVE_IMPORT_MODULE, "img_info") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "img_info", |mut caller: Caller<'_, State>, path: i32, path_len: i32, buf: i32, cap: i32| -> i32 {
+                        use cobolt_runtime::image_runtime as image;
+                        let got = match read_mem(&mut caller, path, path_len) {
+                            Some(p) => image::info(&PathBuf::from(cobolt_runtime::interpreter::anchor_relative_path(String::from_utf8_lossy(&p).trim()))),
+                            None => Err(image::NOFILE),
+                        };
+                        let (width, height, format, word) = match got {
+                            Ok(i) => (i.width, i.height, i.format, image::OK),
+                            Err(word) => (0, 0, "", word),
+                        };
+                        let mut out = Vec::with_capacity(8 + format.len() + 1 + word.len());
+                        out.extend_from_slice(&width.to_le_bytes());
+                        out.extend_from_slice(&height.to_le_bytes());
+                        out.extend_from_slice(format.as_bytes());
+                        out.push(b' ');
+                        out.extend_from_slice(word.as_bytes());
+                        (answer(&mut caller, buf, cap, &out) - 8).max(0)
                     })
                     .map_err(fail)?;
             }
