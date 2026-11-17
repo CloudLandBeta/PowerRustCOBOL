@@ -166,7 +166,7 @@ DB-SEARCH rect=[70 15 370 49] font=13
 DB-SETTINGS rect=[14 784 206 820] font=13
 DB-TITLE rect=[650 16 1346 48] font=20
 SB-INFO rect=[0 834 1360 860] font=13
-shapes=620 digest=3c5f04b896dfb87a
+shapes=620 digest=025b403f69b57a83
 ## Run 1x 1360x860
 DB-BAR rect=[238 200 783 501] font=13
 DB-CUSTOMERS rect=[238 515 504 816] font=13
@@ -208,7 +208,7 @@ DB-SEARCH rect=[70 15 370 49] font=13
 DB-SETTINGS rect=[14 784 206 820] font=13
 DB-TITLE rect=[650 16 1346 48] font=20
 SB-INFO rect=[0 834 1360 860] font=13
-shapes=721 digest=8e0ac1cfaf476bc9
+shapes=721 digest=70f18c5805c0117c
 ## Preview 1x 1360x860
 DB-BAR rect=[238 200 783 501] font=13
 DB-CUSTOMERS rect=[238 515 504 816] font=13
@@ -250,7 +250,7 @@ DB-SEARCH rect=[70 15 370 49] font=13
 DB-SETTINGS rect=[14 784 206 820] font=13
 DB-TITLE rect=[650 16 1346 48] font=20
 SB-INFO rect=[0 834 1360 860] font=13
-shapes=721 digest=8e0ac1cfaf476bc9
+shapes=721 digest=70f18c5805c0117c
 ## Canvas 1.5x 2040x1290
 DB-BAR rect=[238 200 1123 716] font=17
 DB-CUSTOMERS rect=[238 730 674 1246] font=17
@@ -292,7 +292,7 @@ DB-SEARCH rect=[70 15 370 49] font=17
 DB-SETTINGS rect=[14 1214 206 1250] font=17
 DB-TITLE rect=[650 16 2026 48] font=26
 SB-INFO rect=[0 1264 2040 1290] font=17
-shapes=620 digest=dc148d7d2d28644b
+shapes=620 digest=3ef0d0e15682669c
 ## Run 1.5x 2040x1290
 DB-BAR rect=[238 200 1123 716] font=17
 DB-CUSTOMERS rect=[238 730 674 1246] font=17
@@ -334,7 +334,7 @@ DB-SEARCH rect=[70 15 370 49] font=17
 DB-SETTINGS rect=[14 1214 206 1250] font=17
 DB-TITLE rect=[650 16 2026 48] font=26
 SB-INFO rect=[0 1264 2040 1290] font=17
-shapes=721 digest=bae63fcccb5b1c75
+shapes=721 digest=d4545118bf90c726
 ## Preview 1.5x 2040x1290
 DB-BAR rect=[238 200 1123 716] font=17
 DB-CUSTOMERS rect=[238 730 674 1246] font=17
@@ -376,4 +376,4 @@ DB-SEARCH rect=[70 15 370 49] font=17
 DB-SETTINGS rect=[14 1214 206 1250] font=17
 DB-TITLE rect=[650 16 2026 48] font=26
 SB-INFO rect=[0 1264 2040 1290] font=17
-shapes=721 digest=bae63fcccb5b1c75
+shapes=721 digest=d4545118bf90c726

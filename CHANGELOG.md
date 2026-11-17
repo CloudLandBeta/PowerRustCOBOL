@@ -2,6 +2,20 @@
 
 
 
+## 2.0.584 — 2026-11-17
+
+**Fix: the example-corpus golden follows the centred pie and donut of 2.0.413. `every_example_form_renders_as_its_golden` is green again.**
+- **What was wrong:** 2.0.413 draws a pie or a donut in the middle of its control, as intended, but did not re-record the corpus golden. Since then the three PowerDemo3 forms that hold a `PieChart` or a `DonutChart` failed it:
+  - `Charts/chart-3d.cfrm`: 9 renders;
+  - `Charts/charts-form.cfrm`: 9 renders;
+  - `Responsive Layout/responsive-dashboard-form.cfrm`: 6 renders.
+- **Why it is that change:**
+  - Only those three forms moved, and they are exactly the corpus forms with a pie or a donut. `General/inner-form2.cfrm`, whose only chart is a `LineChart`, did not move.
+  - 2.0.413 is the only change to how a pie or donut is painted since the golden was last recorded (2.0.360).
+  - In every changed render, only the digest of the drawn shapes moved. The shape counts and every control's rectangle are the same, which is what moving a drawing inside its control looks like.
+- **What changed:** the golden of those three forms was re-recorded (`COBOLT_WRITE_GOLDEN=1`), 24 lines in 3 files. No code changed.
+- **Tests:** `cargo test -p cobolt-forms --features render --test example_corpus_golden` is green: 76 forms, 684 renders, 0 forms differing, 206.5 s.
+
 ## 2.0.583 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T39c, in part): the concatenation operator `&` takes the WebAssembly path. A program that joins texts with `&` no longer stops the Build at the generator.**

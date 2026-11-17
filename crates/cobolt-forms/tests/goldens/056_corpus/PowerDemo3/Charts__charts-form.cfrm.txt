@@ -19,7 +19,7 @@ Label-TITLE rect=[24 16 1256 46] font=19
 LineChart-1 rect=[448 64 840 304] font=11
 PieChart-1 rect=[872 64 1264 304] font=11
 ScatterChart-1 rect=[448 320 840 560] font=11
-shapes=1027 digest=00b62d900f62bfab
+shapes=1027 digest=ee0a474de34d1e5b
 ## Run 0.75x 972x612
 AreaChart-1 rect=[24 320 416 560] font=11
 BarChart-1 rect=[24 64 416 304] font=11
@@ -40,7 +40,7 @@ Label-TITLE rect=[24 16 1256 46] font=19
 LineChart-1 rect=[448 64 840 304] font=11
 PieChart-1 rect=[872 64 1264 304] font=11
 ScatterChart-1 rect=[448 320 840 560] font=11
-shapes=1030 digest=f452a14856f7810a
+shapes=1030 digest=db7909e488e70e22
 ## Preview 0.75x 972x612
 AreaChart-1 rect=[24 320 416 560] font=11
 BarChart-1 rect=[24 64 416 304] font=11
@@ -61,7 +61,7 @@ Label-TITLE rect=[24 16 1256 46] font=19
 LineChart-1 rect=[448 64 840 304] font=11
 PieChart-1 rect=[872 64 1264 304] font=11
 ScatterChart-1 rect=[448 320 840 560] font=11
-shapes=1030 digest=f452a14856f7810a
+shapes=1030 digest=db7909e488e70e22
 ## Canvas 1x 1296x816
 AreaChart-1 rect=[24 320 416 560] font=11
 BarChart-1 rect=[24 64 416 304] font=11
@@ -82,7 +82,7 @@ Label-TITLE rect=[24 16 1256 46] font=19
 LineChart-1 rect=[448 64 840 304] font=11
 PieChart-1 rect=[872 64 1264 304] font=11
 ScatterChart-1 rect=[448 320 840 560] font=11
-shapes=1027 digest=88bcb46f2e55b85a
+shapes=1027 digest=6ab5deb998793092
 ## Run 1x 1296x816
 AreaChart-1 rect=[24 320 416 560] font=11
 BarChart-1 rect=[24 64 416 304] font=11
@@ -103,7 +103,7 @@ Label-TITLE rect=[24 16 1256 46] font=19
 LineChart-1 rect=[448 64 840 304] font=11
 PieChart-1 rect=[872 64 1264 304] font=11
 ScatterChart-1 rect=[448 320 840 560] font=11
-shapes=1030 digest=c2a331098b1ce206
+shapes=1030 digest=f3b19806bde99e16
 ## Preview 1x 1296x816
 AreaChart-1 rect=[24 320 416 560] font=11
 BarChart-1 rect=[24 64 416 304] font=11
@@ -124,7 +124,7 @@ Label-TITLE rect=[24 16 1256 46] font=19
 LineChart-1 rect=[448 64 840 304] font=11
 PieChart-1 rect=[872 64 1264 304] font=11
 ScatterChart-1 rect=[448 320 840 560] font=11
-shapes=1030 digest=c2a331098b1ce206
+shapes=1030 digest=f3b19806bde99e16
 ## Canvas 1.5x 1944x1224
 AreaChart-1 rect=[24 320 416 560] font=11
 BarChart-1 rect=[24 64 416 304] font=11
@@ -145,7 +145,7 @@ Label-TITLE rect=[24 16 1256 46] font=19
 LineChart-1 rect=[448 64 840 304] font=11
 PieChart-1 rect=[872 64 1264 304] font=11
 ScatterChart-1 rect=[448 320 840 560] font=11
-shapes=1027 digest=2545987a024014e6
+shapes=1027 digest=c7fb69539f07a1f6
 ## Run 1.5x 1944x1224
 AreaChart-1 rect=[24 320 416 560] font=11
 BarChart-1 rect=[24 64 416 304] font=11
@@ -166,7 +166,7 @@ Label-TITLE rect=[24 16 1256 46] font=19
 LineChart-1 rect=[448 64 840 304] font=11
 PieChart-1 rect=[872 64 1264 304] font=11
 ScatterChart-1 rect=[448 320 840 560] font=11
-shapes=1030 digest=512a9eb9466dd672
+shapes=1030 digest=f308b1988c844c2a
 ## Preview 1.5x 1944x1224
 AreaChart-1 rect=[24 320 416 560] font=11
 BarChart-1 rect=[24 64 416 304] font=11
@@ -187,4 +187,4 @@ Label-TITLE rect=[24 16 1256 46] font=19
 LineChart-1 rect=[448 64 840 304] font=11
 PieChart-1 rect=[872 64 1264 304] font=11
 ScatterChart-1 rect=[448 320 840 560] font=11
-shapes=1030 digest=cb9a438aaf2c354d
+shapes=1030 digest=3c7d516d9bfe4f8d

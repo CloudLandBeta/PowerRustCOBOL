@@ -7,7 +7,7 @@ PictureBox-Desk rect=[0 0 1216 672] font=13
 PieChart-1 rect=[624 336 751 464] font=9
 RadarChart-1 rect=[424 336 592 536] font=11
 Timer-1 rect=[1136 16 1184 64] font=14
-shapes=279 digest=f0645694a5dbef70
+shapes=279 digest=fd4d56cf7ce6c756
 ## Run 0.75x 1725x504
 BarChart-1 rect=[208 248 528 468] font=13
 LineChart-1 rect=[792 336 952 496] font=9
@@ -16,7 +16,7 @@ PictureBox-Desk rect=[0 0 1216 672] font=13
 PieChart-1 rect=[624 336 751 464] font=9
 RadarChart-1 rect=[424 336 592 536] font=11
 Timer-1 rect=[1136 16 1184 64] font=14
-shapes=276 digest=0d2fface5df7311a
+shapes=276 digest=fd589d2ef1c6f92c
 ## Preview 0.75x 1725x504
 BarChart-1 rect=[208 248 528 468] font=13
 LineChart-1 rect=[792 336 952 496] font=9
@@ -25,7 +25,7 @@ PictureBox-Desk rect=[0 0 1216 672] font=13
 PieChart-1 rect=[624 336 751 464] font=9
 RadarChart-1 rect=[424 336 592 536] font=11
 Timer-1 rect=[1136 16 1184 64] font=14
-shapes=276 digest=0d2fface5df7311a
+shapes=276 digest=fd589d2ef1c6f92c
 ## Canvas 1x 2300x672
 BarChart-1 rect=[208 248 528 468] font=13
 LineChart-1 rect=[792 336 952 496] font=9
@@ -34,7 +34,7 @@ PictureBox-Desk rect=[0 0 1216 672] font=13
 PieChart-1 rect=[624 336 751 464] font=9
 RadarChart-1 rect=[424 336 592 536] font=11
 Timer-1 rect=[1136 16 1184 64] font=14
-shapes=284 digest=2093605a3ac73de8
+shapes=284 digest=78c5051206211b5a
 ## Run 1x 2300x672
 BarChart-1 rect=[208 248 528 468] font=13
 LineChart-1 rect=[792 336 952 496] font=9
@@ -43,7 +43,7 @@ PictureBox-Desk rect=[0 0 1216 672] font=13
 PieChart-1 rect=[624 336 751 464] font=9
 RadarChart-1 rect=[424 336 592 536] font=11
 Timer-1 rect=[1136 16 1184 64] font=14
-shapes=281 digest=4b2be670ec7c27b0
+shapes=281 digest=241823baf30543ca
 ## Preview 1x 2300x672
 BarChart-1 rect=[208 248 528 468] font=13
 LineChart-1 rect=[792 336 952 496] font=9
@@ -52,7 +52,7 @@ PictureBox-Desk rect=[0 0 1216 672] font=13
 PieChart-1 rect=[624 336 751 464] font=9
 RadarChart-1 rect=[424 336 592 536] font=11
 Timer-1 rect=[1136 16 1184 64] font=14
-shapes=281 digest=4b2be670ec7c27b0
+shapes=281 digest=241823baf30543ca
 ## Canvas 1.5x 3450x1008
 BarChart-1 rect=[208 248 528 468] font=13
 LineChart-1 rect=[792 336 952 496] font=9
@@ -61,7 +61,7 @@ PictureBox-Desk rect=[0 0 1216 672] font=13
 PieChart-1 rect=[624 336 751 464] font=9
 RadarChart-1 rect=[424 336 592 536] font=11
 Timer-1 rect=[1136 16 1184 64] font=14
-shapes=284 digest=dcd87ce02f5a3206
+shapes=284 digest=d7a8a4961681b750
 ## Run 1.5x 3450x1008
 BarChart-1 rect=[208 248 528 468] font=13
 LineChart-1 rect=[792 336 952 496] font=9
@@ -70,7 +70,7 @@ PictureBox-Desk rect=[0 0 1216 672] font=13
 PieChart-1 rect=[624 336 751 464] font=9
 RadarChart-1 rect=[424 336 592 536] font=11
 Timer-1 rect=[1136 16 1184 64] font=14
-shapes=281 digest=f1a3fc0ef787aa7b
+shapes=281 digest=539305fc77cd2bd5
 ## Preview 1.5x 3450x1008
 BarChart-1 rect=[208 248 528 468] font=13
 LineChart-1 rect=[792 336 952 496] font=9
@@ -79,4 +79,4 @@ PictureBox-Desk rect=[0 0 1216 672] font=13
 PieChart-1 rect=[624 336 751 464] font=9
 RadarChart-1 rect=[424 336 592 536] font=11
 Timer-1 rect=[1136 16 1184 64] font=14
-shapes=281 digest=31d1423fc044010c
+shapes=281 digest=e43ed349595ebfd2
