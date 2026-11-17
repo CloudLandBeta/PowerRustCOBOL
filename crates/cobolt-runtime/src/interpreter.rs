@@ -2321,11 +2321,7 @@ impl Interpreter {
     /// The standard NULL-`super` error (R32, the 037 R24 NULL-handle
     /// precedent): raised whenever `super` is referenced with no live parent.
     fn super_is_null_error(&self) -> RuntimeError {
-        RuntimeError::General {
-            message: "super is NULL — this form has no parent (the main form, or \
-                      its opener already closed)"
-                .into(),
-        }
+        RuntimeError::General { message: cobolt_forms::exceptions::SUPER_IS_NULL.into() }
     }
 
     /// Drain the closed-handle broadcast: any windowHandler variable holding
@@ -13429,14 +13425,12 @@ impl Interpreter {
     /// point: the form that has not thought about errors is exactly the one
     /// with no notification control on it.
     fn report_critical_exception(&mut self, form: &str, detail: &str) {
-        let text = format!(
-            "A critical exception has occurred: {detail}. Implement the event \
-             handler onUnhandledException to get better control over the exception."
-        );
+        // The words are the desktop runner's too (DESKTOP-WASM-001 R27).
+        let text = cobolt_forms::exceptions::critical_exception_text(detail);
         if let Some(tx) = &self.state_tx {
             let _ = tx.send(crate::channels::StateUpdate::new(
                 form.to_owned(),
-                "_CriticalException".to_owned(),
+                cobolt_forms::exceptions::CRITICAL_EXCEPTION_PROP.to_owned(),
                 text,
             ));
         }

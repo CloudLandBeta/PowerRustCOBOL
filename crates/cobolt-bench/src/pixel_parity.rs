@@ -798,6 +798,16 @@ fn compare_pair(cargo: &Run, wasm: &Run, dir: &Path) -> PairCompare {
             }
         }
     }
+    // What each program wrote goes beside the pictures of a difference: a run-time error says why.
+    if !c.differing.is_empty() {
+        for (tag, run) in [("a", cargo), ("b", wasm)] {
+            if let Some(out) = run.shots_dir.parent() {
+                for stream in ["stdout", "stderr"] {
+                    let _ = std::fs::copy(out.join(format!("{stream}.txt")), dir.join(format!("{stream}-{tag}.txt")));
+                }
+            }
+        }
+    }
     let (x, y) = (reads_of(&cargo.steps), reads_of(&wasm.steps));
     c.reads = x.len().max(y.len());
     for i in 0..c.reads {

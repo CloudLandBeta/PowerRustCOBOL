@@ -412,7 +412,7 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
         match (module.as_str(), name.as_str()) {
             (IMPORT_MODULE, "flush") => {
                 linker
-                    .func_wrap(IMPORT_MODULE, "flush", |mut caller: Caller<'_, State>, len: i32| {
+                    .func_wrap(IMPORT_MODULE, "flush", |mut caller: Caller<'_, State>, len: i32| -> wasmtime::Result<()> {
                         let batch = read_batch(&caller, len);
                         let list = read_gfx(&caller, &batch);
                         let st = caller.data_mut();
@@ -421,10 +421,16 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                                 if let Some(list) = list {
                                     f.host.set_gfx(list);
                                 }
-                                f.host.flush(&batch)
+                                f.host.flush(&batch);
+                                // A command of the handler failed: its run ends there, as the interpreter's does,
+                                // and the ABI host makes the failure the form's unhandled exception.
+                                if f.host.halted() {
+                                    return Err(wasmtime::Error::msg("run-time error"));
+                                }
                             }
                             None => apply(&batch, st, false),
                         }
+                        Ok(())
                     })
                     .map_err(fail)?;
             }

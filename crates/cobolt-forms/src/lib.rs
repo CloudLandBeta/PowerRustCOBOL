@@ -40,6 +40,8 @@ pub mod sequence;
 /// WASM-016 — the form description the browser player draws from: versioned JSON, no code (R3, R4).
 pub mod description;
 pub mod diagnostics;
+/// What a form shows when a handler fails and nothing catches it: the words of both engines (DESKTOP-WASM-001 R27).
+pub mod exceptions;
 pub mod icons;
 pub mod items_file;
 pub mod menu;

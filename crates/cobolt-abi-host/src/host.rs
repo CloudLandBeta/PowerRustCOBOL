@@ -38,6 +38,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::rc::Rc;
 
+use cobolt_forms::exceptions;
 use cobolt_forms::model::{ControlType, Form};
 use cobolt_wasm_abi::batch::{encode_event_args, BatchReader, Command, DecodeError, Parts, Path};
 use cobolt_wasm_abi::codes::{ctrl, err, Status};
@@ -670,6 +671,14 @@ pub struct Host {
     aborted: bool,
     /// An error was already reported during the call in flight (an ERROR command, a bad command).
     reported_in_call: bool,
+    /// On the desktop, the first failure of the handler that is running (a refused command, a failed read, a run-time
+    /// error). The handler stops at it, as the interpreter's does, and once its run is over the failure is the form's
+    /// unhandled exception ([`Host::settle_unhandled`]).
+    unhandled: Option<RunError>,
+    /// That failure, when the handler was a start-up (`onLoad`): it waits for the cancel that names the instance.
+    unhandled_at_open: Option<RunError>,
+    /// The call that is ending is a handler's run whose failure the desktop owns ([`Host::owns_failure`]).
+    completing: bool,
     /// The form that opened this standalone window, living in another window (WASM-011 R11).
     pub remote_opener: Option<RemoteOpener>,
     /// The room the page gives a form, measured before it opens: the application's window (the page's main area) and the
@@ -800,6 +809,9 @@ impl Host {
             started: false,
             aborted: false,
             reported_in_call: false,
+            unhandled: None,
+            unhandled_at_open: None,
+            completing: false,
             remote_opener: None,
             menus: crate::menus::MenuStore::default(),
         }
@@ -1521,6 +1533,77 @@ impl Host {
     // ── a call finished ─────────────────────────────────────────────────────
 
     pub fn complete(&mut self, call: &ModuleCall, result: CallResult) {
+        let flight = self.inflight.as_ref();
+        let desc = flight.and_then(|f| f.event_desc.clone());
+        // The instance the run that ends here belongs to, once it is known.
+        let inst = match (call, &result) {
+            (ModuleCall::Event { inst, .. }, _) => Some(*inst),
+            (ModuleCall::Resume { .. }, _) => flight.and_then(|f| f.inst),
+            (ModuleCall::OpenForm { .. }, CallResult::Opened { inst, .. }) => u32::try_from(*inst).ok(),
+            // A start-up that trapped: its instance is the one the cancel that follows names.
+            (ModuleCall::Cancel { task: -1 }, CallResult::Status { status, task }) if self.recovering.is_some() && *status >= 0 => {
+                u32::try_from(*task).ok()
+            }
+            _ => None,
+        };
+        let open_trapped = matches!((call, &result), (ModuleCall::OpenForm { .. }, CallResult::Trapped(_)));
+        self.completing = self.owns_failure(desc.as_ref());
+        self.complete_call(call, result);
+        self.completing = false;
+        if open_trapped {
+            self.unhandled_at_open = self.unhandled.take();
+            return;
+        }
+        if inst.is_some() && self.unhandled.is_none() && matches!(call, ModuleCall::Cancel { .. }) {
+            self.unhandled = self.unhandled_at_open.take();
+        }
+        match inst {
+            Some(i) => self.settle_unhandled(i, desc.as_ref()),
+            // Nothing to show it on.
+            None => {
+                if let Some(e) = self.unhandled.take().or_else(|| self.unhandled_at_open.take()) {
+                    self.effects.push(Effect::RuntimeError(e));
+                }
+            }
+        }
+    }
+
+    /// Whether a failure in the run `desc` describes is the form's unhandled exception: on the desktop, any handler's
+    /// run but `onClose`'s, whose form is going. Elsewhere a failure is reported where it happens, and the run goes on.
+    fn owns_failure(&self, desc: Option<&(String, String)>) -> bool {
+        self.opts.desktop && desc.is_some_and(|(_, ev)| !ev.eq_ignore_ascii_case("onClose"))
+    }
+
+    /// The failure a desktop handler stopped at, now that its run is over: what the interpreter does with an exception
+    /// nobody caught (`handle_unhandled_exception`). The form keeps it as `LastException` and goes on. When the form
+    /// binds `onUnhandledException`, that runs next, before anything else waiting; otherwise the window shows the
+    /// critical notice in the interpreter's words. A failure of `onUnhandledException` itself is reported as any
+    /// run-time error is, as the interpreter does not hand it to itself again.
+    fn settle_unhandled(&mut self, inst: u32, desc: Option<&(String, String)>) {
+        let Some(e) = self.unhandled.take() else { return };
+        let again = desc.is_some_and(|(_, ev)| ev.eq_ignore_ascii_case(exceptions::UNHANDLED_EXCEPTION_EVENT));
+        let Some(form) = self.trees.get(&inst).map(|t| t.form_idx).filter(|_| !again) else {
+            self.effects.push(Effect::RuntimeError(e));
+            return;
+        };
+        let bound = self.manifest.events.iter().position(|n| n.eq_ignore_ascii_case(exceptions::UNHANDLED_EXCEPTION_EVENT)).filter(|&ev| {
+            self.manifest.forms[form].handlers.iter().any(|h| h.ctrl == ctrl::FORM && h.event as usize == ev)
+        });
+        // A run-time error the module raised with no text of its own is named by its code and place.
+        let detail = if e.message.is_empty() { e.describe() } else { e.message.clone() };
+        let tree = self.trees.get_mut(&inst).expect("looked up above");
+        let _ = tree.set(0, "LastException", &detail);
+        match bound {
+            Some(ev) => {
+                // After the cancel that discards the run that stopped.
+                let at = self.work.iter().take_while(|w| matches!(w, Work::Cancel)).count();
+                self.work.insert(at, Work::Event(QueuedEvent { inst, ctrl: ctrl::FORM, event: ev as u32, args: Vec::new() }));
+            }
+            None => tree.command(0, crate::tree::ORDERED_WRITES, vec![exceptions::CRITICAL_EXCEPTION_PROP.to_owned(), exceptions::critical_exception_text(&detail)]),
+        }
+    }
+
+    fn complete_call(&mut self, call: &ModuleCall, result: CallResult) {
         let flight = self.inflight.take();
         let inst = flight.as_ref().and_then(|f| f.inst);
         let wait = flight.as_ref().and_then(|f| f.wait.clone());
@@ -1756,7 +1839,18 @@ impl Host {
         e.message = self.without_secrets(&e.message);
         self.last_error = e.code;
         self.reported_in_call = true;
+        // On the desktop a handler stops at its first failure, which waits for the end of its run.
+        if self.completing || self.owns_failure(self.inflight.as_ref().and_then(|f| f.event_desc.as_ref())) {
+            self.unhandled.get_or_insert(e);
+            return;
+        }
         self.effects.push(Effect::RuntimeError(e));
+    }
+
+    /// The handler that is running failed on the desktop: the runner traps the module, so that the run ends at the
+    /// failure, as the interpreter's handler does ([`Host::flush`] applies nothing after it).
+    pub fn halted(&self) -> bool {
+        self.unhandled.is_some()
     }
 
     /// `text` with the text of every password-mode control in it replaced by `<redacted>` (WASM-013 R13, T18). An error
@@ -1898,7 +1992,8 @@ impl Host {
 
     // ── imports: the module calls the host ──────────────────────────────────
 
-    /// `flush(len)`: apply a batch. Errors in a command are reported and the rest still apply.
+    /// `flush(len)`: apply a batch. Errors in a command are reported and the rest still apply; on the desktop a
+    /// handler's first failure ends the batch there ([`Host::halted`]).
     pub fn flush(&mut self, bytes: &[u8]) {
         self.stats.flushes += 1;
         self.stats.bytes_in += bytes.len() as u64;
@@ -2083,6 +2178,11 @@ impl Host {
         let mut answer: Option<Result<String, i32>> = None;
         let mut reader = BatchReader::new(bytes);
         while let Some(item) = reader.next() {
+            // On the desktop nothing after a handler's failure is applied: the interpreter's handler never ran it.
+            if self.unhandled.is_some() {
+                self.parts.clear();
+                break;
+            }
             let cmd = match item {
                 Ok(c) => c,
                 Err(e) => {
@@ -2234,11 +2334,13 @@ impl Host {
                         return Ok(Target::Remote);
                     }
                 }
+                // On the desktop the failure is the interpreter's, in its words: they are the critical notice's.
+                let desktop = self.opts.desktop;
                 let opener = self.trees[&path.inst].opener.ok_or_else(|| {
-                    CmdError::Refused("`super::` was used in a form that nothing opened (it is the first form)".into())
+                    CmdError::Refused(if desktop { exceptions::SUPER_IS_NULL } else { "`super::` was used in a form that nothing opened (it is the first form)" }.into())
                 })?;
                 if !self.trees.contains_key(&opener) {
-                    return Err(CmdError::Refused("the form that opened this one has been closed".into()));
+                    return Err(CmdError::Refused(if desktop { exceptions::SUPER_IS_NULL } else { "the form that opened this one has been closed" }.into()));
                 }
                 Ok(Target::Ctl { inst: opener, idx: 0 })
             }
@@ -3922,6 +4024,8 @@ mod raise_tests;
 mod long_args_tests;
 #[cfg(test)]
 mod aws_tests;
+#[cfg(test)]
+mod unhandled_tests;
 #[cfg(test)]
 mod resize_tests;
 #[cfg(test)]

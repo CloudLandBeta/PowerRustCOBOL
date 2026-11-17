@@ -2,6 +2,45 @@
 
 
 
+## 2.0.570 — 2026-11-17
+
+**Fix: on the WebAssembly path a desktop handler that fails stops there, and the form shows the same notice as under the interpreter.**
+- **What was wrong.** On the desktop's WebAssembly path, a failed statement in a form's handler ended the handler only when it was a read. A failed command (a method call or a property write) was reported as a `Runtime error:` line in the program's output, and the handler went on to the statements after it. Neither case showed the critical notice that Run Form and a Cargo-built program show.
+  - **Found by** the pixel run of 2.0.566 (AC19): PowerCobolCraft's `world-form` and PowerSpatial's `toolbar-form`, each opened on its own. `BTN-QUIT` writes to `super::` and then closes its form. With no form above it, the interpreter stops at the `super::` and the form stays open with the notice. The runner closed the form.
+- **What happens now** on the desktop's WebAssembly path, as under the interpreter:
+  - **The handler stops at its first failure.** Nothing it would have done after that is carried out: no later command of the same batch, no `DISPLAY`.
+  - **The failure becomes the form's unhandled exception.**
+    - The form keeps it as `LastException`.
+    - When the form binds `onUnhandledException`, that handler runs next, before anything else waiting.
+    - Otherwise the window shows the critical notice: "A critical exception has occurred: … Implement the event handler onUnhandledException to get better control over the exception."
+    - The form goes on taking events.
+  - **The same goes for `onLoad`.** The notice appears on the form that opens.
+  - **A `super::` that names no live form** fails with the interpreter's words: "super is NULL — this form has no parent (the main form, or its opener already closed)".
+  - **The two texts are now one source** that the interpreter and the runner both use: `cobolt_forms::exceptions`.
+- **Not changed:**
+  - A failure in `onUnhandledException` itself, or in `onClose`, is reported as a run-time error, as before.
+  - A browser page keeps its rule: the failure is reported and the rest of the batch still applies. That rule is the ABI host's flush rule, now with the desktop exception named.
+  - **Still open:** a failure inside a `CALL`ed procedure ends the whole handler on the runner, while the interpreter takes it at that `CALL` and the caller goes on (WASM-PARITY row 67).
+- **Tests:**
+  - **The ABI host's `unhandled_tests`:**
+    - a handler stops at its failure and shows the notice (8 of 8);
+    - `onUnhandledException` runs next, and its own failure is reported (6 of 6);
+    - a failed `onLoad` shows the notice on the form it opens (8 of 8);
+    - a page applies the rest, as before (4 of 4).
+    - The crate passes 271 of 271.
+  - **`cobolt-forms`:** the notice's text, 4 of 4.
+  - **The interpreter:** `test_super_receiver` 9 of 9 and `test_unhandled_exception` 7 of 7.
+  - **The runner's tests:** 10 of 10 (2 unit tests, then 5, 1 and 2 in `module_corpus` and `files`).
+  - **Pixel parity** (AC19, `cobolt-bench pixel-parity`):
+    - **PowerSpatial** has moved: 138 of 138 frames identical, and all 138 meet their golden hashes (132 of 138 at 2.0.566).
+    - **PowerCobolCraft:** 41 of 66 frames identical (21 of 66 at 2.0.566). What still differs is the subject of the next two fixes:
+      - `title-form`'s Play, Continue and Quit at every size (9 frames): run-time error 1101, a reference modification outside its item, in `world-form`'s start-up (2.0.571).
+      - `world-form` opened on its own (14 frames at the designed size, and Respawn at the other two): the hotbar is not drawn under the WebAssembly runner. Its start-up stops at `super::` under both engines, so the tile table is never filled, and `CRAFT-HUD` reads `WS-TILE-IMAGE(0)`. The interpreter reads zero there (measured with `rcrun run`). A module stops there with error 1100, before `Present()`, which is what the pictures show: the canvas cleared and never presented.
+    - **The bench now keeps each program's standard output and standard error** beside the pictures of a difference (`stdout-a.txt`, `stderr-b.txt` …), so a run-time error behind a picture can be read.
+  - **The web player** was rebuilt (the ABI host changed): the `plain` and `threaded` players were rewritten; the player's `abi_host` tests pass 28 of 28 and `freshness` 6 of 6.
+  - **The AC16 pin** (`desktop_wasm_unchanged`): the Web Build of PowerAnalyticsWeb still matches its pin, 3 of 3 files.
+- **WASM-PARITY row 67.**
+
 ## 2.0.569 — 2026-11-17
 
 **Fix: on Windows, a window on a second monitor is fitted to that monitor and stays on it.** The form host fits the main window and the windows docked to it on the screen (2.0.535). On Windows it took the monitor's size, less 48 points for a task bar, but placed that area at the primary monitor's corner, because Windows was never asked where the screen is. So a window dragged onto a monitor right of or below the primary was fitted and then pulled back onto the primary. This was the follow-up noted under 2.0.535.
