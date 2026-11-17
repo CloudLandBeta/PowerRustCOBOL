@@ -1230,7 +1230,7 @@ fn canvases_and_graphics_objects_draw_and_answer_alike() {
     graphic(&mut main, "IMG-1", "ImageBuffer", (548, 16, 32, 32), &[]);
     graphic(&mut main, "PHY-1", "Physics2D", (548, 56, 32, 32), &[]);
     graphic(&mut main, "PLT-1", "Plot", (548, 96, 32, 32), &[]);
-    let cases: [(&str, &[&str], &[&str]); 5] = [
+    let cases: [(&str, &[&str], &[&str]); 7] = [
         (
             "DRAW",
             &["01 WS-PX PIC X(20).", "01 WS-W PIC X(20).", "01 WS-SHOW PIC X(40)."],
@@ -1271,6 +1271,29 @@ fn canvases_and_graphics_objects_draw_and_answer_alike() {
             &["01 WS-S PIC X(20).", "01 WS-N PIC X(20)."],
             &["SET WS-S TO PLT-1::AddSeries( \"line\" \"a\" )", "PLT-1::AddPoint( WS-S 0 1 )", "PLT-1::AddPoint( WS-S 1 3 )", "SET WS-N TO PLT-1::GetSeriesCount()", "MOVE WS-N TO LBL-PLOT::Caption"],
         ),
+        // The chart drawn onto the canvas by its handle, between the canvas's own `Clear` and
+        // `Present` (examples/PowerGraphics charts-form): the `Clear` must be drawn before the chart.
+        (
+            "CHART",
+            &["01 WS-CNV PIC X(20)."],
+            &["SET WS-CNV TO CNV-1::GetHandle()", "CNV-1::Clear( \"#101820\" )", "PLT-1::RenderToCanvas( WS-CNV 0 0 240 140 )", "CNV-1::Present()", "MOVE \"DRAWN\" TO LBL-CHART::Caption"],
+        ),
+        // Drawing, then a gradient whose colour stops the module hands to the host as a call, then
+        // more drawing (examples/PowerGraphics pool2d-form): what was drawn before the gradient
+        // must reach the canvas whole.
+        (
+            "GRADIENT",
+            &[],
+            &[
+                "CNV-1::Clear( \"#000000\" )",
+                "CNV-1::SetFillColor( \"#FFFFFF\" )",
+                "CNV-1::FillRect( 0 0 120 140 )",
+                "CNV-1::SetLinearGradient( 0 120 0 240 0 \"0 4278190335 1 16711935\" )",
+                "CNV-1::FillRect( 120 0 120 140 )",
+                "CNV-1::Present()",
+                "MOVE \"DRAWN\" TO LBL-GRADIENT::Caption",
+            ],
+        ),
         // A drawing call the library refuses, and a read-back it refuses: each says why in `LastError`.
         ("BAD", &["01 WS-PX PIC X(20)."], &["CNV-1::FillRect( \"wide\" )", "SET WS-PX TO PHY-1::GetBodyCount( 99 )", "MOVE PHY-1::LastError TO LBL-BAD::Caption"]),
     ];
@@ -1285,7 +1308,7 @@ fn canvases_and_graphics_objects_draw_and_answer_alike() {
     let mut steps = vec![wait(600)];
     for (name, _, _) in &cases {
         steps.extend([click(&format!("BTN-{name}")), wait(200), read(&format!("LBL-{name}"), "Caption")]);
-        if *name == "DRAW" || *name == "IMAGE" {
+        if *name == "DRAW" || *name == "IMAGE" || *name == "CHART" || *name == "GRADIENT" {
             steps.push(shot(&format!("after-{}", name.to_ascii_lowercase())));
         }
     }
@@ -1296,7 +1319,7 @@ fn canvases_and_graphics_objects_draw_and_answer_alike() {
     let a = interpreter(&root, "gfx-form", &steps, &home);
     let b = runner(&root, &exe, &steps, &home);
     let mut tally = Tally::default();
-    tally.compare("graphics", &a, &b, &["after-draw", "after-image", "frames"]);
+    tally.compare("graphics", &a, &b, &["after-draw", "after-image", "after-chart", "after-gradient", "frames"]);
     let got = readings(&b.report);
     for (i, r) in got.iter().enumerate() {
         tally.lines.push(format!("    runner read {i}: {r}"));
@@ -1306,11 +1329,13 @@ fn canvases_and_graphics_objects_draw_and_answer_alike() {
     tally.check("an image of 40 x 30 was made", at(1) == "40");
     tally.check("a body fell under gravity (its position was read)", !at(2).is_empty() && at(2) != "-");
     tally.check("the chart has one series", at(3) == "1");
-    tally.check("a refused read-back says why in LastError", at(4).contains("refused"));
-    tally.check("a refused drawing call says why in LastError", at(5).contains("refused"));
+    tally.check("the chart was drawn onto the canvas by its handle", at(4) == "DRAWN");
+    tally.check("the drawing before and after a gradient the host sets was done", at(5) == "DRAWN");
+    tally.check("a refused read-back says why in LastError", at(6).contains("refused"));
+    tally.check("a refused drawing call says why in LastError", at(7).contains("refused"));
     tally.finish(
         "canvases_and_graphics_objects_draw_and_answer_alike",
-        "a Canvas2D drawn (rectangles, text, Present) and read back (GetPixel, MeasureText); an ImageBuffer made and drawn onto it by handle; a Physics2D world stepped and read; a Plot series; a refused drawing call and a refused read-back (LastError); two canvases drawing in onFrame at TargetFps 10, AutoPresent on and off",
+        "a Canvas2D drawn (rectangles, text, Present) and read back (GetPixel, MeasureText); an ImageBuffer made and drawn onto it by handle; a Physics2D world stepped and read; a Plot series, drawn onto the canvas by its handle between the canvas's Clear and Present; drawing before and after a gradient whose colour stops go to the host as a call; a refused drawing call and a refused read-back (LastError); two canvases drawing in onFrame at TargetFps 10, AutoPresent on and off",
         &root,
         build_ms,
     );

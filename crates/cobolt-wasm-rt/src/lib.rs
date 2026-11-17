@@ -873,3 +873,12 @@ pub extern "C" fn rt_random_pin(base: u32, name: u32) {
 pub extern "C" fn rt_switches_env(base: u32, table: u32, name: u32) {
     accept::native_switches(base, table, name);
 }
+
+/// Hand the display list waiting for a canvas to the host now (ABI A23), ahead of a call on another
+/// graphics object: its method may draw on that canvas by the canvas's handle (a Plot's
+/// `RenderToCanvas`), so the canvas must hold what the program drew before the call, as it does
+/// under the interpreter, which draws each command as it runs.
+#[no_mangle]
+pub extern "C" fn rt_gfx_send() {
+    gfx::send();
+}

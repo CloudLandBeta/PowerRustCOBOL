@@ -454,7 +454,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             let first_layer = 3 + spec.controls.len() as u32;
             let layers = spec.layers.iter().enumerate().map(|(k, n)| (n.to_ascii_uppercase(), first_layer + k as u32)).collect();
             let canvases = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "Canvas2D").map(|(i, _)| 3 + i as u32).collect();
-            Some(FormCtx { controls, layers, layer_names: spec.layers.clone(), canvases, name: spec.name.clone() })
+            let graphics = spec.controls.iter().enumerate().filter(|(_, (_, k))| crate::lower::is_graphics_object(k)).map(|(i, _)| 3 + i as u32).collect();
+            Some(FormCtx { controls, layers, layer_names: spec.layers.clone(), canvases, graphics, name: spec.name.clone() })
         } else {
             None
         };

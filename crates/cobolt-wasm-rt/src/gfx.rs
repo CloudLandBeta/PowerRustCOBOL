@@ -406,4 +406,9 @@ pub fn send() {
     s.gfx_len = 0;
     s.gfx_cmds = 0;
     s.gfx_ctrl = NONE;
+    // The list goes to the host now: the glue copies a list only as the batch is handed over, and
+    // the next command is written where this one is staged. Kept until a later handover, a list
+    // sent ahead of a `CALL` (a command this module cannot encode, a read-back, another graphics
+    // object's method) was written over by the commands after it.
+    disp::flush();
 }

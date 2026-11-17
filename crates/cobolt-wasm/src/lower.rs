@@ -138,8 +138,18 @@ pub struct FormCtx {
     pub layer_names: Vec<String>,
     /// Control ids of the form's Canvas2D controls (their drawing methods become a display list, ABI A23).
     pub canvases: std::collections::HashSet<u32>,
+    /// Control ids of the form's other graphics objects ([`is_graphics_object`]): a method of one
+    /// may draw on a canvas by its handle, so the drawing waiting for a canvas goes ahead of it.
+    pub graphics: std::collections::HashSet<u32>,
     /// The form's name, for diagnostics.
     pub name: String,
+}
+
+/// Is a control of type `kind` a graphics object other than a Canvas2D: a Canvas3D, or one of the
+/// objects of class E of the web table (ImageBuffer, Plot, Scene3D, Physics2D, Physics3D)?
+pub fn is_graphics_object(kind: &str) -> bool {
+    use cobolt_forms::web_class::{class_of, Class};
+    kind.eq_ignore_ascii_case("Canvas3D") || class_of(&cobolt_forms::model::ControlType::from_str(kind)) == Class::E
 }
 
 pub struct Lowered {

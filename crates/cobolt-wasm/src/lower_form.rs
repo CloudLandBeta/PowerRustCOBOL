@@ -368,6 +368,17 @@ impl Lower<'_, '_> {
         (scalar && s.args.len() == info.operands.len()).then_some(info.opcode)
     }
 
+    /// Before a call or a read on a graphics object other than a Canvas2D (`FormCtx::graphics`),
+    /// the display list waiting for a canvas goes to the host (`rt_gfx_send`, ABI A23). The object's
+    /// method may draw on the canvas by its handle (`PLT-1::RenderToCanvas( WS-CNV 0 0 320 300 )`),
+    /// and it must find there what the program drew before it, as under the interpreter: kept back,
+    /// a `Clear` drawn before the call would run after it and wipe out what it drew.
+    fn canvas_drawing_first(&mut self, ctrl: u32) {
+        if self.form.as_ref().is_some_and(|f| !f.canvases.is_empty() && f.graphics.contains(&ctrl)) {
+            self.call_rt("rt_gfx_send");
+        }
+    }
+
     /// `Ctrl::Method(args)` as a statement: the call, its result discarded.
     pub(crate) fn member_call(&mut self, e: &Expr, line: u32) -> GenResult<()> {
         let Some((root, segs)) = Self::chain(e) else {
@@ -389,6 +400,7 @@ impl Lower<'_, '_> {
             self.call_rt("rt_gfx_cmd");
             return Ok(());
         }
+        self.canvas_drawing_first(ctrl);
         self.build_path(ctrl, &segs)?;
         self.call_rt("rt_cmd_call");
         if let Some(last) = segs.last() {
@@ -420,6 +432,7 @@ impl Lower<'_, '_> {
     /// Read `ctrl::segs…` from the host into a new character temporary.
     fn host_read(&mut self, ctrl: u32, segs: &[Seg<'_>], line: u32) -> GenResult<u32> {
         let k = self.next_ctemp(line)?;
+        self.canvas_drawing_first(ctrl);
         self.build_path(ctrl, segs)?;
         let last_parens = segs.last().map(|s| s.parens).unwrap_or(false);
         self.i32c(if last_parens { Q_CALLR as i32 } else { Q_GET as i32 });
@@ -538,6 +551,7 @@ impl Lower<'_, '_> {
             }
             return self.invoke_super_guarded(seg, returning, on_exc, not_exc, line);
         }
+        self.canvas_drawing_first(ctrl);
         match returning {
             None => {
                 self.build_path(ctrl, std::slice::from_ref(&seg))?;

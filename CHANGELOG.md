@@ -2,6 +2,40 @@
 
 
 
+## 2.0.562 — 2026-11-17
+
+**Fix: on the WebAssembly path a canvas now shows every drawing command, in the order the program wrote them, as under the interpreter. Two faults in the module's display list made the WebAssembly-built PowerGraphics draw differently from its Cargo-built twin: the chart gallery showed an empty canvas, and the pool table lost the table itself.**
+- **Why it is a fix:** a program's statements take effect in the order they are written, and a canvas command the program ran must be drawn. The interpreter draws each command as it runs. A module gathers a canvas's commands into a list in its own memory and hands the list to the host later. Both faults were in when and how that list reached the host. A desktop program on the WebAssembly path and a browser module both had them.
+- **The first fault: another graphics object drew too early.**
+  - A module handed a canvas's list to the host only before a call that names that same canvas, or at the end of the handler.
+  - So a call on another graphics object that draws on the canvas by its handle (a Plot's `RenderToCanvas`) reached the host ahead of the canvas's earlier commands. In the chart gallery, `CNV-CHART::Clear( "#101820" )` then ran after `PLT-1::RenderToCanvas( WS-CNV … )` and wiped the chart out.
+  - Now, before a call or a read on a Canvas3D, ImageBuffer, Plot, Scene3D, Physics2D or Physics3D, a module whose form has a Canvas2D hands the list over first (`rt_gfx_send`).
+- **The second fault: a list sent ahead of a call was written over.**
+  - A command the module does not encode goes to the host as a call, after the list that was waiting. That covers a gradient's colour stops, which are a list, and a read-back.
+  - The module sent the list at that point, but the glue copies a list only when the batch is handed over. The commands after the call were written into the same staging area first, so the list the host finally read was partly the later commands.
+  - The pool table (`pool2d-form`), whose cloth is a radial gradient, lost the table it had drawn before it. The platform game (`pitfall-form`) had a smaller loss.
+  - Now a list goes to the host as it is sent.
+- **What did not change:**
+  - A module whose form has no Canvas2D, or that calls no other graphics object, gets no new call.
+  - What a module without a canvas does. No browser example has a canvas.
+- **Web modules:** every module carries the routine that hands a list to the host, so every module's bytes moved, a browser module's too. PowerAnalyticsWeb's two modules are 2 bytes larger, and its manifest moved with them. The routines' read-only data did not move (blob 243 119 bytes).
+  - **The PowerAnalyticsWeb pin (AC16) is re-recorded for this reason.**
+  - **It had not matched since 2.0.558.** That change rebuilt the routines too: its entry regenerated the player's fixtures but did not re-record this pin.
+  - Proof that the operator's uncommitted edit to the example plays no part: a copy of the example taken from git and built with `rcrun mcp` (`regenerate`, `build`) gives the same three hashes as the test's own copy. With the 2.0.561 routines it gives `53efda79…`, `93815c24…` and `6196bd3c…`. With this change's routines it gives the new pins: `144a83c0…`, `05f201f9…` and `ea984c02…`.
+- **Where it showed:** `cobolt-bench pixel-parity` (DESKTOP-WASM-001 AC19), with PowerGraphics built on both paths.
+  - Before this change, 6 681 610 pixels differed and 66 of 120 frames were identical. After it, 246 652 pixels differ and 101 of 120 frames are identical.
+  - The chart gallery's steps after its first chart are now identical.
+  - The pool table went from 376 549 differing pixels per frame to 289.
+  - What remains is three other faults, each left for its own fix: the ball numbers and the platform game's score line (how a text argument reaches the canvas), and the gallery's hundred-thousand-row table (an argument larger than a module's call buffer).
+  - PowerCobolCraft and PowerSpatial differ exactly as before, so their differences are not the display list's.
+  - The Cargo path still matches its recorded pictures: 120 of 120, 66 of 66 and 138 of 138 frames.
+- **Tests:**
+  - `canvases_and_graphics_objects_draw_and_answer_alike` (`cobolt-cli`, the runner against the interpreter) gains the cases `CHART` and `GRADIENT`: 16 of 16 checks. Its 5 pictures, 1 536 000 pixels, are compared with 0 differing. Without the change, `CHART` differs in 33 600 pixels and `GRADIENT` in 2 210.
+  - All 11 runner twins of `runner_shell_hosts` pass.
+  - `cobolt-wasm`: 130 of 130. The player's generated fixtures embed the routines, so they are regenerated with them.
+  - The web player: freshness 6 of 6; `abi_host` 28 of 28 over the regenerated modules.
+  - `desktop_wasm_unchanged` (AC16): 3 of 3 artefacts match the re-recorded pins.
+
 ## 2.0.561 — 2026-11-17
 
 **Fix: a built program takes its external switches from `COBOL_SWITCHES`, on both Build paths. A program that declares `SPECIAL-NAMES. SWITCH-1 IS SW-1 ON STATUS IS …` now starts with the switches the variable sets, as `rcrun run` starts it. Until now only `rcrun run` let the operator set a switch: a Cargo-built program and a WebAssembly-built one saw every switch OFF.**
