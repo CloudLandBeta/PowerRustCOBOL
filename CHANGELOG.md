@@ -2,6 +2,32 @@
 
 
 
+## 2.0.559 — 2026-11-17
+
+**Feature: DESKTOP-WASM-001, three gaps between the runner and a Cargo-built program, found by the pixel parity of PowerSpatial (AC19). The runner now starts at the form a designer launch names. A Snackbar's `Show()` and `DismissAll()` now raise and dismiss notifications in a WebAssembly-built desktop program. A TextBox's `SetFocus()` and `SelectAll()` now move the focus and select the text there.**
+- **The form a designer launch names:**
+  - **What was wrong:** the runner always opened the main form. Running a secondary form from the IDE (`COBOLT_DESIGNER_FORM`) opened the main form instead, as the Cargo path did before 2026-08-31. The pixel-parity harness ran each secondary form's script against the main form, so PowerSpatial's toolbar, rail, rooms and settings forms were pictured at the main form's size (1000×600 instead of, for the toolbar, 1000×76), and differed in every pixel.
+  - **The change:**
+    - the runner reads the variable as the Cargo path's `main.rs` does (trimmed, in capitals), finds the form among the program's own forms, and starts at it with its program, its theme and its SideMenu;
+    - a name the program does not carry is refused with a message in the operator's language that lists the forms it carries, and the run ends with exit code 4, as a Cargo-built program ends. The message exists in all six languages.
+- **Notifications, focus and selection:**
+  - **What was wrong:** the four methods are commands to the window. In a browser the player carries them out. On the desktop the interpreter writes a value the form host watches (`_ShowSnackbar`, `_DismissAllSnackbar`, `_SetFocus`, `_SelectAll`), a new one at each call. The ABI host recorded a command, which the runner dropped. So a WebAssembly-built program showed no notification, and kept the focus where it was.
+  - **The change:**
+    - on the desktop the ABI host writes the values the interpreter writes: a count per Snackbar for `Show()` and `DismissAll()`, and one sequence per process for `SetFocus()` and `SelectAll()`;
+    - `Show()` raises a notification from the Snackbar's properties as they are at the call, so a handler may set its `Text`, show it, set another `Text` and show it again. The runner used to send each property once, with its last value, after the handler. A Snackbar's writes now reach the window in the order they were made, each with its value, up to its `Show()` or `DismissAll()`;
+    - a browser is unchanged: the page still gets the commands.
+- **Tests:**
+  - **The runner twin** `a_designer_launch_starts_at_the_form_it_names`, against `rcrun run-form --designer`: 7 of 7 checks.
+    - The runner started at a 420×76 secondary form given as " tool-form ", ran its program and not the main form's, and pictured it at its designed size; 0 differing pixels.
+    - `orders-form` ended with exit code 4, naming the form and the two forms the program carries.
+  - **The runner twin** `notifications_and_focus_are_carried_out_alike`: 10 of 10 checks.
+    - `Show()` once, then twice in one handler with two texts, then `DismissAll()`; `SetFocus()` and `SelectAll()` on a TextBox.
+    - 5 pictures with 0 differing pixels; the reads and the dump are equal. In the runner the first notification changed 17 844 pixels and the next two 21 944.
+    - Before the writes were carried in order, the pictures after the second `Show()` differed in 52 and 51 pixels: the runner's second notification said "Second" where the interpreter's said "First".
+  - `the_desktop_gets_a_new_value_for_each_command` (`cobolt-abi-host`): the order of the writes and the counts, on the desktop and on a page. `cobolt-abi-host` 264 passed; `cobolt-runner` 8 passed, the six-language messages included.
+  - All 11 runner twins, T50's graphics twin (committed next) included: 108 of 108 checks, 27 pictures, 10 331 920 pixels compared, 0 differing.
+  - The web player is rebuilt, because the ABI host changed: freshness 6 of 6; its workspace 263 passed, and `dependency_guard` fails as before this change (Rust 1.92 against 1.95).
+
 ## 2.0.558 — 2026-11-17
 
 **Fix: the charts' built-ins `COBOL::"CHART-SET-TABLE"`, `"CHART-ADD-POINT"`, `"CHART-CLEAR"` and `"CHART-REFRESH"` now run in a WebAssembly program, in a browser and on the desktop. Until now every call failed with a run-time error, and the chart kept its designed sample points. A chart's `AddPoint()`, `Clear()` and `Refresh()` methods now keep the same points as the built-ins, as under the interpreter.**

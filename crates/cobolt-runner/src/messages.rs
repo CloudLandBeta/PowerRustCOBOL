@@ -70,6 +70,8 @@ pub enum Msg {
     RuntimeError { code: u32, line: u32, text: String },
     /// The module stopped on a trap of its own.
     Trapped(String),
+    /// A designer launch named a form the program does not carry: the name, and the forms it has.
+    NoSuchForm { want: String, forms: Vec<String> },
 }
 
 /// The words of `msg` in `lang`.
@@ -150,5 +152,16 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             Ja => format!("プログラムが予期せず停止しました: {detail}"),
             Zh => format!("程序意外停止：{detail}"),
         },
+        Msg::NoSuchForm { want, forms } => {
+            let forms = forms.join(", ");
+            match lang {
+                En => format!("This application has no form named '{want}'. It carries: {forms}."),
+                Es => format!("Esta aplicación no tiene ningún formulario llamado '{want}'. Contiene: {forms}."),
+                Pt => format!("Este aplicativo não tem nenhum formulário chamado '{want}'. Ele contém: {forms}."),
+                Fr => format!("Cette application n'a aucun formulaire nommé '{want}'. Elle contient : {forms}."),
+                Ja => format!("このアプリケーションには '{want}' という名前のフォームはありません。含まれるフォーム: {forms}。"),
+                Zh => format!("此应用程序没有名为 '{want}' 的窗体。它包含：{forms}。"),
+            }
+        }
     }
 }

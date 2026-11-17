@@ -731,6 +731,15 @@ fn changes(host: &mut Host, links: &[Link], parked: &mut Vec<(u32, Change)>) {
                 let value = c.props.get(&key).cloned().unwrap_or_default();
                 let _ = l.state.send(StateUpdate::new(ctrl_id, prop, value));
             }
+            Change::Command { ctl, name, args } if name == cobolt_abi_host::tree::ORDERED_WRITES => {
+                // A control's writes up to a command that acts on it as it is then (a Snackbar's `Show()`):
+                // one at a time, in order, as the interpreter's reach the window.
+                let Some(c) = tree.ctls.get(ctl) else { continue };
+                let ctrl_id = if ctl == 0 { l.object.clone() } else { c.name.clone() };
+                for kv in args.chunks_exact(2) {
+                    let _ = l.state.send(StateUpdate::new(ctrl_id.clone(), kv[0].clone(), kv[1].clone()));
+                }
+            }
             Change::Command { ctl: 0, name, args } if WINDOW_METHODS.contains(&name.as_str()) => {
                 // A window method of the form's own window: the supervisor's, as the interpreter's is.
                 let (reply, _) = mpsc::channel();

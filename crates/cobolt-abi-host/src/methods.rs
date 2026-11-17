@@ -10,7 +10,8 @@
 //! over without change of meaning, because a program must do the same thing in a browser as on
 //! the desktop (WASM-002 R4). Where the interpreter writes a *pseudo-property* the desktop host
 //! reads back as a command (`_SetFocus`, `_SelectAll`, `_ShowSnackbar`), the player records a
-//! [`Change::Command`] for the renderer instead — the same intent, with no state left over.
+//! [`Change::Command`] for the renderer instead — the same intent, with no state left over. A tree
+//! the desktop's form host shows ([`FormTree::desktop`]) writes the pseudo-property, as the interpreter does.
 //!
 //! A method name the closed vocabulary (`cobolt-ast/src/methods.rs`) knows but the browser
 //! cannot do (`LoadFromFile`, `Print`, the AWS and database verbs) answers [`MethodError::Unsupported`]
@@ -84,6 +85,39 @@ fn grid_kv(tree: &mut FormTree, ctl: usize, prop: &str, key: &str, value: &str, 
         entries.push(format!("{key}={}", value.trim()));
     }
     put(tree, ctl, prop, &entries.join("\n"), out);
+}
+
+/// The sequences of `SetFocus()` and `SelectAll()` on the desktop: one for the whole process, as the
+/// interpreter's, so a form reopened in the same window never repeats a value its predecessor used.
+static SET_FOCUS_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SELECT_ALL_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A command to the renderer. The page is sent `cmd`. The desktop's form host instead watches the
+/// pseudo-property `prop`, and acts each time its value changes, so there the program writes it a
+/// value it never held, as the interpreter writes it (DESKTOP-WASM-001 AC19): the next number of `seq`,
+/// the process's count.
+fn command_or_count(tree: &mut FormTree, ctl: usize, cmd: &str, prop: &str, seq: &std::sync::atomic::AtomicU64, out: &mut Outcome) {
+    if !tree.desktop {
+        tree.command(ctl, cmd, Vec::new());
+        return;
+    }
+    let n = seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    put(tree, ctl, prop, &n.to_string(), out);
+}
+
+/// A Snackbar's `Show()` or `DismissAll()`. The page is sent `cmd`. On the desktop the program writes the next
+/// number of the control's own count to `prop`, as the interpreter does. `Show()` raises a notification from
+/// the Snackbar's properties as they are at the call, and a handler may change its `Text` and show it again:
+/// so the control's writes so far go to the window in order, with the count last ([`crate::tree::ORDERED_WRITES`]).
+fn snackbar_command(tree: &mut FormTree, ctl: usize, cmd: &str, prop: &str, out: &mut Outcome) {
+    if !tree.desktop {
+        tree.command(ctl, cmd, Vec::new());
+        return;
+    }
+    let n = parse_i64(&tree.get(ctl, prop)).max(0) + 1;
+    put(tree, ctl, prop, &n.to_string(), out);
+    let writes = tree.take_pending_writes(ctl);
+    tree.command(ctl, crate::tree::ORDERED_WRITES, writes.into_iter().flat_map(|(k, v)| [k, v]).collect());
 }
 
 fn lines(items: &str) -> Vec<String> {
@@ -246,7 +280,7 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
         // ── universal lifecycle / visibility ────────────────────────────────
         "SHOW" => {
             if is_snackbar {
-                tree.command(ctl, "show", Vec::new());
+                snackbar_command(tree, ctl, "show", "_ShowSnackbar", &mut out);
             } else {
                 put(tree, ctl, "Visible", "1", &mut out);
             }
@@ -254,7 +288,7 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
         "HIDE" => put(tree, ctl, "Visible", "0", &mut out),
         "ENABLE" => put(tree, ctl, "Enabled", "1", &mut out),
         "DISABLE" => put(tree, ctl, "Enabled", "0", &mut out),
-        "SETFOCUS" | "FOCUS" => tree.command(ctl, "focus", Vec::new()),
+        "SETFOCUS" | "FOCUS" => command_or_count(tree, ctl, "focus", "_SetFocus", &SET_FOCUS_SEQ, &mut out),
         // ── TextBox caption (spec 110) ──────────────────────────────────────
         "RESETCAPTION" => {
             let names: Vec<&str> = if args.is_empty() {
@@ -307,7 +341,7 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
             put(tree, ctl, "Text", &format!("{cur}{}", args.first().copied().unwrap_or("")), &mut out);
         }
         "SETCOLOR" => put(tree, ctl, "ForegroundColor", &arg(0), &mut out),
-        "SELECTALL" => tree.command(ctl, "select-all", Vec::new()),
+        "SELECTALL" => command_or_count(tree, ctl, "select-all", "_SelectAll", &SELECT_ALL_SEQ, &mut out),
         "CLEAR" => {
             if is_snackbar {
                 put(tree, ctl, "Buttons", "", &mut out);
@@ -329,7 +363,7 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
             chart_add_point(tree, ctl, &arg(0), parse_f64(&arg(1)).unwrap_or(0.0), &rest);
         }
         // ── snackbar ────────────────────────────────────────────────────────
-        "DISMISSALL" if is_snackbar => tree.command(ctl, "dismiss-all", Vec::new()),
+        "DISMISSALL" if is_snackbar => snackbar_command(tree, ctl, "dismiss-all", "_DismissAllSnackbar", &mut out),
         "ADDBUTTON" | "ADD-BUTTON" if is_snackbar => {
             let existing = tree.get(ctl, "Buttons");
             match cobolt_forms::snackbar::add_button(&existing, &arg(0)) {
@@ -966,6 +1000,55 @@ mod tests {
         assert_eq!(t.get(txt, "Visible"), "false");
         call(&mut t, txt, "SetFocus", &[]).unwrap();
         assert!(t.take_changes().iter().any(|c| matches!(c, crate::tree::Change::Command { name, .. } if name == "focus")));
+    }
+
+    /// On the desktop the four commands are the pseudo-properties the interpreter writes, each call a value never
+    /// held before, and no command is left for the runner to drop (DESKTOP-WASM-001 AC19, PowerSpatial's snackbars).
+    /// A Snackbar's commands carry its writes in order, so each `Show()` reaches the window with the text it saw.
+    #[test]
+    fn the_desktop_gets_a_new_value_for_each_command() {
+        let mut t = crate::tree::testing::tree_of(
+            r#"<Control id="SNK-1" type="Snackbar" x="10" y="10" w="300" h="40"></Control><Control id="TXT-1" type="TextBox" x="10" y="60" w="300" h="24"></Control>"#,
+        );
+        t.desktop = true;
+        let (bar, txt) = (t.by_name("SNK-1").unwrap(), t.by_name("TXT-1").unwrap());
+        let _ = t.take_changes();
+        let visible = t.ctls[bar].raw("Visible").map(str::to_owned);
+        t.set(bar, "Text", "First");
+        call(&mut t, bar, "Show", &[]).unwrap();
+        t.set(bar, "Text", "Second");
+        call(&mut t, bar, "Show", &[]).unwrap();
+        call(&mut t, bar, "DismissAll", &[]).unwrap();
+        t.set(bar, "Text", "Third");
+        assert_eq!(t.get(bar, "_ShowSnackbar"), "2", "Show() twice is two notifications");
+        assert_eq!(t.get(bar, "_DismissAllSnackbar"), "1");
+        assert_eq!(t.ctls[bar].raw("Visible").map(str::to_owned), visible, "a Snackbar's Show() writes no Visible");
+        let focus = |t: &mut FormTree| {
+            call(t, txt, "SetFocus", &[]).unwrap();
+            parse_i64(&t.get(txt, "_SetFocus"))
+        };
+        let (first, second) = (focus(&mut t), focus(&mut t));
+        assert!(second > first && first > 0, "each SetFocus() a new value: {first} then {second}");
+        call(&mut t, txt, "SelectAll", &[]).unwrap();
+        assert!(parse_i64(&t.get(txt, "_SelectAll")) > 0);
+        // The Snackbar's writes in order, each with the value it had at its command; its last write after them.
+        let mut sent: Vec<String> = Vec::new();
+        for c in t.take_changes() {
+            match c {
+                crate::tree::Change::Command { ctl, name, args } if ctl == bar && name == crate::tree::ORDERED_WRITES => {
+                    sent.extend(args.chunks(2).map(|kv| format!("{}={}", kv[0], kv[1])));
+                }
+                crate::tree::Change::Command { name, .. } => panic!("a command for the runner to drop: {name}"),
+                crate::tree::Change::Prop { ctl, key } if ctl == bar => sent.push(format!("{key}={}", t.get(bar, &key))),
+                crate::tree::Change::Prop { .. } => {}
+            }
+        }
+        assert_eq!(sent, ["Text=First", "_ShowSnackbar=1", "Text=Second", "_ShowSnackbar=2", "_DismissAllSnackbar=1", "text=Third"]);
+        // The page still gets commands, and no property.
+        let (mut page, bar) = crate::tree::testing::tree_with("Snackbar", "SNK-1", &[]);
+        call(&mut page, bar, "Show", &[]).unwrap();
+        assert_eq!(page.get(bar, "_ShowSnackbar"), "");
+        assert!(page.take_changes().iter().any(|c| matches!(c, crate::tree::Change::Command { name, .. } if name == "show")));
     }
 
     #[test]

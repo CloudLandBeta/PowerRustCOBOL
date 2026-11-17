@@ -329,6 +329,7 @@ fn every_message_exists_in_six_languages_without_the_crate_name() {
         Msg::CannotStart("detail".into()),
         Msg::RuntimeError { code: 9001, line: 12, text: "subscript out of range".into() },
         Msg::Trapped("detail".into()),
+        Msg::NoSuchForm { want: "ORDERS-FORM".into(), forms: vec!["MAIN-FORM".into(), "TOOLBAR-FORM".into()] },
     ];
     let mut checks = 0;
     for m in &msgs {

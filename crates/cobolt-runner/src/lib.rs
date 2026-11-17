@@ -249,11 +249,16 @@ pub fn missing_imports(abi: u32, imports: &[(String, String)]) -> Vec<String> {
         .collect()
 }
 
-/// Say `msg` on standard error, in `lang`, and answer the exit code a refused run ends with.
+/// Say `msg` on standard error, in `lang`, and answer the exit code a refused run ends with: 4 for
+/// a form the program does not carry, as a Cargo-built program ends, else 1.
 fn refuse(lang: Lang, msg: Msg) -> i32 {
     let _ = std::io::stdout().flush();
     eprintln!("{}", messages::text(lang, &msg));
-    1
+    if matches!(msg, Msg::NoSuchForm { .. }) {
+        4
+    } else {
+        1
+    }
 }
 
 /// Where machine code compiled at load is kept: `PRC_RUNNER_CACHE` when it is set, else the

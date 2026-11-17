@@ -193,6 +193,10 @@ pub enum Change {
     Command { ctl: usize, name: String, args: Vec<String> },
 }
 
+/// The name of a desktop-only [`Change::Command`]: `ctls[ctl]`'s writes, carried with their values in the order
+/// they were made, `args` being property (as spelled) and value pairs ([`FormTree::take_pending_writes`]).
+pub const ORDERED_WRITES: &str = "ordered-writes";
+
 /// Drawing queued for a canvas: a method by name with its arguments (the first is the method), or an encoded display list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GfxItem {
@@ -665,6 +669,26 @@ impl FormTree {
     pub fn forget_change(&mut self, ctl: usize, key: &str) {
         let key = key.trim().to_ascii_lowercase();
         self.changes.retain(|c| !matches!(c, Change::Prop { ctl: c_ctl, key: k } if *c_ctl == ctl && *k == key));
+    }
+
+    /// The writes to `ctl` not yet taken, as `(property as the program spelled it, value)` in the order they were
+    /// first made, taken out of the pending changes. A pending change carries no value: the runner reads the value
+    /// when it takes the changes, so a property written twice reaches the window once, with its last value. A
+    /// desktop command that acts on the control as it is at the call (a Snackbar's `Show()` raises a notification
+    /// from its `Text` then) carries them instead, so the window sees each value the command saw, as it sees the
+    /// interpreter's writes one at a time; a later write is a new pending change, after the command.
+    pub fn take_pending_writes(&mut self, ctl: usize) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        let (spelled, ctls) = (&self.spelled, &self.ctls);
+        self.changes.retain(|c| match c {
+            Change::Prop { ctl: c_ctl, key } if *c_ctl == ctl => {
+                let name = spelled.get(&(ctl, key.clone())).cloned().unwrap_or_else(|| key.to_ascii_uppercase());
+                out.push((name, ctls[ctl].props.get(key).cloned().unwrap_or_default()));
+                false
+            }
+            _ => true,
+        });
+        out
     }
 
     fn touch(&mut self, ctl: usize, key: &str) {

@@ -118,6 +118,16 @@ pub(crate) fn run(
             first_form.name.trim()
         )));
     }
+    // A designer launch (`COBOLT_DESIGNER_FORM`: the IDE's Run of one form, a scripted run of one
+    // form) starts at another of the application's own forms, with that form's program, as a
+    // Cargo-built program does; a name the program does not carry is refused.
+    let first_form = match cobolt_runtime::form_host::designer_form() {
+        Some(want) => match forms.iter().find(|f| f.name.trim().eq_ignore_ascii_case(&want)) {
+            Some(f) => f.clone(),
+            None => return Err(Msg::NoSuchForm { want, forms: forms.iter().map(|f| f.name.trim().to_ascii_uppercase()).collect() }),
+        },
+        None => first_form,
+    };
 
     // The settings every form of the run shares, published as a Cargo-built program publishes them.
     cobolt_form_host::seeding::publish_agent_connections_from_env();

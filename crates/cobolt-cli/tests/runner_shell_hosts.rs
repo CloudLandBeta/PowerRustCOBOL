@@ -868,6 +868,138 @@ fn several_forms_open_wait_and_reach_their_opener() {
     );
 }
 
+/// The built program started at `form`, as the IDE's Run of one form starts it (`COBOLT_DESIGNER_FORM`).
+fn runner_at(root: &Path, exe: &Path, script: &Path, home: &Path, form: &str) -> Run {
+    let shots = root.join(format!("shots-runner-{}", home.file_name().unwrap().to_string_lossy()));
+    fs::create_dir_all(&shots).unwrap();
+    let t = Instant::now();
+    let mut cmd = Command::new(exe);
+    cmd.current_dir(root)
+        .env("PRC_RUNNER_CACHE", root.join("runner-cache"))
+        .env("PRC_HEADLESS_SCRIPT", script)
+        .env("PRC_HEADLESS_LIMIT", "60")
+        .env(cobolt_runtime::form_host::DESIGNER_FORM_ENV, form);
+    pinned(&mut cmd, home, &shots);
+    let out = cmd.output().expect("run the built program");
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(out.status.success(), "the built program failed:\n{stdout}\n{}", String::from_utf8_lossy(&out.stderr));
+    Run { report: report(&stdout), stdout, shots, ms: t.elapsed().as_secs_f64() * 1000.0 }
+}
+
+/// A designer launch of a secondary form: the runner starts at that form, at its designed size and
+/// with its own program, as `rcrun run-form` and a Cargo-built program do. A name the program does
+/// not carry is refused with exit code 4, naming the forms it carries.
+#[test]
+fn a_designer_launch_starts_at_the_form_it_names() {
+    let root = root("designer");
+    let mut main = Form::new("MAIN-FORM", "Main", 640, 400);
+    main.main_form = true;
+    control(&mut main, "LBL-MAIN", ControlType::Label, (20, 20, 300, 24), Some("main"));
+    bind(&mut main, "MAIN-FORM", "onLoad", &["DISPLAY \"MAIN-FORM loaded\""]);
+    let mut tool = Form::new("TOOL-FORM", "Tool", 420, 76);
+    control(&mut tool, "LBL-TOOL", ControlType::Label, (20, 20, 300, 24), Some("-"));
+    bind(&mut tool, "TOOL-FORM", "onLoad", &["DISPLAY \"TOOL-FORM loaded\"", "MOVE \"the tool form's program\" TO LBL-TOOL::Caption"]);
+    let manifest = project(&root, "Designer", &[("main-form", main), ("tool-form", tool)], &[]);
+    let steps = script(&root, "steps", vec![wait(600), read("LBL-TOOL", "Caption"), dump(), shot("tool")]);
+    let (exe, build_ms) = build(&root, &manifest);
+    let home = root.join("home");
+    let a = interpreter(&root, "tool-form", &steps, &home);
+    let b = runner_at(&root, &exe, &steps, &home, " tool-form ");
+    let mut tally = Tally::default();
+    tally.compare("designer", &a, &b, &["tool"]);
+    let size = image::image_dimensions(b.shots.join("tool.png")).unwrap_or((0, 0));
+    tally.lines.push(format!("    runner picture: {}x{}", size.0, size.1));
+    tally.check("the runner pictured the tool form at its designed size, 420x76", size == (420, 76));
+    tally.check(
+        "the runner ran the tool form's program and not the main form's",
+        readings(&b.report) == ["the tool form's program"] && b.stdout.matches("TOOL-FORM loaded").count() == 1 && !b.stdout.contains("MAIN-FORM loaded"),
+    );
+    // A form the program does not carry.
+    let out = Command::new(&exe)
+        .current_dir(&root)
+        .env("PRC_RUNNER_CACHE", root.join("runner-cache"))
+        .env("LC_ALL", "C")
+        .env(cobolt_runtime::form_host::DESIGNER_FORM_ENV, "orders-form")
+        .output()
+        .expect("run the built program");
+    let said = String::from_utf8_lossy(&out.stderr).into_owned();
+    tally.lines.push(format!("    orders-form: exit {:?}, {}", out.status.code(), said.trim()));
+    tally.check(
+        "a form it does not carry: exit code 4, the name and the forms it carries",
+        out.status.code() == Some(4) && said.contains("'ORDERS-FORM'") && said.contains("MAIN-FORM, TOOL-FORM"),
+    );
+    tally.finish(
+        "a_designer_launch_starts_at_the_form_it_names",
+        "COBOLT_DESIGNER_FORM=\" tool-form \" (a secondary form of 420x76 whose onLoad writes a caption), against rcrun run-form --designer; COBOLT_DESIGNER_FORM=orders-form (not in the program)",
+        &root,
+        build_ms,
+    );
+}
+
+/// A Snackbar's `Show()` and `DismissAll()`, a TextBox's `SetFocus()` and `SelectAll()`: commands the
+/// desktop's form host takes from a value the program writes, a new one at each call, as the
+/// interpreter writes it. The runner used to drop them, so a WebAssembly-built program showed no
+/// notification (PowerSpatial's settings form, AC19).
+#[test]
+fn notifications_and_focus_are_carried_out_alike() {
+    let root = root("notify");
+    let mut main = Form::new("MAIN-FORM", "Notify", 640, 400);
+    main.main_form = true;
+    control(&mut main, "SNK-1", ControlType::Snackbar, (20, 330, 400, 48), None);
+    control(&mut main, "TXT-1", ControlType::TextBox, (20, 20, 300, 28), None);
+    control(&mut main, "TXT-2", ControlType::TextBox, (20, 60, 300, 28), None);
+    button(&mut main, "BTN-SHOW", (420, 20), &["MOVE \"Saved\" TO SNK-1::Text", "SNK-1::Show()"]);
+    button(&mut main, "BTN-TWICE", (420, 60), &["MOVE \"First\" TO SNK-1::Text", "SNK-1::Show()", "MOVE \"Second\" TO SNK-1::Text", "SNK-1::Show()"]);
+    button(&mut main, "BTN-FOCUS", (420, 100), &["MOVE \"select me\" TO TXT-2::Text", "TXT-2::SetFocus()", "TXT-2::SelectAll()"]);
+    button(&mut main, "BTN-DISMISS", (420, 140), &["SNK-1::DismissAll()"]);
+    let manifest = project(&root, "Notify", &[("main-form", main)], &[]);
+    let steps = script(
+        &root,
+        "steps",
+        vec![
+            wait(600),
+            shot("before"),
+            click("BTN-SHOW"),
+            wait(300),
+            shot("one"),
+            click("BTN-TWICE"),
+            wait(300),
+            shot("three"),
+            click("BTN-FOCUS"),
+            wait(300),
+            read("TXT-2", "_SetFocus"),
+            read("TXT-2", "_SelectAll"),
+            shot("focus"),
+            click("BTN-DISMISS"),
+            wait(600),
+            dump(),
+            shot("dismissed"),
+        ],
+    );
+    let (exe, build_ms) = build(&root, &manifest);
+    let home = root.join("home");
+    let a = interpreter(&root, "main-form", &steps, &home);
+    let b = runner(&root, &exe, &steps, &home);
+    let mut tally = Tally::default();
+    // The pictures judge the notifications: the form host takes `_ShowSnackbar` when it raises one, so a read of
+    // it finds nothing under either engine.
+    tally.compare("notify", &a, &b, &["before", "one", "three", "focus", "dismissed"]);
+    let got = readings(&b.report);
+    tally.lines.push(format!("    runner readings: {got:?}"));
+    let n = |i: usize| got.get(i).map(|v| v.parse::<u64>().unwrap_or(0)).unwrap_or(0);
+    tally.check("SetFocus() and SelectAll() each wrote a new value", got.len() == 2 && n(0) > 0 && n(1) > 0);
+    let changed = |from: &str, to: &str| differing_pixels(&b.shots.join(format!("{from}.png")), &b.shots.join(format!("{to}.png"))).0;
+    let (shown, again) = (changed("before", "one"), changed("one", "three"));
+    tally.lines.push(format!("    runner: Show() changed {shown} pixels; Show() twice more changed {again}"));
+    tally.check("the runner drew the notification, then two more", shown > 0 && shown != u64::MAX && again > 0 && again != u64::MAX);
+    tally.finish(
+        "notifications_and_focus_are_carried_out_alike",
+        "a Snackbar's Show() once and twice in one handler, DismissAll(); a TextBox's SetFocus() and SelectAll()",
+        &root,
+        build_ms,
+    );
+}
+
 // ── 6. file_dialogs (T32) ────────────────────────────────────────────────────────────────────────
 
 /// A handler with a `WORKING-STORAGE SECTION` of its own.
