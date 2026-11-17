@@ -1545,6 +1545,14 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
   - Verify: twins of `aws_hosts`, `partiql_hosts` and `powercloud_hosts`, against local stubs. No twin sends a request signed with the live keys some example `.cfrm` files carry.
 
 - [ ] **T49 — AUDIO, ANIMATIONSEQUENCE and LAYOUT** (R11)
+  - *Sound done 2026-11-16 (2.0.555); `ANIMATIONSEQUENCE` and `LAYOUT` are still open, so the box stays empty:*
+    - **Why sound came first:** the operator's ruling of 2026-11-16 ("no project should rely on cargo build") puts first the work that removes a reference project's reason. The sound verbs stood in three of them: PowerCallOfDuty (10 statements), PowerCobolCraft (4) and PowerCloud (7). No reference project uses `ANIMATIONSEQUENCE` or `LAYOUT`.
+    - **What runs:** `COBOL::"AUDIO-PLAY"`, `"AUDIO-PAUSE"`, `"AUDIO-RESUME"`, `"AUDIO-STOP"` and `"AUDIO-STATE"` in a form's handler compile as calls on the application object, and each receiver takes its answer from the properties `AudioStatus`, `AudioState`, `AudioPosition` and `AudioDuration` (ABI A36, capability `audio`).
+      - The runner plays them through the ABI host's new player port with the runtime's own player, one door per form instance, as each form's interpreter has one. A form's door is released when the form closes.
+      - A program with no form still takes the Cargo path for them, as for the file dialogs. A browser module is unchanged.
+    - **Tests:**
+      - the runner twin `sounds_are_played_and_answered_alike` on the null output: 8 readings equal, 1 picture with 0 differing pixels, 9 of 9 checks. With it, the file's 7 twins pass 69 of 69 checks.
+    - **Left for this task:** `ANIMATIONSEQUENCE` and `LAYOUT`, after T50's canvases, which hold three reference projects on the Cargo path.
   - Verify: runner twins equal in dumps and frames, with animations under the virtual clock.
 
 - [ ] **T50 — Viewer verbs, the window methods and canvas frames** (R11)

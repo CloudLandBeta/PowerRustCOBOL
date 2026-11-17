@@ -781,6 +781,8 @@ impl Lower<'_, '_> {
             }
             // On the desktop the runner answers the file dialogs (T32); a browser module refuses them below.
             dialog if self.native && crate::lower_remote::is_desktop_dialog(dialog) => self.desktop_file_dialog(dialog, using, line),
+            // On the desktop the runner plays the sounds (T49).
+            audio if self.native && crate::lower_remote::is_desktop_audio(audio) => self.desktop_audio(audio, using, line),
             // The page's own verbs (ABI §12.1) are not the desktop's: under the interpreter a form's
             // windows are `ME`'s and a handle's, and a desktop form has no message box (T6, T32). A
             // desktop module refuses them, so the Build takes the Cargo path, which reports them as the
@@ -872,6 +874,48 @@ impl Lower<'_, '_> {
         self.call_rt("rt_cmd_call");
         self.suspend_if_waiting(CTRL_APP, name);
         self.app_property_into("DialogPath", &dest[0], line)
+    }
+
+    /// The desktop's sound player (DESKTOP-WASM-001 T49, ABI A36): `COBOL::"AUDIO-PLAY" ( file
+    /// [status] )`, `"AUDIO-PAUSE"`, `"AUDIO-RESUME"` and `"AUDIO-STOP"` ( [status] ), and
+    /// `"AUDIO-STATE" ( state [position-ms] [duration-ms] )`, with the interpreter's arguments. The
+    /// file goes to the runner as text; the runner answers at once, and each receiver gets its answer
+    /// from the application object: `AudioStatus`, or `AudioState`, `AudioPosition` and
+    /// `AudioDuration`. Arguments after those the interpreter reads are ignored, as it ignores them.
+    fn desktop_audio(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
+        let subject = format!("COBOL::\"{name}\"");
+        if self.form.is_none() {
+            return self.err_kind(
+                line,
+                crate::error::ErrorKind::Other,
+                subject.clone(),
+                format!("{subject}: the runner plays a desktop module's sounds in a form's handler only, so a program with no form takes the Cargo path"),
+            );
+        }
+        let args: Vec<Expr> = using
+            .iter()
+            .map(|a| match a {
+                CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+            })
+            .collect();
+        let (sent, answers): (&[Expr], Vec<(&str, Option<&Expr>)>) = match name {
+            "AUDIO-PLAY" | "AUDIO-STATE" if args.is_empty() => {
+                let what = if name == "AUDIO-PLAY" { "the file" } else { "the data item that receives the state" };
+                return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes {what}"));
+            }
+            "AUDIO-PLAY" => (&args[..1], vec![("AudioStatus", args.get(1))]),
+            "AUDIO-STATE" => (&[], vec![("AudioState", args.first()), ("AudioPosition", args.get(1)), ("AudioDuration", args.get(2))]),
+            _ => (&[], vec![("AudioStatus", args.first())]),
+        };
+        let seg = Seg { name, args: sent, parens: true };
+        self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
+        self.call_rt("rt_cmd_call");
+        for (prop, dest) in answers {
+            if let Some(dest) = dest {
+                self.app_property_into(prop, dest, line)?;
+            }
+        }
+        Ok(())
     }
 
     /// Move the application object's property `prop` (as text) into `dest`.

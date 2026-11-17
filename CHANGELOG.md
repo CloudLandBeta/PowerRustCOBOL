@@ -2,6 +2,28 @@
 
 
 
+## 2.0.555 — 2026-11-16
+
+**Feature: DESKTOP-WASM-001 T49, sound. A form's `COBOL::"AUDIO-PLAY"`, `"AUDIO-PAUSE"`, `"AUDIO-RESUME"`, `"AUDIO-STOP"` and `"AUDIO-STATE"` now run on the desktop's WebAssembly path, so a program that plays sounds no longer takes the Cargo path for them.**
+- **What a developer sees:** a desktop form that plays a sound builds on the WebAssembly path and plays it exactly as before. The statuses (`OK`, `NOFILE`, `BADFORMAT`, `NODEVICE`, `NOFEATURE`, `ERROR`), the states (`IDLE`, `PLAYING`, `PAUSED`, `ENDED`, `ERROR`), the position and the length in milliseconds are the interpreter's.
+  - A relative file is read from the program's folder, as before.
+  - One sound plays for the whole application. A form reads the progress of a sound another form started, and the sound a form started stops when that form closes.
+  - Three reference projects used these verbs: PowerCallOfDuty (10 statements), PowerCobolCraft (4) and PowerCloud (7).
+- **How:**
+  - the generator compiles each verb as a call on the application object, with the file as text. Each receiver the program wrote then takes its answer from the application's properties `AudioStatus`, `AudioState`, `AudioPosition` and `AudioDuration` (ABI amendment A36);
+  - the module's manifest names the new capability `audio`, so a runner that predates it refuses the program by name instead of misplaying it;
+  - the runner's ABI host answers the verbs at once through a player port. The runner plays them with the runtime's own player (`audio_runtime`), one door per form instance, as each form's interpreter has. The runner is now built with the runtime's `audio` part.
+  - A program with no form still takes the Cargo path for them, as for the file dialogs. A browser module is unchanged (its bytes are the same).
+- **Still on the Cargo path for T49:** `COBOL::AnimationSequence` and `COBOL::Layout`. No reference project uses them.
+- **Docs:** ABI amendment A36 and its row in §12.1; `audio` in §10's list of capabilities; the Desktop column of the System KB's table ("yes, with the runner's `audio`"), with the System KB regenerated.
+- **Tests:**
+  - a new runner twin, `sounds_are_played_and_answered_alike`, plays a silent 10-second WAV on the null output (`COBOLT_AUDIO=null`) under both engines. It pauses, resumes and stops it, pauses with nothing playing, plays a missing file and a file that is not a sound, and stops with no status item, reading `AUDIO-STATE` after each. Its 9 of 9 checks pass: the 8 readings are equal (`OK/PLAYING/0010000` after the play), the picture has 0 differing pixels, and the module's manifest names `audio`;
+  - with it, the 7 runner twins of that file pass 69 of 69 checks;
+  - the ABI host's tests: 263 passed, 0 failed; the ABI crate's: 22 passed; the generator's: 34 test programs, 129 passed, 0 failed;
+  - browser module bytes are unchanged (the PowerAnalyticsWeb pin and the player fixtures match);
+  - the System KB regenerated (4 419 records), and `prebuilt_chunked_kb_matches_the_published_documentation` passes;
+  - the web player was rebuilt, as `cobolt-abi-host` and `cobolt-wasm-abi` are among its inputs (its freshness tests: 6 of 6).
+
 ## 2.0.554 — 2026-11-16
 
 **Fix: on the desktop's WebAssembly path, `MOVE LINAGE-COUNTER` and `MOVE RETURN-CODE` into a numeric-edited item now compile, and give the interpreter's result.**

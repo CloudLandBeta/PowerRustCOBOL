@@ -4,8 +4,8 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! DESKTOP-WASM-001 T31 and T32: **the runner's form engine and the interpreter agree on several
-//! forms, the application shell and its SideMenu, and the file dialogs** (R9, R10, R27; AC14 part).
+//! DESKTOP-WASM-001 T31, T32 and T49: **the runner's form engine and the interpreter agree on several
+//! forms, the application shell and its SideMenu, the file dialogs and the sounds** (R9, R10, R11, R27; AC14 part).
 //!
 //! The runner twins of four `rcrun` host tests, on their fixtures:
 //!
@@ -20,7 +20,8 @@
 //! 5. and one of its own, `several_forms`: a program that opens a form beside it, one that waits
 //!    for a modal form, and `super::` from the opened forms to their opener;
 //! 6. T32's, `file_dialogs`: each kind of file dialog a program opens, answered by the script, and
-//!    what each asked the form host for.
+//!    what each asked the form host for;
+//! 7. T49's, `sounds`: each sound verb, with what `AUDIO-STATE` reads after it, on the null output.
 //!
 //! Each runs the same script headless twice, under the same pinned clock and seed: under
 //! `rcrun run-form` (the interpreter), and in the program `rcrun build` makes on the WebAssembly
@@ -155,6 +156,8 @@ struct Run {
 /// The pins and the pictures folder every run is given.
 fn pinned(cmd: &mut Command, home: &Path, shots: &Path) {
     cmd.env("HOME", home)
+        // No test plays a sound on the machine's device (`cobolt_runtime::audio_runtime::OUTPUT_VAR`).
+        .env("COBOLT_AUDIO", "null")
         .env("PRC_TEST_CLOCK", PIN_CLOCK)
         .env("PRC_TEST_SEED", PIN_SEED)
         .env("PRC_HEADLESS_SHOTS", shots);
@@ -334,7 +337,7 @@ impl Tally {
     /// The result block (GOLDEN RULE #7), then the verdict.
     fn finish(self, title: &str, what: &str, root: &Path, build_ms: f64) {
         let passed = self.checks.iter().filter(|(_, ok)| *ok).count();
-        println!("== {title} (DESKTOP-WASM-001 T31: R9, R10, R27; AC14 part) ==");
+        println!("== {title} (DESKTOP-WASM-001 T31, T32, T49: R9, R10, R27; AC14 part) ==");
         println!("{what}");
         println!("pins: PRC_TEST_CLOCK={PIN_CLOCK} PRC_TEST_SEED={PIN_SEED}; rcrun build (WebAssembly path) {build_ms:.0} ms");
         for l in &self.lines {
@@ -823,6 +826,110 @@ fn file_dialogs_are_asked_and_answered_alike() {
     tally.finish(
         "file_dialogs_are_asked_and_answered_alike",
         "COBOL::\"OPEN-FILE-DIALOG\" (title, filter, start folder), \"SAVE-FILE-DIALOG\" (title, filter, file name, start folder), \"FOLDER-DIALOG\" (title), and an open dialog the operator cancels; each answered by the script's `answer` step",
+        &root,
+        build_ms,
+    );
+}
+
+/// A silent WAV of `ms` milliseconds (8 kHz, 8-bit mono PCM), as the runtime's own sound tests make it.
+fn silent_wav(ms: u32) -> Vec<u8> {
+    let rate: u32 = 8000;
+    let data_len = rate * ms / 1000;
+    let mut b = Vec::with_capacity(44 + data_len as usize);
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + data_len).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    b.extend_from_slice(&1u16.to_le_bytes()); // mono
+    b.extend_from_slice(&rate.to_le_bytes());
+    b.extend_from_slice(&rate.to_le_bytes()); // bytes per second
+    b.extend_from_slice(&1u16.to_le_bytes()); // block align
+    b.extend_from_slice(&8u16.to_le_bytes()); // bits per sample
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data_len.to_le_bytes());
+    b.resize(44 + data_len as usize, 0x80);
+    b
+}
+
+#[test]
+fn sounds_are_played_and_answered_alike() {
+    let root = root("audio");
+    let mut main = Form::new("MAIN-FORM", "Sounds", 640, 480);
+    main.main_form = true;
+    let storage = ["01 WS-STATUS PIC X(10).", "01 WS-STATE PIC X(10).", "01 WS-POS PIC 9(7).", "01 WS-LEN PIC 9(7).", "01 WS-SHOW PIC X(40)."];
+    // Each verb, a sound played again from another form's point of view (a second door), a file that
+    // is not there and one that is not a sound. Each label shows the status, then the state and the
+    // length AUDIO-STATE reads after it (the position moves with the clock, so it is not shown).
+    let cases: [(&str, &str); 8] = [
+        ("PLAY", "COBOL::\"AUDIO-PLAY\" ( \"assets/sounds/tone.wav\" WS-STATUS )"),
+        ("PAUSE", "COBOL::\"AUDIO-PAUSE\" ( WS-STATUS )"),
+        ("RESUME", "COBOL::\"AUDIO-RESUME\" ( WS-STATUS )"),
+        ("STOP", "COBOL::\"AUDIO-STOP\" ( WS-STATUS )"),
+        ("IDLE", "COBOL::\"AUDIO-PAUSE\" ( WS-STATUS )"),
+        ("MISSING", "COBOL::\"AUDIO-PLAY\" ( \"assets/sounds/none.wav\" WS-STATUS )"),
+        ("BAD", "COBOL::\"AUDIO-PLAY\" ( \"assets/sounds/text.wav\" WS-STATUS )"),
+        ("QUIET", "COBOL::\"AUDIO-STOP\"()"),
+    ];
+    for (i, (name, call)) in cases.iter().enumerate() {
+        let y = 16 + 52 * i as i32;
+        let label = format!("LBL-{name}");
+        control(&mut main, &label, ControlType::Label, (220, y, 400, 24), Some("-"));
+        let id = format!("BTN-{name}");
+        control(&mut main, &id, ControlType::Button, (20, y, 180, 28), Some(&id));
+        let shown = format!("MOVE WS-SHOW TO {label}::Caption");
+        bind_ws(
+            &mut main,
+            &id,
+            "onClick",
+            &storage,
+            &[
+                "MOVE \"(none)\" TO WS-STATUS",
+                "MOVE SPACES TO WS-SHOW",
+                call,
+                "COBOL::\"AUDIO-STATE\" ( WS-STATE WS-POS WS-LEN )",
+                "STRING WS-STATUS DELIMITED BY SPACE \"/\"",
+                "    WS-STATE DELIMITED BY SPACE \"/\"",
+                "    WS-LEN DELIMITED BY SIZE INTO WS-SHOW",
+                &shown,
+            ],
+        );
+    }
+    let manifest = project(&root, "Sounds", &[("main-form", main)], &[]);
+    // The sounds, where a relative path finds them under both engines: the project's `assets/`.
+    let sounds = root.join("assets/sounds");
+    fs::create_dir_all(&sounds).unwrap();
+    fs::write(sounds.join("tone.wav"), silent_wav(10_000)).unwrap();
+    fs::write(sounds.join("text.wav"), b"this is not a sound").unwrap();
+    let mut steps = vec![wait(600)];
+    for (name, _) in &cases {
+        steps.extend([click(&format!("BTN-{name}")), wait(200), read(&format!("LBL-{name}"), "Caption")]);
+    }
+    steps.extend([dump(), shot("sounds")]);
+    let steps = script(&root, "steps", steps);
+    let (exe, build_ms) = build(&root, &manifest);
+    // The module the Build put in the program says it needs the runner's sound player (ABI A27, A36).
+    let bytes = fs::read(&exe).unwrap_or_default();
+    let module = cobolt_program_package::locate(&bytes).ok().and_then(|p| cobolt_program_package::decode(p).ok()).and_then(|d| d.module().ok().map(<[u8]>::to_vec)).unwrap_or_default();
+    let needs = module.windows(24).any(|w| w == b"\"capabilities\":[\"audio\"]");
+    let home = root.join("home");
+    let a = interpreter(&root, "main-form", &steps, &home);
+    let b = runner(&root, &exe, &steps, &home);
+    let mut tally = Tally::default();
+    tally.check(format!("the module's manifest lists the capability `audio` ({} bytes searched)", module.len()), needs);
+    tally.compare("sounds", &a, &b, &["sounds"]);
+    let got = readings(&b.report);
+    for (i, r) in got.iter().enumerate() {
+        tally.lines.push(format!("    runner read {}: {r}", cases.get(i).map_or("?", |c| c.0)));
+    }
+    let starts = |i: usize, p: &str| got.get(i).is_some_and(|r| r.starts_with(p));
+    tally.check("the runner played the sound, paused, resumed and stopped it: OK/PLAYING, OK/PAUSED, OK/PLAYING, OK/IDLE", starts(0, "OK/PLAYING/") && starts(1, "OK/PAUSED/") && starts(2, "OK/PLAYING/") && starts(3, "OK/IDLE/"));
+    tally.check("a sound of 10 000 ms reads its length while it plays", starts(0, "OK/PLAYING/0010000"));
+    tally.check("a missing file answers NOFILE, a file that is not a sound BADFORMAT", starts(5, "NOFILE/") && starts(6, "BADFORMAT/"));
+    tally.check("a verb with no status item leaves the item as it was", starts(7, "(none)/"));
+    tally.finish(
+        "sounds_are_played_and_answered_alike",
+        "COBOL::\"AUDIO-PLAY\" (a relative file, with its status), \"AUDIO-PAUSE\", \"AUDIO-RESUME\", \"AUDIO-STOP\", a PAUSE with nothing playing, a missing file, a file that is not a sound, a STOP with no status item; \"AUDIO-STATE\" after each; COBOLT_AUDIO=null",
         &root,
         build_ms,
     );

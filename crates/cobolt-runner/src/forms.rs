@@ -327,6 +327,8 @@ impl Thread {
         let Thread { engine, module, abi, imports, manifest, forms, files, lang, pins, rx, tx, exit } = self;
         let layout = manifest.layout();
         let mut host = Host::new(manifest, HostOptions { desktop: true, ..HostOptions::default() });
+        // The sounds a form plays (T49, A36).
+        host.audio = Some(Box::new(crate::audio::RunnerAudio::default()));
         // A form the Build has no program for is designed but not in the manifest: it cannot open.
         for f in forms {
             if host.manifest.form_by_name(&f.name).is_some() {

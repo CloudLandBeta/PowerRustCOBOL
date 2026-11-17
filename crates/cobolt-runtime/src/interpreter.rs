@@ -25557,7 +25557,7 @@ mod cross_run_unit_lock_tests {
 
 /// `path` joined to the application's folder when it is relative and a
 /// folder is anchored; otherwise `path` unchanged.
-pub(crate) fn anchor_relative_path(path: &str) -> String {
+pub fn anchor_relative_path(path: &str) -> String {
     let p = std::path::Path::new(path.trim());
     if path.trim().is_empty() || p.is_absolute() {
         return path.to_string();

@@ -569,6 +569,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let builtin_list: Vec<String> = names.builtins.iter().cloned().collect();
     // A desktop module that asks the operator for a file or a folder needs the runner's dialogs (A33).
     let uses_dialogs = builtin_list.iter().any(|b| crate::lower_remote::is_desktop_dialog(b));
+    // A desktop module that plays sounds needs the runner's player (A36); a browser module's sounds are the page's.
+    let uses_audio = opts.native && builtin_list.iter().any(|b| crate::lower_remote::is_desktop_audio(b));
     // A desktop module's disk files: their declarations go to the `prfiles` section and their
     // organisations to the capabilities (T38, A34).
     let file_caps: BTreeSet<&'static str> = names.file_caps.clone();
@@ -1568,13 +1570,14 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         // A desktop capability's import is named with its namespace (A29).
         imports: glue_list.iter().map(|g| if native_cap(g).is_some() { format!("{}.{g}", import_module(g)) } else { g.to_string() }).collect(),
         // A27: what the `prn` imports need, in the order of `cap::ALL`; none for a browser module. The
-        // file dialogs are verbs of the application object, with no import of their own (A33).
+        // file dialogs and the sound player are verbs of the application object, with no import of their own (A33, A36).
         capabilities: cobolt_wasm_abi::codes::cap::ALL
             .iter()
             .filter(|c| {
                 glue_list.iter().any(|g| !cobolt_wasm_abi::codes::FILE_IMPORTS.contains(g) && native_cap(g) == Some(**c))
                     || file_caps.contains(*c)
                     || (**c == cobolt_wasm_abi::codes::cap::DIALOGS && uses_dialogs)
+                    || (**c == cobolt_wasm_abi::codes::cap::AUDIO && uses_audio)
             })
             .map(|c| c.to_string())
             .collect(),

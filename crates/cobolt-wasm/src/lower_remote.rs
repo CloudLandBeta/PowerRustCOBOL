@@ -66,6 +66,17 @@ pub fn is_desktop_dialog(name: &str) -> bool {
     DESKTOP_DIALOGS.contains(&n.as_str())
 }
 
+/// The desktop's sound player (DESKTOP-WASM-001 T49, ABI A36): verbs of the application object only
+/// the desktop runner answers, as the interpreter answers `CALL "COBOL-AUDIO-PLAY"` and its siblings.
+/// A browser module keeps its own classes for them (`support.rs`).
+pub const DESKTOP_AUDIO: &[&str] = &["AUDIO-PLAY", "AUDIO-PAUSE", "AUDIO-RESUME", "AUDIO-STOP", "AUDIO-STATE"];
+
+/// Is `name` one of the desktop's sound verbs (any case)?
+pub fn is_desktop_audio(name: &str) -> bool {
+    let n = name.trim().to_ascii_uppercase();
+    DESKTOP_AUDIO.contains(&n.as_str())
+}
+
 /// Is `name` a verb only the phone shell answers (any case)?
 pub fn is_mobile_verb(name: &str) -> bool {
     let n = name.trim().to_ascii_uppercase();

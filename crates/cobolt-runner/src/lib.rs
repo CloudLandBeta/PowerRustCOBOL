@@ -31,6 +31,7 @@
 //! The runner never names itself after its crate: its words are "the PowerRustCOBOL runner".
 
 pub mod app;
+mod audio;
 pub mod files;
 pub mod forms;
 pub mod messages;
@@ -50,11 +51,12 @@ pub use messages::{Lang, Msg};
 pub use pins::Pins;
 
 /// The capabilities this runner provides (A27). T15: console programs; T32: the file dialogs (A33);
-/// T38: files on disk of every organisation (A34).
+/// T38: files on disk of every organisation (A34); T49: the sound player (A36).
 pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::CONSOLE,
     cap::ENV,
     cap::DIALOGS,
+    cap::AUDIO,
     cap::FILES_SEQUENTIAL,
     cap::FILES_LINE_SEQUENTIAL,
     cap::FILES_RELATIVE,

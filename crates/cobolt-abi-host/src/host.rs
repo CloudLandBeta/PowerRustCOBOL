@@ -249,8 +249,6 @@ impl RunError {
     }
 }
 
-/// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
-/// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
 /// A file dialog a desktop program waits on (DESKTOP-WASM-001 T32, ABI A33): `COBOL::"OPEN-FILE-DIALOG"`,
 /// `"SAVE-FILE-DIALOG"` or `"FOLDER-DIALOG"`, with its arguments as text, the path's item left out. The
 /// runner reads them as the interpreter does and answers with [`Host::file_dialog_answer`].
@@ -262,6 +260,22 @@ pub struct FileDialogAsk {
     pub args: Vec<String>,
 }
 
+/// The desktop's sound player (DESKTOP-WASM-001 T49, ABI A36), which the runner gives the host in
+/// [`Host::audio`]: the host answers `COBOL::"AUDIO-PLAY"`, `"AUDIO-PAUSE"`, `"AUDIO-RESUME"`,
+/// `"AUDIO-STOP"` and `"AUDIO-STATE"` through it at once, as the interpreter's player answers them.
+/// A desktop host with none answers as an interpreter built without sound: `NOFEATURE`, and `IDLE`.
+pub trait AudioPort {
+    /// `AUDIO-PLAY` (with the file as the program wrote it), `AUDIO-PAUSE`, `AUDIO-RESUME` or
+    /// `AUDIO-STOP` for the form instance `inst`: the status word.
+    fn command(&mut self, inst: u32, verb: &str, file: &str) -> String;
+    /// `AUDIO-STATE`: the state word, then the position and the length in milliseconds.
+    fn state(&mut self, inst: u32) -> (String, u64, u64);
+    /// The instance `inst` ended: the sound it started stops, as when an interpreter ends.
+    fn release(&mut self, inst: u32);
+}
+
+/// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
+/// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
 /// window state, x, y, width, height, then, for a Sync open, whether it is modal. An empty or absent
 /// one is the form's designed value, which the form host's supervisor applies.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -577,6 +591,8 @@ pub struct Host {
     refocused: Vec<(u32, usize, Placement)>,
     /// The file dialogs programs opened on the desktop and wait on (A33), for the runner to show.
     file_dialogs: Vec<FileDialogAsk>,
+    /// The desktop's sound player, which the runner gives the host (A36); `None` in a page.
+    pub audio: Option<Box<dyn AudioPort>>,
     pub effects: Vec<Effect>,
     pub outbox: Vec<Outbound>,
     /// The ids of the requests made by a Timer's `onTick` handler and not yet handed to the transport (2.0.413): an
@@ -731,6 +747,7 @@ impl Host {
             form_writes: Vec::new(),
             refocused: Vec::new(),
             file_dialogs: Vec::new(),
+            audio: None,
             effects: Vec::new(),
             outbox: Vec::new(),
             automatic_requests: std::collections::HashSet::new(),
@@ -1781,6 +1798,9 @@ impl Host {
         }
         self.drop_streams_of(inst);
         self.unsaved.remove(&inst);
+        if let Some(a) = self.audio.as_mut() {
+            a.release(inst);
+        }
         self.work.retain(|w| !matches!(w, Work::Event(e) if e.inst == inst));
         self.auth_calls.retain(|_, (i, _, _)| *i != inst);
         self.auth_captchas.retain(|_, (i, _)| *i != inst);
@@ -3168,6 +3188,26 @@ impl Host {
                 if let Some(f) = &mut self.inflight {
                     f.wait = Some(Wait::Dialog { id, done: false });
                 }
+                Ok(None)
+            }
+            // The desktop's sound player (A36): the runner's player answers at once, and the program's
+            // receivers read the answers from the application object.
+            "AUDIO-PLAY" | "AUDIO-PAUSE" | "AUDIO-RESUME" | "AUDIO-STOP" if self.opts.desktop => {
+                let status = match self.audio.as_mut() {
+                    Some(a) => a.command(inst, &m, &arg(0)),
+                    None => "NOFEATURE".to_owned(),
+                };
+                self.app.insert("audiostatus".into(), status);
+                Ok(None)
+            }
+            "AUDIO-STATE" if self.opts.desktop => {
+                let (state, position, length) = match self.audio.as_mut() {
+                    Some(a) => a.state(inst),
+                    None => ("IDLE".to_owned(), 0, 0),
+                };
+                self.app.insert("audiostate".into(), state);
+                self.app.insert("audioposition".into(), position.to_string());
+                self.app.insert("audioduration".into(), length.to_string());
                 Ok(None)
             }
             "SLEEP" | "WAIT" => {

@@ -47,7 +47,7 @@ const D_HTTP: &str = "HTTP is not on the WebAssembly path yet (DESKTOP-WASM-001 
 const D_POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module yet (DESKTOP-WASM-001 M5)";
 const D_EXCEPTIONS: &str = "TRY, CATCH, FINALLY and THROW are not compiled into a module yet (DESKTOP-WASM-001 M5)";
 const D_CONTROLS: &str = "the non-visual controls, the keys and the model lists are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
-const D_MEDIA: &str = "audio, animation sequences and layouts are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_MEDIA: &str = "animation sequences and layouts are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_PHONE: &str = "the phone's secure storage is a Mobile built-in, where a desktop program stops; that stop is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_REMOTE: &str = "remote calls, backend verbs and identity operations are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_EXEC_RUST: &str = "EXEC RUST is Rust compiled into the program, so the Build takes the Cargo path";
@@ -253,11 +253,11 @@ const fn cargo(why: &'static str) -> Native {
 pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("ANIMATIONSEQUENCE", Support::Unsupported("the player has no scheduler for timed SHOW / HIDE / PLAY entries yet (spec 109 S7, WASM-PARITY #46)"), cargo(D_MEDIA)),
     c("APPEND-FILE", Support::BackendOnly(FILES), cargo(D_FILE_BUILTINS)),
-    web("AUDIO-PAUSE", "HTMLAudioElement", BOTH, cargo(D_MEDIA)),
-    web("AUDIO-PLAY", "HTMLAudioElement", BOTH, cargo(D_MEDIA)),
-    web("AUDIO-RESUME", "HTMLAudioElement", BOTH, cargo(D_MEDIA)),
-    c("AUDIO-STATE", Support::Unsupported("its answers have no way back into a browser module yet"), cargo(D_MEDIA)),
-    web("AUDIO-STOP", "HTMLAudioElement", BOTH, cargo(D_MEDIA)),
+    web("AUDIO-PAUSE", "HTMLAudioElement", BOTH, Native::Host(cap::AUDIO)),
+    web("AUDIO-PLAY", "HTMLAudioElement", BOTH, Native::Host(cap::AUDIO)),
+    web("AUDIO-RESUME", "HTMLAudioElement", BOTH, Native::Host(cap::AUDIO)),
+    c("AUDIO-STATE", Support::Unsupported("its answers have no way back into a browser module yet"), Native::Host(cap::AUDIO)),
+    web("AUDIO-STOP", "HTMLAudioElement", BOTH, Native::Host(cap::AUDIO)),
     c("AUTH-OP", Support::BackendOnly(IDENTITY), cargo(D_REMOTE)),
     c("AWS-CLEAR-CREDENTIALS", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
     c("AWS-CREDENTIALS-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
