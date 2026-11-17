@@ -652,6 +652,139 @@ fn a_tilted_chart_answers_the_same_in_the_shell() {
     );
 }
 
+/// The charts' built-ins, `COBOL::"CHART-SET-TABLE"`, `"CHART-ADD-POINT"`, `"CHART-CLEAR"` and
+/// `"CHART-REFRESH"`, give each chart the same points under both engines: a table of the fixed rows
+/// (`PIC X(64)` label, `PIC 9(18)V9(6)` value) whose first label starts with spaces, a table of other
+/// rows read as the fixed ones (PowerSpatial's wave: 48 rows of `X(4)` + `9(3)`, labels edited
+/// `ZZ9`), points with further series, a ScatterChart's bubble sizes, and a chart cleared, refreshed
+/// and filled again. (A name that is no control of the form draws nothing under either engine, but
+/// the interpreter's form host keeps an entry for it that a `dump` lists: WASM-PARITY #60.)
+#[test]
+fn chart_built_ins_give_the_same_points() {
+    let root = root("charts");
+    let mut main = Form::new("MAIN-FORM", "Charts", 760, 520);
+    main.main_form = true;
+    for (id, kind, rect) in [
+        ("CHT-STD", ControlType::BarChart, (20, 20, 340, 150)),
+        ("CHT-WAVE", ControlType::BarChart, (380, 20, 340, 150)),
+        ("CHT-SERIES", ControlType::LineChart, (20, 190, 340, 150)),
+        ("CHT-BUBBLE", ControlType::ScatterChart, (380, 190, 340, 150)),
+        ("CHT-AGAIN", ControlType::BarChart, (20, 360, 340, 140)),
+        ("CHT-M-LINE", ControlType::LineChart, (380, 360, 200, 70)),
+        ("CHT-M-BUBBLE", ControlType::ScatterChart, (380, 440, 200, 70)),
+    ] {
+        control(&mut main, id, kind, rect, None);
+    }
+    let storage = [
+        "01 WS-STD.",
+        "   05 WS-STD-ROW OCCURS 2.",
+        "      10 WS-STD-LABEL PIC X(64).",
+        "      10 WS-STD-VALUE PIC 9(18)V9(6).",
+        "01 WS-STD-N PIC 9(3) VALUE 2.",
+        "01 WS-WAVE.",
+        "   05 WS-WAVE-ROW OCCURS 48.",
+        "      10 WS-WAVE-LABEL PIC X(4).",
+        "      10 WS-WAVE-VALUE PIC 9(3).",
+        "01 WS-WAVE-N PIC 9(3) VALUE 48.",
+        "01 WS-I PIC 9(3).",
+        "01 WS-N-TXT PIC ZZ9.",
+    ];
+    let cases: [(&str, Vec<&str>); 6] = [
+        (
+            "STD",
+            vec![
+                "MOVE \"  North\" TO WS-STD-LABEL(1)",
+                "MOVE 12.5 TO WS-STD-VALUE(1)",
+                "MOVE \"South\" TO WS-STD-LABEL(2)",
+                "MOVE 7 TO WS-STD-VALUE(2)",
+                "COBOL::\"CHART-SET-TABLE\" ( \"CHT-STD\" WS-STD WS-STD-N )",
+            ],
+        ),
+        (
+            "WAVE",
+            vec![
+                "PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-WAVE-N",
+                "    MOVE WS-I TO WS-N-TXT",
+                "    MOVE WS-N-TXT TO WS-WAVE-LABEL(WS-I)",
+                "    COMPUTE WS-WAVE-VALUE(WS-I) = WS-I * 2",
+                "END-PERFORM",
+                "COBOL::\"CHART-SET-TABLE\" ( \"CHT-WAVE\" WS-WAVE WS-WAVE-N )",
+            ],
+        ),
+        (
+            "SERIES",
+            vec![
+                "COBOL::\"CHART-ADD-POINT\" ( \"CHT-SERIES\" \"Jan\" 10 )",
+                "COBOL::\"CHART-ADD-POINT\" ( \"CHT-SERIES\" \"Feb\" 20 25 30 )",
+                "COBOL::\"CHART-ADD-POINT\" ( \"CHT-SERIES\" \"Mar\" 15 )",
+            ],
+        ),
+        (
+            "BUBBLE",
+            vec!["COBOL::\"CHART-ADD-POINT\" ( \"CHT-BUBBLE\" \"A\" 3 40 )", "COBOL::\"CHART-ADD-POINT\" ( \"CHT-BUBBLE\" \"B\" 5 )"],
+        ),
+        (
+            "AGAIN",
+            vec![
+                "COBOL::\"CHART-ADD-POINT\" ( \"CHT-AGAIN\" \"X\" 9 )",
+                "COBOL::\"CHART-CLEAR\" ( \"CHT-AGAIN\" )",
+                "COBOL::\"CHART-REFRESH\" ( \"CHT-AGAIN\" )",
+                "COBOL::\"CHART-ADD-POINT\" ( \"CHT-AGAIN\" \"Y\" 4 )",
+            ],
+        ),
+        // The chart methods keep the points as the built-ins do.
+        (
+            "METHODS",
+            vec![
+                "CHT-M-LINE::AddPoint(\"Q1\", 5)",
+                "CHT-M-LINE::AddPoint(\"Q2\", 6, 7)",
+                "CHT-M-LINE::AddPoint(\"Q3\", 2.5)",
+                "CHT-M-LINE::Refresh()",
+                "CHT-M-BUBBLE::AddPoint(\"P\", 2, 30)",
+                "CHT-M-BUBBLE::AddPoint(\"R\", 4)",
+                "CHT-M-BUBBLE::Clear()",
+                "CHT-M-BUBBLE::AddPoint(\"S\", 1, 12)",
+            ],
+        ),
+    ];
+    for (i, (name, statements)) in cases.iter().enumerate() {
+        let id = format!("BTN-{name}");
+        control(&mut main, &id, ControlType::Button, (600, 360 + 30 * i as i32, 140, 26), Some(&id));
+        bind_ws(&mut main, &id, "onClick", &storage, statements);
+    }
+    let manifest = project(&root, "Charts", &[("main-form", main)], &[]);
+    let mut steps = vec![wait(600)];
+    for (name, chart) in [("STD", "CHT-STD"), ("WAVE", "CHT-WAVE"), ("SERIES", "CHT-SERIES"), ("BUBBLE", "CHT-BUBBLE"), ("AGAIN", "CHT-AGAIN"), ("METHODS", "CHT-M-LINE")] {
+        steps.extend([click(&format!("BTN-{name}")), wait(200), read(chart, "__ChartData"), read(chart, "__ChartSizes")]);
+    }
+    steps.extend([read("CHT-M-BUBBLE", "__ChartData"), read("CHT-M-BUBBLE", "__ChartSizes")]);
+    steps.extend([dump(), shot("charts")]);
+    let steps = script(&root, "steps", steps);
+    let (exe, build_ms) = build(&root, &manifest);
+    let home = root.join("home");
+    let a = interpreter(&root, "main-form", &steps, &home);
+    let b = runner(&root, &exe, &steps, &home);
+    let mut tally = Tally::default();
+    tally.compare("charts", &a, &b, &["charts"]);
+    let got = readings(&b.report);
+    let want_lines = |i: usize, n: usize| got.get(i).is_some_and(|r| r.lines().count() == n);
+    tally.check("the fixed rows: North 12.5, South 7 (the first label's leading spaces kept)", got.first().map(String::as_str) == Some("North\t12.5\nSouth\t7"));
+    tally.check("the wave's 336 characters make 3 rows of 88, as the interpreter reads them", want_lines(2, 3));
+    tally.check("further series padded with 0: Jan 10 0 0, Feb 20 25 30, Mar 15 0 0", got.get(4).map(String::as_str) == Some("Jan\t10\t0\t0\nFeb\t20\t25\t30\nMar\t15\t0\t0"));
+    tally.check("a ScatterChart's sizes: 40, then 0 for a point given none", got.get(6).map(String::as_str) == Some("A\t3\nB\t5") && got.get(7).map(String::as_str) == Some("40\n0"));
+    tally.check("cleared, refreshed and filled again: Y 4 only", got.get(8).map(String::as_str) == Some("Y\t4"));
+    tally.check(
+        "the methods: Q1 5 0, Q2 6 7, Q3 2.5 0; a ScatterChart cleared, then S 1 with size 12",
+        got.get(10).map(String::as_str) == Some("Q1\t5\t0\nQ2\t6\t7\nQ3\t2.5\t0") && got.get(12).map(String::as_str) == Some("S\t1") && got.get(13).map(String::as_str) == Some("12"),
+    );
+    tally.finish(
+        "chart_built_ins_give_the_same_points",
+        "COBOL::\"CHART-SET-TABLE\" (fixed rows with a label that starts with spaces; 48 rows of X(4) + 9(3) read as the fixed rows), \"CHART-ADD-POINT\" (1 and 3 series; a ScatterChart with and without a size), \"CHART-CLEAR\", \"CHART-REFRESH\"; the methods AddPoint (2 series, a decimal), Refresh, and on a ScatterChart AddPoint with a size, Clear",
+        &root,
+        build_ms,
+    );
+}
+
 // ── 5. several forms ─────────────────────────────────────────────────────────────────────────────
 
 /// A headless script reaches the main window's controls only, so what the opened forms do shows

@@ -3285,8 +3285,52 @@ impl Host {
                 self.app_set(&arg(0), &arg(1));
                 Ok(None)
             }
+            // The charts' built-ins, on a chart of the calling form.
+            "CHART-SET-TABLE" | "CHART-ADD-POINT" | "CHART-CLEAR" | "CHART-REFRESH" => self.chart_builtin(inst, &m, args),
             other => Err(CmdError::Unknown(format!("the application object has no verb `{other}`"))),
         }
+    }
+
+    /// `COBOL::"CHART-SET-TABLE" ( chart table count )`, `"CHART-ADD-POINT" ( chart label value
+    /// [more…] )`, `"CHART-CLEAR" ( chart )` and `"CHART-REFRESH" ( chart )`, as the interpreter runs
+    /// them. What it keeps of a chart (its points, their further series' values, a ScatterChart's
+    /// bubble sizes) and sends whole after each is the chart's `__ChartData` and `__ChartSizes`, which
+    /// here are the store. A name that is not a control of the form changes nothing on screen, as
+    /// under the interpreter.
+    fn chart_builtin(&mut self, inst: u32, verb: &str, args: &[&str]) -> Result<Option<String>, CmdError> {
+        let need = if matches!(verb, "CHART-SET-TABLE" | "CHART-ADD-POINT") { 3 } else { 1 };
+        if args.len() < need {
+            return Err(CmdError::Bad(format!("COBOL::\"{verb}\" takes the chart and {} more", need - 1)));
+        }
+        let Some(tree) = self.trees.get_mut(&inst) else {
+            return Ok(None);
+        };
+        let Some(ctl) = tree.by_name(args[0]) else {
+            return Ok(None);
+        };
+        // The interpreter's `as_f64` of a value's text: 0 when it is not a number.
+        let num = |s: &str| crate::value::parse_f64(s).unwrap_or(0.0);
+        match verb {
+            "CHART-SET-TABLE" => {
+                // A chart that names its table's fields is read by those names, which only the
+                // interpreter can look up; reading it as the fixed rows would draw another chart.
+                let named = |p: &str| !tree.get(ctl, p).trim().is_empty();
+                if named("LabelField") && tree.get(ctl, "ValueFields").split(',').any(|f| !f.trim().is_empty()) {
+                    return Err(CmdError::Refused(format!(
+                        "COBOL::\"CHART-SET-TABLE\" on {}: the chart names its table's fields (LabelField, ValueFields), which a WebAssembly program does not look up by name",
+                        args[0].trim()
+                    )));
+                }
+                methods::chart_set_table(tree, ctl, args[1], num(args[2]) as usize);
+            }
+            "CHART-ADD-POINT" => {
+                let rest: Vec<f64> = args[3..].iter().map(|a| num(a)).collect();
+                methods::chart_add_point(tree, ctl, args[1], num(args[2]), &rest);
+            }
+            "CHART-CLEAR" => methods::chart_clear(tree, ctl),
+            _ => methods::chart_refresh(tree, ctl),
+        }
+        Ok(None)
     }
 
     /// The Authentication control's methods (WASM-009 R3): `SignOut`, `Refresh`, `GetClaim`,

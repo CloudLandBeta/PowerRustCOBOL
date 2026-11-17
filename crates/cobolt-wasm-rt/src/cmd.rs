@@ -154,6 +154,29 @@ pub fn path_arg(base: u32, o: u32) {
     bump(st().path_nargs_at);
 }
 
+/// Add argument `o` to the current segment with every character of a data item or a literal, the
+/// spaces before and after its text kept: a table the host reads at fixed offsets
+/// (`COBOL::"CHART-SET-TABLE"`) is the interpreter's whole value of the item. A number is its
+/// text, as for [`path_arg`].
+pub fn path_arg_whole(base: u32, o: u32) {
+    let mut num = [0u8; 64];
+    let o = parse(o);
+    let (a, l) = match o.tag {
+        T_FIG | T_LIT_NUM | T_TEMP => raw_text_of(base, &o, &mut num),
+        _ => {
+            let l = locate(base, &o);
+            if l.fd.is_numeric() {
+                raw_text_of(base, &o, &mut num)
+            } else {
+                (l.addr, l.len)
+            }
+        }
+    };
+    let (a, l) = disp::lossy(a, l);
+    put_text(mem::bytes(a, l));
+    bump(st().path_nargs_at);
+}
+
 fn path_bytes() -> &'static [u8] {
     let s = st();
     mem::bytes(s.ws + WS_PATH, s.path_len)

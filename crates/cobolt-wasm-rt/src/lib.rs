@@ -594,6 +594,12 @@ pub extern "C" fn rt_path_arg(base: u32, o: u32) {
     cmd::path_arg(base, o);
 }
 
+/// Add an argument with every character, its surrounding spaces kept (a table read at fixed offsets).
+#[no_mangle]
+pub extern "C" fn rt_path_arg_whole(base: u32, o: u32) {
+    cmd::path_arg_whole(base, o);
+}
+
 /// `SET path value`.
 #[no_mangle]
 pub extern "C" fn rt_cmd_set(base: u32, value: u32) {

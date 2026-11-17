@@ -2,6 +2,47 @@
 
 
 
+## 2.0.558 — 2026-11-17
+
+**Fix: the charts' built-ins `COBOL::"CHART-SET-TABLE"`, `"CHART-ADD-POINT"`, `"CHART-CLEAR"` and `"CHART-REFRESH"` now run in a WebAssembly program, in a browser and on the desktop. Until now every call failed with a run-time error, and the chart kept its designed sample points. A chart's `AddPoint()`, `Clear()` and `Refresh()` methods now keep the same points as the built-ins, as under the interpreter.**
+- **What was wrong:**
+  - The generator accepted the four built-ins and sent each one to the host as a call on the application object. The host had no such verbs, so it answered "the application object has no verb", reported a run-time error, and the chart was never given its points.
+  - PowerAnalyticsWeb's drill-down charts and PowerSpatial's music waveform were affected. The parity ledger did not list the gap.
+  - `CHART-SET-TABLE`'s table also reached the host trimmed, like every argument sent as text. The leading spaces of its first label were dropped, and every row after them moved. PowerSpatial's wave labels are edited `ZZ9`, so they start with spaces.
+  - The chart methods differed from the interpreter in a browser too:
+    - `AddPoint()` padded no series and kept no bubble sizes;
+    - `Clear()` left the chart's `Text` and `Items` as they were;
+    - `Refresh()` did not send the chart its points again.
+- **How it was found:** the M3 close's pixel parity of PowerSpatial (AC19). The main form's Cargo-built and WebAssembly-built pictures differed only in the waveform chart: 3 points against the chart's designed sample.
+- **The fix:**
+  - **The host** (`cobolt-abi-host`) runs the four built-ins on a chart of the calling form, as the interpreter runs them:
+    - the table's rows are a `PIC X(64)` label and a `PIC 9(18)V9(6)` value, counted in characters; a row that runs past the table ends it;
+    - a point's further values are its values in the next series, and every point keeps the same number of series, padded with 0;
+    - a ScatterChart's fourth argument is the point's bubble size, and once a chart has sizes every point has one;
+    - `CLEAR` empties the chart, and `REFRESH` sends it what it holds;
+    - a name that is no control of the form changes nothing on screen.
+  - **The chart methods** use the same code as the built-ins, so a program may mix the two:
+    - `Clear()` also empties `Text` and `Items`, as the interpreter's does;
+    - `Refresh()` sends the chart its points again.
+  - **The generator** sends `CHART-SET-TABLE`'s table whole, its spaces kept, through a new routine (`rt_path_arg_whole`). Every other argument is sent trimmed, as before.
+  - **A chart that names its table's fields** (`LabelField` and `ValueFields`) is read through those data items, which only the interpreter can look up by name:
+    - such a chart now sends a desktop Build to the Cargo path, naming the chart;
+    - in a browser module the call reports a run-time error naming the chart (WASM-PARITY #61);
+    - no example names the fields.
+- **Tests:**
+  - **The runner twin** `chart_built_ins_give_the_same_points`, against `rcrun run-form`: 10 of 10 checks passed.
+    - Six cases: two fixed rows, a 336-character wave, three series, a ScatterChart, clear-refresh-fill, and the methods.
+    - 14 readings are equal, the dumps are equal, and the pictures differ in 0 pixels.
+    - Timings: Build 13 171 ms; interpreter 2 662 ms; runner 4 949 ms.
+    - A negative control that sends the table trimmed fails it: 5 of 9, with the first row's label shifted.
+  - `a_chart_that_names_its_table_fields_takes_the_cargo_path`: 5 of 5 designs classified as expected (no fields, one field, a blank list on the WebAssembly path; both fields on the Cargo path).
+  - `cobolt-abi-host`: 263 passed.
+  - `cobolt-wasm`: 129 passed, and `player_fixture` passes once written again: the fixture's 8 modules are 11 to 25 bytes larger, from the rebuilt runtime.
+  - The web player's workspace: 263 passed, freshness 6 of 6. The one failure, `dependency_guard`, asks for Rust 1.92 where the workspace crates declare 1.95; it fails without this change too.
+  - `cobolt-web-bundle`: 146 passed in 60 test binaries; `cobolt-project-tools` `web_build`: 28 passed.
+- **The web player** (`assets/web-player`) is rebuilt, because the host changed.
+- **Ledger:** WASM-PARITY #60 records that a built-in naming no control leaves an extra entry in the interpreter's dump (by design). #61 records the named-fields gap.
+
 ## 2.0.557 — 2026-11-16
 
 **Fix: on the desktop's WebAssembly path, a data item with neither a PICTURE nor subordinate items now compiles, as an item of no characters, the way the interpreter holds it.**

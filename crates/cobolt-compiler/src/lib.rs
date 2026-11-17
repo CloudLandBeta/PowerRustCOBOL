@@ -2623,8 +2623,22 @@ fn classify<'p>(
 /// path, naming the form, its file and the control (DESKTOP-WASM-001 T33, plan §4.3). `forms` are
 /// `(ID, file relative to the project, design)`.
 fn desktop_control_reason(forms: &[(&str, &str, &cobolt_forms::Form)]) -> Option<CargoReason> {
+    // A chart that names its table's fields: `COBOL::"CHART-SET-TABLE"` reads its table through the
+    // data items `LabelField` and `ValueFields` name, which the interpreter looks up at run time and
+    // a WebAssembly program does not.
+    fn chart_fields_gap(c: &cobolt_forms::Control) -> Option<&'static str> {
+        let p = |k: &str| c.get_prop(k).map(|v| v.as_str().to_owned()).unwrap_or_default();
+        (!p("LabelField").trim().is_empty() && p("ValueFields").split(',').any(|f| !f.trim().is_empty())).then_some(
+            "the chart names its table's fields (LabelField, ValueFields), which COBOL::\"CHART-SET-TABLE\" looks up by name only under the interpreter",
+        )
+    }
     fn first_gap(cs: &[cobolt_forms::Control]) -> Option<(&cobolt_forms::Control, &'static str)> {
-        cs.iter().find_map(|c| cobolt_wasm::support::desktop_control_gap(&c.control_type).map(|why| (c, why)).or_else(|| first_gap(&c.children)))
+        cs.iter().find_map(|c| {
+            cobolt_wasm::support::desktop_control_gap(&c.control_type)
+                .or_else(|| chart_fields_gap(c))
+                .map(|why| (c, why))
+                .or_else(|| first_gap(&c.children))
+        })
     }
     fn find<'c>(cs: &'c [cobolt_forms::Control], id: &str) -> Option<&'c cobolt_forms::Control> {
         cs.iter().find_map(|c| if c.id.eq_ignore_ascii_case(id) { Some(c) } else { find(&c.children, id) })
@@ -14239,6 +14253,47 @@ function_prefix = "sales-"
         }
         println!("result: {passed} of {} checks passed", checks.len());
         assert_eq!(passed, checks.len(), "maps {maps:?}, canvas {canvas:?}, binding {binding:?}");
+    }
+
+    /// A chart that names its table's fields (`LabelField`, `ValueFields`) has
+    /// `COBOL::"CHART-SET-TABLE"` read the table by those data items, which only the interpreter
+    /// looks up by name: the Build takes the Cargo path and names the chart. A chart that names
+    /// one of the two, or neither, is read as the fixed rows on both paths and passes.
+    #[test]
+    fn a_chart_that_names_its_table_fields_takes_the_cargo_path() {
+        use cobolt_forms::{Control, ControlType as T, Form};
+        let chart = |props: &[(&str, &str)]| {
+            let mut c = Control::new("CHT-SALES", T::BarChart, 10, 10);
+            for (k, v) in props {
+                c.set_prop(*k, *v);
+            }
+            let mut f = Form::new("MAIN", "MAIN", 400, 300);
+            f.controls = vec![c];
+            f
+        };
+        let cases = [
+            ("no fields", chart(&[]), false),
+            ("LabelField only", chart(&[("LabelField", "WS-LBL")]), false),
+            ("ValueFields only", chart(&[("ValueFields", "WS-VAL")]), false),
+            ("a blank ValueFields list", chart(&[("LabelField", "WS-LBL"), ("ValueFields", " , ")]), false),
+            ("LabelField and ValueFields", chart(&[("LabelField", "WS-LBL"), ("ValueFields", "WS-VAL, WS-VAL2")]), true),
+        ];
+        println!("== a_chart_that_names_its_table_fields_takes_the_cargo_path (CHART-SET-TABLE) ==");
+        let mut passed = 0;
+        for (what, form, refused) in &cases {
+            let r = desktop_control_reason(&[("MAIN", "forms/main.cfrm", form)]);
+            let ok = match &r {
+                Some(CargoReason::DesktopControl { control, control_type, reason, .. }) => {
+                    *refused && control == "CHT-SALES" && control_type == "BarChart" && reason.contains("LabelField, ValueFields")
+                }
+                None => !refused,
+                _ => false,
+            };
+            println!("  {} {what}: {}", if ok { "pass" } else { "FAIL" }, if r.is_some() { "Cargo path" } else { "WebAssembly path" });
+            passed += usize::from(ok);
+        }
+        println!("result: {passed} of {} checks passed", cases.len());
+        assert_eq!(passed, cases.len());
     }
 
     // ── Build profile: the button chooses, not the project ────────────────────

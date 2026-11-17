@@ -225,6 +225,12 @@ impl Lower<'_, '_> {
 
     /// Start the path and add each segment with its (already evaluated) arguments.
     pub(crate) fn emit_path(&mut self, ctrl: u32, segs: &[Seg<'_>], arg_opds: Vec<Vec<u32>>) {
+        self.emit_path_keeping(ctrl, segs, arg_opds, None);
+    }
+
+    /// [`Self::emit_path`], with argument `whole` of the last segment sent with every character,
+    /// the spaces around its text kept (`rt_path_arg_whole`); every other argument is trimmed.
+    pub(crate) fn emit_path_keeping(&mut self, ctrl: u32, segs: &[Seg<'_>], arg_opds: Vec<Vec<u32>>, whole: Option<usize>) {
         if ctrl == CTRL_APP {
             if let Some(first) = segs.first() {
                 self.names.builtins.insert(first.name.to_string());
@@ -232,14 +238,16 @@ impl Lower<'_, '_> {
         }
         self.i32c(ctrl as i32);
         self.call_rt("rt_path_begin");
-        for (s, opds) in segs.iter().zip(arg_opds) {
+        let last = segs.len().saturating_sub(1);
+        for (k, (s, opds)) in segs.iter().zip(arg_opds).enumerate() {
             let id = self.names.id(s.name);
             self.i32c(id as i32);
             self.call_rt("rt_path_seg");
-            for o in opds {
+            for (j, o) in opds.into_iter().enumerate() {
                 self.base();
                 self.i32c(o as i32);
-                self.call_rt("rt_path_arg");
+                let keep = k == last && whole == Some(j);
+                self.call_rt(if keep { "rt_path_arg_whole" } else { "rt_path_arg" });
             }
         }
     }
@@ -832,7 +840,11 @@ impl Lower<'_, '_> {
                 let receiver = if other == "SECURELOAD" { args.get(1).cloned() } else { None };
                 let sent: &[Expr] = if receiver.is_some() { &args[..1] } else { &args };
                 let seg = Seg { name: other, args: sent, parens: true };
-                self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
+                // `COBOL::"CHART-SET-TABLE"` reads its table at fixed offsets: the table goes whole,
+                // the spaces around its text kept, as the interpreter reads the item.
+                let whole = (other == "CHART-SET-TABLE").then_some(1);
+                let arg_opds = self.path_args(std::slice::from_ref(&seg))?;
+                self.emit_path_keeping(CTRL_APP, std::slice::from_ref(&seg), arg_opds, whole);
                 self.call_rt("rt_cmd_call");
                 self.suspend_if_waiting(CTRL_APP, other);
                 if let Some(dest) = receiver {

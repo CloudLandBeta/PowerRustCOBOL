@@ -99,6 +99,92 @@ fn count(items: &str) -> usize {
     }
 }
 
+// ── a chart's points ─────────────────────────────────────────────────────────────────────────────
+//
+// What the interpreter keeps of a chart (its points, their values in further series, a
+// ScatterChart's bubble sizes) and sends whole after each change is the chart's `__ChartData` (one
+// `label<TAB>value[<TAB>more…]` line per point) and `__ChartSizes` (one size per line), which here
+// are the store. The chart methods `AddPoint`, `Clear` and `Refresh` and the built-ins
+// `COBOL::"CHART-*"` share these, as they share the interpreter's.
+
+fn chart_lines(text: String) -> Vec<String> {
+    if text.is_empty() {
+        Vec::new()
+    } else {
+        text.split('\n').map(str::to_owned).collect()
+    }
+}
+
+fn chart_send(tree: &mut FormTree, ctl: usize, data: &str, sizes: &str) {
+    let _ = tree.set(ctl, "__ChartData", data);
+    let _ = tree.set(ctl, "__ChartSizes", sizes);
+}
+
+/// `COBOL::"CHART-SET-TABLE"`: the chart's points become the table's, read as the interpreter reads
+/// it: `count` rows of a `PIC X(64)` label and a `PIC 9(18)V9(6)` value (24 digits, 6 of them
+/// decimals), counted in characters; the label trimmed, the value's digits only. A row that runs
+/// past the table ends it. The chart has no further series and no sizes after it.
+pub(crate) fn chart_set_table(tree: &mut FormTree, ctl: usize, raw: &str, count: usize) {
+    const LABEL: usize = 64;
+    const DIGITS: usize = 24;
+    const ROW: usize = LABEL + DIGITS;
+    let chars: Vec<char> = raw.chars().collect();
+    let mut rows = Vec::new();
+    for i in 0..count {
+        let start = i * ROW;
+        if start + ROW > chars.len() {
+            break;
+        }
+        let label: String = chars[start..start + LABEL].iter().collect();
+        let digits: String = chars[start + LABEL..start + ROW].iter().filter(|c| c.is_ascii_digit()).collect();
+        let value = digits.parse::<f64>().unwrap_or(0.0) / 1_000_000.0;
+        rows.push(format!("{}\t{value}", label.trim().replace(['\t', '\n'], " ")));
+    }
+    chart_send(tree, ctl, &rows.join("\n"), "");
+}
+
+/// `AddPoint` and `COBOL::"CHART-ADD-POINT"`: one more point. On a ScatterChart the first further
+/// value is the point's bubble size; once a chart has sizes every point has one, 0 when none is
+/// given. On any other chart each further value is the point's value in the next series, and every
+/// point keeps the same number of series, padded with 0.
+pub(crate) fn chart_add_point(tree: &mut FormTree, ctl: usize, label: &str, value: f64, rest: &[f64]) {
+    let mut rows = chart_lines(tree.get(ctl, "__ChartData"));
+    let mut sizes = chart_lines(tree.get(ctl, "__ChartSizes"));
+    let scatter = matches!(tree.ctls[ctl].control_type(), Some(ControlType::ScatterChart));
+    let point = format!("{}\t{value}", label.trim().replace(['\t', '\n'], " "));
+    let size = if scatter { rest.first().copied() } else { None };
+    if size.is_some() || !sizes.is_empty() {
+        sizes.resize(rows.len(), "0".into());
+        sizes.push(size.unwrap_or(0.0).to_string());
+    }
+    let extras = |r: &str| r.split('\t').skip(2).map(str::to_owned).collect::<Vec<_>>();
+    if scatter || (rest.is_empty() && rows.iter().all(|r| extras(r).is_empty())) {
+        rows.push(point);
+    } else {
+        let mut more: Vec<Vec<String>> = rows.iter().map(|r| extras(r)).collect();
+        more.push(rest.iter().map(f64::to_string).collect());
+        rows.push(point);
+        let width = more.iter().map(Vec::len).max().unwrap_or(0);
+        for (r, m) in rows.iter_mut().zip(more.iter_mut()) {
+            m.resize(width, "0".into());
+            let head: Vec<String> = r.split('\t').take(2).map(str::to_owned).collect();
+            *r = head.into_iter().chain(m.iter().cloned()).collect::<Vec<_>>().join("\t");
+        }
+    }
+    chart_send(tree, ctl, &rows.join("\n"), &sizes.join("\n"));
+}
+
+/// `Clear` on a chart and `COBOL::"CHART-CLEAR"`: no points, no sizes.
+pub(crate) fn chart_clear(tree: &mut FormTree, ctl: usize) {
+    chart_send(tree, ctl, "", "");
+}
+
+/// `Refresh` on a chart and `COBOL::"CHART-REFRESH"`: the chart is sent what it holds.
+pub(crate) fn chart_refresh(tree: &mut FormTree, ctl: usize) {
+    let (data, sizes) = (tree.get(ctl, "__ChartData"), tree.get(ctl, "__ChartSizes"));
+    chart_send(tree, ctl, &data, &sizes);
+}
+
 /// `Name::Prop` / `Name.Prop` → (control index, property); a bare name → (this control, name).
 fn resolve_ref(tree: &FormTree, ctl: usize, p: &str) -> (usize, String) {
     for sep in ["::", "."] {
@@ -187,7 +273,12 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
         }
         "BRINGTOFRONT" => put(tree, ctl, "ZOrder", "10000", &mut out),
         "SENDTOBACK" => put(tree, ctl, "ZOrder", "-10000", &mut out),
-        "REFRESH" | "VALIDATE" => tree.command(ctl, "refresh", Vec::new()),
+        "REFRESH" | "VALIDATE" => {
+            if is_chart {
+                chart_refresh(tree, ctl);
+            }
+            tree.command(ctl, "refresh", Vec::new());
+        }
         // ── geometry ────────────────────────────────────────────────────────
         "MOVETO" => {
             put(tree, ctl, "X", &arg(0), &mut out);
@@ -223,8 +314,7 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
                 return Ok(out);
             }
             if is_chart {
-                put(tree, ctl, "__ChartData", "", &mut out);
-                return Ok(out);
+                chart_clear(tree, ctl);
             }
             put(tree, ctl, "Text", "", &mut out);
             put(tree, ctl, "Items", "", &mut out);
@@ -235,11 +325,8 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
         }
         // ── charts ──────────────────────────────────────────────────────────
         "ADDPOINT" | "ADD-POINT" if is_chart => {
-            let mut line = vec![arg(0), fmt_number(parse_f64(&arg(1)).unwrap_or(0.0))];
-            line.extend(args.iter().skip(2).map(|v| fmt_number(parse_f64(v).unwrap_or(0.0))));
-            let cur = tree.get(ctl, "__ChartData");
-            let next = if cur.is_empty() { line.join("\t") } else { format!("{cur}\n{}", line.join("\t")) };
-            put(tree, ctl, "__ChartData", &next, &mut out);
+            let rest: Vec<f64> = args.iter().skip(2).map(|v| parse_f64(v).unwrap_or(0.0)).collect();
+            chart_add_point(tree, ctl, &arg(0), parse_f64(&arg(1)).unwrap_or(0.0), &rest);
         }
         // ── snackbar ────────────────────────────────────────────────────────
         "DISMISSALL" if is_snackbar => tree.command(ctl, "dismiss-all", Vec::new()),
