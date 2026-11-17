@@ -31,7 +31,7 @@ fn interpreter(src: &str) -> (Vec<String>, i32) {
     (display_rx.try_iter().collect(), interp.return_code())
 }
 
-const WS: &str = "01 WS-N PIC S9(4) VALUE 12.\n01 WS-I PIC 9(3) VALUE 5.\n01 WS-D PIC 9V9 VALUE 2.5.\n01 WS-X PIC X(5) VALUE \"ABC\".\n";
+const WS: &str = "01 WS-N PIC S9(4) VALUE 12.\n01 WS-I PIC 9(3) VALUE 5.\n01 WS-D PIC 9V9 VALUE 2.5.\n01 WS-X PIC X(5) VALUE \"ABC\".\n01 WS-E PIC -9(5).\n01 WS-Z PIC ZZZ9.\n";
 
 fn program(id: &str, procedure: &str, end: &str) -> String {
     format!("IDENTIFICATION DIVISION.\nPROGRAM-ID. {id}.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n{WS}PROCEDURE DIVISION.\n{procedure}{end}")
@@ -55,6 +55,7 @@ const RUNS: &[(&str, &str, &str)] = &[
     ("above 32 bits", "    MOVE 9999999999999 TO RETURN-CODE\n    DISPLAY RETURN-CODE\n", STOP),
     ("below 32 bits", "    MOVE -9999999999999 TO RETURN-CODE\n", STOP),
     ("reset", "    MOVE 5 TO RETURN-CODE\n    MOVE 0 TO RETURN-CODE\n", STOP),
+    ("into numeric-edited items", "    MOVE -42 TO RETURN-CODE\n    MOVE RETURN-CODE TO WS-E WS-Z\n    DISPLAY \"[\" WS-E \"][\" WS-Z \"]\"\n    MOVE 0 TO RETURN-CODE\n", STOP),
 ];
 
 /// Results past 18 digits (WASM-PARITY #52, kept by the operator on 2026-11-15): the module keeps

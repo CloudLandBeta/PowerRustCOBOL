@@ -41,7 +41,7 @@ const RC_SIZE_ERROR: &str = "RETURN-CODE has no size to exceed, so ON SIZE ERROR
 /// number the program reads (DESKTOP-WASM-001 T39b).
 pub(crate) const LINAGE_COUNTER: &str = "LINAGE-COUNTER";
 const LC_READ_ONLY: &str = "LINAGE-COUNTER is written here: only a WRITE to a LINAGE file and its OPEN set it, so a desktop module does not compile this, and this program takes the Cargo path";
-const LC_OTHER_USE: &str = "LINAGE-COUNTER is used here other than as a number: a desktop module compiles it in MOVE to a numeric item, arithmetic, DISPLAY and comparisons with a number, so this program takes the Cargo path";
+const LC_OTHER_USE: &str = "LINAGE-COUNTER is used here other than as a number: a desktop module compiles it in MOVE to a numeric or numeric-edited item, arithmetic, DISPLAY and comparisons with a number, so this program takes the Cargo path";
 
 /// Where the `PERFORM` stack lies inside the region: each instance of a form
 /// has its own, so a form that is waiting for an event keeps its frames.
@@ -2265,6 +2265,15 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.item_operand(idx, indices, Some((one, 0)), line)
     }
 
+    /// Whether `e` names a numeric-edited item.
+    fn is_numeric_edited_item(&mut self, e: &Expr) -> bool {
+        let base = match e {
+            Expr::Subscript { base, .. } | Expr::RefMod { base, .. } => base.as_ref(),
+            other => other,
+        };
+        self.resolve_item(base).is_ok_and(|i| self.layout.items[i].fd.kind == cobolt_wasm_rt::fd::K_NUM_EDITED)
+    }
+
     pub(crate) fn move_(&mut self, from: &Expr, to: &[Expr], line: u32) -> GenResult<()> {
         // A MOVE whose receiver is an 88-level condition-name is `SET … TO TRUE`;
         // each such receiver is set, the others are moved to.
@@ -3446,7 +3455,9 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
         if self.mentions_return_code(from) {
             for t in to {
-                if !self.names_return_code(t) && !self.is_numeric_item(t) {
+                // A numeric or numeric-edited receiver: the interpreter moves the register's value
+                // as it moves any number (NIST SQ201M moves LINAGE-COUNTER into PICTURE -9(18)).
+                if !self.names_return_code(t) && !self.is_numeric_item(t) && !self.is_numeric_edited_item(t) {
                     return self.err(line, RC_OTHER_USE);
                 }
             }

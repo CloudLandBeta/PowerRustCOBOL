@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use cobolt_runtime::file_core::{self, Cursor, Handle, IndexedDecl, ReadReq, RewriteReq, ShareLock, WriteReq};
 use cobolt_runtime::files::RecordLayout;
-use cobolt_runtime::indexed::{IndexedEngine, IndexedStore, KeySpec, OpenMode, ReadDir, StartOp};
+use cobolt_runtime::indexed::{IndexedEngine, KeySpec, OpenMode, ReadDir, StartOp};
 use cobolt_runtime::indexed_log::{LogFormat, LogLevel};
 use cobolt_runtime::seqfile::SequentialFile;
 use cobolt_wasm_abi::files::{verb, Access, FileDecl, KeyDecl, Org};

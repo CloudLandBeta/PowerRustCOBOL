@@ -2,6 +2,19 @@
 
 
 
+## 2.0.554 — 2026-11-16
+
+**Fix: on the desktop's WebAssembly path, `MOVE LINAGE-COUNTER` and `MOVE RETURN-CODE` into a numeric-edited item now compile, and give the interpreter's result.**
+- **What was wrong:** a desktop module holds `RETURN-CODE` and `LINAGE-COUNTER` as whole-number registers, and the generator compiled a `MOVE` out of them only into a numeric item. A numeric-edited receiver (`PIC -9(18)`, `PIC ZZZ9`) is just as valid, and the interpreter moves the value as it moves any number. The generator refused it ("used here other than as a number"), so the program took the Cargo path.
+- **How it was found:** NIST SQ201M through the desktop's WebAssembly runner. It moves `LINAGE-COUNTER` into a `PICTURE -9(18)` item.
+- **The fix:** the generator also accepts a numeric-edited receiver (`cobolt-wasm`, `lower.rs`). The refusal for `LINAGE-COUNTER` now says "MOVE to a numeric or numeric-edited item". A browser module compiles the same code for every statement it compiled before.
+- **Tests:**
+  - the `RETURN-CODE` twin test gains a move of -42 into `PIC -9(5)` and `PIC ZZZ9` items: both engines show `[-00042][  42]` and exit 0 (150 of 150 checks);
+  - the runner's file twin test moves `LINAGE-COUNTER` into `PIC -9(18)` and `PIC ZZZ9` items: the runner prints the interpreter's `edited  000000000000000004    4` (161 of 161 checks, 9 programs);
+  - NIST SQ through the runner: 85 of 85 programs, 624 PASS, as on the interpreter, SQ201M included;
+  - the generator's tests: 34 test programs, 129 passed, 0 failed.
+- An unused import in the runner's file capability no longer raises a compiler warning.
+
 ## 2.0.553 — 2026-11-16
 
 **Fix: on the WebAssembly path, a `MERGE`'s `OUTPUT PROCEDURE` now returns, at its end, to the statement after the `MERGE`.**

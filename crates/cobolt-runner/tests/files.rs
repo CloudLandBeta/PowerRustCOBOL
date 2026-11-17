@@ -714,6 +714,8 @@ WORKING-STORAGE SECTION.
 01 WS-FOOT PIC 99 VALUE 0.
 01 WS-STEP PIC 9 VALUE 2.
 01 WS-LC   PIC 999.
+01 WS-ED   PIC -9(18).
+01 WS-EZ   PIC ZZZ9.
 01 WS-I    PIC 99.
 PROCEDURE DIVISION.
 MAIN-PARA.
@@ -731,6 +733,8 @@ MAIN-PARA.
     END-WRITE
     MOVE LINAGE-COUNTER TO WS-LC
     DISPLAY \"moved \" WS-LC
+    MOVE LINAGE-COUNTER TO WS-ED WS-EZ
+    DISPLAY \"edited \" WS-ED \" \" WS-EZ
     WRITE A-LINE BEFORE ADVANCING PAGE
     DISPLAY \"page lc \" LINAGE-COUNTER
     WRITE A-LINE AFTER ADVANCING WS-STEP LINES
@@ -1052,6 +1056,7 @@ const PROGRAMS: &[(&str, &str, &[&str])] = &[
             "a 06 lc 1",
             "a two eop lc 4",
             "moved 004",
+            "edited  000000000000000004    4",
             "page lc 1",
             "item step lc 3",
             "no phrase lc 4",
@@ -1230,7 +1235,7 @@ fn files_of_every_organisation_match_the_interpreter() {
     println!("              records at their own length, equal keys in release order, an absent USING file (35, then 42 at its CLOSE)");
     println!("  transactions: COMMIT, ROLLBACK, UNLOCK on an INDEXED file opened I-O; UNLOCK on a SEQUENTIAL file");
     println!("  linage:     LINAGE stated and in data items (a footing item of 0 falls back), ADVANCING 1, 2, PAGE, a data item");
-    println!("              and none, AT/NOT AT END-OF-PAGE, LINAGE-COUNTER displayed/moved/compared, reopen, a failed OPEN");
+    println!("              and none, AT/NOT AT END-OF-PAGE, LINAGE-COUNTER displayed/moved (also to numeric-edited items)/compared, reopen, a failed OPEN");
     println!("  eop perform: a PERFORM in AT END-OF-PAGE (2 TIMES, writing the footing to the same file) and in NOT AT END-OF-PAGE returns");
     println!("  merge procedure: a MERGE's OUTPUT PROCEDURE (a section left by GO TO, shared with no SORT) returns after it");
     println!("  same area:  SAME RECORD AREA across SEQUENTIAL, LINE SEQUENTIAL and RELATIVE files (longer peer padded, shorter cut),");
