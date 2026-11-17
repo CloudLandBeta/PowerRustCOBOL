@@ -1585,7 +1585,16 @@ The code says five things the plan did not settle. Each is applied in the tasks 
         - every `FILE STATUS` the sorts leave.
       - `native_desktop_refusals`: an indexed `USING` file and a relative `GIVING` file compile; 21 of 21 checks.
     - **AC16 unchanged:** the pin and the player's fixtures pass without re-recording.
-    - **Still open in T39c:** the IndexedFile control with `FILE-STATUS`, and `OPEN … WITH REGISTERED USER`.
+  - *`OPEN … WITH REGISTERED USER` done 2026-11-17 (2.0.587):*
+    - **What runs:** the `OPEN` itself, as without the phrase.
+      - The interpreter writes the user only into an INDEXED file's transaction log, which `rcrun` keeps when it is given `--indexed-log` or `COBOL_INDEXED_LOG`.
+      - A built program keeps none on either path: the Cargo-built one never turns the log on. So the module leaves the phrase out.
+      - The IndexedFile control's generated `OPEN` paragraph uses the phrase (`OPEN I-O MENU REGISTERED USER 'operator'`).
+    - **Tests:**
+      - the runner twin gains `registered`: 8 lines printed and 3 files (20 487 bytes) equal to `rcrun run`; 206 of 206 checks across its eleven programs. It covers a literal and a data item; an INDEXED file `OUTPUT`, `I-O` and `INPUT`; a LINE SEQUENTIAL file; and two files in one `OPEN`;
+      - `native_desktop_refusals` 22 of 22.
+    - The System Knowledge Base's Desktop column says so, and `chunked.data` is regenerated.
+    - **Still open in T39c:** the IndexedFile control with `FILE-STATUS`.
 
 - [ ] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
   - Verify:

@@ -752,7 +752,72 @@ GIVE-RECORDS.
     RELEASE SORT-REC.
 ";
 
-/// UNLOCK, COMMIT and ROLLBACK (T39) on an INDEXED file opened I-O, each followed by what the file
+/// `OPEN … WITH REGISTERED USER` (T39c): the user's name goes only into an INDEXED file's transaction
+/// log, which a built program does not keep, so the phrase changes nothing a program sees. A literal
+/// and a data item, on an INDEXED file opened OUTPUT and I-O, on a SEQUENTIAL file, and in a
+/// two-phrase OPEN, each followed by what the file then holds.
+const REGISTERED: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T39CREG.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT ITEMS ASSIGN TO \"reg.idx\"
+        ORGANIZATION IS INDEXED
+        ACCESS MODE IS DYNAMIC
+        RECORD KEY IS IT-ID
+        FILE STATUS IS WS-FS.
+    SELECT NOTES ASSIGN TO \"reg.txt\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS-N.
+DATA DIVISION.
+FILE SECTION.
+FD ITEMS.
+01 IT-REC.
+   05 IT-ID   PIC 9(3).
+   05 IT-NAME PIC X(7).
+FD NOTES.
+01 NOTE-REC PIC X(10).
+WORKING-STORAGE SECTION.
+01 WS-USER PIC X(12) VALUE \"BRUNO\".
+01 WS-FS   PIC XX.
+01 WS-FS-N PIC XX.
+01 WS-EOF  PIC X.
+PROCEDURE DIVISION.
+MAIN-PARA.
+    OPEN OUTPUT ITEMS WITH REGISTERED USER \"ADA\"
+    DISPLAY \"open output \" WS-FS
+    MOVE 1 TO IT-ID
+    MOVE \"ONE\" TO IT-NAME
+    WRITE IT-REC
+    CLOSE ITEMS
+    OPEN I-O ITEMS WITH REGISTERED USER WS-USER
+    DISPLAY \"open i-o \" WS-FS
+    MOVE 2 TO IT-ID
+    MOVE \"TWO\" TO IT-NAME
+    WRITE IT-REC
+    DISPLAY \"write 2 \" WS-FS
+    CLOSE ITEMS
+    OPEN OUTPUT NOTES WITH REGISTERED USER \"ADA\"
+    DISPLAY \"open notes \" WS-FS-N
+    MOVE \"A NOTE\" TO NOTE-REC
+    WRITE NOTE-REC
+    CLOSE NOTES
+    OPEN INPUT ITEMS NOTES WITH REGISTERED USER WS-USER
+    DISPLAY \"open both \" WS-FS \" \" WS-FS-N
+    MOVE \"N\" TO WS-EOF
+    PERFORM UNTIL WS-EOF = \"Y\"
+        READ ITEMS NEXT
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END DISPLAY \"item \" IT-ID \" \" IT-NAME
+        END-READ
+    END-PERFORM
+    READ NOTES
+    DISPLAY \"note \" WS-FS-N \" \" NOTE-REC
+    CLOSE ITEMS NOTES
+    STOP RUN.
+";
+
 /// then holds: they act only on an INDEXED file's engine and set no FILE STATUS.
 /// `UNLOCK` is not a reserved word to the front end, so an open operand list (`DISPLAY`, `OPEN`) would
 /// take it as operands: the sentence before each `UNLOCK` ends with a period.
@@ -1217,6 +1282,11 @@ const PROGRAMS: &[(&str, &str, &[&str])] = &[
             "seq 70GGG",
         ],
     ),
+    (
+        "registered",
+        REGISTERED,
+        &["open output 00", "open i-o 00", "write 2 00", "open notes 00", "open both 00 00", "item 001 ONE", "item 002 TWO", "note 00 A NOTE"],
+    ),
     ("transactions", TRANSACTIONS, &["commit 00", "rollback 00", "unlock sequential 00", "after close"]),
     (
         "linage",
@@ -1408,6 +1478,8 @@ fn files_of_every_organisation_match_the_interpreter() {
     println!("  sort keyed: SORT/MERGE with an indexed USING file (key order), a relative one (past empty slots), relative GIVING");
     println!("              in the sequential and random access modes (slots 1, 2, 3, RELATIVE KEY on the last), indexed GIVING");
     println!("              in the sequential access mode, a MERGE of two indexed files, a record number wider than the RELATIVE KEY (14)");
+    println!("  registered: OPEN … WITH REGISTERED USER, a literal and a data item, on an INDEXED file (OUTPUT, I-O, INPUT),");
+    println!("              a LINE SEQUENTIAL file, and a two-file OPEN; each followed by what the file then holds");
     println!("  transactions: COMMIT, ROLLBACK, UNLOCK on an INDEXED file opened I-O; UNLOCK on a SEQUENTIAL file");
     println!("  linage:     LINAGE stated and in data items (a footing item of 0 falls back), ADVANCING 1, 2, PAGE, a data item");
     println!("              and none, AT/NOT AT END-OF-PAGE, LINAGE-COUNTER displayed/moved (also to numeric-edited items)/compared, reopen, a failed OPEN");

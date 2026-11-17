@@ -134,6 +134,17 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
         "SORT … COLLATING SEQUENCE IS alphabet compiles: capability files.sequential".into(),
         caps_of(&collating).is_some_and(|c| c == ["files.sequential"]),
     );
+    // OPEN … WITH REGISTERED USER compiles as the plain OPEN (T39c): the user goes only into an
+    // INDEXED file's log, which a built program does not keep.
+    let registered = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT IX ASSIGN TO \"ix\"\n        ORGANIZATION IS INDEXED\n        RECORD KEY IS IX-KEY.\n\
+         DATA DIVISION.\nFILE SECTION.\nFD IX.\n01 IX-REC.\n    05 IX-KEY PIC X(5).\nWORKING-STORAGE SECTION.\n01 WS-USER PIC X(8) VALUE \"ADA\".\n\
+         PROCEDURE DIVISION.\n    OPEN I-O IX WITH REGISTERED USER WS-USER\n    CLOSE IX\n    OPEN INPUT IX WITH REGISTERED USER \"BRUNO\"\n    CLOSE IX\n    STOP RUN.\n"
+    );
+    check(
+        "OPEN … WITH REGISTERED USER compiles: capability files.indexed".into(),
+        caps_of(&registered).is_some_and(|c| c == ["files.indexed"]),
+    );
     // COMMIT, ROLLBACK and UNLOCK reach an INDEXED file's engine through the runner (A35).
     let tx = format!(
         "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT IX ASSIGN TO \"ix\"\n        ORGANIZATION IS INDEXED\n        RECORD KEY IS IX-KEY.\n\

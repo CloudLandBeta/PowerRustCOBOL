@@ -20,10 +20,13 @@
 //! into the areas of the files joined to it.
 //!
 //! What the runner does not keep yet is refused at the file's first verb, so the Build takes the
-//! Cargo path and says why: a report printed into a Viewer, `OPEN … WITH REGISTERED USER`, and
-//! national or UTF-8 text in a LINE SEQUENTIAL record.
+//! Cargo path and says why: a report printed into a Viewer, and national or UTF-8 text in a LINE
+//! SEQUENTIAL record.
+//!
+//! `OPEN … WITH REGISTERED USER` compiles as the plain `OPEN` (T39c): the interpreter writes the user
+//! only into an INDEXED file's transaction log, which a built program does not keep.
 
-use crate::error::{ErrorKind, GenResult};
+use crate::error::GenResult;
 use crate::lower::{FileInfo, FileKind, Lower};
 use crate::lower_call::Cover;
 use crate::lower_idx::{FileMeta, KeyMeta};
@@ -63,7 +66,6 @@ pub(crate) struct LinageMeta {
     pub footing: (u32, u32),
 }
 const D_LINE_TEXT: &str = "national and UTF-8 text in a LINE SEQUENTIAL record is not on the WebAssembly path yet (DESKTOP-WASM-001 M5)";
-const D_REGISTERED: &str = "OPEN … WITH REGISTERED USER is not on the WebAssembly path yet (DESKTOP-WASM-001 M3)";
 
 impl Lower<'_, '_> {
     /// Lay out a file the desktop runner keeps: its description in the module's `prfiles` section,
@@ -589,10 +591,7 @@ impl Lower<'_, '_> {
             return None;
         }
         Some(match s {
-            Stmt::Open { mode, files, sharing, lock, registered_user, extra_modes, .. } => {
-                if registered_user.is_some() {
-                    return Some(self.err_kind(line, ErrorKind::Other, "OPEN … WITH REGISTERED USER", format!("OPEN … WITH REGISTERED USER: {D_REGISTERED}")));
-                }
+            Stmt::Open { mode, files, sharing, lock, extra_modes, .. } => {
                 let flags = if *lock || matches!(sharing, Some(ShareMode::NoOther)) { verb::OPEN_EXCLUSIVE } else { 0 };
                 let mut groups: Vec<(OpenMode, &[String])> = vec![(*mode, files.as_slice())];
                 groups.extend(extra_modes.iter().map(|(m, f)| (*m, f.as_slice())));

@@ -2,6 +2,20 @@
 
 
 
+## 2.0.587 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T39c, in part): `OPEN … WITH REGISTERED USER` takes the WebAssembly path. A program that opens a file with it no longer stops the Build at the generator. The IndexedFile control's generated `OPEN` paragraph uses this phrase, so it is a step towards that control too.**
+- **What runs:** the `OPEN` itself, exactly as without the phrase.
+- **Why that is the whole of it:**
+  - The interpreter writes the user's name only into an INDEXED file's transaction log.
+  - That log is kept only when `rcrun` is given `--indexed-log` or `COBOL_INDEXED_LOG`.
+  - A built program keeps no such log on either path. A Cargo-built one never turns the log on.
+  - So the phrase changes nothing a built program shows, and the module leaves it out.
+- **System Knowledge Base:** the Desktop column of the browser-subset table says so, and `assets/knowledge/chunked.data` is regenerated.
+- **Tests:**
+  - the runner twin `files_of_every_organisation_match_the_interpreter` gains `registered`: 8 lines printed and 3 files (20 487 bytes) equal to `rcrun run`; 206 of 206 checks across the twin's eleven programs. It opens files with a literal user and with a data item: an INDEXED file `OUTPUT`, `I-O` and `INPUT`, a LINE SEQUENTIAL file, and two files in one `OPEN`. Each `OPEN` is followed by what the file then holds;
+  - `native_desktop_refusals`: `OPEN … WITH REGISTERED USER` compiles, asking for `files.indexed` alone; 22 of 22 checks.
+
 ## 2.0.586 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T39c, in part): `SORT` and `MERGE` with a relative or indexed `USING` or `GIVING` file take the WebAssembly path. Such a program no longer stops the Build at the generator.**
