@@ -27,6 +27,16 @@ use wasm_encoder::Instruction as I;
 pub const CTRL_FORM: u32 = 0;
 pub const CTRL_SUPER: u32 = 1;
 pub const CTRL_APP: u32 = 2;
+/// A window the program holds a handle to (ABI A40, `ctrl::HANDLE`).
+pub const CTRL_HANDLE: u32 = cobolt_wasm_abi::codes::ctrl::HANDLE;
+/// The generator's own id for a chain on a windowHandler: `HANDLE_RECV | i`, `i` the receiver's place in
+/// `Lower::handle_recvs`. It never reaches the host: the path is sent on [`CTRL_HANDLE`].
+const HANDLE_RECV: u32 = 0x4000_0000;
+
+/// Is `ctrl` the generator's id for a windowHandler receiver?
+fn is_handle_recv(ctrl: u32) -> bool {
+    ctrl & 0xC000_0000 == HANDLE_RECV
+}
 
 /// One segment of a member chain: the member's name and its arguments, and
 /// whether the source wrote parentheses.
@@ -93,6 +103,33 @@ impl Lower<'_, '_> {
             }
         }
         None
+    }
+
+    /// The receiver a member chain starts with: the host's ([`Self::host_root`]), or a windowHandler,
+    /// a `USAGE OBJECT` item naming a window a form opened (`OpenFormAsync … RETURNING`, spec 037 R23).
+    /// `first` is the chain's first member: a value method there (`::Trim`) applies to the item's text.
+    pub(crate) fn chain_receiver(&mut self, root: &Expr, first: Option<&str>) -> Option<u32> {
+        self.host_root(root).or_else(|| self.window_handle_root(root, first))
+    }
+
+    fn window_handle_root(&mut self, root: &Expr, first: Option<&str>) -> Option<u32> {
+        let Expr::Identifier(written, _) = root else { return None };
+        if first.is_some_and(cobolt_ast::methods::is_data_item_method) {
+            return None;
+        }
+        let i = self.layout.lookup(written, &[]).ok()?;
+        if !self.layout.items[i].is_window_handle() {
+            return None;
+        }
+        let pos = match self.handle_recvs.iter().position(|(j, _, w)| *j == i && w == written) {
+            Some(p) => p,
+            None => {
+                let opd = self.operand_or_temp(root).ok()?;
+                self.handle_recvs.push((i, opd, written.clone()));
+                self.handle_recvs.len() - 1
+            }
+        };
+        Some(HANDLE_RECV | pos as u32)
     }
 
     /// Is `ctrl` one of the form's layers?
@@ -212,7 +249,10 @@ impl Lower<'_, '_> {
     /// Does `e` start a chain that reaches the host?
     pub(crate) fn is_host_member(&mut self, e: &Expr) -> bool {
         match Self::chain(e) {
-            Some((root, _)) => self.host_root(root).is_some(),
+            Some((root, segs)) => {
+                let first = segs.first().map(|s| s.name);
+                self.chain_receiver(root, first).is_some()
+            }
             None => false,
         }
     }
@@ -252,8 +292,21 @@ impl Lower<'_, '_> {
                 self.names.builtins.insert(first.name.to_string());
             }
         }
-        self.i32c(ctrl as i32);
-        self.call_rt("rt_path_begin");
+        if is_handle_recv(ctrl) {
+            // ABI A40: the first segment names the windowHandler and carries the handle it holds.
+            let (_, opd, written) = self.handle_recvs[(ctrl & !HANDLE_RECV) as usize].clone();
+            self.i32c(CTRL_HANDLE as i32);
+            self.call_rt("rt_path_begin");
+            let id = self.names.id(&written);
+            self.i32c(id as i32);
+            self.call_rt("rt_path_seg");
+            self.base();
+            self.i32c(opd as i32);
+            self.call_rt("rt_path_arg");
+        } else {
+            self.i32c(ctrl as i32);
+            self.call_rt("rt_path_begin");
+        }
         let last = segs.len().saturating_sub(1);
         for (k, (s, opds)) in segs.iter().zip(arg_opds).enumerate() {
             let id = self.names.id(s.name);
@@ -400,7 +453,7 @@ impl Lower<'_, '_> {
         let Some((root, segs)) = Self::chain(e) else {
             return self.err(line, "a control member was expected");
         };
-        let Some(ctrl) = self.host_root(root) else {
+        let Some(ctrl) = self.chain_receiver(root, segs.first().map(|s| s.name)) else {
             if let Some(e) = self.unknown_root(root, line) {
                 return Err(e);
             }
@@ -432,7 +485,7 @@ impl Lower<'_, '_> {
         let Some((root, segs)) = Self::chain(e) else {
             return self.err(line, "a control member was expected");
         };
-        let Some(ctrl) = self.host_root(root) else {
+        let Some(ctrl) = self.chain_receiver(root, segs.first().map(|s| s.name)) else {
             return self.err(line, "not a control member");
         };
         self.host_read(ctrl, &segs, line)
@@ -477,7 +530,7 @@ impl Lower<'_, '_> {
         let Some((root, segs)) = Self::chain(e) else {
             return self.err(line, "a member was expected");
         };
-        let (mut recv, local) = match self.host_root(root) {
+        let (mut recv, local) = match self.chain_receiver(root, segs.first().map(|s| s.name)) {
             Some(ctrl) => {
                 self.desktop_gate(ctrl, root, segs.first().map(|s| s.name), line)?;
                 let host_len = Self::host_prefix_len(&segs);
@@ -557,7 +610,7 @@ impl Lower<'_, '_> {
         line: u32,
     ) -> GenResult<()> {
         let root = Expr::Identifier(object.to_string(), cobolt_lexer::Span::new(0, 0, line, 0));
-        let Some(ctrl) = self.host_root(&root) else {
+        let Some(ctrl) = self.chain_receiver(&root, Some(method)) else {
             return self.err(line, format!("INVOKE {object}: it is not a control of this form"));
         };
         let seg = Seg { name: method, args, parens: true, index: None };

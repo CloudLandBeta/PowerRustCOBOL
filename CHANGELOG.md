@@ -2,6 +2,29 @@
 
 
 
+## 2.0.580 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T39c, in part): a windowHandler takes the WebAssembly path. A program that calls a method on a window through the `USAGE OBJECT` item `OpenFormAsync … RETURNING` filled no longer stops the Build at the generator.**
+- **What runs:**
+  - `INVOKE ME::OpenFormAsync( "WORK-FORM" ) RETURNING WS-WORK` keeps the window's handle in `WS-WORK`, an item declared `USAGE OBJECT` with no class, as the interpreter does.
+  - A call or a read through it goes to the form of that window: `INVOKE WS-WORK::Close()`, `INVOKE WS-WORK::SetProperty( "Told", … )`, `INVOKE WS-WORK::GetProperty( "Told" ) RETURNING …`, and the window methods `super::` reaches.
+  - Once that window has closed, a call through the item is refused in the interpreter's words: "windowHandler WS-WORK is NULL — the form it referred to is closed". On the desktop that is the handler's unhandled exception, as in the interpreter: the handler stops there, and the window shows the critical notice (or runs `onUnhandledException`).
+  - The text is now one function in `cobolt_forms::exceptions`, used by both engines; the interpreter's message is unchanged.
+- **How it reaches the window (ABI amendment A40 in `specs/WASM-ABI-v1.md`):** a path whose control is the new reserved id `HANDLE` names the window by the item's name and handle; the host turns it into the same path on that window's form. A host that does not know the id refuses it as an unknown control, as before.
+- **Known differences from the interpreter, recorded in A40:**
+  - after its window closes, the item still holds the handle, where the interpreter's becomes empty;
+  - a desktop window the runner has not made yet (the instant after an `OpenFormAsync`) answers as a closed one;
+  - an item never filled is refused as NULL, where the interpreter tries the call as an ordinary object's.
+- **Tests:**
+  - **`cobolt-abi-host` `a_call_through_a_window_handle_reaches_the_form_of_that_window_and_a_closed_one_is_refused`:** 10 of 10 checks: a read and a call through the handle reach the opened form and not the holder's, `Close` closes that window, a closed window's handle and an empty one are refused in the interpreter's words.
+  - **Runner twin `a_window_handler_reaches_its_window_and_is_null_once_it_closes`:** two forms; `SetProperty`, `GetProperty` and `Close` through the handle, then a call through it once closed. 3 readings, 3 dumps and 3 pictures (768 000 pixels, 0 differing) equal to `rcrun run-form`, 11 of 11 checks.
+  - **The sweep:** `cobolt-wasm`, `cobolt-wasm-abi`, `cobolt-wasm-rt`, `cobolt-runner`, `cobolt-web-tests`, the `cobolt-abi-host` library, the interpreter's `test_open_form_invoke` and `test_super_receiver`, and `cobolt-forms` with `render`: 2 378 of 2 380 tests in 163 suites pass. The AC16 pin and the player's generated fixtures did not move: no browser module holds a windowHandler. The two reds are not from this change:
+    - the known `cobolt-web-tests` `examples::the_example_holds_no_secret_and_checks_and_builds`, which trips on untracked files in the working tree's PowerAnalyticsWeb example;
+    - `cobolt-forms` `every_example_form_renders_as_its_golden`: three PowerDemo3 forms (`chart-3d`, `charts-form` and `responsive-dashboard-form`) no longer match the corpus goldens, which were last recorded at 2.0.360. This change only adds a function to `cobolt-forms` and moves no paint. Finding the change that moved them is a fix of its own.
+  - **The web player** is rebuilt, because the ABI host it embeds changed: `player_bg.wasm`, plain and threaded, and `player-build.json`; `player.js` is unchanged. Its tests: 263 of 264, with the freshness check 6 of 6 and the ABI host 28 of 28. The one red is the known `dependency_guard` (Rust 1.92 against 1.95).
+- **PowerCloud** (`cobolt-bench pixel-parity --project PowerCloud`) gets past its windowHandler. Its Build now stops at the concatenation operator `&` in a method's argument (`'{"StackName":"' & TXT-STACK::Text::Trim() & '"}'`), which the WebAssembly path does not take yet. That is the next step.
+- **Found on the way:** a Build refuses `me::LastException` ("is not a form property"), though the Developer's Guide and the System KB tell a program to read it in `onUnhandledException`. A fix of its own, next.
+
 ## 2.0.579 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T39c, in part): `X::Split( sep )( i )` takes the WebAssembly path. A program that picks one part of a split, then perhaps applies another method to it, no longer stops the Build at the generator.**

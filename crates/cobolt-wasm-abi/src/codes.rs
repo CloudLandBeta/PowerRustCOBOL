@@ -71,7 +71,15 @@ pub mod ctrl {
     pub const APP: u32 = 2;
     /// The id of the first control of a form.
     pub const FIRST_CONTROL: u32 = 3;
+    /// A window the program holds a handle to (A40): a windowHandler, the `USAGE OBJECT` item an
+    /// `OpenFormSync` / `OpenFormAsync … RETURNING` filled. The path's first segment names the item
+    /// and carries the handle's text as its one argument; the segments after it are a path on that
+    /// window's form, as on `super::` they are on the opener's. No form has this many controls.
+    pub const HANDLE: u32 = u32::MAX;
 }
+
+/// The most characters a window handle has (A40): a module keeps a windowHandler in a text of this length.
+pub const WINDOW_HANDLE_LEN: u32 = 16;
 
 /// The return value of `pr_event` / `pr_resume` (§4).
 pub mod status {

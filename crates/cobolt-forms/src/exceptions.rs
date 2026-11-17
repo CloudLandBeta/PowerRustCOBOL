@@ -22,6 +22,12 @@ pub const CRITICAL_EXCEPTION_PROP: &str = "_CriticalException";
 /// one whose opener has closed.
 pub const SUPER_IS_NULL: &str = "super is NULL — this form has no parent (the main form, or its opener already closed)";
 
+/// The failure of a call through a windowHandler (a `USAGE OBJECT` item an `OpenFormSync` /
+/// `OpenFormAsync … RETURNING` filled) whose form has closed; `name` is the item as the program wrote it.
+pub fn window_handle_is_null(name: &str) -> String {
+    format!("windowHandler {name} is NULL — the form it referred to is closed")
+}
+
 /// The critical notice for the failure `detail`.
 pub fn critical_exception_text(detail: &str) -> String {
     format!(

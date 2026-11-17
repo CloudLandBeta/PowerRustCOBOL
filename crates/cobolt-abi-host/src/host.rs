@@ -2247,6 +2247,8 @@ impl Host {
                     continue;
                 }
             };
+            // ABI A40: a path on a window handle is a path on that window's form.
+            let cmd = self.window_handle_path(cmd);
             self.stats.commands += 1;
             let is_q = matches!(&cmd, Command::Get(_) | Command::CallR(_) | Command::Count(_) | Command::GetWait(_) | Command::CallRWait(_) | Command::GetWaitSoft(_) | Command::CallRWaitSoft(_));
             match cmd {
@@ -2384,6 +2386,11 @@ impl Host {
                     return Err(CmdError::Refused(if desktop { exceptions::SUPER_IS_NULL } else { "the form that opened this one has been closed" }.into()));
                 }
                 Ok(Target::Ctl { inst: opener, idx: 0 })
+            }
+            // A40: a handle whose window is open was made a path on that window (`window_handle_path`).
+            ctrl::HANDLE => {
+                let name = path.segs.first().and_then(|s| self.manifest.names.get(s.name as usize)).map_or("", String::as_str);
+                Err(CmdError::Refused(exceptions::window_handle_is_null(name)))
             }
             c => {
                 self.ensure_tree(path.inst)?;
@@ -3246,6 +3253,26 @@ impl Host {
     pub fn drop_held(&mut self, handle: &str) {
         if self.held_opens.remove(handle).is_some() {
             self.child_closed(handle);
+        }
+    }
+
+    /// A command whose path is on a window handle (ABI A40: control `HANDLE`, the first segment naming the
+    /// windowHandler and carrying the handle) as the same command on that window's form object, as
+    /// `super::` is on the opener's (spec 037 R23, 049 R28). A handle whose window is not open now
+    /// (closed, never opened, or not made yet) is left as it is: [`Self::resolve`] refuses it.
+    fn window_handle_path<'a>(&self, cmd: Command<'a>) -> Command<'a> {
+        let Some(p) = cmd.path() else { return cmd };
+        if p.ctrl != ctrl::HANDLE || p.segs.is_empty() {
+            return cmd;
+        }
+        let handle = p.segs[0].args.first().map(|s| s.trim()).unwrap_or("");
+        let open = self.handles.get(handle).filter(|h| !h.closed).and_then(|h| h.inst).filter(|i| self.trees.contains_key(i));
+        match open {
+            Some(inst) => {
+                let path = Path { inst, ctrl: ctrl::FORM, segs: p.segs[1..].to_vec() };
+                cmd.with_path(path)
+            }
+            None => cmd,
         }
     }
 
@@ -4128,6 +4155,8 @@ mod numeric_tests;
 mod nav_tests;
 #[cfg(test)]
 mod super_tests;
+#[cfg(test)]
+mod handle_tests;
 
 #[derive(Debug)]
 enum Target {

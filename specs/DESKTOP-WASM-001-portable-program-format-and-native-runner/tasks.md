@@ -1550,6 +1550,19 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - `a_value_methods_answer_in_arithmetic_is_the_number_it_spells`: 8 rows.
     - **AC16, named:** the routine that answers a value method is in every module, so the PowerAnalyticsWeb pin and the player's generated fixtures were re-recorded at 2.0.578 and again at 2.0.579.
     - **PowerCloud** (`cobolt-bench pixel-parity --project PowerCloud`, 2026-11-17) now stops at `INVOKE WS-WORK::Close()` in `TMR-EC2`'s `onTick`. That is a method called through a windowHandler, which the WebAssembly path does not take yet: `WS-WORK` is a `USAGE OBJECT` item bound by `ME::OpenFormAsync( "WORKING-FORM" ) RETURNING WS-WORK`. Next in T39c.
+  - *windowHandlers done 2026-11-17 (2.0.580, ABI A40):*
+    - **What runs:**
+      - A `USAGE OBJECT` item with no class, filled by `OpenFormSync` / `OpenFormAsync … RETURNING`, is a windowHandler, as in the interpreter (spec 037 R20, R23, R24).
+      - A call or a read through it (`INVOKE WS-WORK::Close()`, `SetProperty`, `GetProperty`, the window methods `super::` reaches) goes to the form of the window it names.
+      - Once that window has closed, a call through it is refused in the interpreter's words (`windowHandler WS-WORK is NULL — the form it referred to is closed`, now one text in `cobolt_forms::exceptions` for both engines). On the desktop that is the handler's unhandled exception: the handler stops there.
+    - **Known differences, recorded in A40:**
+      - the item keeps the handle after its window closes (the interpreter's becomes empty);
+      - a desktop window the runner has not made yet (the instant after an `OpenFormAsync`) answers as a closed one;
+      - an item never filled is refused as NULL, where the interpreter tries the call as an ordinary object's.
+    - **Tests:**
+      - `cobolt-abi-host` `a_call_through_a_window_handle_reaches_the_form_of_that_window_and_a_closed_one_is_refused`: 10 of 10 checks.
+      - Runner twin `a_window_handler_reaches_its_window_and_is_null_once_it_closes`: 3 readings, 3 dumps and 3 pictures (768 000 pixels, 0 differing) equal to `rcrun run-form`, 11 of 11 checks.
+    - **PowerCloud** (`cobolt-bench pixel-parity --project PowerCloud`, 2026-11-17) gets past its windowHandler. Its Build now stops at the generator on `generated/main-form.cbl` line 2888: the concatenation operator `&` in a method's argument (`'{"StackName":"' & TXT-STACK::Text::Trim() & '"}'`), which the WebAssembly path does not take yet. Next.
 
 - [ ] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
   - Verify:

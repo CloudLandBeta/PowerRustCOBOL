@@ -298,6 +298,9 @@ pub struct Lower<'a, 'b> {
     pub(crate) temp_next: u32,
     /// Next free character temporary (reset for every statement).
     pub(crate) ctemp_next: u32,
+    /// The windowHandler receivers met so far (ABI A40): the layout item, its operand and its name as the
+    /// program wrote it. A chain on one has the generator's id `HANDLE_RECV | i` (`lower_form`).
+    pub(crate) handle_recvs: Vec<(usize, u32, String)>,
     /// The `super::` reads asked before the statement being lowered (ABI A24): each read's place in
     /// the source -> the character temporary that holds its answer (`lower_super`).
     pub(crate) super_reads: HashMap<cobolt_lexer::Span, u32>,
@@ -504,6 +507,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             record_file: HashMap::new(),
             temp_next: 0,
             ctemp_next: 0,
+            handle_recvs: Vec::new(),
             super_reads: HashMap::new(),
             when_compiled,
             alter_slots: BTreeMap::new(),

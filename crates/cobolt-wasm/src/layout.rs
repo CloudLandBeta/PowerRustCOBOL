@@ -63,6 +63,13 @@ pub struct Item {
     pub link: Option<u32>,
 }
 
+impl Item {
+    /// A windowHandler: a `USAGE OBJECT` item with no class, kept as the text of a window's handle (ABI A40).
+    pub fn is_window_handle(&self) -> bool {
+        matches!(self.usage, Usage::ObjectReference) && self.fd.kind == K_ALNUM
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Layout {
     pub items: Vec<Item>,
@@ -855,6 +862,11 @@ fn item_fd(d: &DataDecl, sign: Option<SignClause>, usage: Usage) -> GenResult<Fd
         return Ok(match usage {
             Usage::Comp1 => Fd { kind: K_FLOAT32, flags: F_SIGNED, digits: 0, scale: 0, len: 4, aux: 0 },
             Usage::Comp2 => Fd { kind: K_FLOAT64, flags: F_SIGNED, digits: 0, scale: 0, len: 8, aux: 0 },
+            // A windowHandler (spec 037 R23: `USAGE OBJECT` with no class): the text of the handle the
+            // host answered for the window, which a call through the item hands back (ABI A40).
+            Usage::ObjectReference if d.object_class.is_none() => {
+                Fd { kind: K_ALNUM, flags: 0, digits: 0, scale: 0, len: cobolt_wasm_abi::codes::WINDOW_HANDLE_LEN, aux: 0 }
+            }
             Usage::Index | Usage::Pointer | Usage::ObjectReference => {
                 Fd { kind: K_INDEX, flags: 0, digits: 9, scale: 0, len: 4, aux: 0 }
             }

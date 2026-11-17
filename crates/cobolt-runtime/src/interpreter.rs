@@ -2564,10 +2564,7 @@ impl Interpreter {
         if let Some(slot) = self.window_handle_vars.get(&obj_upper).cloned() {
             let Some(handle) = slot else {
                 return Err(RuntimeError::General {
-                    message: format!(
-                        "windowHandler {} is NULL — the form it referred to is closed",
-                        object.trim()
-                    ),
+                    message: cobolt_forms::exceptions::window_handle_is_null(object.trim()),
                 });
             };
             let Some(tx) = self.form_host_tx.clone() else {

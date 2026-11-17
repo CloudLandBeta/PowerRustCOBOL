@@ -870,6 +870,84 @@ fn several_forms_open_wait_and_reach_their_opener() {
     );
 }
 
+/// A windowHandler (spec 037 R20, R23, R24): `OpenFormAsync … RETURNING WS-WORK` keeps the opened
+/// window's handle in a `USAGE OBJECT` item, and the program reaches that window through it —
+/// `SetProperty`, `GetProperty`, `Close`. Once the window is closed the handle is NULL, and a
+/// call through it is the form's unhandled exception: the handler stops there and the window shows
+/// the critical notice in the interpreter's words. PowerCloud's working window is closed this way
+/// (ABI A40).
+#[test]
+fn a_window_handler_reaches_its_window_and_is_null_once_it_closes() {
+    let root = root("handles");
+    let mut main = Form::new("MAIN-FORM", "Main", 640, 400);
+    main.main_form = true;
+    main.user_ws_source = "       01 WS-WORK         USAGE OBJECT GLOBAL.\n".to_owned();
+    control(&mut main, "LBL-OUT", ControlType::Label, (20, 20, 400, 24), Some("-"));
+    control(&mut main, "LBL-STATE", ControlType::Label, (20, 56, 400, 24), Some("-"));
+    control(&mut main, "LBL-NULL", ControlType::Label, (20, 92, 600, 24), Some("-"));
+    button(&mut main, "BTN-OPEN", (20, 140), &["INVOKE ME::OpenFormAsync( \"WORK-FORM\" ) RETURNING WS-WORK"]);
+    button(
+        &mut main,
+        "BTN-TELL",
+        (20, 180),
+        &[
+            "INVOKE WS-WORK::SetProperty( \"Told\", \"told through the handle\" )",
+            "INVOKE WS-WORK::GetProperty( \"Told\" ) RETURNING LBL-OUT::Caption",
+        ],
+    );
+    button(&mut main, "BTN-CLOSE", (20, 220), &["INVOKE WS-WORK::Close()", "MOVE \"closed\" TO LBL-STATE::Caption"]);
+    button(&mut main, "BTN-AGAIN", (20, 260), &["INVOKE WS-WORK::Close()", "MOVE \"went on\" TO LBL-NULL::Caption"]);
+    let mut work = Form::new("WORK-FORM", "Working", 360, 220);
+    control(&mut work, "LBL-WORK", ControlType::Label, (20, 20, 300, 24), Some("working"));
+    bind(&mut work, "WORK-FORM", "onLoad", &["DISPLAY \"WORK-FORM loaded\""]);
+    let manifest = project(&root, "WindowHandler", &[("main-form", main), ("work-form", work)], &[]);
+    let steps = script(
+        &root,
+        "steps",
+        vec![
+            wait(600),
+            click("BTN-OPEN"),
+            wait(600),
+            click("BTN-TELL"),
+            wait(300),
+            read("LBL-OUT", "Caption"),
+            dump(),
+            shot("told"),
+            click("BTN-CLOSE"),
+            wait(600),
+            read("LBL-STATE", "Caption"),
+            dump(),
+            shot("closed"),
+            click("BTN-AGAIN"),
+            wait(600),
+            read("LBL-NULL", "Caption"),
+            dump(),
+            shot("null"),
+        ],
+    );
+    let (exe, build_ms) = build(&root, &manifest);
+    let home = root.join("home");
+    let a = interpreter(&root, "main-form", &steps, &home);
+    let b = runner(&root, &exe, &steps, &home);
+    let mut tally = Tally::default();
+    tally.compare("handles", &a, &b, &["told", "closed", "null"]);
+    for (who, run) in [("interpreter", &a), ("runner", &b)] {
+        let loads = run.stdout.matches("WORK-FORM loaded").count();
+        tally.lines.push(format!("    {who}: WORK-FORM onLoad ran {loads} time(s)"));
+        tally.check(format!("{who}: WORK-FORM's onLoad ran once"), loads == 1);
+    }
+    tally.check(
+        "the runner's program: a property set and read through the handle, the window closed through it, then the handler stopped at the call through the NULL handle",
+        readings(&b.report) == ["told through the handle", "closed", "-"],
+    );
+    tally.finish(
+        "a_window_handler_reaches_its_window_and_is_null_once_it_closes",
+        "two forms: OpenFormAsync RETURNING a USAGE OBJECT windowHandler, SetProperty / GetProperty / Close through it, a call through it once closed (NULL): the handler stops and the critical notice shows",
+        &root,
+        build_ms,
+    );
+}
+
 /// The built program started at `form`, as the IDE's Run of one form starts it (`COBOLT_DESIGNER_FORM`).
 fn runner_at(root: &Path, exe: &Path, script: &Path, home: &Path, form: &str) -> Run {
     let shots = root.join(format!("shots-runner-{}", home.file_name().unwrap().to_string_lossy()));
