@@ -231,7 +231,9 @@ fn time_generator(dir: &Path, name: &str, forms: &[String]) -> Generator {
             }
         })
         .collect();
-    let opts = cobolt_wasm::Options { name: name.to_owned(), ..cobolt_wasm::Options::default() };
+    // `native`, as the Desktop Build compiles it (DESKTOP-WASM-001 T40): the browser mode refuses
+    // the files, dialogs and statements the runner serves.
+    let opts = cobolt_wasm::Options { native: true, name: name.to_owned(), ..cobolt_wasm::Options::default() };
     let t = Instant::now();
     let out = cobolt_wasm::module::compile_project(&specs, &opts);
     let took = t.elapsed();

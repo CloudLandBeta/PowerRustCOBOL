@@ -2,6 +2,52 @@
 
 
 
+## 2.0.566 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T40): disk files on the WebAssembly path (milestone M3), measured. Every NIST program of the four file modules builds on the WebAssembly path and runs clean through the runner. Four of the five reference projects take the WebAssembly path, and the ten-times project does too. The milestone stays open: refusals still named as M3 work are now task T39c, and two projects that take the new path do not yet draw every frame alike.**
+- **NIST through the runner (AC9), on both axes:**
+
+  | Module | Compiled (of in scope) | Ran clean, 0 failures | PASS markers | Census |
+  |---|---|---|---|---|
+  | SQ (Sequential I/O) | 85 of 85 | 85 | 624 | 937 s |
+  | IX (Indexed I/O) | 41 of 41 | 41 | 574 | 594 s |
+  | RL (Relative I/O) | 34 of 34 | 34 | 354 | 498 s |
+  | ST (Sort-Merge) | 39 of 39 | 39 | 735 | 660 s |
+  | NC (Nucleus), for comparison | 95 of 95 | 95 | 4 615 | 1 044 s |
+
+  - Run by the harness (`nist_conformance run`) with `RCRUN` set to `nist_runner_run`, which builds each program on the WebAssembly path and runs it with `prc-runner`.
+  - At M2 the same harness passed 4 of 95 Nucleus and 3 of 85 Sequential programs; every other program then waited for disk files.
+- **The reference projects' paths** (`cobolt-bench build-goal`, one Build each, no cache):
+
+  | Project | Path | Build | Against the 30 s goal |
+  |---|---|---|---|
+  | PowerCallOfDuty | WebAssembly | 0.4 s | within |
+  | PowerCobolCraft | WebAssembly | 0.7 s | within |
+  | PowerGraphics | WebAssembly | 0.6 s | within |
+  | PowerSpatial | WebAssembly | 0.4 s | within |
+  | PowerCloud | Cargo | 160.6 s | over |
+  | ten-times project | WebAssembly | 55.8 s | over |
+
+  - **PowerCloud** still takes the Cargo path, for its AWS controls and keys (T48), its image built-ins and its FileDropZone (T39c).
+  - **The ten-times project** (90 forms, 66 550 lines, 10 indexed files) builds on the WebAssembly path in 55.8 s. Of that, the front end takes 30.7 s and the generator 22.1 s for its one 90-form module. Both are named here as the next things to measure, not judged as done.
+  - `cobolt-bench build-goal` now times the generator in its desktop mode, as the Build runs it. The browser mode it timed before refuses the files, dialogs and statements the runner serves.
+  - The release runner is 78.4 MiB (82 195 200 bytes).
+- **Pixel parity (AC19), the full run:** six projects (the five reference projects and the ParityControls fixture), 354 frame pairs compared, 303 identical, and reads and dumps equal in 27 of 27.
+  - **Moved** (the WebAssembly path, 0 differing pixels): PowerCallOfDuty (12 of 12 frames), PowerGraphics (120 of 120) and the ParityControls fixture (18 of 18).
+  - **Not moved yet:** PowerCobolCraft (21 of 66 frames identical) and PowerSpatial (132 of 138) take the WebAssembly path, but 51 frames differ.
+    - The scripts open each form on its own, and a form that calls `super::` then has no parent.
+    - The interpreter ends that handler and shows its critical-exception notice ("super is NULL — this form has no parent"); the runner goes on with the handler.
+    - This is a runner fix of its own, next.
+  - **PowerCloud** takes the Cargo path, so nothing of it is compared.
+- **The Cargo path's goldens:** every frame the Cargo-built programs drew matches the pictures recorded before any of this work, 336 of 336. PowerCloud's 72 frames were not drawn in this run.
+- **The test corpus through the runner:** 62 programs in `tests/cobol`: 33 compile in the desktop mode and 29 are refused at build time, each with its construct named. Of the 33, 24 give identical output and exit code under the runner and the interpreter.
+  - 7 `fileio/fileiot*` programs print the same lines under both engines and reach the harness's 20 s limit under both, so they are not counted as identical.
+  - 2 `call` programs differ only by the interpreter's own WARN line for a program that does not exist.
+  - The refusals: 11 `EXEC SQL` (M4), national and UTF-8 data (4, M5), the report Viewer (3), `SET` pointer, `PARTIQL`, `IMAGE-INFO` (T39c), `AUDIO-PLAY` outside a form, and 7 refusals the milestones do not name: the value methods `Format` and `Map`, a value method as a receiving field (2), a user function (`FUNCTION-ID`), a data-item method the generator does not parse, and the word `COPY` inside a comment line, which the generator's copybook pass reads as a directive. These 7 are named here for a follow-up; a refused program is not run under the interpreter by this comparison.
+- **Task T39c added:** what the generator still refuses as M3 work. That is the file and image built-ins (`APPEND-FILE`, `WRITE-FILE`, `FILE-STATUS`, `IMAGE-FIT`, `IMAGE-INFO`), the IndexedFile and FileDropZone controls, `SORT` and `MERGE` with a relative or indexed `USING` or `GIVING` file, and `OPEN … WITH REGISTERED USER`. T40's box stays empty until it is done.
+- **Fixes carried since M2:** 2.0.544, 2.0.546, 2.0.548–2.0.554, 2.0.557, 2.0.558 and 2.0.561–2.0.565, each on its own `fixes-2x-…` branch.
+- **Measured on this Mac** (macOS, Apple silicon, not a reference machine).
+
 ## 2.0.565 — 2026-11-17
 
 **Fix: a method call on the WebAssembly path can pass an argument of any length, as under the interpreter. An argument longer than the module's 2 KiB path buffer used to stop the handler. `examples/PowerGraphics` hands its chart a 1.2 MB table this way, and its chart stayed empty.**

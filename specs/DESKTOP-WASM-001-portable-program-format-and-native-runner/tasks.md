@@ -1502,11 +1502,42 @@ The code says five things the plan did not settle. Each is applied in the tasks 
       - The PowerAnalyticsWeb pin and the player fixtures are unchanged.
       - Generator NIST, unchanged: IC 25/25 (309/0/4), NC 95/95 (4 612/0/5), IF 45/45 (841/0/0).
 
+- [ ] **T39c — What M3 still sends to the Cargo path** (R11; added 2026-11-17)
+  - Why added: T40's measurement found refusals the generator still names as M3 work. M3 cannot close while they stand:
+    - **The file and image built-ins** ("the file and image built-ins are not on the WebAssembly path yet"): `COBOL::"APPEND-FILE"`, `"WRITE-FILE"`, `"FILE-STATUS"`, `"IMAGE-FIT"` and `"IMAGE-INFO"`. PowerCloud calls `IMAGE-FIT` and `IMAGE-INFO` three times each, and PowerChat calls `APPEND-FILE` and `WRITE-FILE`.
+    - **The file controls**, inside "the service controls (files, …)": the IndexedFile control and FileDropZone. PowerCloud holds a FileDropZone.
+    - **`SORT` and `MERGE` with a relative or indexed `USING` or `GIVING` file**, left by T39. The interpreter's own `SORT` reads nothing from such a `USING` file, a COBOL-85 fix of its own that lands first.
+    - **`OPEN … WITH REGISTERED USER`.**
+  - What the built-ins do under the interpreter (the rules to keep):
+    - `APPEND-FILE` and `WRITE-FILE` (path, text, [status]): the text without its trailing spaces, as one line, added to or replacing the file; the status is spaces or why it failed.
+    - `FILE-STATUS` (file, status): the last I-O status of the named file.
+    - `IMAGE-FIT` (source, target, width, height, status) and `IMAGE-INFO` (path, width, height, format, status): through the runtime's image code.
+    - A relative path starts at the application's folder, as an `ASSIGN` does.
+  - Verify: runner twins equal to `rcrun run` in printed lines and in the files written. `native_desktop_refusals` and `desktop_controls_the_runner_lacks_are_named` no longer name them. No refusal names M3. AC16 unchanged.
+
 - [ ] **T40 — M3 close** (AC9 for SQ, IX, RL, ST)
   - Verify:
     - The NIST SQ, IX, RL and ST counts on both axes through the generator and the runner, reported separately.
     - The ten-times project's path and time.
     - The milestone close.
+  - *Measured 2026-11-17 (2.0.566). The box stays empty until T39c is done and PowerCobolCraft and PowerSpatial draw every frame alike:*
+    - **NIST through the runner (AC9), on both axes:** each program built on the WebAssembly path by `nist_runner_run` and run by `prc-runner`.
+      - SQ: 85 of 85 compiled and clean, 624 PASS, 937 s.
+      - IX: 41 of 41, 574 PASS. RL: 34 of 34, 354 PASS. ST: 39 of 39, 735 PASS.
+      - NC, for comparison: 95 of 95, 4 615 PASS.
+    - **The reference projects' paths** (`cobolt-bench build-goal`, which now times the generator in its desktop mode, as the Build runs it):
+      - PowerCallOfDuty, PowerCobolCraft, PowerGraphics and PowerSpatial take the WebAssembly path, each built in under a second.
+      - PowerCloud takes the Cargo path (160.6 s), for T48's AWS controls and T39c's image built-ins and FileDropZone.
+      - The ten-times project takes the WebAssembly path in 55.8 s (front end 30.7 s, generator 22.1 s), over the 30 s goal.
+    - **Pixel parity (AC19), the full run:** 354 frame pairs, 303 identical; reads and dumps 27 of 27 equal.
+      - Moved: PowerCallOfDuty (12 of 12), PowerGraphics (120 of 120) and the ParityControls fixture (18 of 18).
+      - Not yet: PowerCobolCraft (21 of 66) and PowerSpatial (132 of 138), 51 frames. There a form opened on its own calls `super::`: the interpreter ends that handler with its critical-exception notice, and the runner goes on. A fix of its own.
+      - The Cargo-built frames match the goldens, 336 of 336.
+    - **The corpus** (`nist_runner_run compare`): 62 programs, 33 compiled, 24 identical.
+      - 7 `fileiot*` programs print the same lines under both engines and reach the 20 s limit under both.
+      - 2 differ only by the interpreter's WARN line.
+      - 29 are refused, with the construct named.
+    - The release runner is 78.4 MiB.
 
 ## Phase M4 — SQL and HTTP
 
