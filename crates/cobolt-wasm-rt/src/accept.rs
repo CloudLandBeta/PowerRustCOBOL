@@ -273,3 +273,58 @@ pub fn native_random_pin(base: u32, name: u32) {
     }
     st().random = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
 }
+
+/// The external switches of a desktop program (WASM-PARITY #55): the generator calls this before
+/// the first statement of a program that declares one, with `name` the operand of the literal
+/// `COBOL_SWITCHES` and `table` the one `rt_switches` takes. The variable, read through `env_get`,
+/// holds `NAME=ON|OFF` pairs separated by commas, as `rcrun run` reads it: the first pair that
+/// names a switch, by its implementor name or its mnemonic and in any case, sets it; `ON`, `1`,
+/// `TRUE` and `YES` turn it on, `OFF`, `0`, `FALSE` and `NO` off, and a pair with any other state
+/// is passed over. A switch no pair names keeps its first value, OFF.
+pub fn native_switches(base: u32, table: u32, name: u32) {
+    let scratch = st().ws + WS_SCRATCH;
+    let loc = locate(base, &parse(name));
+    let len = loc.len.min(SCRATCH_SIZE);
+    mem::copy(loc.addr, scratch, len);
+    // SAFETY: the host writes at most `cap` bytes into the scratch area, over the name.
+    let got = unsafe { host::env_get(ENV_VAR, len, scratch, SCRATCH_SIZE) };
+    if got <= 0 {
+        return;
+    }
+    let text = mem::bytes(scratch, (got as u32).min(SCRATCH_SIZE));
+    let blank = |c: &u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | 0x0B | 0x0C);
+    let trim = |s: &'static [u8]| -> &'static [u8] {
+        let start = s.iter().position(|c| !blank(c)).unwrap_or(s.len());
+        let end = s.iter().rposition(|c| !blank(c)).map_or(start, |e| e + 1);
+        s.get(start..end).unwrap_or(&[])
+    };
+    let n = mem::rd_u32(table);
+    for i in 0..n {
+        let e = table + 4 + i * 20;
+        let ext = mem::bytes(mem::rd_u32(e), mem::rd_u32(e + 4));
+        let mn = mem::bytes(mem::rd_u32(e + 8), mem::rd_u32(e + 12));
+        for pair in text.split(|c| *c == b',') {
+            let Some(eq) = pair.iter().position(|c| *c == b'=') else { continue };
+            let key = trim(pair.get(..eq).unwrap_or(&[]));
+            if !key.eq_ignore_ascii_case(ext) && !key.eq_ignore_ascii_case(mn) {
+                continue;
+            }
+            // The state in capitals as one number, so no table of words joins the blob's data
+            // (which would move every module's data, AC16). A variable holds no zero byte.
+            let state = trim(pair.get(eq + 1..).unwrap_or(&[]));
+            if state.len() > 5 {
+                continue;
+            }
+            let word = state.iter().fold(0u64, |w, c| w << 8 | u64::from(c.to_ascii_uppercase()));
+            let on = match word {
+                // ON, 1, TRUE, YES
+                0x4F4E | 0x31 | 0x5452_5545 | 0x59_4553 => b'1',
+                // OFF, 0, FALSE, NO
+                0x4F_4646 | 0x30 | 0x46_414C_5345 | 0x4E4F => b'0',
+                _ => continue,
+            };
+            mem::wr_u8(base + mem::rd_u32(e + 16), on);
+            break;
+        }
+    }
+}

@@ -123,6 +123,7 @@ pub mod search_runtime;
 pub mod seqfile;
 pub mod sort_core;
 pub mod stack_guard;
+pub mod switches;
 pub mod test_pins;
 pub mod value;
 
@@ -149,6 +150,7 @@ pub use indexed_ide::{
 };
 pub use indexed_import::{definition_from_inspect, fields_from_definition, inspect_any_path};
 pub use interpreter::Interpreter;
+pub use switches::{external_switch, external_switches_from_env};
 pub use objects::ObjectRegistry;
 pub use rust_bridge::{BridgeError, BridgeValue, RustBridge};
 pub use value::CobolValue;

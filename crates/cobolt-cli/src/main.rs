@@ -1227,22 +1227,15 @@ fn require_path(args: &[String], cmd: &str) -> PathBuf {
 ///
 /// `NAME` is the implementor name a `SPECIAL-NAMES` switch clause gives the
 /// switch (`SWITCH-1 IS SW-1` → `SWITCH-1`); the mnemonic works too. A switch
-/// nobody sets stays off, which is the state a program sees today.
+/// nobody sets stays off, which is the state a program sees today. Each pair is
+/// read by `cobolt_runtime::external_switch`, as a built program reads
+/// `COBOL_SWITCHES` (WASM-PARITY #55).
 fn resolve_external_switches(args: &[String]) -> Vec<(String, bool)> {
     let mut out: Vec<(String, bool)> = Vec::new();
-    let mut push = |spec: &str| {
-        let Some((name, state)) = spec.split_once('=') else {
-            return;
-        };
-        let on = match state.trim().to_ascii_uppercase().as_str() {
-            "ON" | "1" | "TRUE" | "YES" => true,
-            "OFF" | "0" | "FALSE" | "NO" => false,
-            other => {
-                eprintln!("cobolt: unknown switch state '{other}' (expected ON or OFF); ignoring");
-                return;
-            }
-        };
-        out.push((name.trim().to_ascii_uppercase(), on));
+    let mut push = |spec: &str| match cobolt_runtime::external_switch(spec) {
+        Some(Ok(pair)) => out.push(pair),
+        Some(Err(other)) => eprintln!("cobolt: unknown switch state '{other}' (expected ON or OFF); ignoring"),
+        None => {}
     };
     let mut i = 0;
     while i < args.len() {

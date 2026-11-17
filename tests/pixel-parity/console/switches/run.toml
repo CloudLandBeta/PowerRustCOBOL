@@ -1,0 +1,14 @@
+# The "switches" fixture of the console-parity check (WASM-PARITY #55): both builds take their
+# external switches from COBOL_SWITCHES. SWITCH-1 is set on by its implementor name, then set off
+# again (the first pair wins); SWITCH-2 is set on by its mnemonic in lower case; SWITCH-3's state
+# is not a word either path reads, so it stays off; SWITCH-4 is not named.
+sources = ["main.cbl"]
+expect = """
+SWITCH-1 ON
+SWITCH-2 ON
+SWITCH-3 OFF
+SWITCH-4 OFF
+"""
+
+[env]
+COBOL_SWITCHES = " switch-1 = on ,sw-two=yes,SWITCH-1=OFF,SWITCH-3=MAYBE"

@@ -15,10 +15,10 @@
 //!
 //! **What it runs:** every fixture under `tests/pixel-parity/console/<name>/`: its sources and a
 //! `run.toml` naming them (the main program first, its Common Code after it) and what the program
-//! is given: `stdin`, `args` and `env`. Each fixture is copied twice into a scratch folder, with a
-//! project file, and built once with `force_cargo` and once by default. The default Build must take
-//! the WebAssembly path; a fixture it sends to the Cargo path fails, with the reason, since both
-//! programs would then be the same.
+//! is given: `stdin`, `args` and `env`, and optionally `expect`, what both programs must print.
+//! Each fixture is copied twice into a scratch folder, with a project file, and built once with
+//! `force_cargo` and once by default. The default Build must take the WebAssembly path; a fixture
+//! it sends to the Cargo path fails, with the reason, since both programs would then be the same.
 //!
 //! **The runs:** both programs run in an empty folder of their own, under the pins of R28
 //! (`PRC_TEST_CLOCK`, `PRC_TEST_SEED`, the same as the form runs'), with the fixture's input,
@@ -52,6 +52,10 @@ struct RunToml {
     args: Vec<String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    /// What both programs must print, when the fixture says (two programs that agree can still
+    /// both be wrong).
+    #[serde(default)]
+    expect: Option<String>,
 }
 
 /// What one program did.
@@ -137,14 +141,14 @@ fn run_program(binary: &Path, run: &RunToml, work: &Path) -> Result<Ran, String>
     Ok(Ran { stdout, exit: status.code(), took })
 }
 
-/// The first line where `a` and `b` differ, both shown.
-fn first_difference(a: &[u8], b: &[u8]) -> String {
+/// The first line where `a` and `b` differ, both shown under their names.
+fn first_difference(a: &[u8], b: &[u8], (na, nb): (&str, &str)) -> String {
     let (la, lb): (Vec<&[u8]>, Vec<&[u8]>) = (a.split(|c| *c == b'\n').collect(), b.split(|c| *c == b'\n').collect());
     for i in 0..la.len().max(lb.len()) {
         let (x, y) = (la.get(i).copied(), lb.get(i).copied());
         if x != y {
             let show = |l: Option<&[u8]>| l.map(|l| format!("{:?}", String::from_utf8_lossy(l))).unwrap_or_else(|| "(no line)".into());
-            return format!("line {}: Cargo {} / WebAssembly {}", i + 1, show(x), show(y));
+            return format!("line {}: {na} {} / {nb} {}", i + 1, show(x), show(y));
         }
     }
     "the same lines".into()
@@ -195,7 +199,10 @@ fn check(fixture: &Path, name: &str, scratch: &Path, build_root: &Path, runner: 
         f.run_wasm = wasm.took;
         f.lines = cargo.stdout.split(|c| *c == b'\n').filter(|l| !l.is_empty()).count();
         if cargo.stdout != wasm.stdout {
-            f.problems.push(format!("standard output differs at {}", first_difference(&cargo.stdout, &wasm.stdout)));
+            f.problems.push(format!("standard output differs at {}", first_difference(&cargo.stdout, &wasm.stdout, ("Cargo", "WebAssembly"))));
+        }
+        if let Some(want) = run.expect.as_deref().filter(|w| w.as_bytes() != cargo.stdout.as_slice()) {
+            f.problems.push(format!("the Cargo-built program did not print what the fixture expects: {}", first_difference(want.as_bytes(), &cargo.stdout, ("expected", "printed"))));
         }
         if cargo.exit != wasm.exit {
             f.problems.push(format!("exit code: Cargo {:?}, WebAssembly {:?}", cargo.exit, wasm.exit));

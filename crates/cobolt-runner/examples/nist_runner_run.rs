@@ -22,8 +22,8 @@
 //! example's folder (`target/<profile>/`). Machine code is cached under `PRC_RUNNER_CACHE`, by
 //! default a folder of the system's temporary folder shared by every run.
 //!
-//! Switches: the native mode has no external-switch capability at M1, so `--switch` is accepted
-//! and ignored; a program that tests a switch sees it OFF (recorded in `WASM-PARITY.md`).
+//! Switches: each `--switch NAME=ON|OFF` reaches the program in `COBOL_SWITCHES`, ahead of what the
+//! variable already holds, which is how `rcrun run` ranks the two (WASM-PARITY #55).
 //!
 //! The second mode compares the runner with the interpreter over a folder of programs (AC9's
 //! `tests/cobol` half):
@@ -108,7 +108,7 @@ fn main() {
         eprintln!("prc-runner not found: build it (cargo build -p cobolt-runner --bin prc-runner) or set PRC_RUNNER");
         std::process::exit(2);
     };
-    let code = match run(&runner, &module, &path) {
+    let code = match run(&runner, &module, &path, &switches(&args)) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("{}: {e}", path.display());
@@ -176,13 +176,35 @@ fn cache_dir() -> PathBuf {
         .unwrap_or_else(|| std::env::temp_dir().join("prc-nist-runner-cache"))
 }
 
+/// The `--switch` values, then what `COBOL_SWITCHES` already holds, as one `COBOL_SWITCHES` value:
+/// the program takes the first pair that names a switch, so a `--switch` wins, as in `rcrun run`.
+fn switches(args: &[String]) -> Option<String> {
+    let mut pairs: Vec<String> = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if let Some(v) = a.strip_prefix("--switch=") {
+            pairs.push(v.to_owned());
+        } else if a == "--switch" {
+            pairs.extend(it.next().cloned());
+        }
+    }
+    if pairs.is_empty() {
+        return None;
+    }
+    pairs.extend(std::env::var("COBOL_SWITCHES").ok());
+    Some(pairs.join(","))
+}
+
 /// The module packaged alone into a copy of the runner, run in the current directory.
-fn run(runner: &Path, module: &[u8], source: &Path) -> Result<i32, String> {
+fn run(runner: &Path, module: &[u8], source: &Path, switches: &Option<String>) -> Result<i32, String> {
     let scratch = std::env::temp_dir().join(format!("prc-nist-runner-{}", std::process::id()));
     let program = package(runner, module, source, &scratch)?;
-    let status = Command::new(&program)
-        .env("PRC_RUNNER_CACHE", cache_dir())
-        .status();
+    let mut cmd = Command::new(&program);
+    cmd.env("PRC_RUNNER_CACHE", cache_dir());
+    if let Some(s) = switches {
+        cmd.env("COBOL_SWITCHES", s);
+    }
+    let status = cmd.status();
     let _ = std::fs::remove_dir_all(&scratch);
     let status = status.map_err(|e| format!("{}: {e}", program.display()))?;
     Ok(status.code().unwrap_or(1))

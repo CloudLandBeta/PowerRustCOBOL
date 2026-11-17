@@ -865,3 +865,11 @@ pub extern "C" fn rt_ctemp_zone(k: u32, minutes: i32) {
 pub extern "C" fn rt_random_pin(base: u32, name: u32) {
     accept::native_random_pin(base, name);
 }
+
+/// The first statement of a desktop program that declares external switches (WASM-PARITY #55):
+/// `COBOL_SWITCHES`, read through `env_get`, sets them as `rcrun run` sets them. `table` is
+/// `rt_switches`'s and `name` the literal's operand.
+#[no_mangle]
+pub extern "C" fn rt_switches_env(base: u32, table: u32, name: u32) {
+    accept::native_switches(base, table, name);
+}

@@ -358,3 +358,78 @@ fn every_message_exists_in_six_languages_without_the_crate_name() {
     println!("  {} messages × 6 languages (en es pt fr ja zh), none naming the crate; {} locale names read", msgs.len(), locales.len() + 1);
     println!("  checks: {checks} of {checks} passed");
 }
+
+/// Three external switches, read by their ON and OFF conditions (WASM-PARITY #55).
+const SWITCHES: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T55SWITCHES.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+SPECIAL-NAMES.
+    SWITCH-1 IS SW-ONE
+        ON STATUS IS ONE-ON
+        OFF STATUS IS ONE-OFF
+    SWITCH-2 IS SW-TWO
+        ON STATUS IS TWO-ON
+    SWITCH-3 IS SW-THREE
+        OFF STATUS IS THREE-OFF.
+PROCEDURE DIVISION.
+    IF ONE-ON DISPLAY \"1 ON\" ELSE DISPLAY \"1 OFF\" END-IF
+    IF ONE-OFF DISPLAY \"1 OFF STATUS\" END-IF
+    IF TWO-ON DISPLAY \"2 ON\" ELSE DISPLAY \"2 OFF\" END-IF
+    IF THREE-OFF DISPLAY \"3 OFF\" ELSE DISPLAY \"3 ON\" END-IF
+    STOP RUN.
+";
+
+#[test]
+fn external_switches_reach_the_program_as_rcrun_run_gives_them() {
+    let dir = Scratch::new("switches");
+    let src = dir.0.join("t55switches.cbl");
+    std::fs::write(&src, SWITCHES).unwrap();
+    let t = Instant::now();
+    let module = desktop_module(SWITCHES);
+    let compile_ms = t.elapsed().as_secs_f64() * 1000.0;
+    let manifest = cobolt_wasm_abi::scan::scan_module(&module).unwrap().embedded_manifest().unwrap();
+    assert!(manifest.capabilities.iter().any(|c| c == "env"), "the switches are read through env: {:?}", manifest.capabilities);
+    let exe = dir.0.join(format!("t55switches{}", std::env::consts::EXE_SUFFIX));
+    package(&[(Kind::Module, &module)], &exe);
+    let rcrun = rcrun();
+    let cache = dir.0.join("cache");
+
+    // `COBOL_SWITCHES` (None: not set), and what both runs must print.
+    let cases: &[(Option<&str>, &str)] = &[
+        (None, "1 OFF\n1 OFF STATUS\n2 OFF\n3 OFF\n"),
+        (Some("SWITCH-1=ON"), "1 ON\n2 OFF\n3 OFF\n"),
+        (Some(" switch-1 = on ,SW-TWO=yes,sw-three=TRUE"), "1 ON\n2 ON\n3 ON\n"),
+        (Some("SWITCH-1=OFF,SWITCH-1=ON,SWITCH-2=MAYBE,SWITCH-2=1,NOEQUALS,,=ON,SW-THREE=0"), "1 OFF\n1 OFF STATUS\n2 ON\n3 OFF\n"),
+        (Some("SWITCH-3=ON,SWITCH-2=no,SWITCH-1=true"), "1 ON\n2 OFF\n3 ON\n"),
+        (Some("SWITCH-9=ON"), "1 OFF\n1 OFF STATUS\n2 OFF\n3 OFF\n"),
+    ];
+    let mut checks = 1;
+    let mut rows = Vec::new();
+    for (value, want) in cases {
+        let set = |mut cmd: Command| {
+            cmd.env("PRC_RUNNER_CACHE", &cache).env("LC_ALL", "en_US.UTF-8").env_remove("COBOL_SWITCHES");
+            if let Some(v) = value {
+                cmd.env("COBOL_SWITCHES", v);
+            }
+            cmd
+        };
+        let (theirs, runner_ms) = run(set(Command::new(&exe)), "");
+        let mut interp = set(Command::new(&rcrun));
+        interp.arg("run").arg(&src).current_dir(&dir.0);
+        let (ours, rcrun_ms) = run(interp, "");
+        assert_eq!(String::from_utf8_lossy(&ours.stdout), *want, "{value:?}: rcrun run\n{}", stderr(&ours));
+        assert_eq!(theirs.stdout, ours.stdout, "{value:?}: the runner prints what rcrun run prints\nrunner stderr: {}", stderr(&theirs));
+        assert_eq!((theirs.status.code(), ours.status.code()), (Some(0), Some(0)), "{value:?}: both end normally");
+        checks += 3;
+        rows.push(format!("{:<80} {}; runner {runner_ms:.1} ms, rcrun run {rcrun_ms:.1} ms", format!("{value:?}"), want.trim_end().replace('\n', " | ")));
+    }
+    println!("── external_switches_reach_the_program_as_rcrun_run_gives_them ──");
+    println!("  program: SWITCH-1 (ON and OFF STATUS), SWITCH-2 (ON STATUS), SWITCH-3 (OFF STATUS); module {} bytes, capabilities {:?}, compiled in {compile_ms:.1} ms", module.len(), manifest.capabilities);
+    println!("  forms of COBOL_SWITCHES: unset; one pair; spaces, lower case and mnemonics; repeats, an unknown state and malformed pairs; every word; an undeclared switch");
+    for r in &rows {
+        println!("  {r}");
+    }
+    println!("  checks: {checks} of {checks} passed");
+}

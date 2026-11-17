@@ -694,9 +694,10 @@ impl<'a, 'b> Lower<'a, 'b> {
                 }
             }
         }
-        // External switches (conformance): the host's answer seeds each one's
-        // mnemonic item before the first statement, as the interpreter does.
-        if self.conformance && !self.prog.switch_names.is_empty() {
+        // External switches: the host's answer (conformance) or `COBOL_SWITCHES` (a desktop
+        // program, WASM-PARITY #55) seeds each one's mnemonic item before the first statement,
+        // as `rcrun run` does. A form's module is unchanged: no form host seeds a switch.
+        if !self.prog.switch_names.is_empty() && (self.conformance || (self.native && self.form.is_none())) {
             self.seed_switches()?;
         }
         self.jump(after);
@@ -753,7 +754,9 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// Emit the call that asks the host for the state of every external
-    /// switch the program declares (`SPECIAL-NAMES. SWITCH-1 IS SW-1`).
+    /// switch the program declares (`SPECIAL-NAMES. SWITCH-1 IS SW-1`): the
+    /// conformance host's `switch_state`, or in a desktop program the variable
+    /// `COBOL_SWITCHES` through the runner's `env_get` (`rt_switches_env`).
     fn seed_switches(&mut self) -> GenResult<()> {
         let names = self.prog.switch_names.clone();
         let mut table: Vec<u8> = Vec::new();
@@ -777,7 +780,13 @@ impl<'a, 'b> Lower<'a, 'b> {
         let addr = self.pool.intern(&table);
         self.base();
         self.i32c(addr as i32);
-        self.call_rt("rt_switches");
+        if self.conformance {
+            self.call_rt("rt_switches");
+        } else {
+            let name = self.pool.opd_lit_alnum(b"COBOL_SWITCHES");
+            self.i32c(name as i32);
+            self.call_rt("rt_switches_env");
+        }
         Ok(())
     }
 

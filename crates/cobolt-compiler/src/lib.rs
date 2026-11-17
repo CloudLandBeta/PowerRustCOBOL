@@ -5886,6 +5886,9 @@ fn run_headless(program: cobolt_ast::program::Program) {{
     let run = cobolt_runtime::stack_guard::spawn_program_thread("program", move || {{
         let mut interp = Interpreter::new(program);
         interp.set_indexed_engine(indexed_engine());
+        // External switches: `COBOL_SWITCHES` (`NAME=ON|OFF`, comma separated), read as `rcrun
+        // run` and the WebAssembly path read it (WASM-PARITY #55).
+        interp.set_external_switches(&cobolt_runtime::external_switches_from_env());
         // Compiled EXEC RUST blocks, before the run (spec 041 R2).
         interp.register_exec_rust_blocks(exec_rust_blocks::register);
         match interp.run() {{
@@ -13206,6 +13209,8 @@ function_prefix = "sales-"
         assert!(src.contains(
             "let mut interp = Interpreter::new(program);\n        interp.set_indexed_engine(indexed_engine());"
         ));
+        // The console runner takes the external switches as `rcrun run` does (WASM-PARITY #55).
+        assert!(src.contains("interp.set_external_switches(&cobolt_runtime::external_switches_from_env());"));
         assert!(src.contains(r#"std::env::var("COBOL_INDEXED_ENGINE")"#));
 
         let baked = bake_indexed_engine(src, &proj.ide.indexed_engine);

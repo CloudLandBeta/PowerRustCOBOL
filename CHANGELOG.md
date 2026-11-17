@@ -2,6 +2,30 @@
 
 
 
+## 2.0.561 — 2026-11-17
+
+**Fix: a built program takes its external switches from `COBOL_SWITCHES`, on both Build paths. A program that declares `SPECIAL-NAMES. SWITCH-1 IS SW-1 ON STATUS IS …` now starts with the switches the variable sets, as `rcrun run` starts it. Until now only `rcrun run` let the operator set a switch: a Cargo-built program and a WebAssembly-built one saw every switch OFF.**
+- **Why it is a fix:** COBOL-85 leaves a switch's state to the operating environment, and gives the program no way to set one. A program that can only ever see OFF cannot run the paths its switches select (WASM-PARITY #55). Under the NIST harness, the three Nucleus programs that test switches failed on the WebAssembly path for this reason (NC174A, NC211A, NC254A).
+- **The rule, the same in all three places:**
+  - `COBOL_SWITCHES` holds `NAME=ON|OFF` pairs separated by commas. `NAME` is the switch's implementor name (`SWITCH-1`) or its mnemonic (`SW-1`), in any case.
+  - `ON`, `1`, `TRUE` and `YES` turn a switch on; `OFF`, `0`, `FALSE` and `NO` turn it off, in any case and with spaces around them.
+  - The first pair that names a switch sets it. A pair with another state, or with no `=`, is passed over. A switch no pair names stays OFF.
+  - `rcrun run` still reads its `--switch` options first, so they win over the variable.
+- **Where:**
+  - `cobolt-runtime` gains `external_switch` (one pair) and `external_switches_from_env` (the variable). `rcrun run` reads every pair with the first; it still warns about a state it does not know.
+  - A Cargo-built program's console runner (`run_headless` in the generated `main.rs`) hands the variable's pairs to the interpreter before the first statement.
+  - A WebAssembly-built program reads the variable itself, before the first statement, through the runner's `env_get` (`rt_switches_env`). A program with a switch therefore needs the `env` capability. For a program without one the generator emits nothing new.
+  - Every browser module is unchanged, byte for byte: the new routine adds no read-only data, so the blob's data did not move (blob 243 074 bytes).
+  - Forms take no switches on either path, as `rcrun run-form` takes none.
+  - `nist_runner_run` hands the harness's `--switch` values to the program as `COBOL_SWITCHES`.
+- **Tests:**
+  - `cobolt-runtime` `a_pair_is_read_in_any_case_with_white_space_around_it`: 13 of 13 pairs read as the rule says (the eight state words, an unknown and an empty state, an empty name, no `=`).
+  - `cobolt-runner` `external_switches_reach_the_program_as_rcrun_run_gives_them`: six forms of the variable, each run by `rcrun run` and by the WebAssembly-built program; 19 of 19 checks equal (module 83 511 bytes, capabilities `env`). The other three console tests still pass (34/34, 26/26, 126/126).
+  - Console parity (`cobolt-bench pixel-parity --console`): 4 of 4 fixtures identical on both paths. The new fixture `switches` also checks the Cargo-built program against the output it expects, which `run.toml` can now state (`expect`).
+  - `cobolt-wasm`: 130 of 130 tests pass. The player fixture is fresh, and the Web Build of PowerAnalyticsWeb gives the same three files, byte for byte, with the blob before and after this change.
+  - `cobolt-compiler` `the_project_indexed_engine_is_baked_into_the_binary` checks the generated console runner hands the variable on.
+  - NIST, on the WebAssembly path under the harness: NC174A 79 passed, 0 failed (4 failed before); NC211A 53 passed, 0 failed (2 before); NC254A 10 passed, 0 failed (4 before).
+
 ## 2.0.560 — 2026-11-17
 
 **Feature: DESKTOP-WASM-001 T50, canvas frames. A desktop form with a canvas or a graphics object (Canvas2D, Canvas3D, ImageBuffer, Scene3D, Plot, Physics2D, Physics3D) now takes the WebAssembly path. The runner draws them with the library the interpreter draws with, so a WebAssembly-built program shows the pictures a Cargo-built program shows. The Viewer's verbs and the window methods are still open, so the task stays open.**
