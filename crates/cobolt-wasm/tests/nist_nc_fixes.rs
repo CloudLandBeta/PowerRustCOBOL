@@ -460,3 +460,37 @@ MAIN.
         want.len()
     );
 }
+
+/// NIST IX206A (its `C` installation cards): an item with neither a PICTURE nor
+/// subordinate items — `01 IX-FD1-ID1 XXXXX086.`, the card left as the suite
+/// ships it — is a group of no characters, as the interpreter holds it, so the
+/// program compiles and the items around it keep their places. One under a
+/// group (SQ401M's `03 VKEY XXXXX086.`) adds nothing to the group either.
+#[test]
+fn an_item_with_no_picture_and_no_subordinates_is_an_empty_group() {
+    let src = head(
+        r#"DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 BEFORE-ID PIC X(3) VALUE "ABC".
+01 CARD-ID1.
+01 VARIABLES.
+   03 VKEY.
+   03 VNUM PIC 9(2) VALUE 42.
+01 AFTER-ID PIC X(3) VALUE "XYZ".
+PROCEDURE DIVISION.
+MAIN.
+    DISPLAY "[" BEFORE-ID "][" AFTER-ID "]".
+    DISPLAY "[" VARIABLES "]".
+    MOVE "DEF" TO BEFORE-ID.
+    DISPLAY "[" BEFORE-ID "][" AFTER-ID "]"."#,
+    );
+    let lines = same_output(&src);
+    let want = ["[ABC][XYZ]", "[42]", "[DEF][XYZ]"];
+    assert_eq!(lines, want);
+    println!(
+        "no PICTURE, no subordinates: {} of {} lines equal on both engines and both memory \
+         layouts (an 01 item and an 03 item inside a group; the neighbours keep their values)",
+        lines.len(),
+        want.len()
+    );
+}

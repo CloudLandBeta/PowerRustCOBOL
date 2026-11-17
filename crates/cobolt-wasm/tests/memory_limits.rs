@@ -135,7 +135,10 @@ fn memory_ceiling_names_the_form_the_item_and_the_arithmetic_017() {
 fn data_that_cannot_be_sized_names_its_item_017() {
     let mut named = 0;
     for (data, item, what) in [
-        ("01 WS-NOPIC.\n", "WS-NOPIC", "needs a PICTURE"),
+        // A USAGE that needs a PICTURE, without one (an item with neither a PICTURE nor
+        // subordinates and the default USAGE is an empty group since 2.0.557, as in the
+        // interpreter).
+        ("01 WS-NOPIC USAGE COMP.\n", "WS-NOPIC", "needs a PICTURE"),
         ("01 WS-WIDE PIC 9(39).\n", "WS-WIDE", "more than 38 digits"),
     ] {
         for multi in [true, false] {

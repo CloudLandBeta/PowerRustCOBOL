@@ -489,6 +489,14 @@ impl Layout {
             self.items[idx].is_group = true;
             self.items[idx].size = group_end - start;
             self.items[idx].fd = Fd::group(group_end - start);
+        } else if d.picture.is_none() && d.value.is_none() && matches!(usage, Usage::Display) {
+            // Neither a PICTURE nor subordinate items: a group of no characters, as the
+            // interpreter holds it (an installation card left as the suite ships it, NIST
+            // IX206A's `01 IX-FD1-ID1 XXXXX086.`). A usage that needs a PICTURE is still
+            // refused by `item_fd`.
+            self.items[idx].is_group = true;
+            self.items[idx].size = 0;
+            self.items[idx].fd = Fd::group(0);
         } else {
             let fd = item_fd(d, sign, usage)?;
             self.items[idx].size = fd.len;

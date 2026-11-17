@@ -2,6 +2,18 @@
 
 
 
+## 2.0.557 — 2026-11-16
+
+**Fix: on the desktop's WebAssembly path, a data item with neither a PICTURE nor subordinate items now compiles, as an item of no characters, the way the interpreter holds it.**
+- **What was wrong:** `01 IX-FD1-ID1.` with no `PICTURE`, no `USAGE` that needs one and no items below it is a group with nothing in it to the interpreter: the program runs, and the item takes no room. The generator refused it ("an elementary item needs a PICTURE"), so the program took the Cargo path.
+- **How it was found:** NIST IX206A through the desktop's WebAssembly runner (the M3 close's census). Its installation cards `C` declare three such items (`01 IX-FD1-ID1` / `XXXXX086.`), cards the suite leaves for the installation to fill in; the program never uses them. On the interpreter IX206A passes; on the runner it was the one IX program not compiled.
+- **The fix:** the generator lays such an item out as a group of length 0 (`cobolt-wasm`, `layout.rs`), at any level, so the items around it keep their places. One with a `VALUE`, or with a `USAGE` that needs a `PICTURE` (`COMP`, `PACKED-DECIMAL`, `NATIONAL` …), is still refused, as before. A browser module compiles the same code for every program it compiled before.
+- **Tests:**
+  - the generator's twin test `an_item_with_no_picture_and_no_subordinates_is_an_empty_group` (an `01` item and an `03` item inside a group, both memory layouts, against the interpreter): 3 of 3 lines equal; it fails without the fix ("CARD-ID1: an elementary item needs a PICTURE");
+  - WASM-017's refusal test (R7, data that cannot be sized names its item) now uses `01 WS-NOPIC USAGE COMP.`, which is still refused naming the item;
+  - `cargo test -p cobolt-wasm`: 34 test programs, 130 passed, 0 failed. The PowerAnalyticsWeb module pin is unchanged (1 of 1);
+  - NIST IX through the release runner: 41 of 41 programs, 574 PASS, 0 FAIL, as on the interpreter (148 s), IX206A included.
+
 ## 2.0.555 — 2026-11-16
 
 **Feature: DESKTOP-WASM-001 T49, sound. A form's `COBOL::"AUDIO-PLAY"`, `"AUDIO-PAUSE"`, `"AUDIO-RESUME"`, `"AUDIO-STOP"` and `"AUDIO-STATE"` now run on the desktop's WebAssembly path, so a program that plays sounds no longer takes the Cargo path for them.**
