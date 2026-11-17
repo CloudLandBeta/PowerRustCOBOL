@@ -197,20 +197,12 @@ fn locate_sized(base: u32, o: &Opd, current: bool) -> Loc {
                 let r = mem::bytes(sp, 8);
                 let start_opd = u32::from_le_bytes([r[0], r[1], r[2], r[3]]);
                 let len_opd = u32::from_le_bytes([r[4], r[5], r[6], r[7]]);
-                let start = index_value(base, start_opd);
-                if start < 1 || start as u64 > loc.len as u64 {
-                    crate::fail(err::REFMOD);
-                }
-                let begin = (start - 1) as u32;
-                let n = if len_opd == 0 {
-                    loc.len - begin
-                } else {
-                    let l = index_value(base, len_opd);
-                    if l < 1 || (begin as i64 + l) > loc.len as i64 {
-                        crate::fail(err::REFMOD);
-                    }
-                    l as u32
-                };
+                // Out of the item, the positions are taken as the interpreter takes them (WASM-PARITY
+                // #68; COBOL-85 leaves the result undefined): a start below 1 is position 1, and the
+                // part ends where the item ends, so it may be empty.
+                let begin = (index_value(base, start_opd).max(1) - 1).min(loc.len as i64) as u32;
+                let rest = loc.len - begin;
+                let n = if len_opd == 0 { rest } else { index_value(base, len_opd).clamp(0, rest as i64) as u32 };
                 // A reference-modified item is a bare character string,
                 // whatever it was declared as.
                 loc = Loc {

@@ -2,6 +2,28 @@
 
 
 
+## 2.0.571 — 2026-11-17
+
+**Fix: on the WebAssembly path, a reference modification that reaches outside its item takes the positions the interpreter takes, instead of stopping the program.**
+- **What was wrong.** A reference modification whose start is below 1 or past the item's end, or whose length runs past the end, was run-time error 1101 in a module, on the desktop and in a browser page alike. Run Form and a Cargo-built program never stop there: the interpreter clamps the positions.
+  - **Found by** the pixel run of 2.0.570 (AC19). In PowerCobolCraft, `title-form`'s Play, Continue and Quit open `world-form`. Its start-up stopped with the notice "Run-time error 1101 … onLoad". There `CRAFT-REFRESH-BLOCK` tests `WS-R-J > 1 AND WS-COLUMN(…)(WS-R-J - 1:1) = " " OR "E" OR "W"`. `AND` binds before `OR`, so with `WS-R-J` at 1 the program reads `(0:1)` in the last two comparisons.
+- **What happens now,** read or written, as under the interpreter:
+  - a start below 1 is position 1;
+  - the part ends where the item ends, so it may be empty: a read gives nothing (spaces when moved), and a write changes nothing.
+  - COBOL-85 leaves the result undefined; the product's rule is the interpreter's (DESKTOP-WASM-001 R27).
+- **Not changed:** a subscript outside its table is still run-time error 1100 in a module, while the interpreter reads a blank (spaces, or zero for a number). It is recorded as open in WASM-PARITY row 68. PowerCobolCraft's `world-form`, opened on its own, reaches it (`WS-TILE-IMAGE(0)` in `CRAFT-HUD`); that is the next fix.
+- **Tests:**
+  - **`cobolt-wasm-rt`:** `reference_modification_out_of_the_item_is_taken_as_the_interpreter_takes_it`, 12 of 12 checks (6 forms: start 0, start −3, a length past the end, start one past the end, start far past with no length, a negative length; each read and written). `move_and_arith` passes 16 of 16.
+  - **The routine blob** `assets/rt.wasm` was rebuilt (243 812 bytes); `rt_blob` passes 2 of 2.
+  - **NIST on generated modules** (`nist_wasm_run`), equal to the ledger: NC 95 of 95 programs with 0 failures (4 612 PASS, 0 FAIL, 5 DELETED), IF 45 of 45 (841), IC 25 of 25 (309, 4 DELETED).
+  - **The generator's suite** (`cobolt-wasm`) passes 131 of 131. `corpus`: 18 of 18 compiled `tests/cobol` programs give the interpreter's output (600 lines).
+  - **The AC16 pin was re-recorded** (`UPDATE_PIN=1`), as this entry names: the PowerAnalyticsWeb module grew by 4 bytes (730 008 to 730 012; single-memory 730 024 to 730 028), and the manifest, which carries the module's hash, moved with it.
+  - **The player's generated fixtures** (8 modules) were rewritten with `UPDATE_PLAYER_FIXTURE=1`; `player_fixture` reports 12 files fresh. The player's suite passes 263 of 264. The one failure, `dependency_guard`'s Rust 1.92 floor (six workspace crates declare 1.95), reads `Cargo.toml` files this change does not touch.
+  - **Pixel parity** (AC19): PowerCobolCraft still 41 of 66 frames identical, but `title-form`'s Play, Continue and Quit frames fell from 59 546–73 377 differing pixels to 1 142–2 399.
+    - What still differs there is `world-form`'s info line. The module writes it at the end of the start-up; the Cargo-built program has not written it yet when the harness takes the picture. Its start-up, a scan of the whole world, is still running on the interpreter's own thread.
+    - The Cargo frames equal their M0 golden hashes (66 of 66), so this lateness is repeatable. It belongs to the headless harness (R28), which does not wait for a child form's start-up; it is the next thing to look at after the subscript.
+- **WASM-PARITY row 68.**
+
 ## 2.0.570 — 2026-11-17
 
 **Fix: on the WebAssembly path a desktop handler that fails stops there, and the form shows the same notice as under the interpreter.**

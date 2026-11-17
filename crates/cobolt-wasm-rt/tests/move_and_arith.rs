@@ -196,6 +196,37 @@ fn subscripts_and_reference_modification() {
     let _ = a;
 }
 
+/// Out of the item, a reference modification takes the positions the interpreter takes
+/// (`interpreter.rs`, `Expr::RefMod` and `assign_refmod`): a start below 1 is position 1, and the
+/// part ends where the item ends (WASM-PARITY #68). Before, each of these was run-time error 1101.
+#[test]
+fn reference_modification_out_of_the_item_is_taken_as_the_interpreter_takes_it() {
+    let mut k = Kit::new();
+    k.poke(10, b"ABCDEFGH");
+    let dst = k.item(30, Fd::alnum(5));
+    // (start, length; 0 = to the end) → what a sender gives, and what "**" as a receiver leaves.
+    let cases: [(i128, i128, &[u8], &[u8]); 6] = [
+        (0, 1, b"A    ", b"*BCDEFGH"),
+        (-3, 2, b"AB   ", b"**CDEFGH"),
+        (7, 5, b"GH   ", b"ABCDEF**"),
+        (9, 1, b"     ", b"ABCDEFGH"),
+        (25, 0, b"     ", b"ABCDEFGH"),
+        (3, -2, b"     ", b"ABCDEFGH"),
+    ];
+    let mut tally = 0;
+    for (start, len, read, written) in cases {
+        k.poke(10, b"ABCDEFGH");
+        let (s, l) = (k.lit_num(start, 0), if len == 0 { 0 } else { k.lit_num(len, 0) });
+        let part = k.item_refmod(10, Fd::alnum(8), s, l);
+        rt_move(k.base, part, dst);
+        assert_eq!(k.peek(30, 5), read, "read ({start}:{len})");
+        rt_move(k.base, k.lit_alnum(b"**"), part);
+        assert_eq!(k.peek(10, 8), written, "written ({start}:{len})");
+        tally += 2;
+    }
+    println!("reference modification out of the item: {tally} of {} checks (6 forms, read and written)", cases.len() * 2);
+}
+
 fn run_add(k: &mut Kit, a: u32, b: u32, receiver: u32, flags: u32) -> bool {
     rt_begin();
     rt_push(k.base, a);
