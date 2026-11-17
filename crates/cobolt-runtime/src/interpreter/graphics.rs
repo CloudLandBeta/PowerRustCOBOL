@@ -553,6 +553,48 @@ mod tests {
         println!("T28 desktop: GamepadAxis/GamepadButton answer from _Pads, 0 for what is missing");
     }
 
+    /// `Show`, `Hide`, `Enable`, `Disable`, `SetFocus` and `Focus` are the methods every control answers. On a graphics object
+    /// they used to go to the graphics library, which has none of them: each was refused (`LastError` "… has no method named …")
+    /// and did nothing, so `CNV-3D::SetFocus()` left the keyboard where it was. They are the control's own now, as the
+    /// runner's and the page's are (WASM-PARITY row 72). Each graphics control is given the same calls as a Button beside it,
+    /// and must end with what the Button ends with.
+    #[test]
+    fn the_methods_every_control_answers_are_the_controls_on_a_graphics_object_too() {
+        let kinds = ["Canvas2D", "ImageBuffer", "Plot", "Physics2D", "Physics3D", "Scene3D", "Canvas3D"];
+        let mut tally = (0, 0);
+        for class in kinds {
+            let size: &[(&str, &str)] = &[("Width", "64"), ("Height", "48")];
+            let mut i = interp(&[("GFX-1", class, size), ("BTN-1", "Button", size)]);
+            let mut check = |what: &str, ok: bool| {
+                tally.1 += 1;
+                if ok {
+                    tally.0 += 1;
+                } else {
+                    println!("  FAIL {class}: {what}");
+                }
+            };
+            // The same call on both, and the property it leaves on each.
+            let both = |i: &mut Interpreter, m: &str, prop: &str| {
+                let _ = call(i, "GFX-1", m, &[]);
+                let _ = call(i, "BTN-1", m, &[]);
+                (i.obj_get("GFX-1", prop), i.obj_get("BTN-1", prop))
+            };
+            for (m, prop) in [("Hide", "Visible"), ("Show", "Visible"), ("Disable", "Enabled"), ("Enable", "Enabled")] {
+                let (gfx, btn) = both(&mut i, m, prop);
+                check(&format!("{m} leaves {prop} {btn:?}, as on a Button (got {gfx:?})"), !btn.is_empty() && gfx == btn);
+            }
+            let _ = call(&mut i, "GFX-1", "SetFocus", &[]);
+            let first = i.obj_get("GFX-1", "_SetFocus");
+            check("SetFocus asks for the keyboard", !first.is_empty());
+            let _ = call(&mut i, "GFX-1", "Focus", &[]);
+            let second = i.obj_get("GFX-1", "_SetFocus");
+            check("Focus asks again, with a new number", !second.is_empty() && second != first);
+            check("none of them is refused", i.obj_get("GFX-1", "LastError").is_empty());
+        }
+        println!("universal methods on graphics objects: {} kinds x 7 checks, {} of {} passed", kinds.len(), tally.0, tally.1);
+        assert_eq!(tally.0, tally.1);
+    }
+
     /// Every one of the seven kinds is created on first use, answers a method, and goes with the form.
     #[test]
     fn each_of_the_seven_kinds_is_made_called_and_released_with_the_form() {

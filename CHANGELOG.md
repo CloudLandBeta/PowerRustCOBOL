@@ -2,6 +2,25 @@
 
 
 
+## 2.0.575 — 2026-11-17
+
+**Fix: `Show`, `Hide`, `Enable`, `Disable` and `SetFocus` work on a canvas, a plot, an image buffer, a physics world and a 3D scene, as on every control.**
+- **What was wrong.** On a graphics control (Canvas2D, Canvas3D, ImageBuffer, Plot, Physics2D, Physics3D, Scene3D) the interpreter sent every method to the graphics library. That library has none of the methods every control answers, so each of them was refused: `LastError` said the control had no such method, and nothing happened.
+  - `CNV-3D::SetFocus()` left the keyboard where it was. A canvas reads keys only while it has focus, so after a button press the game no longer answered the arrow keys until the player clicked the picture.
+  - `Hide` left the control on the form, and `Disable` left it working.
+  - The WebAssembly path was already right: its host keeps these methods out of the graphics part (WASM-PARITY row 72).
+  - **Found by** the pixel run of 2.0.574 (AC19). In PowerCobolCraft's `world-form`, Respawn gives the keyboard back to the world with `CNV-3D::SetFocus()`. The Cargo-built program left the focus ring on the command box; the WebAssembly-built program did not.
+- **What happens now.** `Show`, `Hide`, `Enable`, `Disable`, `SetFocus` and `Focus` act on a graphics control as on any control: they set `Visible` or `Enabled`, or move the keyboard. Every other method still goes to the graphics library. This holds in the IDE, `rcrun` and a compiled program.
+- **Developer's Guide:** the canvas section's "Animation and input" now says that the keyboard reaches a canvas only while it has focus, how to give it back with `SetFocus`, and that the universal methods work on graphics controls.
+- **Tests:**
+  - **`cobolt-runtime`:** new `the_methods_every_control_answers_are_the_controls_on_a_graphics_object_too`. Each of the seven kinds is given the same calls as a Button beside it and must end as the Button ends, then must take `SetFocus` and `Focus` without an error. 49 of 49 checks pass (7 kinds × 7 checks). **Without the change:** 0 of 49.
+  - **The interpreter's graphics tests:** 20 of 20; canvas 4 of 4; scene 1 of 1.
+  - **Pixel parity** (AC19, `cobolt-bench pixel-parity`):
+    - **PowerCobolCraft:** 66 of 66 frames identical under the two programs (63 at 2.0.574), 0 differing pixels. After Respawn both programs now give the keyboard back to the world, and the command box shows no focus ring.
+    - **PowerGraphics:** 120 of 120 frames identical, and its 120 golden hashes still met. Its two `SetFocus` calls on a canvas change no picture its scripts take.
+    - **Golden hashes re-recorded for PowerCobolCraft** (`--cargo --record --project PowerCobolCraft`). Only `world-form`'s Respawn frame changed, at the three sizes, on purpose: the Cargo-built program now moves the keyboard to the world. Three runs drew all 66 frames the same.
+    - **Every reference project against its goldens** (`--cargo`): 408 of 408 frames match, and 22 of 22 forms repeat. PowerCallOfDuty 12, PowerCloud 72, PowerCobolCraft 66, PowerGraphics 120, PowerSpatial 138. No other frame moved.
+
 ## 2.0.574 — 2026-11-17
 
 **Fix: a headless run with the clock pinned waits for a window the program opened, as it waits for the form on the pane.**

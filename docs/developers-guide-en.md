@@ -19838,6 +19838,18 @@ missing, or working and unlisted.
            END-IF
   ```
 
+- **The keyboard goes to the canvas that has focus.** `onKeyDown`, `onKeyUp` and
+  `IsKeyDown( key )` see keys only while the canvas (a Canvas2D or a Canvas3D) has focus, and while
+  it has it the arrow keys and Tab belong to the program. A press on the canvas gives it focus. From
+  a handler, give it back with `SetFocus`, for example after a button that closed a panel:
+
+  ```cobol
+           CNV-GAME::SetFocus()
+  ```
+
+- **The universal methods work here too.** `Show`, `Hide`, `Enable`, `Disable` and `SetFocus`
+  (also spelt `Focus`) act on a canvas, an image buffer, a plot, a physics world or a 3D scene as
+  they act on any control: they set `Visible` or `Enabled`, or move the keyboard.
 - **A wrong call is not an exception.** It sets `LastError` and the drawing goes on.
 - **Text in a font the form names** needs the font file under `Assets/` for a Web build; the Build
   stops and names the family that is missing.

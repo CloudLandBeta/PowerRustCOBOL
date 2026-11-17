@@ -16099,9 +16099,11 @@ impl Interpreter {
             }
         }
         // WASM-018 R2 - routed by class first: `Clear`, `Fill`, `Stroke` and `Rect` mean something
-        // else on other controls.
+        // else on other controls. The methods every control answers stay the control's (WASM-PARITY
+        // row 72): the graphics library has none of them, as the ABI host keeps them out of its
+        // graphics part.
         #[cfg(feature = "graphics")]
-        if self.graphics_kind(obj).is_some() {
+        if self.graphics_kind(obj).is_some() && !matches!(m.as_str(), "SHOW" | "HIDE" | "ENABLE" | "DISABLE" | "SETFOCUS" | "FOCUS") {
             if let Some(answer) = self.graphics_method(obj, method, args) {
                 return val(answer);
             }
