@@ -2,6 +2,17 @@
 
 
 
+## 2.0.581 — 2026-11-17
+
+**Fix: a Build accepts `me::LastException`, the property `onUnhandledException` reads, as the Developer's Guide and the System KB tell a program to.**
+- **What was wrong:** the guide's own example for a handler that fails (`SET Lbl-Status::Caption TO me::LastException` in `onUnhandledException`) stopped every Build and Check with "'me::LASTEXCEPTION' is not a form property". The check that a bare `me::` or `super::` property belongs to the form surface (spec 049 R33) did not know it, because no form is seeded with `LastException`: the run sets it when a handler fails.
+- **What changed:** a form reading its own `LastException` builds. One never set reads as empty, as it always did at run time. `super::LastException` is still refused: the property is the form's own, not part of the surface its opener is reached by.
+- **Found** while writing the runner twin for windowHandlers (2.0.580), whose failure `onUnhandledException` was to read.
+- **Tests:**
+  - **`cobolt-semantic` `a_form_reads_its_own_last_exception`:** 4 of 4 checks: `me::LastException` builds as a `MOVE`'s sender in either case and in a `DISPLAY`, and `super::LastException` is still refused, naming it.
+  - **Runner twin `on_unhandled_exception_reads_last_exception_alike`:** `me::LastException` read in `onLoad` before any failure, and in `onUnhandledException` after a call through a closed window's handle. The readings (empty, then the failure's words, and the failed handler's next statement never run), a dump and a picture (256 000 pixels, 0 differing) are equal under `rcrun run-form` and the WebAssembly-built program, 5 of 5 checks.
+  - **The sweep:** `cobolt-semantic` and the runner twins of `runner_shell_hosts`: 184 of 184 tests in 26 suites, the 14 runner twins among them.
+
 ## 2.0.580 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T39c, in part): a windowHandler takes the WebAssembly path. A program that calls a method on a window through the `USAGE OBJECT` item `OpenFormAsync … RETURNING` filled no longer stops the Build at the generator.**

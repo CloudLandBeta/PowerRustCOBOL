@@ -948,6 +948,64 @@ fn a_window_handler_reaches_its_window_and_is_null_once_it_closes() {
     );
 }
 
+/// A handler that fails hands its failure to `onUnhandledException`, which reads it as
+/// `me::LastException`, the Developer's Guide's own example ("When a handler fails"). Before any
+/// failure the property reads as empty. The failure is a call through a windowHandler whose window
+/// has closed, whose words both engines share.
+#[test]
+fn on_unhandled_exception_reads_last_exception_alike() {
+    let root = root("last-exception");
+    let mut main = Form::new("MAIN-FORM", "Main", 640, 400);
+    main.main_form = true;
+    main.user_ws_source = "       01 WS-WORK         USAGE OBJECT GLOBAL.\n".to_owned();
+    control(&mut main, "LBL-BEFORE", ControlType::Label, (20, 20, 400, 24), Some("-"));
+    control(&mut main, "LBL-CAUGHT", ControlType::Label, (20, 56, 600, 24), Some("-"));
+    control(&mut main, "LBL-AFTER", ControlType::Label, (20, 92, 400, 24), Some("-"));
+    bind(&mut main, "MAIN-FORM", "onLoad", &["MOVE me::LastException TO LBL-BEFORE::Caption"]);
+    bind(&mut main, "MAIN-FORM", "onUnhandledException", &["MOVE me::LastException TO LBL-CAUGHT::Caption"]);
+    button(&mut main, "BTN-OPEN", (20, 140), &["INVOKE ME::OpenFormAsync( \"WORK-FORM\" ) RETURNING WS-WORK"]);
+    button(&mut main, "BTN-CLOSE", (20, 180), &["INVOKE WS-WORK::Close()"]);
+    button(&mut main, "BTN-AGAIN", (20, 220), &["INVOKE WS-WORK::Close()", "MOVE \"went on\" TO LBL-AFTER::Caption"]);
+    let mut work = Form::new("WORK-FORM", "Working", 360, 220);
+    control(&mut work, "LBL-WORK", ControlType::Label, (20, 20, 300, 24), Some("working"));
+    let manifest = project(&root, "LastException", &[("main-form", main), ("work-form", work)], &[]);
+    let steps = script(
+        &root,
+        "steps",
+        vec![
+            wait(600),
+            read("LBL-BEFORE", "Caption"),
+            click("BTN-OPEN"),
+            wait(600),
+            click("BTN-CLOSE"),
+            wait(600),
+            click("BTN-AGAIN"),
+            wait(600),
+            read("LBL-CAUGHT", "Caption"),
+            read("LBL-AFTER", "Caption"),
+            dump(),
+            shot("caught"),
+        ],
+    );
+    let (exe, build_ms) = build(&root, &manifest);
+    let home = root.join("home");
+    let a = interpreter(&root, "main-form", &steps, &home);
+    let b = runner(&root, &exe, &steps, &home);
+    let mut tally = Tally::default();
+    tally.compare("last-exception", &a, &b, &["caught"]);
+    let null = cobolt_forms::exceptions::window_handle_is_null("WS-WORK");
+    tally.check(
+        "the runner's program: empty before any failure, the failure's words in onUnhandledException, the failed handler stopped",
+        readings(&b.report) == ["", null.as_str(), "-"],
+    );
+    tally.finish(
+        "on_unhandled_exception_reads_last_exception_alike",
+        "me::LastException read in onLoad (no failure yet) and in onUnhandledException after a call through a closed window's handle; the failed handler stops",
+        &root,
+        build_ms,
+    );
+}
+
 /// The built program started at `form`, as the IDE's Run of one form starts it (`COBOLT_DESIGNER_FORM`).
 fn runner_at(root: &Path, exe: &Path, script: &Path, home: &Path, form: &str) -> Run {
     let shots = root.join(format!("shots-runner-{}", home.file_name().unwrap().to_string_lossy()));

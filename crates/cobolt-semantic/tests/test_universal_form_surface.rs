@@ -101,3 +101,28 @@ fn control_chains_are_untouched() {
     assert!(errs.is_empty(), "control chains unaffected: {errs:?}");
     println!("049 — control-rooted chains bypass the form-surface check (0 errors)");
 }
+
+#[test]
+fn a_form_reads_its_own_last_exception() {
+    // The guide's `onUnhandledException` reads the failure on the form itself: it builds, in either case
+    // and as a MOVE's sender or in a DISPLAY.
+    let mut passed = 0;
+    for src in [
+        "    MOVE me::LastException TO WS-X.",
+        "    MOVE ME::lastexception TO WS-X.",
+        "    DISPLAY \"handled: \" me::LastException.",
+    ] {
+        let errs = errors_for(src);
+        assert!(errs.is_empty(), "{src} must build: {errs:?}");
+        passed += 1;
+    }
+    // It is the form's own, not part of the surface an opener is reached by.
+    let errs = errors_for("    MOVE super::LastException TO WS-X.");
+    assert_eq!(errs.len(), 1, "super::LastException stays refused: {errs:?}");
+    assert!(errs[0].contains("super::LASTEXCEPTION") && errs[0].contains("not a form property"), "{}", errs[0]);
+    passed += 1;
+    println!(
+        "── a_form_reads_its_own_last_exception ──\n  \
+         me::LastException builds (MOVE, either case, DISPLAY): 3 of 3; super::LastException refused: 1 of 1; {passed} of 4 checks"
+    );
+}

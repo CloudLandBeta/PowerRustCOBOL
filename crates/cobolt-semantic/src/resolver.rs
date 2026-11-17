@@ -110,6 +110,12 @@ pub const UNIVERSAL_FORM_PROPS: &[&str] = &[
     "ObsoleteScalingStyle",
 ];
 
+/// The properties a form reads on itself only (`me::X`), outside the universal surface `super::` reaches:
+/// the run sets them, no form is seeded with them, and one never set reads as empty. `LastException` is
+/// the failure a handler stopped at, which `onUnhandledException` reads (the Developer's Guide, "When a
+/// handler fails").
+pub const OWN_FORM_PROPS: &[&str] = &["LastException"];
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub fn resolve(
@@ -787,9 +793,11 @@ impl<'a> ResolveCtx<'a> {
         // not a form property and is left to the runtime as well.
         match &segs[i..] {
             [(name, false, span)] => {
-                if !UNIVERSAL_FORM_PROPS
-                    .iter()
-                    .any(|p| p.eq_ignore_ascii_case(name))
+                let own = root_upper == "ME" && OWN_FORM_PROPS.iter().any(|p| p.eq_ignore_ascii_case(name));
+                if !own
+                    && !UNIVERSAL_FORM_PROPS
+                        .iter()
+                        .any(|p| p.eq_ignore_ascii_case(name))
                 {
                     let receiver = if root_upper == "SUPER" {
                         "super"
