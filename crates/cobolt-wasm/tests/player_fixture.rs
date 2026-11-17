@@ -35,12 +35,13 @@ fn form() -> Form {
 }
 
 /// `startup-form`: an `onLoad` that writes LBL-OUT, starts TMR-1 and then stops on a run-time error
-/// (a subscript past the table); BTN-GO and TMR-1 write LBL-OUT. The desktop abandons the handler and
+/// (a paragraph that performs itself, stopped at 512 levels by both engines; a subscript past the table
+/// stops neither, WASM-PARITY #69); BTN-GO and TMR-1 write LBL-OUT. The desktop abandons the handler and
 /// keeps the form; the player's test checks the page does the same.
 fn startup_form() -> Form {
     let mut form = Form::new("main-form", "Start-up error", 400, 300);
     let mut load = EventBinding::new("onLoad", "MAIN-FORM--ONLOAD");
-    load.code = "       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01 WS-T PIC X OCCURS 3.\n       01 WS-I PIC 9 VALUE 9.\n       PROCEDURE DIVISION.\n           MOVE \"started\" TO LBL-OUT::Caption\n           SET TMR-1::Enabled TO TRUE\n           MOVE \"x\" TO WS-T(WS-I)\n           MOVE \"not reached\" TO LBL-OUT::Caption.".to_string();
+    load.code = "       PROCEDURE DIVISION.\n           MOVE \"started\" TO LBL-OUT::Caption\n           SET TMR-1::Enabled TO TRUE\n           PERFORM DEEP\n           MOVE \"not reached\" TO LBL-OUT::Caption\n           GOBACK.\n       DEEP.\n           PERFORM DEEP.".to_string();
     form.form_events.push(load);
     let mut btn = Control::new("BTN-GO", ControlType::Button, 10, 10);
     let mut ev = EventBinding::for_control("BTN-GO", "onClick");

@@ -273,9 +273,11 @@ fn a_start_up_that_stops_after_a_remote_call_goes_on_to_the_event_loop() {
 /// instance is alive and idle, and `pr_tick()` names it for the page to open its form.
 #[test]
 fn a_start_up_that_stops_at_once_goes_on_to_the_event_loop() {
-    let onload = "    MOVE 9 TO WS-I\n    MOVE \"x\" TO WS-T(WS-I)\n    DISPLAY \"NOT REACHED\"\n";
+    // A paragraph that performs itself stops at 512 levels, as under the interpreter (a subscript past
+    // the table no longer stops a module, WASM-PARITY #69).
+    let onload = "    PERFORM DEEP\n    DISPLAY \"NOT REACHED\"\n    GOBACK.\nDEEP.\n    PERFORM DEEP\n";
     let (wasm, m) = startup_form(
-        "01 WS-T PIC X OCCURS 3 GLOBAL.\n01 WS-I PIC 9 VALUE 0 GLOBAL.\n",
+        "",
         onload,
         &[("BTN-1", "onClick", "    DISPLAY \"CLICKED\"\n")],
         &[("BTN-1", "Button")],
@@ -289,7 +291,7 @@ fn a_start_up_that_stops_at_once_goes_on_to_the_event_loop() {
     assert_eq!(host.event(0, 3, click, &[]), 0, "{:?}", host.outcome());
     let o = host.outcome();
     assert_eq!(o.error_positions.len(), 1, "{o:?}");
-    assert_eq!(o.error_positions[0].0, 1100, "{o:?}");
+    assert_eq!(o.error_positions[0].0, 1106, "{o:?}");
     assert_eq!(common::wasm_lines(&o), vec!["CLICKED"]);
-    eprintln!("FX-4b start-up: error 1100 in pr_open_form, cancel -> instance 0 idle, a click ran");
+    eprintln!("FX-4b start-up: error 1106 in pr_open_form, cancel -> instance 0 idle, a click ran");
 }

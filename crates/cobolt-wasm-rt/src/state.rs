@@ -99,7 +99,12 @@ pub const EV_ARG_MAX: u32 = 4096;
 /// The staging area of the Canvas2D display list (ABI A23): its address and the bytes of it the glue
 /// must copy with the next batch. The generated glue reads these two words.
 pub const WS_GFX_META: u32 = WS_EV_ARG + 4 + EV_ARG_MAX;
-pub const WS_SIZE: u32 = WS_GFX_META + 8;
+/// Where an element named outside its table is read and written (WASM-PARITY #69): a few blank slots,
+/// taken in turn, so that the two operands of one statement each have their own.
+pub const WS_VOID: u32 = WS_GFX_META + 8;
+pub const VOID_SLOTS: u32 = 4;
+pub const VOID_SLOT_SIZE: u32 = 4096;
+pub const WS_SIZE: u32 = WS_VOID + VOID_SLOTS * VOID_SLOT_SIZE;
 
 /// Run-time error codes carried by the `ERROR` command (ABI v1 §5). The host
 /// owns the message text, so the IDE and the page can translate it.
@@ -189,11 +194,13 @@ pub struct State {
     pub gfx_cmds: u32,
     pub gfx_ctrl: u32,
     pub gfx_inst: u32,
+    /// The blank slot (`WS_VOID`) the next element named outside its table takes.
+    pub void_next: u32,
 }
 
 impl State {
     pub const fn new() -> State {
-        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, path_parts: false, ctemp_dynamic: 0, query_pending: false, query_failed: false, func_argc: u32::MAX, heap_base: 0, heap_end: 0, heap_rover: 0, json_path_len: 0, disp_len: 0, gfx_at: 0, gfx_cap: 0, gfx_len: 0, gfx_cmds: 0, gfx_ctrl: u32::MAX, gfx_inst: 0 }
+        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, path_parts: false, ctemp_dynamic: 0, query_pending: false, query_failed: false, func_argc: u32::MAX, heap_base: 0, heap_end: 0, heap_rover: 0, json_path_len: 0, disp_len: 0, gfx_at: 0, gfx_cap: 0, gfx_len: 0, gfx_cmds: 0, gfx_ctrl: u32::MAX, gfx_inst: 0, void_next: 0 }
     }
 }
 

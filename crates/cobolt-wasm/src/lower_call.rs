@@ -116,7 +116,7 @@ impl Lower<'_, '_> {
         self.raw(I::I32GeU);
         self.raw(I::If(wasm_encoder::BlockType::Empty));
         self.i32c(cobolt_wasm_rt::state::err::PERFORM_DEPTH as i32);
-        self.emit(Ins::CallGlue(Glue::Abort));
+        self.call_rt("rt_fail");
         self.raw(I::End);
         // stack[psp] = (the callee's exit block, the block after the CALL)
         let (exit, entry) = (self.units[c].exit, self.units[c].entry);

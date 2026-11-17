@@ -333,6 +333,14 @@ pub extern "C" fn rt_flush() {
     disp::flush_all();
 }
 
+/// A run-time error the generated code raises itself (a `PERFORM` or `CALL` nested too deep, a
+/// failed remote call): the same path as the routines' own, so what the handler did before it
+/// reaches the page first.
+#[no_mangle]
+pub extern "C" fn rt_fail(code: u32) {
+    fail(code)
+}
+
 #[cfg(target_arch = "wasm32")]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

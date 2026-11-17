@@ -53,15 +53,14 @@
     </Event>
     <Event name="onClose" paragraph="MAIN-FORM--ONCLOSE">
     </Event>
-    <Event name="onLoad" paragraph="MAIN-FORM--ONLOAD"><![CDATA[       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-T PIC X OCCURS 3.
-       01 WS-I PIC 9 VALUE 9.
-       PROCEDURE DIVISION.
+    <Event name="onLoad" paragraph="MAIN-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
            MOVE "started" TO LBL-OUT::Caption
            SET TMR-1::Enabled TO TRUE
-           MOVE "x" TO WS-T(WS-I)
-           MOVE "not reached" TO LBL-OUT::Caption.]]></Event>
+           PERFORM DEEP
+           MOVE "not reached" TO LBL-OUT::Caption
+           GOBACK.
+       DEEP.
+           PERFORM DEEP.]]></Event>
   </form-events>
   <Control id="BTN-GO" type="Button" x="10" y="10" w="80" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">BTN-GO</Property>

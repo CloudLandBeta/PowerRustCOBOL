@@ -742,7 +742,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.raw(I::I32LeU);
         self.raw(I::If(wasm_encoder::BlockType::Empty));
         self.i32c(cobolt_wasm_rt::state::err::PERFORM_DEPTH as i32);
-        self.emit(Ins::CallGlue(Glue::Abort));
+        self.call_rt("rt_fail");
         self.raw(I::End);
         self.raw(I::Block(wasm_encoder::BlockType::Empty));
         self.raw(I::Loop(wasm_encoder::BlockType::Empty));
@@ -2913,7 +2913,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.raw(I::I32GeU);
         self.raw(I::If(wasm_encoder::BlockType::Empty));
         self.i32c(cobolt_wasm_rt::state::err::PERFORM_DEPTH as i32);
-        self.emit(Ins::CallGlue(Glue::Abort));
+        self.call_rt("rt_fail");
         self.raw(I::End);
         // stack[psp] = (end block, return block)
         self.emit(Ins::GlobalGet(G::Psp));

@@ -811,7 +811,9 @@ fn a_handler_reads_its_event_argument() {
 /// WASM-017 T11a (2): a trap raised on purpose. The shared script's `BTN-TRAP`
 /// writes a caption and then traps; `BTN-ERR` raises a numbered COBOL error. A
 /// generated module has no `unreachable` statement to write, so the construct is
-/// the run-time error itself: a subscript past the table. What the page sees is
+/// the run-time error itself: a paragraph that performs itself, stopped at 512
+/// levels as under the interpreter (a subscript past the table no longer stops a
+/// module, WASM-PARITY #69). What the page sees is
 /// what it sees from the fixture — the caption written before the error reaches
 /// it, an `ERROR` carrying the line, the form and the event arrives, the run ends
 /// with status -10 (a trap, after the report) and the next event is answered.
@@ -819,13 +821,18 @@ fn a_handler_reads_its_event_argument() {
 fn a_deliberate_trap_is_reported_with_its_line_and_the_form_goes_on() {
     let src = form_source(
         "TRAP-FORM",
-        "01 WS-TABLE GLOBAL.\n    05 WS-CELL PIC 9 OCCURS 3 TIMES.\n01 WS-I PIC 9(4) VALUE 0 GLOBAL.\n",
+        "",
         &[
-            ("BTN-TRAP", "onClick", "    MOVE \"trapping\" TO LBL-OUT::Caption\n    MOVE 9 TO WS-I\n    MOVE 1 TO WS-CELL (WS-I)\n    MOVE \"not reached\" TO LBL-OUT::Caption\n"),
+            (
+                "BTN-TRAP",
+                "onClick",
+                "    MOVE \"trapping\" TO LBL-OUT::Caption\n    PERFORM DEEP\n    MOVE \"not reached\" TO LBL-OUT::Caption\n    GOBACK.\nDEEP.\n    PERFORM DEEP\n",
+            ),
             ("BTN-GO", "onClick", "    MOVE \"answering\" TO LBL-OUT::Caption\n"),
         ],
     );
-    let line = src.lines().position(|l| l.contains("MOVE 1 TO WS-CELL")).unwrap() as u32 + 1;
+    // The error is raised by the PERFORM that would be the 513th level: the one inside DEEP.
+    let line = src.lines().position(|l| l == "DEEP.").unwrap() as u32 + 2;
     let p = Project::new().form("TRAP-FORM", true, 1, &[("BTN-TRAP", "Button"), ("BTN-GO", "Button"), ("LBL-OUT", "Label")], &src);
     let mut cases = 0;
     for multi in [true, false] {
@@ -842,7 +849,7 @@ fn a_deliberate_trap_is_reported_with_its_line_and_the_form_goes_on() {
         let o = host.outcome();
         assert_eq!(o.error_positions.len(), 1, "{o:?}");
         let (code, _unit, l, form, event) = o.error_positions[0];
-        assert_eq!((code, l, form, event), (1100, line, 0, click as u32), "multi={multi}: the subscript error, its line, the form and the event");
+        assert_eq!((code, l, form, event), (1106, line, 0, click as u32), "multi={multi}: the PERFORM-depth error, its line, the form and the event");
         assert_eq!(host.event(inst, go, click, &[]), 0, "multi={multi}: the form answers after the trap: {:?}", host.outcome());
         assert_eq!(host.property(0, out, caption).as_deref(), Some("answering"));
         cases += 1;

@@ -2,6 +2,49 @@
 
 
 
+## 2.0.572 — 2026-11-17
+
+**Fix: on the WebAssembly path, a subscript outside its table reads the interpreter's blank and writes nowhere, instead of stopping the program.**
+- **What was wrong.** On the desktop and in a browser page alike, a module stopped with run-time error 1100 when a subscript was below 1 or above the table's size. Run Form and a Cargo-built program never stop there: the interpreter reads a blank and keeps what is written apart from every other item.
+  - **Found by** the pixel run of 2.0.570 (AC19). PowerCobolCraft's `world-form`, opened on its own, stops at `super::` in its start-up under both engines, so its tile table is never filled. `CRAFT-HUD` then reads `WS-TILE-IMAGE(WS-TOP-TILE(WS-T))`, which is `WS-TILE-IMAGE(0)`.
+    - The interpreter reads zero there and draws the hotbar.
+    - The module stopped before `Present()`, so the pictures showed the canvas cleared and never presented.
+- **What happens now,** as under the interpreter (measured with `rcrun run`):
+  - **A read** of an element outside its table gives zero for a number of every usage (`DISPLAY`, `COMP`, `COMP-3`) and spaces otherwise (alphanumeric, numeric-edited).
+  - **A write** there reaches no other item: the table and whatever follows it in storage are unchanged.
+  - **A variable-length table** (`OCCURS … DEPENDING ON`) is bounded by its declared maximum, as the interpreter bounds it. An element past the current count but within the maximum is read and written in place. Before, the module stopped there too.
+  - COBOL-85 leaves all of this undefined; the product's rule is the interpreter's (DESKTOP-WASM-001 R27).
+- **Also fixed, found while testing it.** Three run-time errors are raised by the generated code itself:
+  - a `PERFORM` nested past 512 levels;
+  - a `CALL` nested past 512 levels;
+  - a failed remote `CALL` with no `ON EXCEPTION`.
+  - Until now these lost what the handler had done just before them: a caption written, a Timer started. Each now takes the same path as the routines' own errors, so that work reaches the form first, as on the desktop.
+- **Still open** (WASM-PARITY row 69):
+  - **A group element outside its table** reads spaces in a module. The interpreter gives each child its own blank (`"  00"` for `X(2)` then `99`).
+  - **A write outside the table** is kept by the interpreter and read back by the next read of the same element. A module reads the blank again.
+  - **An element longer than 4 096 bytes** outside its table is still run-time error 1100.
+  - **Found on the way, not changed:** `FUNCTION MOD` or `FUNCTION REM` by zero, and a `CALL` of a program the module does not hold (with no `ON EXCEPTION`), stop a module, while the interpreter gives 0 and goes on (row 70).
+- **Tests:**
+  - **`cobolt-wasm-rt`:** `a_subscript_outside_its_table_reads_blank_and_writes_nowhere`, 29 of 29 checks. It covers subscripts 0, 5 and 99 of `X(3) OCCURS 4`, and of `9(4)`, `COMP` and `COMP-3 OCCURS 2`, each read, written and read again, plus element 3 of `OCCURS 1 TO 4 DEPENDING ON` a count of 2. `move_and_arith` passes 17 of 17.
+  - **The routine blob** `assets/rt.wasm` was rebuilt (244 078 bytes); `rt_blob` passes 2 of 2.
+  - **Three generator tests used a subscript past the table as their deliberate run-time error.** They now use a paragraph that performs itself, which both engines stop at 512 levels (the interpreter: "PERFORM nesting too deep (max 512)").
+    - `a_deliberate_trap_is_reported_with_its_line_and_the_form_goes_on` now expects error 1106 at the inner `PERFORM`'s line.
+    - `a_start_up_that_stops_at_once_goes_on_to_the_event_loop` now expects error 1106.
+    - The player's `startup-form` fixture.
+  - **The generator's suite** (`cobolt-wasm`) passes 131 of 131. `corpus`: 18 of 18 compiled `tests/cobol` programs give the interpreter's output (600 lines).
+  - **NIST on generated modules** (`nist_wasm_run`), equal to the ledger:
+    - NC 95 of 95 programs ran with 0 failures (4 612 PASS, 0 FAIL, 5 DELETED);
+    - IF 45 of 45 (841 PASS);
+    - IC 25 of 25 (309 PASS, 4 DELETED).
+  - **The AC16 pin was re-recorded** (`UPDATE_PIN=1`), as this entry names. The PowerAnalyticsWeb module grew by 601 bytes (730 012 to 730 613; single-memory 730 028 to 730 629), and the manifest, which carries the module's hash, moved with it.
+  - **The player's generated fixtures** (8 modules and `startup-form.cfrm`) were rewritten with `UPDATE_PLAYER_FIXTURE=1`. The player's `abi_host` passes 28 of 28, its start-up test included, and `freshness` 6 of 6.
+  - **The runner's tests:** 10 of 10.
+  - **Pixel parity** (AC19): PowerCobolCraft still 41 of 66 frames identical, and the Cargo frames meet their M0 golden hashes (66 of 66).
+    - `world-form`, opened on its own, no longer stops in `CRAFT-HUD`. Run by hand under the runner, its `LastException` after 6 seconds is the `super::` failure of its start-up and nothing after it.
+    - Its 14 designed frames still differ by the same 2 957 pixels: the hotbar canvas `CNV-HUD` still shows nothing presented under the runner, with no error raised. That is the next thing to look at.
+    - `title-form`'s Play, Continue and Quit (1 142–2 399 pixels) are the info line of 2.0.571, unchanged.
+- **WASM-PARITY rows 69 and 70.**
+
 ## 2.0.571 — 2026-11-17
 
 **Fix: on the WebAssembly path, a reference modification that reaches outside its item takes the positions the interpreter takes, instead of stopping the program.**

@@ -156,28 +156,21 @@ fn locate_sized(base: u32, o: &Opd, current: bool) -> Loc {
                 base.wrapping_add(o.off)
             };
             let mut sp = o.addr + HDR;
+            let mut outside = false;
             for _ in 0..o.nsub {
                 let s = mem::bytes(sp, SUB_SIZE);
                 let sub_opd = u32::from_le_bytes([s[0], s[1], s[2], s[3]]);
                 let stride = u32::from_le_bytes([s[4], s[5], s[6], s[7]]);
                 let max = u32::from_le_bytes([s[8], s[9], s[10], s[11]]);
-                let odo = u32::from_le_bytes([s[12], s[13], s[14], s[15]]);
                 let add = i32::from_le_bytes([s[16], s[17], s[18], s[19]]);
                 let i = index_value(base, sub_opd) + add as i64;
-                let mut bound = max as i64;
-                if odo != 0 {
-                    // The current count of a variable-length table. The
-                    // physical bound still protects memory: a count above the
-                    // declared maximum is clamped to it.
-                    let c = index_value(base, odo);
-                    if c >= 0 && c < bound {
-                        bound = c;
-                    }
+                // The table's declared maximum bounds the element, as under the interpreter: an
+                // element past a variable-length table's current count but within its maximum is
+                // its place in memory (WASM-PARITY #69).
+                if i < 1 || i > max as i64 {
+                    outside = true;
                 }
-                if i < 1 || i > bound {
-                    crate::fail(err::SUBSCRIPT);
-                }
-                addr = addr.wrapping_add(((i - 1) as u32).wrapping_mul(stride));
+                addr = addr.wrapping_add((i.wrapping_sub(1) as u32).wrapping_mul(stride));
                 sp += SUB_SIZE;
             }
             let mut loc = Loc { addr, len: o.fd.len, fd: o.fd };
@@ -192,6 +185,9 @@ fn locate_sized(base: u32, o: &Opd, current: bool) -> Loc {
                 let len = (o.fd.len as i64 - (max - c) * stride).max(0) as u32;
                 loc.len = len;
                 loc.fd.len = len;
+            }
+            if outside {
+                loc = outside_the_table(loc);
             }
             if o.flags & OF_REFMOD != 0 {
                 let r = mem::bytes(sp, 8);
@@ -233,6 +229,27 @@ fn locate_sized(base: u32, o: &Opd, current: bool) -> Loc {
             fd: Fd { kind: K_ALNUM, flags: 0, digits: 0, scale: 0, len: 0, aux: 0 },
         },
     }
+}
+
+/// Where an element named outside its table is read and written (WASM-PARITY #69; COBOL-85 leaves
+/// both undefined). The interpreter reads such an element as zero when it is a number of any usage
+/// and as spaces otherwise, and what is written there reaches no other item. Here it is a blank slot
+/// of the workspace, filled afresh each time it is named; the slots are taken in turn, so that the
+/// two operands of one statement each have their own.
+fn outside_the_table(loc: Loc) -> Loc {
+    if loc.len > crate::state::VOID_SLOT_SIZE {
+        crate::fail(err::SUBSCRIPT);
+    }
+    let s = crate::state::st();
+    let slot = s.void_next % crate::state::VOID_SLOTS;
+    s.void_next = s.void_next.wrapping_add(1);
+    let at = Loc { addr: s.ws + crate::state::WS_VOID + slot * crate::state::VOID_SLOT_SIZE, ..loc };
+    if loc.fd.is_numeric() {
+        codec::store_value(&at, Val::ZERO, false, false);
+    } else {
+        mem::fill(at.addr, at.len, b' ');
+    }
+    at
 }
 
 /// The numeric value of an operand: a numeric literal, a numeric item, or —

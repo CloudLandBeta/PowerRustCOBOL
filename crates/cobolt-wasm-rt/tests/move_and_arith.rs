@@ -227,6 +227,67 @@ fn reference_modification_out_of_the_item_is_taken_as_the_interpreter_takes_it()
     println!("reference modification out of the item: {tally} of {} checks (6 forms, read and written)", cases.len() * 2);
 }
 
+/// Out of its table, an element is read as the interpreter reads it, and what is written there
+/// reaches no other item (WASM-PARITY #69; COBOL-85 leaves both undefined). Measured with `rcrun run`:
+/// a number of every usage reads zero, an alphanumeric element reads spaces, and the interpreter
+/// bounds a variable-length table by its declared maximum, not by its current count. Before, each
+/// of these was run-time error 1100.
+#[test]
+fn a_subscript_outside_its_table_reads_blank_and_writes_nowhere() {
+    let mut k = Kit::new();
+    // E PIC X(3) OCCURS 4 at 0, then "AFTERT" at 12; N PIC 9(4) OCCURS 2 at 20;
+    // C PIC S9(4) COMP OCCURS 2 at 30; P PIC S9(5) COMP-3 OCCURS 2 at 34; the subscript at 100.
+    let idx = k.item(100, Fd::display(2, 0, 0));
+    let e = k.item_sub(0, Fd::alnum(3), &[(idx, 3, 4, 0)]);
+    let n = k.item_sub(20, Fd::display(4, 0, 0), &[(idx, 4, 2, 0)]);
+    let c = k.item_sub(30, Fd::binary(4, 0, F_SIGNED, 2), &[(idx, 2, 2, 0)]);
+    let p = k.item_sub(34, Fd::packed(5, 0, F_SIGNED), &[(idx, 3, 2, 0)]);
+    let (text, num) = (k.item(40, Fd::alnum(5)), k.item(50, Fd::display(6, 0, 0)));
+    let (seven, zzz, big) = (k.lit_num(7, 0), k.lit_alnum(b"ZZZ"), k.lit_num(9999, 0));
+    k.poke(0, b"AAABBBCCCDDDAFTERT");
+    k.poke(20, b"00070008");
+    k.poke(100, b"01");
+    rt_move(k.base, seven, c);
+    rt_move(k.base, seven, p);
+    let before = [k.peek(0, 18).to_vec(), k.peek(20, 20).to_vec()];
+    let reads_blank = |k: &mut Kit, what: &str| {
+        rt_move(k.base, e, text);
+        assert_eq!(k.peek(40, 5), b"     ", "{what}: an alphanumeric element is read as spaces");
+        for element in [n, c, p] {
+            k.poke(50, b"??????");
+            rt_move(k.base, element, num);
+            assert_eq!(k.peek(50, 6), b"000000", "{what}: a number is read as zero");
+        }
+        4
+    };
+    let mut checks = 0;
+    for sub in [b"00", b"05", b"99"] {
+        k.poke(100, sub);
+        checks += reads_blank(&mut k, "read");
+        rt_move(k.base, zzz, e);
+        for element in [n, c, p] {
+            rt_move(k.base, big, element);
+        }
+        assert_eq!([k.peek(0, 18).to_vec(), k.peek(20, 20).to_vec()], before, "a write changes no item");
+        checks += 1 + reads_blank(&mut k, "read after a write");
+    }
+    // A variable-length table (OCCURS 1 TO 4 DEPENDING ON a count of 2): element 3 is past the count
+    // but within the maximum, so it is its place in memory, read and written.
+    let count = k.item(110, Fd::display(1, 0, 0));
+    k.poke(110, b"2");
+    let v = k.item_sub(0, Fd::alnum(3), &[(idx, 3, 4, count)]);
+    k.poke(100, b"03");
+    rt_move(k.base, v, text);
+    assert_eq!(k.peek(40, 5), b"CCC  ", "element 3 past a count of 2 is read from memory");
+    rt_move(k.base, zzz, v);
+    assert_eq!(k.peek(0, 12), b"AAABBBZZZDDD", "and written there");
+    checks += 2;
+    println!(
+        "a subscript outside its table: {checks} of 29 checks (subscripts 0, 5 and 99 of X(3) OCCURS 4, \
+         9(4), COMP and COMP-3 OCCURS 2: read, written, read again; element 3 of OCCURS 1 TO 4 DEPENDING ON 2)"
+    );
+}
+
 fn run_add(k: &mut Kit, a: u32, b: u32, receiver: u32, flags: u32) -> bool {
     rt_begin();
     rt_push(k.base, a);

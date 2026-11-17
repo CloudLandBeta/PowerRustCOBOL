@@ -261,7 +261,7 @@ impl Lower<'_, '_> {
         if on_exc.is_empty() {
             // Without ON EXCEPTION a failed call is a run-time error (R11).
             self.i32c(cobolt_wasm_rt::state::err::REMOTE_FAILED as i32);
-            self.emit(Ins::CallGlue(Glue::Abort));
+            self.call_rt("rt_fail");
             self.i32c(ret::DONE);
             self.finish_raw();
         } else {
