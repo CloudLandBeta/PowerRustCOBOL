@@ -572,6 +572,91 @@ fn the_demos_pass_in_a_built_binary_and_leave_no_server_behind() {
     assert!(alive.is_empty(), "AWS servers outlived the binary: {alive:?}");
 }
 
+/// The runner, built once beside `rcrun`, as a release has it.
+fn build_runner() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let status = Command::new(cargo)
+            .current_dir(workspace)
+            .args(["build", "-q", "-p", "cobolt-runner", "--bin", "prc-runner"])
+            .status()
+            .expect("run cargo");
+        assert!(status.success(), "cargo build -p cobolt-runner --bin prc-runner failed");
+    });
+}
+
+/// DESKTOP-WASM-001 T48 (R11, R27) — the same demos in a program built on the WebAssembly path and
+/// run by the runner give the tallies they give under Run Form, as embedded child forms of the
+/// shell, and leave no AWS server behind. The servers are the fake; the host's AWS keys and profile
+/// are never passed on.
+#[test]
+fn the_demos_pass_on_the_webassembly_path_and_leave_no_server_behind() {
+    let p = project("wasm");
+    build_runner();
+    let t = std::time::Instant::now();
+    let out = Command::new(rcrun())
+        .arg("build")
+        .arg(p.root.join("awshosts.project.toml"))
+        .arg("--quiet")
+        .env(cobolt_compiler::BUILD_DIR_ENV, p.root.join("builds"))
+        .env("PRC_RUNNER_CACHE", p.root.join("runner-cache"))
+        .env_remove(cobolt_compiler::RUNNER_ENV)
+        .output()
+        .expect("run rcrun build");
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(out.status.success(), "rcrun build failed:\n{stdout}\n{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.lines().any(|l| l.trim() == "Path   : WebAssembly"), "the Build took the WebAssembly path:\n{stdout}");
+    let exe = stdout
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("Binary :"))
+        .map(|b| PathBuf::from(b.trim()))
+        .unwrap_or_else(|| panic!("no Binary line in:\n{stdout}"));
+    let build_ms = t.elapsed().as_secs_f64() * 1000.0;
+    let mut table = Vec::new();
+    let mut runs_ms = 0.0;
+    for (demo, want) in DEMOS {
+        let script = p.root.join(format!("wasm-{demo}.json"));
+        std::fs::write(&script, steps(Some(demo)).to_string()).unwrap();
+        let mut command = Command::new(&exe);
+        for name in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE"] {
+            command.env_remove(name);
+        }
+        let t = std::time::Instant::now();
+        let out = command
+            .env("PRC_RUNNER_CACHE", p.root.join("runner-cache"))
+            .env("PRC_HEADLESS_SCRIPT", &script)
+            .env("PRC_HEADLESS_LIMIT", "60")
+            .current_dir(&p.root)
+            .output()
+            .unwrap();
+        runs_ms += t.elapsed().as_secs_f64() * 1000.0;
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(out.status.success(), "{demo}: {stdout}\n{}", String::from_utf8_lossy(&out.stderr));
+        let (tally, block) = outcome(&stdout);
+        println!("\n  {demo} on the WebAssembly path:\n    {}", block.join("\n    "));
+        assert_eq!(tally, want, "{demo} on the WebAssembly path");
+        table.push(format!("{demo}: {tally}"));
+    }
+    // Every server the program started has ended with it.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let pids = std::fs::read_to_string(p.root.join("pids.txt")).unwrap_or_default();
+    let alive: Vec<&str> = pids
+        .lines()
+        .filter(|pid| Command::new("kill").args(["-0", pid]).output().is_ok_and(|o| o.status.success()))
+        .collect();
+    println!(
+        "\nDESKTOP-WASM-001 T48 — the AWS demos on the WebAssembly path: {} of {} tallies equal to Run Form's; build {build_ms:.0} ms, runs {runs_ms:.0} ms; servers started {}, still running {}\n  {}",
+        table.len(),
+        DEMOS.len(),
+        pids.lines().count(),
+        alive.len(),
+        table.join("\n  ")
+    );
+    assert!(alive.is_empty(), "AWS servers outlived the program: {alive:?}");
+}
+
 /// Spec 078 AC19 — the Guide's "Calling AWS" handlers compile as the designer
 /// would compile them: each `PROGRAM-ID. CONTROL--EVENT.` example becomes that
 /// control's event handler on a form, and the generated program must parse

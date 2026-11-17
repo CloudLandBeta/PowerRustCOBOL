@@ -1574,6 +1574,20 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
 
 - [ ] **T48 — Maps, the Aws controls, model lists and MCP** (R11)
   - Verify: twins of `aws_hosts`, `partiql_hosts` and `powercloud_hosts`, against local stubs. No twin sends a request signed with the live keys some example `.cfrm` files carry.
+  - *AWS done 2026-11-17 (2.0.567); Maps, the model lists and MCP are still open, so the box stays empty:*
+    - **Why AWS came first:** the operator's ruling of 2026-11-16 ("no project should rely on cargo build") puts first the work that removes a reference project's reason, and the AWS controls and keys stood first in PowerCloud's.
+    - **What runs (ABI A38, capability `aws`):**
+      - a method of an `Aws…` control is an ordinary call on the control. The runner decides it with the interpreter's own rules, now one module both call (`cobolt_runtime::aws::door`): whether the method is the control's, the connection, the refusals, the request, the budgets, and what a result writes;
+      - a `Sync` operation answers at once; an `Async` one answers `1`, sets `Busy` and runs on a thread of the runner. Its event and `onComplete` (or `onError`, `onTimeout`) are queued behind what the instance is running, each with its values written as it leaves the queue, bound or not (the ABI host's `Work::Apply`);
+      - `Cancel` drops a running operation's result, clears `Busy` and raises `onCancelled`; `GetRow` and `GetField` read the last row set;
+      - `COBOL::"AWS-SET-CREDENTIALS"`, `"AWS-CLEAR-CREDENTIALS"` and `"AWS-CREDENTIALS-SET"` in a form's handler are calls on the application object answered through `AwsStatus` and `AwsFlag`. No host records their arguments. A program with no form takes the Cargo path for them.
+    - **Tests:**
+      - the runner twin `the_demos_pass_on_the_webassembly_path_and_leave_no_server_behind`: the 16 AWS demo forms, built on the WebAssembly path against the local fake servers, give 16 of 16 tallies equal to Run Form's; 17 servers started, none left running;
+      - the ABI host's `aws_tests`: 9 of 9 and 13 of 13 checks (order, values written as the queue reaches them, `Cancel`, rows, the keys never recorded, a host without AWS); the crate 267 of 267;
+      - the runtime: 37 AWS unit tests and 72 AWS integration tests (16 files, the live one left out), and the narration test;
+      - `desktop_controls_the_runner_lacks_are_named` 8 of 8, with an AWS form served; the runner twins 13 of 13; `cobolt-wasm` and `cobolt-wasm-abi` 154 of 154; the PowerAnalyticsWeb pin 3 of 3.
+    - **PowerCloud** still takes the Cargo path, for the reasons T39c lists (the image built-ins and its FileDropZone).
+    - **Left for this task:** Maps, the model lists and MCP, and the `partiql_hosts` and `powercloud_hosts` twins. `PARTIQL` is still refused, and PowerCloud cannot be twinned while it takes the Cargo path.
 
 - [ ] **T49 — AUDIO, ANIMATIONSEQUENCE and LAYOUT** (R11)
   - *Sound done 2026-11-16 (2.0.555); `ANIMATIONSEQUENCE` and `LAYOUT` are still open, so the box stays empty:*

@@ -14219,6 +14219,9 @@ function_prefix = "sales-"
         let second = form("ORDERS", vec![ctl("LBL-X", T::Label), ctl("VWR-DOC", T::Viewer)]);
         // Served since T50: the canvases, drawn by the runner with the interpreter's graphics library.
         let drawn = form("PLOT", vec![ctl("CNV-PLOT", T::Canvas2D), ctl("CNV-SCENE", T::Canvas3D)]);
+        // Served since T48: the AWS controls, whose operations the runner carries out; another service control is not.
+        let cloud = form("CLOUD", vec![ctl("S3-1", T::AwsS3), ctl("LAM-1", T::AwsLambda)]);
+        let search = form("FIND", vec![ctl("WEB-1", T::WebSearch)]);
         let mut bound = form("MAIN", vec![ctl("LBL-TOTAL", T::Label)]);
         bound.data_bindings.push(cobolt_forms::model::DataBindingDef::new(
             "Bind-Total",
@@ -14238,6 +14241,8 @@ function_prefix = "sales-"
         let maps = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &with_maps)]);
         let viewer = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &served), ("ORDERS", "forms/orders.cfrm", &second)]);
         let canvas = desktop_control_reason(&[("PLOT", "forms/plot.cfrm", &drawn)]);
+        let aws = desktop_control_reason(&[("CLOUD", "forms/cloud.cfrm", &cloud)]);
+        let service = desktop_control_reason(&[("FIND", "forms/find.cfrm", &search)]);
         let binding = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &bound)]);
         let took = t.elapsed();
         let is = |r: &Option<CargoReason>, f: &str, file: &str, c: &str, ty: &str, milestone: &str| {
@@ -14251,10 +14256,12 @@ function_prefix = "sales-"
             ("the message names the file, the form and the control", text.contains("forms/main.cfrm") && text.contains("MAIN") && text.contains("MAP-CITY (Maps)")),
             ("a Viewer on the second form: ORDERS, forms/orders.cfrm, VWR-DOC, M6", is(&viewer, "ORDERS", "forms/orders.cfrm", "VWR-DOC", "Viewer", "(DESKTOP-WASM-001 M6)")),
             ("a Canvas2D and a Canvas3D: none (T50)", canvas.is_none()),
+            ("an AwsS3 and an AwsLambda: none (T48)", aws.is_none()),
+            ("a WebSearch: FIND, forms/find.cfrm, WEB-1, M6", is(&service, "FIND", "forms/find.cfrm", "WEB-1", "WebSearch", "M6)")),
             ("a Label bound to an indexed file: LBL-TOTAL, Label, M6", is(&binding, "MAIN", "forms/main.cfrm", "LBL-TOTAL", "Label", "(DESKTOP-WASM-001 M6)")),
         ];
-        println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, T50, R13) ==");
-        println!("forms: 5 designs, 14 controls (3 nested), 1 binding; 5 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
+        println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, T48, T50, R13) ==");
+        println!("forms: 7 designs, 17 controls (3 nested), 1 binding; 7 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
         println!("  Maps: {text}");
         let passed = checks.iter().filter(|(_, ok)| *ok).count();
         for (what, ok) in &checks {

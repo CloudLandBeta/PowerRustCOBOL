@@ -805,6 +805,8 @@ impl Lower<'_, '_> {
             dialog if self.native && crate::lower_remote::is_desktop_dialog(dialog) => self.desktop_file_dialog(dialog, using, line),
             // On the desktop the runner plays the sounds (T49).
             audio if self.native && crate::lower_remote::is_desktop_audio(audio) => self.desktop_audio(audio, using, line),
+            // On the desktop the runner keeps an AWS connection's keys (T48).
+            aws if self.native && crate::lower_remote::is_desktop_aws(aws) => self.desktop_aws(aws, using, line),
             // The page's own verbs (ABI §12.1) are not the desktop's: under the interpreter a form's
             // windows are `ME`'s and a handle's, and a desktop form has no message box (T6, T32). A
             // desktop module refuses them, so the Build takes the Cargo path, which reports them as the
@@ -940,6 +942,51 @@ impl Lower<'_, '_> {
             if let Some(dest) = dest {
                 self.app_property_into(prop, dest, line)?;
             }
+        }
+        Ok(())
+    }
+
+    /// The keys of an AWS connection typed in at run time (DESKTOP-WASM-001 T48, ABI A38), with the
+    /// interpreter's arguments: `COBOL::"AWS-SET-CREDENTIALS" ( connection key-id secret token
+    /// [status] )`, `"AWS-CLEAR-CREDENTIALS" ( connection [status] )` and `"AWS-CREDENTIALS-SET" (
+    /// connection flag )`. The runner answers at once; `status` gets the application's `AwsStatus`
+    /// (`OK`, or why nothing was stored), `flag` its `AwsFlag` (`Y` or `N`). Fewer arguments than the
+    /// interpreter needs are refused, so the Build takes the Cargo path, which reports them as the
+    /// interpreter does. Arguments after those it reads are ignored, as it ignores them.
+    fn desktop_aws(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
+        let subject = format!("COBOL::\"{name}\"");
+        if self.form.is_none() {
+            return self.err_kind(
+                line,
+                crate::error::ErrorKind::Other,
+                subject.clone(),
+                format!("{subject}: the runner serves AWS in a form's handler only, so a program with no form takes the Cargo path"),
+            );
+        }
+        let args: Vec<Expr> = using
+            .iter()
+            .map(|a| match a {
+                CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+            })
+            .collect();
+        let (needed, what) = match name {
+            "AWS-SET-CREDENTIALS" => (4, "the connection, the access key id, the secret access key and the session token"),
+            "AWS-CREDENTIALS-SET" => (2, "the connection and the data item that receives Y or N"),
+            _ => (1, "the connection"),
+        };
+        if args.len() < needed {
+            return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes {what}"));
+        }
+        let (sent, answer): (&[Expr], (&str, Option<&Expr>)) = match name {
+            "AWS-SET-CREDENTIALS" => (&args[..4], ("AwsStatus", args.get(4))),
+            "AWS-CREDENTIALS-SET" => (&args[..1], ("AwsFlag", args.get(1))),
+            _ => (&args[..1], ("AwsStatus", args.get(1))),
+        };
+        let seg = Seg { name, args: sent, parens: true };
+        self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
+        self.call_rt("rt_cmd_call");
+        if let (prop, Some(dest)) = answer {
+            self.app_property_into(prop, dest, line)?;
         }
         Ok(())
     }

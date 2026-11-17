@@ -274,6 +274,9 @@ pub trait AudioPort {
     fn release(&mut self, inst: u32);
 }
 
+mod aws;
+pub use self::aws::{AwsControl, AwsEffects, AwsEvent, AwsPort};
+
 /// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
 /// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
 /// window state, x, y, width, height, then, for a Sync open, whether it is modal. An empty or absent
@@ -481,6 +484,9 @@ enum Work {
     /// The next step of an intercepted link click (WASM-006 D1, D2): it waits, like an event, behind the
     /// handler of the step before, and makes no call of its own.
     Link(crate::hyperlink::LinkStep),
+    /// An AWS operation's values (T48): written as the queue reaches them, then the event they belong
+    /// to follows when a handler is bound to it. Like a link's step, it makes no call of its own.
+    Apply(aws::AwsApply),
 }
 
 #[derive(Debug, Clone)]
@@ -595,6 +601,8 @@ pub struct Host {
     file_dialogs: Vec<FileDialogAsk>,
     /// The desktop's sound player, which the runner gives the host (A36); `None` in a page.
     pub audio: Option<Box<dyn AudioPort>>,
+    /// The desktop's AWS, which the runner gives the host (T48, A38); `None` in a page.
+    pub aws: Option<Box<dyn AwsPort>>,
     pub effects: Vec<Effect>,
     pub outbox: Vec<Outbound>,
     /// The ids of the requests made by a Timer's `onTick` handler and not yet handed to the transport (2.0.413): an
@@ -751,6 +759,7 @@ impl Host {
             refocused: Vec::new(),
             file_dialogs: Vec::new(),
             audio: None,
+            aws: None,
             effects: Vec::new(),
             outbox: Vec::new(),
             automatic_requests: std::collections::HashSet::new(),
@@ -1388,6 +1397,7 @@ impl Host {
         self.work.iter().position(|w| match w {
             Work::Event(e) => !blocked.contains(&e.inst) && self.trees.contains_key(&e.inst),
             Work::Link(s) => !blocked.contains(&s.inst) && self.trees.contains_key(&s.inst),
+            Work::Apply(a) => !blocked.contains(&a.inst) && self.trees.contains_key(&a.inst),
             Work::Close { .. } | Work::Open { .. } | Work::Cancel => true,
         })
     }
@@ -1440,6 +1450,11 @@ impl Host {
             let pos = self.runnable_work()?;
             match self.work.remove(pos)? {
                 Work::Link(step) => self.link_step(step),
+                Work::Apply(a) => {
+                    if let Some(e) = self.aws_applied(a) {
+                        break Work::Event(e);
+                    }
+                }
                 w @ Work::Open { .. } => {
                     if let Some(w) = self.sign_in_gate(w) {
                         break w;
@@ -1450,7 +1465,7 @@ impl Host {
         };
         self.stats.module_calls += 1;
         match w {
-            Work::Link(_) => unreachable!("taken above"),
+            Work::Link(_) | Work::Apply(_) => unreachable!("taken above"),
             Work::Event(e) => {
                 self.stats.events_delivered += 1;
                 let desc = self.describe_event(e.inst, e.ctrl, e.event);
@@ -1804,7 +1819,10 @@ impl Host {
         if let Some(a) = self.audio.as_mut() {
             a.release(inst);
         }
-        self.work.retain(|w| !matches!(w, Work::Event(e) if e.inst == inst));
+        if let Some(a) = self.aws.as_mut() {
+            a.release(inst);
+        }
+        self.work.retain(|w| !matches!(w, Work::Event(e) if e.inst == inst) && !matches!(w, Work::Apply(a) if a.inst == inst));
         self.auth_calls.retain(|_, (i, _, _)| *i != inst);
         self.auth_captchas.retain(|_, (i, _)| *i != inst);
         self.auth_queue.retain(|(i, _, _)| *i != inst);
@@ -2504,6 +2522,10 @@ impl Host {
             }
         }
         if let Some(r) = self.gfx_sync_call(inst, idx, name, args) {
+            return r;
+        }
+        // An AWS control's operations are the runner's (T48).
+        if let Some(r) = self.aws_call(inst, idx, name, args) {
             return r;
         }
         let r = self.control_method(inst, idx, name, args);
@@ -3220,6 +3242,12 @@ impl Host {
                 self.app.insert("audiostatus".into(), status);
                 Ok(None)
             }
+            // The keys an AWS connection is given at run time (A38): the runner keeps them, and the
+            // program's receiver reads the answer from the application object.
+            "AWS-SET-CREDENTIALS" | "AWS-CLEAR-CREDENTIALS" | "AWS-CREDENTIALS-SET" if self.opts.desktop => {
+                self.aws_credentials(&m, args);
+                Ok(None)
+            }
             "AUDIO-STATE" if self.opts.desktop => {
                 let (state, position, length) = match self.audio.as_mut() {
                     Some(a) => a.state(inst),
@@ -3892,6 +3920,8 @@ mod params_tests;
 mod raise_tests;
 #[cfg(test)]
 mod long_args_tests;
+#[cfg(test)]
+mod aws_tests;
 #[cfg(test)]
 mod resize_tests;
 #[cfg(test)]

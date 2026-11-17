@@ -100,6 +100,8 @@ enum ToProgram {
     Gone { link: usize },
     /// The operator chose `path` in file dialog `id` (T32), or cancelled it.
     Answered { id: u32, path: Option<String> },
+    /// An asynchronous AWS operation ended (T48).
+    Aws(crate::aws::AwsResult),
 }
 
 /// The engine the runner gives the form host: the forms' designs, from the module's `prforms`
@@ -339,6 +341,15 @@ impl Thread {
         let mut host = Host::new(manifest, HostOptions { desktop: true, ..HostOptions::default() });
         // The sounds a form plays (T49, A36).
         host.audio = Some(Box::new(crate::audio::RunnerAudio::default()));
+        // The AWS controls and keys (T48): an asynchronous operation's result comes back on this
+        // thread's own channel.
+        let aws = {
+            let back = tx.clone();
+            crate::aws::Aws::new(move |r| {
+                let _ = back.send(ToProgram::Aws(r));
+            })
+        };
+        host.aws = Some(Box::new(aws.clone()));
         // The canvases and the graphics objects (T50).
         let graphics = crate::gfx::install(&mut host);
         // A form the Build has no program for is designed but not in the manifest: it cannot open.
@@ -486,6 +497,13 @@ impl Thread {
                     }
                 }
                 Some(ToProgram::Answered { id, path }) => d.host().file_dialog_answer(id, path.as_deref()),
+                Some(ToProgram::Aws(r)) => {
+                    let (inst, ctl) = (r.inst, r.ctl.clone());
+                    let verbose = d.host().control_property(inst, &ctl, "Verbose").is_some_and(|v| v.trim().eq_ignore_ascii_case("true"));
+                    if let Some(fx) = aws.delivered(r, verbose) {
+                        d.host().aws_delivered(inst, &ctl, fx);
+                    }
+                }
                 Some(ToProgram::Gone { link }) => {
                     links[link].gone = true;
                     if let Some(inst) = links[link].inst {

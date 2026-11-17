@@ -35,11 +35,13 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 # the form host shows its windows, the very windows a program built on the Cargo path shows. The
 # runtime's optional parts (SQL, HTTP, maps, …) stay off until a milestone provides their capability:
 # `audio` is on since T49 (the capability `audio`, ABI A36), `graphics` since T50 (the canvases and the
-# graphics objects, drawn by the interpreter's registry, and the windows that show their pictures).
+# graphics objects, drawn by the interpreter's registry, and the windows that show their pictures),
+# `aws` since T48 (the AWS controls and keys, ABI A38: the interpreter's connections, route table and
+# operations; the form host publishes the project's connections to them).
 cobolt-abi-host  = { path = "../cobolt-abi-host" }
-cobolt-form-host = { path = "../cobolt-form-host", default-features = false, features = ["graphics"] }
+cobolt-form-host = { path = "../cobolt-form-host", default-features = false, features = ["graphics", "aws"] }
 cobolt-forms     = { path = "../cobolt-forms", features = ["render"] }
-cobolt-runtime   = { path = "../cobolt-runtime", default-features = false, features = ["audio", "graphics"] }
+cobolt-runtime   = { path = "../cobolt-runtime", default-features = false, features = ["audio", "graphics", "aws"] }
 # The graphics library the interpreter draws with (T50); the form host already links it.
 cobolt-graphics  = { path = "../cobolt-graphics" }
 # The file declarations name an INDEXED file's engine choice as the parser does (T38).

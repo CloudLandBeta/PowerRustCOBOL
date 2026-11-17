@@ -572,6 +572,9 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let uses_dialogs = builtin_list.iter().any(|b| crate::lower_remote::is_desktop_dialog(b));
     // A desktop module that plays sounds needs the runner's player (A36); a browser module's sounds are the page's.
     let uses_audio = opts.native && builtin_list.iter().any(|b| crate::lower_remote::is_desktop_audio(b));
+    // A desktop module with an AWS control, or that gives a connection its keys, needs the runner's AWS (A38).
+    let uses_aws = opts.native
+        && (builtin_list.iter().any(|b| crate::lower_remote::is_desktop_aws(b)) || forms.iter().any(|f| f.controls.iter().any(|(_, kind)| kind.starts_with("Aws"))));
     // A desktop module's disk files: their declarations go to the `prfiles` section and their
     // organisations to the capabilities (T38, A34).
     let file_caps: BTreeSet<&'static str> = names.file_caps.clone();
@@ -1571,7 +1574,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         // A desktop capability's import is named with its namespace (A29).
         imports: glue_list.iter().map(|g| if native_cap(g).is_some() { format!("{}.{g}", import_module(g)) } else { g.to_string() }).collect(),
         // A27: what the `prn` imports need, in the order of `cap::ALL`; none for a browser module. The
-        // file dialogs and the sound player are verbs of the application object, with no import of their own (A33, A36).
+        // file dialogs, the sound player and AWS are verbs of the application object and calls on controls, with no
+        // import of their own (A33, A36, A38).
         capabilities: cobolt_wasm_abi::codes::cap::ALL
             .iter()
             .filter(|c| {
@@ -1579,6 +1583,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
                     || file_caps.contains(*c)
                     || (**c == cobolt_wasm_abi::codes::cap::DIALOGS && uses_dialogs)
                     || (**c == cobolt_wasm_abi::codes::cap::AUDIO && uses_audio)
+                    || (**c == cobolt_wasm_abi::codes::cap::AWS && uses_aws)
             })
             .map(|c| c.to_string())
             .collect(),

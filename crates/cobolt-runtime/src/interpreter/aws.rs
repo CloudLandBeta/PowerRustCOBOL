@@ -19,6 +19,10 @@
 //! drain applies every delivered result before any handler runs, so each
 //! event queues its property values and rows beside it, and they are written
 //! when that event is dispatched.
+//!
+//! What a call decides and what a result writes is [`crate::aws::door`]'s,
+//! which the desktop runner calls too (DESKTOP-WASM-001 T48): this file only
+//! carries it out on the interpreter's objects.
 
 use serde_json::Value;
 
@@ -72,67 +76,32 @@ impl Interpreter {
     }
 
     /// An AWS worker reported. Runs on the interpreter thread from the async
-    /// drain; `obj` is the control's id as the operation was started.
+    /// drain; `obj` is the control's id as the operation was started. A
+    /// success raises the operation's own event with its values, then
+    /// `onComplete`; a failure raises `onError` or `onTimeout`, and is
+    /// narrated whatever `Verbose` says ([`crate::aws::door::delivered`]).
+    #[cfg(feature = "aws")]
     pub(crate) fn aws_delivered(&mut self, obj: &str, outcome: AsyncOutcome) {
-        let verbose = self.obj_get(obj, "Verbose").trim().eq_ignore_ascii_case("true");
-        match outcome {
-            AsyncOutcome::Aws { mut props, rows, event } => {
-                if verbose {
-                    let body = props.iter().find(|(k, _)| k == "ResponseBody").map(|(_, v)| v.clone());
-                    self.log_block("aws", obj, "response", &aws_mask(&body.unwrap_or_default()));
-                }
-                props.push(("LastError".into(), String::new()));
-                props.push(("Busy".into(), "0".into()));
-                self.aws_raise(obj, &event, props, Some(rows));
-                let spelled = self.form_spelling(obj);
-                self.async_dispatch_queue.push_back((spelled, "onComplete".to_string()));
-            }
-            AsyncOutcome::AwsError { message } => self.aws_fail_event(obj, "onError", "error", message),
-            AsyncOutcome::AwsTimeout { message } => self.aws_fail_event(obj, "onTimeout", "timed out", message),
+        use crate::aws::{door, ops};
+        let outcome = match outcome {
+            AsyncOutcome::Aws { props, rows, event } => ops::Outcome::Done { props, rows, event },
+            AsyncOutcome::AwsError { message } => ops::Outcome::Error(message),
+            AsyncOutcome::AwsTimeout { message } => ops::Outcome::Timeout(message),
             // Not an AWS outcome; never routed here.
-            _ => {}
-        }
+            _ => return,
+        };
+        let verbose = self.obj_get(obj, "Verbose").trim().eq_ignore_ascii_case("true");
+        self.aws_apply(obj, door::delivered(verbose, outcome));
     }
 
-    fn aws_fail_event(&mut self, obj: &str, event: &str, label: &str, message: String) {
-        self.aws_log_failure(obj, label, &message);
-        self.aws_raise(obj, event, vec![("LastError".into(), message), ("Busy".into(), "0".into())], None);
-    }
-
-    /// **A failed AWS operation is never silent** (operator, 2026-10-18: "PowerCloud failed
-    /// to upload the photo … there is no visual log of the operation, so I cannot tell what
-    /// went wrong"). Whatever `Verbose` says, the reason goes to wherever this program's
-    /// DISPLAY goes — the IDE's Output panel under Run Form — as well as into `LastError`,
-    /// where a program that shows it in a one-line label cuts it short. Masked like every
-    /// AWS narration: a key, a secret or a token in the message never reaches the output.
-    fn aws_log_failure(&mut self, obj: &str, label: &str, message: &str) {
-        self.log_block("aws", obj, label, &aws_mask(message));
-    }
+    /// A build without AWS never starts an operation, so nothing is ever delivered.
+    #[cfg(not(feature = "aws"))]
+    pub(crate) fn aws_delivered(&mut self, _obj: &str, _outcome: AsyncOutcome) {}
 
     /// The last operation's row `i` (1-based): the row as JSON, or a field of
     /// it. Empty when there is no such row or field.
     fn aws_row_value(&self, obj: &str, i: &str, field: Option<&str>) -> String {
-        let Some(row) = i
-            .trim()
-            .parse::<usize>()
-            .ok()
-            .filter(|n| *n >= 1)
-            .and_then(|n| self.aws_rows.get(&obj.trim().to_ascii_uppercase())?.get(n - 1))
-        else {
-            return String::new();
-        };
-        let Some(field) = field else {
-            return row.to_string();
-        };
-        let field = field.trim();
-        let value = row.get(field).or_else(|| {
-            row.as_object()?.iter().find(|(k, _)| k.eq_ignore_ascii_case(field)).map(|(_, v)| v)
-        });
-        match value {
-            Some(Value::String(s)) => s.clone(),
-            Some(Value::Null) | None => String::new(),
-            Some(v) => v.to_string(),
-        }
+        crate::aws_rows::row_value(self.aws_rows.get(&obj.trim().to_ascii_uppercase()), i, field)
     }
 }
 
@@ -183,32 +152,8 @@ pub(super) fn credentials_set(_connection: &str) -> bool {
     false
 }
 
-/// Mask what `Verbose` prints (R27). Without the feature there is nothing to
-/// print.
-#[cfg(feature = "aws")]
-fn aws_mask(text: &str) -> String {
-    crate::aws::process::mask(text)
-}
-#[cfg(not(feature = "aws"))]
-fn aws_mask(text: &str) -> String {
-    text.to_string()
-}
-
 #[cfg(feature = "aws")]
 impl Interpreter {
-    /// The route-table spelling of `m` on this control's class, when the
-    /// table routes it.
-    fn aws_route_method(&self, class: &str, m: &str, override_toml: &str) -> Option<String> {
-        let table = crate::aws::routes::Routes::shipped().with_override(override_toml).ok()?;
-        let prefix = format!("{class}.");
-        table
-            .ops
-            .keys()
-            .filter_map(|k| k.strip_prefix(&prefix))
-            .find(|name| name.eq_ignore_ascii_case(m))
-            .map(str::to_string)
-    }
-
     /// Whether any AWS control of this form, on the same connection, allows
     /// writes — which decides whether the shared server starts read-only
     /// (amendment A4).
@@ -220,24 +165,37 @@ impl Interpreter {
         })
     }
 
-    /// Report a failure the way the control's `Mode` asks: a synchronous
-    /// call answers empty with `LastError` set; an asynchronous one raises
-    /// `onError` (R21, R25).
-    fn aws_refuse(&mut self, obj: &str, sync: bool, message: String) -> String {
-        self.aws_log_failure(obj, "refused", &message);
-        if sync {
-            self.obj_set(obj, "LastError", message);
-            String::new()
-        } else {
-            self.aws_raise(obj, "onError", vec![("LastError".into(), message)], None);
-            "0".into()
+    /// Carry out what a call or a result asks ([`crate::aws::door::Effects`], in its order) on
+    /// the control `obj`, and answer what the method answers.
+    fn aws_apply(&mut self, obj: &str, fx: crate::aws::door::Effects) -> String {
+        for note in &fx.notes {
+            for line in crate::aws::door::note_lines(obj, note) {
+                self.agent_log(line);
+            }
         }
+        for (k, v) in fx.props {
+            self.obj_set(obj, &k, v);
+        }
+        if let Some(rows) = fx.rows {
+            self.aws_rows.insert(obj.trim().to_ascii_uppercase(), rows);
+        }
+        for e in fx.events {
+            if e.props.is_empty() && e.rows.is_none() {
+                // An event that carries no values (`onComplete`) is only presented.
+                let spelled = self.form_spelling(obj);
+                self.async_dispatch_queue.push_back((spelled, e.name));
+            } else {
+                self.aws_raise(obj, &e.name, e.props, e.rows);
+            }
+        }
+        fx.answer
     }
 
     /// A method called on an AWS control. `None` when the name is not one of
-    /// its own, so the general dispatch handles it.
+    /// its own, so the general dispatch handles it. What it decides is
+    /// [`crate::aws::door`]'s, which the desktop runner calls too.
     pub(crate) fn aws_method(&mut self, obj: &str, m: &str, args: &[crate::value::CobolValue]) -> Option<String> {
-        use crate::aws::{connections, ops, pool::Budget};
+        use crate::aws::{door, ops};
         use std::sync::atomic::{AtomicU64, Ordering};
         use std::sync::Arc;
 
@@ -248,93 +206,26 @@ impl Interpreter {
             _ => {}
         }
         let class = self.object_class(obj.trim())?;
-        let conn_name = self.obj_get(obj, "Connection");
-        let conn = connections::find(&conn_name);
-        let override_toml = conn.as_ref().map(|c| c.routes_override.clone()).unwrap_or_default();
-        let method = self.aws_route_method(&class, m, &override_toml)?;
-        let sync = self.obj_get(obj, "Mode").trim().eq_ignore_ascii_case("sync");
-
-        if !sync && self.async_pending.contains_key(obj) {
-            return Some(self.aws_refuse(obj, sync, "another AWS operation is still running on this control".into()));
-        }
-        let Some(conn) = conn else {
-            let known = connections::names();
-            let message = if conn_name.trim().is_empty() {
-                format!("this control names no AWS connection, and the project has {} — set Connection", known.len())
-            } else {
-                format!("no AWS connection named \"{}\" (the project has: {})", conn_name.trim(), known.join(", "))
-            };
-            return Some(self.aws_refuse(obj, sync, message));
-        };
-
-        // An argument not passed is empty; the route table says what stands
-        // in for it — the property the designer set (`|or:{prop:…}`), the
-        // empty object (`|json:{}`), or nothing (`|opt`).
-        let texts: Vec<String> = args.iter().map(|v| v.as_display_string().trim().to_string()).collect();
-
-        let allow_write = self.obj_get(obj, "AllowWrite").trim().eq_ignore_ascii_case("true");
-        let connection_allows_write = allow_write || self.aws_connection_allows_write(&conn.id);
-        let prepared = {
+        let texts: Vec<String> = args.iter().map(|v| v.as_display_string()).collect();
+        let start = {
             let prop = |p: &str| self.obj_get(obj, p);
-            let view = ops::ControlView {
-                control_type: &class,
-                method: &method,
-                args: &texts,
-                prop: &prop,
-                control: obj,
-                allow_write,
-                connection_allows_write,
-            };
-            ops::prepare(&view, &conn)
+            let any_allows_write = |id: &str| self.aws_connection_allows_write(id);
+            let control = door::Control { class: &class, name: obj, prop: &prop, any_allows_write: &any_allows_write, running: self.async_pending.contains_key(obj) };
+            door::start(&control, m, &texts)
         };
-        let prepared = match prepared {
-            Ok(p) => p,
-            Err(message) => return Some(self.aws_refuse(obj, sync, message)),
+        let run = match start {
+            door::Start::NotOwn => return None,
+            door::Start::Refused { sync, message } => return Some(self.aws_apply(obj, door::refused(sync, message))),
+            door::Start::Run(run) => run,
         };
-        if self.obj_get(obj, "Verbose").trim().eq_ignore_ascii_case("true") {
-            let what = match &prepared.action {
-                // A password or a token travels in this request.
-                ops::Action::Call { tool, .. } if prepared.sensitive => format!("{tool} (arguments not shown: they carry a password or a token)"),
-                ops::Action::Call { tool, input } => format!("{tool} {input}"),
-                ops::Action::ListTools => "tools/list".into(),
-            };
-            self.log_block("aws", obj, "request", &aws_mask(&what));
+        if let Some(request) = &run.request {
+            for line in door::note_lines(obj, request) {
+                self.agent_log(line);
+            }
         }
-        let ms = |p: &str, default: u64| self.obj_get(obj, p).trim().parse::<u64>().unwrap_or(default);
-        let budget = Budget {
-            call: std::time::Duration::from_millis(ms("TimeoutMs", 30_000).max(1)),
-            start: std::time::Duration::from_millis(ms("StartTimeoutMs", 120_000).max(1)),
-        };
-
-        if sync {
-            // A Sync call is narrated as an Async one is: its answer under `Verbose`, and a
-            // failure always — the Sync branch narrated nothing, so a failed `PutObject` in a
-            // Sync form left no trace but `LastError`.
-            let verbose = self.obj_get(obj, "Verbose").trim().eq_ignore_ascii_case("true");
-            return Some(match ops::execute(&prepared, budget) {
-                ops::Outcome::Done { props, rows, .. } => {
-                    let body = props.iter().find(|(k, _)| k == "ResponseBody").map(|(_, v)| v.clone()).unwrap_or_default();
-                    if verbose {
-                        self.log_block("aws", obj, "response", &aws_mask(&body));
-                    }
-                    for (k, v) in props {
-                        self.obj_set(obj, &k, v);
-                    }
-                    self.obj_set(obj, "LastError", String::new());
-                    self.aws_rows.insert(obj.trim().to_ascii_uppercase(), rows);
-                    body
-                }
-                ops::Outcome::Error(message) => {
-                    self.aws_log_failure(obj, &format!("{method} failed"), &message);
-                    self.obj_set(obj, "LastError", message);
-                    String::new()
-                }
-                ops::Outcome::Timeout(message) => {
-                    self.aws_log_failure(obj, &format!("{method} timed out"), &message);
-                    self.obj_set(obj, "LastError", message);
-                    String::new()
-                }
-            });
+        if run.sync {
+            let outcome = ops::execute(&run.prepared, run.budget);
+            return Some(self.aws_apply(obj, door::finished(&run.method, run.verbose, outcome)));
         }
 
         let generation = self
@@ -343,7 +234,7 @@ impl Interpreter {
             .or_insert_with(|| Arc::new(AtomicU64::new(0)))
             .fetch_add(1, Ordering::Relaxed)
             + 1;
-        self.obj_set(obj, "Busy", "1".into());
+        let answer = self.aws_apply(obj, door::started());
         self.async_pending.insert(
             obj.to_string(),
             crate::async_op::PendingOp {
@@ -361,14 +252,14 @@ impl Interpreter {
         let tx = self.async_result_tx.clone();
         let ctrl_id = obj.to_string();
         std::thread::spawn(move || {
-            let outcome = match ops::execute(&prepared, budget) {
+            let outcome = match ops::execute(&run.prepared, run.budget) {
                 ops::Outcome::Done { props, rows, event } => AsyncOutcome::Aws { props, rows, event },
                 ops::Outcome::Error(message) => AsyncOutcome::AwsError { message },
                 ops::Outcome::Timeout(message) => AsyncOutcome::AwsTimeout { message },
             };
             let _ = tx.send(crate::async_op::AsyncOpResult { ctrl_id, generation, outcome });
         });
-        Some("1".into())
+        Some(answer)
     }
 }
 

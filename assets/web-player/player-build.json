@@ -54,22 +54,22 @@
     {
       "bytes": 102017,
       "path": "plain/player.js",
-      "sha256": "1503962e84e66758ea8909b7b633cb39a510d74a517bdb01e28e36cab0d04972"
+      "sha256": "1af48a93d648192f9f33a29f8fd546b365b0a5466abacb9148c6566ebf786b1f"
     },
     {
-      "bytes": 4194099,
+      "bytes": 4200632,
       "path": "plain/player_bg.wasm",
-      "sha256": "4820103fe6dfde2b54ed1edc7fd4560fe0957fc9455de7b8b441b9e2046fc801"
+      "sha256": "cd003ae0c1754f0f62cf2cf01db825b700dbebebb7bf68aebfca06e159a7afd8"
     },
     {
       "bytes": 108295,
       "path": "threaded/player.js",
-      "sha256": "f2b7fb0871192667987efe834569d9f2848baaec7d06d5f701f6f59b59059ece"
+      "sha256": "4b0315a483e9aa239617db1e6e4b198a44c3916ab9e5e87eb85e48d30aff1fef"
     },
     {
-      "bytes": 4002696,
+      "bytes": 4008895,
       "path": "threaded/player_bg.wasm",
-      "sha256": "2dfea590a28ba9ac023c8c7ba517d31b099a0949345b7f28083fdc88db27841f"
+      "sha256": "f10694439809997fc44f1cc240ca80dc0b58dd750ee37fa6949a3bc9112ae1a0"
     },
     {
       "bytes": 4556,
@@ -87,20 +87,20 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 4577557,
-      "after_wasm_opt_bytes": 4194099,
-      "cargo_output_bytes": 6087758,
+      "after_bindgen_bytes": 4584242,
+      "after_wasm_opt_bytes": 4200632,
+      "cargo_output_bytes": 6095085,
       "glue_js_bytes": 102017,
-      "gzip_bytes": 1455618,
+      "gzip_bytes": 1458520,
       "opt_level": "s",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 4332445,
-      "after_wasm_opt_bytes": 4002696,
-      "cargo_output_bytes": 5853361,
+      "after_bindgen_bytes": 4338870,
+      "after_wasm_opt_bytes": 4008895,
+      "cargo_output_bytes": 5860494,
       "glue_js_bytes": 108295,
-      "gzip_bytes": 1434072,
+      "gzip_bytes": 1436159,
       "opt_level": "s",
       "variant": "threaded"
     }
@@ -160,7 +160,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "ecab1290f42e08cb12981e65c140db385eca362cbb7fa232b5cf45a6f422bcf7",
+  "source_hash": "bc9058ddff47086610b03195845e59ae2cd4245db55d928af8411ccb2ed9f0dd",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",

@@ -77,6 +77,17 @@ pub fn is_desktop_audio(name: &str) -> bool {
     DESKTOP_AUDIO.contains(&n.as_str())
 }
 
+/// The keys an AWS connection is given at run time (DESKTOP-WASM-001 T48, ABI A38): verbs of the
+/// application object only the desktop runner answers, as the interpreter answers
+/// `CALL "COBOL-AWS-SET-CREDENTIALS"` and its siblings. A browser module refuses them (`support.rs`).
+pub const DESKTOP_AWS: &[&str] = &["AWS-SET-CREDENTIALS", "AWS-CLEAR-CREDENTIALS", "AWS-CREDENTIALS-SET"];
+
+/// Is `name` one of the desktop's AWS key verbs (any case)?
+pub fn is_desktop_aws(name: &str) -> bool {
+    let n = name.trim().to_ascii_uppercase();
+    DESKTOP_AWS.contains(&n.as_str())
+}
+
 /// Is `name` a verb only the phone shell answers (any case)?
 pub fn is_mobile_verb(name: &str) -> bool {
     let n = name.trim().to_ascii_uppercase();

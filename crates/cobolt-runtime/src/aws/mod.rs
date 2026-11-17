@@ -31,12 +31,15 @@
 //!   restarts; a child process or an https link behind one interface.
 //! - [`lifetime`] — making sure no server process outlives the application.
 //! - [`routes`] — which server and tool serve each operation, as data.
+//! - [`door`] — what a method of an AWS control decides and what its result writes, for the
+//!   interpreter and the desktop runner alike (DESKTOP-WASM-001 T48).
 
 pub mod b64;
 pub mod chain;
 pub mod connections;
 pub mod credentials;
 pub mod diagnose;
+pub mod door;
 pub mod https;
 pub mod lifetime;
 pub mod ops;

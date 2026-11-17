@@ -48,6 +48,9 @@ pub mod async_op;
 pub mod audio_runtime;
 #[cfg(feature = "aws")]
 pub mod aws;
+/// The rows an AWS operation leaves on its control, as `GetRow` and `GetField` read them, in every
+/// build and for every host (DESKTOP-WASM-001 T48).
+pub mod aws_rows;
 pub mod channels;
 pub mod collation;
 pub mod compress;
@@ -78,6 +81,9 @@ pub mod indexed_import;
 pub mod indexed_log;
 pub mod indexed_redb;
 pub mod interpreter;
+/// How a control narrates what it did on the program's `DISPLAY` output (`[aws X] label: text`), for
+/// the interpreter and the desktop runner alike (DESKTOP-WASM-001 T48).
+pub mod narration;
 pub mod national;
 pub mod partiql;
 #[cfg(feature = "kb")]

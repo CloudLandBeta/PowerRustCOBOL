@@ -13405,18 +13405,9 @@ impl Interpreter {
 
     /// The same, under any control kind's tag — `[agent X]`, `[search X]`.
     fn log_block(&mut self, kind: &str, obj: &str, label: &str, text: &str) {
-        if text.is_empty() {
-            self.agent_log(format!("[{kind} {obj}] {label}: (empty)"));
-            return;
-        }
-        let lines: Vec<String> = text.lines().map(|l| l.to_owned()).collect();
-        if lines.len() == 1 {
-            self.agent_log(format!("[{kind} {obj}] {label}: {}", lines[0]));
-            return;
-        }
-        self.agent_log(format!("[{kind} {obj}] {label}:"));
-        for line in lines {
-            self.agent_log(format!("[{kind} {obj}]   {line}"));
+        // The shape of the lines is `narration::block`'s, which the desktop runner writes too.
+        for line in crate::narration::block(kind, obj, label, text) {
+            self.agent_log(line);
         }
     }
 

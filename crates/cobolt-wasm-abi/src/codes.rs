@@ -155,11 +155,14 @@ pub mod cap {
     pub const DIALOGS: &str = "dialogs";
     /// The desktop's sound player: `COBOL::"AUDIO-PLAY"` and its four siblings (A36).
     pub const AUDIO: &str = "audio";
+    /// The desktop's AWS controls and the keys typed in at run time: `COBOL::"AWS-SET-CREDENTIALS"` and
+    /// its two siblings (A38).
+    pub const AWS: &str = "aws";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
     pub const ALL: &[&str] =
-        &[CONSOLE, ENV, FILES_SEQUENTIAL, FILES_LINE_SEQUENTIAL, FILES_RELATIVE, FILES_INDEXED, SORT, SQL, HTTP, DIALOGS, AUDIO];
+        &[CONSOLE, ENV, FILES_SEQUENTIAL, FILES_LINE_SEQUENTIAL, FILES_RELATIVE, FILES_INDEXED, SORT, SQL, HTTP, DIALOGS, AUDIO, AWS];
 }
 
 /// The imports in [`NATIVE_IMPORT_MODULE`] each capability brings (A27). A capability's set is fixed

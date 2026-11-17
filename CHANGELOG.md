@@ -2,6 +2,34 @@
 
 
 
+## 2.0.567 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T48, in part): a form's AWS controls take the WebAssembly path, and so do the keys a program gives a connection at run time. A Desktop Build no longer falls back to the Cargo path for them.**
+- **What runs** (ABI amendment A38, the capability `aws`):
+  - **Control methods.** A method called on an `Aws…` control (`AwsS3`, `AwsLambda`, `AwsMcp` and the rest) is an ordinary call on the control. The runner carries it out with the interpreter's own rules:
+    - whether the method is the control's, by the route table and the connection's override;
+    - the connection its `Connection` property names, and the refusals;
+    - the request, the time budgets (`TimeoutMs`, `StartTimeoutMs`), and what the result writes.
+  - **`Sync` and `Async`.** A `Sync` operation answers at once, with its properties, `LastError`, its rows and its answer. An `Async` one answers `1`, sets `Busy`, and runs on a thread of the runner. When it ends, its event and then `onComplete` (or `onError`, `onTimeout`) wait behind whatever the form is running. Each writes its values as it leaves the queue, whether a handler is bound to it or not, as under the interpreter.
+  - **`Cancel`, `GetRow` and `GetField`.** `Cancel` lets a running operation go, drops its result, clears `Busy` and raises `onCancelled`. `GetRow` and `GetField` read the last operation's rows.
+  - **Narration.** `Verbose`, and every failure, goes to the program's `DISPLAY` output, masked, in the interpreter's words (`[aws CONTROL] label: text`).
+  - **The keys.** `COBOL::"AWS-SET-CREDENTIALS"`, `"AWS-CLEAR-CREDENTIALS"` and `"AWS-CREDENTIALS-SET"` in a form's handler are calls on the application object; the answer comes back through `AwsStatus` or `AwsFlag`. The keys cross as call arguments, and no host records them: no effect, trace or dump carries a call's arguments. A program with no form keeps the Cargo path for these three.
+- **One implementation of the rules.** What a call decides and what a result writes moved out of the interpreter into `cobolt_runtime::aws::door`, which the interpreter and the runner both call. The narration's line shape (`narration::block`) and the row reader (`aws_rows::row_value`) moved the same way.
+  - The interpreter behaves as before: its 37 AWS unit tests and 72 AWS integration tests pass.
+- **Not changed:** a browser module. Its AWS controls are the backend's, and the PowerAnalyticsWeb module still matches its pin, 3 of 3.
+- **PowerCloud** still takes the Cargo path. Its first reason is now its FileDropZone; then come its image built-ins (both in T39c).
+- **Tests:**
+  - **The runner twin** (`aws_hosts`): the 16 AWS demo forms, built on the WebAssembly path and run against the local fake servers, give 16 of 16 tallies equal to Run Form's. 17 servers were started and none was left running (build 18.5 s, runs 83.4 s). No twin sends a request signed with real keys.
+  - **The ABI host:** 9 of 9 and 13 of 13 checks in its two new tests, and 267 of 267 in the crate.
+  - **The other runner twins:** 13 of 13.
+  - **The generator and the ABI crates:** 154 of 154.
+  - **The compiler:** the desktop-controls test, 8 of 8.
+  - **The web player** (rebuilt, as the ABI host changed): freshness 28 and host 6.
+  - **The System KB:** regenerated (4 410 records); its test passes.
+- **The release runner** built on its own (`cargo build --release -p cobolt-runner`), AWS included, is 68.1 MiB (71 359 936 bytes). What AWS alone adds was not measured.
+  - **Correction to 2.0.566:** its 78.4 MiB (82 195 200 bytes) was a runner built in one `cargo build` with `cobolt-bench`. Cargo then gives it every feature of the runtime the bench asks for.
+- **Left in T48:** Maps, the model lists, MCP and `PARTIQL`, and the `partiql_hosts` and `powercloud_hosts` twins.
+
 ## 2.0.566 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T40): disk files on the WebAssembly path (milestone M3), measured. Every NIST program of the four file modules builds on the WebAssembly path and runs clean through the runner. Four of the five reference projects take the WebAssembly path, and the ten-times project does too. The milestone stays open: refusals still named as M3 work are now task T39c, and two projects that take the new path do not yet draw every frame alike.**

@@ -259,9 +259,9 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("AUDIO-STATE", Support::Unsupported("its answers have no way back into a browser module yet"), Native::Host(cap::AUDIO)),
     web("AUDIO-STOP", "HTMLAudioElement", BOTH, Native::Host(cap::AUDIO)),
     c("AUTH-OP", Support::BackendOnly(IDENTITY), cargo(D_REMOTE)),
-    c("AWS-CLEAR-CREDENTIALS", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("AWS-CREDENTIALS-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("AWS-SET-CREDENTIALS", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("AWS-CLEAR-CREDENTIALS", Support::BackendOnly(SECRETS), Native::Host(cap::AWS)),
+    c("AWS-CREDENTIALS-SET", Support::BackendOnly(SECRETS), Native::Host(cap::AWS)),
+    c("AWS-SET-CREDENTIALS", Support::BackendOnly(SECRETS), Native::Host(cap::AWS)),
     c("BINDING-LOAD", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("BINDING-MARK-CLEAN", Support::BackendOnly(SQL), cargo(D_SQL)),
     c("BINDING-POPULATE", Support::BackendOnly(SQL), cargo(D_SQL)),
@@ -473,15 +473,18 @@ const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know 
 /// host holds, as the browser's player does, and the form host draws: every class A and B control
 /// of the web table ([`cobolt_forms::web_class`]), the DataGrid with rows of its own (a grid bound
 /// to data is judged by [`desktop_binding_gap`]), and since T50 the canvases and the graphics
-/// objects (class E), which the runner draws with the interpreter's own graphics library. It does
-/// not serve yet: the service controls (class C), the Maps control (its places and directions are
-/// a service), the Viewer (its documents and verbs) and a type it does not know (class D). A form
-/// holding one takes the Cargo path, which names the form and the control.
+/// objects (class E), which the runner draws with the interpreter's own graphics library, and since
+/// T48 the AWS controls, whose operations the runner carries out with the interpreter's own
+/// connections and route table (A38). It does not serve yet: the other service controls (class C),
+/// the Maps control (its places and directions are a service), the Viewer (its documents and verbs)
+/// and a type it does not know (class D). A form holding one takes the Cargo path, which names the
+/// form and the control.
 pub fn desktop_control_gap(t: &cobolt_forms::model::ControlType) -> Option<&'static str> {
     use cobolt_forms::model::ControlType as T;
     use cobolt_forms::web_class::{class_of, Class};
     match t {
         T::DataGrid => None,
+        t if t.is_aws() => None,
         T::Maps => Some(D_MAPS),
         T::Viewer => Some(D_VIEWER),
         _ => match class_of(t) {
