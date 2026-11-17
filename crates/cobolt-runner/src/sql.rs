@@ -20,11 +20,12 @@ use std::sync::{Arc, Mutex};
 use cobolt_ast::program::Program;
 use cobolt_ast::sql::ExecSql;
 use cobolt_runtime::environment::{subscript_key, CobolEnvironment};
+use cobolt_runtime::db_runtime::{open_named, DbBuiltin, DbReceiver, DbRegistry};
 use cobolt_runtime::esql::state::Outcome;
 use cobolt_runtime::esql::SqlRunUnit;
 use cobolt_runtime::interpreter::Interpreter;
 use cobolt_runtime::value::{CobolNumeric, CobolValue};
-use cobolt_wasm_abi::sql::{wire, SqlCell, SqlSection, SQL_FORMAT};
+use cobolt_wasm_abi::sql::{db, wire, SqlCell, SqlSection, SQL_FORMAT};
 
 /// One statement, read from the section once.
 struct Statement {
@@ -66,9 +67,8 @@ pub struct SqlRun {
 }
 
 impl SqlSetup {
-    /// The section's statements and programs; `None` for a module without the section. Installs the
-    /// SQL connections the Build wrote beside the executable, as a Cargo-built program does.
-    pub fn from_module(section: Option<&[u8]>, app_name: &str) -> Result<Option<SqlSetup>, String> {
+    /// The section's statements and programs; `None` for a module without the section.
+    pub fn from_module(section: Option<&[u8]>) -> Result<Option<SqlSetup>, String> {
         let Some(bytes) = section else { return Ok(None) };
         let s: SqlSection = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
         if s.format == 0 || s.format > SQL_FORMAT {
@@ -92,7 +92,6 @@ impl SqlSetup {
                 Ok(Statement { program, exec, cells: st.cells })
             })
             .collect::<Result<Vec<_>, String>>()?;
-        install_connections(app_name);
         Ok(Some(SqlSetup { programs: Arc::new(programs), statements: Arc::new(statements) }))
     }
 }
@@ -207,6 +206,103 @@ impl SqlRun {
     }
 }
 
+/// The SQL built-ins' connections (T41b, ABI A42): `COBOL::"OPEN-DB"` and the five after it. Each form
+/// instance keeps its own registry, as each form's interpreter keeps its own, shared by its handlers
+/// and the procedures they call; a console program has one (`None`). The interpreter's own code runs
+/// each call (`DbRegistry::builtin`), a connection's name resolved through the SQL connections the
+/// Build wrote beside the executable, as `CONNECT TO` resolves it.
+#[derive(Default)]
+pub struct Builtins {
+    registries: HashMap<Option<u32>, DbRegistry>,
+    /// The form instance the module is calling into.
+    calling: Option<u32>,
+    /// The registry with no instance was made during the current call.
+    made_in_call: bool,
+}
+
+impl Builtins {
+    /// Built-in `op` (`cobolt_wasm_abi::sql::db`) with the handle and the column as the program's
+    /// `as_i64` read them and its text untrimmed; answers each receiver's value, laid out as the ABI
+    /// says, in at most `cap` bytes (a text is cut to fit), or `None` for an operation it does not know.
+    pub fn call(&mut self, op: u32, handle: i64, number: i64, text: &[u8], cap: usize) -> Option<Vec<u8>> {
+        let text = String::from_utf8_lossy(text);
+        let text = text.trim();
+        // As the interpreter's `as_i64().unwrap_or(..) as u32` and `as usize` take them.
+        let handle = handle as u32;
+        let call = match op {
+            db::OPEN => DbBuiltin::Open(text),
+            db::EXEC => DbBuiltin::Exec { handle, query: text },
+            db::FETCH_ROW => DbBuiltin::FetchRow { handle, column: number as usize },
+            db::NEXT_ROW => DbBuiltin::NextRow(handle),
+            db::ROW_COUNT => DbBuiltin::RowCount(handle),
+            db::CLOSE => DbBuiltin::Close(handle),
+            _ => return None,
+        };
+        if self.calling.is_none() && !self.registries.contains_key(&None) {
+            self.made_in_call = true;
+        }
+        let registry = self.registries.entry(self.calling).or_insert_with(DbRegistry::new);
+        let catalog = cobolt_runtime::esql::catalog::current();
+        let receivers = registry.builtin(call, |db, conn| open_named(db, conn, catalog.as_deref()));
+        Some(encode(&receivers, cap))
+    }
+
+    /// A call into the module begins: `inst` is the form instance it acts on, when it names one.
+    pub fn begin_call(&mut self, inst: Option<u32>) {
+        self.calling = inst;
+        self.made_in_call = false;
+    }
+
+    /// The form instance an `OpenForm` call made is `inst`: connections its program opened while it
+    /// started, before the instance was known, are its own.
+    pub fn opened_form(&mut self, inst: u32) {
+        if std::mem::take(&mut self.made_in_call) {
+            if let Some(r) = self.registries.remove(&None) {
+                self.registries.insert(Some(inst), r);
+            }
+        }
+    }
+
+    /// Form instance `inst`'s window closed: its connections close, as a closed form's interpreter
+    /// drops its own.
+    pub fn forget_instance(&mut self, inst: u32) {
+        self.registries.remove(&Some(inst));
+    }
+
+    /// The run ends: every connection closes, as the interpreter closes them all at the end of the run.
+    pub fn end(&mut self) {
+        for r in self.registries.values_mut() {
+            r.close_all();
+        }
+        self.registries.clear();
+    }
+}
+
+/// The receivers' values, laid out as `cobolt_wasm_abi::sql::db` says, in at most `cap` bytes: a text
+/// that does not fit is cut, the first one first.
+fn encode(receivers: &[DbReceiver], cap: usize) -> Vec<u8> {
+    let fixed: usize = receivers.iter().map(|r| if matches!(r, DbReceiver::Number(_)) { 9 } else { 5 }).sum();
+    let mut room = cap.saturating_sub(fixed);
+    let mut out = Vec::new();
+    for r in receivers {
+        match r {
+            DbReceiver::Number(n) => {
+                out.push(db::NUMBER);
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+            DbReceiver::Text(t) => {
+                let b = &t.as_bytes()[..t.len().min(room)];
+                room -= b.len();
+                out.push(db::TEXT);
+                out.extend_from_slice(&(b.len() as u32).to_le_bytes());
+                out.extend_from_slice(b);
+            }
+        }
+    }
+    out.truncate(cap);
+    out
+}
+
 /// The interpreter's storage key of a cell: the item its name and qualification resolve to, and the
 /// occurrence its subscripts name.
 fn cell_key(env: &CobolEnvironment, c: &SqlCell) -> Result<String, String> {
@@ -263,7 +359,7 @@ fn put(env: &CobolEnvironment, key: &str, out: &mut Vec<u8>) {
 /// The `sql-connections.toml` beside the executable, as a Cargo-built program reads it at start:
 /// the connections `CONNECT TO 'NAME'` reaches, with the environment and the application's key
 /// store supplying credentials. Without the file a program can still connect by a connection string.
-fn install_connections(app_name: &str) {
+pub(crate) fn install_connections(app_name: &str) {
     let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) else { return };
     let file = dir.join("sql-connections.toml");
     if !file.is_file() {

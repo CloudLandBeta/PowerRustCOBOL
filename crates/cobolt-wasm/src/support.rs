@@ -271,9 +271,10 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("CHART-CLEAR", Support::Module, Native::Form),
     c("CHART-REFRESH", Support::Module, Native::Form),
     c("CHART-SET-TABLE", Support::Module, Native::Form),
-    c("CLOSE-DB", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("EXEC-SQL", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("FETCH-ROW", Support::BackendOnly(SQL), cargo(D_SQL)),
+    // The runner keeps the connections and runs these with the interpreter's own code (T41b).
+    c("CLOSE-DB", Support::BackendOnly(SQL), Native::Host(cap::SQL)),
+    c("EXEC-SQL", Support::BackendOnly(SQL), Native::Host(cap::SQL)),
+    c("FETCH-ROW", Support::BackendOnly(SQL), Native::Host(cap::SQL)),
     // Every file verb leaves its status in the module, where this reads it (T39c).
     c("FILE-STATUS", Support::BackendOnly(FILES), Native::Module),
     // `showDirectoryPicker` is Chrome's only: Q7's parity rule leaves it out.
@@ -301,8 +302,8 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("MODEL-REMOVE", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
     c("MODEL-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
     c("MODEL-TEST", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("NEXT-ROW", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("OPEN-DB", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("NEXT-ROW", Support::BackendOnly(SQL), Native::Host(cap::SQL)),
+    c("OPEN-DB", Support::BackendOnly(SQL), Native::Host(cap::SQL)),
     c("OPEN-FILE-DIALOG", Support::Unsupported(NO_PATHS), Native::Host(cap::DIALOGS)),
     c("PARTIQL", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
     c("PARTIQL-ERROR", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
@@ -310,7 +311,7 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("PROVIDER-COUNT", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
     c("PROVIDER-GET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
     c("RAISE-EVENT", Support::Module, Native::Form),
-    c("ROW-COUNT", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("ROW-COUNT", Support::BackendOnly(SQL), Native::Host(cap::SQL)),
     c("SAVE-FILE-DIALOG", Support::Unsupported(NO_PATHS), Native::Host(cap::DIALOGS)),
     // The phone shell's verbs (WASM-012 R9, ABI A26): a Mobile module compiles
     // them onto the application object; a Web module refuses them at their

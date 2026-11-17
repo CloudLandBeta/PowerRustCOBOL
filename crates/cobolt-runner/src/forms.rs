@@ -280,6 +280,7 @@ impl Driver {
         if let Some(sql) = self.store.data_mut().sql.as_mut() {
             sql.begin_call(call_inst(call));
         }
+        self.store.data_mut().db.begin_call(call_inst(call));
         let r = (|| -> wasmtime::Result<CallResult> {
             Ok(match call {
                 ModuleCall::OpenForm { form, opener } => {
@@ -289,6 +290,7 @@ impl Driver {
                         if let Some(sql) = self.store.data_mut().sql.as_mut() {
                             sql.opened_form(inst);
                         }
+                        self.store.data_mut().db.opened_form(inst);
                     }
                     let status = self.call::<(), i32>("pr_status", ())?;
                     let task = self.task(status)?;
@@ -305,6 +307,8 @@ impl Driver {
                         if let Some(sql) = self.store.data_mut().sql.as_mut() {
                             sql.forget_instance(*inst);
                         }
+                        // And the connections its SQL built-ins opened (T41b).
+                        self.store.data_mut().db.forget_instance(*inst);
                     }
                     CallResult::Status { status, task: self.task(status)? }
                 }
@@ -747,6 +751,7 @@ fn effects(d: &mut Driver, links: &mut [Link], (opening, adopting): Opening<'_>,
                 if let Some(sql) = d.store.data_mut().sql.as_mut() {
                     sql.end(true);
                 }
+                d.store.data_mut().db.end();
                 for l in links.iter() {
                     l.finish();
                 }

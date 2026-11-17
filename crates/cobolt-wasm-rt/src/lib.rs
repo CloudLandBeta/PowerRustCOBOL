@@ -429,6 +429,13 @@ pub extern "C" fn rt_image_info(base: u32, path: u32, width: u32, height: u32, f
     deskio::image_info(base, path, width, height, format, status);
 }
 
+/// `COBOL::"OPEN-DB"` and the five SQL built-ins after it (ABI A42): operation `op` (`sql::db`), its
+/// operands in the program's order, 0 for one the built-in does not take.
+#[no_mangle]
+pub extern "C" fn rt_sql_db(base: u32, op: u32, a: u32, b: u32, c: u32, d: u32) {
+    deskio::sql_db(base, op, a, b, c, d);
+}
+
 /// `INSPECT target <spec>`.
 #[no_mangle]
 pub extern "C" fn rt_inspect(base: u32, target: u32, spec: u32) {

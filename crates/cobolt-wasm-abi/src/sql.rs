@@ -104,6 +104,42 @@ pub mod wire {
     pub const FAILED: i32 = -1;
 }
 
+/// The SQL built-ins (ABI A42, DESKTOP-WASM-001 T41b): `COBOL::"OPEN-DB"`, `"EXEC-SQL"`, `"FETCH-ROW"`,
+/// `"NEXT-ROW"`, `"ROW-COUNT"` and `"CLOSE-DB"` (and their `CALL "COBOL-…"` form), through the one `prn`
+/// import `sql_db(op, handle, number, text, text_len, buf, cap) -> i32`.
+///
+/// The runner keeps the connections, one registry per form instance (and one for a console program),
+/// as each form's interpreter keeps its own, shared by its handlers and the procedures they call. It
+/// runs each call with the interpreter's own code (`DbRegistry::builtin`). The module sends the
+/// handle and the column as the interpreter's `as_i64` reads them, and the connection string or the
+/// query as text; the runner trims the text, as the interpreter does. The answer is the value of each
+/// receiver, in the order the built-in names them, written at `buf` (at most `cap` bytes; a text is cut
+/// to fit), and its length is returned; a negative answer when the runner could not run the call.
+pub mod db {
+    /// `OPEN-DB ( connection handle status )`: the connection string is the text.
+    pub const OPEN: u32 = 1;
+    /// `EXEC-SQL ( handle query count status )`: the query is the text.
+    pub const EXEC: u32 = 2;
+    /// `FETCH-ROW ( handle column value status )`: the column is the number (1 when the argument is
+    /// not a number, as the interpreter reads it).
+    pub const FETCH_ROW: u32 = 3;
+    /// `NEXT-ROW ( handle flag )`.
+    pub const NEXT_ROW: u32 = 4;
+    /// `ROW-COUNT ( handle count )`.
+    pub const ROW_COUNT: u32 = 5;
+    /// `CLOSE-DB ( handle )`: nothing is answered.
+    pub const CLOSE: u32 = 6;
+
+    /// A receiver's number: an `i64`, little-endian, put as the interpreter's `set_i64` puts it.
+    pub const NUMBER: u8 = 1;
+    /// A receiver's text: its length (`u32`, little-endian), then its bytes, put as the interpreter's
+    /// `set_str` puts them.
+    pub const TEXT: u8 = 2;
+
+    /// The runner could not run the call (an operation it does not know, memory it cannot reach).
+    pub const FAILED: i32 = -1;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

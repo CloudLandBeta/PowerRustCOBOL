@@ -44,6 +44,18 @@ pub mod wire {
     pub const OUT_ERROR: u8 = 3;
 }
 
+/// `cobolt_wasm_abi::sql::db` (A42), held equal to it as `wire` is.
+pub mod db {
+    pub const OPEN: u32 = 1;
+    pub const EXEC: u32 = 2;
+    pub const FETCH_ROW: u32 = 3;
+    pub const NEXT_ROW: u32 = 4;
+    pub const ROW_COUNT: u32 = 5;
+    pub const CLOSE: u32 = 6;
+    pub const NUMBER: u8 = 1;
+    pub const TEXT: u8 = 2;
+}
+
 /// The most bytes one cell can take in either direction: its tag and its value, a number's 17
 /// bytes, or a count and the item's bytes. The answer adds the cell's number.
 pub fn cell_bound(len: u32) -> u32 {

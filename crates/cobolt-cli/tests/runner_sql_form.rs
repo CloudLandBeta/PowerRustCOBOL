@@ -15,6 +15,10 @@
 //! after the first has ended: it counts the rows again, so it sees what the end of the first run
 //! committed.
 //!
+//! Two more handlers use the SQL built-ins (T41b, ABI A42) in the second script: one opens the
+//! connection `SALES` by name with `COBOL::"OPEN-DB"` into a `GLOBAL` handle, the other counts the
+//! committed rows through that handle with `"EXEC-SQL"` and `"FETCH-ROW"`.
+//!
 //! Both scripts run headless under the same pinned clock and seed:
 //!
 //! 1. under `rcrun run-form`, the interpreter, with the project's connections;
@@ -39,6 +43,8 @@ const PIN_SEED: &str = "7";
 const FORM_WS: &str = "       01 SQLSTATE                GLOBAL PIC X(5).
        01 WS-NAME                 GLOBAL PIC X(12).
        01 WS-SQL                  GLOBAL PIC X(60).
+       01 WS-DBH                  GLOBAL PIC 9(9).
+       01 WS-DBST                 GLOBAL PIC X(80).
            EXEC SQL DECLARE C-ITEMS CURSOR FOR
                SELECT NAME FROM ITEMS ORDER BY ID
            END-EXEC.";
@@ -77,13 +83,13 @@ fn project(root: &Path) -> PathBuf {
     let mut form = Form::new(FORM, "SQL form", 640, 420);
     form.main_form = true;
     form.user_ws_source = FORM_WS.into();
-    let buttons = ["BTN-OPEN", "BTN-SETUP", "BTN-ADD", "BTN-COUNT", "BTN-LIST", "BTN-PREP", "BTN-RUN", "BTN-BAD"];
+    let buttons = ["BTN-OPEN", "BTN-SETUP", "BTN-ADD", "BTN-COUNT", "BTN-LIST", "BTN-PREP", "BTN-RUN", "BTN-BAD", "BTN-DBOPEN", "BTN-DBCOUNT"];
     for (i, id) in buttons.iter().enumerate() {
         let caption = id.trim_start_matches("BTN-");
         control(&mut form, id, ControlType::Button, (20, 20 + 36 * i as i32, 120, 28), &[("Caption", s(caption))]);
     }
     control(&mut form, "TXT-NAME", ControlType::TextBox, (160, 92, 160, 28), &[("Text", s(""))]);
-    for (i, id) in ["LBL-STATE", "LBL-COUNT", "LBL-TOTAL", "LBL-LISTED", "LBL-RUN"].iter().enumerate() {
+    for (i, id) in ["LBL-STATE", "LBL-COUNT", "LBL-TOTAL", "LBL-LISTED", "LBL-RUN", "LBL-DB"].iter().enumerate() {
         control(&mut form, id, ControlType::Label, (340, 20 + 36 * i as i32, 260, 24), &[("Caption", s("-"))]);
     }
     control(&mut form, "LST-ITEMS", ControlType::ListBox, (160, 200, 160, 120), &[]);
@@ -150,6 +156,22 @@ fn project(root: &Path) -> PathBuf {
     );
     bind(&mut form, "BTN-RUN", "", "           EXEC SQL EXECUTE S-DEL END-EXEC\n           MOVE SQLSTATE TO LBL-RUN::Caption");
     bind(&mut form, "BTN-BAD", "", "           EXEC SQL DELETE FROM NOWHERE END-EXEC\n           MOVE SQLSTATE TO LBL-STATE::Caption");
+    // T41b: the SQL built-ins, the connection opened by name in one handler and used in another.
+    bind(
+        &mut form,
+        "BTN-DBOPEN",
+        "",
+        "           COBOL::\"OPEN-DB\" ( \"sql-connection:SALES\" WS-DBH WS-DBST )\n\
+         \x20          MOVE WS-DBH TO LBL-DB::Caption",
+    );
+    bind(
+        &mut form,
+        "BTN-DBCOUNT",
+        "       01 WS-C                    PIC X(10).",
+        "           COBOL::\"EXEC-SQL\" ( WS-DBH \"SELECT COUNT(*) FROM ITEMS\" WS-C WS-DBST )\n\
+         \x20          COBOL::\"FETCH-ROW\" ( WS-DBH 1 WS-C WS-DBST )\n\
+         \x20          MOVE WS-C TO LBL-DB::Caption",
+    );
 
     let cfrm = root.join("forms/parity-sql.cfrm");
     cobolt_forms::save_form(&form, &cfrm).unwrap();
@@ -198,8 +220,20 @@ fn scripts() -> ((Value, Vec<&'static str>), (Value, Vec<&'static str>)) {
         dump(),
         shot(first[3]),
     ];
-    let second = vec!["05-reopened"];
-    let again = vec![json!({"wait_ms": 200}), click("BTN-OPEN"), click("BTN-COUNT"), dump(), shot(second[0])];
+    let second = vec!["05-reopened", "06-db-opened", "07-db-counted"];
+    let again = vec![
+        json!({"wait_ms": 200}),
+        click("BTN-OPEN"),
+        click("BTN-COUNT"),
+        dump(),
+        shot(second[0]),
+        click("BTN-DBOPEN"),
+        dump(),
+        shot(second[1]),
+        click("BTN-DBCOUNT"),
+        dump(),
+        shot(second[2]),
+    ];
     ((Value::Array(steps), first), (Value::Array(again), second))
 }
 
@@ -367,12 +401,15 @@ fn exec_sql_in_handlers_agrees_on_both_engines() {
     checks.push(("three rows after the prepared DELETE (LBL-COUNT 3)".into(), number(at(2, "LBL-COUNT")) == "3"));
     checks.push(("a failing statement sets SQLSTATE class 42 and the handler goes on".into(), at(3, "LBL-STATE").starts_with("42")));
     checks.push(("the next run sees the three rows the first run's end committed".into(), number(at(4, "LBL-COUNT")) == "3"));
+    checks.push(("OPEN-DB 'sql-connection:SALES' in a handler: handle 1 (LBL-DB 1)".into(), number(at(5, "LBL-DB")) == "1"));
+    checks.push(("another handler counts through that handle: three rows (LBL-DB 3)".into(), at(6, "LBL-DB").trim() == "3"));
 
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
-    println!("== exec_sql_in_handlers_agrees_on_both_engines (DESKTOP-WASM-001 T41: R10, R11, ABI A41) ==");
-    println!("form {FORM}: 8 handlers; EXEC SQL CONNECT, CREATE TABLE, INSERT (literals; host variables from a GLOBAL item and the");
+    println!("== exec_sql_in_handlers_agrees_on_both_engines (DESKTOP-WASM-001 T41, T41b: R10, R11, ABI A41, A42) ==");
+    println!("form {FORM}: 10 handlers; EXEC SQL CONNECT, CREATE TABLE, INSERT (literals; host variables from a GLOBAL item and the");
     println!("  handler's own), SELECT COUNT/SUM INTO, a cursor declared in the form's WORKING-STORAGE (OPEN, FETCH loop, CLOSE),");
     println!("  PREPARE in one handler and EXECUTE in another, a failing DELETE; SQLSTATE a GLOBAL item of the form");
+    println!("  the SQL built-ins: OPEN-DB of 'sql-connection:SALES' into a GLOBAL handle, EXEC-SQL and FETCH-ROW through it in another handler");
     println!("pins: PRC_TEST_CLOCK={PIN_CLOCK} PRC_TEST_SEED={PIN_SEED}; 2 scripts, {} dumps, {} pictures", shots.len(), shots.len());
     println!("runner built in {runner_ms:.0} ms; rcrun build (WebAssembly path) {build_ms:.0} ms");
     println!("interpreter runs {interp_ms:.0} ms; runner runs {wasm_ms:.0} ms");

@@ -101,6 +101,8 @@ pub const PROVIDED_IMPORTS: &[(u32, &str, &str)] = &[
     (1, NATIVE_IMPORT_MODULE, "img_info"),
     // T41: `EXEC SQL` (A41).
     (1, NATIVE_IMPORT_MODULE, "sql_exec"),
+    // T41b: the SQL built-ins (A42).
+    (1, NATIVE_IMPORT_MODULE, "sql_db"),
 ];
 
 /// `pr_run`'s answers (the generator's `ret`): the run finished, or `STOP RUN`.
@@ -211,6 +213,7 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
     if let Some(sql) = st.sql.as_mut() {
         sql.end(normal);
     }
+    st.db.end();
     if let Some(msg) = st.fatal.take() {
         return refuse(lang, msg);
     }
@@ -260,8 +263,13 @@ fn check(module: &[u8]) -> Result<Checked, Msg> {
     let sections = cobolt_program_package::DesktopSections::decode(|name| scan.custom(name)).map_err(|e| Msg::Damaged(e.to_string()))?;
     let files = files::FileSetup::from_module(scan.custom(cobolt_wasm_abi::files::FILES_SECTION), &sections.settings.indexed_engine)
         .map_err(|e| Msg::Damaged(format!("the program's `{}` section: {e}", cobolt_wasm_abi::files::FILES_SECTION)))?;
-    let sql = sql::SqlSetup::from_module(scan.custom(cobolt_wasm_abi::sql::SQL_SECTION), &sections.settings.app_name)
+    let sql = sql::SqlSetup::from_module(scan.custom(cobolt_wasm_abi::sql::SQL_SECTION))
         .map_err(|e| Msg::Damaged(format!("the program's `{}` section: {e}", cobolt_wasm_abi::sql::SQL_SECTION)))?;
+    // The SQL connections the Build wrote beside the executable, read as a Cargo-built program reads
+    // them at start, for `EXEC SQL` (T41) and the SQL built-ins (T41b).
+    if imports.iter().any(|(m, n)| m == NATIVE_IMPORT_MODULE && (n == "sql_exec" || n == "sql_db")) {
+        sql::install_connections(&sections.settings.app_name);
+    }
     Ok(Checked { abi: manifest.abi, imports, manifest, sections, files, sql })
 }
 
@@ -321,6 +329,8 @@ pub struct State {
     pub(crate) files: files::Files,
     /// The program's `EXEC SQL` work (T41); `None` when it has none.
     pub(crate) sql: Option<sql::SqlRun>,
+    /// The SQL built-ins' connections (T41b).
+    pub(crate) db: sql::Builtins,
 }
 
 impl State {
@@ -336,6 +346,7 @@ impl State {
             forms: None,
             files: files::Files::default(),
             sql: None,
+            db: sql::Builtins::default(),
         }
     }
 }
@@ -814,6 +825,26 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                             None => FAILED,
                         }
                     })
+                    .map_err(fail)?;
+            }
+            // T41b, A42: a SQL built-in, run by the interpreter's own code over the connections of the
+            // form instance the call acts on. The receivers' values go to `buf`, at most `cap` bytes;
+            // answers their length.
+            (NATIVE_IMPORT_MODULE, "sql_db") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "sql_db",
+                        |mut caller: Caller<'_, State>, op: i32, handle: i64, number: i64, text: i32, text_len: i32, buf: i32, cap: i32| -> i32 {
+                            use cobolt_wasm_abi::sql::db::FAILED;
+                            let Some(text) = read_mem(&mut caller, text, text_len) else { return FAILED };
+                            let Some(out) = caller.data_mut().db.call(op as u32, handle, number, &text, cap.max(0) as usize) else { return FAILED };
+                            match write_mem(&mut caller, buf, &out) {
+                                Some(()) => out.len() as i32,
+                                None => FAILED,
+                            }
+                        },
+                    )
                     .map_err(fail)?;
             }
             // `missing_imports` let only the rows of PROVIDED_IMPORTS through.

@@ -1,0 +1,24 @@
+# The "sql" fixture of the module corpus (DESKTOP-WASM-001 T41): what it is given and what it must
+# print and answer. The output was checked against `rcrun run` (the interpreter) on 2026-11-17, and
+# again on 2026-11-17 when T41b added the SQL built-ins (ABI A42).
+sources = ["main.cbl"]
+clock = "2026-01-02T03:04:05.67-03:00"
+seed = 20261114
+exit = 5
+stdout = '''
+corpus sql fixture
+rows 003 sqlcode 000000000
+item 2 [CHAIR       ]     120.05 ind -0001
+fetch 0001 LAMP        
+fetch 0002 CHAIR       
+fetch 0003 TABLE       
+total     488.95 sqlstate 00000
+rate 0.25
+error 42601 continues
+sqlcode 000000000
+built-ins inserted 002
+built-ins handle 000000001 rows 002
+row 0007 SEVEN       
+row 0008 EIGHT       
+after the end [No current row]
+'''

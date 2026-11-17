@@ -387,7 +387,7 @@ fn host(v: &SqlValue) -> Option<&SqlHostRef> {
 
 #[cfg(test)]
 mod tests {
-    /// The runtime's copy of the values that cross `sql_exec` is the ABI's: the runtime cannot link
+    /// The runtime's copy of the values that cross `sql_exec` and `sql_db` is the ABI's: the runtime cannot link
     /// the ABI crate, so this crate, which links both, holds the two equal.
     #[test]
     fn the_runtime_speaks_the_abis_sql_wire() {
@@ -405,6 +405,28 @@ mod tests {
         for (name, a, r) in pairs {
             assert_eq!(a, r, "wire::{name}: the ABI says {a}, the runtime {r}");
         }
-        println!("prsql wire: {} of {} constants equal in the ABI and the runtime", pairs.len(), pairs.len());
+        // The SQL built-ins (A42).
+        use cobolt_wasm_abi::sql::db as abi_db;
+        use cobolt_wasm_rt::sql::db as rt_db;
+        let ops = [
+            ("OPEN", abi_db::OPEN, rt_db::OPEN),
+            ("EXEC", abi_db::EXEC, rt_db::EXEC),
+            ("FETCH_ROW", abi_db::FETCH_ROW, rt_db::FETCH_ROW),
+            ("NEXT_ROW", abi_db::NEXT_ROW, rt_db::NEXT_ROW),
+            ("ROW_COUNT", abi_db::ROW_COUNT, rt_db::ROW_COUNT),
+            ("CLOSE", abi_db::CLOSE, rt_db::CLOSE),
+            ("NUMBER", u32::from(abi_db::NUMBER), u32::from(rt_db::NUMBER)),
+            ("TEXT", u32::from(abi_db::TEXT), u32::from(rt_db::TEXT)),
+        ];
+        for (name, a, r) in ops {
+            assert_eq!(a, r, "db::{name}: the ABI says {a}, the runtime {r}");
+        }
+        println!(
+            "prsql wire: {} of {} constants equal in the ABI and the runtime; SQL built-ins: {} of {}",
+            pairs.len(),
+            pairs.len(),
+            ops.len(),
+            ops.len()
+        );
     }
 }

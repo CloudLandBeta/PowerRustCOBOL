@@ -723,17 +723,23 @@ impl Interpreter {
     /// `CONNECT TO 'NAME'` resolves it. The connection is the registry's own,
     /// never one of `EXEC SQL`'s.
     pub(crate) fn db_open(&mut self, conn: &str) -> Result<u32, String> {
-        let Some(name) = crate::esql::catalog::named_connection(conn) else {
-            return self.db.open(conn);
-        };
-        let catalog = self.sql_catalog().ok_or_else(|| {
-            format!("there is no SQL connection named '{name}': this program was started without the project's SQL connections")
-        })?;
-        let target = catalog.resolve(name, &|v| catalog.lookup(v)).map_err(|e| e.message)?;
-        self.db.open_target(&target)
+        let catalog = self.sql_catalog();
+        crate::db_runtime::open_named(&mut self.db, conn, catalog.as_deref())
     }
 
-    fn sql_catalog(&self) -> Option<std::sync::Arc<crate::esql::catalog::SqlCatalog>> {
+    /// Run SQL built-in `call` on this program's registry and set its receivers `names`, in order.
+    pub(crate) fn db_builtin(&mut self, call: crate::db_runtime::DbBuiltin<'_>, names: &[String]) {
+        let catalog = self.sql_catalog();
+        let out = self.db.builtin(call, |db, conn| crate::db_runtime::open_named(db, conn, catalog.as_deref()));
+        for (name, value) in names.iter().zip(out) {
+            match value {
+                crate::db_runtime::DbReceiver::Number(n) => self.env.set(name, CobolValue::from_i64(n)),
+                crate::db_runtime::DbReceiver::Text(t) => self.env.set_str(name, &t),
+            }
+        }
+    }
+
+    pub(crate) fn sql_catalog(&self) -> Option<std::sync::Arc<crate::esql::catalog::SqlCatalog>> {
         self.sql_unit.lock().ok().and_then(|u| u.catalog.clone()).or_else(crate::esql::catalog::current)
     }
 

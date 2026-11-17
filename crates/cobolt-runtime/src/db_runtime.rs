@@ -803,6 +803,92 @@ impl DbRegistry {
     pub fn close_all(&mut self) {
         self.connections.clear();
     }
+
+    /// Run one of the SQL built-ins (`COBOL::"OPEN-DB"` …) as the interpreter runs it, and answer
+    /// what its receivers take, in the order of its receiving arguments. `open` opens a connection
+    /// string or `sql-connection:NAME` (see [`open_named`]). The interpreter and the desktop runner
+    /// both call this, so the two engines answer alike (DESKTOP-WASM-001 T41b).
+    pub fn builtin(
+        &mut self,
+        call: DbBuiltin<'_>,
+        open: impl FnOnce(&mut DbRegistry, &str) -> Result<u32, String>,
+    ) -> Vec<DbReceiver> {
+        use DbReceiver::{Number, Text};
+        match call {
+            // handle, status: the handle and spaces, or 0 and why.
+            DbBuiltin::Open(conn) => match open(self, conn) {
+                Ok(h) => vec![Number(h as i64), Text(String::new())],
+                Err(e) => {
+                    tracing::warn!("COBOL-OPEN-DB failed: {e}");
+                    vec![Number(0), Text(e)]
+                }
+            },
+            // row-count, status: the row or affected count and spaces, or 0 and why.
+            DbBuiltin::Exec { handle, query } => match self.exec(handle, query) {
+                Ok(n) => vec![Number(n as i64), Text(String::new())],
+                Err(e) => {
+                    tracing::warn!("COBOL-EXEC-SQL failed: {e}");
+                    vec![Number(0), Text(e)]
+                }
+            },
+            // value, status.
+            DbBuiltin::FetchRow { handle, column } => {
+                if handle == 0 || self.is_exhausted(handle) {
+                    vec![Text(String::new()), Text("No current row".into())]
+                } else {
+                    vec![Text(self.fetch_col(handle, column)), Text(String::new())]
+                }
+            }
+            // more: Y when there is another row, N at the end.
+            DbBuiltin::NextRow(handle) => vec![Text(if self.next_row(handle) { "Y" } else { "N" }.into())],
+            // count.
+            DbBuiltin::RowCount(handle) => vec![Number(self.row_count(handle) as i64)],
+            DbBuiltin::Close(handle) => {
+                self.close(handle);
+                Vec::new()
+            }
+        }
+    }
+}
+
+/// One of the SQL built-ins, with its inputs as the interpreter reads them: the texts trimmed, a
+/// handle a whole number (`0` when it is not one) and a column one (`1` when it is not one).
+#[derive(Debug, Clone, Copy)]
+pub enum DbBuiltin<'a> {
+    /// `COBOL::"OPEN-DB" ( conn-string handle status )`.
+    Open(&'a str),
+    /// `COBOL::"EXEC-SQL" ( handle query row-count status )`.
+    Exec { handle: u32, query: &'a str },
+    /// `COBOL::"FETCH-ROW" ( handle column value status )`.
+    FetchRow { handle: u32, column: usize },
+    /// `COBOL::"NEXT-ROW" ( handle more )`.
+    NextRow(u32),
+    /// `COBOL::"ROW-COUNT" ( handle count )`.
+    RowCount(u32),
+    /// `COBOL::"CLOSE-DB" ( handle )`.
+    Close(u32),
+}
+
+/// What one receiving argument of a SQL built-in takes: a whole number (as `set_i64` puts it) or a
+/// text (as `set_str` puts it).
+#[derive(Debug, Clone, PartialEq)]
+pub enum DbReceiver {
+    Number(i64),
+    Text(String),
+}
+
+/// Open `conn` in `db`: a connection string, or `sql-connection:NAME` for one of the SQL
+/// connections of `catalog` (R40), resolved exactly as `CONNECT TO 'NAME'` resolves it. The
+/// connection is the registry's own, never one of `EXEC SQL`'s.
+pub fn open_named(db: &mut DbRegistry, conn: &str, catalog: Option<&crate::esql::catalog::SqlCatalog>) -> Result<u32, String> {
+    let Some(name) = crate::esql::catalog::named_connection(conn) else {
+        return db.open(conn);
+    };
+    let catalog = catalog.ok_or_else(|| {
+        format!("there is no SQL connection named '{name}': this program was started without the project's SQL connections")
+    })?;
+    let target = catalog.resolve(name, &|v| catalog.lookup(v)).map_err(|e| e.message)?;
+    db.open_target(&target)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

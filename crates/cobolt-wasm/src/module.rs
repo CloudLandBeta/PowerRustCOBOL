@@ -700,7 +700,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // environment ones of a desktop module's. Each is backed by a host import
     // of the same name, in the `pr` namespace or, for a desktop capability, in
     // `prn` (ABI A27, A29).
-    const GLUE_ORDER: [&str; 27] = [
+    const GLUE_ORDER: [&str; 28] = [
         "flush",
         "abort",
         "query",
@@ -728,6 +728,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         "img_fit",
         "img_info",
         "sql_exec",
+        "sql_db",
     ];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
@@ -782,6 +783,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let ty_f_start = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64], &[ValType::I32]);
     let ty_t_write = types.intern(&[ValType::I32; 7], &[ValType::I32]);
     let ty_img_fit = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64, ValType::I64, ValType::I32, ValType::I32], &[ValType::I32]);
+    let ty_sql_db = types.intern(&[ValType::I32, ValType::I64, ValType::I64, ValType::I32, ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]);
     let glue_types = |name: &str| -> (u32, u32) {
         match name {
             "now" | "random" => (ty_f64_ret, ty_f64_ret),
@@ -815,6 +817,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             "img_info" => (ty_i32_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
             // A41: an `EXEC SQL` statement, run by the runner.
             "sql_exec" => (ty_i32_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
+            // A42: a SQL built-in; the handle and the column cross as i64s.
+            "sql_db" => (ty_sql_db, ty_sql_db),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
         }
     };
@@ -1145,6 +1149,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         ("img_fit", 8),
         ("img_info", 4),
         ("sql_exec", 4),
+        ("sql_db", 7),
     ] {
         if let Some(&at) = glue_final.get(g) {
             let mut f = Function::new([]);

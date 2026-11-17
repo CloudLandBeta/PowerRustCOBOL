@@ -3,7 +3,10 @@
       *> the import, a host structure, an indicator and NULL, a cursor
       *> read to its end under WHENEVER NOT FOUND, the status items, an
       *> error that continues, and COMMIT; the module's prsql section
-      *> carries the program's declarations and its statements.
+      *> carries the program's declarations and its statements. From
+      *> T41b the SQL built-ins too (ABI A42): OPEN-DB, EXEC-SQL,
+      *> ROW-COUNT, FETCH-ROW into a number and a text, NEXT-ROW to the
+      *> end, a fetch past it, CLOSE-DB.
        IDENTIFICATION DIVISION.
        PROGRAM-ID. CORPUSSQL.
        DATA DIVISION.
@@ -20,6 +23,9 @@
        01 WS-COUNT    PIC 9(3).
        01 WS-TOTAL    PIC S9(7)V99.
        01 WS-SHOW     PIC -(6)9.99.
+       01 WS-DBH      PIC 9(9).
+       01 WS-DBST     PIC X(60).
+       01 WS-MORE     PIC X.
        PROCEDURE DIVISION.
        MAIN-PARA.
            DISPLAY "corpus sql fixture"
@@ -85,6 +91,7 @@
            EXEC SQL COMMIT END-EXEC
            EXEC SQL DISCONNECT ALL END-EXEC
            DISPLAY "sqlcode " SQLCODE
+           PERFORM BUILT-INS
            MOVE 5 TO RETURN-CODE
            STOP RUN.
        INSERT-ITEM.
@@ -92,3 +99,25 @@
                INSERT INTO ITEM VALUES (:WS-ID, :WS-NAME, :WS-PRICE,
                                         :WS-NOTE:WS-NOTE-IND, :WS-RATE)
            END-EXEC.
+       BUILT-INS.
+           COBOL::"OPEN-DB" ( ":memory:" WS-DBH WS-DBST )
+           COBOL::"EXEC-SQL" ( WS-DBH
+               "CREATE TABLE T (N INTEGER, S TEXT)" WS-COUNT WS-DBST )
+           COBOL::"EXEC-SQL" ( WS-DBH
+               "INSERT INTO T VALUES (7, 'SEVEN'), (8, 'EIGHT')"
+               WS-COUNT WS-DBST )
+           DISPLAY "built-ins inserted " WS-COUNT
+           COBOL::"EXEC-SQL" ( WS-DBH "SELECT N, S FROM T ORDER BY N"
+               WS-COUNT WS-DBST )
+           COBOL::"ROW-COUNT" ( WS-DBH WS-COUNT )
+           DISPLAY "built-ins handle " WS-DBH " rows " WS-COUNT
+           MOVE "Y" TO WS-MORE
+           PERFORM UNTIL WS-MORE = "N"
+               COBOL::"FETCH-ROW" ( WS-DBH 1 WS-ID WS-DBST )
+               COBOL::"FETCH-ROW" ( WS-DBH 2 WS-NAME WS-DBST )
+               DISPLAY "row " WS-ID " " WS-NAME
+               COBOL::"NEXT-ROW" ( WS-DBH WS-MORE )
+           END-PERFORM
+           COBOL::"FETCH-ROW" ( WS-DBH 1 WS-NAME WS-DBST )
+           DISPLAY "after the end [" FUNCTION TRIM(WS-DBST) "]"
+           COBOL::"CLOSE-DB" ( WS-DBH ).

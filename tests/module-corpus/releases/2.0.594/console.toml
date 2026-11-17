@@ -1,0 +1,23 @@
+# The "console" fixture of the module corpus (DESKTOP-WASM-001 T21): what it is given and what it
+# must print and answer. The output was checked against `rcrun run` (the interpreter) on 2026-11-16.
+sources = ["main.cbl"]
+stdin = "Ada Lovelace\r\n42\n"
+args = ["alpha", "beta gamma"]
+clock = "2026-01-02T03:04:05.67-03:00"
+seed = 20261114
+exit = 7
+stdout = '''
+corpus console fixture
+name [Ada Lovelace        ] qty 0042
+home [/home/ada                     ]
+none [      ]
+args 02 [alpha beta gamma                        ] first [alpha       ]
+date 260102 time 03040567 day 26002 dow 5
+stamp 2026010203040567
+random 1 198382
+random 2 352819
+random 3 961013
+'''
+
+[env]
+PRC_CORPUS_HOME = "/home/ada"

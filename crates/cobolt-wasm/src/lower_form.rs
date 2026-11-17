@@ -894,6 +894,8 @@ impl Lower<'_, '_> {
             // On the desktop the runner writes a built-in's text file and reads and fits its pictures (T39c).
             "APPEND-FILE" | "WRITE-FILE" if self.native => self.desktop_text_write(name, using, line),
             "IMAGE-FIT" | "IMAGE-INFO" if self.native => self.desktop_image(name, using, line),
+            // On the desktop the runner keeps the SQL built-ins' connections (T41b).
+            "OPEN-DB" | "EXEC-SQL" | "FETCH-ROW" | "NEXT-ROW" | "ROW-COUNT" | "CLOSE-DB" if self.native => self.desktop_sql_db(name, using, line),
             // On the desktop the module keeps every file's last status (T39c).
             "FILE-STATUS" if self.native => self.desktop_file_status(using, line),
             // The page's own verbs (ABI §12.1) are not the desktop's: under the interpreter a form's
@@ -1183,6 +1185,44 @@ impl Lower<'_, '_> {
             self.i32c(o as i32);
         }
         self.call_rt(if name == "IMAGE-FIT" { "rt_image_fit" } else { "rt_image_info" });
+        Ok(())
+    }
+
+    /// `COBOL::"OPEN-DB" ( connection handle status )`, `"EXEC-SQL" ( handle query count status )`,
+    /// `"FETCH-ROW" ( handle column value status )`, `"NEXT-ROW" ( handle flag )`, `"ROW-COUNT" ( handle
+    /// count )` and `"CLOSE-DB" ( handle )` in a desktop module (DESKTOP-WASM-001 T41b, ABI A42): the
+    /// runner keeps the connections, one set per form instance as each form's interpreter keeps its own,
+    /// and runs each call with the interpreter's own code. Fewer arguments than the built-in takes are
+    /// refused, so the Build takes the Cargo path, where the interpreter does what it does with them;
+    /// arguments after them are ignored, as it ignores them.
+    fn desktop_sql_db(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
+        use cobolt_wasm_rt::sql::db;
+        let subject = format!("COBOL::\"{name}\"");
+        // The operation, the arguments it takes, how many of them the program sends (the rest are receivers).
+        let (op, takes, sent, what) = match name {
+            "OPEN-DB" => (db::OPEN, 3, 1, "the connection string and the data items that receive the handle and the status"),
+            "EXEC-SQL" => (db::EXEC, 4, 2, "the handle, the statement and the data items that receive the count and the status"),
+            "FETCH-ROW" => (db::FETCH_ROW, 4, 2, "the handle, the column and the data items that receive the value and the status"),
+            "NEXT-ROW" => (db::NEXT_ROW, 2, 1, "the handle and the data item that receives the flag"),
+            "ROW-COUNT" => (db::ROW_COUNT, 2, 1, "the handle and the data item that receives the count"),
+            _ => (db::CLOSE, 1, 1, "the handle"),
+        };
+        if using.len() < takes {
+            return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes {what}"));
+        }
+        let ex = |a: &CallArg| match a {
+            CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+        };
+        let mut opds = [0u32; 4];
+        for (i, a) in using.iter().take(takes).enumerate() {
+            opds[i] = if i < sent { self.operand_or_temp(&ex(a))? } else { self.receiver(&ex(a))? };
+        }
+        self.base();
+        self.i32c(op as i32);
+        for o in opds {
+            self.i32c(o as i32);
+        }
+        self.call_rt("rt_sql_db");
         Ok(())
     }
 

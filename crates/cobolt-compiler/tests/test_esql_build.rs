@@ -180,23 +180,10 @@ fn a_built_binary_reads_its_sql_connections_file() {
 const SUPER_FAILURE: &str = "        MOVE \"X\" TO super::Title\n";
 const CALL_FAILURE: &str = "        MOVE \"NO-SUCH-PROGRAM\" TO WS-ERR\n        CALL WS-ERR\n";
 
-/// The `OPEN-DB` branch of [`PROGRAM`]: the SQL built-ins take the Cargo path until T41b, so the
-/// WebAssembly twin's program leaves it out.
-const OPEN_DB_BRANCH: &str = "    IF WS-MODE = \"OPENDB\"
-        COBOL::\"OPEN-DB\" ( \"sql-connection:SALES\" WS-H WS-ERR )
-        IF WS-H > 0
-            DISPLAY \"OPEN-DB OK\"
-        ELSE
-            DISPLAY \"OPEN-DB \" WS-ERR
-        END-IF
-        STOP RUN
-    END-IF
-";
-
-/// DESKTOP-WASM-001 T41 (R10, R11): the same deployment, built on the WebAssembly path. The runner
-/// reads the `sql-connections.toml` the Build writes beside it with the interpreter's own catalog,
-/// so the file, the environment's override, the refused password and the end of the run unit
-/// behave as they do in the Cargo-built program above.
+/// DESKTOP-WASM-001 T41 and T41b (R10, R11): the same deployment, built on the WebAssembly path. The
+/// runner reads the `sql-connections.toml` the Build writes beside it with the interpreter's own
+/// catalog, so the file, the environment's override, the refused password, the end of the run unit
+/// and `OPEN-DB` of the connection by name behave as they do in the Cargo-built program above.
 #[test]
 fn a_webassembly_built_program_reads_its_sql_connections_file() {
     let t_all = Instant::now();
@@ -221,8 +208,8 @@ fn a_webassembly_built_program_reads_its_sql_connections_file() {
     let project = root.join("crm");
     std::fs::create_dir_all(project.join("src")).unwrap();
     std::fs::write(project.join("crm.project.toml"), MANIFEST).unwrap();
-    let program = PROGRAM.replace(OPEN_DB_BRANCH, "").replace(SUPER_FAILURE, CALL_FAILURE);
-    assert!(!program.contains("OPEN-DB") && program.contains("CALL WS-ERR"), "the OPEN-DB branch is cut out and the failure is a CALL");
+    let program = PROGRAM.replace(SUPER_FAILURE, CALL_FAILURE);
+    assert!(program.contains("COBOL::\"OPEN-DB\"") && program.contains("CALL WS-ERR"), "the OPEN-DB branch stays (T41b) and the failure is a CALL");
     std::fs::write(project.join("src/deployed.cbl"), &program).unwrap();
     let project = project.canonicalize().unwrap();
     let cache = root.join("runner-cache");
@@ -264,6 +251,8 @@ fn a_webassembly_built_program_reads_its_sql_connections_file() {
     std::fs::write(&beside, &edited).unwrap();
     check("the edited file is read: one row", wasm(&bin, &[]).0 == ["CONNECT 00000", "ROWS 001"]);
     check("the first run's row was committed at STOP RUN: two rows", wasm(&bin, &[]).0 == ["CONNECT 00000", "ROWS 002"]);
+    // R40: the built-in reaches the same SQL connection by name (T41b).
+    check("OPEN-DB 'sql-connection:SALES' reaches the same connection by name", wasm(&bin, &[("SALES_MODE", "OPENDB")]).0 == ["OPEN-DB OK"]);
 
     // ── A runtime error rolls the open work back ──
     let (out, ok) = wasm(&bin, &[("SALES_MODE", "FAIL")]);
@@ -289,8 +278,8 @@ fn a_webassembly_built_program_reads_its_sql_connections_file() {
 
     let _ = std::fs::remove_dir_all(&root);
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
-    println!("== a_webassembly_built_program_reads_its_sql_connections_file (DESKTOP-WASM-001 T41: R10, R11) ==");
-    println!("program: CONNECT TO 'SALES', CREATE TABLE, INSERT, SELECT COUNT(*) INTO; SALES_MODE=FAIL ends in a runtime error (a CALL of a program that is not there)");
+    println!("== a_webassembly_built_program_reads_its_sql_connections_file (DESKTOP-WASM-001 T41, T41b: R10, R11) ==");
+    println!("program: CONNECT TO 'SALES', CREATE TABLE, INSERT, SELECT COUNT(*) INTO; SALES_MODE=OPENDB opens 'sql-connection:SALES' with COBOL::\"OPEN-DB\"; SALES_MODE=FAIL ends in a runtime error (a CALL of a program that is not there)");
     println!("timings: runner built {runner_s:.1} s; Build (WebAssembly path) {build_s:.1} s; total {:.1} s", t_all.elapsed().as_secs_f32());
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "pass" } else { "FAIL" });

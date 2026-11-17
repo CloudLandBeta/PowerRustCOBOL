@@ -96,6 +96,11 @@ mod imp {
         /// answer is written over them (at most `cap` bytes) and its length returned, or a negative
         /// number when the runner could not run the statement.
         pub fn sql_exec(stmt: u32, buf: u32, len: u32, cap: u32) -> i32;
+        // A desktop module only (ABI A42): a SQL built-in, run by the runner over its connections.
+        /// Operation `op` (`crate::sql::db`) with the handle, the column and the `text_len` bytes at
+        /// `text`; the receivers' values are written at `buf` (at most `cap` bytes) and their length
+        /// returned, or a negative number when the runner could not run the call.
+        pub fn sql_db(op: u32, handle: i64, number: i64, text: u32, text_len: u32, buf: u32, cap: u32) -> i32;
     }
 }
 
@@ -268,6 +273,10 @@ mod imp {
         }
         crate::mem::bytes_mut(buf, ans.len() as u32).copy_from_slice(&ans);
         ans.len() as i32
+    }
+    /// A SQL built-in (A42): recorded with the built-ins' imports, as `("sql_db", [text], [op, handle, number])`.
+    pub unsafe fn sql_db(op: u32, handle: i64, number: i64, text: u32, text_len: u32, buf: u32, cap: u32) -> i32 {
+        builtin_call("sql_db", &[(text, text_len)], &[op as i64, handle, number], buf, cap)
     }
 }
 

@@ -23,6 +23,7 @@ use std::time::Instant;
 const KNOWN: &[(&str, &str)] = &[
     ("2.0.520", "92e2efd9bb234c1ae257f9a0512bf555a0c876820770bbeccb24f69e8a8e5142"),
     ("2.0.593", "869ffae935841d6de53a40ba3aeaea1642257e67f4dfb562755c34556b4498c1"),
+    ("2.0.594", "b8f1a15a8a56fb343921cfe1d6cc747f88a1d71f1408d3571efb75a2c87c4ab4"),
 ];
 
 /// A folder of its own under the system's temporary folder, removed at the end.

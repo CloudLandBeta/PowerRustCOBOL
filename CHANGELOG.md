@@ -2,6 +2,25 @@
 
 
 
+## 2.0.594 — 2026-11-17
+
+**Feature (DESKTOP-WASM-001 T41b): the SQL built-ins take the WebAssembly path. A desktop program or form handler that calls `COBOL::"OPEN-DB"`, `"EXEC-SQL"`, `"FETCH-ROW"`, `"NEXT-ROW"`, `"ROW-COUNT"` or `"CLOSE-DB"` no longer sends its Build down the Cargo path; the built program runs them with the interpreter's own code, so handles, rows, error texts and counts are the same on both paths (ABI A42).**
+- **One implementation:** the interpreter's six arms moved, unchanged, into `DbRegistry::builtin` in `cobolt-runtime` (C5). It takes the built-in, its arguments and a way to open a connection, and answers the values for the built-in's receivers. The interpreter and the runner both call it. The interpreter's library tests (576 passed) and SQL tests (9 test binaries, 30 passed, 18 ignored) are unchanged.
+- **How it runs:**
+  - One more `prn` import in the `sql` capability, `sql_db`. The module hands the runner the built-in, the handle, a number (a column) and a text (a connection string or a statement); the runner answers each receiver as a number or a text.
+  - The module stores each answer as the interpreter stores a value of that kind in that item: a number as a number; a text into a numeric item as the number it reads as (unchanged if it reads as none); into a numeric-edited item, edited; into a `JUSTIFIED` item, right-aligned; into a floating-point item, unchanged, as the interpreter leaves it.
+  - **Connections:** the runner keeps one set per window (and one for a console program), shared by that window's handlers and the procedures they `CALL`, as the window's single interpreter shares them. Closing the window closes its connections, and so does the end of the run. `OPEN-DB "sql-connection:NAME"` reaches the connection the program's `sql-connections.toml` names, as the Cargo-built program does.
+  - An `OPEN-DB` or another built-in with too few arguments is refused by the generator, naming what it takes, so its Build takes the Cargo path.
+- **Tests:**
+  - **Programs** (`cobolt-runner` `sql_builtins`, new): the Database Runtime guide's example, a program that `CALL`s a procedure holding the connection, and an edge program (a connection that cannot open, a statement the database refuses, a column out of range and one named by text, every kind of receiver, the end of the rows, handle 0, a nested program sharing the connection, a closed handle) print the same 30 lines under the runner and under `rcrun run`; 21 of 21 checks.
+  - **A form** (`cobolt-cli` `runner_sql_form`): two more handlers, `OPEN-DB` on `:memory:` and `ROW-COUNT` into a Label's caption; 10 handlers, 7 pictures with 0 differing pixels of 1 881 600; 25 of 25 checks.
+  - **The deployment** (`cobolt-compiler` `test_esql_build`): `OPEN-DB "sql-connection:SALES"` reaches the same connection by name; 16 of 16 checks.
+  - **The module corpus:** the `sql` fixture gains a paragraph of built-ins, and the entry 2.0.594 (console, ledger and sql; 194 599 bytes compressed of 262 144).
+  - **The sweeps:** `cobolt-wasm` 36 test binaries, 136 passed; `cobolt-runner` 9, 15 passed; the runner tests of `cobolt-cli` 4, 19 passed; `cobolt-wasm-abi` 24 and `cobolt-wasm-rt` 31 passed (two new: white-space trimming and decimal reading, each as the interpreter does them); 0 failed anywhere. The System KB is rebuilt for the native column of the six built-ins (4 412 records), and its test passes.
+  - **AC16, on purpose:** `rt.wasm` grew by 2 416 bytes (251 390 to 253 806). It is written without the formatting machinery that slicing text pulls in, which first cost 12.6 KB. The PowerAnalyticsWeb pin is re-recorded with `UPDATE_PIN=1`; this time its manifest moves too, because it records the sizes of the routines linked in. The player's generated fixtures move with it; the shipped player is rebuilt, its bytes unchanged.
+- **Specs:** `WASM-ABI-v1.md` A42; the T41b entry of `tasks.md`; WASM-PROGRESS.
+- **Gap found, reported, not changed (GOLDEN RULE #2):** in the interpreter, a `COMP-2` item with a `VALUE` clause behaves as a fixed-point item with the value's decimals (`VALUE 1.5`, then `MOVE 12.25` gives 12.2 and `COMPUTE … = 1 / 3` gives 0.3). Without a `VALUE` it stays floating point, and the runner matches that. A separate fix.
+
 ## 2.0.593 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T41): `EXEC SQL` takes the WebAssembly path. A desktop program or form handler with embedded SQL no longer sends its Build down the Cargo path; the built program runs every statement with the interpreter's own SQL code, so the databases, SQLSTATEs, cursors and units of work are the same on both paths (ABI A41, capability `sql`).**

@@ -19,6 +19,9 @@
 //!   number as `set_i64` does (into an item of characters, right-justified).
 //!
 //! An operand of 0 is a receiver the program did not write (`APPEND-FILE`'s status is optional).
+//!
+//! The SQL built-ins (`OPEN-DB` and the five after it, ABI A42, T41b) are here too: the runner keeps the
+//! connections and runs each call with the interpreter's own code; [`sql_db`] does the program's half.
 
 use crate::accept::put;
 use crate::codec;
@@ -78,6 +81,12 @@ fn arg_text(base: u32, o: u32, place: u32) -> (u32, u32) {
 /// A text's characters are read where they are, but a figurative constant's are made in place 0, so
 /// the numbers are read before the texts.
 pub(crate) fn whole_number(base: u32, raw: u32) -> i64 {
+    whole_number_or(base, raw, 0)
+}
+
+/// [`whole_number`], with `none` for a text that is no whole number: the interpreter's
+/// `as_i64().unwrap_or(none)`.
+fn whole_number_or(base: u32, raw: u32, none: i64) -> i64 {
     let o = parse(raw);
     let numeric = match o.tag {
         T_LIT_NUM | T_TEMP => Some(value(base, &o)),
@@ -92,14 +101,14 @@ pub(crate) fn whole_number(base: u32, raw: u32) -> i64 {
         Some(Val::F(f)) => f as i64,
         None => {
             let (a, l) = arg_text(base, raw, 0);
-            parse_whole(mem::bytes(a, l))
+            parse_whole(mem::bytes(a, l)).unwrap_or(none)
         }
     }
 }
 
 /// A text as Rust's `str::trim().parse::<i64>()` reads it: white space around it, an optional sign,
-/// then only digits, within an `i64`; anything else is 0.
-fn parse_whole(b: &[u8]) -> i64 {
+/// then only digits, within an `i64`; anything else is `None`.
+fn parse_whole(b: &[u8]) -> Option<i64> {
     let blank = |c: &u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | 0x0B | 0x0C);
     let start = b.iter().position(|c| !blank(c)).unwrap_or(b.len());
     let end = b.iter().rposition(|c| !blank(c)).map_or(start, |e| e + 1);
@@ -116,25 +125,25 @@ fn parse_whole(b: &[u8]) -> i64 {
         _ => false,
     };
     if s.is_empty() {
-        return 0;
+        return None;
     }
     let mut n: i64 = 0;
     for &c in s {
         if !c.is_ascii_digit() {
-            return 0;
+            return None;
         }
         let d = i64::from(c - b'0');
         let next = n.checked_mul(10).and_then(|v| if negative { v.checked_sub(d) } else { v.checked_add(d) });
         match next {
             Some(v) => n = v,
-            None => return 0,
+            None => return None,
         }
     }
-    n
+    Some(n)
 }
 
 /// The digits of `n`, without leading zeros.
-fn digits(n: u32, out: &mut [u8; 10]) -> &[u8] {
+fn digits(n: u64, out: &mut [u8; 20]) -> &[u8] {
     let mut v = n;
     let mut at = out.len();
     loop {
@@ -152,13 +161,13 @@ fn digits(n: u32, out: &mut [u8; 10]) -> &[u8] {
 /// numeric-edited item takes the number as a `MOVE` does; an item of characters takes its digits
 /// at its right end, spaces before them, and the digits' left end when they do not fit (the
 /// interpreter's `CobolValue::assign` of a number into text, which ignores `JUSTIFIED`).
-fn put_number(base: u32, target: u32, n: u32) {
+fn put_number(base: u32, target: u32, n: u64) {
     let loc = locate(base, &parse(target));
     if loc.fd.is_numeric() || loc.fd.kind == K_NUM_EDITED {
-        codec::store_value(&loc, Val::Dec(CobolNumeric::integer(i64::from(n))), false, false);
+        codec::store_value(&loc, Val::Dec(CobolNumeric::new(i128::from(n), 0)), false, false);
         return;
     }
-    let mut out = [0u8; 10];
+    let mut out = [0u8; 20];
     let d = digits(n, &mut out);
     let field = mem::bytes_mut(loc.addr, loc.len);
     let k = d.len().min(field.len());
@@ -212,8 +221,205 @@ pub fn image_info(base: u32, path: u32, width: u32, height: u32, format: u32, st
     let rest = if n > 0 { mem::bytes(buf + 8, (n as u32).min(cap - 8)) } else { &[] };
     let gap = rest.iter().position(|&c| c == b' ').unwrap_or(rest.len());
     let (fmt, word) = (&rest[..gap], rest.get(gap + 1..).unwrap_or(&[]));
-    put_number(base, width, w);
-    put_number(base, height, h);
+    put_number(base, width, u64::from(w));
+    put_number(base, height, u64::from(h));
     put(base, format, fmt);
     put(base, status, word);
+}
+
+/// Characters into receiver `target` as the interpreter's `set_str` puts them (`Environment::set`,
+/// then `CobolValue::assign`):
+///
+/// - an item of characters takes them as a `MOVE` of characters does; a `JUSTIFIED` one takes them
+///   without their trailing spaces, at its right end;
+/// - a numeric item takes the number they spell (`parse_decimal`, then a floating form such as `1E3`),
+///   as a `MOVE` puts it, and keeps its value when they spell none;
+/// - a numeric-edited item takes the number they spell, edited, and the characters themselves when
+///   they spell none;
+/// - a floating-point item keeps its value: the interpreter has no rule for text into a float.
+fn put_text(base: u32, target: u32, text: &[u8]) {
+    let loc = locate(base, &parse(target));
+    let fd = &loc.fd;
+    if fd.is_float() {
+        return;
+    }
+    if fd.is_numeric() || fd.kind == K_NUM_EDITED {
+        let edited = fd.kind == K_NUM_EDITED;
+        let number = parse_decimal(text).map(Val::Dec).or_else(|| {
+            // A numeric-edited receiver edits only an exact number (the interpreter's `as_exact`).
+            if edited {
+                return None;
+            }
+            core::str::from_utf8(trim_space(text)).ok()?.parse::<f64>().ok().map(Val::F)
+        });
+        match number {
+            Some(v) => {
+                codec::store_value(&loc, v, false, false);
+            }
+            None if edited => crate::mv::put_bytes(&loc, text, false),
+            None => {}
+        }
+        return;
+    }
+    if fd.justified() {
+        let end = text.iter().rposition(|&c| c != b' ').map_or(0, |e| e + 1);
+        crate::mv::put_bytes(&loc, &text[..end], true);
+    } else {
+        crate::mv::put_bytes(&loc, text, false);
+    }
+}
+
+/// A text as the interpreter's `parse_decimal` reads it: white space around it, an optional sign (white
+/// space after it allowed), digits with at most one point, at most 31 decimals kept, within an `i128`.
+fn parse_decimal(b: &[u8]) -> Option<CobolNumeric> {
+    let t = trim_space(b);
+    let (negative, body) = match t.first() {
+        Some(b'-') => (true, &t[1..]),
+        Some(b'+') => (false, &t[1..]),
+        _ => (false, t),
+    };
+    let body = trim_space(body);
+    let (int, frac) = match body.iter().position(|&c| c == b'.') {
+        Some(p) => (&body[..p], &body[p + 1..]),
+        None => (body, &[][..]),
+    };
+    let frac = &frac[..frac.len().min(31)];
+    if int.len() + frac.len() == 0 {
+        return None;
+    }
+    let mut m: i128 = 0;
+    for &c in int.iter().chain(frac) {
+        if !c.is_ascii_digit() {
+            return None;
+        }
+        m = m.checked_mul(10)?.checked_add(i128::from(c - b'0'))?;
+    }
+    Some(CobolNumeric::new(if negative { -m } else { m }, frac.len() as u8))
+}
+
+/// How many bytes of white space `b` starts with: one character of Rust's `char::is_whitespace`, in
+/// UTF-8, as `str::trim` takes it; 0 when it starts with none.
+fn space_at(b: &[u8]) -> usize {
+    match b {
+        [0x09..=0x0D | b' ', ..] => 1,
+        [0xC2, 0x85 | 0xA0, ..] => 2,
+        [0xE1, 0x9A, 0x80, ..] | [0xE2, 0x80, 0x80..=0x8A | 0xA8 | 0xA9 | 0xAF, ..] | [0xE2, 0x81, 0x9F, ..] | [0xE3, 0x80, 0x80, ..] => 3,
+        _ => 0,
+    }
+}
+
+/// `b` without the white space around it, as `str::trim` cuts it.
+fn trim_space(mut b: &[u8]) -> &[u8] {
+    loop {
+        match space_at(b) {
+            0 => break,
+            n => b = &b[n..],
+        }
+    }
+    loop {
+        let len = b.len();
+        match (1..=3).find(|&k| len >= k && space_at(&b[len - k..]) == k) {
+            Some(k) => b = &b[..len - k],
+            None => return b,
+        }
+    }
+}
+
+/// `COBOL::"OPEN-DB" ( connection handle status )` and the five built-ins after it (ABI A42,
+/// DESKTOP-WASM-001 T41b), each with its operands in the order the program wrote them (`op` is
+/// `crate::sql::db`; an operand of 0 is one the built-in does not take). The runner runs the call with
+/// the interpreter's own code over the form instance's connections and answers each receiver's value,
+/// which goes into it as the interpreter sets it: a number as `set_i64` does, a text as `set_str` does.
+pub fn sql_db(base: u32, op: u32, a: u32, b: u32, c: u32, d: u32) {
+    use crate::sql::db;
+    // The numbers are read before the text: a figurative constant's characters are made in place 0.
+    let whole = |o: u32| whole_number(base, o);
+    let (handle, number, text, receivers) = match op {
+        db::OPEN => (0, 0, a, [b, c]),
+        db::EXEC => (whole(a), 0, b, [c, d]),
+        db::FETCH_ROW => (whole(a), whole_number_or(base, b, 1), 0, [c, d]),
+        db::NEXT_ROW | db::ROW_COUNT => (whole(a), 0, 0, [b, 0]),
+        _ => (whole(a), 0, 0, [0, 0]),
+    };
+    let (ta, tl) = if text != 0 { arg_text(base, text, 1) } else { (0, 0) };
+    let (buf, cap) = answer_area();
+    // SAFETY: the runner reads the text and writes at most `cap` bytes at `buf`.
+    let n = unsafe { host::sql_db(op, handle, number, ta, tl, buf, cap) };
+    if n < 0 {
+        return;
+    }
+    let end = buf + (n as u32).min(cap);
+    let mut at = buf;
+    for r in receivers {
+        if r == 0 || at >= end {
+            break;
+        }
+        match mem::rd_u8(at) {
+            db::NUMBER if at + 9 <= end => {
+                let v = u64::from(mem::rd_u32(at + 1)) | (u64::from(mem::rd_u32(at + 5)) << 32);
+                // A handle or a count: never below 0.
+                put_number(base, r, (v as i64).max(0) as u64);
+                at += 9;
+            }
+            db::TEXT if at + 5 <= end => {
+                let len = mem::rd_u32(at + 1).min(end - at - 5);
+                put_text(base, r, mem::bytes(at + 5, len));
+                at += 5 + len;
+            }
+            _ => break,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `trim_space` cuts what `str::trim` cuts (the interpreter trims a fetched value so), for every
+    /// character Rust counts as white space, two at either end, and leaves a character that is not.
+    #[test]
+    fn trim_space_cuts_what_str_trim_cuts() {
+        let spaces: std::vec::Vec<char> = (0..=0x10FFFFu32).filter_map(char::from_u32).filter(|c| c.is_whitespace()).collect();
+        let mut pairs = 0;
+        for &a in &spaces {
+            for &b in &spaces {
+                let s = std::format!("{a}{b}1.5{b}{a}");
+                assert_eq!(trim_space(s.as_bytes()), s.trim().as_bytes(), "{s:?}");
+                pairs += 1;
+            }
+        }
+        let kept = ["\u{200B}7", "7\u{FEFF}", "\u{180E}7", "x", ""];
+        for s in kept {
+            assert_eq!(trim_space(s.as_bytes()), s.trim().as_bytes(), "{s:?}");
+        }
+        std::println!("trim_space: {} white-space characters, {pairs} pairs and {} others cut as str::trim cuts them", spaces.len(), kept.len());
+    }
+
+    /// `parse_decimal` reads a text as the interpreter's `parse_decimal` does.
+    #[test]
+    fn parse_decimal_reads_as_the_interpreter_does() {
+        let digits31 = "1".repeat(31);
+        let long = std::format!("0.{digits31}99");
+        let cases: [(&str, Option<(i128, u8)>); 14] = [
+            ("42", Some((42, 0))),
+            (" -  3.50 ", Some((-350, 2))),
+            ("+7", Some((7, 0))),
+            (".5", Some((5, 1))),
+            ("5.", Some((5, 0))),
+            ("\u{a0}7\u{3000}", Some((7, 0))),
+            (&long, Some((digits31.parse().unwrap(), 31))),
+            ("1e3", None),
+            ("n/a", None),
+            ("", None),
+            (".", None),
+            ("1.2.3", None),
+            ("1 2", None),
+            ("9999999999999999999999999999999999999999", None),
+        ];
+        for (text, want) in cases {
+            let got = parse_decimal(text.as_bytes()).map(|n| (n.mantissa, n.decimals));
+            assert_eq!(got, want, "{text:?}");
+        }
+        std::println!("parse_decimal: {} of {} texts read as the interpreter reads them", cases.len(), cases.len());
+    }
 }

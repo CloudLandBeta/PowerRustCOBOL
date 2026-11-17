@@ -11576,17 +11576,7 @@ impl Interpreter {
                 let conn_str = conn_str.trim().to_owned();
                 let handle_name = self.expr_to_name(call_arg_expr(&using[1]));
                 let status_name = self.expr_to_name(call_arg_expr(&using[2]));
-                match self.db_open(&conn_str) {
-                    Ok(h) => {
-                        self.env.set(&handle_name, CobolValue::from_i64(h as i64));
-                        self.env.set_str(&status_name, "");
-                    }
-                    Err(e) => {
-                        self.env.set(&handle_name, CobolValue::from_i64(0));
-                        self.env.set_str(&status_name, &e);
-                        tracing::warn!("COBOL-OPEN-DB failed: {e}");
-                    }
-                }
+                self.db_builtin(crate::db_runtime::DbBuiltin::Open(&conn_str), &[handle_name, status_name]);
             }
 
             // COBOL-EXEC-SQL  USING handle-var, query-var, row-count-var, status-var
@@ -11598,17 +11588,7 @@ impl Interpreter {
                 let query = query.trim().to_owned();
                 let count_name = self.expr_to_name(call_arg_expr(&using[2]));
                 let status_name = self.expr_to_name(call_arg_expr(&using[3]));
-                match self.db.exec(handle, &query) {
-                    Ok(n) => {
-                        self.env.set(&count_name, CobolValue::from_i64(n as i64));
-                        self.env.set_str(&status_name, "");
-                    }
-                    Err(e) => {
-                        self.env.set(&count_name, CobolValue::from_i64(0));
-                        self.env.set_str(&status_name, &e);
-                        tracing::warn!("COBOL-EXEC-SQL failed: {e}");
-                    }
-                }
+                self.db_builtin(crate::db_runtime::DbBuiltin::Exec { handle, query: &query }, &[count_name, status_name]);
             }
 
             // COBOL-FETCH-ROW USING handle-var, col-index-var, dest-var, status-var
@@ -11619,14 +11599,7 @@ impl Interpreter {
                 let col_idx = self.eval_call_arg(&using[1], span)?.as_i64().unwrap_or(1) as usize;
                 let dest_name = self.expr_to_name(call_arg_expr(&using[2]));
                 let status_name = self.expr_to_name(call_arg_expr(&using[3]));
-                if handle == 0 || self.db.is_exhausted(handle) {
-                    self.env.set_str(&dest_name, "");
-                    self.env.set_str(&status_name, "No current row");
-                } else {
-                    let val = self.db.fetch_col(handle, col_idx);
-                    self.env.set_str(&dest_name, &val);
-                    self.env.set_str(&status_name, "");
-                }
+                self.db_builtin(crate::db_runtime::DbBuiltin::FetchRow { handle, column: col_idx }, &[dest_name, status_name]);
             }
 
             // COBOL-NEXT-ROW  USING handle-var, more-flag-var
@@ -11635,9 +11608,7 @@ impl Interpreter {
             "COBOL-NEXT-ROW" if using.len() >= 2 => {
                 let handle = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0) as u32;
                 let flag_name = self.expr_to_name(call_arg_expr(&using[1]));
-                let has_more = self.db.next_row(handle);
-                self.env
-                    .set_str(&flag_name, if has_more { "Y" } else { "N" });
+                self.db_builtin(crate::db_runtime::DbBuiltin::NextRow(handle), &[flag_name]);
             }
 
             // COBOL-ROW-COUNT USING handle-var, count-var
@@ -11645,8 +11616,7 @@ impl Interpreter {
             "COBOL-ROW-COUNT" if using.len() >= 2 => {
                 let handle = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0) as u32;
                 let count_name = self.expr_to_name(call_arg_expr(&using[1]));
-                let n = self.db.row_count(handle);
-                self.env.set(&count_name, CobolValue::from_i64(n as i64));
+                self.db_builtin(crate::db_runtime::DbBuiltin::RowCount(handle), &[count_name]);
             }
 
             // COBOL-CLOSE-DB  USING handle-var
@@ -11654,7 +11624,7 @@ impl Interpreter {
             //   resources.  Silently ignores unknown handles.
             "COBOL-CLOSE-DB" if !using.is_empty() => {
                 let handle = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0) as u32;
-                self.db.close(handle);
+                self.db_builtin(crate::db_runtime::DbBuiltin::Close(handle), &[]);
             }
 
             // ── Phase 10: HTTP REST client built-in CALLs ─────────────────────
