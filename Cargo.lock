@@ -2519,6 +2519,7 @@ dependencies = [
  "cobolt-ast",
  "cobolt-form-host",
  "cobolt-forms",
+ "cobolt-graphics",
  "cobolt-lexer",
  "cobolt-parser",
  "cobolt-program-package",

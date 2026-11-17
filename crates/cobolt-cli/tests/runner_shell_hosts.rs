@@ -4,8 +4,8 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! DESKTOP-WASM-001 T31, T32 and T49: **the runner's form engine and the interpreter agree on several
-//! forms, the application shell and its SideMenu, the file dialogs and the sounds** (R9, R10, R11, R27; AC14 part).
+//! DESKTOP-WASM-001 T31, T32, T49 and T50: **the runner's form engine and the interpreter agree on several
+//! forms, the application shell and its SideMenu, the file dialogs, the sounds and the graphics** (R9, R10, R11, R27; AC14 part).
 //!
 //! The runner twins of four `rcrun` host tests, on their fixtures:
 //!
@@ -22,6 +22,8 @@
 //! 6. T32's, `file_dialogs`: each kind of file dialog a program opens, answered by the script, and
 //!    what each asked the form host for;
 //! 7. T49's, `sounds`: each sound verb, with what `AUDIO-STATE` reads after it, on the null output.
+//! 8. T50's, `graphics`: a canvas drawn and read back, an image drawn onto it, a physics world, a chart, refused
+//!    calls, and `onFrame` with AutoPresent on and off.
 //!
 //! Each runs the same script headless twice, under the same pinned clock and seed: under
 //! `rcrun run-form` (the interpreter), and in the program `rcrun build` makes on the WebAssembly
@@ -337,7 +339,7 @@ impl Tally {
     /// The result block (GOLDEN RULE #7), then the verdict.
     fn finish(self, title: &str, what: &str, root: &Path, build_ms: f64) {
         let passed = self.checks.iter().filter(|(_, ok)| *ok).count();
-        println!("== {title} (DESKTOP-WASM-001 T31, T32, T49: R9, R10, R27; AC14 part) ==");
+        println!("== {title} (DESKTOP-WASM-001 T31, T32, T49, T50: R9, R10, R11, R27; AC14 part) ==");
         println!("{what}");
         println!("pins: PRC_TEST_CLOCK={PIN_CLOCK} PRC_TEST_SEED={PIN_SEED}; rcrun build (WebAssembly path) {build_ms:.0} ms");
         for l in &self.lines {
@@ -1195,6 +1197,120 @@ fn sounds_are_played_and_answered_alike() {
     tally.finish(
         "sounds_are_played_and_answered_alike",
         "COBOL::\"AUDIO-PLAY\" (a relative file, with its status), \"AUDIO-PAUSE\", \"AUDIO-RESUME\", \"AUDIO-STOP\", a PAUSE with nothing playing, a missing file, a file that is not a sound, a STOP with no status item; \"AUDIO-STATE\" after each; COBOLT_AUDIO=null",
+        &root,
+        build_ms,
+    );
+}
+
+// ── 8. T50's: the canvases and the graphics objects ──────────────────────────────────────────────
+
+/// A graphics control of type `kind` with its properties.
+fn graphic(form: &mut Form, id: &str, kind: &str, rect: (i32, i32, i32, i32), props: &[(&str, PropValue)]) {
+    let mut c = Control::new(id, ControlType::from_str(kind), rect.0, rect.1);
+    c.rect = Rect::new(rect.0, rect.1, rect.2, rect.3);
+    for (k, v) in props {
+        c.set_prop(*k, v.clone());
+    }
+    form.controls.push(c);
+}
+
+#[test]
+fn canvases_and_graphics_objects_draw_and_answer_alike() {
+    let root = root("graphics");
+    let mut main = Form::new("GFX-FORM", "Graphics", 640, 480);
+    main.main_form = true;
+    graphic(&mut main, "CNV-1", "Canvas2D", (16, 16, 240, 140), &[]);
+    // Two canvases that draw in `onFrame` and never say `Present`: AutoPresent shows the first, the second stays blank.
+    let frame = ["CNV-2::SetFillColor( \"#20A040\" )", "CNV-2::FillRect( 10 10 60 40 )"];
+    graphic(&mut main, "CNV-2", "Canvas2D", (272, 16, 120, 80), &[("TargetFps", PropValue::Int(10))]);
+    bind(&mut main, "CNV-2", "onFrame", &frame);
+    let frame3: Vec<String> = frame.iter().map(|s| s.replace("CNV-2", "CNV-3")).collect();
+    graphic(&mut main, "CNV-3", "Canvas2D", (408, 16, 120, 80), &[("TargetFps", PropValue::Int(10)), ("AutoPresent", PropValue::Bool(false))]);
+    bind(&mut main, "CNV-3", "onFrame", &frame3.iter().map(String::as_str).collect::<Vec<_>>());
+    graphic(&mut main, "IMG-1", "ImageBuffer", (548, 16, 32, 32), &[]);
+    graphic(&mut main, "PHY-1", "Physics2D", (548, 56, 32, 32), &[]);
+    graphic(&mut main, "PLT-1", "Plot", (548, 96, 32, 32), &[]);
+    let cases: [(&str, &[&str], &[&str]); 5] = [
+        (
+            "DRAW",
+            &["01 WS-PX PIC X(20).", "01 WS-W PIC X(20).", "01 WS-SHOW PIC X(40)."],
+            &[
+                "CNV-1::SetFillColor( \"#2060C0\" )",
+                "CNV-1::FillRect( 10 10 120 60 )",
+                "CNV-1::SetFillColor( \"#E04020\" )",
+                "CNV-1::FillRect( 70 40 120 70 )",
+                "CNV-1::SetFont( \"16px Ubuntu\" )",
+                "CNV-1::SetFillColor( \"#FFFFFF\" )",
+                "CNV-1::DrawText( \"Hello\" 20 120 0 1 )",
+                "CNV-1::Present()",
+                "SET WS-PX TO CNV-1::GetPixel( 20 20 )",
+                "SET WS-W TO CNV-1::MeasureText( \"Hello\" )",
+                "STRING WS-PX DELIMITED BY SPACE \"/\" WS-W DELIMITED BY SPACE INTO WS-SHOW",
+                "MOVE WS-SHOW TO LBL-DRAW::Caption",
+            ],
+        ),
+        (
+            "IMAGE",
+            &["01 WS-W PIC X(20)."],
+            &["IMG-1::Create( 40 30 \"#FFD000\" )", "IMG-1::DrawOnto( CNV-1::GetHandle() 180 90 )", "CNV-1::Present()", "SET WS-W TO IMG-1::GetWidth()", "MOVE WS-W TO LBL-IMAGE::Caption"],
+        ),
+        (
+            "PHYS",
+            &["01 WS-WORLD PIC X(20).", "01 WS-BODY PIC X(20).", "01 WS-POS PIC X(40)."],
+            &[
+                "SET WS-WORLD TO PHY-1::CreateWorld( 0 -9.81 )",
+                "SET WS-BODY TO PHY-1::AddBody( WS-WORLD 1 0 10 )",
+                "PHY-1::AddBox( WS-WORLD WS-BODY 0.5 0.5 )",
+                "PHY-1::Step( WS-WORLD 0.5 )",
+                "SET WS-POS TO PHY-1::GetPosition( WS-WORLD WS-BODY )",
+                "MOVE WS-POS TO LBL-PHYS::Caption",
+            ],
+        ),
+        (
+            "PLOT",
+            &["01 WS-S PIC X(20).", "01 WS-N PIC X(20)."],
+            &["SET WS-S TO PLT-1::AddSeries( \"line\" \"a\" )", "PLT-1::AddPoint( WS-S 0 1 )", "PLT-1::AddPoint( WS-S 1 3 )", "SET WS-N TO PLT-1::GetSeriesCount()", "MOVE WS-N TO LBL-PLOT::Caption"],
+        ),
+        // A drawing call the library refuses, and a read-back it refuses: each says why in `LastError`.
+        ("BAD", &["01 WS-PX PIC X(20)."], &["CNV-1::FillRect( \"wide\" )", "SET WS-PX TO PHY-1::GetBodyCount( 99 )", "MOVE PHY-1::LastError TO LBL-BAD::Caption"]),
+    ];
+    for (i, (name, storage, statements)) in cases.iter().enumerate() {
+        let y = 180 + 44 * i as i32;
+        control(&mut main, &format!("LBL-{name}"), ControlType::Label, (220, y, 400, 24), Some("-"));
+        let id = format!("BTN-{name}");
+        control(&mut main, &id, ControlType::Button, (20, y, 180, 28), Some(&id));
+        bind_ws(&mut main, &id, "onClick", storage, statements);
+    }
+    let manifest = project(&root, "Graphics", &[("gfx-form", main)], &[]);
+    let mut steps = vec![wait(600)];
+    for (name, _, _) in &cases {
+        steps.extend([click(&format!("BTN-{name}")), wait(200), read(&format!("LBL-{name}"), "Caption")]);
+        if *name == "DRAW" || *name == "IMAGE" {
+            steps.push(shot(&format!("after-{}", name.to_ascii_lowercase())));
+        }
+    }
+    steps.extend([read("CNV-1", "LastError"), wait(500), shot("frames"), dump()]);
+    let steps = script(&root, "steps", steps);
+    let (exe, build_ms) = build(&root, &manifest);
+    let home = root.join("home");
+    let a = interpreter(&root, "gfx-form", &steps, &home);
+    let b = runner(&root, &exe, &steps, &home);
+    let mut tally = Tally::default();
+    tally.compare("graphics", &a, &b, &["after-draw", "after-image", "frames"]);
+    let got = readings(&b.report);
+    for (i, r) in got.iter().enumerate() {
+        tally.lines.push(format!("    runner read {i}: {r}"));
+    }
+    let at = |i: usize| got.get(i).map(String::as_str).unwrap_or("");
+    tally.check(format!("GetPixel reads the blue drawn at (20, 20): {} = 0x2060C0FF", 0x2060_C0FFu32), at(0).starts_with(&format!("{}/", 0x2060_C0FFu32)));
+    tally.check("an image of 40 x 30 was made", at(1) == "40");
+    tally.check("a body fell under gravity (its position was read)", !at(2).is_empty() && at(2) != "-");
+    tally.check("the chart has one series", at(3) == "1");
+    tally.check("a refused read-back says why in LastError", at(4).contains("refused"));
+    tally.check("a refused drawing call says why in LastError", at(5).contains("refused"));
+    tally.finish(
+        "canvases_and_graphics_objects_draw_and_answer_alike",
+        "a Canvas2D drawn (rectangles, text, Present) and read back (GetPixel, MeasureText); an ImageBuffer made and drawn onto it by handle; a Physics2D world stepped and read; a Plot series; a refused drawing call and a refused read-back (LastError); two canvases drawing in onFrame at TargetFps 10, AutoPresent on and off",
         &root,
         build_ms,
     );

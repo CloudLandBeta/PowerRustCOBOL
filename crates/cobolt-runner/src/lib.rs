@@ -34,6 +34,7 @@ pub mod app;
 mod audio;
 pub mod files;
 pub mod forms;
+mod gfx;
 pub mod messages;
 pub mod pins;
 
@@ -323,6 +324,24 @@ fn read_batch(caller: &Caller<'_, State>, len: i32) -> Vec<u8> {
     buf
 }
 
+/// The display lists a batch's `DRAW`s name (ABI A23): the start of the graphics region, as far as the
+/// furthest of them reaches. `None` when the batch draws nothing or the module has no region.
+fn read_gfx(caller: &Caller<'_, State>, batch: &[u8]) -> Option<Vec<u8>> {
+    let st = caller.data();
+    let (at, size) = st.forms.as_ref()?.gfx?;
+    let end = decode_batch(batch)
+        .ok()?
+        .iter()
+        .filter_map(|c| match c {
+            Command::Draw { offset, len, .. } => Some(u64::from(*offset) + u64::from(*len)),
+            _ => None,
+        })
+        .max()?;
+    let mut buf = vec![0u8; end.min(u64::from(size)) as usize];
+    st.arena?.read(caller, (st.arena_base + at) as usize, &mut buf).ok()?;
+    Some(buf)
+}
+
 /// Carry out a batch: `DISPLAY` lines to standard output, errors to standard error. In an abort
 /// the first error ends the run and is said once, after the output.
 fn apply(batch: &[u8], st: &mut State, abort: bool) {
@@ -393,9 +412,15 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                 linker
                     .func_wrap(IMPORT_MODULE, "flush", |mut caller: Caller<'_, State>, len: i32| {
                         let batch = read_batch(&caller, len);
+                        let list = read_gfx(&caller, &batch);
                         let st = caller.data_mut();
                         match st.forms.as_mut() {
-                            Some(f) => f.host.flush(&batch),
+                            Some(f) => {
+                                if let Some(list) = list {
+                                    f.host.set_gfx(list);
+                                }
+                                f.host.flush(&batch)
+                            }
                             None => apply(&batch, st, false),
                         }
                     })
@@ -420,9 +445,13 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                     .func_wrap(IMPORT_MODULE, "query", |mut caller: Caller<'_, State>, len: i32| -> i32 {
                         let bad = cobolt_wasm_abi::codes::err::BAD_ARGUMENT;
                         let batch = read_batch(&caller, len);
+                        let list = read_gfx(&caller, &batch);
                         let (at, mem, answer) = {
                             let st = caller.data_mut();
                             let Some(f) = st.forms.as_mut() else { return bad };
+                            if let Some(list) = list {
+                                f.host.set_gfx(list);
+                            }
                             (st.arena_base + f.layout.answer_off, st.arena, f.host.query(&batch))
                         };
                         match (answer, mem) {

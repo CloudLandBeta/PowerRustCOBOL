@@ -1556,6 +1556,17 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
   - Verify: runner twins equal in dumps and frames, with animations under the virtual clock.
 
 - [ ] **T50 — Viewer verbs, the window methods and canvas frames** (R11)
+  - *Canvas frames done 2026-11-17 (2.0.560); the Viewer's verbs and the window methods are still open, so the box stays empty:*
+    - **Why the canvases came first:** three reference projects took the Cargo path for them (PowerCallOfDuty, PowerCobolCraft, PowerGraphics). The operator's ruling of 2026-11-16 puts first the work that removes a project's reason.
+    - **What runs:**
+      - the seven graphics objects (Canvas2D, Canvas3D, ImageBuffer, Scene3D, Plot, Physics2D, Physics3D) in a desktop form take the WebAssembly path (`desktop_control_gap` serves class E);
+      - the runner draws them with the interpreter's `cobolt-graphics` registry, one per form instance (`desktop_registry`): drawing calls and the ABI A23 display lists run in order when the program hands its changes to the windows, and read-backs and the other six objects answer at once through `Host::gfx_sync`;
+      - `LastError`, presented frames (`_CanvasFrame`, `_Canvas3DFrame`), `AutoPresent` and `onFrame` behave as under the interpreter, whose argument and answer rules the runner calls (`value_of_text`, `answer_text`).
+    - **Tests:**
+      - the runner twin `canvases_and_graphics_objects_draw_and_answer_alike`: 6 readings equal, 3 pictures with 0 differing pixels, 12 of 12 checks. With it, the file's 11 twins pass 108 of 108 checks;
+      - `desktop_controls_the_runner_lacks_are_named` 6 of 6, with the canvases served.
+    - **Not measured:** no twin pictures a Canvas3D; the headless rasteriser has no 3D path.
+    - **Left for this task:** the Viewer's documents and verbs, and the window methods the ABI host does not carry out yet.
   - Verify: runner twins. The ABI host's list of unimplemented window methods is empty.
 
 - [ ] **T51 — M6 close** (R11's end state)

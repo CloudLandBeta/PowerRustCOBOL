@@ -14211,7 +14211,9 @@ function_prefix = "sales-"
         let mut nested = panel.clone();
         nested.children.push(ctl("MAP-CITY", T::Maps));
         let with_maps = form("MAIN", vec![ctl("BTN-GO", T::Button), nested]);
-        let second = form("ORDERS", vec![ctl("LBL-X", T::Label), ctl("CNV-PLOT", T::Canvas2D)]);
+        let second = form("ORDERS", vec![ctl("LBL-X", T::Label), ctl("VWR-DOC", T::Viewer)]);
+        // Served since T50: the canvases, drawn by the runner with the interpreter's graphics library.
+        let drawn = form("PLOT", vec![ctl("CNV-PLOT", T::Canvas2D), ctl("CNV-SCENE", T::Canvas3D)]);
         let mut bound = form("MAIN", vec![ctl("LBL-TOTAL", T::Label)]);
         bound.data_bindings.push(cobolt_forms::model::DataBindingDef::new(
             "Bind-Total",
@@ -14229,7 +14231,8 @@ function_prefix = "sales-"
         let t = std::time::Instant::now();
         let none = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &served)]);
         let maps = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &with_maps)]);
-        let canvas = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &served), ("ORDERS", "forms/orders.cfrm", &second)]);
+        let viewer = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &served), ("ORDERS", "forms/orders.cfrm", &second)]);
+        let canvas = desktop_control_reason(&[("PLOT", "forms/plot.cfrm", &drawn)]);
         let binding = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &bound)]);
         let took = t.elapsed();
         let is = |r: &Option<CargoReason>, f: &str, file: &str, c: &str, ty: &str, milestone: &str| {
@@ -14241,18 +14244,19 @@ function_prefix = "sales-"
             ("Button, Label, Panel + TextBox, DataGrid: none", none.is_none()),
             ("Maps inside a Panel: MAIN, forms/main.cfrm, MAP-CITY, Maps, M6", is(&maps, "MAIN", "forms/main.cfrm", "MAP-CITY", "Maps", "(DESKTOP-WASM-001 M6)")),
             ("the message names the file, the form and the control", text.contains("forms/main.cfrm") && text.contains("MAIN") && text.contains("MAP-CITY (Maps)")),
-            ("a Canvas2D on the second form: ORDERS, forms/orders.cfrm, CNV-PLOT", is(&canvas, "ORDERS", "forms/orders.cfrm", "CNV-PLOT", "Canvas2D", "(DESKTOP-WASM-001 M6)")),
+            ("a Viewer on the second form: ORDERS, forms/orders.cfrm, VWR-DOC, M6", is(&viewer, "ORDERS", "forms/orders.cfrm", "VWR-DOC", "Viewer", "(DESKTOP-WASM-001 M6)")),
+            ("a Canvas2D and a Canvas3D: none (T50)", canvas.is_none()),
             ("a Label bound to an indexed file: LBL-TOTAL, Label, M6", is(&binding, "MAIN", "forms/main.cfrm", "LBL-TOTAL", "Label", "(DESKTOP-WASM-001 M6)")),
         ];
-        println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, R13) ==");
-        println!("forms: 4 designs, 12 controls (3 nested), 1 binding; 4 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
+        println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, T50, R13) ==");
+        println!("forms: 5 designs, 14 controls (3 nested), 1 binding; 5 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
         println!("  Maps: {text}");
         let passed = checks.iter().filter(|(_, ok)| *ok).count();
         for (what, ok) in &checks {
             println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
         }
         println!("result: {passed} of {} checks passed", checks.len());
-        assert_eq!(passed, checks.len(), "maps {maps:?}, canvas {canvas:?}, binding {binding:?}");
+        assert_eq!(passed, checks.len(), "maps {maps:?}, viewer {viewer:?}, canvas {canvas:?}, binding {binding:?}");
     }
 
     /// A chart that names its table's fields (`LabelField`, `ValueFields`) has

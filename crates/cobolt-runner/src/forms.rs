@@ -73,6 +73,10 @@ use crate::{Lang, Msg, Pins, State};
 pub(crate) struct FormRun {
     pub(crate) host: Host,
     pub(crate) layout: ArenaLayout,
+    /// Where the graphics region is in the arena and how long it is (ABI A23), when the module has one.
+    pub(crate) gfx: Option<(u32, u32)>,
+    /// The canvases and graphics objects of the run (T50).
+    pub(crate) graphics: crate::gfx::Shared,
 }
 
 /// What a form program's `now` answers: the local date and time of the interpreter's clock
@@ -248,6 +252,10 @@ impl Driver {
         &mut self.store.data_mut().forms.as_mut().expect("a form module's state has its host").host
     }
 
+    fn graphics(&self) -> crate::gfx::Shared {
+        std::rc::Rc::clone(&self.store.data().forms.as_ref().expect("a form module's state has its host").graphics)
+    }
+
     fn call<P: wasmtime::WasmParams, R: wasmtime::WasmResults>(&mut self, name: &str, params: P) -> wasmtime::Result<R> {
         self.instance.get_typed_func::<P, R>(&mut self.store, name)?.call(&mut self.store, params)
     }
@@ -326,9 +334,13 @@ impl Thread {
     fn run(self, ready: mpsc::Sender<Result<(), Msg>>) {
         let Thread { engine, module, abi, imports, manifest, forms, files, lang, pins, rx, tx, exit } = self;
         let layout = manifest.layout();
+        // The display lists of a module with a Canvas2D cross in the region after frame-in (A23).
+        let gfx = (manifest.limits.gfx_size > 0).then(|| (layout.frame_in_off + layout.frame_size, manifest.limits.gfx_size));
         let mut host = Host::new(manifest, HostOptions { desktop: true, ..HostOptions::default() });
         // The sounds a form plays (T49, A36).
         host.audio = Some(Box::new(crate::audio::RunnerAudio::default()));
+        // The canvases and the graphics objects (T50).
+        let graphics = crate::gfx::install(&mut host);
         // A form the Build has no program for is designed but not in the manifest: it cannot open.
         for f in forms {
             if host.manifest.form_by_name(&f.name).is_some() {
@@ -341,7 +353,7 @@ impl Thread {
         let started = (|| -> Result<Driver, Msg> {
             let linker = crate::linker_for(&engine, abi, &imports)?;
             let mut st = State::new(lang, pins);
-            st.forms = Some(FormRun { host, layout });
+            st.forms = Some(FormRun { host, layout, gfx, graphics });
             st.files = crate::files::Files::new(files);
             let mut store = Store::new(&engine, st);
             let instance = linker.instantiate(&mut store, &module).map_err(|e| Msg::CannotStart(format!("{e:#}")))?;
@@ -381,6 +393,8 @@ impl Thread {
         let mut timers: Vec<(Instant, u32)> = Vec::new();
         let mut stopped = false;
         let mut root_opened = false;
+        // Canvases whose `onFrame` handler ran, to present when it has returned (AutoPresent, T50).
+        let mut presents: Vec<(u32, usize)> = Vec::new();
         loop {
             let msg = match timers.iter().map(|(at, _)| *at).min() {
                 Some(due) => {
@@ -491,8 +505,9 @@ impl Thread {
             // The events each free instance has waiting, in order; one may make it busy again.
             while let Some(at) = (0..links.len()).find(|&i| !links[i].queue.is_empty() && links[i].inst.is_some_and(|inst| !d.host().busy(inst))) {
                 let ev = links[at].queue.pop_front().expect("a waiting event");
-                take(&mut d, &links[at], ev);
+                presents.extend(take(&mut d, &links[at], ev));
                 drive(&mut d, &mut links, &mut opening, &mut adopting, &mut parked, &mut timers, &mut stopped, &tx);
+                auto_present(&mut d, &links, &mut parked, &mut presents);
             }
             if let Some(code) = d.store.data().exit_code {
                 exit.store(code, Ordering::SeqCst);
@@ -506,10 +521,11 @@ impl Thread {
 
 /// The program takes one event its window raised: it leaves `pending` before its handler runs, as
 /// the interpreter takes it; what the user changed reaches the program first and is not echoed; an
-/// input wake only does that.
-fn take(d: &mut Driver, l: &Link, ev: FormEvent) {
+/// input wake only does that. Answers the canvas to present when the handler has returned: a
+/// Canvas2D's `onFrame` with `AutoPresent` on (T50).
+fn take(d: &mut Driver, l: &Link, ev: FormEvent) -> Option<(u32, usize)> {
     l.taken();
-    let Some(inst) = l.inst else { return };
+    let inst = l.inst?;
     let edits: Vec<StateUpdate> = l.input.try_iter().collect();
     for u in edits {
         if let Some(ctl) = control_index(d.host(), inst, &l.object, &u.ctrl_id) {
@@ -518,11 +534,35 @@ fn take(d: &mut Driver, l: &Link, ev: FormEvent) {
     }
     let _ = d.host().take_changes();
     if ev.event_id == FormSupervisor::INPUT_WAKE_EVENT {
+        return None;
+    }
+    let ctl = control_index(d.host(), inst, &l.object, &ev.ctrl_id)?;
+    let args = if ev.value.is_empty() { Vec::new() } else { vec![ev.value.clone()] };
+    let handled = d.host().dom_event(inst, ctl, &ev.event_id, args);
+    (handled && crate::gfx::auto_presents(d.host(), inst, ctl, &ev.event_id)).then_some((inst, ctl))
+}
+
+/// A canvas whose `onFrame` handler has returned shows what the handler drew (`AutoPresent`, the
+/// interpreter's rule): a `Present` after the drawing the handler sent. A handler still running (it
+/// waits for something) presents when it returns.
+fn auto_present(d: &mut Driver, links: &[Link], parked: &mut Vec<(u32, Change)>, presents: &mut Vec<(u32, usize)>) {
+    if presents.is_empty() {
         return;
     }
-    if let Some(ctl) = control_index(d.host(), inst, &l.object, &ev.ctrl_id) {
-        let args = if ev.value.is_empty() { Vec::new() } else { vec![ev.value.clone()] };
-        d.host().dom_event(inst, ctl, &ev.event_id, args);
+    let mut any = false;
+    presents.retain(|&(inst, ctl)| {
+        if d.host().busy(inst) {
+            return true;
+        }
+        if let Some(tree) = d.host().trees.get_mut(&inst) {
+            tree.command(ctl, "canvas-call", vec!["Present".into()]);
+            any = true;
+        }
+        false
+    });
+    if any {
+        let g = d.graphics();
+        changes(d.host(), links, parked, &g);
     }
 }
 
@@ -564,7 +604,8 @@ fn drive(
             effects(d, links, (opening, adopting), timers, stopped, call_inst(&call));
         }
         effects(d, links, (opening, adopting), timers, stopped, None);
-        changes(d.host(), links, parked);
+        let g = d.graphics();
+        changes(d.host(), links, parked, &g);
         // A dialog with no window to show it in is answered at once: its program goes on.
         if !file_dialogs(d.host(), links, tx) {
             break;
@@ -701,11 +742,23 @@ fn effects(d: &mut Driver, links: &mut [Link], (opening, adopting): Opening<'_>,
 /// The module's property changes, as the windows' state updates: the property spelled as the
 /// program spelled its write (`CAPTION` from COBOL, `Items` from `AddItem`), the value as the
 /// program stored it. The interpreter's writes reach the window spelled the same way. A change to
-/// an instance whose window is not joined to it yet waits in `parked`.
-fn changes(host: &mut Host, links: &[Link], parked: &mut Vec<(u32, Change)>) {
+/// an instance whose window is not joined to it yet waits in `parked`. The drawing of the canvases
+/// runs first, wherever its window is (T50): its pictures wait for the window instead.
+fn changes(host: &mut Host, links: &[Link], parked: &mut Vec<(u32, Change)>, graphics: &crate::gfx::Shared) {
     use cobolt_forms::model::{CHECKED_PROP, SELECTED_PROP};
     let mut list = std::mem::take(parked);
     list.extend(host.take_changes());
+    let pictures = graphics.borrow_mut().pump(host, &mut list);
+    // The `LastError`s the drawing and the graphics calls wrote.
+    list.extend(host.take_changes());
+    for (inst, update) in pictures {
+        match link_of(links, inst) {
+            Some(l) => {
+                let _ = l.state.send(update);
+            }
+            None => graphics.borrow_mut().wait(inst, update),
+        }
+    }
     for (inst, change) in list {
         let Some(tree) = host.trees.get(&inst) else { continue };
         let Some(l) = link_of(links, inst) else {

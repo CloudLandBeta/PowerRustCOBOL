@@ -77,11 +77,24 @@ pub(crate) struct GraphicsState {
     pub gpu_gen: u64,
 }
 
+/// A registry as a desktop host starts one for a form instance: the project's limits, the stand-in face and the
+/// project's fonts, and `LoadAsset` from the project's `Assets/` folder. Each form's interpreter makes one
+/// ([`GraphicsState`]); the runner makes one per form instance of a module (DESKTOP-WASM-001 T50), so the two draw
+/// the same pictures.
+pub fn desktop_registry() -> Registry {
+    desktop_registry_with(project_limits())
+}
+
+fn desktop_registry_with(limits: Limits) -> Registry {
+    let mut registry = Registry::new(limits);
+    register_fonts(&mut registry);
+    registry.set_assets(std::sync::Arc::new(ProjectAssets));
+    registry
+}
+
 impl GraphicsState {
     pub(crate) fn with_limits(limits: Limits) -> GraphicsState {
-        let mut registry = Registry::new(limits);
-        register_fonts(&mut registry);
-        registry.set_assets(std::sync::Arc::new(ProjectAssets));
+        let registry = desktop_registry_with(limits);
         GraphicsState { registry, handles: HashMap::new(), frame_canvas: None, instance: crate::canvas_frames::next_instance(), frames: 0, gpu_gen: 0 }
     }
 
@@ -161,10 +174,19 @@ fn register_fonts(registry: &mut Registry) {
 
 /// A COBOL argument as the library's value: a number stays a number, anything else is text.
 fn to_value(v: &CobolValue) -> Value {
-    let text = v.as_display_string();
+    value_of(v.as_display_string(), v.is_numeric())
+}
+
+/// An argument a program passed as text (a module's call, DESKTOP-WASM-001 T50) as the library's value, by the
+/// interpreter's rule for its own arguments: text that reads as a number is a number, anything else is text.
+pub fn value_of_text(text: &str) -> Value {
+    value_of(text.to_owned(), false)
+}
+
+fn value_of(text: String, numeric: bool) -> Value {
     let t = text.trim();
     // A number is short: a longer run of digits is a block of data (a COBOL table) that only looks like one.
-    if t.len() <= 40 && (v.is_numeric() || t.parse::<f64>().is_ok()) {
+    if t.len() <= 40 && (numeric || t.parse::<f64>().is_ok()) {
         if let Ok(n) = t.parse::<i64>() {
             return Value::Int(n);
         }
@@ -175,8 +197,9 @@ fn to_value(v: &CobolValue) -> Value {
     Value::Text(text)
 }
 
-/// The library's answer as the text a COBOL program receives.
-fn to_text(v: &Value) -> String {
+/// The library's answer as the text a COBOL program receives (the runner answers a module's call with it too,
+/// DESKTOP-WASM-001 T50).
+pub fn answer_text(v: &Value) -> String {
     match v {
         Value::Nothing | Value::Bytes(_) => String::new(),
         Value::Int(n) => n.to_string(),
@@ -253,7 +276,7 @@ impl Interpreter {
                 if !told.iter().any(|n| n.eq_ignore_ascii_case(obj.trim())) {
                     self.obj_set(obj, "LastError", String::new());
                 }
-                Some(to_text(&v))
+                Some(answer_text(&v))
             }
             Err(why) => {
                 self.obj_set(obj, "LastError", format!("{m} refused: {why}"));

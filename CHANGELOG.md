@@ -2,6 +2,36 @@
 
 
 
+## 2.0.560 — 2026-11-17
+
+**Feature: DESKTOP-WASM-001 T50, canvas frames. A desktop form with a canvas or a graphics object (Canvas2D, Canvas3D, ImageBuffer, Scene3D, Plot, Physics2D, Physics3D) now takes the WebAssembly path. The runner draws them with the library the interpreter draws with, so a WebAssembly-built program shows the pictures a Cargo-built program shows. The Viewer's verbs and the window methods are still open, so the task stays open.**
+- **Why canvases came first:** three reference projects took the Cargo path for their canvases (PowerCallOfDuty, PowerCobolCraft and PowerGraphics; the M3 close record measures them again). The operator's ruling of 2026-11-16 ("no project should rely on cargo build") puts first the work that removes a project's reason.
+- **What runs:**
+  - **One registry per form instance.** The runner makes it as the interpreter makes one for each form it runs: the project's limits and fonts, and `LoadAsset` from the project's `Assets/` folder. A form's objects are released when the form closes.
+  - **What reaches the registry is what reaches the browser's Canvas part:**
+    - a Canvas2D's drawing methods and the module's display lists (ABI A23) run in order when the program hands its changes to the windows;
+    - a Canvas2D's read-backs (`GetPixel`, `MeasureText`, `ToImage` …) and every method of the other six objects answer at once, after the drawing that was waiting.
+  - **After each call, as the interpreter does:**
+    - an answer clears `LastError`, and a refusal writes "<method> refused: <why>" there;
+    - a Canvas2D that presented publishes its picture, and a Canvas3D that rendered publishes its render target; the window shows them as it shows the interpreter's;
+    - `AutoPresent` and `onFrame` at the `TargetFps` rate work as under the interpreter.
+  - A Canvas3D draws on the window's own device and follows it when the device is replaced.
+- **What changed in the build:**
+  - the runner links the form host and the runtime with their `graphics` feature, and `cobolt-graphics`;
+  - the interpreter's registry setup, its rule for reading an argument as a number, and its answer text are now public functions of `cobolt-runtime`, which the runner calls, so the two cannot differ. The interpreter's behaviour is unchanged;
+  - the Desktop column of the reference's browser table marks the canvases and the graphics objects as served. The System KB is regenerated: 4 417 records from 8 documents.
+- **Tests:**
+  - **The runner twin** `canvases_and_graphics_objects_draw_and_answer_alike`, against `rcrun run-form`: 12 of 12 checks.
+    - What it runs: a Canvas2D drawn and read back; an ImageBuffer made and drawn onto it; a Physics2D world stepped and read; a Plot series; a refused drawing call and a refused read-back; two canvases drawing in `onFrame` at `TargetFps` 10, with `AutoPresent` on and off.
+    - 6 readings equal, among them `GetPixel` 543211775 (0x2060C0FF), `MeasureText` 37.312, and both refusals' `LastError` texts.
+    - 3 pictures of 640×480, 0 differing pixels. Interpreter 4 355 ms, runner 6 709 ms.
+  - All 11 runner twins: 108 of 108 checks, 27 pictures, 10 331 920 pixels compared, 0 differing.
+  - `desktop_controls_the_runner_lacks_are_named`: 6 of 6. The second form's refused control is now a Viewer (M6), and a form with a Canvas2D and a Canvas3D is served.
+  - `every_control_has_a_desktop_class`: Canvas2D and Canvas3D served. `cobolt-wasm`: 130 passed.
+  - The interpreter's graphics tests, after the extraction: 29 passed (18 in `cobolt-runtime`'s library, 11 in `test_graphics_objects`, `test_image_buffer_after_call` and `test_image_builtins`).
+  - **Not measured:** no twin pictures a Canvas3D. The headless runs draw with the CPU rasteriser, which has no Canvas3D path. All three projects hold one (PowerCallOfDuty 1, PowerCobolCraft 2, PowerGraphics 4), so their pixel parity does not judge the 3D pictures either.
+- **Left for this task:** the Viewer's documents and verbs, and the window methods the ABI host does not carry out yet.
+
 ## 2.0.559 — 2026-11-17
 
 **Feature: DESKTOP-WASM-001, three gaps between the runner and a Cargo-built program, found by the pixel parity of PowerSpatial (AC19). The runner now starts at the form a designer launch names. A Snackbar's `Show()` and `DismissAll()` now raise and dismiss notifications in a WebAssembly-built desktop program. A TextBox's `SetFocus()` and `SelectAll()` now move the focus and select the text there.**

@@ -259,7 +259,8 @@ fn every_control_has_a_desktop_class() {
         ("Timer served", desktop_control_gap(&ControlType::Timer).is_none()),
         ("DataGrid served", desktop_control_gap(&ControlType::DataGrid).is_none()),
         ("Maps refused (M6)", desktop_control_gap(&ControlType::Maps).is_some_and(|w| w.contains("M6"))),
-        ("Canvas2D refused (M6)", desktop_control_gap(&ControlType::Canvas2D).is_some_and(|w| w.contains("M6"))),
+        ("Canvas2D served (T50)", desktop_control_gap(&ControlType::Canvas2D).is_none()),
+        ("Canvas3D served (T50)", desktop_control_gap(&ControlType::Canvas3D).is_none()),
         ("an unknown type refused", desktop_control_gap(&ControlType::from_str("NoSuchControl")).is_some()),
     ];
     let fixed_ok = fixed.iter().filter(|(_, ok)| *ok).count();

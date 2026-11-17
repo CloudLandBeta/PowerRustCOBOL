@@ -464,7 +464,6 @@ pub fn desktop_refusal(s: &Stmt, in_form: bool) -> Option<&'static str> {
 // ── The controls of a desktop form (DESKTOP-WASM-001 T33, plan §4.3) ─────────────────────────────
 
 const D_SERVICE: &str = "the service controls (files, databases, HTTP, AI, search, cloud and sign-in) are not on the WebAssembly path yet (DESKTOP-WASM-001 M3, M4 and M6)";
-const D_CANVAS: &str = "the canvases and the graphics objects are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_MAPS: &str = "the Maps control's places and directions are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_VIEWER: &str = "the Viewer's documents and verbs are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know takes the Cargo path (DESKTOP-WASM-001 M6)";
@@ -472,25 +471,22 @@ const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know 
 /// Why the runner does not serve a control of type `t` in a desktop form yet, or `None` when it does
 /// (DESKTOP-WASM-001 T33, plan §4.3, R13). The runner serves a control whose whole state the ABI
 /// host holds, as the browser's player does, and the form host draws: every class A and B control
-/// of the web table ([`cobolt_forms::web_class`]), and the DataGrid with rows of its own (a grid
-/// bound to data is judged by [`desktop_binding_gap`]). It does not serve yet: the service controls
-/// (class C), the canvases and the graphics objects, the Maps control (its places and directions
-/// are a service), the Viewer (its documents and verbs) and a type it does not know (class D). A
-/// form holding one takes the Cargo path, which names the form and the control.
+/// of the web table ([`cobolt_forms::web_class`]), the DataGrid with rows of its own (a grid bound
+/// to data is judged by [`desktop_binding_gap`]), and since T50 the canvases and the graphics
+/// objects (class E), which the runner draws with the interpreter's own graphics library. It does
+/// not serve yet: the service controls (class C), the Maps control (its places and directions are
+/// a service), the Viewer (its documents and verbs) and a type it does not know (class D). A form
+/// holding one takes the Cargo path, which names the form and the control.
 pub fn desktop_control_gap(t: &cobolt_forms::model::ControlType) -> Option<&'static str> {
     use cobolt_forms::model::ControlType as T;
-    use cobolt_forms::web_class::{class_of, player_kind_of, Class};
-    if player_kind_of(t).is_some() {
-        return Some(D_CANVAS);
-    }
+    use cobolt_forms::web_class::{class_of, Class};
     match t {
         T::DataGrid => None,
         T::Maps => Some(D_MAPS),
         T::Viewer => Some(D_VIEWER),
         _ => match class_of(t) {
-            Class::A | Class::B => None,
+            Class::A | Class::B | Class::E => None,
             Class::C => Some(D_SERVICE),
-            Class::E => Some(D_CANVAS),
             Class::D => Some(D_UNKNOWN),
         },
     }
