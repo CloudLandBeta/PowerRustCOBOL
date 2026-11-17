@@ -265,10 +265,10 @@
       *> <WEB-SEARCH>
       *> </WEB-SEARCH>
        Idx-Menu-OPEN.
-      *>  Opens indexed file MENU for I-O.
+      *>  Opens indexed file MENU-FILE for I-O.
            IF WS-Idx-Menu-IS-OPEN = 0
-               OPEN I-O MENU REGISTERED USER 'operator'
-               COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+               OPEN I-O MENU-FILE REGISTERED USER 'operator'
+               COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                IF WS-FS(1:1) = '0'
                    MOVE 1 TO WS-Idx-Menu-IS-OPEN
                END-IF
@@ -278,126 +278,126 @@
 
        Idx-Menu-START.
       *>  Set NUMERO, then PERFORM Idx-Menu-START to position the current pointer.
-           START MENU KEY IS GREATER THAN OR EQUAL TO NUMERO
+           START MENU-FILE KEY IS GREATER THAN OR EQUAL TO NUMERO
                INVALID KEY
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 0 TO WS-Idx-Menu-HAS-RECORD
                NOT INVALID KEY
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 0 TO WS-Idx-Menu-AT-END
            END-START.
 
        Idx-Menu-READ-NEXT.
-           READ MENU NEXT
+           READ MENU-FILE NEXT
                AT END
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 1 TO WS-Idx-Menu-AT-END
                    MOVE 0 TO WS-Idx-Menu-HAS-RECORD
                NOT AT END
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 0 TO WS-Idx-Menu-AT-END
                    MOVE 1 TO WS-Idx-Menu-HAS-RECORD
            END-READ.
 
        Idx-Menu-READ-PREVIOUS.
-           READ MENU PREVIOUS
+           READ MENU-FILE PREVIOUS
                AT END
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 1 TO WS-Idx-Menu-AT-END
                    MOVE 0 TO WS-Idx-Menu-HAS-RECORD
                NOT AT END
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 0 TO WS-Idx-Menu-AT-END
                    MOVE 1 TO WS-Idx-Menu-HAS-RECORD
            END-READ.
 
        Idx-Menu-READ-FIRST.
       *>  Set NUMERO to the lowest desired value, position, then read NEXT.
-           START MENU KEY IS GREATER THAN OR EQUAL TO NUMERO
+           START MENU-FILE KEY IS GREATER THAN OR EQUAL TO NUMERO
                INVALID KEY CONTINUE
            END-START
-           READ MENU NEXT
+           READ MENU-FILE NEXT
                AT END
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 1 TO WS-Idx-Menu-AT-END
                    MOVE 0 TO WS-Idx-Menu-HAS-RECORD
                NOT AT END
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 0 TO WS-Idx-Menu-AT-END
                    MOVE 1 TO WS-Idx-Menu-HAS-RECORD
            END-READ.
 
        Idx-Menu-READ-LAST.
       *>  Set NUMERO to the highest desired value, position, then read PREVIOUS.
-           START MENU KEY IS LESS THAN OR EQUAL TO NUMERO
+           START MENU-FILE KEY IS LESS THAN OR EQUAL TO NUMERO
                INVALID KEY CONTINUE
            END-START
-           READ MENU PREVIOUS
+           READ MENU-FILE PREVIOUS
                AT END
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 1 TO WS-Idx-Menu-AT-END
                    MOVE 0 TO WS-Idx-Menu-HAS-RECORD
                NOT AT END
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 0 TO WS-Idx-Menu-AT-END
                    MOVE 1 TO WS-Idx-Menu-HAS-RECORD
            END-READ.
 
        Idx-Menu-READ-INVALID.
       *>  Direct keyed read. Set NUMERO before calling this paragraph.
-           READ MENU
+           READ MENU-FILE
                INVALID KEY
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 0 TO WS-Idx-Menu-HAS-RECORD
                NOT INVALID KEY
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                    MOVE 1 TO WS-Idx-Menu-HAS-RECORD
            END-READ.
 
        Idx-Menu-WRITE.
-      *>  Requires MENU opened I-O. Data comes from bound/set record fields.
+      *>  Requires MENU-FILE opened I-O. Data comes from bound/set record fields.
            WRITE MENU-RECORD
                INVALID KEY
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                NOT INVALID KEY
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
            END-WRITE.
 
        Idx-Menu-REWRITE.
-      *>  Requires MENU opened I-O. Data comes from bound/set record fields.
+      *>  Requires MENU-FILE opened I-O. Data comes from bound/set record fields.
            REWRITE MENU-RECORD
                INVALID KEY
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                NOT INVALID KEY
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
            END-REWRITE.
 
        Idx-Menu-DELETE.
-      *>  Requires MENU opened I-O. Data comes from bound/set record fields.
-           DELETE MENU
+      *>  Requires MENU-FILE opened I-O. Data comes from bound/set record fields.
+           DELETE MENU-FILE
                INVALID KEY
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
                NOT INVALID KEY
-                   COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+                   COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
            END-DELETE.
 
        Idx-Menu-COMMIT.
-      *>  Makes the changes to MENU since the last COMMIT durable (the COMMIT verb acts on every open indexed file); the file stays open.
+      *>  Makes the changes to MENU-FILE since the last COMMIT durable (the COMMIT verb acts on every open indexed file); the file stays open.
            COMMIT
-           COBOL::"FILE-STATUS" ( "MENU" WS-FS ).
+           COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS ).
 
        Idx-Menu-ROLLBACK.
-      *>  Undoes the changes to MENU since the last COMMIT (the ROLLBACK verb acts on every open indexed file); the file stays open.
+      *>  Undoes the changes to MENU-FILE since the last COMMIT (the ROLLBACK verb acts on every open indexed file); the file stays open.
            ROLLBACK
-           COBOL::"FILE-STATUS" ( "MENU" WS-FS ).
+           COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS ).
 
        Idx-Menu-CLOSE.
       *>  No-op when already closed. I-O close commits automatically.
            IF WS-Idx-Menu-IS-OPEN = 1
                PERFORM Idx-Menu-COMMIT
-               CLOSE MENU
+               CLOSE MENU-FILE
                MOVE 0 TO WS-Idx-Menu-IS-OPEN
-               COBOL::"FILE-STATUS" ( "MENU" WS-FS )
+               COBOL::"FILE-STATUS" ( "MENU-FILE" WS-FS )
            END-IF.
 
 

@@ -3635,7 +3635,12 @@ record and its keys are described once in the project's indexed-file
 definition (a `.cidx`), which is what the `SELECT` and `FD` are generated
 from; the control then points at that definition and gives the form the
 plumbing to drive it — `OpenMode`, `AutoOpen` and a status data item — see
-[Indexed files](#14-indexed-files--a-first-class-resource).
+[Indexed files](#14-indexed-files--a-first-class-resource). The paragraphs it
+generates (`<id>-OPEN`, `<id>-READ-NEXT`, `<id>-WRITE` and the rest) name the
+file as your form's `SELECT` does, which need not be the `.cidx`'s own name:
+a form may declare `SELECT MENU-FILE ASSIGN TO "data/menu.idx"` over
+`menu.cidx`. When `RecordName` is empty they write `<stem>-RECORD`, after
+the `.cidx` file's name (`MENU-RECORD` for `menu.cidx`).
 
 > **Note.** A `Custom` control type exists as an extension point for
 > bespoke/vendor controls; treat it as advanced.

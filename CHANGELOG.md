@@ -2,6 +2,16 @@
 
 
 
+## 2.0.589 — 2026-11-17
+
+**Fix: an IndexedFile control's paragraphs name the file as the form's `SELECT` does.** The paragraphs a form generates for an IndexedFile control (`<id>-OPEN`, `-START`, `-READ-…`, `-WRITE`, `-REWRITE`, `-DELETE`, `-COMMIT`, `-ROLLBACK`, `-CLOSE`) used the name of the control's `.cidx` file in their verbs and in `COBOL::"FILE-STATUS"`. A form may call its `SELECT` anything and say which file it is in `ASSIGN TO`, and the `.cidx` designer names the `SELECT` after its own `name` attribute, so the two often differ. PowerDemo3's IndexedFile form declares `SELECT MENU-FILE ASSIGN TO "…/menu.idx"` over `menu.cidx`, and its paragraphs said `OPEN I-O MENU`, a file no program declares. On the interpreter the verbs on that name did nothing: `OPEN` opened no file and the status still read `00`, and `READ` ran neither its `AT END` nor its `NOT AT END` phrase. The paragraphs are never performed in PowerDemo3, so nothing visible broke there; a form that performed them read and wrote nothing. On the WebAssembly path the form took the Cargo path, naming `MENU`.
+- **Now:** the verbs and `FILE-STATUS` use the name the `SELECT` gives the file (found, as before, by that name or by the stem of its `ASSIGN TO` path). The default record name, used when `RecordName` is empty, is still the `.cidx` stem followed by `-RECORD`, as it always was. A form whose `SELECT` already carries the `.cidx` stem generates exactly what it did.
+- **Tests:**
+  - **`cobolt-codegen`:** the new `the_indexed_facade_names_the_file_as_its_select_does` declares `SELECT MENU-FILE` over `menu.cidx`: 8 of 8 verb and status forms name `MENU-FILE`, 0 of 4 stem forms remain, and the program parses and passes semantic analysis with 0 errors. The whole crate: 13 test binaries, 133 tests passed.
+  - **The form twin `an_indexed_file_control_opens_writes_and_reads_alike`** now declares `SELECT OPTIONAL ITEM-FILE` over `items.cidx`: the 8 readings, the dump and the picture (268 800 pixels, 0 differing) equal `rcrun run-form`, 6 of 6 checks. Run once on the generator before this fix, the same twin fails: the Build takes the Cargo path, "file ITEMS is not defined".
+  - **The example-corpus golden** for PowerDemo3's `Non-Visual/indexedfile-form` follows the new name (its paragraphs now say `MENU-FILE`); 81 of 81 forms identical afterwards, and the generated-bytes golden passes. The compiler's indexed tests pass (11 of 11).
+- **Developer's Guide:** the IndexedFile control's passage says the paragraphs name the file as the form's `SELECT` does, and how the default record name is made.
+
 ## 2.0.588 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T39c, completing it): a desktop form's IndexedFile control and `COBOL::"FILE-STATUS"` take the WebAssembly path. A Desktop Build no longer falls back to the Cargo path for a form that holds an IndexedFile control, or for a program that asks a file's last status. T39c is complete: no refusal names M3.**

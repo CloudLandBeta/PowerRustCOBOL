@@ -2034,10 +2034,13 @@ fn write_indexed_file_stubs(
         // not reach the source verbatim (the `_` would break the whole item).
         let id = cobol_word(&ctrl.id);
         let id = id.as_str();
-        let file = indexed_control_file_name(ctrl);
+        // The record's default is named after the `.cidx` file (`MENU-RECORD` for `menu.cidx`), as it
+        // always was; the verbs name the file as the form's `SELECT` does (`MENU-FILE`), which may differ.
+        let stem = indexed_control_file_name(ctrl);
+        let file = declared_file_name(file_control, ctrl).unwrap_or_else(|| stem.clone());
         let record = prop_string(ctrl, "RecordName")
             .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| format!("{file}-RECORD"));
+            .unwrap_or_else(|| format!("{stem}-RECORD"));
         let key = prop_string(ctrl, "KeyName")
             .or_else(|| prop_string(ctrl, "CurrentKeyDataItem"))
             .filter(|s| !s.trim().is_empty())
@@ -3104,6 +3107,13 @@ fn operator_operand(op: &str, user_ws: &str) -> String {
 /// themselves: nothing is generated for it, and such a form checks and runs.
 /// A form that declares the file generates exactly what it always did.
 fn declares_file(file_control: &str, ctrl: &Control) -> bool {
+    declared_file_name(file_control, ctrl).is_some()
+}
+
+/// The name the form's `SELECT` gives the control's file, found as [`declares_file`] finds it:
+/// the facade's verbs and `FILE-STATUS` must name the file as the program declares it, and a form
+/// may call its `SELECT` anything (`MENU-FILE`) over `menu.cidx`.
+fn declared_file_name(file_control: &str, ctrl: &Control) -> Option<String> {
     let file = indexed_control_file_name(ctrl);
     // The data file's stem as the control's definition would name it: a form may
     // call its `SELECT` anything (`MENU-FILE`) and say which file it is in `ASSIGN TO`.
@@ -3120,7 +3130,7 @@ fn declares_file(file_control: &str, ctrl: &Control) -> bool {
             name = words.next().unwrap_or("");
         }
         if name.trim_end_matches('.').eq_ignore_ascii_case(&file) {
-            return true;
+            return Some(file);
         }
         if let Some(q) = clause.find('"').or_else(|| clause.find('\'')) {
             let quote = clause.as_bytes()[q] as char;
@@ -3129,7 +3139,7 @@ fn declares_file(file_control: &str, ctrl: &Control) -> bool {
                 let base = path.rsplit(['/', '\\']).next().unwrap_or(path);
                 let base_stem = base.rsplit_once('.').map_or(base, |(l, _)| l);
                 if base_stem.to_ascii_lowercase().replace('_', "-") == stem {
-                    return true;
+                    return Some(name.trim_end_matches('.').to_ascii_uppercase());
                 }
             }
         }
@@ -3138,7 +3148,7 @@ fn declares_file(file_control: &str, ctrl: &Control) -> bool {
             break;
         }
     }
-    false
+    None
 }
 
 fn indexed_control_file_name(ctrl: &Control) -> String {
@@ -3647,6 +3657,48 @@ mod tests {
         assert!(src.contains("CustomerFile-WRITE."));
         assert!(src.contains("WRITE CUSTOMER-REC"));
         assert!(src.contains("CustomerFile-COMMIT."));
+    }
+
+    /// 2.0.589: the facade's verbs and `FILE-STATUS` name the file as the form's `SELECT` does.
+    /// PowerDemo3 declares `SELECT MENU-FILE` over `menu.cidx`, and its paragraphs said
+    /// `OPEN I-O MENU`, a file no program declares. The record default keeps the `.cidx` stem
+    /// (`MENU-RECORD`).
+    #[test]
+    fn the_indexed_facade_names_the_file_as_its_select_does() {
+        let mut form = Form::new("MENU-FORM", "Menu", 800, 600);
+        let mut idx = Control::new("Idx-Menu", ControlType::IndexedFile, 0, 0);
+        idx.set_prop("IndexedFile", PropValue::String("indexed/menu.cidx".into()));
+        idx.set_prop("OpenMode", PropValue::String("I-O".into()));
+        idx.set_prop("KeyName", PropValue::String("NUMERO".into()));
+        idx.set_prop("AutoOpen", PropValue::Bool(true));
+        form.controls.push(idx);
+        form.cobol_structure.file_control = "           SELECT MENU-FILE ASSIGN TO \"data/menu.idx\"\n               ORGANIZATION IS INDEXED ACCESS MODE IS DYNAMIC\n               RECORD KEY IS NUMERO.".into();
+        form.cobol_structure.file_section = "       FD  MENU-FILE.\n       01  MENU-RECORD.\n           05 NUMERO PIC 99.\n           05 TITULO PIC X(20).".into();
+        let src = generate(&form);
+
+        let wanted = [
+            "PERFORM Idx-Menu-OPEN",
+            "OPEN I-O MENU-FILE\n",
+            "START MENU-FILE KEY IS GREATER THAN OR EQUAL TO NUMERO",
+            "READ MENU-FILE NEXT",
+            "WRITE MENU-RECORD",
+            "DELETE MENU-FILE\n",
+            "CLOSE MENU-FILE\n",
+            "COBOL::\"FILE-STATUS\" ( \"MENU-FILE\" WS-Idx-Menu-STATUS )",
+        ];
+        let unwanted = ["OPEN I-O MENU\n", "CLOSE MENU\n", "READ MENU NEXT", "\"MENU\" "];
+        let missing: Vec<_> = wanted.iter().filter(|w| !src.contains(*w)).collect();
+        let stray: Vec<_> = unwanted.iter().filter(|w| src.contains(*w)).collect();
+        use cobolt_lexer::{tokenize, SourceFormat};
+        let parsed = cobolt_parser::parse(tokenize(&src, SourceFormat::Free));
+        let semantic = cobolt_semantic::analyze(parsed.program.as_ref().expect("a program"));
+        let errors = parsed.diagnostics.iter().filter(|d| d.is_error()).count()
+            + semantic.diagnostics.iter().filter(|d| matches!(d.severity, cobolt_semantic::Severity::Error)).count();
+        println!("indexed facade over SELECT MENU-FILE / menu.cidx: {} of {} forms present, {} of {} stem forms absent, {errors} errors",
+            wanted.len() - missing.len(), wanted.len(), unwanted.len() - stray.len(), unwanted.len());
+        assert!(missing.is_empty(), "missing {missing:?}");
+        assert!(stray.is_empty(), "the stem reached a verb: {stray:?}");
+        assert_eq!(errors, 0);
     }
 
     /// 1.91.224: `<id>-COMMIT` and `<id>-ROLLBACK` are the COMMIT and ROLLBACK

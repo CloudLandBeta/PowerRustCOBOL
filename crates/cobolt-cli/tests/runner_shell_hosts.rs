@@ -1397,9 +1397,11 @@ fn an_indexed_file_control_opens_writes_and_reads_alike() {
     // The file the control names, declared by the form (spec 108 R10: only such a form gets the
     // generated paragraphs) and GLOBAL, so its handlers drive it with the verbs; OPTIONAL, so the
     // OPEN the control makes as the form starts creates it (05). No FILE STATUS clause: every status
-    // the form shows is the one `COBOL::"FILE-STATUS"` reads, as the paragraphs read it.
-    main.cobol_structure.file_control = "           SELECT OPTIONAL ITEMS ASSIGN TO \"data/items.idx\"\n               ORGANIZATION IS INDEXED\n               ACCESS MODE IS DYNAMIC\n               RECORD KEY IS IT-ID.".into();
-    main.cobol_structure.file_section = "       FD ITEMS IS GLOBAL.\n       01 IT-REC.\n           05 IT-ID   PIC 9(3).\n           05 IT-NAME PIC X(8).".into();
+    // the form shows is the one `COBOL::"FILE-STATUS"` reads, as the paragraphs read it. Its
+    // `SELECT` name (ITEM-FILE) is not the `.cidx` stem (ITEMS): the paragraphs name the file as the
+    // `SELECT` does (2.0.589), else `AutoOpen` opens a file no program declares.
+    main.cobol_structure.file_control = "           SELECT OPTIONAL ITEM-FILE ASSIGN TO \"data/items.idx\"\n               ORGANIZATION IS INDEXED\n               ACCESS MODE IS DYNAMIC\n               RECORD KEY IS IT-ID.".into();
+    main.cobol_structure.file_section = "       FD ITEM-FILE IS GLOBAL.\n       01 IT-REC.\n           05 IT-ID   PIC 9(3).\n           05 IT-NAME PIC X(8).".into();
     main.user_ws_source = "       01 WS-IX-FS    PIC XX   GLOBAL VALUE \"99\".\n       01 WS-ST       PIC XX   GLOBAL.\n       01 WS-OPERATOR PIC X(8) GLOBAL VALUE \"ADA\".\n".into();
     let mut ixf = Control::new("IXF-ITEMS", ControlType::IndexedFile, 0, 0);
     for (k, v) in [
@@ -1433,7 +1435,7 @@ fn an_indexed_file_control_opens_writes_and_reads_alike() {
             "WRITE IT-REC INVALID KEY CONTINUE END-WRITE",
             "MOVE 1 TO IT-ID",
             "WRITE IT-REC INVALID KEY CONTINUE END-WRITE",
-            "COBOL::\"FILE-STATUS\" ( \"ITEMS\" WS-ST )",
+            "COBOL::\"FILE-STATUS\" ( \"ITEM-FILE\" WS-ST )",
             "MOVE WS-ST TO LBL-W::Caption",
         ],
     );
@@ -1444,11 +1446,11 @@ fn an_indexed_file_control_opens_writes_and_reads_alike() {
         (20, 64),
         &[
             "MOVE 7 TO IT-ID",
-            "READ ITEMS INVALID KEY CONTINUE END-READ",
-            "COBOL::\"FILE-STATUS\" ( \"ITEMS\" WS-ST )",
+            "READ ITEM-FILE INVALID KEY CONTINUE END-READ",
+            "COBOL::\"FILE-STATUS\" ( \"ITEM-FILE\" WS-ST )",
             "MOVE WS-ST TO LBL-R::Caption",
             "MOVE 2 TO IT-ID",
-            "READ ITEMS INVALID KEY CONTINUE END-READ",
+            "READ ITEM-FILE INVALID KEY CONTINUE END-READ",
             "MOVE IT-NAME TO LBL-N::Caption",
         ],
     );
@@ -1461,7 +1463,7 @@ fn an_indexed_file_control_opens_writes_and_reads_alike() {
     );
     // The file closed by the program itself, so what it leaves does not wait for the form's end: a
     // headless run ends without waiting for the program to finish (WASM-PARITY #75).
-    button(&mut main, "BTN-CLOSE", (20, 152), &["CLOSE ITEMS", "COBOL::\"FILE-STATUS\" ( \"ITEMS\" WS-ST )", "MOVE WS-ST TO LBL-C::Caption"]);
+    button(&mut main, "BTN-CLOSE", (20, 152), &["CLOSE ITEM-FILE", "COBOL::\"FILE-STATUS\" ( \"ITEM-FILE\" WS-ST )", "MOVE WS-ST TO LBL-C::Caption"]);
     let manifest = project(&root, "IndexedItems", &[("main-form", main)], &[]);
     // A relative ASSIGN starts at the folder that holds `assets/` on both engines.
     fs::create_dir_all(root.join("assets")).unwrap();
