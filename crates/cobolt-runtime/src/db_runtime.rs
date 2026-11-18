@@ -792,6 +792,12 @@ impl DbRegistry {
         }
     }
 
+    /// Is a connection out on a worker? Its statement may have been let go (timed out or
+    /// cancelled), so no operation waits for it any more, but the connection still has to come home.
+    pub fn has_lent(&self) -> bool {
+        !self.lent.is_empty()
+    }
+
     fn busy_message(&self, handle: u32) -> String {
         format!(
             "connection {handle} is busy with an asynchronous statement — wait for its \

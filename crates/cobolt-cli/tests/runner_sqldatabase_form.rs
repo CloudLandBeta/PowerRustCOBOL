@@ -19,9 +19,7 @@
 //!   does: `Execute` answers 0 at once and the control is busy, a second statement while it runs is
 //!   ignored, `onQueryComplete` reads `ResultCount`; a slow statement with `TimeoutMs = 50` raises
 //!   `onTimeout` with `LastError`, and its late result is dropped; `Cancel()` lets one go
-//!   (`onCancelled`, no longer busy); and the connection serves again once its worker is done. An idle
-//!   click comes before each statement that follows one let go: the interpreter takes such a
-//!   statement's connection back only when it next waits for an event, after that event's handler.
+//!   (`onCancelled`, no longer busy); and the connection serves again once its worker is done.
 //!
 //! Each script runs headless under `rcrun run-form` (the interpreter) and in the program
 //! `rcrun build` makes on the WebAssembly path. The dumps must be equal and the pictures equal in
@@ -89,7 +87,7 @@ fn project(root: &Path) -> PathBuf {
     let mut form = Form::new(FORM, "SqlDatabase form", 720, 500);
     form.main_form = true;
     form.user_ws_source = FORM_WS.into();
-    let buttons = ["BTN-OPEN", "BTN-SETUP", "BTN-QUERY", "BTN-TX", "BTN-BAD", "BTN-NAMED", "BTN-CLOSE", "BTN-AOPEN", "BTN-ASLOW", "BTN-ACANCEL", "BTN-AAFTER", "BTN-IDLE"];
+    let buttons = ["BTN-OPEN", "BTN-SETUP", "BTN-QUERY", "BTN-TX", "BTN-BAD", "BTN-NAMED", "BTN-CLOSE", "BTN-AOPEN", "BTN-ASLOW", "BTN-ACANCEL", "BTN-AAFTER"];
     for (i, id) in buttons.iter().enumerate() {
         control(&mut form, id, ControlType::Button, (20, 20 + 38 * i as i32, 120, 28), &[("Caption", s(id.trim_start_matches("BTN-")))]);
     }
@@ -239,10 +237,6 @@ fn project(root: &Path) -> PathBuf {
         ]),
     );
     bind(&mut form, "BTN-AAFTER", "onClick", "       01 WS-R                    PIC 9.", &lines(&["MOVE DB-2::Query(\"SELECT COUNT(*) FROM A\") TO WS-R"]));
-    // The interpreter takes back the connection of a statement it let go (timed out or cancelled) when it
-    // next waits for an event, after that event's handler: an idle click lets it, before the next
-    // statement (a fault of the interpreter's, reported; the runner takes it back when the worker ends).
-    bind(&mut form, "BTN-IDLE", "onClick", "", &lines(&["CONTINUE"]));
 
     let cfrm = root.join("forms/parity-sqldb.cfrm");
     cobolt_forms::save_form(&form, &cfrm).unwrap();
@@ -302,10 +296,8 @@ fn scripts() -> Vec<(&'static str, Value, Vec<&'static str>, bool)> {
         wait(4000),
         dump(),
         shot(asynchronous[1]),
-        click("BTN-IDLE"),
         click("BTN-ACANCEL"),
         wait(4000),
-        click("BTN-IDLE"),
         click("BTN-AAFTER"),
         wait(1500),
         dump(),
@@ -502,7 +494,7 @@ fn the_sqldatabase_control_agrees_on_both_engines() {
 
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     println!("== the_sqldatabase_control_agrees_on_both_engines (DESKTOP-WASM-001 T41c: R10, R11, ABI A43) ==");
-    println!("form {FORM}: 3 SqlDatabase controls (:memory: Sync, :memory: Async, SqlConnection SALES), 12 buttons, 9 event handlers");
+    println!("form {FORM}: 3 SqlDatabase controls (:memory: Sync, :memory: Async, SqlConnection SALES), 11 buttons, 9 event handlers");
     println!("  Sync: Open(), Execute, Query, ColumnName, Fetch loop, BeginTransaction / IsInTransaction / Rollback / Commit, LastError,");
     println!("        the named connection, Close(); onConnectOk, onQueryComplete, onQueryError, onRowFetched");
     println!("  Async: Execute answers 0 and busy, a second ignored, onQueryComplete with ResultCount, TimeoutMs 50 and onTimeout,");

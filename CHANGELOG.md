@@ -2,6 +2,17 @@
 
 
 
+## 2.0.596 — 2026-11-17
+
+**Fix: an asynchronous SqlDatabase statement that was let go (timed out or cancelled) gives its connection back as soon as its worker ends, as the Developer's Guide says; the next handler's statement on that connection is no longer refused as busy.**
+- **What happened:** after `onTimeout` or `Cancel()`, the statement keeps running on its worker, with the connection lent to it. Nothing was then pending, so the interpreter's event wait slept until the next event without looking for the worker's end; the connection came back only after that event's handler, whose first statement on it was answered "connection N is busy with an asynchronous statement" and raised `onQueryError`.
+- **Now:** the wait keeps looking while any connection is lent (`DbRegistry::has_lent`), so the connection is home before the next event is presented. The runner already took it back when the worker ended, so both paths now agree.
+- **Tests:**
+  - `cobolt-runtime` `a_let_go_statements_connection_is_home_before_the_next_event` (new): a slow statement (340 ms alone) is started and cancelled, a click arrives after it ends; `onCancelled` then `onClick` are presented, the connection is home and serves the click's statement; 4 of 4 checks. Without the fix it fails on "the connection is home when the click is presented".
+  - `cobolt-cli` `runner_sqldatabase_form`: the idle clicks that worked around the fault (2.0.595) are gone, and both engines still agree: 8 dumps equal, 8 pictures with 0 differing pixels of 2 880 000; 36 of 36 checks.
+  - `cobolt-runtime`: its library tests 577 passed, and its SQL, SqlDatabase and asynchronous REST test binaries (13) 99 passed, 18 ignored for want of a server; 0 failed.
+- **Developer's Guide:** unchanged; its SqlDatabase Async notes already say the connection is usable again the moment its worker finishes.
+
 ## 2.0.595 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T41c): the SqlDatabase control takes the WebAssembly path. A desktop form that holds a SqlDatabase no longer sends its Build down the Cargo path; the built program runs its methods with the interpreter's own code, so handles, rows, properties, events and their order are the same on both paths, Async mode included (ABI A43).**

@@ -3944,9 +3944,12 @@ impl Interpreter {
             // An agent using a model-list entry polls too, so a change made by
             // another form is noticed while this one is idle (spec 076 R16).
             let sequence_due = self.sequences_wait_ms();
+            // A SQL connection lent to a statement that was let go (timed out or cancelled)
+            // comes home when its worker ends: poll for it, or the next handler finds it busy.
             let has_pending = !self.async_pending.is_empty()
                 || !self.remote.streams.is_empty()
                 || !self.model_entry_seen.is_empty()
+                || self.db.has_lent()
                 || sequence_due.is_some();
             let debugging = self.debug_event_tx.is_some();
             let rx = match self.event_rx.as_ref() {
@@ -22866,6 +22869,71 @@ MAIN.
         db.close(h);
         db.give_back(h, conn);
         assert!(db.exec(h, "SELECT 1").is_err());
+    }
+
+    /// A statement let go (here cancelled) keeps running on its worker; the event wait keeps
+    /// polling while its connection is out, so the connection is home before the next event's
+    /// handler runs. It used to block until that event, and the handler's first statement on the
+    /// connection was refused as busy.
+    #[test]
+    fn a_let_go_statements_connection_is_home_before_the_next_event() {
+        let mut interp = Interpreter::new(
+            parse(tokenize("IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\n    STOP RUN.\n", SourceFormat::Free))
+                .program
+                .expect("parses"),
+        );
+        interp.seed_objects([(
+            "DB-1".to_owned(),
+            "SqlDatabase".to_owned(),
+            vec![("ConnectionString".to_owned(), ":memory:".to_owned())],
+        )]);
+        interp.set_control_ids(["DB-1"]);
+        let (tx, rx) = mpsc::channel();
+        interp.event_rx = Some(rx);
+        let s = |x: &str| CobolValue::from_str(x, x.len());
+        interp.exec_method("DB-1", "Open", &[]);
+        interp.async_dispatch_queue.clear(); // Open's onConnectOk
+        interp.obj_set("DB-1", "Mode", "Async".into());
+        // A statement long enough that its worker ends while the wait is already waiting.
+        let slow = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 1000000) SELECT COUNT(*) FROM c";
+        let alone = {
+            let mut db = crate::db_runtime::DbRegistry::new();
+            let h = db.open(":memory:").unwrap();
+            let t = std::time::Instant::now();
+            db.exec(h, slow).unwrap();
+            t.elapsed()
+        };
+        assert!(alone >= std::time::Duration::from_millis(50), "the statement takes {alone:?}: too quick to show the wait");
+        interp.exec_method("DB-1", "Query", &[s(slow)]);
+        interp.exec_method("DB-1", "Cancel", &[]);
+        assert!(interp.async_pending.is_empty() && interp.db.has_lent(), "let go, its connection still out");
+        let click_after = alone * 3 + std::time::Duration::from_millis(500);
+        let sender = std::thread::spawn(move || {
+            std::thread::sleep(click_after);
+            let _ = tx.send(crate::channels::FormEvent::new("BTN-1", "onClick"));
+        });
+        let mut presented = Vec::new();
+        loop {
+            match interp.next_wait_outcome() {
+                WaitOutcome::AsyncDispatch(_, e) => presented.push(e),
+                WaitOutcome::Ui(ev) => {
+                    presented.push(ev.event_id);
+                    break;
+                }
+                WaitOutcome::Disconnected => panic!("the channel closed"),
+            }
+        }
+        sender.join().unwrap();
+        assert_eq!(presented, ["onCancelled", "onClick"], "onCancelled, then the click; the late result dropped");
+        assert!(!interp.db.has_lent(), "the connection is home when the click is presented");
+        interp.obj_set("DB-1", "Mode", "Sync".into());
+        let n = interp.exec_method("DB-1", "Query", &[s("SELECT 1")]);
+        assert_eq!(n.as_display_string().trim(), "1", "the click's handler can use it: {}", interp.obj_get("DB-1", "LastError"));
+        println!(
+            "a_let_go_statements_connection_is_home_before_the_next_event: statement {} ms alone, click at {} ms; presented {presented:?}; connection home; 4 of 4 checks",
+            alone.as_millis(),
+            click_after.as_millis()
+        );
     }
 
     /// Every property the property audit retired stays a harmless no-op for
