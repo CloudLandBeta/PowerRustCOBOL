@@ -54,7 +54,7 @@
 //! either way. Only the sending is gone — an off-build reports that through the
 //! same `(body, status)` pair a network failure uses, so no caller changes.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 #[cfg(feature = "http")]
 use std::sync::{Arc, OnceLock};
 
@@ -287,8 +287,10 @@ fn classify_transport(t: &ureq::Transport) -> SendError {
 /// `COBOL-HTTP-CLEAR-HEADERS` resets them.
 #[derive(Default, Clone)]
 pub struct HttpClient {
-    /// Persistent extra headers sent with every request.
-    headers: HashMap<String, String>,
+    /// Persistent extra headers sent with every request, kept in the order of
+    /// their names so every verb sends them in that order: the same program
+    /// sends the same bytes on every run.
+    headers: BTreeMap<String, String>,
 }
 
 /// Base64, standard alphabet with padding — enough for one HTTP Basic header.
@@ -809,8 +811,7 @@ impl HttpClient {
     /// outranks a control's design-time `DefaultHeaders`.
     ///
     /// Names are matched case-insensitively (HTTP treats them so), and the
-    /// session's are visited in name order so the result does not depend on
-    /// `HashMap` iteration order.
+    /// session's are visited in name order.
     fn merged_headers(&self, cfg: &RequestConfig) -> Vec<(String, String)> {
         let mut session: Vec<(&String, &String)> = self.headers.iter().collect();
         session.sort_by(|a, b| a.0.cmp(b.0));

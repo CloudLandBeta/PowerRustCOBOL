@@ -2,6 +2,11 @@
 
 
 
+## 2.0.603 — 2026-11-18
+
+**Fix: the headers a program sets with `COBOL::"HTTP-SET-HEADER"` go out in the same order on every run.** `HTTP-GET`, `HTTP-DELETE`, `HTTP-POST` and `HTTP-PUT` sent them in a hash map's order, which changes from one run to the next. HTTP does not care about the order, but a server that logs or signs requests saw different bytes from the same program. The HTTP built-ins now send them in the order of their names, as `HTTP-DOWNLOAD` and the RestClient already did. A request with a body still sends its `Content-Type` last. Found by T42's twin (`cobolt-runner` `http_builtins`, 2.0.601), which compares the requests the two paths send byte for byte: it failed in 2 of 5 runs when the two paths' orders differed.
+- **Tests:** `cobolt-runtime` `test_http_download` `the_headers_set_go_out_in_name_order_from_every_verb` (new): five headers set in three different orders, sent by eight calls (`get`, `delete`, `post`, `put`, the three timed variants and `download`). Each request carries the same bytes whatever the setting order, with its headers in name order: 24 of 24 checks. It failed before the fix. `http_builtins` passes 5 of 5 runs. `cobolt-runtime`: the library 578 passed, 3 ignored; `test_http_download` 9, `test_async_rest` 5, and the group-receiver, property-reader and raise-event targets 8.
+
 ## 2.0.602 — 2026-11-18
 
 **Feature (DESKTOP-WASM-001 T42b, the RestClient control): a Desktop form that holds a RestClient takes the WebAssembly path. Its requests (`Get`, `Post`, `Put`, `Delete`, `Call`) are made by the interpreter's own rules, now kept in one place both paths follow, so the address, the headers, the credentials, the redirect and TLS policy, the timeouts, the answers and the events are the same on both paths.**

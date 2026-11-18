@@ -13,7 +13,8 @@
 //! - the body arrives as BYTES: all 256 byte values, byte for byte;
 //! - redirects are followed, up to five, and a credential header is not
 //!   carried across one;
-//! - only the headers set with `HTTP-SET-HEADER` are added;
+//! - only the headers set with `HTTP-SET-HEADER` are added, and every verb
+//!   sends them in the order of their names;
 //! - a 4xx/5xx is a failure with its code, and writes nothing;
 //! - the size cap (declared or streamed) and the total timeout hold, and no
 //!   `.part` file is ever left behind;
@@ -325,6 +326,69 @@ fn only_the_headers_set_are_sent_and_authorization_stops_at_a_redirect() {
     assert_eq!(download_with(before, &server.url("/plain"), &dir.join("c.bin")), (200, "OK".into()));
     let last = server.requests().last().unwrap().to_ascii_lowercase();
     assert!(!last.contains("x-trace"), "cleared headers are not sent:\n{last}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The headers set with `HTTP-SET-HEADER` go out in the order of their names,
+/// whatever order the program set them in, from every verb: the same program
+/// sends the same bytes on every run. (Before 2.0.603 they went out in a
+/// hash map's order, which changes from run to run.)
+#[test]
+fn the_headers_set_go_out_in_name_order_from_every_verb() {
+    let server = serve(|_| ok(b"x"));
+    let dir = scratch("header-order");
+    let names = ["X-Zeta", "Accept-Language", "x-alpha", "Content-Type", "X-Trace"];
+    let send = |order: &[usize], tag: &str| -> Vec<String> {
+        let mut client = HttpClient::new();
+        for &i in order {
+            client.set_header(names[i], format!("v{i}"));
+        }
+        let before = server.requests().len();
+        let _ = client.get(&server.url("/get"));
+        let _ = client.delete(&server.url("/delete"));
+        let _ = client.post(&server.url("/post"), "p");
+        let _ = client.put(&server.url("/put"), "q");
+        let _ = client.get_with_timeout(&server.url("/get-t"), 5_000);
+        let _ = client.delete_with_timeout(&server.url("/delete-t"), 5_000);
+        let _ = client.send_with_body_timeout("PUT", &server.url("/put-t"), "r", 5_000);
+        let got = client.download(&server.url("/download"), &dir.join(format!("{tag}.bin")));
+        assert_eq!(got.status, "OK");
+        server.requests()[before..].to_vec()
+    };
+    let forward = send(&[0, 1, 2, 3, 4], "forward");
+    let backward = send(&[4, 3, 2, 1, 0], "backward");
+    let shuffled = send(&[2, 0, 4, 1, 3], "shuffled");
+    assert_eq!(forward.len(), 8, "{forward:?}");
+
+    // The names of the headers set, in the order each request carried them.
+    let carried = |head: &str| -> Vec<String> {
+        head.lines()
+            .filter_map(|l| l.split_once(':').map(|(k, _)| k.trim().to_owned()))
+            .filter(|k| names.contains(&k.as_str()))
+            .collect()
+    };
+    let mut sorted: Vec<&str> = names.to_vec();
+    sorted.sort();
+    let mut checks = 0;
+    for (i, head) in forward.iter().enumerate() {
+        assert_eq!(head, &backward[i], "the same headers set in another order send the same bytes");
+        assert_eq!(head, &shuffled[i], "the same headers set in another order send the same bytes");
+        let path = head.split_whitespace().nth(1).unwrap_or("");
+        let body = ["/post", "/put", "/put-t"].contains(&path);
+        // A request with a body sends its Content-Type last.
+        let expected: Vec<&str> = if body {
+            sorted.iter().copied().filter(|n| *n != "Content-Type").chain(["Content-Type"]).collect()
+        } else {
+            sorted.clone()
+        };
+        assert_eq!(carried(head), expected, "{path}: the headers go out in name order:\n{head}");
+        checks += 3;
+    }
+    println!(
+        "header order: {} verbs x 3 setting orders, {} headers each; {checks} of {checks} checks (same bytes, name order)",
+        forward.len(),
+        names.len()
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
