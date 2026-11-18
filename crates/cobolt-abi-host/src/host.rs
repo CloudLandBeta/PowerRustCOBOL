@@ -288,6 +288,8 @@ mod aws;
 pub use self::aws::{AwsControl, AwsEffects, AwsEvent, AwsPort};
 mod sql;
 pub use self::sql::{SqlControl, SqlEffects, SqlPort};
+mod rest;
+pub use self::rest::{RestControl, RestEffects, RestPort};
 
 /// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
 /// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
@@ -617,6 +619,8 @@ pub struct Host {
     pub aws: Option<Box<dyn AwsPort>>,
     /// The desktop's SqlDatabase, which the runner gives the host (T41c, A43); `None` in a page.
     pub sql: Option<Box<dyn SqlPort>>,
+    /// The desktop's RestClient, which the runner gives the host (T42b, A46); `None` in a page.
+    pub rest: Option<Box<dyn RestPort>>,
     /// The desktop's FileDropZone copying, which the runner gives the host (T39c); `None` in a page.
     pub drop_zones: Option<Box<dyn DropZonePort>>,
     /// What the window wrote to a control the form does not hold, by instance and upper-case name (T39c):
@@ -792,6 +796,7 @@ impl Host {
             audio: None,
             aws: None,
             sql: None,
+            rest: None,
             drop_zones: None,
             absent: HashMap::new(),
             absent_out: Vec::new(),
@@ -1965,6 +1970,9 @@ impl Host {
         if let Some(s) = self.sql.as_mut() {
             s.release(inst);
         }
+        if let Some(r) = self.rest.as_mut() {
+            r.release(inst);
+        }
         self.work.retain(|w| !matches!(w, Work::Event(e) if e.inst == inst) && !matches!(w, Work::Apply(a) if a.inst == inst));
         self.auth_calls.retain(|_, (i, _, _)| *i != inst);
         self.auth_captchas.retain(|_, (i, _)| *i != inst);
@@ -2688,6 +2696,10 @@ impl Host {
         }
         // A SqlDatabase's statements are the runner's, on the desktop (T41c).
         if let Some(r) = self.sql_call(inst, idx, name, args) {
+            return r;
+        }
+        // A RestClient's requests are the runner's, on the desktop (T42b).
+        if let Some(r) = self.rest_call(inst, idx, name, args) {
             return r;
         }
         // A FileDropZone's `CommitFiles()` copies files: the runner's, on the desktop (T39c).
@@ -4152,6 +4164,8 @@ mod long_args_tests;
 mod aws_tests;
 #[cfg(test)]
 mod sql_tests;
+#[cfg(test)]
+mod rest_tests;
 #[cfg(test)]
 mod unhandled_tests;
 #[cfg(test)]

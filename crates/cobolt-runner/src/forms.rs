@@ -104,6 +104,8 @@ enum ToProgram {
     Aws(crate::aws::AwsResult),
     /// A SqlDatabase statement on a thread ended or ran out of time (T41c).
     Sql(crate::sql::SqlNews),
+    /// A RestClient request on its own thread ended or ran out of time (T42b).
+    Rest(crate::rest::RestNews),
 }
 
 /// The engine the runner gives the form host: the forms' designs, from the module's `prforms`
@@ -356,6 +358,16 @@ impl cobolt_abi_host::host::DropZonePort for DropZones {
     }
 }
 
+/// The project's connections and the credentials the environment holds, applied to `controls` and
+/// the controls they contain, as `cobolt_form_host::seeding::build_object_seed` applies them to a
+/// form's flattened controls for the interpreter.
+fn resolve_connections(form: &str, controls: &mut [cobolt_forms::Control]) {
+    cobolt_form_host::seeding::resolve_connections(form, controls);
+    for c in controls {
+        resolve_connections(form, &mut c.children);
+    }
+}
+
 /// The instance a call acts on, when the call names it.
 fn call_inst(call: &ModuleCall) -> Option<u32> {
     match call {
@@ -394,13 +406,27 @@ impl Thread {
                 })
             },
         }));
+        // The RestClient controls (T42b), with the windows' HTTP clients, the ones the HTTP built-ins
+        // use: a request on its own thread comes back on this thread's own channel too.
+        let http: std::rc::Rc<std::cell::RefCell<crate::http::Clients>> = std::rc::Rc::default();
+        let rest = crate::rest::Port::new(http.clone(), {
+            let back = tx.clone();
+            std::sync::Arc::new(move |n| {
+                let _ = back.send(ToProgram::Rest(n));
+            })
+        });
+        host.rest = Some(Box::new(rest.clone()));
         // A FileDropZone's `CommitFiles()` (T39c): the interpreter's own copy, anchored at the
         // application's folder as the interpreter anchors it.
         host.drop_zones = Some(Box::new(DropZones));
         // The canvases and the graphics objects (T50).
         let graphics = crate::gfx::install(&mut host);
         // A form the Build has no program for is designed but not in the manifest: it cannot open.
-        for f in forms {
+        for mut f in forms {
+            // A control bound to a project connection takes its address, credentials and timeouts, and a
+            // control on its own settings its credential, from the environment, as the interpreter's seed
+            // gives them (T42b): a form file never holds a credential.
+            resolve_connections(&f.name.clone(), &mut f.controls);
             if host.manifest.form_by_name(&f.name).is_some() {
                 if let Err(e) = host.add_form(f) {
                     let _ = ready.send(Err(Msg::Damaged(e)));
@@ -415,6 +441,7 @@ impl Thread {
             st.files = crate::files::Files::new(files);
             st.sql = sql.map(crate::sql::SqlRun::new);
             st.db = db;
+            st.http = http;
             let mut store = Store::new(&engine, st);
             let instance = linker.instantiate(&mut store, &module).map_err(|e| Msg::CannotStart(format!("{e:#}")))?;
             let fail = |e: wasmtime::Error| Msg::CannotStart(format!("{e:#}"));
@@ -557,6 +584,11 @@ impl Thread {
                     let news = d.store.data_mut().db.borrow_mut().delivered(n);
                     if let Some((inst, ctl, fx)) = news {
                         d.host().sql_delivered(inst, &ctl, fx);
+                    }
+                }
+                Some(ToProgram::Rest(n)) => {
+                    if let Some((inst, ctl, fx)) = rest.delivered(n) {
+                        d.host().rest_delivered(inst, &ctl, fx);
                     }
                 }
                 Some(ToProgram::Gone { link }) => {

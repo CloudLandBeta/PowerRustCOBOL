@@ -124,6 +124,7 @@ pub mod ors_bridge;
 pub use cobolt_forms::numedit;
 pub mod objects;
 pub mod relative;
+pub mod rest_door;
 pub mod rust_bridge;
 pub mod search_runtime;
 pub mod seqfile;

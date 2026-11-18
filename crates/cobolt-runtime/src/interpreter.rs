@@ -95,23 +95,6 @@ enum LoopStep {
 /// alone is not enough: the IDE always sets the var (to `0` when the diagnostic
 /// is off) and re-syncs it while the form runs, so the value is read on every
 /// call rather than cached.
-/// Does this string carry its own URL scheme (`https://...`)?
-///
-/// The test that decides whether a `RestClient` call argument is a complete
-/// address or a path to resolve against the control's `BaseURL`.
-fn url_has_scheme(s: &str) -> bool {
-    match s.find("://") {
-        Some(i) if i > 0 => {
-            let scheme = &s[..i];
-            scheme.starts_with(|c: char| c.is_ascii_alphabetic())
-                && scheme
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
-        }
-        _ => false,
-    }
-}
-
 fn databind_trace_enabled() -> bool {
     std::env::var("COBOLT_DATABIND_TRACE")
         .map(|v| {
@@ -3266,139 +3249,53 @@ impl Interpreter {
     /// 032 / operator decision) — async unless its `Mode` property is explicitly
     /// `Sync`, so legacy forms with no `Mode` property also run async.
     fn rest_is_async(&self, obj: &str) -> bool {
-        !self.obj_get(obj, "Mode").trim().eq_ignore_ascii_case("sync")
+        crate::rest_door::is_async(&|p: &str| self.obj_get(obj, p))
     }
 
     /// Effective REST timeout in milliseconds: `TimeoutMs` if set, else the
     /// legacy `TimeoutSeconds × 1000`, else 0 (no interpreter-side timeout).
     fn rest_timeout_ms(&self, obj: &str) -> u64 {
-        let ms = self.obj_get(obj, "TimeoutMs").trim().parse::<u64>().unwrap_or(0);
-        if ms > 0 {
-            return ms;
-        }
-        let secs = self
-            .obj_get(obj, "TimeoutSeconds")
-            .trim()
-            .parse::<u64>()
-            .unwrap_or(0);
-        secs.saturating_mul(1000)
+        crate::rest_door::timeout_ms(&|p: &str| self.obj_get(obj, p))
     }
 
-    /// The address a `RestClient` verb actually requests.
-    ///
-    /// `BaseURL` is seeded on every RestClient and was read by nothing, so the
-    /// idiomatic handler — address configured in the designer, `REST-1::get()`
-    /// with no argument — requested the empty string and could only fail. The
-    /// call argument still wins whenever it carries its own scheme, so every
-    /// call that worked before resolves to exactly the same URL:
-    ///
-    /// * no argument       -> `BaseURL`
-    /// * absolute argument -> the argument, untouched
-    /// * relative argument -> `BaseURL` + `/` + the argument
-    /// * `?...` / `#...`   -> appended to `BaseURL` directly
-    ///
-    /// With no `BaseURL` configured the argument is the URL, which is what the
-    /// runtime did for its whole life before this.
+    /// The address a `RestClient` verb actually requests: the control's own rule
+    /// ([`crate::rest_door::url`]).
+    #[cfg(test)]
     fn rest_url(&self, obj: &str, arg: &str) -> String {
-        let arg = arg.trim();
-        let base = self.obj_get(obj, "BaseURL");
-        let base = base.trim();
-        if arg.is_empty() {
-            return base.to_string();
-        }
-        if base.is_empty() || url_has_scheme(arg) {
-            return arg.to_string();
-        }
-        let base = base.trim_end_matches('/');
-        if arg.starts_with('?') || arg.starts_with('#') {
-            format!("{base}{arg}")
-        } else {
-            format!("{base}/{}", arg.trim_start_matches('/'))
-        }
-    }
-
-    /// A boolean control property, tolerant of every spelling one is written in
-    /// across the designer, the `.cfrm` and the runtime (`true` / `1` / `on`).
-    /// An unset or unrecognised value keeps `default` rather than reading as
-    /// false — a missing `VerifyTLS` must not silently stop verifying.
-    fn ctrl_bool(&self, obj: &str, prop: &str, default: bool) -> bool {
-        let v = self.obj_get(obj, prop);
-        let v = v.trim();
-        if v.is_empty() {
-            return default;
-        }
-        if v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on") {
-            true
-        } else if v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off") {
-            false
-        } else {
-            default
-        }
+        crate::rest_door::url(&|p: &str| self.obj_get(obj, p), arg)
     }
 
     /// The transport configuration a `RestClient` control carries: its default
-    /// headers, its credentials, and its redirect / TLS policy.
-    ///
-    /// Every one of these was seeded on the control, shown in the property pane
-    /// and documented in the System KB while being read by nothing at all.
+    /// headers, its credentials, and its redirect / TLS policy
+    /// ([`crate::rest_door::config`]).
+    #[cfg(test)]
     fn rest_config(&self, obj: &str) -> crate::http_runtime::RequestConfig {
-        let mut headers: Vec<(String, String)> = Vec::new();
+        crate::rest_door::config(&|p: &str| self.obj_get(obj, p))
+    }
 
-        // `DefaultHeaders` -- `key: value`, one per line. A line carrying no
-        // colon is not a header, so it is skipped rather than sent malformed.
-        let raw = self.obj_get(obj, "DefaultHeaders");
-        for line in raw.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some((k, v)) = line.split_once(':') {
-                let (k, v) = (k.trim(), v.trim());
-                if !k.is_empty() {
-                    headers.push((k.to_string(), v.to_string()));
-                }
-            }
-        }
-
-        // `AuthType` / `AuthToken`. An empty token sends no header at all: an
-        // `Authorization: Bearer ` with nothing after it is a 401 whose cause
-        // reads like a server fault rather than an unconfigured control.
-        let token = self.obj_get(obj, "AuthToken");
-        let token = token.trim();
-        if !token.is_empty() {
-            let scheme = self.obj_get(obj, "AuthType");
-            match scheme.trim().to_ascii_uppercase().as_str() {
-                "BEARER" => headers.push(("Authorization".into(), format!("Bearer {token}"))),
-                "BASIC" => {
-                    // `user:password` is what a developer types into the
-                    // property pane; a token with no colon is already base64
-                    // and is sent as it stands.
-                    let value = if token.contains(':') {
-                        crate::http_runtime::encode_base64(token.as_bytes())
-                    } else {
-                        token.to_string()
-                    };
-                    headers.push(("Authorization".into(), format!("Basic {value}")));
-                }
-                // No header name is universal for an API key. `X-API-Key` is
-                // the common one and is what the KB documents; an API wanting
-                // another spelling sets it through `DefaultHeaders`.
-                "APIKEY" => headers.push(("X-API-Key".into(), token.to_string())),
-                _ => {}
-            }
-        }
-
-        crate::http_runtime::RequestConfig {
-            timeout_ms: 0, // set per call site: sync uses it directly, async adds a backstop
-            follow_redirects: self.ctrl_bool(obj, "FollowRedirects", true),
-            verify_tls: self.ctrl_bool(obj, "VerifyTLS", true),
-            headers,
+    /// A RestClient request verb (`Get`, `Post`, `Put`, `Delete`, `Call`), by the
+    /// control's own rules ([`crate::rest_door`], which the desktop runner of a
+    /// program built on the WebAssembly path follows too): `Mode = Sync` answers
+    /// the body now; otherwise the request runs on its own thread (spec 032).
+    fn rest_verb(&mut self, obj: &str, method: &str, args: &[String]) -> CobolValue {
+        let start = {
+            let prop = |p: &str| self.obj_get(obj, p);
+            let item = || self.rest_request_item(obj);
+            crate::rest_door::start(&prop, method, args, &item)
+        };
+        let crate::rest_door::Start::Request(r) = start else {
+            return CobolValue::from_str("", 0);
+        };
+        if r.sync {
+            let (b, st) = self.http.send_configured(&r.verb, &r.url, r.body.as_deref(), &r.cfg);
+            self.rest_record(obj, &b, st);
+            let n = b.len();
+            CobolValue::from_str(&b, n)
+        } else {
+            self.spawn_rest_op(obj, &r.verb, r.url, r.body.unwrap_or_default(), r.cfg)
         }
     }
 
-    /// One blocking `RestClient` call (`Mode = Sync`), under the control's own
-    /// address, credentials and policy. `TimeoutSeconds` is documented as the
-    /// request timeout, so it bounds this call as well as an async one.
     /// A RestClient verb's result, where the program can reach it:
     /// `ResponseBody` / `StatusCode`, and the WORKING-STORAGE items named by
     /// `ResponseDataItem` / `StatusDataItem` when the program declares them.
@@ -3420,34 +3317,23 @@ impl Interpreter {
         }
     }
 
-    /// The body a RestClient sends: the verb's own argument, or — when that is
-    /// empty — the value of the item named by `RequestDataItem`, which was
-    /// read by nothing.
-    fn rest_body(&self, obj: &str, given: String) -> String {
-        if !given.trim().is_empty() {
-            return given;
-        }
+    /// The value of the item named by `RequestDataItem`, which was read by
+    /// nothing: the body a RestClient sends when the verb's own is empty.
+    fn rest_request_item(&self, obj: &str) -> Option<String> {
         let item = self.obj_get(obj, "RequestDataItem");
         let item = item.trim();
         if !item.is_empty() && self.env.contains(item) {
             if let Some(v) = self.env.get(item) {
-                return v.as_display_string().trim_end().to_owned();
+                return Some(v.as_display_string().trim_end().to_owned());
             }
         }
-        given
+        None
     }
 
-    fn rest_send_sync(
-        &self,
-        obj: &str,
-        verb: &str,
-        url_arg: &str,
-        body: Option<&str>,
-    ) -> (String, u16) {
-        let url = self.rest_url(obj, url_arg);
-        let mut cfg = self.rest_config(obj);
-        cfg.timeout_ms = self.rest_timeout_ms(obj);
-        self.http.send_configured(verb, &url, body, &cfg)
+    /// The body a RestClient sends ([`crate::rest_door::body`]).
+    #[cfg(test)]
+    fn rest_body(&self, obj: &str, given: String) -> String {
+        crate::rest_door::body(given, &|| self.rest_request_item(obj))
     }
 
     /// Spawn a background REST operation (spec 032). Returns immediately.
@@ -17286,49 +17172,9 @@ impl Interpreter {
             // a background worker, sets `Busy = 1`, and returns immediately; the
             // response arrives later as an onComplete/onError event. `Mode = Sync`
             // keeps the original blocking, same-statement-result behaviour.
-            "GET" => {
-                if self.rest_is_async(obj) {
-                    let (url, cfg) = (self.rest_url(obj, &arg(0)), self.rest_config(obj));
-                    self.spawn_rest_op(obj, "GET", url, String::new(), cfg)
-                } else {
-                    let (b, st) = self.rest_send_sync(obj, "GET", &arg(0), None);
-                    self.rest_record(obj, &b, st);
-                    val(b)
-                }
-            }
-            "POST" => {
-                if self.rest_is_async(obj) {
-                    let (url, cfg) = (self.rest_url(obj, &arg(0)), self.rest_config(obj));
-                    let body = self.rest_body(obj, arg(1));
-                    self.spawn_rest_op(obj, "POST", url, body, cfg)
-                } else {
-                    let body = self.rest_body(obj, arg(1));
-                    let (b, st) = self.rest_send_sync(obj, "POST", &arg(0), Some(&body));
-                    self.rest_record(obj, &b, st);
-                    val(b)
-                }
-            }
-            "PUT" => {
-                if self.rest_is_async(obj) {
-                    let (url, cfg) = (self.rest_url(obj, &arg(0)), self.rest_config(obj));
-                    let body = self.rest_body(obj, arg(1));
-                    self.spawn_rest_op(obj, "PUT", url, body, cfg)
-                } else {
-                    let body = self.rest_body(obj, arg(1));
-                    let (b, st) = self.rest_send_sync(obj, "PUT", &arg(0), Some(&body));
-                    self.rest_record(obj, &b, st);
-                    val(b)
-                }
-            }
-            "DELETE" => {
-                if self.rest_is_async(obj) {
-                    let (url, cfg) = (self.rest_url(obj, &arg(0)), self.rest_config(obj));
-                    self.spawn_rest_op(obj, "DELETE", url, String::new(), cfg)
-                } else {
-                    let (b, st) = self.rest_send_sync(obj, "DELETE", &arg(0), None);
-                    self.rest_record(obj, &b, st);
-                    val(b)
-                }
+            "GET" | "POST" | "PUT" | "DELETE" => {
+                let texts: Vec<String> = (0..args.len()).map(arg).collect();
+                self.rest_verb(obj, &m, &texts)
             }
             // ── WebSearch (spec 039 T15, broadened 2026-09-08) ───────────
             // Five back ends behind one control: Google Custom Search, Brave,
@@ -17556,28 +17402,10 @@ impl Interpreter {
                 self.obj_set(obj, "Regions", String::new());
                 none
             }
+            // An omitted verb falls back to `DefaultMethod` (`rest_door::start`).
             "CALL" => {
-                // An omitted verb falls back to `DefaultMethod`, which is what
-                // "Designer default verb" means and the only place it applies.
-                let mut verb = arg(0).trim().to_ascii_uppercase();
-                if verb.is_empty() {
-                    verb = self.obj_get(obj, "DefaultMethod").trim().to_ascii_uppercase();
-                }
-                if verb.is_empty() {
-                    verb = "GET".to_string();
-                }
-                let has_body = matches!(verb.as_str(), "POST" | "PUT" | "PATCH");
-                if self.rest_is_async(obj) {
-                    let body = if has_body { self.rest_body(obj, arg(2)) } else { String::new() };
-                    let (url, cfg) = (self.rest_url(obj, &arg(1)), self.rest_config(obj));
-                    self.spawn_rest_op(obj, &verb, url, body, cfg)
-                } else {
-                    let body = if has_body { self.rest_body(obj, arg(2)) } else { arg(2) };
-                    let (b, st) =
-                        self.rest_send_sync(obj, &verb, &arg(1), has_body.then_some(body.as_str()));
-                    self.rest_record(obj, &b, st);
-                    val(b)
-                }
+                let texts: Vec<String> = (0..args.len()).map(arg).collect();
+                self.rest_verb(obj, &m, &texts)
             }
             // ── Async operation control (spec 032) — all async-capable controls ──
             "CANCEL" => {
@@ -22280,6 +22108,7 @@ MAIN.
 
     #[test]
     fn url_scheme_detection_separates_an_address_from_a_path() {
+        use crate::rest_door::url_has_scheme;
         assert!(url_has_scheme("https://example.com"));
         assert!(url_has_scheme("http://example.com"));
         assert!(!url_has_scheme("users/7"));

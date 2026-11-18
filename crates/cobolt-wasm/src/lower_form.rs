@@ -318,6 +318,16 @@ impl Lower<'_, '_> {
                     let subject = format!("{root}::{member}");
                     return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_SQL_ITEMS));
                 }
+                // A RestClient's requests are the runner's (T42b); a member that names one of the
+                // program's data items, which the interpreter looks up by name, is not.
+                if f.rest_clients.contains(&ctrl) && crate::support::is_rest_item_member(member) {
+                    let root = match root {
+                        Expr::Identifier(n, _) => n.as_str(),
+                        _ => "",
+                    };
+                    let subject = format!("{root}::{member}");
+                    return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_REST_ITEMS));
+                }
             }
             return Ok(());
         }

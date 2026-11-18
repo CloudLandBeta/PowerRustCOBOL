@@ -162,9 +162,11 @@ pub fn publish_agent_connections_from_env() {
 /// it the credential from the environment.
 ///
 /// Runs inside [`build_object_seed`] so all three form hosts get it from one
-/// place — the parity rule this module exists for. The non-secret half comes
-/// from the published catalogue; the key never travels with it.
-fn resolve_connections(form_name: &str, controls: &mut [cobolt_forms::Control]) {
+/// place — the parity rule this module exists for — and the runner of a program
+/// built on the WebAssembly path calls it on each form it opens (DESKTOP-WASM-001
+/// T42b). The non-secret half comes from the published catalogue; the key never
+/// travels with it.
+pub fn resolve_connections(form_name: &str, controls: &mut [cobolt_forms::Control]) {
     let conns = connections();
     for (ctrl_id, missing) in cobolt_forms::connections::resolve_all(controls, conns) {
         // Nothing else can report this: the form is already running and COBOL

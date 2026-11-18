@@ -8147,6 +8147,19 @@ fn browser_subset_doc() -> String {
          Cargo path only the calling form's program waits. A call given fewer arguments than its built-in takes is sent \
          down the Cargo path.\n",
     );
+    // T42b: the RestClient is served by the interpreter's own rules; one that names a data item is
+    // refused, by its design or where a member names one.
+    d.push_str(&format!(
+        "\nThe RestClient control is served: the runner makes its requests (`Get`, `Post`, `Put`, `Delete`, `Call`) by the \
+         interpreter's own rules (the address from `BaseURL`, `DefaultHeaders`, the credentials of `AuthType`, \
+         `FollowRedirects`, `VerifyTLS`, `TimeoutMs`) with the window's HTTP client, the one the HTTP built-ins use, so \
+         `SetHeader` and `ClearHeaders` reach both. With `Mode = Sync` a request holds the program until its answer comes; \
+         otherwise it runs on a thread of its own and its answer raises `onComplete`, `onError` or `onTimeout`, and the \
+         program's other windows go on meanwhile. A RestClient whose `RequestDataItem`, `ResponseDataItem` or \
+         `StatusDataItem` is set, or a program that uses one of its members {}, takes the Cargo path: {}.\n",
+        cobolt_wasm::support::REST_ITEM_MEMBERS.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", "),
+        cobolt_wasm::support::D_REST_ITEMS
+    ));
     d.push_str("\nA control bound to data (Data Binding) takes the Cargo path too, whatever its type:\n\n| Bound to | Why |\n|---|---|\n");
     for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {
         d.push_str(&format!("| {source} | {why} |\n"));

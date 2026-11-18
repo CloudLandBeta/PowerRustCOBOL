@@ -70,20 +70,22 @@ impl Host {
         }
         let prop = |p: &str| tree.get(idx, p);
         let fx = port.call(inst, &SqlControl { name: &ctl, prop: &prop }, &m, args)?;
-        Some(Ok(Some(self.sql_apply(inst, idx, fx))))
+        Some(Ok(Some(self.service_apply(inst, idx, &fx.props, &fx.events, fx.answer))))
     }
 
-    /// Carry out `fx` on the control `idx` of instance `inst`, and answer what the method answers.
-    fn sql_apply(&mut self, inst: u32, idx: usize, fx: SqlEffects) -> String {
+    /// Carry out what a service control's port decided on the control `idx` of instance `inst`: write
+    /// `props`, in order, then raise each of `events`, in order; answer what the method answers
+    /// (`answer`). The SqlDatabase's and the RestClient's (T42b) alike.
+    pub(super) fn service_apply(&mut self, inst: u32, idx: usize, props: &[(String, String)], events: &[String], answer: String) -> String {
         if let Some(tree) = self.trees.get_mut(&inst) {
-            for (k, v) in &fx.props {
+            for (k, v) in props {
                 let _ = tree.set(idx, k, v);
             }
         }
-        for e in &fx.events {
+        for e in events {
             self.dom_event(inst, idx, e, Vec::new());
         }
-        fx.answer
+        answer
     }
 
     /// An asynchronous statement of the SqlDatabase named `ctl` of instance `inst` ended, or ran out
@@ -91,6 +93,6 @@ impl Host {
     /// instance or the control is gone.
     pub fn sql_delivered(&mut self, inst: u32, ctl: &str, fx: SqlEffects) {
         let Some(idx) = self.trees.get(&inst).and_then(|t| t.by_name(ctl)) else { return };
-        self.sql_apply(inst, idx, fx);
+        self.service_apply(inst, idx, &fx.props, &fx.events, fx.answer);
     }
 }

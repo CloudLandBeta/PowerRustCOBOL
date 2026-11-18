@@ -293,6 +293,24 @@ fn every_control_has_a_desktop_class() {
             use cobolt_wasm::support::is_sql_item_member as m;
             !m("Query") && !m("Fetch") && !m("GET-LastError") && !m("SET-")
         }),
+        // T42b: the RestClient is served; one that names a data item, by its design or by a member, is not.
+        ("RestClient served (T42b)", desktop_control_gap(&ControlType::RestClient).is_none()),
+        ("WebSearch still refused (M6)", desktop_control_gap(&ControlType::WebSearch).is_some_and(|w| w.contains("M6"))),
+        ("a RestClient naming no data item is served", {
+            let c = cobolt_forms::Control::new("REST-1", ControlType::RestClient, 0, 0);
+            cobolt_wasm::support::desktop_design_gap(&c).is_none()
+        }),
+        ("a RestClient with ResponseDataItem, StatusDataItem or RequestDataItem set is refused (M6)", {
+            ["ResponseDataItem", "StatusDataItem", "RequestDataItem"].iter().all(|p| {
+                let mut c = cobolt_forms::Control::new("REST-1", ControlType::RestClient, 0, 0);
+                c.set_prop(*p, cobolt_forms::PropValue::String("WS-ITEM".into()));
+                cobolt_wasm::support::desktop_design_gap(&c).is_some_and(|w| w.contains("RestClient") && w.contains("M6"))
+            })
+        }),
+        ("the RestClient members naming a data item: SET-ResponseDataItem, StatusDataItem, SetProperty; not Get or GET-StatusCode", {
+            use cobolt_wasm::support::is_rest_item_member as m;
+            m("SET-ResponseDataItem") && m("statusdataitem") && m("RequestDataItem") && m("SetProperty") && !m("Get") && !m("GET-StatusCode")
+        }),
     ];
     let fixed_ok = fixed.iter().filter(|(_, ok)| *ok).count();
     let sources = [

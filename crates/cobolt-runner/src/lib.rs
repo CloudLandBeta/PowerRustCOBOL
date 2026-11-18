@@ -37,6 +37,7 @@ pub mod files;
 pub mod forms;
 mod gfx;
 mod http;
+mod rest;
 pub mod messages;
 pub mod pins;
 mod sql;
