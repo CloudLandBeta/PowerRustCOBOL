@@ -1663,7 +1663,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - **Three parts, each in its own commit:**
       - **T41** proper: `EXEC SQL` in programs and handlers.
       - **T41b:** the six SQL built-ins (`OPEN-DB`, `EXEC-SQL`, `FETCH-ROW`, `NEXT-ROW`, `ROW-COUNT`, `CLOSE-DB`).
-      - **T41c:** the SqlDatabase control and `COBOL::SqlDatabase`, its Async mode included.
+      - **T41c:** the SqlDatabase control, its Async mode included; `COBOL::SqlDatabase` was split from it as **T41d**.
     - **Who does the work:**
       - The runner runs every statement with the interpreter's own SQL code (`cobolt_runtime::esql`: the three backends, cursors, positioned updates, prepared statements, the catalog and the run unit). So the databases, the SQLSTATEs and the transactions are the same on both paths.
       - The module keeps the host variables. It hands the runner each input's value and stores what the runner hands back.
@@ -1729,9 +1729,18 @@ The code says five things the plan did not settle. Each is applied in the tasks 
 
     - **Reported, fixed separately (2.0.596):** the interpreter keeps a let-go statement's connection lent until the wait after the next handler, so that handler's first statement on it is refused as busy; the Guide says the connection serves again the moment the worker ends. The twin clicks an idle button before such a statement.
 
-- [ ] **T41d — `COBOL::SqlDatabase`** (R10, R11; split from T41c 2026-11-17)
+- [x] **T41d — `COBOL::SqlDatabase`** (R10, R11; split from T41c 2026-11-17)
   - Do: the program-level database's members on the runner, over `DbRegistry::control`, with its properties kept per program and form instance as the interpreter keeps them.
   - Verify: a runner twin of `test_sql_database_object.rs` gives the interpreter's output.
+  - *Done 2026-11-17 (2.0.599):*
+    - **ABI A44:** one new `prn` import of the capability `sql`, `sql_obj(op, member, member_len, text, text_len, buf, cap) -> i32`, with `op` a verb, a property read or a property write (`cobolt_wasm_abi::sql::obj`). It is served in every desktop module, a console program's included, since the object is on no form. A form-tree target in the ABI host was considered and rejected: a console program has no ABI host.
+    - **The module:** one new routine, `rt_sql_obj`. It sends the member's name and the argument's or written value's text as a control's path argument and `SET` text are sent, and leaves the answer in a character temporary as a property read leaves its answer. The generator lowers `COBOL::SqlDatabase::Member` as a value, as a statement (`Native::Form` no longer refuses it outside a form) and as a receiving field, with the value methods after the member applied to its answer in the module.
+    - **The runner:** `Builtins::object` keeps the object's properties per form instance, beside the connections the SQL built-ins and the SqlDatabase controls use, and runs each verb with `DbRegistry::control`; the events are dropped, as the interpreter drops them. The properties move with the connections when a starting form's instance becomes known, and go when its window closes.
+    - **What takes the Cargo path, with its reason:** a write to `Mode` (`D_SQL_OBJECT_ASYNC`: an asynchronous statement's result would arrive between events with no handler to hear it); `ConnectionDataItem`, `ResultSetDataItem` and `SetProperty` (`D_SQL_ITEMS`); and any member other than the verbs (`Open`, `Execute`, `Exec`, `Query`, `BeginTransaction`, `Commit`, `Rollback`, `IsInTransaction`, `Fetch`, `FetchAll`, `ColumnNames`, `ColumnCount`, `ColumnName`, `Close`, `Cancel`, `IsBusy`) and the properties (`ConnectionString`, `SqlConnection`, `Mode`, `TimeoutMs`, `LastError`, `StatusCode`, `ResultCount`, `Busy`), a chain of two members, a value method after a member that receives a value, or `STRING … INTO` a property (`D_SQL_OBJECT_MEMBER`). A browser module still refuses the object as the Backend's.
+    - **The twin** (`cobolt-runner` `sql_object`): the interpreter's three programs and one more (`SqlConnection` and `sql-connection:SALES`, a `STRING`-built statement, a verb in `IF` and as a statement, value methods after a verb and after a property, `ColumnName` of a data item, written properties read back, `IsBusy`, `Cancel`, a verb after `Close`) print the same lines under the runner and `rcrun run`, and those lines are what the interpreter's own test expects: 33 expectations; 6 refusals each name their reason; 59 of 59 checks. On a live MySQL (`…_on_mysql`, ignored without `PRC_TEST_MYSQL_URL`): the three programs, 9 of 9.
+    - **The module corpus:** the `sql` fixture calls the object too, checked against `rcrun run`; entry 2.0.599 records it, so every later runner is checked for `sql_obj`.
+    - **AC16:** the rebuilt routine blob moves 79 bytes of each browser fixture (routine order), at the same size and with the same imports; the PowerAnalyticsWeb pin and the player's generated fixtures are re-recorded. The shipped player's files are byte-identical; only its recorded source hash moved.
+    - **Sweeps:** `cobolt-wasm` 136 passed in 36 test binaries; `cobolt-wasm-rt` and `cobolt-wasm-abi` 55 in 7; `cobolt-runner` 16 in 10 (2 ignored without a live MySQL); `cobolt-abi-host` 274 in 2; `cobolt-compiler` library 261 (1 ignored) and `desktop_wasm_build` 1; `cobolt-cli`'s five runner tests 20 (1 ignored); the module corpus 11 of 11 modules in 4 releases with identical output; the player's freshness test 6; 0 failed.
 
 - [ ] **T42 — HTTP and RestClient** (R10, R11)
   - Do: `http_call` suspends and resumes the module as `remote` does.

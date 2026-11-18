@@ -101,6 +101,11 @@ mod imp {
         /// `text`; the receivers' values are written at `buf` (at most `cap` bytes) and their length
         /// returned, or a negative number when the runner could not run the call.
         pub fn sql_db(op: u32, handle: i64, number: i64, text: u32, text_len: u32, buf: u32, cap: u32) -> i32;
+        // A desktop module only (ABI A44): `COBOL::SqlDatabase`, run by the runner over its connections.
+        /// Operation `op` (`crate::sql::obj`) on the member named by the `member_len` bytes at `member`,
+        /// with the `text_len` bytes at `text`; the answer is written at `buf` when it fits in `cap`
+        /// bytes, and its whole length returned, or a negative number when the runner could not run it.
+        pub fn sql_obj(op: u32, member: u32, member_len: u32, text: u32, text_len: u32, buf: u32, cap: u32) -> i32;
     }
 }
 
@@ -277,6 +282,11 @@ mod imp {
     /// A SQL built-in (A42): recorded with the built-ins' imports, as `("sql_db", [text], [op, handle, number])`.
     pub unsafe fn sql_db(op: u32, handle: i64, number: i64, text: u32, text_len: u32, buf: u32, cap: u32) -> i32 {
         builtin_call("sql_db", &[(text, text_len)], &[op as i64, handle, number], buf, cap)
+    }
+    /// `COBOL::SqlDatabase` (A44): recorded with the built-ins' imports, as `("sql_obj", [member, text], [op])`.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn sql_obj(op: u32, member: u32, member_len: u32, text: u32, text_len: u32, buf: u32, cap: u32) -> i32 {
+        builtin_call("sql_obj", &[(member, member_len), (text, text_len)], &[op as i64], buf, cap)
     }
 }
 

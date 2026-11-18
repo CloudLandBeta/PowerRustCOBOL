@@ -495,6 +495,28 @@ pub fn is_sql_item_member(member: &str) -> bool {
     SQL_ITEM_MEMBERS.iter().any(|s| s.eq_ignore_ascii_case(bare))
 }
 
+/// The verbs of `COBOL::SqlDatabase` a desktop module runs (DESKTOP-WASM-001 T41d, ABI A44): the
+/// SqlDatabase control's own, which the runner runs with the interpreter's code, and `Cancel` and
+/// `IsBusy`, which every asynchronous object answers.
+pub const SQL_OBJECT_VERBS: &[&str] = &[
+    "Open", "Execute", "Exec", "Query", "BeginTransaction", "Commit", "Rollback", "IsInTransaction", "Fetch", "FetchAll", "ColumnNames",
+    "ColumnCount", "ColumnName", "Close", "Cancel", "IsBusy",
+];
+
+/// The properties of `COBOL::SqlDatabase` a desktop module reads (T41d): the ones its verbs read and
+/// write.
+pub const SQL_OBJECT_PROPERTIES: &[&str] = &["ConnectionString", "SqlConnection", "Mode", "TimeoutMs", "LastError", "StatusCode", "ResultCount", "Busy"];
+
+/// The properties of `COBOL::SqlDatabase` a desktop module writes (T41d): not `Mode`
+/// ([`D_SQL_OBJECT_ASYNC`]) and not `Busy`, which the runtime keeps.
+pub const SQL_OBJECT_WRITABLE: &[&str] = &["ConnectionString", "SqlConnection", "TimeoutMs", "LastError", "StatusCode", "ResultCount"];
+
+/// Why a write to `COBOL::SqlDatabase::Mode` takes the Cargo path (T41d).
+pub const D_SQL_OBJECT_ASYNC: &str = "an asynchronous statement of the program-level database (a write to its Mode) takes the Cargo path: its result arrives between events, with no handler to hear it (DESKTOP-WASM-001 M6)";
+
+/// Why any other member of `COBOL::SqlDatabase` takes the Cargo path (T41d).
+pub const D_SQL_OBJECT_MEMBER: &str = "a desktop module runs the database's verbs (Open, Execute, Exec, Query, BeginTransaction, Commit, Rollback, IsInTransaction, Fetch, FetchAll, ColumnNames, ColumnCount, ColumnName, Close, Cancel, IsBusy, each called with its parentheses) and its properties (ConnectionString, SqlConnection, Mode, TimeoutMs, LastError, StatusCode, ResultCount, Busy) one at a time; anything else takes the Cargo path";
+
 /// Why the desktop control `c` takes the Cargo path for what its design holds, beyond its type
 /// ([`desktop_control_gap`]): a SqlDatabase that names a data item ([`D_SQL_ITEMS`]).
 pub fn desktop_design_gap(c: &cobolt_forms::Control) -> Option<&'static str> {

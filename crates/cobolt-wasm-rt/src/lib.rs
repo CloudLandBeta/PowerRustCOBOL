@@ -436,6 +436,14 @@ pub extern "C" fn rt_sql_db(base: u32, op: u32, a: u32, b: u32, c: u32, d: u32) 
     deskio::sql_db(base, op, a, b, c, d);
 }
 
+/// `COBOL::SqlDatabase::member` (ABI A44): operation `op` (`sql::obj`) on the member the literal
+/// `member` names, with operand `arg` (0: none); the answer goes to character temporary `k`
+/// (`NCTEMP` or more: dropped).
+#[no_mangle]
+pub extern "C" fn rt_sql_obj(base: u32, op: u32, member: u32, arg: u32, k: u32) {
+    cmd::sql_obj(base, op, member, arg, k);
+}
+
 /// `INSPECT target <spec>`.
 #[no_mangle]
 pub extern "C" fn rt_inspect(base: u32, target: u32, spec: u32) {

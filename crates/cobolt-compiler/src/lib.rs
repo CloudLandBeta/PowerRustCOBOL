@@ -8126,6 +8126,17 @@ fn browser_subset_doc() -> String {
         cobolt_wasm::support::SQL_ITEM_MEMBERS.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", "),
         cobolt_wasm::support::D_SQL_ITEMS
     ));
+    // T41d: the program-level database is served in every desktop module, with or without forms.
+    d.push_str(&format!(
+        "\n`COBOL::SqlDatabase`, the program-level database, is served in every Desktop program, with or without a form: the \
+         runner keeps its properties and runs its verbs with the interpreter's own code, on the connections the SQL built-ins \
+         use. Its verbs are {} (each called with its parentheses), and its properties {} (read; all but `Mode` and `Busy` \
+         written too). A write to `Mode` takes the Cargo path: {}. Any other member takes the Cargo path: {}.\n",
+        cobolt_wasm::support::SQL_OBJECT_VERBS.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", "),
+        cobolt_wasm::support::SQL_OBJECT_PROPERTIES.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", "),
+        cobolt_wasm::support::D_SQL_OBJECT_ASYNC,
+        cobolt_wasm::support::D_SQL_OBJECT_MEMBER
+    ));
     d.push_str("\nA control bound to data (Data Binding) takes the Cargo path too, whatever its type:\n\n| Bound to | Why |\n|---|---|\n");
     for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {
         d.push_str(&format!("| {source} | {why} |\n"));

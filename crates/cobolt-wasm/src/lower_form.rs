@@ -167,6 +167,87 @@ impl Lower<'_, '_> {
         Ok(())
     }
 
+    /// Is `root` `COBOL::SqlDatabase` in a desktop module, whose runner serves it (DESKTOP-WASM-001
+    /// T41d, ABI A44)? A data item of that name wins, as in [`Self::unknown_root`]; a browser
+    /// module's database is the backend's, and [`Self::unknown_root`] says so.
+    pub(crate) fn is_sql_object(&mut self, root: &Expr) -> bool {
+        self.native && matches!(root, Expr::Identifier(n, _) if cobolt_ast::methods::is_sql_database_object(n)) && self.resolve_item(root).is_err()
+    }
+
+    /// Is `s` a statement on `COBOL::SqlDatabase` in a desktop module: a verb written as a statement, or
+    /// `SET` of one of its properties (T41d)? Such a statement is served in a program with no form too.
+    pub(crate) fn on_sql_object(&mut self, s: &Stmt) -> bool {
+        let root = match s {
+            Stmt::InvokeExpr { expr, .. } => Self::chain(expr).map(|(r, _)| r),
+            Stmt::ControlSet { control, .. } => Some(control),
+            _ => None,
+        };
+        root.is_some_and(|r| self.is_sql_object(r))
+    }
+
+    /// The one segment of a `COBOL::SqlDatabase` chain the runner serves: the first, when the
+    /// segments after it are value methods (`::LastError::Trim()`), which apply to its answer here.
+    /// A receiving field (`write`) is that segment alone.
+    fn sql_object_segment<'s, 'e>(&self, segs: &'s [Seg<'e>], write: bool, line: u32) -> GenResult<&'s Seg<'e>> {
+        if if write { segs.len() == 1 } else { Self::host_prefix_len(segs) == 1 } {
+            return Ok(&segs[0]);
+        }
+        let what = segs.iter().map(|s| s.name).collect::<Vec<_>>().join("::");
+        let subject = format!("COBOL::SqlDatabase::{what}");
+        self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_SQL_OBJECT_MEMBER))
+    }
+
+    /// The operation (`cobolt_wasm_abi::sql::obj`) of `seg`, a member of `COBOL::SqlDatabase`, read as
+    /// the interpreter reads it: a bare member is a property, read or (`write`) written; with its
+    /// parentheses it is a verb when it has no arguments or names a known method. What the runner does
+    /// not serve takes the Cargo path, with the reason.
+    fn sql_object_op(&self, seg: &Seg<'_>, write: bool, line: u32) -> GenResult<u32> {
+        use crate::support::{SQL_OBJECT_PROPERTIES, SQL_OBJECT_VERBS, SQL_OBJECT_WRITABLE};
+        use cobolt_wasm_abi::sql::obj;
+        let one_of = |list: &[&str]| list.iter().any(|n| n.eq_ignore_ascii_case(seg.name.trim()));
+        let why = if crate::support::is_sql_item_member(seg.name) {
+            crate::support::D_SQL_ITEMS
+        } else if seg.index.is_some() {
+            crate::support::D_SQL_OBJECT_MEMBER
+        } else if seg.parens {
+            let call = seg.args.is_empty() || cobolt_ast::methods::is_known_method(seg.name);
+            if !write && call && one_of(SQL_OBJECT_VERBS) {
+                return Ok(obj::CALL);
+            }
+            crate::support::D_SQL_OBJECT_MEMBER
+        } else if write && seg.name.trim().eq_ignore_ascii_case("Mode") {
+            crate::support::D_SQL_OBJECT_ASYNC
+        } else if write && one_of(SQL_OBJECT_WRITABLE) {
+            return Ok(obj::SET);
+        } else if !write && one_of(SQL_OBJECT_PROPERTIES) {
+            return Ok(obj::GET);
+        } else {
+            crate::support::D_SQL_OBJECT_MEMBER
+        };
+        let subject = format!("COBOL::SqlDatabase::{}", seg.name);
+        self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {why}"))
+    }
+
+    /// `COBOL::SqlDatabase::seg` (T41d): operation `op` with the segment's first argument (a verb reads
+    /// no other, as the interpreter's), or with `value`, the operand a write stores. The runner's answer
+    /// goes to a new character temporary, whose operand is answered, when `keep`; else it is dropped.
+    fn sql_object_run(&mut self, seg: &Seg<'_>, op: u32, value: Option<u32>, keep: bool, line: u32) -> GenResult<Option<u32>> {
+        let arg = match (value, seg.args.first()) {
+            (Some(v), _) => v,
+            (None, Some(a)) if op == cobolt_wasm_abi::sql::obj::CALL => self.operand_or_temp(a)?,
+            _ => 0,
+        };
+        let k = if keep { Some(self.next_ctemp(line)?) } else { None };
+        let member = self.pool.opd_lit_alnum(seg.name.trim().as_bytes());
+        self.base();
+        self.i32c(op as i32);
+        self.i32c(member as i32);
+        self.i32c(arg as i32);
+        self.i32c(k.map_or(cobolt_wasm_rt::state::NCTEMP as i32, |k| k as i32));
+        self.call_rt("rt_sql_obj");
+        Ok(k.map(|k| self.pool.opd_ctemp(k)))
+    }
+
     /// A chain whose root is neither the host, a control, a layer nor a data
     /// item: on a form that has layers it is most likely a layer's name
     /// mistyped, and the refusal names the layers there are (spec 091 R37).
@@ -268,12 +349,13 @@ impl Lower<'_, '_> {
         self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_FORMS))
     }
 
-    /// Does `e` start a chain that reaches the host?
+    /// Does `e` start a chain that reaches the host: a control, the form, the application object, or
+    /// in a desktop module `COBOL::SqlDatabase`, which the runner serves (T41d)?
     pub(crate) fn is_host_member(&mut self, e: &Expr) -> bool {
         match Self::chain(e) {
             Some((root, segs)) => {
                 let first = segs.first().map(|s| s.name);
-                self.chain_receiver(root, first).is_some()
+                self.chain_receiver(root, first).is_some() || self.is_sql_object(root)
             }
             None => false,
         }
@@ -382,6 +464,12 @@ impl Lower<'_, '_> {
             return self.err(line, "a control property was expected as the receiving field");
         };
         let Some(ctrl) = self.host_root(root) else {
+            if self.is_sql_object(root) {
+                let seg = self.sql_object_segment(&segs, true, line)?;
+                let op = self.sql_object_op(seg, true, line)?;
+                self.sql_object_run(seg, op, Some(value), false, line)?;
+                return Ok(());
+            }
             if let Some(e) = self.unknown_root(root, line) {
                 return Err(e);
             }
@@ -431,6 +519,10 @@ impl Lower<'_, '_> {
             return self.err(line, "a control property was expected as the receiving field");
         };
         let Some(ctrl) = self.host_root(root) else {
+            if self.is_sql_object(root) {
+                let subject = format!("COBOL::SqlDatabase::{}", segs[0].name);
+                return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_SQL_OBJECT_MEMBER));
+            }
             if let Some(e) = self.unknown_root(root, line) {
                 return Err(e);
             }
@@ -476,6 +568,13 @@ impl Lower<'_, '_> {
             return self.err(line, "a control member was expected");
         };
         let Some(ctrl) = self.chain_receiver(root, segs.first().map(|s| s.name)) else {
+            // `COBOL::SqlDatabase::Close()`: the verb runs, its answer (and any value method after it) dropped.
+            if self.is_sql_object(root) {
+                let seg = self.sql_object_segment(&segs, false, line)?;
+                let op = self.sql_object_op(seg, false, line)?;
+                self.sql_object_run(seg, op, None, false, line)?;
+                return Ok(());
+            }
             if let Some(e) = self.unknown_root(root, line) {
                 return Err(e);
             }
@@ -566,6 +665,16 @@ impl Lower<'_, '_> {
                     return Ok(r);
                 }
                 (r, &segs[host_len..])
+            }
+            // `COBOL::SqlDatabase::Query(…)`: the runner's answer, then the value methods after it.
+            None if self.is_sql_object(root) => {
+                let seg = self.sql_object_segment(&segs, false, line)?;
+                let op = self.sql_object_op(seg, false, line)?;
+                let r = self.sql_object_run(seg, op, None, true, line)?.expect("the answer is kept");
+                if segs.len() == 1 {
+                    return Ok(r);
+                }
+                (r, &segs[1..])
             }
             None => {
                 if let Some(e) = self.unknown_root(root, line) {

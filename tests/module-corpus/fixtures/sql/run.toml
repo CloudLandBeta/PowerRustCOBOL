@@ -1,6 +1,7 @@
 # The "sql" fixture of the module corpus (DESKTOP-WASM-001 T41): what it is given and what it must
 # print and answer. The output was checked against `rcrun run` (the interpreter) on 2026-11-17, and
-# again on 2026-11-17 when T41b added the SQL built-ins (ABI A42).
+# again on 2026-11-17 when T41b added the SQL built-ins (ABI A42) and when T41d added
+# COBOL::SqlDatabase (ABI A44).
 sources = ["main.cbl"]
 clock = "2026-01-02T03:04:05.67-03:00"
 seed = 20261114
@@ -21,4 +22,9 @@ built-ins handle 000000001 rows 002
 row 0007 SEVEN       
 row 0008 EIGHT       
 after the end [No current row]
+object inserted 001
+object rows 002
+object first [4           ]
+object error 000 [near "SELEC": syntax error in SELEC 1 at offset 0]
+object status 0
 '''

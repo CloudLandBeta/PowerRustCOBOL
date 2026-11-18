@@ -28,7 +28,7 @@ use cobolt_runtime::esql::state::Outcome;
 use cobolt_runtime::esql::SqlRunUnit;
 use cobolt_runtime::interpreter::Interpreter;
 use cobolt_runtime::value::{CobolNumeric, CobolValue};
-use cobolt_wasm_abi::sql::{db, wire, SqlCell, SqlSection, SQL_FORMAT};
+use cobolt_wasm_abi::sql::{db, obj, wire, SqlCell, SqlSection, SQL_FORMAT};
 
 /// One statement, read from the section once.
 struct Statement {
@@ -228,6 +228,9 @@ pub struct Builtins {
     /// a time-out take it away, so its result is dropped.
     running: HashMap<(Option<u32>, String), u64>,
     generation: u64,
+    /// `COBOL::SqlDatabase`'s properties (T41d, ABI A44), by their names in upper case: one object per
+    /// registry, as each form's interpreter keeps its own.
+    objects: HashMap<Option<u32>, HashMap<String, String>>,
 }
 
 impl Builtins {
@@ -267,6 +270,9 @@ impl Builtins {
     /// started, before the instance was known, are its own.
     pub fn opened_form(&mut self, inst: u32) {
         if std::mem::take(&mut self.made_in_call) {
+            if let Some(o) = self.objects.remove(&None) {
+                self.objects.insert(Some(inst), o);
+            }
             if let Some(r) = self.registries.remove(&None) {
                 self.registries.insert(Some(inst), r);
                 // And the SqlDatabase statements running on them.
@@ -284,6 +290,7 @@ impl Builtins {
     /// drops its own.
     pub fn forget_instance(&mut self, inst: u32) {
         self.registries.remove(&Some(inst));
+        self.objects.remove(&Some(inst));
         self.running.retain(|(k, _), _| *k != Some(inst));
     }
 
@@ -293,7 +300,64 @@ impl Builtins {
             r.close_all();
         }
         self.registries.clear();
+        self.objects.clear();
     }
+
+    /// `COBOL::SqlDatabase` (T41d, ABI A44): operation `op` (`obj`) on `member`, with `text` (a verb's
+    /// argument or the value written), on the object and the connections of the instance the module
+    /// is calling into, as the interpreter runs it on its own: a property is kept as written and read
+    /// back (empty until written), and a verb runs with the interpreter's code (`DbRegistry::control`),
+    /// whose properties it writes; its events are dropped, as the interpreter drops them (the object is
+    /// on no form). `None` for an operation it does not know.
+    pub fn object(&mut self, op: u32, member: &[u8], text: &[u8]) -> Option<String> {
+        let member = String::from_utf8_lossy(member).trim().to_ascii_uppercase();
+        let text = String::from_utf8_lossy(text).into_owned();
+        let key = self.calling;
+        if key.is_none() && !self.registries.contains_key(&None) && !self.objects.contains_key(&None) {
+            self.made_in_call = true;
+        }
+        let props = self.objects.entry(key).or_default();
+        match op {
+            obj::GET => Some(props.get(&member).cloned().unwrap_or_default()),
+            obj::SET => {
+                props.insert(member, text);
+                Some(String::new())
+            }
+            obj::CALL => match member.as_str() {
+                // Nothing of the object runs on a thread (a write to `Mode` takes the Cargo path): there
+                // is no statement to let go, and `Busy` is as written.
+                "CANCEL" => Some(String::new()),
+                "ISBUSY" => Some(if truthy(props.get("BUSY").map_or("", String::as_str)) { "1" } else { "0" }.to_owned()),
+                m => {
+                    let registry = self.registries.entry(key).or_insert_with(DbRegistry::new);
+                    let catalog = cobolt_runtime::esql::catalog::current();
+                    let args = [text.trim().to_owned()];
+                    let props = self.objects.entry(key).or_default();
+                    let prop = |p: &str| props.get(&p.to_ascii_uppercase()).cloned().unwrap_or_default();
+                    let step = registry.control(m, &args, &prop, |db, conn| open_named(db, conn, catalog.as_deref()));
+                    match step {
+                        Some(ControlStep::Done(fx)) => {
+                            let props = self.objects.entry(key).or_default();
+                            for (k, v) in fx.props {
+                                props.insert(k.to_ascii_uppercase(), v);
+                            }
+                            Some(fx.answer)
+                        }
+                        // Not reached: `Mode` is never `Async` here.
+                        Some(ControlStep::Async { .. }) => Some("0".to_owned()),
+                        None => Some(String::new()),
+                    }
+                }
+            },
+            _ => None,
+        }
+    }
+}
+
+/// The interpreter's truth of a property's text (`IsBusy`): `1`, `true`, `yes` or `on`, in any case.
+fn truthy(s: &str) -> bool {
+    let t = s.trim();
+    t == "1" || t.eq_ignore_ascii_case("true") || t.eq_ignore_ascii_case("yes") || t.eq_ignore_ascii_case("on")
 }
 
 /// A SqlDatabase statement's news, on its way to the program thread (T41c).

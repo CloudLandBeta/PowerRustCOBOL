@@ -103,6 +103,8 @@ pub const PROVIDED_IMPORTS: &[(u32, &str, &str)] = &[
     (1, NATIVE_IMPORT_MODULE, "sql_exec"),
     // T41b: the SQL built-ins (A42).
     (1, NATIVE_IMPORT_MODULE, "sql_db"),
+    // T41d: `COBOL::SqlDatabase` (A44).
+    (1, NATIVE_IMPORT_MODULE, "sql_obj"),
 ];
 
 /// `pr_run`'s answers (the generator's `ret`): the run finished, or `STOP RUN`.
@@ -266,8 +268,8 @@ fn check(module: &[u8]) -> Result<Checked, Msg> {
     let sql = sql::SqlSetup::from_module(scan.custom(cobolt_wasm_abi::sql::SQL_SECTION))
         .map_err(|e| Msg::Damaged(format!("the program's `{}` section: {e}", cobolt_wasm_abi::sql::SQL_SECTION)))?;
     // The SQL connections the Build wrote beside the executable, read as a Cargo-built program reads
-    // them at start, for `EXEC SQL` (T41), the SQL built-ins (T41b) and the SqlDatabase controls (T41c):
-    // the capability `sql` says the program has one of them.
+    // them at start, for `EXEC SQL` (T41), the SQL built-ins (T41b), the SqlDatabase controls (T41c)
+    // and `COBOL::SqlDatabase` (T41d): the capability `sql` says the program has one of them.
     if manifest.capabilities.iter().any(|c| c == cap::SQL) {
         sql::install_connections(&sections.settings.app_name);
     }
@@ -841,6 +843,28 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                             let Some(text) = read_mem(&mut caller, text, text_len) else { return FAILED };
                             let Some(out) = caller.data_mut().db.borrow_mut().call(op as u32, handle, number, &text, cap.max(0) as usize) else { return FAILED };
                             match write_mem(&mut caller, buf, &out) {
+                                Some(()) => out.len() as i32,
+                                None => FAILED,
+                            }
+                        },
+                    )
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "sql_obj") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "sql_obj",
+                        |mut caller: Caller<'_, State>, op: i32, member: i32, member_len: i32, text: i32, text_len: i32, buf: i32, cap: i32| -> i32 {
+                            use cobolt_wasm_abi::sql::obj::FAILED;
+                            let Some(member) = read_mem(&mut caller, member, member_len) else { return FAILED };
+                            let Some(text) = read_mem(&mut caller, text, text_len) else { return FAILED };
+                            let Some(out) = caller.data_mut().db.borrow_mut().object(op as u32, &member, &text) else { return FAILED };
+                            // An answer longer than the module's room is not written: its length says so (A44).
+                            if out.len() > cap.max(0) as usize {
+                                return i32::try_from(out.len()).unwrap_or(i32::MAX);
+                            }
+                            match write_mem(&mut caller, buf, out.as_bytes()) {
                                 Some(()) => out.len() as i32,
                                 None => FAILED,
                             }

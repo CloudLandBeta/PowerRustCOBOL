@@ -208,8 +208,8 @@ pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[
     (cap::FILES_TEXT, &["t_write"]),
     (cap::IMAGES, &["img_fit", "img_info"]),
     // A41: every `EXEC SQL` statement, run by the runner with the interpreter's own SQL code
-    // (`crate::sql`); A42: the SQL built-ins (`crate::sql::db`).
-    (cap::SQL, &["sql_exec", "sql_db"]),
+    // (`crate::sql`); A42: the SQL built-ins (`crate::sql::db`); A44: `COBOL::SqlDatabase` (`crate::sql::obj`).
+    (cap::SQL, &["sql_exec", "sql_db", "sql_obj"]),
 ];
 
 /// The file verbs in [`NATIVE_IMPORT_MODULE`] (A34): a file is named by its number in the module's

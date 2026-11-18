@@ -24,6 +24,7 @@ const KNOWN: &[(&str, &str)] = &[
     ("2.0.520", "92e2efd9bb234c1ae257f9a0512bf555a0c876820770bbeccb24f69e8a8e5142"),
     ("2.0.593", "869ffae935841d6de53a40ba3aeaea1642257e67f4dfb562755c34556b4498c1"),
     ("2.0.594", "b8f1a15a8a56fb343921cfe1d6cc747f88a1d71f1408d3571efb75a2c87c4ab4"),
+    ("2.0.599", "e5080f2415ebeef0b866c0834d61a20b534d1bf91b0490cafa0ecf04ed55f561"),
 ];
 
 /// A folder of its own under the system's temporary folder, removed at the end.

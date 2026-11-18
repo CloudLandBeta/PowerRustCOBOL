@@ -140,6 +140,31 @@ pub mod db {
     pub const FAILED: i32 = -1;
 }
 
+/// `COBOL::SqlDatabase`, the program-level database (ABI A44, DESKTOP-WASM-001 T41d), through the one
+/// `prn` import `sql_obj(op, member, member_len, text, text_len, buf, cap) -> i32`.
+///
+/// The object has the SqlDatabase control's verbs and properties and no form: the runner keeps its
+/// properties, one set per form instance (and one for a console program), beside the connections
+/// the SQL built-ins use, and runs each verb with the interpreter's own code
+/// (`DbRegistry::control`). The member is its name as written; the text is a call's argument (empty
+/// when it has none) or the value written, each as a control's path argument and `SET` text cross
+/// (trimmed). The answer — the verb's, or the property's value — is written at `buf` and its whole
+/// length returned; a length over `cap` means nothing was written. A negative answer: the runner
+/// could not run it.
+pub mod obj {
+    /// A verb: `Open`, `Execute`/`Exec`, `Query`, `BeginTransaction`, `Commit`, `Rollback`,
+    /// `IsInTransaction`, `Fetch`, `FetchAll`, `ColumnNames`, `ColumnCount`, `ColumnName`, `Close`,
+    /// `Cancel`, `IsBusy`.
+    pub const CALL: u32 = 1;
+    /// A property read.
+    pub const GET: u32 = 2;
+    /// A property write: the text is the value.
+    pub const SET: u32 = 3;
+
+    /// The runner could not run it (an operation it does not know, memory it cannot reach).
+    pub const FAILED: i32 = -1;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

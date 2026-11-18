@@ -399,6 +399,33 @@ pub fn query(op: u32, k: u32, dynamic: u32) {
     }
 }
 
+/// `COBOL::SqlDatabase::member` (ABI A44, DESKTOP-WASM-001 T41d): operation `op` (a verb, a property
+/// read or a property write) on the program-level database, the member named by the alphanumeric
+/// literal `member`, with the text of operand `arg` (0: none), which crosses as a control's path
+/// argument or `SET` text does. The runner answers; the answer is left in character temporary `k` as
+/// a property read leaves it ([`query`]), or dropped when `k` is [`NCTEMP`] or more.
+pub fn sql_obj(base: u32, op: u32, member: u32, arg: u32, k: u32) {
+    let mut num = [0u8; 64];
+    // The member is a literal, read where it is; the argument's text may be made in the scratch area.
+    let (ma, ml) = text_of(base, &parse(member), &mut num);
+    let (ta, tl) = if arg != 0 { text_of(base, &parse(arg), &mut num) } else { (0, 0) };
+    let s = st();
+    let ans = s.ws + WS_ANSWER;
+    // SAFETY: the runner reads both texts, then writes the answer at `ans` only when it fits in
+    // `ANSWER_SIZE` bytes, and returns its whole length.
+    let n = unsafe { host::sql_obj(op, ma, ml, ta, tl, ans, ANSWER_SIZE) };
+    if n > 0 && n as u32 > ANSWER_SIZE.min(CTEMP_SIZE) {
+        too_large_answer(n as u32);
+    }
+    if k as usize >= NCTEMP {
+        return;
+    }
+    let n = n.max(0) as u32;
+    mem::copy(ans, s.ws + WS_CTEMP + k * CTEMP_SIZE, n);
+    s.ctemp_len[k as usize] = n;
+    s.ctemp_dynamic |= 1 << k;
+}
+
 /// Run-time error [`err::TEXT_TOO_LARGE`] for a query answer of `n` bytes (0:
 /// the host only said it was over its limit).
 #[cold]

@@ -6,7 +6,10 @@
       *> carries the program's declarations and its statements. From
       *> T41b the SQL built-ins too (ABI A42): OPEN-DB, EXEC-SQL,
       *> ROW-COUNT, FETCH-ROW into a number and a text, NEXT-ROW to the
-      *> end, a fetch past it, CLOSE-DB.
+      *> end, a fetch past it, CLOSE-DB. From T41d COBOL::SqlDatabase,
+      *> the program-level database (ABI A44): Open, Execute as a value
+      *> and as a statement, Query, Fetch with a value method after it,
+      *> an error's LastError and StatusCode, Close.
        IDENTIFICATION DIVISION.
        PROGRAM-ID. CORPUSSQL.
        DATA DIVISION.
@@ -92,6 +95,7 @@
            EXEC SQL DISCONNECT ALL END-EXEC
            DISPLAY "sqlcode " SQLCODE
            PERFORM BUILT-INS
+           PERFORM PROGRAM-DB
            MOVE 5 TO RETURN-CODE
            STOP RUN.
        INSERT-ITEM.
@@ -121,3 +125,21 @@
            COBOL::"FETCH-ROW" ( WS-DBH 1 WS-NAME WS-DBST )
            DISPLAY "after the end [" FUNCTION TRIM(WS-DBST) "]"
            COBOL::"CLOSE-DB" ( WS-DBH ).
+       PROGRAM-DB.
+           MOVE COBOL::SqlDatabase::Open(":memory:") TO WS-DBH
+           COBOL::SqlDatabase::Execute("CREATE TABLE P (N INTEGER)")
+           MOVE COBOL::SqlDatabase::Execute("INSERT INTO P VALUES (4)")
+               TO WS-COUNT
+           COBOL::SqlDatabase::Execute("INSERT INTO P VALUES (5)")
+           DISPLAY "object inserted " WS-COUNT
+           MOVE COBOL::SqlDatabase::Query("SELECT N FROM P ORDER BY N")
+               TO WS-COUNT
+           DISPLAY "object rows " WS-COUNT
+           MOVE COBOL::SqlDatabase::Fetch()::Trim() TO WS-NAME
+           DISPLAY "object first [" WS-NAME "]"
+           MOVE COBOL::SqlDatabase::Execute("SELEC 1") TO WS-COUNT
+           MOVE COBOL::SqlDatabase::LastError TO WS-DBST
+           DISPLAY "object error " WS-COUNT
+               " [" FUNCTION TRIM(WS-DBST) "]"
+           DISPLAY "object status " COBOL::SqlDatabase::StatusCode
+           COBOL::SqlDatabase::Close().

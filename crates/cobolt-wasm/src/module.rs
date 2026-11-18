@@ -703,7 +703,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // environment ones of a desktop module's. Each is backed by a host import
     // of the same name, in the `pr` namespace or, for a desktop capability, in
     // `prn` (ABI A27, A29).
-    const GLUE_ORDER: [&str; 28] = [
+    const GLUE_ORDER: [&str; 29] = [
         "flush",
         "abort",
         "query",
@@ -732,6 +732,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         "img_info",
         "sql_exec",
         "sql_db",
+        "sql_obj",
     ];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
@@ -822,6 +823,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             "sql_exec" => (ty_i32_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
             // A42: a SQL built-in; the handle and the column cross as i64s.
             "sql_db" => (ty_sql_db, ty_sql_db),
+            "sql_obj" => (ty_t_write, ty_t_write),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
         }
     };
@@ -1153,6 +1155,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         ("img_info", 4),
         ("sql_exec", 4),
         ("sql_db", 7),
+        ("sql_obj", 7),
     ] {
         if let Some(&at) = glue_final.get(g) {
             let mut f = Function::new([]);
