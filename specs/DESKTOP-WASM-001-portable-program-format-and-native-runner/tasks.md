@@ -1766,8 +1766,36 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - **AC16:** a browser module is unchanged (the PowerAnalyticsWeb pin holds). The shipped player is rebuilt because its ABI host gained the port it never holds (1 287 bytes more, 1 217 in the threaded build); its freshness test passes.
     - **Sweeps:** `cobolt-runtime`: the library 578 passed, 3 ignored; the REST, HTTP and event targets 21. `cobolt-abi-host` 276. `cobolt-wasm` 137 in 36 targets; `cobolt-wasm-rt` and `cobolt-wasm-abi` 56. `cobolt-form-host` 193. `cobolt-compiler`: the library 261 (1 ignored), `desktop_wasm_build` and `web_remote_lowering` 9. The six `cobolt-cli` runner twins 21 (1 ignored, the live MySQL one). `desktop_wasm_unchanged` 1; `prebuilt_chunked_kb_matches_the_published_documentation` 1. `cobolt-runner` 18 passed, 1 failed, 2 ignored: T42's `http_builtins` failed in 2 of 5 runs. In the failing runs the two paths sent the headers set with `HTTP-SET-HEADER` in different orders: the HTTP built-ins have always sent them in a hash map's order, which changes from run to run. Not this change's; fixed on its own in 2.0.603.
 
-- [ ] **T43 — M4 close**
+- [x] **T43 — M4 close**
   - Do: the milestone close (preamble).
+  - *Closed 2026-11-18 (2.0.605), run one after another. Pixel parity and the Build times were measured at `fe7558bc` (2.0.603) and had the machine to themselves. NIST and the corpus used binaries built 25 minutes later, while the fix of 2.0.604 was being written (it changes only programs with national data, which no NIST program has), and ran while other crates were built and tested beside them, which changes their times but not their counts:*
+    - **Pixel parity (AC19), the full run** (`cobolt-bench pixel-parity`, 15.4 min): 6 projects, all 6 on the WebAssembly path; 426 frame pairs, **426 identical, 0 differing pixels**. Reads and dumps 27 of 27 equal; expected reads 18 of 18. The Cargo-built frames match their goldens, 408 of 408 (ParityControls has none).
+      - ParityControls 18 of 18 frames, PowerCallOfDuty 12 of 12, PowerCloud 72 of 72, PowerCobolCraft 66 of 66, PowerGraphics 120 of 120, PowerSpatial 138 of 138.
+    - **The reference projects' paths** (`cobolt-bench build-goal`, 5 Builds each, a fresh build folder each, 5.0 min): all six take the WebAssembly path, 30 of 30 Builds.
+      - PowerCallOfDuty 0.4 s, PowerCloud 0.5 s, PowerCobolCraft 0.8 s, PowerGraphics 0.6 s, PowerSpatial 0.5 s.
+      - The ten-times project (90 forms, 66 550 lines, 10 indexed files): 57.9 s (front end 29.5 s, generator 17.6 s, peak 8 314 MB). It is over the 30 s goal, which is reported, not enforced (D24; plan §5). The generator took 33.3 s at the M3 close and 17.6 s now.
+      - None of the reference projects uses SQL, HTTP or a RestClient, so M4 moved none of them; they had all moved at M3.
+    - **NIST through the runner (AC9), on both axes:**
+
+      | Module | Compiled (of in scope) | Ran clean, 0 failures | PASS markers | Census |
+      |---|---|---|---|---|
+      | NC (Nucleus) | 95 of 95 | 95 | 4 615 | 1 215 s |
+      | SQ (Sequential I/O) | 85 of 85 | 85 | 624 | 1 061 s |
+      | IX (Indexed I/O) | 41 of 41 | 41 | 574 | 644 s |
+      | RL (Relative I/O) | 34 of 34 | 34 | 354 | 546 s |
+      | ST (Sort-Merge) | 39 of 39 | 39 | 735 | 734 s |
+      | IF (Intrinsic Functions) | 45 of 45 | 45 | 841 | 510 s |
+      | IC (Inter-Program Communication) | 25 of 25 | 25 | 309 | 295 s |
+      | SM (Source Text Manipulation) | 16 of 16 | 16 | 311 | 233 s |
+
+      - 380 of 380 programs, 8 363 PASS markers, 0 FAIL. NC and SQ match the M3 close exactly (4 615 and 624). The census ran while other crates were built and tested beside it: six programs (NC124A, NC236A, NC237A, NC252A, SQ102A, SQ117A) passed the harness's 20 s limit there, and each ran clean when run again alone (174, 11, 14, 78, 12 and 9 PASS), with the same binaries.
+      - Run by the harness (`nist_conformance run`) with `RCRUN` set to `nist_runner_run`, which builds each program on the WebAssembly path and runs it with `prc-runner`; no line was refused.
+
+    - **The corpus** (`nist_runner_run compare`): 62 programs, 45 compiled, 17 refused with the construct named (34 and 28 at the M3 close); 34 of 45 identical. 7 `fileiot*` programs print the same lines under both engines and reach the 20 s limit under both. The other 4 differ only by the interpreter's own log lines on standard output (WASM-PARITY row 54) and, in two, by the times they measure: run again by hand, `call/test-call-exception` (20 lines), `call/test-call-returning` (57), `media/test-image-builtins` (28) and `esql/ac8_units_of_work` are otherwise line for line the same. `ac8_units_of_work` reports one FAIL on both engines, as its `@DIR@` folder is not filled in by the corpus; the runner's own `esql` test fills it in and passes.
+    - The release runner is 73.6 MiB (77 176 496 bytes); it was 68.6 MiB (71 923 792 bytes) at the M3 close. M4 added the runner's SQL and HTTP services; their share of the 5.0 MiB was not measured.
+    - **The list of what still takes the Cargo path:** the Build's documentation (`cobolt-compiler`, "The Build" in the subset document, in the System KB) no longer names files, `EXEC SQL` or HTTP, which M3 and M4 moved. The Developer's Guide's copy is owed at the merge into `main`, as at M2 and M3.
+    - **Relabelled:** the six `BINDING-…` built-ins, and a control bound to a SQL query or a REST endpoint, said they waited for M4. They drive a Data Binding, which moves with the other bound controls, so they now name M6, as the indexed-file binding has since T38.
+    - **Found:** a Desktop program with national or UTF-8 data went to the WebAssembly path, where the module holds such data as plain bytes (WASM-PARITY 17), and gave other answers than the interpreter. Fixed on its own in 2.0.604: it takes the Cargo path until T44.
 
 ## Phase M5 — National and UTF-8 data, and the rest of the table
 

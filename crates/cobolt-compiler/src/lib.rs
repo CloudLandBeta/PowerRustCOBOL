@@ -7563,16 +7563,14 @@ The Build takes the Cargo path, and says why, when:
 - a program uses a construct the WebAssembly path does not build yet: the Build
   names the construct, its file and its line. The path builds console programs
   and form programs (the controls the runner draws, opening forms, the shell and
-  its SideMenu, timers and file dialogs). A program takes the Cargo path when it
-  has a file (on the desktop an INDEXED file declared `STORAGE IS MEMORY` is read from
-  its disk file, so it counts as one), `EXEC SQL`, HTTP, national data, pointers,
-  `TRY` or `THROW`. The column *On the Desktop* of "What runs in a browser module"
-  below lists every statement and built-in;
-- a form holds a control the runner does not serve yet (a service control such as
-  a file, database, HTTP, AI, search, cloud or sign-in control; a canvas or
-  graphics object; Maps; the Viewer), or a control bound to data (Data Binding):
-  the Build names the form, its file, the control and its type. "Controls on the
-  Desktop" below lists them;
+  its SideMenu, timers and file dialogs), files of every organisation, `SORT` and
+  `MERGE`, `EXEC SQL` and HTTP. A program takes the Cargo path when it has
+  national or UTF-8 data, pointers, `TRY` or `THROW`. The column *On the Desktop*
+  of "What runs in a browser module" below lists every statement and built-in;
+- a form holds a control the runner does not serve yet (an AI, search or sign-in
+  control; Maps; the Viewer), or a control bound to data (Data Binding): the Build
+  names the form, its file, the control and its type. "Controls on the Desktop"
+  below lists them;
 - the runner is not installed beside the IDE or `rcrun`, and the variable
   `PRC_RUNNER` names none.
 

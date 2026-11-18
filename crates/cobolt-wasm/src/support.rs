@@ -41,7 +41,9 @@ pub enum Native {
 // The reasons of the Desktop column. Each names the milestone of DESKTOP-WASM-001 that moves the entry.
 /// Why a program with no form takes the Cargo path for an entry of class [`Native::Form`] (DESKTOP-WASM-001 T33).
 pub const D_FORMS: &str = "a program with no form has no controls or application object in its module, so it takes the Cargo path for them (DESKTOP-WASM-001 M2 serves them to a form's program)";
-const D_SQL: &str = "SQL is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
+/// The `BINDING-…` built-ins drive a Data Binding, which moves with the bound controls (M6), not with
+/// SQL (M4): T43 relabelled them.
+const D_BINDING: &str = "the Data Binding built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module yet (DESKTOP-WASM-001 M5)";
 const D_EXCEPTIONS: &str = "TRY, CATCH, FINALLY and THROW are not compiled into a module yet (DESKTOP-WASM-001 M5)";
 const D_CONTROLS: &str = "the non-visual controls, the keys and the model lists are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
@@ -260,12 +262,12 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("AWS-CLEAR-CREDENTIALS", Support::BackendOnly(SECRETS), Native::Host(cap::AWS)),
     c("AWS-CREDENTIALS-SET", Support::BackendOnly(SECRETS), Native::Host(cap::AWS)),
     c("AWS-SET-CREDENTIALS", Support::BackendOnly(SECRETS), Native::Host(cap::AWS)),
-    c("BINDING-LOAD", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("BINDING-MARK-CLEAN", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("BINDING-POPULATE", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("BINDING-SET-PENDING", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("BINDING-SET-READ-ONLY", Support::BackendOnly(SQL), cargo(D_SQL)),
-    c("BINDING-UPDATE", Support::BackendOnly(SQL), cargo(D_SQL)),
+    c("BINDING-LOAD", Support::BackendOnly(SQL), cargo(D_BINDING)),
+    c("BINDING-MARK-CLEAN", Support::BackendOnly(SQL), cargo(D_BINDING)),
+    c("BINDING-POPULATE", Support::BackendOnly(SQL), cargo(D_BINDING)),
+    c("BINDING-SET-PENDING", Support::BackendOnly(SQL), cargo(D_BINDING)),
+    c("BINDING-SET-READ-ONLY", Support::BackendOnly(SQL), cargo(D_BINDING)),
+    c("BINDING-UPDATE", Support::BackendOnly(SQL), cargo(D_BINDING)),
     c("CHART-ADD-POINT", Support::Module, Native::Form),
     c("CHART-CLEAR", Support::Module, Native::Form),
     c("CHART-REFRESH", Support::Module, Native::Form),
@@ -593,8 +595,8 @@ pub const DESKTOP_BINDING_GAPS: &[(&str, &str)] = &[
     // The program's own file verbs are the runner's since T38; a bound grid is filled, refreshed and
     // saved back by the grid's binding, which moves with the other bound controls.
     ("an indexed file", "a control bound to an indexed file is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)"),
-    ("a SQL query", "a control bound to a SQL query is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)"),
-    ("a REST endpoint", "a control bound to a REST endpoint is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)"),
+    ("a SQL query", "a control bound to a SQL query is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)"),
+    ("a REST endpoint", "a control bound to a REST endpoint is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)"),
     ("a COBOL table", "a control bound to a COBOL table is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)"),
     ("an agent's output", "a control bound to an agent's output is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)"),
     ("a PartiQL query", "a control bound to a PartiQL query is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)"),

@@ -2,6 +2,46 @@
 
 
 
+## 2.0.605 — 2026-11-18
+
+**Feature (DESKTOP-WASM-001 T43): milestone M4 closed, embedded SQL, the SQL object, HTTP and the RestClient on the WebAssembly path. Every NIST program of the eight modules builds on the WebAssembly path and runs clean through the runner, all six reference projects take that path, and every frame of every project they draw matches the Cargo-built program.**
+- **Pixel parity (AC19), the full run** (`cobolt-bench pixel-parity`, 15.4 min, the machine to itself): 6 projects, all on the WebAssembly path; 426 frame pairs, **426 identical, 0 differing pixels**. Reads and dumps 27 of 27 equal; expected reads 18 of 18. The Cargo-built frames match their goldens, 408 of 408 (ParityControls has none).
+- **The reference projects' paths** (`cobolt-bench build-goal`, 5 Builds each, a fresh build folder each): all six take the WebAssembly path, 30 of 30 Builds.
+
+  | Project | Path | Build | Against the 30 s goal |
+  |---|---|---|---|
+  | PowerCallOfDuty | WebAssembly | 0.4 s | within |
+  | PowerCloud | WebAssembly | 0.5 s | within |
+  | PowerCobolCraft | WebAssembly | 0.8 s | within |
+  | PowerGraphics | WebAssembly | 0.6 s | within |
+  | PowerSpatial | WebAssembly | 0.5 s | within |
+  | The ten-times project (90 forms, 66 550 lines, 10 indexed files) | WebAssembly | 57.9 s (front end 29.5 s, generator 17.6 s, peak 8 314 MB) | over |
+
+  - The goal is reported, not enforced (D24). The generator took 33.3 s at the M3 close and 17.6 s now.
+  - None of the reference projects uses SQL, HTTP or a RestClient, so M4 moved none of them; they had all moved at M3.
+- **NIST through the runner (AC9), on both axes:**
+
+  | Module | Compiled (of in scope) | Ran clean, 0 failures | PASS markers | Census |
+  |---|---|---|---|---|
+  | NC (Nucleus) | 95 of 95 | 95 | 4 615 | 1 215 s |
+  | SQ (Sequential I/O) | 85 of 85 | 85 | 624 | 1 061 s |
+  | IX (Indexed I/O) | 41 of 41 | 41 | 574 | 644 s |
+  | RL (Relative I/O) | 34 of 34 | 34 | 354 | 546 s |
+  | ST (Sort-Merge) | 39 of 39 | 39 | 735 | 734 s |
+  | IF (Intrinsic Functions) | 45 of 45 | 45 | 841 | 510 s |
+  | IC (Inter-Program Communication) | 25 of 25 | 25 | 309 | 295 s |
+  | SM (Source Text Manipulation) | 16 of 16 | 16 | 311 | 233 s |
+
+  - 380 of 380 programs, 8 363 PASS markers, 0 FAIL. NC and SQ match the M3 close exactly (4 615 and 624). The census ran while other crates were built and tested beside it: six programs (NC124A, NC236A, NC237A, NC252A, SQ102A, SQ117A) passed the harness's 20 s limit there, and each ran clean when run again alone (174, 11, 14, 78, 12 and 9 PASS), with the same binaries.
+  - Run by the harness (`nist_conformance run`) with `RCRUN` set to `nist_runner_run`, which builds each program on the WebAssembly path and runs it with `prc-runner`; no line was refused.
+
+- **The corpus** (`nist_runner_run compare`): 62 programs, 45 compiled, 17 refused with the construct named (34 and 28 at the M3 close); 34 of 45 identical. 7 `fileiot*` programs print the same lines under both engines and reach the 20 s limit under both. The other 4 differ only by the interpreter's own log lines on standard output (WASM-PARITY row 54) and, in two, by the times they measure: run again by hand, `call/test-call-exception` (20 lines), `call/test-call-returning` (57), `media/test-image-builtins` (28) and `esql/ac8_units_of_work` are otherwise line for line the same. `ac8_units_of_work` reports one FAIL on both engines, as its `@DIR@` folder is not filled in by the corpus; the runner's own `esql` test fills it in and passes.
+- **The release runner** is 73.6 MiB (77 176 496 bytes); it was 68.6 MiB at the M3 close. M4 added the runner's SQL and HTTP services; their share of the 5.0 MiB was not measured.
+- **What still takes the Cargo path:** the Build's documentation (`cobolt-compiler`, "The Build" in the subset document, and so the System KB) no longer names files, `EXEC SQL` or HTTP, which M3 and M4 moved. It names national data, pointers, `TRY` and `THROW` (M5), and the AI, search and sign-in controls, Maps and the Viewer (M6). The Developer's Guide's copy is owed at the merge into `main`, as at M2 and M3. `assets/knowledge/chunked.data` is regenerated.
+- **Relabelled:** the six `BINDING-…` built-ins, and a control bound to a SQL query or a REST endpoint, said they waited for M4. They drive a Data Binding, which moves with the other bound controls, so they now name M6, as the binding to an indexed file has since T38.
+- **Found and fixed on its own (2.0.604):** a Desktop program with national or UTF-8 data went to the WebAssembly path, where the module held such data as plain bytes, and gave other answers than the interpreter.
+- **Specs:** T43 ticked with this record; WASM-PROGRESS, 48 of 59 tasks.
+
 ## 2.0.604 — 2026-11-18
 
 **Fix: a Desktop program with national or UTF-8 data takes the Cargo path, so it gives the interpreter's answers.** A WebAssembly module holds a `PIC N` or `PIC U` item as plain bytes (WASM-PARITY row 17). The Build nevertheless put such a program on the WebAssembly path, where it gave other answers than the interpreter and the Cargo-built program. With `PIC N(6)` holding "Ação", `DISPLAY` showed four characters and six spaces instead of two. `MOVE "Configuração" TO WS-U` (`PIC U(3)`) showed "Configuraç" and a broken byte instead of "Con". The generator now refuses, in a desktop module, the first item declared `PIC N`, `PIC U` (with or without `BYTE-LENGTH`), `USAGE NATIONAL` or `USAGE UTF-8`, naming it, its line and its program. So the Build takes the Cargo path and says why, as the Build's documentation already stated ("a program takes the Cargo path when it has … national data"). DESKTOP-WASM-001 T44 lifts this once the module computes such data. A browser module is unchanged. No reference project declares national data, so none changes path.
