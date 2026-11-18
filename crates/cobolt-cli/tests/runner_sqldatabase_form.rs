@@ -77,8 +77,9 @@ fn lines(statements: &[&str]) -> String {
     statements.iter().map(|s| format!("           {s}")).collect::<Vec<_>>().join("\n")
 }
 
-/// The fixture project in `root`; its manifest's path.
-fn project(root: &Path) -> PathBuf {
+/// The fixture project in `root`; its manifest's path. With `server`, `DB-1` names the project's SQL connection
+/// `MAIN` instead of its `:memory:` ConnectionString, so the environment can point it, and `SALES`, at a server.
+fn project(root: &Path, server: bool) -> PathBuf {
     let _ = fs::remove_dir_all(root);
     for d in ["forms", "generated", "src", "data"] {
         fs::create_dir_all(root.join(d)).unwrap();
@@ -98,7 +99,8 @@ fn project(root: &Path) -> PathBuf {
     for (i, id) in labels.iter().enumerate() {
         control(&mut form, id, ControlType::Label, (160, 16 + 27 * i as i32, 540, 24), &[("Caption", s("-"))]);
     }
-    control(&mut form, "DB-1", ControlType::SqlDatabase, (600, 400, 64, 64), &[("ConnectionString", s(":memory:"))]);
+    let db1 = if server { ("SqlConnection", s("MAIN")) } else { ("ConnectionString", s(":memory:")) };
+    control(&mut form, "DB-1", ControlType::SqlDatabase, (600, 400, 64, 64), &[db1]);
     control(&mut form, "DB-2", ControlType::SqlDatabase, (520, 400, 64, 64), &[("ConnectionString", s(":memory:")), ("Mode", s("Async"))]);
     control(&mut form, "DB-3", ControlType::SqlDatabase, (440, 400, 64, 64), &[("SqlConnection", s("SALES"))]);
 
@@ -250,9 +252,12 @@ fn project(root: &Path) -> PathBuf {
     let manifest = root.join("paritysqldb.project.toml");
     fs::write(
         &manifest,
-        "[project]\nname = \"paritysqldb\"\nversion = \"1.0.0\"\nmain = \"src/main.cbl\"\n\n\
-         [files]\nsources = [\"src/main.cbl\"]\nforms = [\"forms/parity-sqldb.cfrm\"]\ngenerated = [\"generated/parity-sqldb.cbl\"]\n\n\
-         [[sql-connections]]\nname = \"SALES\"\npath = \"data/sales.db\"\ncreate-if-missing = true\n",
+        format!(
+            "[project]\nname = \"paritysqldb\"\nversion = \"1.0.0\"\nmain = \"src/main.cbl\"\n\n\
+             [files]\nsources = [\"src/main.cbl\"]\nforms = [\"forms/parity-sqldb.cfrm\"]\ngenerated = [\"generated/parity-sqldb.cbl\"]\n\n\
+             [[sql-connections]]\nname = \"SALES\"\npath = \"data/sales.db\"\ncreate-if-missing = true\n{}",
+            if server { "\n[[sql-connections]]\nname = \"MAIN\"\npath = \"data/main.db\"\ncreate-if-missing = true\n" } else { "" }
+        ),
     )
     .unwrap();
     manifest
@@ -360,23 +365,30 @@ fn run_all(scripts: &[(PathBuf, bool)], mut run: impl FnMut(&Path, bool) -> Stri
     out
 }
 
-#[test]
-fn the_sqldatabase_control_agrees_on_both_engines() {
-    let root = std::env::temp_dir().join(format!("prc-t41c-form-{}", std::process::id()));
-    let manifest = project(&root);
-    let scripts = scripts();
-    let paths: Vec<(PathBuf, bool)> = scripts
-        .iter()
-        .map(|(name, steps, _, pinned)| {
-            let p = root.join(format!("{name}.json"));
-            fs::write(&p, steps.to_string()).unwrap();
-            (p, *pinned)
-        })
-        .collect();
+/// Which engine is about to run.
+#[derive(Clone, Copy, PartialEq)]
+enum Engine {
+    Interpreter,
+    Runner,
+}
+
+/// What both engines did with the same scripts.
+struct Twin {
+    interp: Vec<Value>,
+    wasm: Vec<Value>,
+    interp_shots: PathBuf,
+    runner_shots: PathBuf,
+    runner_ms: f64,
+    build_ms: f64,
+    interp_ms: f64,
+    wasm_ms: f64,
+}
+
+/// Run `paths` under `rcrun run-form` (the interpreter), then build the project on the WebAssembly
+/// path and run them in the built program. `env` is given to both; `before` runs before each engine.
+fn run_twin(root: &Path, manifest: &Path, paths: &[(PathBuf, bool)], env: &[(String, String)], before: &dyn Fn(Engine)) -> Twin {
     let home = root.join("home");
     fs::create_dir_all(&home).unwrap();
-    let db = root.join("data/sales.db");
-
     // ── The runner, built beside rcrun, as a release has it ──
     let t = Instant::now();
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
@@ -390,17 +402,19 @@ fn the_sqldatabase_control_agrees_on_both_engines() {
     let runner_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     // ── 1. The interpreter: rcrun run-form ──
+    before(Engine::Interpreter);
     let interp_shots = root.join("shots-interpreter");
     fs::create_dir_all(&interp_shots).unwrap();
     let t = Instant::now();
-    let interp = run_all(&paths, |script, pinned| {
+    let interp = run_all(paths, |script, pinned| {
         let mut c = Command::new(rcrun());
         c.args(["run-form", "forms/parity-sqldb.cfrm", "generated/parity-sqldb.cbl", "--designer", "--headless"])
             .arg(script)
             .args(["--headless-limit", "60"])
-            .current_dir(&root)
+            .current_dir(root)
             .env("HOME", &home)
-            .env("PRC_HEADLESS_SHOTS", &interp_shots);
+            .env("PRC_HEADLESS_SHOTS", &interp_shots)
+            .envs(env.iter().map(|(k, v)| (k, v)));
         if pinned {
             c.env("PRC_TEST_CLOCK", PIN_CLOCK).env("PRC_TEST_SEED", PIN_SEED);
         }
@@ -410,14 +424,13 @@ fn the_sqldatabase_control_agrees_on_both_engines() {
         said
     });
     let interp_ms = t.elapsed().as_secs_f64() * 1000.0;
-    assert!(db.is_file(), "the interpreter's run made the database {}", db.display());
-    fs::remove_file(&db).unwrap();
 
     // ── 2. The runner: rcrun build on the WebAssembly path, then the program ──
+    before(Engine::Runner);
     let t = Instant::now();
     let out = Command::new(rcrun())
         .arg("build")
-        .arg(&manifest)
+        .arg(manifest)
         .arg("--quiet")
         .env(cobolt_compiler::BUILD_DIR_ENV, root.join("builds"))
         .env("PRC_RUNNER_CACHE", root.join("runner-cache"))
@@ -432,14 +445,15 @@ fn the_sqldatabase_control_agrees_on_both_engines() {
     let runner_shots = root.join("shots-runner");
     fs::create_dir_all(&runner_shots).unwrap();
     let t = Instant::now();
-    let wasm = run_all(&paths, |script, pinned| {
+    let wasm = run_all(paths, |script, pinned| {
         let mut c = Command::new(&exe);
-        c.current_dir(&root)
+        c.current_dir(root)
             .env("HOME", &home)
             .env("PRC_RUNNER_CACHE", root.join("runner-cache"))
             .env("PRC_HEADLESS_SCRIPT", script)
             .env("PRC_HEADLESS_LIMIT", "60")
-            .env("PRC_HEADLESS_SHOTS", &runner_shots);
+            .env("PRC_HEADLESS_SHOTS", &runner_shots)
+            .envs(env.iter().map(|(k, v)| (k, v)));
         if pinned {
             c.env("PRC_TEST_CLOCK", PIN_CLOCK).env("PRC_TEST_SEED", PIN_SEED);
         }
@@ -449,75 +463,175 @@ fn the_sqldatabase_control_agrees_on_both_engines() {
         said
     });
     let wasm_ms = t.elapsed().as_secs_f64() * 1000.0;
+    Twin { interp, wasm, interp_shots, runner_shots, runner_ms, build_ms, interp_ms, wasm_ms }
+}
 
-    // ── The comparison ──
-    let shots: Vec<&str> = scripts.iter().flat_map(|(_, _, s, _)| s.iter().copied()).collect();
+/// The comparison of the two engines' dumps and pictures: the checks, the lines that report them,
+/// and the pixels compared and differing.
+struct Comparison {
+    checks: Vec<(String, bool)>,
+    dump_lines: Vec<String>,
+    shot_lines: Vec<String>,
+    pixels_total: u64,
+    differing_total: u64,
+}
+
+fn compare(twin: &Twin, shots: &[&str]) -> Comparison {
     let mut checks: Vec<(String, bool)> = Vec::new();
-    checks.push((format!("both engines dump {} times", shots.len()), interp.len() == shots.len() && wasm.len() == shots.len()));
+    checks.push((format!("both engines dump {} times", shots.len()), twin.interp.len() == shots.len() && twin.wasm.len() == shots.len()));
     let mut dump_lines = Vec::new();
-    for (i, (x, y)) in interp.iter().zip(wasm.iter()).enumerate() {
+    for (i, (x, y)) in twin.interp.iter().zip(twin.wasm.iter()).enumerate() {
         let diff = dump_differences(x, y);
         checks.push((format!("dump {i} ({}) is equal", shots[i]), diff.is_empty()));
         dump_lines.extend(diff.into_iter().map(|d| format!("    dump {i}: {d}")));
     }
     let (mut pixels_total, mut differing_total, mut shot_lines) = (0u64, 0u64, Vec::new());
-    for name in &shots {
+    for name in shots {
         let file = format!("{name}.png");
-        let (diff, (w, h)) = differing_pixels(&interp_shots.join(&file), &runner_shots.join(&file));
+        let (diff, (w, h)) = differing_pixels(&twin.interp_shots.join(&file), &twin.runner_shots.join(&file));
         pixels_total += u64::from(w) * u64::from(h);
         differing_total = differing_total.saturating_add(diff);
         checks.push((format!("picture {name}: 0 differing pixels"), diff == 0));
         shot_lines.push(format!("    {name}: {w}x{h}, {} differing pixels", if diff == u64::MAX { "missing,".to_string() } else { diff.to_string() }));
     }
-    // What the runner's program did, read from its dumps.
+    Comparison { checks, dump_lines, shot_lines, pixels_total, differing_total }
+}
+
+/// What the sync script's statements did, read from the runner's first five dumps. `server`: `DB-1`
+/// opens the named connection `MAIN` (on a server) instead of `:memory:`.
+fn sync_checks(wasm: &[Value], server: bool) -> Vec<(String, bool)> {
     let at = |i: usize, id: &str| wasm.get(i).map(|d| caption(d, id)).unwrap_or_default();
     let number = |s: String| s.trim().trim_start_matches('0').to_string();
-    checks.push(("Open() with no argument opens ConnectionString: handle 1 (LBL-OPEN 1)".into(), number(at(0, "LBL-OPEN")) == "1"));
-    checks.push(("Execute answers the rows it inserted (LBL-SETUP 3)".into(), number(at(0, "LBL-SETUP")) == "3"));
-    checks.push(("onConnectOk once, onQueryComplete twice".into(), number(at(0, "LBL-EVOK")) == "1" && number(at(0, "LBL-EVQC")) == "2"));
-    checks.push(("Query answers its row count (LBL-ROWS 3)".into(), number(at(1, "LBL-ROWS")) == "3"));
-    checks.push(("ColumnName(2) is NAME".into(), at(1, "LBL-COL").trim() == "NAME"));
-    checks.push(("Fetch() hands back the row, tab-separated (LBL-ROW1 1|LAMP)".into(), at(1, "LBL-ROW1").trim() == "1|LAMP"));
-    checks.push(("onRowFetched once per row (LBL-EVRF 3)".into(), number(at(1, "LBL-EVRF")) == "3"));
-    checks.push(("Begin 1, in a transaction 1, Rollback 1, none 0, Commit with none open 0 (LBL-TX 11100)".into(), at(2, "LBL-TX").trim() == "11100"));
-    checks.push(("the rolled-back DELETE left three rows (LBL-COUNT 3)".into(), at(2, "LBL-COUNT").trim() == "3"));
-    checks.push(("the refused Commit raised onQueryError (LBL-EVQE 1)".into(), number(at(2, "LBL-EVQE")) == "1"));
-    checks.push(("a statement the database refuses: LastError names it".into(), at(3, "LBL-ERR").contains("syntax error")));
-    checks.push(("SqlConnection SALES opens the named connection, handle 2, one row".into(), at(3, "LBL-NAMED").trim() == "handle 0002 rows 1"));
-    checks.push(("after Close(), the handle is gone".into(), at(4, "LBL-ERR").contains("No open connection with handle 1")));
+    let opened = if server { "Open() with no argument opens SqlConnection MAIN" } else { "Open() with no argument opens ConnectionString" };
+    vec![
+        (format!("{opened}: handle 1 (LBL-OPEN 1)"), number(at(0, "LBL-OPEN")) == "1"),
+        ("Execute answers the rows it inserted (LBL-SETUP 3)".into(), number(at(0, "LBL-SETUP")) == "3"),
+        ("onConnectOk once, onQueryComplete twice".into(), number(at(0, "LBL-EVOK")) == "1" && number(at(0, "LBL-EVQC")) == "2"),
+        ("Query answers its row count (LBL-ROWS 3)".into(), number(at(1, "LBL-ROWS")) == "3"),
+        ("ColumnName(2) is NAME".into(), at(1, "LBL-COL").trim() == "NAME"),
+        ("Fetch() hands back the row, tab-separated (LBL-ROW1 1|LAMP)".into(), at(1, "LBL-ROW1").trim() == "1|LAMP"),
+        ("onRowFetched once per row (LBL-EVRF 3)".into(), number(at(1, "LBL-EVRF")) == "3"),
+        ("Begin 1, in a transaction 1, Rollback 1, none 0, Commit with none open 0 (LBL-TX 11100)".into(), at(2, "LBL-TX").trim() == "11100"),
+        ("the rolled-back DELETE left three rows (LBL-COUNT 3)".into(), at(2, "LBL-COUNT").trim() == "3"),
+        ("the refused Commit raised onQueryError (LBL-EVQE 1)".into(), number(at(2, "LBL-EVQE")) == "1"),
+        ("a statement the database refuses: LastError names it".into(), at(3, "LBL-ERR").contains("syntax")),
+        ("SqlConnection SALES opens the named connection, handle 2, one row".into(), at(3, "LBL-NAMED").trim() == "handle 0002 rows 1"),
+        ("after Close(), the handle is gone".into(), at(4, "LBL-ERR").contains("No open connection with handle 1")),
+    ]
+}
+
+/// Print a result block and fail on any failed check; the work folder is removed when all pass.
+fn finish(title: &str, header: &[String], twin: &Twin, cmp: Comparison, mut checks: Vec<(String, bool)>, root: &Path) {
+    let mut all = cmp.checks;
+    all.append(&mut checks);
+    let passed = all.iter().filter(|(_, ok)| *ok).count();
+    println!("== {title} ==");
+    for l in header {
+        println!("{l}");
+    }
+    println!("runner built in {:.0} ms; rcrun build (WebAssembly path) {:.0} ms", twin.runner_ms, twin.build_ms);
+    println!("interpreter runs {:.0} ms; runner runs {:.0} ms", twin.interp_ms, twin.wasm_ms);
+    for l in &cmp.shot_lines {
+        println!("{l}");
+    }
+    println!("pixels compared: {}, differing: {}", cmp.pixels_total, cmp.differing_total);
+    for l in &cmp.dump_lines {
+        println!("{l}");
+    }
+    for (what, ok) in &all {
+        println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
+    }
+    println!("result: {passed} of {} checks passed", all.len());
+    let failed: Vec<&String> = all.iter().filter(|(_, ok)| !*ok).map(|(w, _)| w).collect();
+    if failed.is_empty() {
+        let _ = fs::remove_dir_all(root);
+    } else {
+        println!("kept for inspection: {}", root.display());
+    }
+    assert!(failed.is_empty(), "failed: {failed:?}");
+}
+
+/// Write each script beside the project: its path, and whether it runs under the pins.
+fn write_scripts(root: &Path, scripts: &[(&'static str, Value, Vec<&'static str>, bool)]) -> Vec<(PathBuf, bool)> {
+    scripts
+        .iter()
+        .map(|(name, steps, _, pinned)| {
+            let p = root.join(format!("{name}.json"));
+            fs::write(&p, steps.to_string()).unwrap();
+            (p, *pinned)
+        })
+        .collect()
+}
+
+#[test]
+fn the_sqldatabase_control_agrees_on_both_engines() {
+    let root = std::env::temp_dir().join(format!("prc-t41c-form-{}", std::process::id()));
+    let manifest = project(&root, false);
+    let scripts = scripts();
+    let paths = write_scripts(&root, &scripts);
+    let db = root.join("data/sales.db");
+    let twin = run_twin(&root, &manifest, &paths, &[], &|engine| {
+        if engine == Engine::Runner {
+            assert!(db.is_file(), "the interpreter's run made the database {}", db.display());
+            fs::remove_file(&db).unwrap();
+        }
+    });
+    let shots: Vec<&str> = scripts.iter().flat_map(|(_, _, s, _)| s.iter().copied()).collect();
+    let cmp = compare(&twin, &shots);
+    let at = |i: usize, id: &str| twin.wasm.get(i).map(|d| caption(d, id)).unwrap_or_default();
+    let mut checks = sync_checks(&twin.wasm, false);
     checks.push(("Async Execute answers 0 at once, busy; a second while busy is ignored (LBL-ASYNC 0001-010)".into(), at(5, "LBL-ASYNC").trim() == "0001-010"));
     checks.push(("onQueryComplete once, ResultCount 0, no longer busy".into(), at(5, "LBL-ADONE").trim() == "done 01 count 0000 busy 0"));
     checks.push(("TimeoutMs 50: onTimeout, LastError says so".into(), at(6, "LBL-ATIME").trim() == "No answer within 1 second: the call was cancelled."));
     checks.push(("the timed-out statement's late result is dropped".into(), at(6, "LBL-ADONE").trim() == "done 01 count 0000 busy 0"));
     checks.push(("Cancel(): onCancelled, no longer busy".into(), at(7, "LBL-ACANCEL").trim() == "cancelled" && at(7, "LBL-ASYNC").trim() == "cancel busy 0"));
     checks.push(("the connection serves again: the ignored INSERT left A empty, one row counted".into(), at(7, "LBL-ADONE").trim() == "done 02 count 0001 busy 0"));
+    let header = vec![
+        format!("form {FORM}: 3 SqlDatabase controls (:memory: Sync, :memory: Async, SqlConnection SALES), 11 buttons, 9 event handlers"),
+        "  Sync: Open(), Execute, Query, ColumnName, Fetch loop, BeginTransaction / IsInTransaction / Rollback / Commit, LastError,".into(),
+        "        the named connection, Close(); onConnectOk, onQueryComplete, onQueryError, onRowFetched".into(),
+        "  Async: Execute answers 0 and busy, a second ignored, onQueryComplete with ResultCount, TimeoutMs 50 and onTimeout,".into(),
+        "        Cancel() and onCancelled, the connection serving again".into(),
+        format!("sync script pinned (PRC_TEST_CLOCK={PIN_CLOCK} PRC_TEST_SEED={PIN_SEED}); async script in real time; {} dumps, {} pictures", shots.len(), shots.len()),
+    ];
+    finish("the_sqldatabase_control_agrees_on_both_engines (DESKTOP-WASM-001 T41c: R10, R11, ABI A43)", &header, &twin, cmp, checks, &root);
+}
 
-    let passed = checks.iter().filter(|(_, ok)| *ok).count();
-    println!("== the_sqldatabase_control_agrees_on_both_engines (DESKTOP-WASM-001 T41c: R10, R11, ABI A43) ==");
-    println!("form {FORM}: 3 SqlDatabase controls (:memory: Sync, :memory: Async, SqlConnection SALES), 11 buttons, 9 event handlers");
-    println!("  Sync: Open(), Execute, Query, ColumnName, Fetch loop, BeginTransaction / IsInTransaction / Rollback / Commit, LastError,");
-    println!("        the named connection, Close(); onConnectOk, onQueryComplete, onQueryError, onRowFetched");
-    println!("  Async: Execute answers 0 and busy, a second ignored, onQueryComplete with ResultCount, TimeoutMs 50 and onTimeout,");
-    println!("        Cancel() and onCancelled, the connection serving again");
-    println!("sync script pinned (PRC_TEST_CLOCK={PIN_CLOCK} PRC_TEST_SEED={PIN_SEED}); async script in real time; {} dumps, {} pictures", shots.len(), shots.len());
-    println!("runner built in {runner_ms:.0} ms; rcrun build (WebAssembly path) {build_ms:.0} ms");
-    println!("interpreter runs {interp_ms:.0} ms; runner runs {wasm_ms:.0} ms");
-    for l in &shot_lines {
-        println!("{l}");
-    }
-    println!("pixels compared: {pixels_total}, differing: {differing_total}");
-    for l in &dump_lines {
-        println!("{l}");
-    }
-    for (what, ok) in &checks {
-        println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
-    }
-    println!("result: {passed} of {} checks passed", checks.len());
-    let failed: Vec<&String> = checks.iter().filter(|(_, ok)| !*ok).map(|(w, _)| w).collect();
-    if failed.is_empty() {
-        let _ = fs::remove_dir_all(&root);
-    } else {
-        println!("kept for inspection: {}", root.display());
-    }
-    assert!(failed.is_empty(), "failed: {failed:?}");
+/// The same form and Sync script on a MySQL server (fix 2.0.597): `DB-1` and `DB-3` name the project's
+/// SQL connections `MAIN` and `SALES`, which the environment points at the server
+/// (`PARITYSQLDB_SQL_<NAME>_URL`), so the server's address never enters the form. The tables are
+/// dropped before each engine runs. `SKIPPED` without `PRC_TEST_MYSQL_URL`.
+#[test]
+#[ignore = "needs a MySQL server: PRC_TEST_MYSQL_URL"]
+fn the_sqldatabase_control_agrees_on_mysql() {
+    let Some(url) = std::env::var("PRC_TEST_MYSQL_URL").ok().filter(|u| !u.trim().is_empty()) else {
+        println!("SKIPPED: PRC_TEST_MYSQL_URL is not set");
+        return;
+    };
+    let root = std::env::temp_dir().join(format!("prc-t41c-mysql-{}", std::process::id()));
+    let manifest = project(&root, true);
+    let scripts: Vec<_> = scripts().into_iter().filter(|(name, ..)| *name == "sync").collect();
+    let paths = write_scripts(&root, &scripts);
+    let env: Vec<(String, String)> = ["MAIN", "SALES"]
+        .iter()
+        .map(|name| (cobolt_forms::connections::sql_env_var("paritysqldb", name, "URL"), url.clone()))
+        .collect();
+    let drop_tables = |_: Engine| {
+        let mut db = cobolt_runtime::db_runtime::DbRegistry::new();
+        let h = db.open(&url).unwrap_or_else(|e| panic!("the MySQL server: {e}"));
+        for t in ["T", "S"] {
+            db.exec(h, &format!("DROP TABLE IF EXISTS {t}")).unwrap_or_else(|e| panic!("DROP TABLE {t}: {e}"));
+        }
+        db.close(h);
+    };
+    let twin = run_twin(&root, &manifest, &paths, &env, &drop_tables);
+    drop_tables(Engine::Runner);
+    let shots: Vec<&str> = scripts.iter().flat_map(|(_, _, s, _)| s.iter().copied()).collect();
+    let cmp = compare(&twin, &shots);
+    let checks = sync_checks(&twin.wasm, true);
+    let header = vec![
+        format!("form {FORM}: DB-1 SqlConnection MAIN and DB-3 SqlConnection SALES, both on the MySQL server; the Sync script"),
+        format!("sync script pinned (PRC_TEST_CLOCK={PIN_CLOCK} PRC_TEST_SEED={PIN_SEED}); {} dumps, {} pictures", shots.len(), shots.len()),
+    ];
+    finish("the_sqldatabase_control_agrees_on_mysql (fix 2.0.597; DESKTOP-WASM-001 T41c)", &header, &twin, cmp, checks, &root);
 }

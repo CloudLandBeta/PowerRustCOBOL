@@ -2,6 +2,17 @@
 
 
 
+## 2.0.597 — 2026-11-17
+
+**Fix: on a MySQL connection, a statement that returns no rows answers the rows it changed. `INSERT`, `UPDATE` and `DELETE` through a SqlDatabase's `Execute` or `COBOL::"EXEC-SQL"` answered 0 (and an asynchronous one's `ResultCount` was 0) whatever they changed; they now answer the count, as on SQLite and PostgreSQL.**
+- **What happened:** the MySQL driver keeps the count in the answer that ends the statement. The runtime read it after reading the statement's rows, and reading them moves past that answer, so the count read was always 0. It now reads the count first.
+- **`EXEC SQL` is not affected:** it keeps its own connection code, and its `SQLERRD(3)` was already right on MySQL.
+- **Tests:**
+  - `cobolt-runtime` `mysql_live_round_trip` (a live MySQL, ignored without `PRC_TEST_MYSQL_URL`): `INSERT` 2, `SELECT` 2 and its first row, `UPDATE` 1, `DELETE` 2, an empty `SELECT` 0; 7 of 7 checks. Before the fix it failed at the `INSERT`, counted as 0.
+  - `cobolt-cli` `the_sqldatabase_control_agrees_on_mysql` (new, ignored without `PRC_TEST_MYSQL_URL`): the SqlDatabase form's Sync script with `DB-1` and `DB-3` naming SQL connections that the environment points at the server (`PARITYSQLDB_SQL_MAIN_URL`, `PARITYSQLDB_SQL_SALES_URL`), so its address never enters the form; under the interpreter and on the WebAssembly path: 5 dumps equal, 5 pictures with 0 differing pixels of 1 800 000, `Execute` answering 3 inserted rows; 24 of 24 checks. Run on MySQL 8.4 in a local container.
+  - The SQLite twin (`the_sqldatabase_control_agrees_on_both_engines`) shares its harness now and is unchanged: 36 of 36, 0 differing pixels of 2 880 000.
+- **Developer's Guide:** unchanged; its SqlDatabase table already says `Execute(sql)` answers the rows it changed.
+
 ## 2.0.596 — 2026-11-17
 
 **Fix: an asynchronous SqlDatabase statement that was let go (timed out or cancelled) gives its connection back as soon as its worker ends, as the Developer's Guide says; the next handler's statement on that connection is no longer refused as busy.**

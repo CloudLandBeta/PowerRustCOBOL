@@ -467,6 +467,9 @@ impl DbConn {
     fn exec_mysql(conn: &mut mysql::Conn, sql: &str) -> Result<ExecResult, String> {
         use mysql::prelude::Queryable;
         let mut qr = conn.query_iter(sql).map_err(|e| e.to_string())?;
+        // The count before the rows: reading past a statement that returns none moves the result
+        // beyond its OK packet, after which `affected_rows` answers 0.
+        let affected = qr.affected_rows() as usize;
         let columns: Vec<String> = qr
             .columns()
             .as_ref()
@@ -484,7 +487,6 @@ impl DbConn {
             }
             rows.push(cols);
         }
-        let affected = qr.affected_rows() as usize;
         Ok(ExecResult {
             columns,
             rows,
@@ -1399,7 +1401,12 @@ mod tests {
         assert_eq!(rows, 2);
         assert_eq!(reg.fetch_col(h, 1), "1");
         assert_eq!(reg.fetch_col(h, 2), "ANA");
+        // The counts of statements that return no rows (fix 2.0.597: they were all 0).
+        assert_eq!(reg.exec(h, "UPDATE prc_demo SET name = 'BIA' WHERE id = 2"), Ok(1), "an UPDATE counts its row");
+        assert_eq!(reg.exec(h, "DELETE FROM prc_demo"), Ok(2), "a DELETE counts its rows");
+        assert_eq!(reg.exec(h, "SELECT id FROM prc_demo"), Ok(0), "a SELECT with no rows answers 0");
         reg.exec(h, "DROP TABLE prc_demo").unwrap();
         reg.close(h);
+        println!("mysql_live_round_trip: INSERT 2, SELECT 2 and its first row, UPDATE 1, DELETE 2, empty SELECT 0: 7 of 7 checks");
     }
 }
