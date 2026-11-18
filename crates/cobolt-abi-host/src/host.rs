@@ -286,6 +286,8 @@ pub trait DropZonePort {
 
 mod aws;
 pub use self::aws::{AwsControl, AwsEffects, AwsEvent, AwsPort};
+mod sql;
+pub use self::sql::{SqlControl, SqlEffects, SqlPort};
 
 /// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
 /// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
@@ -613,6 +615,8 @@ pub struct Host {
     pub audio: Option<Box<dyn AudioPort>>,
     /// The desktop's AWS, which the runner gives the host (T48, A38); `None` in a page.
     pub aws: Option<Box<dyn AwsPort>>,
+    /// The desktop's SqlDatabase, which the runner gives the host (T41c, A43); `None` in a page.
+    pub sql: Option<Box<dyn SqlPort>>,
     /// The desktop's FileDropZone copying, which the runner gives the host (T39c); `None` in a page.
     pub drop_zones: Option<Box<dyn DropZonePort>>,
     /// What the window wrote to a control the form does not hold, by instance and upper-case name (T39c):
@@ -787,6 +791,7 @@ impl Host {
             file_dialogs: Vec::new(),
             audio: None,
             aws: None,
+            sql: None,
             drop_zones: None,
             absent: HashMap::new(),
             absent_out: Vec::new(),
@@ -1957,6 +1962,9 @@ impl Host {
         if let Some(a) = self.aws.as_mut() {
             a.release(inst);
         }
+        if let Some(s) = self.sql.as_mut() {
+            s.release(inst);
+        }
         self.work.retain(|w| !matches!(w, Work::Event(e) if e.inst == inst) && !matches!(w, Work::Apply(a) if a.inst == inst));
         self.auth_calls.retain(|_, (i, _, _)| *i != inst);
         self.auth_captchas.retain(|_, (i, _)| *i != inst);
@@ -2676,6 +2684,10 @@ impl Host {
         }
         // An AWS control's operations are the runner's (T48).
         if let Some(r) = self.aws_call(inst, idx, name, args) {
+            return r;
+        }
+        // A SqlDatabase's statements are the runner's, on the desktop (T41c).
+        if let Some(r) = self.sql_call(inst, idx, name, args) {
             return r;
         }
         // A FileDropZone's `CommitFiles()` copies files: the runner's, on the desktop (T39c).
@@ -4138,6 +4150,8 @@ mod raise_tests;
 mod long_args_tests;
 #[cfg(test)]
 mod aws_tests;
+#[cfg(test)]
+mod sql_tests;
 #[cfg(test)]
 mod unhandled_tests;
 #[cfg(test)]

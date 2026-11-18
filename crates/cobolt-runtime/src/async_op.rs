@@ -145,3 +145,17 @@ pub struct PendingOp {
     /// and for every operation that has no such limit.
     pub awaiting_start: Option<(Instant, u64)>,
 }
+
+/// A time limit in words, as the messages say it: `1 second`, or `N seconds`, rounded up.
+pub fn seconds(ms: u64) -> String {
+    match ms.div_ceil(1000) {
+        1 => "1 second".to_string(),
+        n => format!("{n} seconds"),
+    }
+}
+
+/// What `LastError` says when an asynchronous operation's `TimeoutMs` (`ms`) passed with no answer
+/// (spec 032); the desktop runner says the same (DESKTOP-WASM-001 T41c).
+pub fn timed_out(ms: u64) -> String {
+    format!("No answer within {}: the call was cancelled.", seconds(ms))
+}

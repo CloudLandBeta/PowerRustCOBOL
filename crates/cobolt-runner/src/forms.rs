@@ -102,6 +102,8 @@ enum ToProgram {
     Answered { id: u32, path: Option<String> },
     /// An asynchronous AWS operation ended (T48).
     Aws(crate::aws::AwsResult),
+    /// A SqlDatabase statement on a thread ended or ran out of time (T41c).
+    Sql(crate::sql::SqlNews),
 }
 
 /// The engine the runner gives the form host: the forms' designs, from the module's `prforms`
@@ -280,7 +282,7 @@ impl Driver {
         if let Some(sql) = self.store.data_mut().sql.as_mut() {
             sql.begin_call(call_inst(call));
         }
-        self.store.data_mut().db.begin_call(call_inst(call));
+        self.store.data_mut().db.borrow_mut().begin_call(call_inst(call));
         let r = (|| -> wasmtime::Result<CallResult> {
             Ok(match call {
                 ModuleCall::OpenForm { form, opener } => {
@@ -290,7 +292,7 @@ impl Driver {
                         if let Some(sql) = self.store.data_mut().sql.as_mut() {
                             sql.opened_form(inst);
                         }
-                        self.store.data_mut().db.opened_form(inst);
+                        self.store.data_mut().db.borrow_mut().opened_form(inst);
                     }
                     let status = self.call::<(), i32>("pr_status", ())?;
                     let task = self.task(status)?;
@@ -308,7 +310,7 @@ impl Driver {
                             sql.forget_instance(*inst);
                         }
                         // And the connections its SQL built-ins opened (T41b).
-                        self.store.data_mut().db.forget_instance(*inst);
+                        self.store.data_mut().db.borrow_mut().forget_instance(*inst);
                     }
                     CallResult::Status { status, task: self.task(status)? }
                 }
@@ -376,6 +378,18 @@ impl Thread {
             })
         };
         host.aws = Some(Box::new(aws.clone()));
+        // The SqlDatabase controls (T41c), over the connections the SQL built-ins use: an asynchronous
+        // statement's result comes back on this thread's own channel too.
+        let db: std::rc::Rc<std::cell::RefCell<crate::sql::Builtins>> = std::rc::Rc::default();
+        host.sql = Some(Box::new(crate::sql::Port {
+            db: db.clone(),
+            send: {
+                let back = tx.clone();
+                std::sync::Arc::new(move |n| {
+                    let _ = back.send(ToProgram::Sql(n));
+                })
+            },
+        }));
         // A FileDropZone's `CommitFiles()` (T39c): the interpreter's own copy, anchored at the
         // application's folder as the interpreter anchors it.
         host.drop_zones = Some(Box::new(DropZones));
@@ -396,6 +410,7 @@ impl Thread {
             st.forms = Some(FormRun { host, layout, gfx, graphics });
             st.files = crate::files::Files::new(files);
             st.sql = sql.map(crate::sql::SqlRun::new);
+            st.db = db;
             let mut store = Store::new(&engine, st);
             let instance = linker.instantiate(&mut store, &module).map_err(|e| Msg::CannotStart(format!("{e:#}")))?;
             let fail = |e: wasmtime::Error| Msg::CannotStart(format!("{e:#}"));
@@ -532,6 +547,12 @@ impl Thread {
                     let verbose = d.host().control_property(inst, &ctl, "Verbose").is_some_and(|v| v.trim().eq_ignore_ascii_case("true"));
                     if let Some(fx) = aws.delivered(r, verbose) {
                         d.host().aws_delivered(inst, &ctl, fx);
+                    }
+                }
+                Some(ToProgram::Sql(n)) => {
+                    let news = d.store.data_mut().db.borrow_mut().delivered(n);
+                    if let Some((inst, ctl, fx)) = news {
+                        d.host().sql_delivered(inst, &ctl, fx);
                     }
                 }
                 Some(ToProgram::Gone { link }) => {
@@ -751,7 +772,7 @@ fn effects(d: &mut Driver, links: &mut [Link], (opening, adopting): Opening<'_>,
                 if let Some(sql) = d.store.data_mut().sql.as_mut() {
                     sql.end(true);
                 }
-                d.store.data_mut().db.end();
+                d.store.data_mut().db.borrow_mut().end();
                 for l in links.iter() {
                     l.finish();
                 }

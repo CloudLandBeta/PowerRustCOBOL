@@ -227,6 +227,16 @@ impl Lower<'_, '_> {
                     let subject = format!("{root}::{member}");
                     return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_PARTIQL));
                 }
+                // A SqlDatabase's methods are the runner's (T41c); a member that names one of the
+                // program's data items, which the interpreter looks up by name, is not.
+                if f.sql_databases.contains(&ctrl) && crate::support::is_sql_item_member(member) {
+                    let root = match root {
+                        Expr::Identifier(n, _) => n.as_str(),
+                        _ => "",
+                    };
+                    let subject = format!("{root}::{member}");
+                    return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_SQL_ITEMS));
+                }
             }
             return Ok(());
         }

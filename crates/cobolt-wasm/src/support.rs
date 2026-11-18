@@ -464,7 +464,7 @@ pub fn desktop_refusal(s: &Stmt, in_form: bool) -> Option<&'static str> {
 
 // ── The controls of a desktop form (DESKTOP-WASM-001 T33, plan §4.3) ─────────────────────────────
 
-const D_SERVICE: &str = "the service controls (databases, HTTP, AI, search and sign-in) are not on the WebAssembly path yet (DESKTOP-WASM-001 M4 and M6)";
+const D_SERVICE: &str = "the service controls (HTTP, AI, search and sign-in) are not on the WebAssembly path yet (DESKTOP-WASM-001 M4 and M6)";
 /// Why a PartiQL member of the IndexedFile control sends the Build to the Cargo path (T39c serves the control).
 pub const D_PARTIQL: &str = "the IndexedFile control's PartiQL members are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 
@@ -478,6 +478,33 @@ pub const PARTIQL_MEMBERS: &[&str] =
 pub fn is_partiql_member(member: &str) -> bool {
     PARTIQL_MEMBERS.iter().any(|m| m.eq_ignore_ascii_case(member))
 }
+/// Why a SqlDatabase that names the program's data items takes the Cargo path (DESKTOP-WASM-001
+/// T41c): `ConnectionDataItem` receives the handle `Open` gives and `ResultSetDataItem` the row
+/// `Fetch` reads, an item the interpreter looks up by name at run time and a module does not.
+pub const D_SQL_ITEMS: &str = "the SqlDatabase names the program's data items (ConnectionDataItem, ResultSetDataItem), which the interpreter looks up by name at run time; the WebAssembly path does not yet (DESKTOP-WASM-001 M6)";
+
+/// The members of a SqlDatabase that name one of the program's data items, or write a property by
+/// its name: a program that uses one takes the Cargo path ([`D_SQL_ITEMS`]).
+pub const SQL_ITEM_MEMBERS: &[&str] = &["ConnectionDataItem", "ResultSetDataItem", "SetProperty"];
+
+/// Is `member` one of [`SQL_ITEM_MEMBERS`], in any case, with or without the `GET-` and `SET-`
+/// prefixes of a property's accessors?
+pub fn is_sql_item_member(member: &str) -> bool {
+    let m = member.trim();
+    let bare = ["GET-", "SET-"].iter().find_map(|p| m.get(..4).filter(|h| h.eq_ignore_ascii_case(p)).map(|_| &m[4..])).unwrap_or(m);
+    SQL_ITEM_MEMBERS.iter().any(|s| s.eq_ignore_ascii_case(bare))
+}
+
+/// Why the desktop control `c` takes the Cargo path for what its design holds, beyond its type
+/// ([`desktop_control_gap`]): a SqlDatabase that names a data item ([`D_SQL_ITEMS`]).
+pub fn desktop_design_gap(c: &cobolt_forms::Control) -> Option<&'static str> {
+    if c.control_type != cobolt_forms::model::ControlType::SqlDatabase {
+        return None;
+    }
+    let named = |k: &str| c.get_prop(k).is_some_and(|v| !v.as_str().trim().is_empty());
+    (named("ConnectionDataItem") || named("ResultSetDataItem")).then_some(D_SQL_ITEMS)
+}
+
 const D_MAPS: &str = "the Maps control's places and directions are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_VIEWER: &str = "the Viewer's documents and verbs are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know takes the Cargo path (DESKTOP-WASM-001 M6)";
@@ -492,7 +519,9 @@ const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know 
 /// connections and route table (A38), and since T39c the FileDropZone, whose files the form host
 /// takes in and whose `CommitFiles()` the runner copies with the interpreter's own code, and the
 /// IndexedFile control, whose generated paragraphs reach the file with the program's own verbs and
-/// `COBOL::"FILE-STATUS"` (its PartiQL members wait for T48, [`is_partiql_member`]). It does not
+/// `COBOL::"FILE-STATUS"` (its PartiQL members wait for T48, [`is_partiql_member`]), and since T41c
+/// the SqlDatabase, whose methods the runner runs with the interpreter's own code (one that names a
+/// data item is judged by [`desktop_design_gap`]). It does not
 /// serve yet: the other service controls (class C), the Maps control (its places and directions are
 /// a service), the Viewer (its documents and verbs) and a type it does not know (class D). A form
 /// holding one takes the Cargo path, which names the form and the control.
@@ -500,7 +529,7 @@ pub fn desktop_control_gap(t: &cobolt_forms::model::ControlType) -> Option<&'sta
     use cobolt_forms::model::ControlType as T;
     use cobolt_forms::web_class::{class_of, Class};
     match t {
-        T::DataGrid | T::FileDropZone | T::IndexedFile => None,
+        T::DataGrid | T::FileDropZone | T::IndexedFile | T::SqlDatabase => None,
         t if t.is_aws() => None,
         T::Maps => Some(D_MAPS),
         T::Viewer => Some(D_VIEWER),

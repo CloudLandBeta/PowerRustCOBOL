@@ -213,7 +213,7 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
     if let Some(sql) = st.sql.as_mut() {
         sql.end(normal);
     }
-    st.db.end();
+    st.db.borrow_mut().end();
     if let Some(msg) = st.fatal.take() {
         return refuse(lang, msg);
     }
@@ -266,8 +266,9 @@ fn check(module: &[u8]) -> Result<Checked, Msg> {
     let sql = sql::SqlSetup::from_module(scan.custom(cobolt_wasm_abi::sql::SQL_SECTION))
         .map_err(|e| Msg::Damaged(format!("the program's `{}` section: {e}", cobolt_wasm_abi::sql::SQL_SECTION)))?;
     // The SQL connections the Build wrote beside the executable, read as a Cargo-built program reads
-    // them at start, for `EXEC SQL` (T41) and the SQL built-ins (T41b).
-    if imports.iter().any(|(m, n)| m == NATIVE_IMPORT_MODULE && (n == "sql_exec" || n == "sql_db")) {
+    // them at start, for `EXEC SQL` (T41), the SQL built-ins (T41b) and the SqlDatabase controls (T41c):
+    // the capability `sql` says the program has one of them.
+    if manifest.capabilities.iter().any(|c| c == cap::SQL) {
         sql::install_connections(&sections.settings.app_name);
     }
     Ok(Checked { abi: manifest.abi, imports, manifest, sections, files, sql })
@@ -329,8 +330,8 @@ pub struct State {
     pub(crate) files: files::Files,
     /// The program's `EXEC SQL` work (T41); `None` when it has none.
     pub(crate) sql: Option<sql::SqlRun>,
-    /// The SQL built-ins' connections (T41b).
-    pub(crate) db: sql::Builtins,
+    /// The SQL built-ins' connections (T41b), which the SqlDatabase controls share (T41c).
+    pub(crate) db: std::rc::Rc<std::cell::RefCell<sql::Builtins>>,
 }
 
 impl State {
@@ -346,7 +347,7 @@ impl State {
             forms: None,
             files: files::Files::default(),
             sql: None,
-            db: sql::Builtins::default(),
+            db: std::rc::Rc::default(),
         }
     }
 }
@@ -838,7 +839,7 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                         |mut caller: Caller<'_, State>, op: i32, handle: i64, number: i64, text: i32, text_len: i32, buf: i32, cap: i32| -> i32 {
                             use cobolt_wasm_abi::sql::db::FAILED;
                             let Some(text) = read_mem(&mut caller, text, text_len) else { return FAILED };
-                            let Some(out) = caller.data_mut().db.call(op as u32, handle, number, &text, cap.max(0) as usize) else { return FAILED };
+                            let Some(out) = caller.data_mut().db.borrow_mut().call(op as u32, handle, number, &text, cap.max(0) as usize) else { return FAILED };
                             match write_mem(&mut caller, buf, &out) {
                                 Some(()) => out.len() as i32,
                                 None => FAILED,

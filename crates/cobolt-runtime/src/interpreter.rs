@@ -3864,10 +3864,7 @@ impl Interpreter {
 
         // 2. Timeout sweep.
         let now = std::time::Instant::now();
-        let seconds = |ms: u64| match ms.div_ceil(1000) {
-            1 => "1 second".to_string(),
-            n => format!("{n} seconds"),
-        };
+        let seconds = crate::async_op::seconds;
         let timed_out: Vec<(String, String)> = self
             .async_pending
             .iter()
@@ -3889,7 +3886,7 @@ impl Interpreter {
                     .then(|| {
                         (
                             id.clone(),
-                            format!("No answer within {}: the call was cancelled.", seconds(op.timeout_ms)),
+                            crate::async_op::timed_out(op.timeout_ms),
                         )
                     })
             })
@@ -12887,6 +12884,49 @@ impl Interpreter {
         self.obj_get(obj, "Mode").trim().eq_ignore_ascii_case("async")
     }
 
+    /// A SqlDatabase's own method `m` (upper case) on `obj`, with what it answers
+    /// ([`crate::db_runtime::DbRegistry::control`], which the desktop runner calls too). With
+    /// `Mode = Async`, `Query` and `Execute` run on a worker and answer 0 at once (spec 032).
+    fn sql_control(&mut self, obj: &str, m: &str, args: &[CobolValue]) -> CobolValue {
+        let args: Vec<String> = args.iter().map(|v| v.as_display_string().trim().to_string()).collect();
+        let catalog = self.sql_catalog();
+        // The registry is taken out for the call, so the method can read the object's properties.
+        let mut db = std::mem::take(&mut self.db);
+        let step = db.control(m, &args, &|p| self.obj_get(obj, p), |db, conn| {
+            crate::db_runtime::open_named(db, conn, catalog.as_deref())
+        });
+        self.db = db;
+        match step {
+            Some(crate::db_runtime::ControlStep::Done(fx)) => self.sql_control_apply(obj, fx),
+            Some(crate::db_runtime::ControlStep::Async { handle, sql, query }) => {
+                self.spawn_sql_op(obj, handle, sql, query);
+                CobolValue::from_str("0", 1)
+            }
+            None => CobolValue::from_str("", 0),
+        }
+    }
+
+    /// Carry out on `obj` what a SqlDatabase method did, in its order, and answer its answer: the
+    /// properties, the data item a property names (when the program declares it), the events.
+    fn sql_control_apply(&mut self, obj: &str, fx: crate::db_runtime::ControlEffects) -> CobolValue {
+        for (k, v) in fx.props {
+            self.obj_set(obj, &k, v);
+        }
+        if let Some((item, value)) = fx.item {
+            if self.env.contains(&item) {
+                match value {
+                    crate::db_runtime::DbReceiver::Number(n) => self.env.set(&item, CobolValue::from_i64(n)),
+                    crate::db_runtime::DbReceiver::Text(t) => self.env.set_str(&item, &t),
+                }
+            }
+        }
+        for e in fx.events {
+            self.queue_control_event(obj, e);
+        }
+        let n = fx.answer.len();
+        CobolValue::from_str(&fx.answer, n)
+    }
+
     /// Run one `Query` / `Execute` on a background worker (spec 032).
     ///
     /// The connection is LENT to the worker, so it is never touched by two
@@ -12901,9 +12941,7 @@ impl Interpreter {
         let conn = match self.db.lend(handle) {
             Ok(c) => c,
             Err(e) => {
-                self.obj_set(obj, "LastError", e);
-                self.obj_set(obj, "StatusCode", "1".into());
-                self.queue_control_event(obj, "onQueryError");
+                self.sql_control_apply(obj, crate::db_runtime::ControlEffects::lend_refused(e));
                 return;
             }
         };
@@ -12915,7 +12953,7 @@ impl Interpreter {
             gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
         };
         let timeout_ms = self.obj_get(obj, "TimeoutMs").trim().parse::<u64>().unwrap_or(0);
-        self.obj_set(obj, "Busy", "1".to_owned());
+        self.sql_control_apply(obj, crate::db_runtime::ControlEffects::started());
         self.async_pending.insert(
             obj.to_string(),
             crate::async_op::PendingOp {
@@ -12946,21 +12984,8 @@ impl Interpreter {
     /// An asynchronous statement finished: the same outputs and events a
     /// synchronous one produces, with the count in `ResultCount`.
     fn sql_delivered(&mut self, obj: &str, handle: u32, query: bool, result: Result<usize, String>) {
-        self.obj_set(obj, "Busy", "0".to_owned());
-        match result {
-            Ok(n) => {
-                let count = if query { self.db.row_count(handle) } else { n };
-                self.obj_set(obj, "ResultCount", count.to_string());
-                self.obj_set(obj, "StatusCode", "0".into());
-                self.queue_control_event(obj, "onQueryComplete");
-            }
-            Err(e) => {
-                self.obj_set(obj, "ResultCount", "0".into());
-                self.obj_set(obj, "LastError", e);
-                self.obj_set(obj, "StatusCode", "1".into());
-                self.queue_control_event(obj, "onQueryError");
-            }
-        }
+        let fx = self.db.control_delivered(handle, query, result);
+        self.sql_control_apply(obj, fx);
     }
 
     fn agent_ask(&mut self, obj: &str, prompt: &str) {
@@ -17117,16 +17142,8 @@ impl Interpreter {
                 none
             }
             // ── AgentObject extras ──
-            "CLOSE" => {
-                // SqlDatabase::Close closes the connection; otherwise hide a window.
-                let h = parse_i(self.obj_get(obj, "_Handle"));
-                if h > 0 {
-                    self.db.close(h as u32);
-                } else {
-                    self.obj_set(obj, "Visible", "0".into());
-                }
-                none
-            }
+            // SqlDatabase::Close closes the connection; otherwise hide a window.
+            "CLOSE" => self.sql_control(obj, "CLOSE", args),
             // Pre-existing generic accessor (`Result` property) for a
             // no-argument call; spec 039 T15/R29 adds WebSearch's indexed
             // `INVOKE <id> 'GetResult' USING <n>` on the same method name —
@@ -17578,183 +17595,11 @@ impl Interpreter {
                 none
             }
             // ── SQL database ──
-            // With no argument, the control's own `ConnectionString` — the
-            // property the designer sets, which only the generated CONNECT
-            // paragraph ever read (property audit, 2026-09-26).
-            // An `SqlConnection` names one of the project's SQL connections
-            // and wins over `ConnectionString` (spec 087 R40).
-            "OPEN" => match self.db_open(&{
-                let given = arg(0);
-                let named = self.obj_get(obj, "SqlConnection");
-                if !given.trim().is_empty() {
-                    given
-                } else if !named.trim().is_empty() {
-                    format!("{}{}", crate::esql::catalog::SQL_CONNECTION_PREFIX, named.trim())
-                } else {
-                    self.obj_get(obj, "ConnectionString").trim().to_owned()
-                }
-            }) {
-                Ok(h) => {
-                    self.obj_set(obj, "_Handle", h.to_string());
-                    // `ConnectionDataItem`, when the program declares it,
-                    // receives the handle for the COBOL-EXEC-SQL CALL surface.
-                    let item = self.obj_get(obj, "ConnectionDataItem");
-                    let item = item.trim();
-                    if !item.is_empty() && self.env.contains(item) {
-                        self.env.set(item, CobolValue::from_i64(i64::from(h)));
-                    }
-                    self.obj_set(obj, "StatusCode", "0".into());
-                    // spec 021: connection lifecycle events (dispatched by the
-                    // event loop on the next COBOL-WAIT-EVENT).
-                    self.queue_control_event(obj, "onConnectOk");
-                    val(h.to_string())
-                }
-                Err(e) => {
-                    self.obj_set(obj, "LastError", e);
-                    self.obj_set(obj, "StatusCode", "1".into());
-                    self.queue_control_event(obj, "onConnectError");
-                    val("0".to_string())
-                }
-            },
-            "EXECUTE" | "EXEC" | "QUERY" if self.sql_is_async(obj) => {
-                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                self.spawn_sql_op(obj, h, arg(0), m.as_str() == "QUERY");
-                val("0".to_string())
-            }
-            "EXECUTE" | "EXEC" => {
-                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                match self.db.exec(h, &arg(0)) {
-                    Ok(n) => {
-                        self.queue_control_event(obj, "onQueryComplete");
-                        val(n.to_string())
-                    }
-                    Err(e) => {
-                        self.obj_set(obj, "LastError", e);
-                        self.queue_control_event(obj, "onQueryError");
-                        val("0".to_string())
-                    }
-                }
-            }
-            // ── Transactions (spec 095) ──
-            // The control's own verbs for what `Execute("BEGIN")` did by text. Each
-            // answers 1 when it took effect and 0 when it did not (the reason is in
-            // `LastError`, with `onQueryError`). A transaction needs the statements in
-            // order, so an `Async` connection refuses them. `Save()` on a bound grid
-            // joins a transaction opened here, leaving the commit to this program.
-            "BEGINTRANSACTION" | "COMMIT" | "ROLLBACK" => {
-                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                let (statement, wants_open) = match m.as_str() {
-                    "BEGINTRANSACTION" => ("BEGIN", false),
-                    "COMMIT" => ("COMMIT", true),
-                    _ => ("ROLLBACK", true),
-                };
-                let refusal = if self.sql_is_async(obj) {
-                    Some("a transaction needs a Sync connection".to_owned())
-                } else if self.db.in_transaction(h) != wants_open {
-                    Some(
-                        if wants_open { "no transaction is open" } else { "a transaction is already open" }.to_owned(),
-                    )
-                } else {
-                    None
-                };
-                let outcome = match refusal {
-                    Some(message) => Err(message),
-                    None => self.db.exec(h, statement).map(|_| ()),
-                };
-                match outcome {
-                    Ok(()) => val("1".to_string()),
-                    Err(e) => {
-                        self.obj_set(obj, "LastError", e);
-                        self.queue_control_event(obj, "onQueryError");
-                        val("0".to_string())
-                    }
-                }
-            }
-            "ISINTRANSACTION" => {
-                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                val(if self.db.in_transaction(h) { "1" } else { "0" }.to_string())
-            }
-            "QUERY" => {
-                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                match self.db.exec(h, &arg(0)) {
-                    Ok(_) => {
-                        self.queue_control_event(obj, "onQueryComplete");
-                        val(self.db.row_count(h).to_string())
-                    }
-                    Err(e) => {
-                        self.obj_set(obj, "LastError", e);
-                        self.queue_control_event(obj, "onQueryError");
-                        val("0".to_string())
-                    }
-                }
-            }
-            // `Fetch()` hands back the ROW, tab-separated, and empty once the
-            // result set runs out — so the loop a developer writes reads:
-            //
-            //     PERFORM UNTIL 1 = 2
-            //         MOVE Db::Fetch() TO WS-ROW
-            //         IF WS-ROW = SPACES  EXIT PERFORM  END-IF
-            //         ...
-            //     END-PERFORM
-            //
-            // It used to return "1"/"0" — a flag — while every caller (the
-            // PowerDemo3 SqlDatabase demo included) moved it into a PIC X and
-            // treated it as data. That loop could not end: "0" is not SPACES,
-            // so the demo appended "1" to a ListBox forever, which is what the
-            // operator saw as "not showing the columns" and "incredible slow".
-            // Nothing on the `::` surface could reach a value at all — reading
-            // data needed the CALL surface and a column INDEX.
-            "FETCH" => {
-                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                let row = self.db.take_row(h).map(|r| r.join("\t"));
-                // `ResultSetDataItem`, when declared, receives the same row —
-                // and spaces once the rows run out. It was read by nothing.
-                let item = self.obj_get(obj, "ResultSetDataItem");
-                let item = item.trim();
-                if !item.is_empty() && self.env.contains(item) {
-                    self.env.set_str(item, row.as_deref().unwrap_or(""));
-                }
-                match row {
-                    Some(row) => {
-                        self.queue_control_event(obj, "onRowFetched");
-                        val(row)
-                    }
-                    None => val(String::new()),
-                }
-            }
-            "FETCHALL" => {
-                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                val(self.db.row_count(h).to_string())
-            }
-            // What the query returned, by name — the other half of the same
-            // report. `ColumnNames()` is tab-separated like a row, so the two
-            // line up field for field; `ColumnCount()` and `ColumnName(n)`
-            // (1-based) are there for a program that walks them.
-            //
-            // NOT `Columns()`: a DataGrid already has a `Columns` PROPERTY, and
-            // a name in `is_known_method` stops being readable as a property —
-            // `MOVE ... TO GRID::Columns` became "a method call, not a
-            // receiving field". The vocabulary is shared across every control,
-            // so a new method name has to be free on ALL of them, not just on
-            // the one it was written for.
-            "COLUMNNAMES" => {
-                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                val(self.db.columns(h).join("\t"))
-            }
-            "COLUMNCOUNT" => {
-                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                val(self.db.columns(h).len().to_string())
-            }
-            "COLUMNNAME" => {
-                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                let n: usize = arg(0).trim().parse().unwrap_or(0);
-                let cols = self.db.columns(h);
-                val(if n >= 1 && n <= cols.len() {
-                    cols[n - 1].clone()
-                } else {
-                    String::new()
-                })
-            }
+            // The SqlDatabase's own methods (`Open`, `Execute`, `Query`, `Fetch`, the transactions,
+            // the column names): one implementation, which the desktop runner calls too
+            // (`DbRegistry::control`, DESKTOP-WASM-001 T41c).
+            "OPEN" | "EXECUTE" | "EXEC" | "QUERY" | "BEGINTRANSACTION" | "COMMIT" | "ROLLBACK" | "ISINTRANSACTION" | "FETCH"
+            | "FETCHALL" | "COLUMNNAMES" | "COLUMNCOUNT" | "COLUMNNAME" => self.sql_control(obj, &m, args),
             // ── Property accessor (spec 010 R9) ──
             // A member that is not an explicit method is a **property**:
             //   `GET-<prop>` → get · `SET-<prop>` USING → set · bare `<prop>` →

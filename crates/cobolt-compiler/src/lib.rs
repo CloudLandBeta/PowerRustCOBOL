@@ -2636,6 +2636,7 @@ fn desktop_control_reason(forms: &[(&str, &str, &cobolt_forms::Form)]) -> Option
         cs.iter().find_map(|c| {
             cobolt_wasm::support::desktop_control_gap(&c.control_type)
                 .or_else(|| chart_fields_gap(c))
+                .or_else(|| cobolt_wasm::support::desktop_design_gap(c))
                 .map(|why| (c, why))
                 .or_else(|| first_gap(&c.children))
         })
@@ -8114,6 +8115,16 @@ fn browser_subset_doc() -> String {
          member and its line: {}.\n",
         cobolt_wasm::support::PARTIQL_MEMBERS.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", "),
         cobolt_wasm::support::D_PARTIQL
+    ));
+    // T41c: the SqlDatabase is served, its methods run with the interpreter's own code; one that names a
+    // data item is refused, by its design or where a member names one.
+    d.push_str(&format!(
+        "\nThe SqlDatabase control is served: the runner runs its methods (`Open`, `Execute`, `Query`, `Fetch`, the \
+         transactions and the column names, `Mode = Async` included) with the interpreter's own code, on the connections \
+         the SQL built-ins use. A SqlDatabase whose `ConnectionDataItem` or `ResultSetDataItem` is set, or a program that \
+         uses one of its members {}, takes the Cargo path: {}.\n",
+        cobolt_wasm::support::SQL_ITEM_MEMBERS.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", "),
+        cobolt_wasm::support::D_SQL_ITEMS
     ));
     d.push_str("\nA control bound to data (Data Binding) takes the Cargo path too, whatever its type:\n\n| Bound to | Why |\n|---|---|\n");
     for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {

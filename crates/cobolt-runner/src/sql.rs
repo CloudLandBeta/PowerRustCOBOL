@@ -14,13 +14,16 @@
 //! them in the program's interpreter, runs the statement there, and answers the condition it ended
 //! in and the cells whose value changed (`cobolt_wasm_abi::sql::wire`).
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+use cobolt_abi_host::host::{SqlControl, SqlEffects, SqlPort};
 use cobolt_ast::program::Program;
 use cobolt_ast::sql::ExecSql;
 use cobolt_runtime::environment::{subscript_key, CobolEnvironment};
-use cobolt_runtime::db_runtime::{open_named, DbBuiltin, DbReceiver, DbRegistry};
+use cobolt_runtime::db_runtime::{open_named, ControlEffects, ControlStep, DbBuiltin, DbConn, DbReceiver, DbRegistry};
 use cobolt_runtime::esql::state::Outcome;
 use cobolt_runtime::esql::SqlRunUnit;
 use cobolt_runtime::interpreter::Interpreter;
@@ -218,6 +221,13 @@ pub struct Builtins {
     calling: Option<u32>,
     /// The registry with no instance was made during the current call.
     made_in_call: bool,
+    /// The SqlDatabase statements on threads (T41c): generation → (registry, the control's name).
+    /// Kept until the connection comes back, whatever became of the statement.
+    jobs: HashMap<u64, (Option<u32>, String)>,
+    /// The statement each SqlDatabase is running: (registry, CONTROL) → its generation. `Cancel` and
+    /// a time-out take it away, so its result is dropped.
+    running: HashMap<(Option<u32>, String), u64>,
+    generation: u64,
 }
 
 impl Builtins {
@@ -259,6 +269,13 @@ impl Builtins {
         if std::mem::take(&mut self.made_in_call) {
             if let Some(r) = self.registries.remove(&None) {
                 self.registries.insert(Some(inst), r);
+                // And the SqlDatabase statements running on them.
+                for (key, _) in self.jobs.values_mut() {
+                    if key.is_none() {
+                        *key = Some(inst);
+                    }
+                }
+                self.running = std::mem::take(&mut self.running).into_iter().map(|((k, c), g)| ((k.or(Some(inst)), c), g)).collect();
             }
         }
     }
@@ -267,6 +284,7 @@ impl Builtins {
     /// drops its own.
     pub fn forget_instance(&mut self, inst: u32) {
         self.registries.remove(&Some(inst));
+        self.running.retain(|(k, _), _| *k != Some(inst));
     }
 
     /// The run ends: every connection closes, as the interpreter closes them all at the end of the run.
@@ -275,6 +293,143 @@ impl Builtins {
             r.close_all();
         }
         self.registries.clear();
+    }
+}
+
+/// A SqlDatabase statement's news, on its way to the program thread (T41c).
+pub(crate) enum SqlNews {
+    /// A statement on a thread ended; its connection comes back with it.
+    Done { generation: u64, inst: u32, handle: u32, query: bool, conn: DbConn, result: Result<usize, String> },
+    /// A statement's `TimeoutMs` (`ms`) passed.
+    TimedOut { generation: u64, inst: u32, ms: u64 },
+}
+
+/// What [`Builtins::control`] leaves to its caller.
+enum ControlOutcome {
+    Done(SqlEffects),
+    /// Run `sql` on `conn`, lent from connection `handle`, on a thread; the control is now busy.
+    Spawn { generation: u64, handle: u32, sql: String, query: bool, conn: DbConn, timeout_ms: u64 },
+}
+
+/// What the host does with what a method did. A data item a property names is never written: the
+/// Build sends a SqlDatabase that names one down the Cargo path (T41c).
+fn host_effects(fx: ControlEffects, answer: Option<&str>) -> SqlEffects {
+    SqlEffects {
+        props: fx.props,
+        events: fx.events.into_iter().map(str::to_owned).collect(),
+        answer: answer.map(str::to_owned).unwrap_or(fx.answer),
+    }
+}
+
+impl Builtins {
+    /// The method `method` (upper case) of the SqlDatabase `c`, on the registry of the instance the
+    /// module is calling into, as the built-ins use it: the interpreter's own code
+    /// (`DbRegistry::control`), and its asynchronous rules (spec 032): a second statement while one
+    /// runs is ignored, and every statement started answers `0` at once.
+    fn control(&mut self, c: &SqlControl<'_>, method: &str, args: &[&str]) -> Option<ControlOutcome> {
+        let key = self.calling;
+        if key.is_none() && !self.registries.contains_key(&None) {
+            self.made_in_call = true;
+        }
+        let registry = self.registries.entry(key).or_insert_with(DbRegistry::new);
+        let catalog = cobolt_runtime::esql::catalog::current();
+        let args: Vec<String> = args.iter().map(|a| a.trim().to_owned()).collect();
+        let step = registry.control(method, &args, c.prop, |db, conn| open_named(db, conn, catalog.as_deref()))?;
+        let (handle, sql, query) = match step {
+            ControlStep::Done(fx) => return Some(ControlOutcome::Done(host_effects(fx, None))),
+            ControlStep::Async { handle, sql, query } => (handle, sql, query),
+        };
+        let ctl = c.name.trim().to_ascii_uppercase();
+        if self.running.contains_key(&(key, ctl.clone())) {
+            return Some(ControlOutcome::Done(SqlEffects { answer: "0".into(), ..SqlEffects::default() }));
+        }
+        let conn = match registry.lend(handle) {
+            Ok(conn) => conn,
+            Err(e) => return Some(ControlOutcome::Done(host_effects(ControlEffects::lend_refused(e), Some("0")))),
+        };
+        self.generation += 1;
+        let generation = self.generation;
+        self.running.insert((key, ctl), generation);
+        self.jobs.insert(generation, (key, c.name.to_owned()));
+        let timeout_ms = (c.prop)("TimeoutMs").trim().parse::<u64>().unwrap_or(0);
+        Some(ControlOutcome::Spawn { generation, handle, sql, query, conn, timeout_ms })
+    }
+
+    /// `Cancel` on the SqlDatabase named `ctl`: whether a statement of it was running.
+    fn cancel(&mut self, ctl: &str) -> bool {
+        self.running.remove(&(self.calling, ctl.trim().to_ascii_uppercase())).is_some()
+    }
+
+    /// News of a statement: `(the instance, the control's name, what the host does)`, or `None` when
+    /// the statement was cancelled or ran out of time, or its window has closed. A connection that
+    /// comes back goes home first, whatever became of its statement, as under the interpreter.
+    pub(crate) fn delivered(&mut self, news: SqlNews) -> Option<(u32, String, SqlEffects)> {
+        match news {
+            SqlNews::Done { generation, inst, handle, query, conn, result } => {
+                let (key, name) = self.jobs.remove(&generation)?;
+                let registry = self.registries.get_mut(&key)?;
+                registry.give_back(handle, conn);
+                let running = (key, name.trim().to_ascii_uppercase());
+                if self.running.get(&running) != Some(&generation) {
+                    return None;
+                }
+                self.running.remove(&running);
+                let fx = self.registries.get(&key)?.control_delivered(handle, query, result);
+                Some((inst, name, host_effects(fx, None)))
+            }
+            SqlNews::TimedOut { generation, inst, ms } => {
+                let running = self.running.iter().find(|(_, g)| **g == generation).map(|(k, _)| k.clone())?;
+                self.running.remove(&running);
+                let name = self.jobs.get(&generation).map(|(_, n)| n.clone())?;
+                let fx = SqlEffects {
+                    props: vec![("LastError".into(), cobolt_runtime::async_op::timed_out(ms)), ("Busy".into(), "0".into())],
+                    events: vec!["onTimeout".into()],
+                    answer: String::new(),
+                };
+                Some((inst, name, fx))
+            }
+        }
+    }
+}
+
+/// The runner's SqlDatabase (T41c): the host's port, over the connections the SQL built-ins use.
+/// A statement of a control whose `Mode` is `Async` runs on a thread of its own and comes back to the
+/// program thread as [`SqlNews`], with a second thread waiting out its `TimeoutMs`.
+pub(crate) struct Port {
+    pub db: Rc<RefCell<Builtins>>,
+    pub send: Arc<dyn Fn(SqlNews) + Send + Sync>,
+}
+
+impl SqlPort for Port {
+    fn call(&mut self, inst: u32, c: &SqlControl<'_>, method: &str, args: &[&str]) -> Option<SqlEffects> {
+        let outcome = self.db.borrow_mut().control(c, method, args)?;
+        match outcome {
+            ControlOutcome::Done(fx) => Some(fx),
+            ControlOutcome::Spawn { generation, handle, sql, query, conn, timeout_ms } => {
+                let send = Arc::clone(&self.send);
+                std::thread::spawn(move || {
+                    let mut conn = conn;
+                    let result = conn.run(&sql);
+                    send(SqlNews::Done { generation, inst, handle, query, conn, result });
+                });
+                if timeout_ms > 0 {
+                    let send = Arc::clone(&self.send);
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(timeout_ms));
+                        send(SqlNews::TimedOut { generation, inst, ms: timeout_ms });
+                    });
+                }
+                Some(host_effects(ControlEffects::started(), Some("0")))
+            }
+        }
+    }
+
+    fn cancel(&mut self, _inst: u32, ctl: &str) -> bool {
+        self.db.borrow_mut().cancel(ctl)
+    }
+
+    fn release(&mut self, inst: u32) {
+        self.db.borrow_mut().forget_instance(inst);
     }
 }
 

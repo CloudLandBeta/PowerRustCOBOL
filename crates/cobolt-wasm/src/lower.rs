@@ -150,6 +150,9 @@ pub struct FormCtx {
     /// Control ids of the form's IndexedFile controls: their PartiQL members are not on the
     /// WebAssembly path yet (DESKTOP-WASM-001 T48).
     pub indexed_files: std::collections::HashSet<u32>,
+    /// Control ids of the form's SqlDatabase controls: their members that name a data item are not on
+    /// the WebAssembly path yet (DESKTOP-WASM-001 T41c).
+    pub sql_databases: std::collections::HashSet<u32>,
     /// The form's name, for diagnostics.
     pub name: String,
 }

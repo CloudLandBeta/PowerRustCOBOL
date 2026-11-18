@@ -891,6 +891,230 @@ pub fn open_named(db: &mut DbRegistry, conn: &str, catalog: Option<&crate::esql:
     db.open_target(&target)
 }
 
+// ── The SqlDatabase control ───────────────────────────────────────────────────
+
+/// What one method of a SqlDatabase does (a form's control, or `COBOL::SqlDatabase`), as the
+/// interpreter has always done it: the properties it writes, in order; the program's data item a
+/// property names and what it takes; the events it raises, in order; and its answer. The
+/// interpreter and the desktop runner both take it from [`DbRegistry::control`], so the two
+/// engines answer alike (DESKTOP-WASM-001 T41c).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ControlEffects {
+    pub props: Vec<(String, String)>,
+    /// `(item, what it takes)`: `ConnectionDataItem` takes the handle `Open` gives, and
+    /// `ResultSetDataItem` the row `Fetch` reads (empty once the rows run out). Present only when
+    /// the property names an item; the engine writes it only when the program declares one.
+    pub item: Option<(String, DbReceiver)>,
+    pub events: Vec<&'static str>,
+    pub answer: String,
+}
+
+impl ControlEffects {
+    /// An asynchronous statement could not have its connection ([`DbRegistry::lend`] said why).
+    pub fn lend_refused(e: String) -> ControlEffects {
+        ControlEffects {
+            props: vec![("LastError".into(), e), ("StatusCode".into(), "1".into())],
+            events: vec!["onQueryError"],
+            ..ControlEffects::default()
+        }
+    }
+
+    /// An asynchronous statement is running: the control is busy until its result comes.
+    pub fn started() -> ControlEffects {
+        ControlEffects { props: vec![("Busy".into(), "1".into())], ..ControlEffects::default() }
+    }
+}
+
+/// What [`DbRegistry::control`] answers.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ControlStep {
+    /// The method is done.
+    Done(ControlEffects),
+    /// `Query`, `Execute` or `Exec` on a control whose `Mode` is `Async` (spec 032): unless a
+    /// statement is already running on the control (then nothing happens), run `sql` on a worker
+    /// with connection `handle` lent to it ([`DbRegistry::lend`]; refused as
+    /// [`ControlEffects::lend_refused`] says, started as [`ControlEffects::started`] says). The
+    /// method answers `0` at once; [`DbRegistry::control_delivered`] says what the result does.
+    Async { handle: u32, sql: String, query: bool },
+}
+
+/// A control's `_Handle` as the interpreter reads it: a whole number, `0` when it is not one.
+fn handle_of(text: &str) -> i64 {
+    text.trim().parse::<i64>().unwrap_or(0)
+}
+
+impl DbRegistry {
+    /// The method `method` (upper case) of a SqlDatabase, with its arguments `args` (each trimmed),
+    /// reading the control's properties with `prop`; `open` opens a connection string or
+    /// `sql-connection:NAME` (see [`open_named`]). `None` when `method` is not one of the
+    /// database's own, so the caller's general methods answer it (`Cancel`, `IsBusy`, a property).
+    pub fn control(
+        &mut self,
+        method: &str,
+        args: &[String],
+        prop: &dyn Fn(&str) -> String,
+        open: impl FnOnce(&mut DbRegistry, &str) -> Result<u32, String>,
+    ) -> Option<ControlStep> {
+        let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
+        let handle = || handle_of(&prop("_Handle")) as u32;
+        let is_async = || prop("Mode").trim().eq_ignore_ascii_case("async");
+        let mut fx = ControlEffects::default();
+        match method {
+            // With no argument, the control's own `ConnectionString`: the property the designer
+            // sets. An `SqlConnection` names one of the project's SQL connections and wins over
+            // `ConnectionString` (spec 087 R40).
+            "OPEN" => {
+                let given = arg(0);
+                let named = prop("SqlConnection");
+                let conn = if !given.trim().is_empty() {
+                    given
+                } else if !named.trim().is_empty() {
+                    format!("{}{}", crate::esql::catalog::SQL_CONNECTION_PREFIX, named.trim())
+                } else {
+                    prop("ConnectionString").trim().to_owned()
+                };
+                match open(self, &conn) {
+                    Ok(h) => {
+                        fx.props.push(("_Handle".into(), h.to_string()));
+                        // `ConnectionDataItem`, when the program declares it, receives the handle
+                        // for the COBOL-EXEC-SQL CALL surface.
+                        let item = prop("ConnectionDataItem");
+                        if !item.trim().is_empty() {
+                            fx.item = Some((item.trim().to_owned(), DbReceiver::Number(i64::from(h))));
+                        }
+                        fx.props.push(("StatusCode".into(), "0".into()));
+                        fx.events.push("onConnectOk");
+                        fx.answer = h.to_string();
+                    }
+                    Err(e) => {
+                        fx.props.push(("LastError".into(), e));
+                        fx.props.push(("StatusCode".into(), "1".into()));
+                        fx.events.push("onConnectError");
+                        fx.answer = "0".into();
+                    }
+                }
+            }
+            "EXECUTE" | "EXEC" | "QUERY" if is_async() => {
+                return Some(ControlStep::Async { handle: handle(), sql: arg(0), query: method == "QUERY" });
+            }
+            "EXECUTE" | "EXEC" => match self.exec(handle(), &arg(0)) {
+                Ok(n) => {
+                    fx.events.push("onQueryComplete");
+                    fx.answer = n.to_string();
+                }
+                Err(e) => {
+                    fx.props.push(("LastError".into(), e));
+                    fx.events.push("onQueryError");
+                    fx.answer = "0".into();
+                }
+            },
+            // Transactions (spec 095): the control's own verbs for what `Execute("BEGIN")` did by
+            // text. Each answers 1 when it took effect and 0 when it did not (the reason is in
+            // `LastError`, with `onQueryError`). A transaction needs the statements in order, so an
+            // `Async` connection refuses them.
+            "BEGINTRANSACTION" | "COMMIT" | "ROLLBACK" => {
+                let h = handle();
+                let (statement, wants_open) = match method {
+                    "BEGINTRANSACTION" => ("BEGIN", false),
+                    "COMMIT" => ("COMMIT", true),
+                    _ => ("ROLLBACK", true),
+                };
+                let refusal = if is_async() {
+                    Some("a transaction needs a Sync connection".to_owned())
+                } else if self.in_transaction(h) != wants_open {
+                    Some(if wants_open { "no transaction is open" } else { "a transaction is already open" }.to_owned())
+                } else {
+                    None
+                };
+                let outcome = match refusal {
+                    Some(message) => Err(message),
+                    None => self.exec(h, statement).map(|_| ()),
+                };
+                match outcome {
+                    Ok(()) => fx.answer = "1".into(),
+                    Err(e) => {
+                        fx.props.push(("LastError".into(), e));
+                        fx.events.push("onQueryError");
+                        fx.answer = "0".into();
+                    }
+                }
+            }
+            "ISINTRANSACTION" => fx.answer = if self.in_transaction(handle()) { "1" } else { "0" }.into(),
+            "QUERY" => {
+                let h = handle();
+                match self.exec(h, &arg(0)) {
+                    Ok(_) => {
+                        fx.events.push("onQueryComplete");
+                        fx.answer = self.row_count(h).to_string();
+                    }
+                    Err(e) => {
+                        fx.props.push(("LastError".into(), e));
+                        fx.events.push("onQueryError");
+                        fx.answer = "0".into();
+                    }
+                }
+            }
+            // `Fetch()` hands back the ROW, tab-separated, and empty once the result set runs out.
+            // `ResultSetDataItem`, when declared, receives the same row, and spaces at the end.
+            "FETCH" => {
+                let row = self.take_row(handle()).map(|r| r.join("\t"));
+                let item = prop("ResultSetDataItem");
+                if !item.trim().is_empty() {
+                    fx.item = Some((item.trim().to_owned(), DbReceiver::Text(row.clone().unwrap_or_default())));
+                }
+                if let Some(row) = row {
+                    fx.events.push("onRowFetched");
+                    fx.answer = row;
+                }
+            }
+            "FETCHALL" => fx.answer = self.row_count(handle()).to_string(),
+            // What the query returned, by name: tab-separated like a row, so the two line up.
+            "COLUMNNAMES" => fx.answer = self.columns(handle()).join("\t"),
+            "COLUMNCOUNT" => fx.answer = self.columns(handle()).len().to_string(),
+            "COLUMNNAME" => {
+                let n: usize = arg(0).trim().parse().unwrap_or(0);
+                let cols = self.columns(handle());
+                if n >= 1 && n <= cols.len() {
+                    fx.answer = cols[n - 1].clone();
+                }
+            }
+            // `Close` closes the connection; with none, it hides the control, as on any other.
+            "CLOSE" => {
+                let h = handle_of(&prop("_Handle"));
+                if h > 0 {
+                    self.close(h as u32);
+                } else {
+                    fx.props.push(("Visible".into(), "0".into()));
+                }
+            }
+            _ => return None,
+        }
+        Some(ControlStep::Done(fx))
+    }
+
+    /// An asynchronous statement of [`ControlStep::Async`] finished with `result`, its connection
+    /// already given back: the same properties and events a synchronous one gives, with the count in
+    /// `ResultCount`.
+    pub fn control_delivered(&self, handle: u32, query: bool, result: Result<usize, String>) -> ControlEffects {
+        let mut fx = ControlEffects { props: vec![("Busy".into(), "0".into())], ..ControlEffects::default() };
+        match result {
+            Ok(n) => {
+                let count = if query { self.row_count(handle) } else { n };
+                fx.props.push(("ResultCount".into(), count.to_string()));
+                fx.props.push(("StatusCode".into(), "0".into()));
+                fx.events.push("onQueryComplete");
+            }
+            Err(e) => {
+                fx.props.push(("ResultCount".into(), "0".into()));
+                fx.props.push(("LastError".into(), e));
+                fx.props.push(("StatusCode".into(), "1".into()));
+                fx.events.push("onQueryError");
+            }
+        }
+        fx
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

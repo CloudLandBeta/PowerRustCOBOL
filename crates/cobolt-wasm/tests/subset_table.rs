@@ -263,7 +263,36 @@ fn every_control_has_a_desktop_class() {
         ("Canvas3D served (T50)", desktop_control_gap(&ControlType::Canvas3D).is_none()),
         ("FileDropZone served (T39c)", desktop_control_gap(&ControlType::FileDropZone).is_none()),
         ("IndexedFile served (T39c)", desktop_control_gap(&ControlType::IndexedFile).is_none()),
+        ("SqlDatabase served (T41c)", desktop_control_gap(&ControlType::SqlDatabase).is_none()),
         ("an unknown type refused", desktop_control_gap(&ControlType::from_str("NoSuchControl")).is_some()),
+        // T41c: a SqlDatabase that names a data item, by its design or by a member, is refused.
+        ("a SqlDatabase naming no data item is served", {
+            let c = cobolt_forms::Control::new("DB-1", ControlType::SqlDatabase, 0, 0);
+            cobolt_wasm::support::desktop_design_gap(&c).is_none()
+        }),
+        ("a SqlDatabase with ResultSetDataItem set is refused (M6)", {
+            let mut c = cobolt_forms::Control::new("DB-1", ControlType::SqlDatabase, 0, 0);
+            c.set_prop("ResultSetDataItem", cobolt_forms::PropValue::String("WS-ROW".into()));
+            cobolt_wasm::support::desktop_design_gap(&c).is_some_and(|w| w.contains("M6"))
+        }),
+        ("a SqlDatabase with ConnectionDataItem set is refused", {
+            let mut c = cobolt_forms::Control::new("DB-1", ControlType::SqlDatabase, 0, 0);
+            c.set_prop("ConnectionDataItem", cobolt_forms::PropValue::String("WS-H".into()));
+            cobolt_wasm::support::desktop_design_gap(&c).is_some()
+        }),
+        ("a Button's design is never refused", {
+            let mut c = cobolt_forms::Control::new("BTN-1", ControlType::Button, 0, 0);
+            c.set_prop("ResultSetDataItem", cobolt_forms::PropValue::String("WS-ROW".into()));
+            cobolt_wasm::support::desktop_design_gap(&c).is_none()
+        }),
+        ("the members naming a data item: ResultSetDataItem, SET-ConnectionDataItem, SetProperty", {
+            use cobolt_wasm::support::is_sql_item_member as m;
+            m("ResultSetDataItem") && m("set-connectiondataitem") && m("GET-ResultSetDataItem") && m("SetProperty")
+        }),
+        ("and not the database's own: Query, Fetch, GET-LastError", {
+            use cobolt_wasm::support::is_sql_item_member as m;
+            !m("Query") && !m("Fetch") && !m("GET-LastError") && !m("SET-")
+        }),
     ];
     let fixed_ok = fixed.iter().filter(|(_, ok)| *ok).count();
     let sources = [

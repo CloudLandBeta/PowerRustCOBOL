@@ -92,21 +92,17 @@ const CALLS_FILES: &str = "\
            STOP RUN.
 ";
 
+/// A construct the WebAssembly path refuses, in Common Code (AC11). It was a file on disk until disk
+/// files took the WebAssembly path (T38, M3); a pointer stays on the Cargo path until M5.
 const FILES: &str = "\
        IDENTIFICATION DIVISION.
        PROGRAM-ID. T16FILES.
-       ENVIRONMENT DIVISION.
-       INPUT-OUTPUT SECTION.
-       FILE-CONTROL.
-           SELECT LOG-FILE ASSIGN TO \"t16.log\"
-               ORGANIZATION IS LINE SEQUENTIAL.
        DATA DIVISION.
-       FILE SECTION.
-       FD LOG-FILE.
-       01 LOG-REC    PIC X(40).
+       WORKING-STORAGE SECTION.
+       01 WS-CODE    PIC X(8).
+       01 WS-PTR     USAGE POINTER.
        PROCEDURE DIVISION.
-           OPEN OUTPUT LOG-FILE
-           CLOSE LOG-FILE
+           SET WS-PTR TO ADDRESS OF WS-CODE
            GOBACK.
 ";
 
@@ -371,7 +367,7 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     check("nothing compiled: no bin/, no staged Cargo project", !m.parent().unwrap().join("bin").exists() && !chosen.join("cobolt-build-prct16rust").exists());
 
     // ── 3. A refused construct takes the Cargo path, naming its file and line (AC11) ──
-    let open_line = line_of(FILES, "OPEN OUTPUT");
+    let open_line = line_of(FILES, "SET WS-PTR");
     let m = project(
         &root,
         "prct16files",
@@ -384,10 +380,10 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     let files_reason = reason_of(&r);
     let text = r.as_ref().err().map(|e| e.to_string()).unwrap_or_default();
     check(
-        &format!("a file on disk in Common Code → Refused at src/files.cbl line {open_line}"),
-        matches!(&files_reason, Ok(CargoReason::Refused { construct, file, line, reason }) if construct == "file LOG-FILE" && file == "src/files.cbl" && *line == open_line && reason.starts_with("files are not on the WebAssembly path")),
+        &format!("a pointer in Common Code → Refused at src/files.cbl line {open_line}"),
+        matches!(&files_reason, Ok(CargoReason::Refused { construct, file, line, reason }) if construct == "SET (pointer)" && file == "src/files.cbl" && *line == open_line && reason.starts_with("pointers and ADDRESS OF are not compiled into a module")),
     );
-    check("the message names the file, the line and why", text.contains(&format!("src/files.cbl line {open_line}")) && text.contains("WebAssembly path"));
+    check("the message names the file, the line and why", text.contains(&format!("src/files.cbl line {open_line}")) && text.contains("ADDRESS OF"));
     let http_line = line_of(HTTP, "HTTP-GET");
     let m = project(&root, "prct16http", &console_manifest("prct16http", "src/main.cbl", &["src/main.cbl"], ""), &[("src/main.cbl", HTTP)]);
     let t = Instant::now();

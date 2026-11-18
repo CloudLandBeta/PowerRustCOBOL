@@ -456,7 +456,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             let canvases = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "Canvas2D").map(|(i, _)| 3 + i as u32).collect();
             let graphics = spec.controls.iter().enumerate().filter(|(_, (_, k))| crate::lower::is_graphics_object(k)).map(|(i, _)| 3 + i as u32).collect();
             let indexed_files = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "IndexedFile").map(|(i, _)| 3 + i as u32).collect();
-            Some(FormCtx { controls, layers, layer_names: spec.layers.clone(), canvases, graphics, indexed_files, name: spec.name.clone() })
+            let sql_databases = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "SqlDatabase").map(|(i, _)| 3 + i as u32).collect();
+            Some(FormCtx { controls, layers, layer_names: spec.layers.clone(), canvases, graphics, indexed_files, sql_databases, name: spec.name.clone() })
         } else {
             None
         };
@@ -576,6 +577,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // A desktop module with an AWS control, or that gives a connection its keys, needs the runner's AWS (A38).
     let uses_aws = opts.native
         && (builtin_list.iter().any(|b| crate::lower_remote::is_desktop_aws(b)) || forms.iter().any(|f| f.controls.iter().any(|(_, kind)| kind.starts_with("Aws"))));
+    // A desktop module with a SqlDatabase needs the runner's connections (T41c, A43).
+    let uses_sql_control = opts.native && forms.iter().any(|f| f.controls.iter().any(|(_, kind)| kind == "SqlDatabase"));
     // A desktop module's disk files: their declarations go to the `prfiles` section and their
     // organisations to the capabilities (T38, A34).
     let file_caps: BTreeSet<&'static str> = names.file_caps.clone();
@@ -1609,6 +1612,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
                     || (**c == cobolt_wasm_abi::codes::cap::DIALOGS && uses_dialogs)
                     || (**c == cobolt_wasm_abi::codes::cap::AUDIO && uses_audio)
                     || (**c == cobolt_wasm_abi::codes::cap::AWS && uses_aws)
+                    || (**c == cobolt_wasm_abi::codes::cap::SQL && uses_sql_control)
             })
             .map(|c| c.to_string())
             .collect(),
