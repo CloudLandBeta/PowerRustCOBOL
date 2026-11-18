@@ -2,6 +2,13 @@
 
 
 
+## 2.0.600 — 2026-11-17
+
+**Fix: a built-in's text received into a group item reaches the group's subordinate items, as a group `MOVE` does. Until now `FETCH-ROW`, `HTTP-GET`, `HTTP-POST`, `HTTP-PUT`, `HTTP-DELETE` and every other built-in that stores its answer by name wrote the text to a slot of the group's own name, which nothing reads, so the group and its subordinate items kept what they held.**
+- **Example:** with `01 WS-GRP. 05 WS-G1 PIC X(4). 05 WS-G2 PIC X(4).`, `COBOL::"FETCH-ROW" ( WS-H 1 WS-GRP WS-ST )` on a row holding `hello, world` now leaves `WS-G1` = `hell` and `WS-G2` = `o, w`. A shorter value pads the rest of the group with spaces; a nested group is filled through its own subordinate items; a numeric subordinate item receives its characters as a group `MOVE` gives them.
+- **Where:** the interpreter's store of text and bytes into a data item (`rcrun run`, `rcrun run-form`, the IDE's Run and every Cargo-built program). A program built on the WebAssembly path already spread the text this way, so the two paths now agree.
+- **Tests:** `cobolt-runtime` `a_builtins_text_reaches_a_groups_subordinate_items` (new): seven cases (a `MOVE` into a group, unchanged; `FETCH-ROW` into a group, a shorter value, a nested group, a group with a numeric item, an elementary item, unchanged; `HTTP-GET` into a group from a local server), 7 of 7 passed with the fix and 2 of 7 without it. Unchanged: the runtime library tests (577 passed), the SQL, embedded SQL, HTTP download, `ACCEPT` group and data-item method tests (12 binaries), the runner's SQL twin (21 of 21 checks), and the NIST execution passes of every finished module, each at 0 failures: NC (Nucleus) 4614, SQ (Sequential I/O) 624, IX (Indexed I/O) 574, RL (Relative I/O) 354, IF (Intrinsic Functions) 841, IC (Inter-program Communication) 309, ST (Sort-Merge) 735 and SM (Source Text Manipulation) 311 assertions passed.
+
 ## 2.0.599 — 2026-11-17
 
 **Feature (DESKTOP-WASM-001 T41d): `COBOL::SqlDatabase`, the program-level database, takes the WebAssembly path. A Desktop program that uses it, with or without a form, no longer sends its Build down the Cargo path; the built program runs its verbs with the interpreter's own code, so handles, rows, `LastError`, `StatusCode` and the properties it keeps are the same on both paths.**

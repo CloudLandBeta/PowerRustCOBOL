@@ -3879,6 +3879,14 @@ impl CobolEnvironment {
 
     /// Set a data item from a `&str`, padding/truncating to the existing capacity.
     pub fn set_str(&mut self, name: &str, s: &str) {
+        // A group takes the text as a group `MOVE` takes it: alphanumeric, spread over its
+        // subordinate items. Until 2.0.600 it went to a slot of the group's own name, which
+        // nothing reads, so a built-in whose receiver is a group (`FETCH-ROW`, `HTTP-GET`)
+        // left the group as it was.
+        if self.is_group(name) {
+            self.set_group(name, s);
+            return;
+        }
         // The slot's capacity is bytes of text, not a national item's size:
         // cut there, a character could split. `set` fits it by character.
         if self.char_class(name).is_some() {
@@ -3907,6 +3915,11 @@ impl CobolEnvironment {
     /// [`Self::set_str`] over raw bytes, for a value that may hold a byte which
     /// is not a character. See [`Self::group_bytes`].
     pub fn set_bytes(&mut self, name: &str, b: &[u8]) {
+        // A group takes the bytes as a group `MOVE` takes them (see `set_str`).
+        if self.is_group(name) {
+            self.set_group_bytes(name, b);
+            return;
+        }
         if self.char_class(name).is_some() {
             self.set(name, CobolValue::String { bytes: b.to_vec(), capacity: b.len() });
             return;
