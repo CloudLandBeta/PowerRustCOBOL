@@ -138,6 +138,11 @@ impl Lower<'_, '_> {
     fn bind_args(&mut self, c: usize, using: &[CallArg], line: u32) -> GenResult<()> {
         let params = self.units[c].params.clone();
         for (i, p) in params.iter().enumerate() {
+            // A national or UTF-8 parameter (T44): passing one is not computed in the module.
+            if self.native && self.holds_text_class(p.item) {
+                let name = self.layout.items[p.item].name.clone().unwrap_or_else(|| "FILLER".into());
+                return self.err_kind(line, crate::error::ErrorKind::Other, name.clone(), format!("{name}: {}", crate::lower::D_TEXT_USE));
+            }
             let Some(arg) = using.get(i) else {
                 // A handler's event payload (`CONTROL-NODE-DATA`): the form's
                 // dispatcher calls the handler with nothing, and the desktop fills

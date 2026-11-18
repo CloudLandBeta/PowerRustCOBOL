@@ -100,7 +100,7 @@ fn is_blank_zero(base: u32, o: &Opd) -> bool {
     loc.fd.is_numeric() && loc.fd.blank_when_zero() && matches!(codec::load_value(&loc), Val::Dec(d) if d.mantissa == 0)
 }
 
-fn holds(op: u32, ord: Ordering) -> bool {
+pub(crate) fn holds(op: u32, ord: Ordering) -> bool {
     match op {
         OP_EQ => ord == Ordering::Equal,
         OP_NE => ord != Ordering::Equal,
@@ -492,6 +492,10 @@ fn property_vs_figurative(base: u32, oa: &Opd, ob: &Opd, op: u32) -> Option<bool
 /// `a op b`.
 pub fn relation(base: u32, a: u32, b: u32, op: u32) -> bool {
     let (oa, ob) = (parse(a), parse(b));
+    // National or UTF-8 data compares by code point (DESKTOP-WASM-001 T44).
+    if crate::nat::is_classed(&oa) || crate::nat::is_classed(&ob) {
+        return crate::nat::relation(base, &oa, &ob, op);
+    }
     if let Some(r) = property_vs_figurative(base, &oa, &ob, op) {
         return r;
     }

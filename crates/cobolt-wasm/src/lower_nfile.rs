@@ -544,7 +544,7 @@ impl Lower<'_, '_> {
     }
 
     /// Whether the record `r` holds a national or UTF-8 field.
-    fn holds_text_class(&self, r: usize) -> bool {
+    pub(crate) fn holds_text_class(&self, r: usize) -> bool {
         let it = &self.layout.items[r];
         matches!(it.pic_kind, Some(PicKind::National | PicKind::Utf8))
             || matches!(it.usage, Usage::National | Usage::Utf8)

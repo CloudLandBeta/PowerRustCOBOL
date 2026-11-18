@@ -258,6 +258,12 @@ pub fn run_native(wasm: &[u8], input: NativeInput) -> Result<Outcome, String> {
     run_with(wasm, None, false, Some(input)).map(|(o, _)| o)
 }
 
+/// [`run_native`], and the module's data memory as the run left it (the national-data twins
+/// compare their items' images with the interpreter's, DESKTOP-WASM-001 T44).
+pub fn run_native_memory(wasm: &[u8], input: NativeInput) -> Result<(Outcome, Vec<u8>), String> {
+    run_with(wasm, None, true, Some(input))
+}
+
 /// [`run_program`], and the module's data memory as the run left it (the
 /// byte-layout tests read their items out of it).
 pub fn run_program_memory(wasm: &[u8]) -> Result<(Outcome, Vec<u8>), String> {

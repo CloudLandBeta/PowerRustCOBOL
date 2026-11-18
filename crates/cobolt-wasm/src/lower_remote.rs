@@ -180,6 +180,12 @@ impl Lower<'_, '_> {
             return self.err(line, "an argument of a WEBSOCKET call must be a data item, written as its name (no subscript, reference modification, literal or expression)");
         }
         let idx = self.resolve_item(e)?;
+        // A desktop module's national or UTF-8 field travels as JSON only through the Cargo path
+        // (DESKTOP-WASM-001 T44): the descriptor reads every field as UTF-8 bytes.
+        if self.native && self.holds_text_class(idx) {
+            let name = self.layout.items[idx].name.clone().unwrap_or_else(|| "FILLER".into());
+            return self.err_kind(line, crate::error::ErrorKind::Other, name.clone(), format!("{name}: {}", crate::lower::D_TEXT_USE));
+        }
         let decl = self
             .decl_of(idx)
             .ok_or_else(|| GenError::new(line, "the declaration of the argument was not found"))?

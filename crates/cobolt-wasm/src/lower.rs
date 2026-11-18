@@ -295,6 +295,10 @@ pub struct Lower<'a, 'b> {
     /// named, and whether the statement being lowered is one where it may be named.
     pub(crate) rc_reg: Option<usize>,
     pub(crate) rc_ok: bool,
+    /// A desktop module's national or UTF-8 operand is admitted (T44): set by
+    /// [`Self::text_operand`] for the one operand a statement that computes such data names, and
+    /// taken by the first item or literal it reaches.
+    pub(crate) text_ok: bool,
     /// `LINAGE-COUNTER` in a desktop module (T39b): whether a file of the module declares
     /// `LINAGE`, and the register's layout item, made with the first such file. It is read where
     /// RETURN-CODE may be read.
@@ -381,15 +385,53 @@ pub struct Lower<'a, 'b> {
     pub(crate) payload_store: HashMap<usize, u32>,
 }
 
-/// Why a desktop module refuses national and UTF-8 data: the module holds it as bytes (WASM-PARITY
-/// 17), so it would display, move and compare it otherwise than the interpreter.
-const D_TEXT_DATA: &str =
-    "national and UTF-8 data are not computed in a WebAssembly module yet, so the Build takes the Cargo path (DESKTOP-WASM-001 M5)";
+/// Why a desktop module refuses a use of national or UTF-8 data. The module computes such data
+/// where it is moved, displayed, compared, initialised, measured or given a VALUE (T44); any other
+/// use (reference modification, INSPECT, STRING, a function's argument, arithmetic, a CALL, a
+/// control's property …) takes the Cargo path.
+pub(crate) const D_TEXT_USE: &str =
+    "this use of national or UTF-8 data is not computed in a WebAssembly module yet, so the Build takes the Cargo path (DESKTOP-WASM-001 M5)";
 
-/// Whether the item is a national or UTF-8 one (`PIC N`, `PIC U`, `USAGE NATIONAL` or `UTF-8`).
-fn holds_text_class(it: &crate::layout::Item) -> bool {
-    use cobolt_ast::data::{PicKind, Usage};
-    matches!(it.pic_kind, Some(PicKind::National | PicKind::Utf8)) || matches!(it.usage, Usage::National | Usage::Utf8)
+/// Why a desktop module refuses national or UTF-8 data in a program with a `PROGRAM COLLATING
+/// SEQUENCE`: the module compares such data by code point only.
+const D_TEXT_COLLATING: &str =
+    "national or UTF-8 data in a program with a PROGRAM COLLATING SEQUENCE take the Cargo path (DESKTOP-WASM-001 M5)";
+
+/// What an operand is, as far as national and UTF-8 data are concerned (DESKTOP-WASM-001 T44):
+/// the generator admits a desktop module's national or UTF-8 item only beside these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Side {
+    /// A national or UTF-8 item named directly, or an `N"…"`/`U"…"` literal.
+    Classed,
+    /// `ALL N"…"` or `ALL U"…"`.
+    ClassedAll,
+    /// An alphanumeric item (`PIC X`, `PIC A`) named directly.
+    AlnumItem,
+    /// An alphanumeric literal.
+    AlnumLit,
+    /// `ALL "…"`.
+    AlnumAll,
+    /// A group named directly.
+    Group,
+    /// An edited item named directly.
+    Edited,
+    /// `SPACE`.
+    Space,
+    /// `ZERO`, `QUOTE`, `HIGH-VALUE` or `LOW-VALUE`.
+    OtherFig,
+    /// Anything else: a number, a control's member, an expression, a function, a reference
+    /// modification, `NULL`.
+    Other,
+}
+
+/// Whether `e` names an item (or a literal) directly: no reference modification, no member, no
+/// computation. Only such an operand may be a national or UTF-8 one in a desktop module.
+pub(crate) fn is_direct_ref(e: &Expr) -> bool {
+    match e {
+        Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Literal(..) => true,
+        Expr::Subscript { base, .. } => matches!(base.as_ref(), Expr::Identifier(..) | Expr::Qualified { .. }),
+        _ => false,
+    }
 }
 
 /// The program units of a source: `prog`, then everything nested in it or
@@ -441,6 +483,8 @@ impl<'a, 'b> Lower<'a, 'b> {
 
         // Storage first, for every unit, so a CALL can name any callee's records.
         let mut layout = Layout::new();
+        // A desktop module describes national and UTF-8 items as the interpreter's images (T44).
+        layout.native = native;
         // The region's own PERFORM stack comes first.
         let stack_off = layout.alloc_hidden(STACK_BYTES);
         let map = MemMap { stack_off, stack_size: STACK_BYTES };
@@ -465,13 +509,12 @@ impl<'a, 'b> Lower<'a, 'b> {
             layout.end_unit();
         }
         layout.finish();
-        // A national or UTF-8 item is bytes in a module (WASM-PARITY 17): a desktop module would
-        // display, move and compare it otherwise than the interpreter, so the Build takes the Cargo
-        // path until the module computes such data (T44).
-        if native {
-            if let Some(it) = layout.items.iter().find(|it| !it.hidden && holds_text_class(it)) {
+        // A desktop module computes national and UTF-8 data (T44), comparing them by code point: a
+        // PROGRAM COLLATING SEQUENCE the interpreter would weigh them by takes the Cargo path.
+        if native && prog.collating_sequence.is_some() {
+            if let Some(it) = layout.items.iter().find(|it| !it.hidden && cobolt_wasm_rt::nat::Class::of(&it.fd).is_some()) {
                 let subject = it.name.clone().unwrap_or_else(|| "FILLER".into());
-                let mut e = GenError::kinded(it.span_line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {D_TEXT_DATA}"));
+                let mut e = GenError::kinded(it.span_line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {D_TEXT_COLLATING}"));
                 if let Some((p, _)) = order.get(it.unit as usize) {
                     e.program = p.identification.program_id.to_ascii_uppercase();
                 }
@@ -538,6 +581,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             native_regs: None,
             rc_reg: None,
             rc_ok: false,
+            text_ok: false,
             uses_linage: false,
             lc_reg: None,
             sp_reg: None,
@@ -1584,6 +1628,13 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     pub(crate) fn lit_number(&mut self, lit: &Literal, line: u32) -> GenResult<Option<u32>> {
+        // An `N"…"`/`U"…"` literal (or `ALL` of one) where a desktop module admits it (T44).
+        let classed_lit = match lit {
+            Literal::National(_) | Literal::Utf8(_) => true,
+            Literal::Figurative(FigurativeConstant::All(inner)) => matches!(inner.as_ref(), Literal::National(_) | Literal::Utf8(_)),
+            _ => false,
+        };
+        let text = classed_lit && std::mem::take(&mut self.text_ok);
         Ok(Some(match lit {
             Literal::Integer(n) => self.pool.opd_lit_num(*n as i128, 0),
             Literal::IntegerDigits(n, written) => self.pool.opd_lit_num_written(*n as i128, 0, *written),
@@ -1603,6 +1654,8 @@ impl<'a, 'b> Lower<'a, 'b> {
                 FigurativeConstant::All(inner) => {
                     let bytes: Vec<u8> = match inner.as_ref() {
                         Literal::String(s) => s.as_bytes().to_vec(),
+                        Literal::National(s) | Literal::Utf8(s) if text => s.as_bytes().to_vec(),
+                        Literal::National(_) | Literal::Utf8(_) => return self.text_lit_refused(line),
                         other => match other.integer_digits() {
                             Some(d) => d.into_bytes(),
                             None => return self.err(line, "ALL needs a character or digit literal"),
@@ -1614,10 +1667,187 @@ impl<'a, 'b> Lower<'a, 'b> {
                     self.pool.opd_all(&bytes)
                 }
             },
-            Literal::National(_) | Literal::Utf8(_) => {
-                return self.err(line, "national and UTF-8 literals are not supported in a WebAssembly module yet")
-            }
+            Literal::National(s) | Literal::Utf8(s) if text => self.pool.opd_lit_class(s.as_bytes()),
+            Literal::National(_) | Literal::Utf8(_) => return self.text_lit_refused(line),
         }))
+    }
+
+    /// The refusal of an `N"…"`/`U"…"` literal where no national or UTF-8 data is computed.
+    fn text_lit_refused<T>(&self, line: u32) -> GenResult<T> {
+        if self.native {
+            return self.err_kind(line, crate::error::ErrorKind::Other, "N\"…\"", format!("a national or UTF-8 literal: {D_TEXT_USE}"));
+        }
+        self.err(line, "national and UTF-8 literals are not supported in a WebAssembly module yet")
+    }
+
+    /// The operand record of `e`, which may be a desktop module's national or UTF-8 item or
+    /// literal (T44): the caller has checked that its statement computes such data.
+    pub(crate) fn text_operand(&mut self, e: &Expr) -> GenResult<Option<u32>> {
+        self.text_ok = self.native && is_direct_ref(e);
+        let r = self.operand(e);
+        self.text_ok = false;
+        r
+    }
+
+    /// As [`Self::receiver`], for a receiver that may be national or UTF-8.
+    pub(crate) fn text_receiver(&mut self, e: &Expr) -> GenResult<u32> {
+        let line = e.span().line;
+        match self.text_operand(e)? {
+            Some(o) => Ok(o),
+            None => self.err(line, "a data item was expected as the receiving field"),
+        }
+    }
+
+    /// What `e` is beside national or UTF-8 data ([`Side`]).
+    pub(crate) fn text_side(&mut self, e: &Expr) -> Side {
+        match e {
+            Expr::Literal(l, _) => match l {
+                Literal::National(_) | Literal::Utf8(_) => Side::Classed,
+                Literal::String(_) => Side::AlnumLit,
+                Literal::Figurative(fc) => match fc {
+                    FigurativeConstant::Space => Side::Space,
+                    FigurativeConstant::Zero
+                    | FigurativeConstant::Quote
+                    | FigurativeConstant::HighValue
+                    | FigurativeConstant::LowValue => Side::OtherFig,
+                    FigurativeConstant::All(inner) => match inner.as_ref() {
+                        Literal::National(_) | Literal::Utf8(_) => Side::ClassedAll,
+                        Literal::String(_) => Side::AlnumAll,
+                        _ => Side::Other,
+                    },
+                    _ => Side::Other,
+                },
+                _ => Side::Other,
+            },
+            _ if is_direct_ref(e) => {
+                let Some(i) = self.lookup_direct(e) else { return Side::Other };
+                let it = &self.layout.items[i];
+                if it.level == 88 || it.level == 66 {
+                    Side::Other
+                } else if cobolt_wasm_rt::nat::Class::of(&it.fd).is_some() {
+                    Side::Classed
+                } else if it.is_group {
+                    Side::Group
+                } else {
+                    use cobolt_wasm_rt::fd::{K_ALNUM, K_ALNUM_EDITED, K_NUM_EDITED};
+                    match it.fd.kind {
+                        K_ALNUM => Side::AlnumItem,
+                        K_NUM_EDITED | K_ALNUM_EDITED => Side::Edited,
+                        _ => Side::Other,
+                    }
+                }
+            }
+            _ => Side::Other,
+        }
+    }
+
+    /// The item a direct reference names, looked up without the side effects of
+    /// [`Self::resolve_item`] (an implicit item, a register): `None` when it names none.
+    fn lookup_direct(&self, e: &Expr) -> Option<usize> {
+        let base = match e {
+            Expr::Subscript { base, .. } => base.as_ref(),
+            other => other,
+        };
+        let (name, quals): (&str, Vec<String>) = match base {
+            Expr::Identifier(n, _) => (n, vec![]),
+            Expr::Qualified { name, of, .. } => (name, self.quals_of(of)),
+            _ => return None,
+        };
+        self.layout.lookup(name, &quals).ok()
+    }
+
+    /// The name a refusal of national or UTF-8 data gives: the first of `es` that names an item.
+    fn text_subject(es: &[&Expr]) -> String {
+        for e in es {
+            let base = match e {
+                Expr::Subscript { base, .. } | Expr::RefMod { base, .. } => base.as_ref(),
+                other => other,
+            };
+            match base {
+                Expr::Identifier(n, _) | Expr::Qualified { name: n, .. } => return n.to_ascii_uppercase(),
+                _ => {}
+            }
+        }
+        "N\"…\"".into()
+    }
+
+    /// [`Self::text_subject`] of one expression.
+    pub(crate) fn text_subject_of(e: &Expr) -> String {
+        Self::text_subject(&[e])
+    }
+
+    fn text_refused<T>(&self, line: u32, es: &[&Expr]) -> GenResult<T> {
+        let name = Self::text_subject(es);
+        self.err_kind(line, crate::error::ErrorKind::Other, name.clone(), format!("{name}: {D_TEXT_USE}"))
+    }
+
+    /// A desktop module's `MOVE` that involves national or UTF-8 data (T44): into such an item
+    /// from characters, a group, an edited item, a literal or a figurative constant; from one into
+    /// such an item, an alphanumeric item or a group. Anything else takes the Cargo path.
+    fn check_text_move(&mut self, from: &Expr, to: &[Expr], line: u32) -> GenResult<()> {
+        let snd = self.text_side(from);
+        let classed_snd = matches!(snd, Side::Classed | Side::ClassedAll);
+        for t in to {
+            let rcv = self.text_side(t);
+            let ok = match (classed_snd, rcv == Side::Classed) {
+                (false, false) => true,
+                (_, true) => matches!(
+                    snd,
+                    Side::Classed
+                        | Side::ClassedAll
+                        | Side::AlnumItem
+                        | Side::AlnumLit
+                        | Side::AlnumAll
+                        | Side::Group
+                        | Side::Edited
+                        | Side::Space
+                        | Side::OtherFig
+                ),
+                (true, false) => snd == Side::Classed && matches!(rcv, Side::AlnumItem | Side::Group),
+            };
+            if !ok {
+                return self.text_refused(line, &[from, t]);
+            }
+        }
+        Ok(())
+    }
+
+    /// A desktop module's comparison that involves national or UTF-8 data (T44): with such data,
+    /// an alphanumeric item or literal, or `SPACE`. Anything else takes the Cargo path.
+    fn check_text_compare(&mut self, lhs: &Expr, rhs: &Expr, line: u32) -> GenResult<()> {
+        let (a, b) = (self.text_side(lhs), self.text_side(rhs));
+        if a == Side::ClassedAll || b == Side::ClassedAll {
+            return self.text_refused(line, &[lhs, rhs]);
+        }
+        if a == Side::Classed || b == Side::Classed {
+            let other = if a == Side::Classed { b } else { a };
+            if !matches!(other, Side::Classed | Side::AlnumItem | Side::AlnumLit | Side::Space) {
+                return self.text_refused(line, &[lhs, rhs]);
+            }
+        }
+        Ok(())
+    }
+
+    /// `FUNCTION LENGTH`, `BYTE-LENGTH` or `LENGTH-AN` of a desktop module's national or UTF-8
+    /// item named directly (T44): a constant of its description, as the interpreter answers it
+    /// (positions for `LENGTH`, bytes for the others).
+    fn classed_length(&mut self, e: &Expr) -> Option<u32> {
+        if !self.native {
+            return None;
+        }
+        let Expr::FunctionCall { name, args, .. } = e else { return None };
+        let bytes = match name.to_ascii_uppercase().as_str() {
+            "LENGTH" => false,
+            "BYTE-LENGTH" | "LENGTH-AN" => true,
+            _ => return None,
+        };
+        let [a] = args.as_slice() else { return None };
+        if !is_direct_ref(a) || matches!(a, Expr::Literal(..)) {
+            return None;
+        }
+        let i = self.lookup_direct(a)?;
+        let class = cobolt_wasm_rt::nat::Class::of(&self.layout.items[i].fd)?;
+        Some(if bytes { class.width() } else { class.positions() })
     }
 
     /// The operand record of a simple reference — a data item (qualified,
@@ -1693,7 +1923,13 @@ impl<'a, 'b> Lower<'a, 'b> {
         line: u32,
         odo_from: usize,
     ) -> GenResult<u32> {
+        // Taken before the subscripts are lowered, so it admits this item and not one of them.
+        let admit = std::mem::take(&mut self.text_ok);
         let item = self.layout.items[idx].clone();
+        if self.native && cobolt_wasm_rt::nat::Class::of(&item.fd).is_some() && (!admit || refmod.is_some()) {
+            let name = item.name.clone().unwrap_or_else(|| "FILLER".into());
+            return self.err_kind(line, crate::error::ErrorKind::Other, name.clone(), format!("{name}: {D_TEXT_USE}"));
+        }
         if item.level == 88 {
             return self.err(line, format!("{} is a condition-name, not a data item", item.name.clone().unwrap_or_default()));
         }
@@ -1743,6 +1979,13 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// Push the numeric value of an expression on the register stack.
     pub(crate) fn push_expr(&mut self, e: &Expr) -> GenResult<()> {
         let line = e.span().line;
+        if let Some(n) = self.classed_length(e) {
+            let o = self.pool.opd_lit_num(n as i128, 0);
+            self.base();
+            self.i32c(o as i32);
+            self.call_rt("rt_push");
+            return Ok(());
+        }
         if let Some(o) = self.operand(e)? {
             self.base();
             self.i32c(o as i32);
@@ -1944,7 +2187,10 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     fn compare_values(&mut self, lhs: &Expr, op: u32, rhs: &Expr) -> GenResult<()> {
-        let (a, b) = (self.operand(lhs)?, self.operand(rhs)?);
+        if self.native {
+            self.check_text_compare(lhs, rhs, lhs.span().line)?;
+        }
+        let (a, b) = (self.text_operand(lhs)?, self.text_operand(rhs)?);
         match (a, b) {
             (Some(a), Some(b)) => {
                 self.base();
@@ -2403,6 +2649,9 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.return_code_move(from, to, line)?;
             self.rc_ok = true;
         }
+        if self.native {
+            self.check_text_move(from, to, line)?;
+        }
         // The sender.
         let src = match from {
             // A numeric literal into an alphanumeric receiver moves the
@@ -2413,7 +2662,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                 let d = l.integer_digits().unwrap();
                 Some(self.pool.opd_lit_alnum(d.as_bytes()))
             }
-            _ => self.operand(from)?,
+            _ => self.text_operand(from)?,
         };
         // A signed DISPLAY item moved to a group gives its stored characters, its sign
         // included (COBOL-85 6.18.4: a move to a group is alphanumeric, with no conversion),
@@ -2428,7 +2677,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             Some(src) if as_chars.is_some() => {
                 for t in to {
                     let opd = if self.is_group_item(t) { as_chars.unwrap_or(src) } else { src };
-                    let dst = self.receiver(t)?;
+                    let dst = self.text_receiver(t)?;
                     self.base();
                     self.i32c(opd as i32);
                     self.i32c(dst as i32);
@@ -2437,7 +2686,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
             Some(src) => {
                 if to.len() == 1 {
-                    let dst = self.receiver(&to[0])?;
+                    let dst = self.text_receiver(&to[0])?;
                     self.base();
                     self.i32c(src as i32);
                     self.i32c(dst as i32);
@@ -2447,7 +2696,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                     self.i32c(src as i32);
                     self.call_rt("rt_move_begin");
                     for t in to {
-                        let dst = self.receiver(t)?;
+                        let dst = self.text_receiver(t)?;
                         self.base();
                         self.i32c(dst as i32);
                         self.call_rt("rt_move_to");
@@ -3722,7 +3971,12 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.call_rt("rt_display_reg");
                 continue;
             }
-            match self.operand(o)? {
+            // A national or UTF-8 item or literal shows its characters (T44); `ALL N"…"` does not
+            // reach a DISPLAY in a desktop module.
+            if self.native && self.text_side(o) == Side::ClassedAll {
+                return self.text_refused(line, &[o]);
+            }
+            match self.text_operand(o)? {
                 Some(opd) => {
                     self.base();
                     self.i32c(opd as i32);

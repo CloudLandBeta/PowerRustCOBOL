@@ -85,6 +85,22 @@ fn lit_operand(pool: &mut Pool, lit: &Literal, to_numeric: bool, line: u32) -> G
     })
 }
 
+/// The sender of a desktop module's national or UTF-8 item's `VALUE` (DESKTOP-WASM-001 T44), as the
+/// interpreter reads the clause: a nonnumeric literal (`"…"`, `N"…"`, `U"…"`) is its text, a
+/// figurative constant (`ALL` included) is filled in the item's class, and any other literal is no
+/// text at all, so the item holds spaces.
+fn classed_value_operand(pool: &mut Pool, lit: &Literal, line: u32) -> GenResult<u32> {
+    Ok(match lit {
+        Literal::String(s) | Literal::National(s) | Literal::Utf8(s) => pool.opd_lit_class(s.as_bytes()),
+        Literal::Figurative(FigurativeConstant::All(inner)) => match inner.as_ref() {
+            Literal::National(s) | Literal::Utf8(s) if !s.is_empty() => pool.opd_all(s.as_bytes()),
+            _ => lit_operand(pool, lit, false, line)?,
+        },
+        Literal::Figurative(_) => lit_operand(pool, lit, false, line)?,
+        _ => pool.opd_lit_class(&[]),
+    })
+}
+
 /// Is `idx` or one of its ancestors a `REDEFINES` (storage shared with
 /// another item, which owns the initial value)?
 fn shares_storage(layout: &Layout, idx: usize) -> bool {
@@ -116,8 +132,8 @@ pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<
     let region: u32 = 64;
     let pool_base = region + ((size as u32 + 63) & !63) + 64;
     let mut pool = Pool::new(pool_base);
-    // (sender operand, receiver operand)
-    let mut jobs: Vec<(u32, u32)> = Vec::new();
+    // (sender operand, receiver operand, whether the receiver is national or UTF-8)
+    let mut jobs: Vec<(u32, u32, bool)> = Vec::new();
 
     for (idx, item) in layout.items.iter().enumerate() {
         if item.level == 88 || item.level == 66 || item.hidden || item.is_group && item.value.is_none() {
@@ -139,8 +155,13 @@ pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<
             let name = item.name.as_deref().unwrap_or("FILLER");
             return Err(GenError::new(item.span_line, format!("{name}: a table of more than five million entries cannot be initialised")));
         }
-        let (src_for, numeric) = (default_or_value(&mut pool, item)?, item.fd.is_numeric());
-        let _ = numeric;
+        // A desktop module's national or UTF-8 item (T44) takes its VALUE as the interpreter does,
+        // JUSTIFIED RIGHT included.
+        let classed = cobolt_wasm_rt::nat::Class::of(&item.fd).is_some();
+        let src_for = match &item.value {
+            Some(v) if classed => classed_value_operand(&mut pool, v, item.span_line)?,
+            _ => default_or_value(&mut pool, item)?,
+        };
         let mut counters = vec![0u32; chain.len()];
         'occ: loop {
             let mut off = item.off;
@@ -152,7 +173,9 @@ pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<
             // which is an editing of what a statement stores (BZERO-TEST-3:
             // `PIC 999 VALUE "000" BLANK WHEN ZERO` holds "000").
             let mut plain = item.fd;
-            plain.flags &= !(F_JUSTIFIED | F_BLANK_ZERO);
+            if !classed {
+                plain.flags &= !(F_JUSTIFIED | F_BLANK_ZERO);
+            }
             // A nonnumeric VALUE of an edited item is stored as written, not
             // edited (NC108M FMT-TEST-GF-1: `<(3),<<<.99 VALUE " <1,111.11"`).
             if matches!(plain.kind, K_NUM_EDITED | K_ALNUM_EDITED) && matches!(item.value, Some(Literal::String(_))) {
@@ -160,7 +183,7 @@ pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<
             }
             let fd = pool.fd_with_spec(&plain, item.pic_template.as_deref(), decimal_comma, currency);
             let dst = pool.opd_item(off, &fd, &[] as &[Sub], None);
-            jobs.push((src_for, dst));
+            jobs.push((src_for, dst, classed));
             // Advance the odometer (innermost level fastest).
             let mut k = chain.len();
             loop {
@@ -183,9 +206,14 @@ pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<
     mem.put(pool_base, &pool.bytes);
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // The safe entry points, not the exported ones: a panic must unwind.
-        for (s, d) in &jobs {
+        for (s, d, classed) in &jobs {
             let snd = cobolt_wasm_rt::mv::sender(region, &cobolt_wasm_rt::opd::parse(*s));
-            cobolt_wasm_rt::mv::move_to(region, &snd, &cobolt_wasm_rt::opd::parse(*d));
+            let dst = cobolt_wasm_rt::opd::parse(*d);
+            if *classed {
+                cobolt_wasm_rt::nat::store(&snd, &cobolt_wasm_rt::opd::locate(region, &dst), true);
+            } else {
+                cobolt_wasm_rt::mv::move_to(region, &snd, &dst);
+            }
         }
     }));
     if outcome.is_err() {

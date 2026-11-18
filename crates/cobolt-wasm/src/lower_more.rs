@@ -950,6 +950,8 @@ impl Lower<'_, '_> {
                 while sub_exprs.len() < chain.len() {
                     sub_exprs.push(one.clone());
                 }
+                // A desktop module's national or UTF-8 leaf is reset in its class (T44).
+                self.text_ok = self.native;
                 let first = self.item_operand_bounded(leaf, &sub_exprs, None, line, fixed)?;
                 // Replacement value by category.
                 let repl = if replacing.is_empty() {
@@ -957,6 +959,7 @@ impl Lower<'_, '_> {
                 } else {
                     let Some(cat) = item.pic_kind.map(init_category) else { continue };
                     match replacing.iter().find(|(c, _)| *c == cat) {
+                        Some((_, e)) if self.native => self.text_replacement(cat, e, line)?,
                         Some((_, e)) => self.operand_or_temp(e)?,
                         None => continue,
                     }
@@ -985,6 +988,30 @@ impl Lower<'_, '_> {
         self.i32c(spec as i32);
         self.call_rt("rt_initialize");
         Ok(())
+    }
+
+    /// A desktop module's `INITIALIZE … REPLACING` value (T44): national or UTF-8 data replace
+    /// national or UTF-8 items only, and those take national or UTF-8 data, an alphanumeric item
+    /// or an alphanumeric literal; anything else beside them takes the Cargo path.
+    fn text_replacement(&mut self, cat: InitCategory, e: &Expr, line: u32) -> GenResult<u32> {
+        use crate::lower::Side;
+        let side = self.text_side(e);
+        let classed_cat = matches!(cat, InitCategory::National | InitCategory::Utf8);
+        let ok = if classed_cat {
+            matches!(side, Side::Classed | Side::AlnumItem | Side::AlnumLit)
+        } else {
+            !matches!(side, Side::Classed | Side::ClassedAll)
+        };
+        if !ok {
+            let name = Self::text_subject_of(e);
+            return self.err_kind(line, crate::error::ErrorKind::Other, name.clone(), format!("{name}: {}", crate::lower::D_TEXT_USE));
+        }
+        if classed_cat {
+            if let Some(o) = self.text_operand(e)? {
+                return Ok(o);
+            }
+        }
+        self.operand_or_temp(e)
     }
 
     /// The elementary items under `idx` that INITIALIZE resets: not FILLER, not

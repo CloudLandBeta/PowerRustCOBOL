@@ -33,7 +33,7 @@
 //! constant of a relative subscript (`I + 1`, `J - 2`).
 
 use crate::codec;
-use crate::fd::{Fd, FD_SIZE, K_ALNUM};
+use crate::fd::{Fd, FD_SIZE, F_CLASSED, K_ALNUM};
 use crate::mem;
 use crate::state::err;
 use crate::val::Val;
@@ -213,10 +213,12 @@ fn locate_sized(base: u32, o: &Opd, current: bool) -> Loc {
             let (addr, len) = crate::func::ctemp_loc(o.off);
             Loc { addr, len, fd: Fd { kind: K_ALNUM, flags: 0, digits: 0, scale: 0, len, aux: 0 } }
         }
+        // An `N"…"`/`U"…"` literal of a desktop module keeps its class (T44), so a MOVE into an
+        // alphanumeric item fits it by whole characters.
         T_LIT_ALNUM | T_ALL => Loc {
             addr: o.off,
             len: o.len,
-            fd: Fd { kind: K_ALNUM, flags: 0, digits: 0, scale: 0, len: o.len, aux: 0 },
+            fd: Fd { kind: K_ALNUM, flags: o.fd.flags & F_CLASSED, digits: 0, scale: 0, len: o.len, aux: 0 },
         },
         T_FIG => Loc {
             addr: o.addr + 3, // the `fig` byte itself; callers read `fig_byte`

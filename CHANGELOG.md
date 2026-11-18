@@ -2,6 +2,31 @@
 
 
 
+## 2.0.606 — 2026-11-18
+
+**Feature (DESKTOP-WASM-001 T44, national and UTF-8 data): a Desktop program with `PIC N` or `PIC U` items takes the WebAssembly path when it moves, displays, compares, initialises or measures them, or gives them a `VALUE`. The built program holds each such item as the interpreter does (`PIC N` as UTF-16, `PIC U` as UTF-8 padded with spaces) and computes it by the interpreter's rules, so it shows and stores the same characters and the same bytes.** Until 2.0.604 the Build put such a program on the WebAssembly path, where the module held national data as plain bytes and answered otherwise; 2.0.604 sent it to the Cargo path. This change brings the common uses back.
+- **What the module computes:**
+  - `MOVE` into a national or UTF-8 item from one of either class, an alphanumeric item or literal, a group, an edited item, a figurative constant or `ALL` literal. Whole characters are fitted, and `JUSTIFIED RIGHT` keeps the rightmost ones. `MOVE` from one into an alphanumeric item, which also keeps whole characters, or into a group, which takes its bytes unchanged.
+  - `DISPLAY` of an item or an `N"…"`/`U"…"` literal.
+  - Comparisons (`IF`, `EVALUATE`, `SEARCH`) with an item or literal of either class, an alphanumeric item or literal, or `SPACE`. They compare code points, with the shorter side padded with spaces. `TRUE` or `FALSE` spelled out on one side of `=` makes it a comparison of booleans, as under the interpreter.
+  - `INITIALIZE` (spaces), including `REPLACING NATIONAL DATA` and `UTF-8 DATA`.
+  - `FUNCTION LENGTH`, `BYTE-LENGTH` and `LENGTH-AN` of an item.
+  - `VALUE` clauses, figurative constants included, with `JUSTIFIED RIGHT` applied as the interpreter applies it.
+- **Still the Cargo path, and the Build names the item and the line:**
+  - any other use of such an item: reference modification, `INSPECT`, `STRING`, `UNSTRING`, a function's argument, `ACCEPT`, `SET`, arithmetic, a `CALL` parameter, a control's property, an SQL host variable, a `SORT` key, a condition-name;
+  - a number moved into such an item, or such an item moved into a number;
+  - a group holding one that travels as JSON;
+  - a program with a `PROGRAM COLLATING SEQUENCE`;
+  - a `LINE SEQUENTIAL` record (as before).
+  A Web or Mobile module is unchanged: it still holds national data as bytes (WASM-PARITY row 17).
+- **How it runs:** two new descriptor kinds in the module's runtime, national (UTF-16) and UTF-8. No new import and no runner change.
+- **Tests:**
+  - `cobolt-wasm` `native_national` `national_and_utf8_data_compute_as_the_interpreter_computes_them` (new): 16 cases, the interpreter's own national tests and the rules they rely on, run on both engines in both memory layouts. Identical in 94 DISPLAY lines and 860 bytes of item images.
+  - `native_desktop_refusals` `national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path` (replaces 2.0.604's test): the four declarations of 2.0.604 now compile; seven other uses and a collating sequence are refused, each naming the item, its line and M5.
+  - `cobolt-wasm-rt` `nat` unit tests (new): 4.
+- **AC16:** `rt.wasm` grew by 9 244 bytes (255 717 to 264 961): the national routines. The move, compare and display routines reach them by kind, so they are linked into every module, a browser module's too, where no item is of either kind: each of the player's generated fixtures grows by 8 355 to 8 784 bytes (`program.wasm` 114 765 to 123 524). The PowerAnalyticsWeb pin is re-recorded (its manifest moves too, as it records the linked routines' sizes) and then matches, 3 of 3; the player's generated fixtures are re-recorded. No input of the shipped player's fingerprint changed, so the player is not rebuilt.
+- **Sweeps:** `cobolt-wasm` with its runtime and the ABI: 199 passed in 44 targets (`cobolt-wasm` 139 in 37; `cobolt-wasm-rt` and `cobolt-wasm-abi` 60 in 7). `cobolt-runner`: 19 passed in 10 targets, 2 ignored. `cobolt-compiler` `--lib` and `desktop_wasm_build`: 262 passed, 1 ignored. The player: `abi_host` 28 of 28, `freshness` 6 of 6. `cobolt-web-tests` `desktop_wasm_unchanged`: 3 of 3 artefacts match the pin. The System KB freshness test passes (4 418 records). The runner twins of `cobolt-cli`: `runner_one_form`, `runner_restclient_form`, `runner_sql_form`, `runner_sqldatabase_form` and `runner_surfaces` pass; `runner_shell_hosts` passes 16 of 16, 15 run four at a time and `canvases_and_graphics_objects_draw_and_answer_alike` alone (16 of 16 checks, 1 536 000 pixels, 0 differing). Run all at once beside the other sweeps, with 16 builds of 327 s each, six of them reached the headless 60 s limit on both engines; alone, the graphics twin takes 55.7 s under the interpreter and 57.3 s under the runner, close to that limit.
+
 ## 2.0.605 — 2026-11-18
 
 **Feature (DESKTOP-WASM-001 T43): milestone M4 closed, embedded SQL, the SQL object, HTTP and the RestClient on the WebAssembly path. Every NIST program of the eight modules builds on the WebAssembly path and runs clean through the runner, all six reference projects take that path, and every frame of every project they draw matches the Cargo-built program.**

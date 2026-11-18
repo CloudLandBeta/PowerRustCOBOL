@@ -93,6 +93,10 @@ pub struct Layout {
     /// A file's record (its top-level item) -> the upper-case name of its FD or
     /// SD, which qualifies the record and its items (`PRINT-REC IN PRINT-FILE`).
     record_file: HashMap<usize, String>,
+    /// A desktop module's layout: a national or UTF-8 item is described as the image the
+    /// interpreter keeps ([`K_NATIONAL16`], [`K_UTF8`], DESKTOP-WASM-001 T44). A browser module's
+    /// is described as it always was.
+    pub native: bool,
 }
 
 impl Layout {
@@ -108,6 +112,7 @@ impl Layout {
             externals: HashMap::new(),
             unit_ranges: Vec::new(),
             record_file: HashMap::new(),
+            native: false,
         }
     }
 
@@ -505,7 +510,10 @@ impl Layout {
             self.items[idx].size = 0;
             self.items[idx].fd = Fd::group(0);
         } else {
-            let fd = item_fd(d, sign, usage)?;
+            let mut fd = item_fd(d, sign, usage)?;
+            if self.native {
+                fd = classed_fd(d, fd);
+            }
             self.items[idx].size = fd.len;
             self.items[idx].fd = fd;
         }
@@ -847,6 +855,20 @@ impl Default for Layout {
 /// The item's name as a refusal names it: upper-case, `FILLER` when it has none.
 fn decl_name(d: &DataDecl) -> String {
     d.name.as_deref().map_or_else(|| "FILLER".to_owned(), str::to_ascii_uppercase)
+}
+
+/// A national or UTF-8 item of a desktop module, described as its image (T44): `PIC N(n)` n UTF-16
+/// code units, `PIC U(n)` n characters (`aux`), `PIC U BYTE-LENGTH b` whole characters in b bytes
+/// (`aux` 0). Any other item's `fd` as it is.
+fn classed_fd(d: &DataDecl, fd: Fd) -> Fd {
+    match d.picture.as_ref().map(|p| p.kind) {
+        Some(PicKind::National) => Fd { kind: K_NATIONAL16, aux: fd.len / 2, ..fd },
+        Some(PicKind::Utf8) => {
+            let chars = if d.byte_length.is_some() { 0 } else { fd.len / 4 };
+            Fd { kind: K_UTF8, aux: chars, ..fd }
+        }
+        _ => fd,
+    }
 }
 
 fn item_fd(d: &DataDecl, sign: Option<SignClause>, usage: Usage) -> GenResult<Fd> {

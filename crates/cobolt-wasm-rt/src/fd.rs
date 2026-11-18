@@ -48,6 +48,13 @@ pub const K_NATIONAL: u8 = 9;
 pub const K_GROUP: u8 = 10;
 /// `USAGE INDEX`: a 32-bit unsigned occurrence displacement/number.
 pub const K_INDEX: u8 = 11;
+/// `PIC N(n)` in a desktop module: the interpreter's image, n UTF-16 code units big-endian; `aux`
+/// is n (DESKTOP-WASM-001 T44, [`crate::nat`]). A browser module describes it as [`K_NATIONAL`].
+pub const K_NATIONAL16: u8 = 12;
+/// `PIC U` in a desktop module: its characters in UTF-8, padded with X'20'; `aux` is the n of
+/// `PIC U(n)`, 0 for `PIC U BYTE-LENGTH` (whose capacity is `len`). A browser module describes it
+/// as [`K_ALNUM`].
+pub const K_UTF8: u8 = 13;
 
 /// The item carries an operational sign (`PIC S…`).
 pub const F_SIGNED: u8 = 1;
@@ -61,6 +68,9 @@ pub const F_JUSTIFIED: u8 = 8;
 pub const F_BLANK_ZERO: u8 = 16;
 /// `PIC A…` (class `ALPHABETIC` applies).
 pub const F_ALPHABETIC: u8 = 32;
+/// An `N"…"` or `U"…"` literal of a desktop module: its text in UTF-8, a national sender for
+/// [`crate::nat`].
+pub const F_CLASSED: u8 = 64;
 
 /// A parsed field descriptor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

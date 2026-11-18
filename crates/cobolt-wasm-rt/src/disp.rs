@@ -208,6 +208,12 @@ pub fn display_operand(base: u32, o: u32) {
             let loc = locate(base, &op);
             if loc.fd.is_numeric() {
                 display_numeric_item(&loc);
+            } else if let Some(class) = crate::nat::Class::of(&loc.fd) {
+                // A national or UTF-8 item shows its characters (DESKTOP-WASM-001 T44).
+                let mut b = [0u8; 4];
+                for c in crate::nat::Text::Item(class, mem::bytes(loc.addr, loc.len)).chars() {
+                    line_text(c.encode_utf8(&mut b).as_bytes());
+                }
             } else {
                 line_text(mem::bytes(loc.addr, loc.len));
             }

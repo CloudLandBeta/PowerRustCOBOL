@@ -74,6 +74,8 @@ pub fn move_to_loc(snd: &Sender, d: &Loc) {
             move_to_numeric(snd, &d)
         }
         K_NUM_EDITED | K_ALNUM_EDITED => crate::edited::move_to_edited(snd, &d),
+        // A national or UTF-8 receiver of a desktop module (DESKTOP-WASM-001 T44).
+        K_NATIONAL16 | K_UTF8 => crate::nat::store(snd, &d, false),
         _ => move_to_alnum(snd, &d),
     }
 }
@@ -117,6 +119,9 @@ fn move_to_alnum(snd: &Sender, d: &Loc) {
             let n = image_chars(v, fd, &mut buf);
             put_bytes(d, &buf[..n], just);
         }
+        // A national or UTF-8 sender gives an elementary item whole characters (T44); a group
+        // takes its image as it stands.
+        Sender::Bytes(loc, _) if d.fd.kind != K_GROUP && is_classed_loc(loc) => crate::nat::into_alnum(snd, d),
         Sender::Bytes(loc, _) => {
             // Overlap-safe: copy straight between the two ranges when no
             // justification or padding differs, otherwise via put_bytes.
@@ -129,6 +134,11 @@ fn move_to_alnum(snd: &Sender, d: &Loc) {
             fill_repeat(d.addr, d.len, pat);
         }
     }
+}
+
+/// A national or UTF-8 item, or an `N"…"`/`U"…"` literal, of a desktop module.
+fn is_classed_loc(l: &Loc) -> bool {
+    matches!(l.fd.kind, K_NATIONAL16 | K_UTF8) || l.fd.flags & F_CLASSED != 0
 }
 
 /// Fill `len` bytes at `addr` by repeating `pat`.

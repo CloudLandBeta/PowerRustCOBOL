@@ -389,41 +389,70 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
 /// move and compare it otherwise than the interpreter: it is refused at its declaration, naming it
 /// and its program, and the Build takes the Cargo path until T44. A browser module is unchanged.
 #[test]
-fn national_and_utf8_data_take_the_cargo_path() {
+fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
     let t = Instant::now();
     let mut checks: Vec<(String, bool)> = Vec::new();
     let mut check = |what: String, ok: bool| checks.push((what, ok));
-    let program = |ws: &str| {
-        format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n{ws}PROCEDURE DIVISION.\n    MOVE \"Ação\" TO WS-X\n    DISPLAY WS-X\n    STOP RUN.\n")
+    // Moved, shown, compared, initialised and measured: computed in the module (T44).
+    let program = |ws: &str, n: &str| {
+        format!(
+            "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n01 WS-L PIC 9(4).\n{ws}PROCEDURE DIVISION.\n    MOVE \"Ação\" TO WS-X {n}\n    DISPLAY {n} WS-X\n    IF {n} = \"Ação\" OR {n} = SPACE DISPLAY \"same\" END-IF\n    INITIALIZE {n}\n    MOVE FUNCTION LENGTH({n}) TO WS-L\n    MOVE {n} TO WS-X\n    STOP RUN.\n"
+        )
     };
-    let cases = [
+    let kept = [
         ("01 WS-N PIC N(6).\n", "WS-N", "PIC N"),
         ("01 WS-U PIC U(3).\n", "WS-U", "PIC U"),
         ("01 WS-B PIC U BYTE-LENGTH 5.\n", "WS-B", "PIC U BYTE-LENGTH"),
         ("01 WS-G.\n   05 WS-GX PIC X(2).\n   05 WS-GN PIC N(2) USAGE NATIONAL.\n", "WS-GN", "a national field in a group"),
     ];
-    for (ws, subject, what) in cases {
-        let src = program(ws);
-        let line = line_of(&src, subject);
+    for (ws, n, what) in kept {
+        let src = program(ws, n);
+        let r = compile_program(&common::parse(&src), &native());
+        check(format!("{what}: MOVE, DISPLAY, IF, INITIALIZE and LENGTH of {n} compile into a desktop module"), r.is_ok());
+    }
+    // Any other use takes the Cargo path, naming the item and the statement's line.
+    let ws = "01 WS-N PIC N(6).\n01 WS-9 PIC 9(4).\n01 WS-C PIC 9(4).\n";
+    let uses = [
+        ("    DISPLAY WS-N(1:2)\n", "WS-N(1:2)", "a reference modification"),
+        ("    INSPECT WS-N TALLYING WS-C FOR ALL \"a\"\n", "INSPECT", "INSPECT"),
+        ("    STRING WS-N DELIMITED BY SIZE INTO WS-X\n", "STRING", "STRING"),
+        ("    MOVE 5 TO WS-N\n", "MOVE 5", "a number moved into it"),
+        ("    MOVE WS-N TO WS-9\n", "TO WS-9", "it moved into a number"),
+        ("    MOVE FUNCTION UPPER-CASE(WS-N) TO WS-X\n", "UPPER-CASE", "a function's argument"),
+        ("    IF WS-N = ZERO DISPLAY \"z\" END-IF\n", "ZERO", "a comparison with ZERO"),
+    ];
+    for (stmt, needle, what) in uses {
+        let src = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n{ws}PROCEDURE DIVISION.\n{stmt}    STOP RUN.\n");
+        let line = line_of(&src, needle);
         let e = refusal(&src);
         check(
-            format!("{what}: \"{subject}\" refused at its line {line}, unit T16G, the Cargo path, M5"),
-            e.subject == subject && e.line == line && e.program == "T16G" && e.message.contains("Cargo path") && e.message.contains("M5"),
+            format!("{what}: \"WS-N\" refused at line {line}, unit T16G, the Cargo path, M5"),
+            e.subject == "WS-N" && e.line == line && e.program == "T16G" && e.message.contains("Cargo path") && e.message.contains("M5"),
         );
     }
-    let plain = program("");
-    check(
-        "the same program without national data compiles into a desktop module".into(),
-        compile_program(&common::parse(&plain), &native()).is_ok(),
+    // A PROGRAM COLLATING SEQUENCE would weigh national data: refused at the item's declaration.
+    let collating = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\nOBJECT-COMPUTER. X PROGRAM COLLATING SEQUENCE IS ALPHA.\nSPECIAL-NAMES. ALPHABET ALPHA IS STANDARD-1.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-N PIC N(6).\nPROCEDURE DIVISION.\n    DISPLAY WS-N\n    STOP RUN.\n"
     );
-    let page = program("01 WS-N PIC N(6).\n");
+    let e = refusal(&collating);
+    let decl = line_of(&collating, "01 WS-N");
+    check(
+        format!("a PROGRAM COLLATING SEQUENCE: \"WS-N\" refused at its declaration, line {decl}"),
+        e.subject == "WS-N" && e.line == decl && e.message.contains("COLLATING SEQUENCE") && e.message.contains("M5"),
+    );
+    let page = program("01 WS-N PIC N(6).\n", "WS-X");
     check(
         "a browser module with a PIC N item still compiles (unchanged)".into(),
         compile_program(&common::parse(&page), &Options::default()).is_ok(),
     );
     let took = t.elapsed().as_secs_f64() * 1000.0;
-    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 M5) ==");
-    println!("programs compiled: {} ({} desktop modules refused, 1 accepted, 1 browser module) in {took:.1} ms", cases.len() + 2, cases.len());
+    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44) ==");
+    println!(
+        "programs compiled: {} ({} desktop modules accepted, {} refused, 1 browser module) in {took:.1} ms",
+        kept.len() + uses.len() + 2,
+        kept.len(),
+        uses.len() + 1
+    );
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
