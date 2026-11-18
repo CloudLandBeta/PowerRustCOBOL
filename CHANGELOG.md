@@ -2,6 +2,11 @@
 
 
 
+## 2.0.604 — 2026-11-18
+
+**Fix: a Desktop program with national or UTF-8 data takes the Cargo path, so it gives the interpreter's answers.** A WebAssembly module holds a `PIC N` or `PIC U` item as plain bytes (WASM-PARITY row 17). The Build nevertheless put such a program on the WebAssembly path, where it gave other answers than the interpreter and the Cargo-built program. With `PIC N(6)` holding "Ação", `DISPLAY` showed four characters and six spaces instead of two. `MOVE "Configuração" TO WS-U` (`PIC U(3)`) showed "Configuraç" and a broken byte instead of "Con". The generator now refuses, in a desktop module, the first item declared `PIC N`, `PIC U` (with or without `BYTE-LENGTH`), `USAGE NATIONAL` or `USAGE UTF-8`, naming it, its line and its program. So the Build takes the Cargo path and says why, as the Build's documentation already stated ("a program takes the Cargo path when it has … national data"). DESKTOP-WASM-001 T44 lifts this once the module computes such data. A browser module is unchanged. No reference project declares national data, so none changes path.
+- **Tests:** `cobolt-wasm` `native_desktop_refusals` `national_and_utf8_data_take_the_cargo_path` (new): `PIC N`, `PIC U`, `PIC U BYTE-LENGTH` and a national field inside a group, each refused at its declaration's line, naming the item and its program, the Cargo path and M5. The same program without them compiles into a desktop module, and a browser module with a `PIC N` item still compiles. **Sweep:** `cobolt-wasm` 138 passed in 36 targets (137 before, plus this one), 0 failed.
+
 ## 2.0.603 — 2026-11-18
 
 **Fix: the headers a program sets with `COBOL::"HTTP-SET-HEADER"` go out in the same order on every run.** `HTTP-GET`, `HTTP-DELETE`, `HTTP-POST` and `HTTP-PUT` sent them in a hash map's order, which changes from one run to the next. HTTP does not care about the order, but a server that logs or signs requests saw different bytes from the same program. The HTTP built-ins now send them in the order of their names, as `HTTP-DOWNLOAD` and the RestClient already did. A request with a body still sends its `Content-Type` last. Found by T42's twin (`cobolt-runner` `http_builtins`, 2.0.601), which compares the requests the two paths send byte for byte: it failed in 2 of 5 runs when the two paths' orders differed.

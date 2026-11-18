@@ -384,3 +384,51 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     let failed: Vec<&String> = checks.iter().filter(|(_, ok)| !*ok).map(|(w, _)| w).collect();
     assert!(failed.is_empty(), "failed: {failed:?}");
 }
+
+/// A national or UTF-8 item is bytes in a module (WASM-PARITY 17), so a desktop module would display,
+/// move and compare it otherwise than the interpreter: it is refused at its declaration, naming it
+/// and its program, and the Build takes the Cargo path until T44. A browser module is unchanged.
+#[test]
+fn national_and_utf8_data_take_the_cargo_path() {
+    let t = Instant::now();
+    let mut checks: Vec<(String, bool)> = Vec::new();
+    let mut check = |what: String, ok: bool| checks.push((what, ok));
+    let program = |ws: &str| {
+        format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n{ws}PROCEDURE DIVISION.\n    MOVE \"Ação\" TO WS-X\n    DISPLAY WS-X\n    STOP RUN.\n")
+    };
+    let cases = [
+        ("01 WS-N PIC N(6).\n", "WS-N", "PIC N"),
+        ("01 WS-U PIC U(3).\n", "WS-U", "PIC U"),
+        ("01 WS-B PIC U BYTE-LENGTH 5.\n", "WS-B", "PIC U BYTE-LENGTH"),
+        ("01 WS-G.\n   05 WS-GX PIC X(2).\n   05 WS-GN PIC N(2) USAGE NATIONAL.\n", "WS-GN", "a national field in a group"),
+    ];
+    for (ws, subject, what) in cases {
+        let src = program(ws);
+        let line = line_of(&src, subject);
+        let e = refusal(&src);
+        check(
+            format!("{what}: \"{subject}\" refused at its line {line}, unit T16G, the Cargo path, M5"),
+            e.subject == subject && e.line == line && e.program == "T16G" && e.message.contains("Cargo path") && e.message.contains("M5"),
+        );
+    }
+    let plain = program("");
+    check(
+        "the same program without national data compiles into a desktop module".into(),
+        compile_program(&common::parse(&plain), &native()).is_ok(),
+    );
+    let page = program("01 WS-N PIC N(6).\n");
+    check(
+        "a browser module with a PIC N item still compiles (unchanged)".into(),
+        compile_program(&common::parse(&page), &Options::default()).is_ok(),
+    );
+    let took = t.elapsed().as_secs_f64() * 1000.0;
+    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 M5) ==");
+    println!("programs compiled: {} ({} desktop modules refused, 1 accepted, 1 browser module) in {took:.1} ms", cases.len() + 2, cases.len());
+    let passed = checks.iter().filter(|(_, ok)| *ok).count();
+    for (what, ok) in &checks {
+        println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
+    }
+    println!("result: {passed} of {} checks passed", checks.len());
+    let failed: Vec<&String> = checks.iter().filter(|(_, ok)| !*ok).map(|(w, _)| w).collect();
+    assert!(failed.is_empty(), "failed: {failed:?}");
+}

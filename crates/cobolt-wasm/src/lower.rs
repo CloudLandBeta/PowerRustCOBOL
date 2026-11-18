@@ -381,6 +381,17 @@ pub struct Lower<'a, 'b> {
     pub(crate) payload_store: HashMap<usize, u32>,
 }
 
+/// Why a desktop module refuses national and UTF-8 data: the module holds it as bytes (WASM-PARITY
+/// 17), so it would display, move and compare it otherwise than the interpreter.
+const D_TEXT_DATA: &str =
+    "national and UTF-8 data are not computed in a WebAssembly module yet, so the Build takes the Cargo path (DESKTOP-WASM-001 M5)";
+
+/// Whether the item is a national or UTF-8 one (`PIC N`, `PIC U`, `USAGE NATIONAL` or `UTF-8`).
+fn holds_text_class(it: &crate::layout::Item) -> bool {
+    use cobolt_ast::data::{PicKind, Usage};
+    matches!(it.pic_kind, Some(PicKind::National | PicKind::Utf8)) || matches!(it.usage, Usage::National | Usage::Utf8)
+}
+
 /// The program units of a source: `prog`, then everything nested in it or
 /// written after it, depth first, each with the unit that contains it.
 fn collect_units<'a>(prog: &'a Program, parent: Option<usize>, out: &mut Vec<(&'a Program, Option<usize>)>) {
@@ -454,6 +465,19 @@ impl<'a, 'b> Lower<'a, 'b> {
             layout.end_unit();
         }
         layout.finish();
+        // A national or UTF-8 item is bytes in a module (WASM-PARITY 17): a desktop module would
+        // display, move and compare it otherwise than the interpreter, so the Build takes the Cargo
+        // path until the module computes such data (T44).
+        if native {
+            if let Some(it) = layout.items.iter().find(|it| !it.hidden && holds_text_class(it)) {
+                let subject = it.name.clone().unwrap_or_else(|| "FILLER".into());
+                let mut e = GenError::kinded(it.span_line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {D_TEXT_DATA}"));
+                if let Some((p, _)) = order.get(it.unit as usize) {
+                    e.program = p.identification.program_id.to_ascii_uppercase();
+                }
+                return Err(e);
+            }
+        }
 
         // What each unit offers a CALL: its USING parameters and RETURNING item.
         let mut units: Vec<UnitInfo> = Vec::new();
