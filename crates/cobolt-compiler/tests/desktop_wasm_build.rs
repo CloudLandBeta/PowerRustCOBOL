@@ -119,6 +119,19 @@ const HTTP: &str = "\
            STOP RUN.
 ";
 
+/// A built-in the runner does not serve yet: the model lists (DESKTOP-WASM-001 M6).
+const MODELS: &str = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. T16MODELS.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LIST    PIC X(200).
+       01 WS-COUNT   PIC 9(3).
+       PROCEDURE DIVISION.
+           COBOL::\"MODEL-LIST\" ( WS-LIST WS-COUNT )
+           STOP RUN.
+";
+
 /// The 1-based line of `src` that contains `needle`.
 fn line_of(src: &str, needle: &str) -> u32 {
     src.lines().position(|l| l.contains(needle)).map(|i| i as u32 + 1).expect("the line is in the source")
@@ -384,15 +397,22 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
         matches!(&files_reason, Ok(CargoReason::Refused { construct, file, line, reason }) if construct == "SET (pointer)" && file == "src/files.cbl" && *line == open_line && reason.starts_with("pointers and ADDRESS OF are not compiled into a module")),
     );
     check("the message names the file, the line and why", text.contains(&format!("src/files.cbl line {open_line}")) && text.contains("ADDRESS OF"));
-    let http_line = line_of(HTTP, "HTTP-GET");
-    let m = project(&root, "prct16http", &console_manifest("prct16http", "src/main.cbl", &["src/main.cbl"], ""), &[("src/main.cbl", HTTP)]);
+    let models_line = line_of(MODELS, "MODEL-LIST");
+    let m = project(&root, "prct16models", &console_manifest("prct16models", "src/main.cbl", &["src/main.cbl"], ""), &[("src/main.cbl", MODELS)]);
     let t = Instant::now();
     let r = build_project(&m, &opts(Some(&runner)));
     let http_ms = ms(t);
     let http_reason = reason_of(&r);
     check(
-        &format!("COBOL::\"HTTP-GET\" in the main program → Refused at src/main.cbl line {http_line}"),
-        matches!(&http_reason, Ok(CargoReason::Refused { construct, file, line, reason }) if construct == "COBOL::\"HTTP-GET\"" && file == "src/main.cbl" && *line == http_line && reason.contains("HTTP")),
+        &format!("COBOL::\"MODEL-LIST\" in the main program → Refused at src/main.cbl line {models_line}"),
+        matches!(&http_reason, Ok(CargoReason::Refused { construct, file, line, reason }) if construct == "COBOL::\"MODEL-LIST\"" && file == "src/main.cbl" && *line == models_line && reason.contains("the model lists")),
+    );
+    // The HTTP built-ins are the runner's since T42 (A45): the same program builds on the WebAssembly path.
+    let m = project(&root, "prct16http", &console_manifest("prct16http", "src/main.cbl", &["src/main.cbl"], ""), &[("src/main.cbl", HTTP)]);
+    let r = build_project(&m, &opts(Some(&runner)));
+    check(
+        "COBOL::\"HTTP-GET\" in the main program → WebAssembly path, bin/<name> written (T42)",
+        r.as_ref().is_ok_and(|b| b.path == BuildPath::Wasm && b.binary_path.is_file()),
     );
 
     // ── 4. No toolchain: the Cargo path stops and bin/ is untouched (AC17); the chosen setting ──

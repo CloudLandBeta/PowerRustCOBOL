@@ -1015,6 +1015,10 @@ impl Lower<'_, '_> {
             "IMAGE-FIT" | "IMAGE-INFO" if self.native => self.desktop_image(name, using, line),
             // On the desktop the runner keeps the SQL built-ins' connections (T41b).
             "OPEN-DB" | "EXEC-SQL" | "FETCH-ROW" | "NEXT-ROW" | "ROW-COUNT" | "CLOSE-DB" if self.native => self.desktop_sql_db(name, using, line),
+            // On the desktop the runner keeps each window's HTTP client and its headers (T42).
+            "HTTP-GET" | "HTTP-POST" | "HTTP-PUT" | "HTTP-DELETE" | "HTTP-SET-HEADER" | "HTTP-CLEAR-HEADERS" | "HTTP-DOWNLOAD" if self.native => {
+                self.desktop_http(name, using, line)
+            }
             // On the desktop the module keeps every file's last status (T39c).
             "FILE-STATUS" if self.native => self.desktop_file_status(using, line),
             // The page's own verbs (ABI §12.1) are not the desktop's: under the interpreter a form's
@@ -1345,6 +1349,50 @@ impl Lower<'_, '_> {
         Ok(())
     }
 
+    /// `COBOL::"HTTP-GET" ( url response http-status )`, `"HTTP-POST"` and `"HTTP-PUT" ( url body response
+    /// http-status )`, `"HTTP-DELETE" ( url response http-status )`, `"HTTP-SET-HEADER" ( name value )`,
+    /// `"HTTP-CLEAR-HEADERS"` and `"HTTP-DOWNLOAD" ( url file http-status status )` in a desktop module
+    /// (DESKTOP-WASM-001 T42, ABI A45): the runner keeps one HTTP client per form instance, as each form's
+    /// interpreter keeps its own, and runs each call with the interpreter's own client. Fewer arguments
+    /// than the built-in takes are refused, so the Build takes the Cargo path, where the interpreter does
+    /// what it does with them; arguments after them are ignored, as it ignores them.
+    fn desktop_http(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
+        use cobolt_wasm_rt::deskio::http;
+        let subject = format!("COBOL::\"{name}\"");
+        // The operation, the arguments it takes, and the place of each: the two sent (`a`, `b`) and the
+        // receivers of the answer's text and number; `None` for a place the built-in has not.
+        type Places = [Option<usize>; 4];
+        let (op, takes, places, what): (u32, usize, Places, &str) = match name {
+            "HTTP-GET" => (http::GET, 3, [Some(0), None, Some(1), Some(2)], "the URL and the data items that receive the response and the status code"),
+            "HTTP-POST" => (http::POST, 4, [Some(0), Some(1), Some(2), Some(3)], "the URL, the body and the data items that receive the response and the status code"),
+            "HTTP-PUT" => (http::PUT, 4, [Some(0), Some(1), Some(2), Some(3)], "the URL, the body and the data items that receive the response and the status code"),
+            "HTTP-DELETE" => (http::DELETE, 3, [Some(0), None, Some(1), Some(2)], "the URL and the data items that receive the response and the status code"),
+            "HTTP-SET-HEADER" => (http::SET_HEADER, 2, [Some(0), Some(1), None, None], "the header's name and its value"),
+            "HTTP-CLEAR-HEADERS" => (http::CLEAR_HEADERS, 0, [None; 4], ""),
+            _ => (http::DOWNLOAD, 4, [Some(0), Some(1), Some(3), Some(2)], "the URL, the file and the data items that receive the status code and the status"),
+        };
+        if using.len() < takes {
+            return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes {what}"));
+        }
+        let ex = |a: &CallArg| match a {
+            CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+        };
+        let mut opds = [0u32; 4];
+        for (slot, place) in places.iter().enumerate() {
+            if let Some(i) = place {
+                let e = ex(&using[*i]);
+                opds[slot] = if slot < 2 { self.operand_or_temp(&e)? } else { self.receiver(&e)? };
+            }
+        }
+        self.base();
+        self.i32c(op as i32);
+        for o in opds {
+            self.i32c(o as i32);
+        }
+        self.call_rt("rt_http");
+        Ok(())
+    }
+
     /// Move the application object's property `prop` (as text) into `dest`.
     fn app_property_into(&mut self, prop: &str, dest: &Expr, line: u32) -> GenResult<()> {
         let k = self.ctemp_next;
@@ -1389,3 +1437,28 @@ fn value_method_code(name: &str) -> Option<u32> {
 
 #[allow(dead_code)]
 fn _unused(_: I<'static>) {}
+
+#[cfg(test)]
+mod tests {
+    /// The runtime's copy of the operations that cross `http_call` (A45) is the ABI's: the runtime cannot
+    /// link the ABI crate, so this crate, which links both, holds the two equal.
+    #[test]
+    fn the_runtime_speaks_the_abis_http_operations() {
+        use cobolt_wasm_abi::http as abi;
+        use cobolt_wasm_rt::deskio::http as rt;
+        let ops = [
+            ("GET", abi::GET, rt::GET),
+            ("POST", abi::POST, rt::POST),
+            ("PUT", abi::PUT, rt::PUT),
+            ("DELETE", abi::DELETE, rt::DELETE),
+            ("SET_HEADER", abi::SET_HEADER, rt::SET_HEADER),
+            ("CLEAR_HEADERS", abi::CLEAR_HEADERS, rt::CLEAR_HEADERS),
+            ("DOWNLOAD", abi::DOWNLOAD, rt::DOWNLOAD),
+            ("TAIL", abi::TAIL, rt::TAIL),
+        ];
+        for (name, a, r) in ops {
+            assert_eq!(a, r, "http::{name}: the ABI says {a}, the runtime {r}");
+        }
+        println!("http_call: {} of {} operations equal in the ABI and the runtime", ops.len(), ops.len());
+    }
+}

@@ -106,6 +106,12 @@ mod imp {
         /// with the `text_len` bytes at `text`; the answer is written at `buf` when it fits in `cap`
         /// bytes, and its whole length returned, or a negative number when the runner could not run it.
         pub fn sql_obj(op: u32, member: u32, member_len: u32, text: u32, text_len: u32, buf: u32, cap: u32) -> i32;
+        // A desktop module only (ABI A45): an HTTP built-in, run by the runner with the interpreter's client.
+        /// Operation `op` (`crate::deskio::http`) with the `a_len` bytes at `a` and the `b_len` bytes at
+        /// `b`; the answer's text is written at `buf` (at most `cap` bytes: its first, or with `TAIL` the
+        /// last of it without its trailing spaces), and its number (bits 32 to 47) and whole length (bits
+        /// 0 to 31) returned, or -1.
+        pub fn http_call(op: u32, a: u32, a_len: u32, b: u32, b_len: u32, buf: u32, cap: u32) -> i64;
     }
 }
 
@@ -287,6 +293,28 @@ mod imp {
     #[allow(clippy::too_many_arguments)]
     pub unsafe fn sql_obj(op: u32, member: u32, member_len: u32, text: u32, text_len: u32, buf: u32, cap: u32) -> i32 {
         builtin_call("sql_obj", &[(member, member_len), (text, text_len)], &[op as i64], buf, cap)
+    }
+    std::thread_local! {
+        /// The number the next `http_call` answers with the text in `BUILTIN_ANSWER` (A45).
+        pub static HTTP_NUMBER: RefCell<u16> = const { RefCell::new(0) };
+    }
+    /// An HTTP built-in (A45): recorded with the built-ins' imports, as `("http_call", [a, b], [op, cap])`;
+    /// the text written is the first `cap` bytes of `BUILTIN_ANSWER`, or with `TAIL` the last of it
+    /// without its trailing spaces.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn http_call(op: u32, a: u32, a_len: u32, b: u32, b_len: u32, buf: u32, cap: u32) -> i64 {
+        let texts = [(a, a_len), (b, b_len)].iter().map(|&(p, n)| crate::mem::bytes(p, n).to_vec()).collect();
+        BUILTIN_CALLS.with(|c| c.borrow_mut().push(("http_call", texts, vec![op as i64, cap as i64])));
+        let mut ans = BUILTIN_ANSWER.with(|a| a.borrow().clone());
+        let tail = op & crate::deskio::http::TAIL != 0;
+        if tail {
+            ans.truncate(ans.iter().rposition(|&c| c != b' ').map_or(0, |e| e + 1));
+        }
+        let n = ans.len().min(cap as usize);
+        let from = if tail { ans.len() - n } else { 0 };
+        crate::mem::bytes_mut(buf, n as u32).copy_from_slice(&ans[from..from + n]);
+        let number = HTTP_NUMBER.with(|v| *v.borrow());
+        ((u64::from(number) << 32) | ans.len() as u64) as i64
     }
 }
 

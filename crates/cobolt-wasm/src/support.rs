@@ -42,7 +42,6 @@ pub enum Native {
 /// Why a program with no form takes the Cargo path for an entry of class [`Native::Form`] (DESKTOP-WASM-001 T33).
 pub const D_FORMS: &str = "a program with no form has no controls or application object in its module, so it takes the Cargo path for them (DESKTOP-WASM-001 M2 serves them to a form's program)";
 const D_SQL: &str = "SQL is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
-const D_HTTP: &str = "HTTP is not on the WebAssembly path yet (DESKTOP-WASM-001 M4)";
 const D_POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module yet (DESKTOP-WASM-001 M5)";
 const D_EXCEPTIONS: &str = "TRY, CATCH, FINALLY and THROW are not compiled into a module yet (DESKTOP-WASM-001 M5)";
 const D_CONTROLS: &str = "the non-visual controls, the keys and the model lists are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
@@ -280,13 +279,14 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     // `showDirectoryPicker` is Chrome's only: Q7's parity rule leaves it out.
     c("FOLDER-DIALOG", Support::Unsupported("a browser page cannot choose a folder in every engine (showDirectoryPicker is Chrome's only)"), Native::Host(cap::DIALOGS)),
     c("GET-PROPERTY", Support::Module, Native::Form),
-    c("HTTP-CLEAR-HEADERS", Support::BackendOnly(HTTP), cargo(D_HTTP)),
-    c("HTTP-DELETE", Support::BackendOnly(HTTP), cargo(D_HTTP)),
-    c("HTTP-DOWNLOAD", Support::BackendOnly(HTTP), cargo(D_HTTP)),
-    c("HTTP-GET", Support::BackendOnly(HTTP), cargo(D_HTTP)),
-    c("HTTP-POST", Support::BackendOnly(HTTP), cargo(D_HTTP)),
-    c("HTTP-PUT", Support::BackendOnly(HTTP), cargo(D_HTTP)),
-    c("HTTP-SET-HEADER", Support::BackendOnly(HTTP), cargo(D_HTTP)),
+    // The runner keeps each window's client and runs these with the interpreter's own (T42).
+    c("HTTP-CLEAR-HEADERS", Support::BackendOnly(HTTP), Native::Host(cap::HTTP)),
+    c("HTTP-DELETE", Support::BackendOnly(HTTP), Native::Host(cap::HTTP)),
+    c("HTTP-DOWNLOAD", Support::BackendOnly(HTTP), Native::Host(cap::HTTP)),
+    c("HTTP-GET", Support::BackendOnly(HTTP), Native::Host(cap::HTTP)),
+    c("HTTP-POST", Support::BackendOnly(HTTP), Native::Host(cap::HTTP)),
+    c("HTTP-PUT", Support::BackendOnly(HTTP), Native::Host(cap::HTTP)),
+    c("HTTP-SET-HEADER", Support::BackendOnly(HTTP), Native::Host(cap::HTTP)),
     c("IMAGE-FIT", Support::BackendOnly(FILES), Native::Host(cap::IMAGES)),
     c("IMAGE-INFO", Support::BackendOnly(FILES), Native::Host(cap::IMAGES)),
     c("INIT-FORM", Support::Module, Native::Form),

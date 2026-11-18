@@ -1,5 +1,6 @@
 # The "console" fixture of the module corpus (DESKTOP-WASM-001 T21): what it is given and what it
-# must print and answer. The output was checked against `rcrun run` (the interpreter) on 2026-11-16.
+# must print and answer. The output was checked against `rcrun run` (the interpreter) on 2026-11-16,
+# and again on 2026-11-17 when T42 added the HTTP built-ins (ABI A45).
 sources = ["main.cbl"]
 stdin = "Ada Lovelace\r\n42\n"
 args = ["alpha", "beta gamma"]
@@ -17,6 +18,8 @@ stamp 2026010203040567
 random 1 198382
 random 2 352819
 random 3 961013
+download 000 BADURL  
+get 000 [HTTP GET error:]
 '''
 
 [env]

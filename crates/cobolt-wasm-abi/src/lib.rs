@@ -29,6 +29,8 @@ pub mod files;
 pub mod manifest;
 /// The `prsql` section: a desktop module's `EXEC SQL` statements (A41).
 pub mod sql;
+/// The HTTP built-ins of a desktop module (A45).
+pub mod http;
 
 #[cfg(feature = "scan")]
 pub mod scan;

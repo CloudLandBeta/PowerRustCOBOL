@@ -283,6 +283,7 @@ impl Driver {
             sql.begin_call(call_inst(call));
         }
         self.store.data_mut().db.borrow_mut().begin_call(call_inst(call));
+        self.store.data_mut().http.borrow_mut().begin_call(call_inst(call));
         let r = (|| -> wasmtime::Result<CallResult> {
             Ok(match call {
                 ModuleCall::OpenForm { form, opener } => {
@@ -293,6 +294,7 @@ impl Driver {
                             sql.opened_form(inst);
                         }
                         self.store.data_mut().db.borrow_mut().opened_form(inst);
+                        self.store.data_mut().http.borrow_mut().opened_form(inst);
                     }
                     let status = self.call::<(), i32>("pr_status", ())?;
                     let task = self.task(status)?;
@@ -311,6 +313,8 @@ impl Driver {
                         }
                         // And the connections its SQL built-ins opened (T41b).
                         self.store.data_mut().db.borrow_mut().forget_instance(*inst);
+                        // And its HTTP client (T42).
+                        self.store.data_mut().http.borrow_mut().forget_instance(*inst);
                     }
                     CallResult::Status { status, task: self.task(status)? }
                 }

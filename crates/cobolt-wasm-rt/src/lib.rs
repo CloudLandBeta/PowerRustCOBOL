@@ -444,6 +444,13 @@ pub extern "C" fn rt_sql_obj(base: u32, op: u32, member: u32, arg: u32, k: u32) 
     cmd::sql_obj(base, op, member, arg, k);
 }
 
+/// `COBOL::"HTTP-GET"` and its six companions (ABI A45): operation `op` (`deskio::http`), with
+/// operands `a` and `b` sent (0: none), and `text` and `number` receiving the answer (0: none).
+#[no_mangle]
+pub extern "C" fn rt_http(base: u32, op: u32, a: u32, b: u32, text: u32, number: u32) {
+    deskio::http(base, op, a, b, text, number);
+}
+
 /// `INSPECT target <spec>`.
 #[no_mangle]
 pub extern "C" fn rt_inspect(base: u32, target: u32, spec: u32) {

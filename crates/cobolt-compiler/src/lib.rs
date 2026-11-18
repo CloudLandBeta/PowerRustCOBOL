@@ -8137,6 +8137,16 @@ fn browser_subset_doc() -> String {
         cobolt_wasm::support::D_SQL_OBJECT_ASYNC,
         cobolt_wasm::support::D_SQL_OBJECT_MEMBER
     ));
+    // T42: the HTTP built-ins are served in every desktop module; a call blocks the program's one thread.
+    d.push_str(
+        "\nThe HTTP built-ins (`HTTP-GET`, `HTTP-POST`, `HTTP-PUT`, `HTTP-DELETE`, `HTTP-SET-HEADER`, `HTTP-CLEAR-HEADERS` \
+         and `HTTP-DOWNLOAD`) are served in every Desktop program, with or without a form: the runner keeps one HTTP client \
+         per window, as each form's program keeps its own, and runs each call with the interpreter's own client, so the \
+         request, the headers sent, the answer and the file written are the same on both paths. On the WebAssembly path a \
+         call holds the program until its answer comes, so the program's other windows run no handler meanwhile; on the \
+         Cargo path only the calling form's program waits. A call given fewer arguments than its built-in takes is sent \
+         down the Cargo path.\n",
+    );
     d.push_str("\nA control bound to data (Data Binding) takes the Cargo path too, whatever its type:\n\n| Bound to | Why |\n|---|---|\n");
     for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {
         d.push_str(&format!("| {source} | {why} |\n"));

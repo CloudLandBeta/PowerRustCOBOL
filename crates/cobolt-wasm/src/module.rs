@@ -703,7 +703,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // environment ones of a desktop module's. Each is backed by a host import
     // of the same name, in the `pr` namespace or, for a desktop capability, in
     // `prn` (ABI A27, A29).
-    const GLUE_ORDER: [&str; 29] = [
+    const GLUE_ORDER: [&str; 30] = [
         "flush",
         "abort",
         "query",
@@ -733,6 +733,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         "sql_exec",
         "sql_db",
         "sql_obj",
+        "http_call",
     ];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
@@ -788,6 +789,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let ty_t_write = types.intern(&[ValType::I32; 7], &[ValType::I32]);
     let ty_img_fit = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64, ValType::I64, ValType::I32, ValType::I32], &[ValType::I32]);
     let ty_sql_db = types.intern(&[ValType::I32, ValType::I64, ValType::I64, ValType::I32, ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]);
+    let ty_http = types.intern(&[ValType::I32; 7], &[ValType::I64]);
     let glue_types = |name: &str| -> (u32, u32) {
         match name {
             "now" | "random" => (ty_f64_ret, ty_f64_ret),
@@ -824,6 +826,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             // A42: a SQL built-in; the handle and the column cross as i64s.
             "sql_db" => (ty_sql_db, ty_sql_db),
             "sql_obj" => (ty_t_write, ty_t_write),
+            // A45: an HTTP built-in; the answer's number and length cross as one i64.
+            "http_call" => (ty_http, ty_http),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
         }
     };
@@ -1156,6 +1160,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         ("sql_exec", 4),
         ("sql_db", 7),
         ("sql_obj", 7),
+        ("http_call", 7),
     ] {
         if let Some(&at) = glue_final.get(g) {
             let mut f = Function::new([]);

@@ -371,6 +371,68 @@ pub fn sql_db(base: u32, op: u32, a: u32, b: u32, c: u32, d: u32) {
     }
 }
 
+/// `cobolt_wasm_abi::http` (A45), held equal to it as `sql::db` is.
+pub mod http {
+    pub const GET: u32 = 1;
+    pub const POST: u32 = 2;
+    pub const PUT: u32 = 3;
+    pub const DELETE: u32 = 4;
+    pub const SET_HEADER: u32 = 5;
+    pub const CLEAR_HEADERS: u32 = 6;
+    pub const DOWNLOAD: u32 = 7;
+    pub const TAIL: u32 = 0x100;
+}
+
+/// `COBOL::"HTTP-GET" ( url response http-status )`, `"HTTP-POST"` and `"HTTP-PUT" ( url body response
+/// http-status )`, `"HTTP-DELETE" ( url response http-status )`, `"HTTP-SET-HEADER" ( name value )`,
+/// `"HTTP-CLEAR-HEADERS"` and `"HTTP-DOWNLOAD" ( url file http-status status )` (ABI A45): the runner
+/// runs each with the interpreter's own client. `a` and `b` are the operands sent (0: none); `text` and
+/// `number` receive the answer's text and number (0: none).
+///
+/// A body has no limit of its own, so the runner writes it straight into a receiver of characters
+/// (`PIC X`, a group), its first bytes or, for a `JUSTIFIED RIGHT` one, its last, and the module pads
+/// it as a move does. Any other receiver gets the text through the scratch area, as `set_str` puts it.
+pub fn http(base: u32, op: u32, a: u32, b: u32, text: u32, number: u32) {
+    let (aa, al) = if a != 0 { arg_text(base, a, 0) } else { (0, 0) };
+    let (ba, bl) = if b != 0 { arg_text(base, b, 1) } else { (0, 0) };
+    let direct = if text != 0 {
+        let loc = locate(base, &parse(text));
+        matches!(loc.fd.kind, crate::fd::K_ALNUM | crate::fd::K_GROUP).then_some(loc)
+    } else {
+        None
+    };
+    let tail = direct.as_ref().is_some_and(|l| l.fd.justified());
+    let (buf, cap) = match &direct {
+        Some(l) => (l.addr, l.len),
+        None => answer_area(),
+    };
+    let op = if tail { op | http::TAIL } else { op };
+    // SAFETY: the runner reads the two texts and writes at most `cap` bytes at `buf`.
+    let got = unsafe { host::http_call(op, aa, al, ba, bl, buf, cap) };
+    if got < 0 {
+        return;
+    }
+    let n = ((got as u64 & 0xFFFF_FFFF) as u32).min(cap) as usize;
+    if text != 0 {
+        match &direct {
+            Some(l) => {
+                let field = mem::bytes_mut(l.addr, l.len);
+                if !tail {
+                    field[n..].fill(b' ');
+                } else if n < field.len() {
+                    let pad = field.len() - n;
+                    field.copy_within(0..n, pad);
+                    field[..pad].fill(b' ');
+                }
+            }
+            None => put_text(base, text, mem::bytes(buf, n as u32)),
+        }
+    }
+    if number != 0 {
+        put_number(base, number, (got as u64 >> 32) & 0xFFFF);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

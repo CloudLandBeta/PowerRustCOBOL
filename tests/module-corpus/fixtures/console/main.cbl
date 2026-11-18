@@ -1,7 +1,9 @@
       *> DESKTOP-WASM-001 T21 corpus fixture "console": the console, the
       *> environment, the arguments, the pinned clock, RANDOM and
       *> RETURN-CODE, which are what a desktop module's console imports
-      *> and the test pins carry.
+      *> and the test pins carry. From T42 the HTTP built-ins too (ABI
+      *> A45), offline: a header set and cleared, a download refused for
+      *> its URL, and a GET whose URL cannot be read.
        IDENTIFICATION DIVISION.
        PROGRAM-ID. CORPUSCONSOLE.
        DATA DIVISION.
@@ -20,6 +22,9 @@
        01 WS-STAMP    PIC X(21).
        01 WS-R        PIC 9(6).
        01 WS-I        PIC 9.
+       01 WS-CODE     PIC 999.
+       01 WS-WORD     PIC X(8).
+       01 WS-BODY     PIC X(40).
        PROCEDURE DIVISION.
            DISPLAY "corpus console fixture"
            ACCEPT WS-NAME
@@ -45,5 +50,13 @@
                COMPUTE WS-R = FUNCTION RANDOM * 1000000
                DISPLAY "random " WS-I " " WS-R
            END-PERFORM
+           COBOL::"HTTP-SET-HEADER" ( "X-Corpus" "console" )
+           COBOL::"HTTP-CLEAR-HEADERS" ( )
+           COBOL::"HTTP-DOWNLOAD" ( "ftp://example.com/a.bin" "never.bin"
+               WS-CODE WS-WORD )
+           DISPLAY "download " WS-CODE " " WS-WORD
+           MOVE ALL "*" TO WS-BODY
+           COBOL::"HTTP-GET" ( "not a url" WS-BODY WS-CODE )
+           DISPLAY "get " WS-CODE " [" WS-BODY(1:15) "]"
            MOVE 7 TO RETURN-CODE
            STOP RUN.

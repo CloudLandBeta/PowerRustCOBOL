@@ -36,6 +36,7 @@ mod aws;
 pub mod files;
 pub mod forms;
 mod gfx;
+mod http;
 pub mod messages;
 pub mod pins;
 mod sql;
@@ -55,7 +56,8 @@ pub use pins::Pins;
 
 /// The capabilities this runner provides (A27). T15: console programs; T32: the file dialogs (A33);
 /// T38: files on disk of every organisation (A34); T49: the sound player (A36); T48: the AWS controls (A38);
-/// T39c: the text files and pictures a built-in names by its path (A39); T41: `EXEC SQL` (A41).
+/// T39c: the text files and pictures a built-in names by its path (A39); T41: `EXEC SQL` (A41);
+/// T42: the HTTP built-ins (A45).
 pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::CONSOLE,
     cap::ENV,
@@ -69,6 +71,7 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::FILES_TEXT,
     cap::IMAGES,
     cap::SQL,
+    cap::HTTP,
 ];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row
@@ -105,6 +108,8 @@ pub const PROVIDED_IMPORTS: &[(u32, &str, &str)] = &[
     (1, NATIVE_IMPORT_MODULE, "sql_db"),
     // T41d: `COBOL::SqlDatabase` (A44).
     (1, NATIVE_IMPORT_MODULE, "sql_obj"),
+    // T42: the HTTP built-ins (A45).
+    (1, NATIVE_IMPORT_MODULE, "http_call"),
 ];
 
 /// `pr_run`'s answers (the generator's `ret`): the run finished, or `STOP RUN`.
@@ -216,6 +221,7 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
         sql.end(normal);
     }
     st.db.borrow_mut().end();
+    st.http.borrow_mut().end();
     if let Some(msg) = st.fatal.take() {
         return refuse(lang, msg);
     }
@@ -334,6 +340,8 @@ pub struct State {
     pub(crate) sql: Option<sql::SqlRun>,
     /// The SQL built-ins' connections (T41b), which the SqlDatabase controls share (T41c).
     pub(crate) db: std::rc::Rc<std::cell::RefCell<sql::Builtins>>,
+    /// The HTTP built-ins' clients, one per window (T42).
+    pub(crate) http: std::rc::Rc<std::cell::RefCell<http::Clients>>,
 }
 
 impl State {
@@ -350,6 +358,7 @@ impl State {
             files: files::Files::default(),
             sql: None,
             db: std::rc::Rc::default(),
+            http: std::rc::Rc::default(),
         }
     }
 }
@@ -867,6 +876,29 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                             match write_mem(&mut caller, buf, out.as_bytes()) {
                                 Some(()) => out.len() as i32,
                                 None => FAILED,
+                            }
+                        },
+                    )
+                    .map_err(fail)?;
+            }
+            // T42, A45: an HTTP built-in, run by the interpreter's own client of the form instance the
+            // call acts on. The answer's text goes to `buf`, at most `cap` bytes (its first, or with
+            // `TAIL` its last without its trailing spaces); answers its number and whole length.
+            (NATIVE_IMPORT_MODULE, "http_call") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "http_call",
+                        |mut caller: Caller<'_, State>, op: i32, a: i32, a_len: i32, b: i32, b_len: i32, buf: i32, cap: i32| -> i64 {
+                            use cobolt_wasm_abi::http as h;
+                            let Some(a) = read_mem(&mut caller, a, a_len) else { return h::FAILED };
+                            let Some(b) = read_mem(&mut caller, b, b_len) else { return h::FAILED };
+                            let op = op as u32;
+                            let Some((number, text)) = caller.data().http.borrow_mut().call(op, &a, &b) else { return h::FAILED };
+                            let (shown, len) = http::part(op, &text, cap.max(0) as usize);
+                            match write_mem(&mut caller, buf, shown) {
+                                Some(()) => h::answer(number, len),
+                                None => h::FAILED,
                             }
                         },
                     )

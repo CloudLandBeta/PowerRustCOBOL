@@ -227,15 +227,43 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     let sorted = compile_program(&common::parse(&procs), &native());
     check("SORT with INPUT and OUTPUT PROCEDUREs compiles into a desktop module".into(), sorted.is_ok());
 
-    // A built-in: refused at its line, with the reason of its Desktop class.
+    // A built-in the runner does not serve yet: refused at its line, with the reason of its Desktop class.
+    let models = format!(
+        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-LIST PIC X(200).\n01 WS-N PIC 9(3).\n\
+         PROCEDURE DIVISION.\n    COBOL::\"MODEL-LIST\" ( WS-LIST WS-N )\n    STOP RUN.\n"
+    );
+    let e = refusal(&models);
+    check(
+        "COBOL::\"MODEL-LIST\": refused at its line, the model lists (M6)".into(),
+        e.subject == "COBOL::\"MODEL-LIST\""
+            && e.line == line_of(&models, "MODEL-LIST")
+            && e.message.contains("the model lists are not on the WebAssembly path yet")
+            && e.message.contains("M6"),
+    );
+
+    // The HTTP built-ins are the runner's (T42, A45): the module asks for `http` and imports `http_call`.
+    // One given fewer arguments than it takes is refused at its line, naming what it takes.
     let http = format!(
         "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-URL PIC X(40) VALUE \"https://example.invalid/\".\n01 WS-BODY PIC X(80).\n01 WS-ST PIC 9(3).\n\
          PROCEDURE DIVISION.\n    COBOL::\"HTTP-GET\" ( WS-URL WS-BODY WS-ST )\n    STOP RUN.\n"
     );
-    let e = refusal(&http);
+    let http_scan = compile_program(&common::parse(&http), &native()).ok().and_then(|m| cobolt_wasm_abi::scan::scan_module(&m.wasm).ok());
     check(
-        "COBOL::\"HTTP-GET\": refused at its line, HTTP (M4)".into(),
-        e.subject == "COBOL::\"HTTP-GET\"" && e.line == line_of(&http, "HTTP-GET") && e.message.contains("HTTP is not on the WebAssembly path yet") && e.message.contains("M4"),
+        "COBOL::\"HTTP-GET\" compiles: capability http, import http_call".into(),
+        http_scan.is_some_and(|s| {
+            s.imports.iter().any(|i| i.name == "http_call") && s.embedded_manifest().is_ok_and(|m| m.capabilities == ["http"])
+        }),
+    );
+    let short = format!(
+        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-BODY PIC X(80).\n\
+         PROCEDURE DIVISION.\n    COBOL::\"HTTP-GET\" ( \"https://example.invalid/\" WS-BODY )\n    STOP RUN.\n"
+    );
+    let e = refusal(&short);
+    check(
+        "COBOL::\"HTTP-GET\" with two arguments: refused at its line, naming what it takes".into(),
+        e.subject == "COBOL::\"HTTP-GET\""
+            && e.line == line_of(&short, "HTTP-GET")
+            && e.message.contains("takes the URL and the data items that receive the response and the status code"),
     );
 
     // The form and the application object in a program with no form: refused at the member, with

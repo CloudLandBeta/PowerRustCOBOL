@@ -271,12 +271,14 @@ fn a_packaged_console_program_matches_rcrun_run_byte_for_byte() {
 fn a_capability_the_runner_lacks_is_refused_by_name_in_six_languages() {
     let dir = Scratch::new("refuse");
     let module = desktop_module(PROGRAM);
-    let http = with_manifest(&module, |v| v["capabilities"] = serde_json::json!(["console", "env", "http"]));
-    let exe = dir.0.join(format!("t15http{}", std::env::consts::EXE_SUFFIX));
-    package(&[(Kind::Module, &http)], &exe);
+    // A capability no release provides, as a module made by a later runner may ask for one: each
+    // capability the ABI names is provided by now (T42 added the last but `sort`).
+    let later = with_manifest(&module, |v| v["capabilities"] = serde_json::json!(["console", "env", "a.later.capability"]));
+    let exe = dir.0.join(format!("t15later{}", std::env::consts::EXE_SUFFIX));
+    package(&[(Kind::Module, &later)], &exe);
 
     let locales = [(Lang::En, "en_US.UTF-8"), (Lang::Es, "es_ES.UTF-8"), (Lang::Pt, "pt_BR.UTF-8"), (Lang::Fr, "fr_FR.UTF-8"), (Lang::Ja, "ja_JP.UTF-8"), (Lang::Zh, "zh_CN.UTF-8")];
-    let want_msg = Msg::Capabilities(vec!["http".into()]);
+    let want_msg = Msg::Capabilities(vec!["a.later.capability".into()]);
     let mut checks = 0;
     let mut seen = Vec::new();
     for (lang, locale) in locales {
@@ -287,7 +289,7 @@ fn a_capability_the_runner_lacks_is_refused_by_name_in_six_languages() {
         assert_eq!(out.status.code(), Some(1), "{locale}: refused");
         assert!(out.stdout.is_empty(), "{locale}: nothing ran");
         assert_eq!(said.trim_end(), text(lang, &want_msg), "{locale}: the system's language");
-        assert!(said.contains("http"), "{locale}: names the capability");
+        assert!(said.contains("a.later.capability"), "{locale}: names the capability");
         assert!(!said.to_ascii_lowercase().contains("cobolt"), "{locale}: {said}");
         checks += 5;
         seen.push(format!("{locale:<12} exit 1 in {ms:.1} ms: {}", said.trim_end()));
@@ -310,7 +312,7 @@ fn a_capability_the_runner_lacks_is_refused_by_name_in_six_languages() {
     checks += 4;
 
     println!("── a_capability_the_runner_lacks_is_refused_by_name_in_six_languages ──");
-    println!("  a module whose manifest asks for console, env and http, packaged without machine code:");
+    println!("  a module whose manifest asks for console, env and a.later.capability, packaged without machine code:");
     for s in &seen {
         println!("  {s}");
     }

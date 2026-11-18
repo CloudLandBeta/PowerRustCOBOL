@@ -210,6 +210,8 @@ pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[
     // A41: every `EXEC SQL` statement, run by the runner with the interpreter's own SQL code
     // (`crate::sql`); A42: the SQL built-ins (`crate::sql::db`); A44: `COBOL::SqlDatabase` (`crate::sql::obj`).
     (cap::SQL, &["sql_exec", "sql_db", "sql_obj"]),
+    // A45: the HTTP built-ins, run by the runner with the interpreter's own client (`crate::http`).
+    (cap::HTTP, &["http_call"]),
 ];
 
 /// The file verbs in [`NATIVE_IMPORT_MODULE`] (A34): a file is named by its number in the module's

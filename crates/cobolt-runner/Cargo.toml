@@ -42,7 +42,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 cobolt-abi-host  = { path = "../cobolt-abi-host" }
 cobolt-form-host = { path = "../cobolt-form-host", default-features = false, features = ["graphics", "aws"] }
 cobolt-forms     = { path = "../cobolt-forms", features = ["render"] }
-cobolt-runtime   = { path = "../cobolt-runtime", default-features = false, features = ["audio", "graphics", "aws", "images", "sql"] }
+cobolt-runtime   = { path = "../cobolt-runtime", default-features = false, features = ["audio", "graphics", "aws", "images", "sql", "http"] }
 # The graphics library the interpreter draws with (T50); the form host already links it.
 cobolt-graphics  = { path = "../cobolt-graphics" }
 # The file declarations name an INDEXED file's engine choice as the parser does (T38).
