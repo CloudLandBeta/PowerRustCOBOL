@@ -2,6 +2,14 @@
 
 
 
+## 2.0.598 — 2026-11-17
+
+**Tests (DESKTOP-WASM-001 T41): `EXEC SQL` on a live MySQL server gives the same results on the WebAssembly path as under the interpreter.**
+- `cobolt-runner` `embedded_sql_matches_the_interpreter_on_mysql` (new, ignored without `PRC_TEST_MYSQL_URL`): 9 programs of the interpreter's embedded-SQL suite (`tests/cobol/esql`), each `CONNECT TO ':memory:'` pointed at the server as the interpreter's live suite does, the tables each creates dropped before each engine runs it. Each program is built on the WebAssembly path and run by the runner, then run under `rcrun run`: both print the same lines, and every tally is FAIL 000; 27 of 27 checks. Run on MySQL 8.4 in a local container: the runner's runs take 23.7 s in all, mostly making each new module's machine code; `rcrun run` 7.8 s.
+- The named-connection program is left out: a module packaged by the test carries no application name to read a connection's override under. The SqlDatabase twin on MySQL (2.0.597) reaches the server through named connections on both paths.
+- The SQLite twin (`embedded_sql_matches_the_interpreter`) shares the parser helper and is unchanged: 10 programs, 61 of 61 checks.
+- **How to run the live MySQL tests:** start a MySQL 8 server, set `PRC_TEST_MYSQL_URL` to `mysql://user:password@host:port/database` (the user may create a second database; `test_esql_live` does), then run `cargo test -p cobolt-runner --test esql -- --ignored`, `cargo test -p cobolt-cli --test runner_sqldatabase_form -- --ignored`, `cargo test -p cobolt-runtime --test test_esql_live -- --ignored` and `cargo test -p cobolt-runtime --lib mysql_live -- --ignored`.
+
 ## 2.0.597 — 2026-11-17
 
 **Fix: on a MySQL connection, a statement that returns no rows answers the rows it changed. `INSERT`, `UPDATE` and `DELETE` through a SqlDatabase's `Execute` or `COBOL::"EXEC-SQL"` answered 0 (and an asynchronous one's `ResultCount` was 0) whatever they changed; they now answer the count, as on SQLite and PostgreSQL.**

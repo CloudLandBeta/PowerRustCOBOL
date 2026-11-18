@@ -73,7 +73,12 @@ impl Drop for Scratch {
 /// expanded first. `@DIR@`, where a program keeps its own files, becomes `dir`, as the suite's own
 /// harness does.
 fn parse(path: &Path, dir: &Path) -> cobolt_ast::program::Program {
-    let raw = std::fs::read_to_string(path).unwrap().replace("@DIR@", &dir.to_string_lossy());
+    parse_text(std::fs::read_to_string(path).unwrap().replace("@DIR@", &dir.to_string_lossy()), path)
+}
+
+/// `raw`, the text of the program at `path` (whose folder its copybooks are read from), parsed as
+/// [`parse`] parses it.
+fn parse_text(raw: String, path: &Path) -> cobolt_ast::program::Program {
     let src = match cobolt_lexer::preprocess_program(&raw, path, cobolt_lexer::SourceFormat::Free) {
         Some(x) => {
             assert!(x.errors.is_empty(), "{}: COPY: {:?}", path.display(), x.errors);
@@ -230,4 +235,98 @@ fn embedded_sql_matches_the_interpreter() {
         "  timings:  rcrun built {rcrun_build_ms:.0} ms; {statements} statements compiled in {total_compile:.1} ms; runner {total_runner:.1} ms, rcrun run {total_rcrun:.1} ms"
     );
     println!("  result:   {checks} of {checks} checks passed; {} programs print the same lines on both paths", PROGRAMS.len());
+}
+
+/// The tables a program creates (`CREATE TABLE name`), which a server keeps between runs.
+fn created_tables(src: &str) -> Vec<String> {
+    let upper = src.to_ascii_uppercase();
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(k) = upper[from..].find("CREATE TABLE ") {
+        let s = from + k + "CREATE TABLE ".len();
+        let name: String = upper[s..].trim_start().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        if !name.is_empty() && name != "IF" && !out.contains(&name) {
+            out.push(name);
+        }
+        from = s;
+    }
+    out
+}
+
+/// The same programs on a live MySQL server: each `CONNECT TO ':memory:'` is pointed at the server
+/// (`PRC_TEST_MYSQL_URL`), as the interpreter's live suite does, and the tables a program creates are
+/// dropped before each engine runs it. The named-connection program is left out: a packaged module
+/// carries no application name to read a connection's override under, and the SqlDatabase twin on
+/// MySQL (`cobolt-cli`) already reaches the server through named connections on both paths.
+/// `SKIPPED` without the variable.
+#[test]
+#[ignore = "needs a MySQL server: PRC_TEST_MYSQL_URL"]
+fn embedded_sql_matches_the_interpreter_on_mysql() {
+    let Some(url) = std::env::var("PRC_TEST_MYSQL_URL").ok().filter(|u| !u.trim().is_empty()) else {
+        println!("SKIPPED: PRC_TEST_MYSQL_URL is not set");
+        return;
+    };
+    let root = Scratch::new("esql-mysql");
+    let cache = root.0.join("cache");
+    let rcrun = rcrun();
+    let runner = std::fs::read(env!("CARGO_BIN_EXE_prc-runner")).expect("the built prc-runner");
+    let esql = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/cobol/esql");
+    let opts = cobolt_wasm::Options { native: true, ..cobolt_wasm::Options::default() };
+    let project = root.0.join("project");
+    for d in ["src", "data"] {
+        std::fs::create_dir_all(project.join(d)).unwrap();
+    }
+    std::fs::write(project.join("parity.project.toml"), MANIFEST).unwrap();
+    let drop_tables = |src: &str| {
+        let mut backend = cobolt_runtime::esql::backend::open(&url).unwrap_or_else(|e| panic!("the MySQL server: {}", e.message));
+        for table in created_tables(src) {
+            let _ = backend.execute(&format!("DROP TABLE IF EXISTS {table}"), &[]);
+        }
+    };
+    let to_server = |text: &str, dir: &Path| text.replace("@DIR@", &dir.to_string_lossy()).replace("CONNECT TO ':memory:'", &format!("CONNECT TO '{url}'"));
+
+    let (mut checks, mut rows, mut total_runner, mut total_rcrun) = (0, Vec::new(), 0.0, 0.0);
+    let programs: Vec<&str> = PROGRAMS.iter().copied().filter(|n| *n != "ac9_named_connection.cbl").collect();
+    for name in &programs {
+        let original = std::fs::read_to_string(esql.join(name)).unwrap();
+        assert!(original.contains("CONNECT TO ':memory:'"), "{name} connects to ':memory:', which the test points at the server");
+        let ours = root.0.join(name.trim_end_matches(".cbl"));
+        std::fs::create_dir_all(&ours).unwrap();
+        let module = cobolt_wasm::compile_program(&parse_text(to_server(&original, &ours), &esql.join(name)), &opts)
+            .unwrap_or_else(|e| panic!("{name}: the generator refused it: {e}"))
+            .wasm;
+        let exe = ours.join(format!("prog{}", std::env::consts::EXE_SUFFIX));
+        let payload = cobolt_program_package::encode(&[(Kind::Module, &module)]);
+        let packaged = cobolt_program_package::embed(&runner, &payload, "prc-t41-esql-mysql").expect("the runner takes a payload");
+        cobolt_program_package::write_executable(&exe, &packaged).expect("write the program");
+        drop_tables(&original);
+        let mut a = Command::new(&exe);
+        a.current_dir(&ours);
+        let (runner_out, runner_ms) = run(a, &cache);
+
+        drop_tables(&original);
+        std::fs::write(project.join("src").join(name), to_server(&original, &project.join("data"))).unwrap();
+        let mut b = Command::new(&rcrun);
+        b.args(["run", &format!("src/{name}"), "--source-format", "free"]).current_dir(&project);
+        let (rcrun_out, rcrun_ms) = run(b, &cache);
+        drop_tables(&original);
+
+        assert!(rcrun_out.status.success(), "{name}: rcrun run failed: {}", String::from_utf8_lossy(&rcrun_out.stderr));
+        assert!(runner_out.status.success(), "{name}: the runner failed: {}", String::from_utf8_lossy(&runner_out.stderr));
+        let (ours_said, theirs_said) = (said(&runner_out), said(&rcrun_out));
+        assert_eq!(ours_said, theirs_said, "{name}: on MySQL the runner prints what rcrun run prints");
+        assert!(!ours_said.iter().any(|l| l.starts_with("FAIL")), "{name} reports a failure on MySQL:\n{}", ours_said.join("\n"));
+        let verdict = ours_said.iter().rev().find(|l| l.starts_with("PASS ")).cloned().unwrap_or_else(|| format!("{} lines", ours_said.len()));
+        checks += 3;
+        total_runner += runner_ms;
+        total_rcrun += rcrun_ms;
+        rows.push(format!("  {name:<28} runner {runner_ms:>7.1} ms  rcrun {rcrun_ms:>7.1} ms  {verdict}"));
+    }
+    println!("── embedded_sql_matches_the_interpreter_on_mysql ──");
+    println!("  programs: {} of tests/cobol/esql, CONNECT TO ':memory:' pointed at a live MySQL server, on both paths", programs.len());
+    for r in &rows {
+        println!("{r}");
+    }
+    println!("  timings:  runner {total_runner:.1} ms, rcrun run {total_rcrun:.1} ms");
+    println!("  result:   {checks} of {checks} checks passed; {} programs print the same lines on both paths", programs.len());
 }
