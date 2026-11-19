@@ -2,6 +2,46 @@
 
 
 
+## 2.0.621 — 2026-11-19
+
+**Feature: the AgentObject runs in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T47c, first part).** A desktop form with an AgentObject no longer sends its program down the Cargo path. The built program asks its model as Run Form does:
+- `Ask` writes `Prompt`, sets `Busy` and answers the empty string at once. The request goes out on a thread of its own with the window's HTTP client, so the program goes on meanwhile.
+- With `StreamReply`, each piece raises `onPartialReply`. A reply cut at its token limit is asked to go on, up to `MaximumContinuations` times. The answer raises `onResponse`, a failure `onError`.
+- A model that does not start answering within `StartTimeoutSeconds`, or falls silent past `TimeoutSeconds`, is let go with `onTimeout`.
+- The tools the program declares (`AddTool`, `AddToolParameter`, `RemoveTool`) are offered to the model. Each call raises `onToolCall`; the handler answers with `SetToolResult`, and the conversation goes on once the handler has returned, before the program takes another event.
+- `Cancel` lets an `Ask` go and raises `onCancelled`; its late answer is dropped. `SetPrompt`, `SetModel` and `GetResult()` work as under the interpreter, and `Verbose` narrates the same lines.
+
+Two uses still take the Cargo path, and the Build says why:
+- An AgentObject whose `ResponseDataItem` is set, or a program that uses that member or `SetProperty` on one: the interpreter looks the data item up by name at run time.
+- A program that uses `AllowFile`, `DenyFile`, `RegisterFile`, `UnregisterFile`, `AllowKnowledgeBase` or `DenyKnowledgeBase`: the tools the runtime answers itself are the second part of T47c.
+
+- **One implementation of the rules:** the interpreter's AgentObject conversation moved, unchanged, into a module both hosts call (`agent_door` in `cobolt-runtime`). It holds the declared tools, the plain conversation and its continuations, the tool loop, the streaming worker with its two time limits, what each report writes and raises, and the narration. The interpreter reaches it through a small adapter that keeps its own tools (indexed files, Knowledge Base collections). The time limits' check is now one function both hosts use (`PendingOp::expired`).
+- **The ABI (A50):** a new capability, `agent`, which a desktop module with an AgentObject requires; no new command or import.
+  - The ABI host sends an AgentObject's methods to the runner's port, after the KnowledgeBase's. `Cancel` is the host's uniform one. The narration goes where `DISPLAY` goes, the properties are written at once, and the bound events are queued.
+  - `onToolCall` is followed past the queue: its handler runs, and once the form's program is free again the port takes the result and sends the next round. With no handler bound, the conversation goes on at once.
+  - The runner's port follows `agent_door`, polls every 40 ms while a request is out, and drops the reports of a cancelled request or a closed form.
+- **The Build's documentation** (the subset document and the System KB, rebuilt) names the AgentObject among what the WebAssembly path serves, and its two refusals. The only service control still refused is the sign-in one. The Developer's Guide's copy is owed at the merge into `main`.
+- **Where:**
+  - `cobolt-runtime`: `agent_door.rs` (new), `interpreter.rs`, `interpreter/agent_loop.rs`, `interpreter/kb.rs`, `async_op.rs`, `lib.rs`; `tests/test_nonvisual_property_readers.rs` scans the new module.
+  - `cobolt-abi-host`: `host/agent.rs` and `host/agent_tests.rs` (new), `host.rs`.
+  - `cobolt-runner`: `agent.rs` (new), `forms.rs`, `http.rs`, `lib.rs`.
+  - `cobolt-wasm-abi`: `codes.rs` (the capability). `cobolt-wasm`: `support.rs`, `lower.rs`, `lower_form.rs`, `module.rs`; `tests/subset_table.rs`, `tests/native_desktop_refusals.rs`.
+  - `cobolt-compiler`: `lib.rs` (the Build's text, `desktop_controls_the_runner_lacks_are_named`). `assets/knowledge/chunked.data` is rebuilt.
+  - `cobolt-cli`: `tests/runner_agent_form.rs` (new).
+  - `specs/WASM-ABI-v1.md` (A50, the capability list); `tasks.md` (T47 notes); `specs/WASM-PROGRESS.md`.
+- **Measured** (macOS arm64):
+  - **The runner twin `the_agentobject_agrees_on_both_engines`:** 24 of 24 checks, against a local stub model server. Five dumps are equal; five pictures (1,672,000 pixels) with 0 differing; the same 11 narrated lines, and the same 8 requests on the stub from both engines. Seven AgentObjects, 7 buttons and 15 event handlers cover a plain `Ask` with `Verbose`; `StreamReply`; a continuation; a declared tool and `SetToolResult`; `Cancel()`; `onTimeout`; and a refused connection. In real time: the interpreter 35.7 s, the runner 43.4 s.
+  - **The ABI host's `agent_tests`:** 2 tests, 29 checks.
+  - **The interpreter, unchanged:** `test_agent_runtime` 9, `test_agent_tool_calling` 12, `test_async_rest` 5, `test_knowledge_base` 7, `test_mcp_tool_parity` 3, `test_model_list` 3, `test_model_list_file` 1, `test_registered_files` 8 (1 ignored), `test_nonvisual_property_readers` 5; the 15 queued-event unit tests.
+  - **The generator:** `native_desktop_refusals` 35 of 35 checks (an AgentObject's `AddTool`, `Ask`, `SetToolResult` and `LastReply` compile; 4 of 4 members refused at their line); `desktop_controls_the_runner_lacks_are_named` 14 of 14; `subset_table` 71 control types = 68 served + 3 on the Cargo path, 29 of 29 fixed points.
+  - **Regressions, all green:**
+    - the whole `cobolt-runner` suite: 20 passed, 0 failed, 2 ignored, in 12 binaries (3,158 s);
+    - `cobolt-wasm`: 146 passed in 39 binaries; `cobolt-abi-host`: 281; `cobolt-wasm-abi`: 25;
+    - the KnowledgeBase, WebSearch and RestClient twins: 1 of 1 each;
+    - `cobolt-compiler --lib`: 262 passed, 1 ignored (2,623 s);
+    - the System KB: 4,423 records from 8 documents, 15,687,680 bytes; `prebuilt_chunked_kb_matches_the_published_documentation` passes.
+  - **The release `prc-runner`:** 79,955,120 bytes, 85,344 more than at 2.0.620 (79,869,776).
+
 ## 2.0.620 — 2026-11-19
 
 **Feature: a desktop Build on the WebAssembly path names a refused pointer statement together with the program's other refusals (DESKTOP-WASM-001 T45b, completed).** Since 2.0.615 a desktop module checks each `SET` of a pointer before anything else is lowered. A `SET` that breaks a rule ended the check, so the Build named only that one reason for the Cargo path and hid the program's others. The check now reports each refused `SET` at its line, once, and goes on. The statements' own refusals follow, as for every other construct, so one Build names them all. A `SET` that keeps the rules is never refused because of its neighbours. What a module computes is unchanged.

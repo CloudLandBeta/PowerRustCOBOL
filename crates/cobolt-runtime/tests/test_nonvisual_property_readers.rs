@@ -45,6 +45,9 @@ const RUNTIME_SOURCES: &[&str] = &[
     // DESKTOP-WASM-001 T42b: the RestClient's own rules (address, headers, credentials, policy,
     // timeouts), which the interpreter and the desktop runner both follow.
     include_str!("../src/rest_door.rs"),
+    // DESKTOP-WASM-001 T47c: the AgentObject's own rules (the request, its streamed reply, its
+    // continuations and its tool loop), which the interpreter and the desktop runner both follow.
+    include_str!("../src/agent_door.rs"),
     // The AWS route table reads a control's properties as `{prop:Name}`
     // placeholders — data, not code (spec 078 R15).
     include_str!("../src/aws/routes.toml"),

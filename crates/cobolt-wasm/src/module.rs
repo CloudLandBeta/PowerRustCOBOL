@@ -459,7 +459,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             let sql_databases = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "SqlDatabase").map(|(i, _)| 3 + i as u32).collect();
             // A WebSearch's searches are RestClient requests (T47a): the same members name data items.
             let rest_clients = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "RestClient" || k == "WebSearch").map(|(i, _)| 3 + i as u32).collect();
-            Some(FormCtx { controls, layers, layer_names: spec.layers.clone(), canvases, graphics, indexed_files, sql_databases, rest_clients, name: spec.name.clone() })
+            let agents = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "AgentObject").map(|(i, _)| 3 + i as u32).collect();
+            Some(FormCtx { controls, layers, layer_names: spec.layers.clone(), canvases, graphics, indexed_files, sql_databases, rest_clients, agents, name: spec.name.clone() })
         } else {
             None
         };
@@ -583,6 +584,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let uses_sql_control = opts.native && forms.iter().any(|f| f.controls.iter().any(|(_, kind)| kind == "SqlDatabase"));
     // A desktop module with a KnowledgeBase needs the runner's Knowledge Base (T47b, A49).
     let uses_kb = opts.native && forms.iter().any(|f| f.controls.iter().any(|(_, kind)| kind == "KnowledgeBase"));
+    // A desktop module with an AgentObject needs the runner's agents (T47c, A50).
+    let uses_agent = opts.native && forms.iter().any(|f| f.controls.iter().any(|(_, kind)| kind == "AgentObject"));
     // A desktop module's disk files: their declarations go to the `prfiles` section and their
     // organisations to the capabilities (T38, A34).
     let file_caps: BTreeSet<&'static str> = names.file_caps.clone();
@@ -1614,8 +1617,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         // A desktop capability's import is named with its namespace (A29).
         imports: glue_list.iter().map(|g| if native_cap(g).is_some() { format!("{}.{g}", import_module(g)) } else { g.to_string() }).collect(),
         // A27: what the `prn` imports need, in the order of `cap::ALL`; none for a browser module. The
-        // file dialogs, the sound player, AWS and the Knowledge Base are verbs of the application object and calls
-        // on controls, with no import of their own (A33, A36, A38, A49).
+        // file dialogs, the sound player, AWS, the Knowledge Base and the agents are verbs of the application object
+        // and calls on controls, with no import of their own (A33, A36, A38, A49, A50).
         capabilities: cobolt_wasm_abi::codes::cap::ALL
             .iter()
             .filter(|c| {
@@ -1626,6 +1629,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
                     || (**c == cobolt_wasm_abi::codes::cap::AWS && uses_aws)
                     || (**c == cobolt_wasm_abi::codes::cap::SQL && uses_sql_control)
                     || (**c == cobolt_wasm_abi::codes::cap::KB && uses_kb)
+                    || (**c == cobolt_wasm_abi::codes::cap::AGENT && uses_agent)
             })
             .map(|c| c.to_string())
             .collect(),

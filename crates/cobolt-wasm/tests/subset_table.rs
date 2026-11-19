@@ -299,7 +299,25 @@ fn every_control_has_a_desktop_class() {
         ("WebSearch served (T47a)", desktop_control_gap(&ControlType::WebSearch).is_none()),
         // T47b: the KnowledgeBase is served; its built-in semantic model is the Build's to judge.
         ("KnowledgeBase served (T47b)", desktop_control_gap(&ControlType::KnowledgeBase).is_none()),
-        ("AgentObject still refused (M6)", desktop_control_gap(&ControlType::AgentObject).is_some_and(|w| w.contains("M6"))),
+        // T47c: the AgentObject is served; one that names a data item, or a member offering a tool the runtime
+        // answers itself, is not. The sign-in control is still refused.
+        ("AgentObject served (T47c)", desktop_control_gap(&ControlType::AgentObject).is_none()),
+        ("Authentication still refused (M6)", desktop_control_gap(&ControlType::Authentication).is_some_and(|w| w.contains("M6"))),
+        ("an AgentObject with ResponseDataItem set is refused (M6); one naming none is served", {
+            let mut c = cobolt_forms::Control::new("AGT-1", ControlType::AgentObject, 0, 0);
+            let none = cobolt_wasm::support::desktop_design_gap(&c).is_none();
+            c.set_prop("ResponseDataItem", cobolt_forms::PropValue::String("WS-REPLY".into()));
+            none && cobolt_wasm::support::desktop_design_gap(&c).is_some_and(|w| w.contains("ResponseDataItem") && w.contains("M6"))
+        }),
+        ("the AgentObject members refused: SET-ResponseDataItem, SetProperty, AllowFile, registerfile, AllowKnowledgeBase; not Ask, AddTool, SetToolResult or GET-LastReply", {
+            use cobolt_wasm::support::{agent_member_gap as m, D_AGENT_ITEMS, D_AGENT_TOOLS};
+            m("SET-ResponseDataItem") == Some(D_AGENT_ITEMS)
+                && m("SetProperty") == Some(D_AGENT_ITEMS)
+                && m("AllowFile") == Some(D_AGENT_TOOLS)
+                && m("registerfile") == Some(D_AGENT_TOOLS)
+                && m("AllowKnowledgeBase") == Some(D_AGENT_TOOLS)
+                && ["Ask", "AddTool", "AddToolParameter", "SetToolResult", "GET-LastReply", "Cancel"].iter().all(|x| m(x).is_none())
+        }),
         ("a RestClient naming no data item is served", {
             let c = cobolt_forms::Control::new("REST-1", ControlType::RestClient, 0, 0);
             cobolt_wasm::support::desktop_design_gap(&c).is_none()

@@ -132,6 +132,7 @@ pub struct AsyncOpResult {
 ///
 /// At most one pending operation exists per control at a time — a second start
 /// while `Busy` is rejected.
+#[derive(Debug, Clone, Copy)]
 pub struct PendingOp {
     /// Generation this operation was started at.
     pub generation: u64,
@@ -144,6 +145,20 @@ pub struct PendingOp {
     /// piece (`StartTimeoutSeconds`, in ms). `None` once the answer has begun,
     /// and for every operation that has no such limit.
     pub awaiting_start: Option<(Instant, u64)>,
+}
+
+impl PendingOp {
+    /// Has it run out of time at `now`? What `LastError` then says: an agent request whose answer
+    /// has not begun is held to its own start limit first, then any operation to its timeout. The
+    /// interpreter's sweep and the desktop runner's AgentObject ask the same (DESKTOP-WASM-001 T47c).
+    pub fn expired(&self, now: Instant) -> Option<String> {
+        if let Some((sent, limit)) = self.awaiting_start {
+            if limit > 0 && now.duration_since(sent).as_millis() as u64 > limit {
+                return Some(format!("The model did not start answering within {}: the call was cancelled.", seconds(limit)));
+            }
+        }
+        (self.timeout_ms > 0 && now.duration_since(self.started_at).as_millis() as u64 > self.timeout_ms).then(|| timed_out(self.timeout_ms))
+    }
 }
 
 /// A time limit in words, as the messages say it: `1 second`, or `N seconds`, rounded up.

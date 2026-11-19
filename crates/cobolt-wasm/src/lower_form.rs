@@ -329,6 +329,16 @@ impl Lower<'_, '_> {
                     let subject = format!("{root}::{member}");
                     return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_REST_ITEMS));
                 }
+                // An AgentObject's `Ask` and declared tools are the runner's (T47c); a member that names
+                // one of the program's data items, or offers a tool the runtime answers itself, is not.
+                if let Some(why) = f.agents.contains(&ctrl).then(|| crate::support::agent_member_gap(member)).flatten() {
+                    let root = match root {
+                        Expr::Identifier(n, _) => n.as_str(),
+                        _ => "",
+                    };
+                    let subject = format!("{root}::{member}");
+                    return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {why}"));
+                }
             }
             return Ok(());
         }

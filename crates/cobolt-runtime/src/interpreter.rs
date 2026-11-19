@@ -1510,12 +1510,11 @@ pub struct Interpreter {
     /// by every host at start-up (`set_designed_menu`).
     designed_menus: HashMap<String, Vec<cobolt_forms::menu::MenuItem>>,
     /// Spec 072 — tools a program declared on each AgentObject (upper-cased id).
-    agent_declared_tools: HashMap<String, Vec<agent_loop::DeclaredTool>>,
-    /// Spec 072 — each tool-offering `Ask` in progress, by control id.
-    tool_loops: HashMap<String, agent_loop::ToolLoop>,
-    /// A plain `Ask` in flight, kept so an answer cut off by `MaximumTokens`
-    /// can be continued (`MaximumContinuations`).
-    plain_asks: HashMap<String, agent_loop::PlainAsk>,
+    agent_declared_tools: HashMap<String, Vec<crate::agent_door::DeclaredTool>>,
+    /// Each AgentObject's `Ask` in progress, by control id: a plain one, kept so an
+    /// answer cut off by `MaximumTokens` can be continued (`MaximumContinuations`),
+    /// or a tool-offering one (spec 072). The rules are `agent_door`'s.
+    agents: HashMap<String, crate::agent_door::Conversation>,
     /// Spec 072 — `SetToolResult(call-id, text)`, waiting to be collected.
     tool_results: HashMap<String, String>,
     /// Generated data-binding helper CALL state, keyed by binding id.
@@ -2071,8 +2070,7 @@ impl Interpreter {
             model_entry_seen: HashMap::new(),
             designed_menus: HashMap::new(),
             agent_declared_tools: HashMap::new(),
-            tool_loops: HashMap::new(),
-            plain_asks: HashMap::new(),
+            agents: HashMap::new(),
             tool_results: HashMap::new(),
             binding_states: HashMap::new(),
             grid_edits: HashMap::new(),
@@ -3696,32 +3694,11 @@ impl Interpreter {
 
         // 2. Timeout sweep.
         let now = std::time::Instant::now();
-        let seconds = crate::async_op::seconds;
+        // An agent request whose answer has not begun is held to its own limit first (`PendingOp::expired`).
         let timed_out: Vec<(String, String)> = self
             .async_pending
             .iter()
-            .filter_map(|(id, op)| {
-                // An agent request whose answer has not begun: its own limit.
-                if let Some((sent, limit)) = op.awaiting_start {
-                    if limit > 0 && now.duration_since(sent).as_millis() as u64 > limit {
-                        return Some((
-                            id.clone(),
-                            format!(
-                                "The model did not start answering within {}: the call was cancelled.",
-                                seconds(limit)
-                            ),
-                        ));
-                    }
-                }
-                (op.timeout_ms > 0
-                    && now.duration_since(op.started_at).as_millis() as u64 > op.timeout_ms)
-                    .then(|| {
-                        (
-                            id.clone(),
-                            crate::async_op::timed_out(op.timeout_ms),
-                        )
-                    })
-            })
+            .filter_map(|(id, op)| op.expired(now).map(|why| (id.clone(), why)))
             .collect();
         for (id, why) in timed_out {
             self.async_pending.remove(&id);
@@ -12825,455 +12802,60 @@ impl Interpreter {
         self.sql_control_apply(obj, fx);
     }
 
+    /// Run the AgentObject's rules (`agent_door`, DESKTOP-WASM-001 T47c) for the agent `obj`, with this
+    /// interpreter as their host: its `Ask` in progress is taken out while they run, and put back after.
+    fn with_agent<R>(&mut self, obj: &str, f: impl FnOnce(&mut agent_loop::AgentSite<'_>, &mut Option<crate::agent_door::Conversation>) -> R) -> R {
+        let mut conv = self.agents.remove(obj);
+        let r = f(&mut agent_loop::AgentSite { i: self, obj }, &mut conv);
+        if let Some(c) = conv {
+            self.agents.insert(obj.to_string(), c);
+        }
+        r
+    }
+
+    /// `Ask(prompt)`: prepared, narrated and sent on a worker by the door's rules.
     fn agent_ask(&mut self, obj: &str, prompt: &str) {
-        use crate::agent_runtime as ag;
-
-        let mut req = ag::AskRequest {
-            api: self.obj_get(obj, "AgentAPI"),
-            url: self.obj_get(obj, "AgentURL"),
-            endpoint: self.obj_get(obj, "AgentEndpoint"),
-            model: self.obj_get(obj, "AgentModel"),
-            api_key: self.obj_get(obj, "AgentAPIKey"),
-            system_prompt: self.obj_get(obj, "SystemPrompt"),
-            prompt: prompt.to_owned(),
-            temperature: self.obj_get(obj, "Temperature").trim().parse().unwrap_or(70),
-            max_tokens: self.obj_get(obj, "MaximumTokens").trim().parse().unwrap_or(1024),
-        };
-        // Spec 076 — a model-list entry, named at run time, wins over the
-        // design-time `Configuration` and the agent's own settings (R14). It
-        // brings the API, the endpoint and the key; its model when it names
-        // one; temperature, token limit and timeout stay the agent's (R17).
-        let entry_name = self.obj_get(obj, "ModelEntry").trim().to_string();
-        let key_from_store = !entry_name.is_empty();
-        if key_from_store {
-            let Some((entry, generation)) = crate::model_list::get(&entry_name) else {
-                self.model_entry_seen.remove(obj);
-                self.agent_failed(
-                    obj,
-                    &format!(
-                        "model entry '{entry_name}' does not exist — the program has not \
-                         handed it over with COBOL-MODEL-SET"
-                    ),
-                );
-                return;
-            };
-            let key = crate::key_store::key_store().get(&entry_name);
-            if entry.needs_key() && key.as_deref().map(str::trim).unwrap_or("").is_empty() {
-                self.agent_failed(
-                    obj,
-                    &format!(
-                        "model entry '{entry_name}' has no key stored, and its API ({}) needs \
-                         one — store it with COBOL-KEY-SET",
-                        entry.api
-                    ),
-                );
-                return;
-            }
-            self.model_entry_seen
-                .insert(obj.to_string(), (entry_name.to_ascii_uppercase(), generation));
-            req.api = entry.api;
-            req.url = entry.url;
-            req.endpoint = String::new();
-            if !entry.model.trim().is_empty() {
-                req.model = entry.model;
-            }
-            req.api_key = key.unwrap_or_default();
-        }
-        // A provider from the catalogue is addressed the way the IDE addresses
-        // it (its API root plus `/messages` or `/chat/completions`); anything
-        // else — `LMStudio`, `Custom`, an explicit `AgentEndpoint` — keeps the
-        // older reading of the URL.
-        let (protocol, url) = match crate::providers::find(&req.api) {
-            Some(p) if req.endpoint.trim().is_empty() && !req.url.trim().is_empty() => {
-                crate::providers::chat_target(p.id, &req.url)
-            }
-            _ => {
-                let protocol = ag::protocol_for(&req.api, &req.url);
-                (protocol, ag::endpoint_for(&req, protocol))
-            }
-        };
-        if url.trim().is_empty() {
-            self.agent_failed(obj, "AgentURL is not set — there is nowhere to send the prompt");
-            return;
-        }
-        // Spec 072 — offering no tools keeps today's request byte-for-byte
-        // (R5); offering any makes this the first round of a tool loop.
-        let tools = self.agent_offered_tools(obj);
-        let fenced = self
-            .obj_get(obj, "ToolProtocol")
-            .trim()
-            .eq_ignore_ascii_case("fenced");
-        let body = if tools.is_empty() {
-            ag::body_for(&req, protocol)
-        } else {
-            crate::agent_tools::body_for_turns(
-                &req,
-                protocol,
-                &[crate::agent_tools::Turn::User(req.prompt.clone())],
-                &tools,
-                fenced,
-            )
-        };
-        let cfg = crate::http_runtime::RequestConfig {
-            timeout_ms: self
-                .obj_get(obj, "TimeoutSeconds")
-                .trim()
-                .parse::<u64>()
-                .unwrap_or(30)
-                .saturating_mul(1000),
-            follow_redirects: true,
-            verify_tls: true,
-            headers: ag::headers_for(&req, protocol),
-        };
-        let verbose = self.agent_is_verbose(obj);
-        if verbose {
-            // Everything that goes on the wire, exactly as it goes. The header
-            // list includes the Authorization line WITH the key: a key that is
-            // wrong by a character is invisible once masked, and finding that
-            // is most of what this switch is for. It is opt-in and off by
-            // default; the warning says what the output now contains.
-            self.agent_log(format!("[agent {obj}] ── request ──────────────────────"));
-            self.agent_log(format!("[agent {obj}] POST {url}"));
-            self.agent_log(format!("[agent {obj}] protocol: {protocol:?}"));
-            self.agent_log(format!(
-                "[agent {obj}] timeout: {} ms",
-                cfg.timeout_ms
-            ));
-            for (name, value) in &cfg.headers {
-                // A key from the key store is never shown, not even here
-                // (spec 076 R7).
-                let secret = name.eq_ignore_ascii_case("authorization")
-                    || name.eq_ignore_ascii_case("x-api-key");
-                if key_from_store && secret {
-                    self.agent_log(format!("[agent {obj}] header: {name}: ****"));
-                } else {
-                    self.agent_log(format!("[agent {obj}] header: {name}: {value}"));
-                }
-            }
-            if !key_from_store
-                && cfg.headers.iter().any(|(n, _)| {
-                    n.eq_ignore_ascii_case("authorization") || n.eq_ignore_ascii_case("x-api-key")
-                })
-            {
-                self.agent_log(format!(
-                    "[agent {obj}] (this log contains the API key — do not paste it into a bug report)"
-                ));
-            }
-            let body_text = body.clone();
-            self.agent_log_block(obj, "payload", &body_text);
-        }
-        // One question at a time per control (the spec-032 rule every async
-        // control follows): a second Ask while one is in flight is ignored
-        // rather than racing the first one's answer onto the same properties.
-        if self.async_pending.contains_key(obj) {
-            if verbose {
-                self.agent_log(format!(
-                    "[agent {obj}] an Ask is already in flight — this one is ignored"
-                ));
-            }
-            return;
-        }
-        let generation = {
-            let gen = self
-                .async_generations
-                .entry(obj.to_string())
-                .or_insert_with(|| Arc::new(AtomicU64::new(0)));
-            gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
-        };
-        let timeout_ms = cfg.timeout_ms;
-        let offers_tools = !tools.is_empty();
-        self.tool_loops.remove(obj);
-        if offers_tools {
-            self.agent_begin_tool_loop(
-                obj,
-                req.clone(),
-                protocol,
-                fenced,
-                url.clone(),
-                cfg.headers.clone(),
-                timeout_ms,
-                self.agent_start_timeout_ms(obj),
-                generation,
-                tools,
-            );
-        }
-        self.obj_set(obj, "Busy", "1".to_owned());
-        let start_ms = self.agent_start_timeout_ms(obj);
-        self.async_pending.insert(
-            obj.to_string(),
-            crate::async_op::PendingOp {
-                generation,
-                started_at: std::time::Instant::now(),
-                timeout_ms,
-                awaiting_start: (start_ms > 0).then(|| (std::time::Instant::now(), start_ms)),
-            },
-        );
-        if offers_tools {
-            // The loop sends its own rounds, each streamed the same way.
-            self.tool_loop_send(obj);
-            return;
-        }
-        // The socket's per-read limit. With a start limit it is that limit
-        // (and 2 s), so a model that sends nothing has its connection CLOSED
-        // just after the sweep reports it; the same bound then applies to any
-        // silence mid-answer. Without one it is the older backstop, a little
-        // longer than the sweep that owns `onTimeout`.
-        let mut cfg = cfg;
-        cfg.timeout_ms = if start_ms > 0 {
-            start_ms.saturating_add(2_000)
-        } else if timeout_ms > 0 {
-            timeout_ms.saturating_add(5_000)
-        } else {
-            0
-        };
-        // `StreamReply` — the reply is also SHOWN as the provider writes it
-        // (`PartialReply` + `onPartialReply`). A tool-offering Ask is never
-        // shown on the way: its rounds are answered by the program. `Stream`,
-        // the retired switch seeded on older forms, is NOT this — it stays a
-        // no-op. Every call is streamed on the wire regardless (see
-        // `agent_spawn_streamed`); `TimeoutSeconds` counts the silence between
-        // pieces, so a long answer that keeps coming is never cut off.
-        let show_partials = matches!(
-            self.obj_get(obj, "StreamReply").trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes"
-        );
-        self.obj_set(obj, "PartialReply", String::new());
-        self.obj_set(obj, "ReplyPiece", String::new());
-        self.plain_asks.insert(
-            obj.to_string(),
-            agent_loop::PlainAsk {
-                req: req.clone(),
-                protocol,
-                url: url.clone(),
-                headers: cfg.headers.clone(),
-                timeout_ms,
-                start_timeout_ms: start_ms,
-                generation,
-                show_partials,
-            },
-        );
-        self.agent_spawn_streamed(obj, url, body, protocol, cfg, generation, show_partials);
+        self.with_agent(obj, |h, c| crate::agent_door::ask(h, c, prompt));
     }
 
-    /// A streamed Ask's reply so far: `PartialReply` holds it, `ReplyPiece`
-    /// what is new since the last `onPartialReply` (what a Viewer's
-    /// `AppendToMessage` wants), and `onPartialReply` fires. The Ask stays in
-    /// flight — `Busy` stays 1 — and its timeout restarts, because text is
-    /// still arriving.
+    /// A streamed Ask's reply so far (`PartialReply`, `ReplyPiece`, `onPartialReply`).
     fn agent_partial(&mut self, obj: &str, text: String) {
-        if let Some(op) = self.async_pending.get_mut(obj) {
-            op.started_at = std::time::Instant::now();
-            op.awaiting_start = None;
-        }
-        // A continued answer streams from empty again: what was shown before
-        // it comes first, so `PartialReply` keeps growing and `ReplyPiece`
-        // stays only what is new.
-        let text = match self.tool_loops.get(obj) {
-            Some(l) if l.show_partials => format!("{}{text}", l.partial),
-            _ => text,
-        };
-        let before = self.obj_get(obj, "PartialReply");
-        let piece = text.strip_prefix(before.as_str()).unwrap_or(&text).to_owned();
-        self.obj_set(obj, "ReplyPiece", piece);
-        self.obj_set(obj, "PartialReply", text);
-        self.queue_control_event(obj, "onPartialReply");
+        self.with_agent(obj, |h, c| crate::agent_door::partial(h, c, text));
     }
 
-    /// The model has begun answering — and, repeated, is still answering. The
-    /// wait for the answer to START is over; a plain `Ask`'s silence limit
-    /// restarts. A tool loop keeps its clock: `TimeoutSeconds` bounds its
-    /// whole question, handler waits included (072 Q3).
+    /// The model has begun answering, or is still answering.
     fn agent_alive(&mut self, obj: &str) {
-        // A loop with no tools is a plain Ask being continued, timed like one.
-        let tool_loop = self.tool_loops.get(obj).is_some_and(|l| !l.tools.is_empty());
-        if let Some(op) = self.async_pending.get_mut(obj) {
-            op.awaiting_start = None;
-            if !tool_loop {
-                op.started_at = std::time::Instant::now();
-            }
-        }
+        self.with_agent(obj, |h, c| crate::agent_door::alive(h, c));
     }
 
-    /// `StartTimeoutSeconds`, in milliseconds: the longest an agent request may
-    /// wait for the first piece of its answer. Unset reads as the default, 60 s;
-    /// `0` turns the limit off.
-    pub(crate) fn agent_start_timeout_ms(&self, obj: &str) -> u64 {
-        match self.obj_get(obj, "StartTimeoutSeconds").trim() {
-            "" => 60_000,
-            v => v.parse::<u64>().unwrap_or(60).saturating_mul(1000),
-        }
-    }
-
-    /// Send one agent request on a worker — STREAMED, as every agent request
-    /// is, tool rounds included: only a streamed answer shows the moment a
-    /// model BEGINS, which is what `StartTimeoutSeconds` measures.
-    ///
-    /// * The first piece, then one every quarter of a second while pieces keep
-    ///   coming, is reported as `AgentAlive`.
-    /// * `show_partials` (a `StreamReply` Ask) also reports the text so far.
-    /// * The finished stream is rebuilt as the provider's unstreamed reply
-    ///   (`StreamAssembler::into_body`) and delivered as `AgentReply`, so it is
-    ///   read exactly as before.
-    /// * When the call is cancelled or times out, its generation moves on and
-    ///   the worker stops at the next piece, DROPPING the connection — a local
-    ///   model is not left generating for nobody. A model that sends nothing
-    ///   at all is cut off by the socket's own limit, `cfg.timeout_ms`.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn agent_spawn_streamed(
-        &self,
-        obj: &str,
-        url: String,
-        body: String,
-        protocol: crate::agent_runtime::Protocol,
-        cfg: crate::http_runtime::RequestConfig,
-        generation: u64,
-        show_partials: bool,
-    ) {
-        use crate::agent_runtime as ag;
-        use crate::async_op::{AsyncOpResult, AsyncOutcome};
-        let tx = self.async_result_tx.clone();
-        let http = self.http.clone();
-        let ctrl_id = obj.to_string();
-        let live = self.async_generations.get(obj).cloned();
-        let body = ag::streaming_body_for(&body, protocol);
-        std::thread::spawn(move || {
-            let send = |outcome: AsyncOutcome| {
-                let _ = tx.send(AsyncOpResult { ctrl_id: ctrl_id.clone(), generation, outcome });
-            };
-            let keep_going = || {
-                live.as_ref()
-                    .is_none_or(|g| g.load(std::sync::atomic::Ordering::Relaxed) == generation)
-            };
-            let mut asm = ag::StreamAssembler::default();
-            let mut last_alive: Option<std::time::Instant> = None;
-            let mut last_partial = std::time::Instant::now();
-            let mut unsent = false;
-            let (err, status) = http.post_streaming_while(&url, &body, &cfg, &keep_going, &mut |line| {
-                unsent |= asm.feed(line);
-                // A quarter of a second: well inside any silence limit worth
-                // setting, so `TimeoutSeconds` measures the model's silence and
-                // not this throttle's.
-                if asm.started
-                    && last_alive.is_none_or(|t| t.elapsed() >= std::time::Duration::from_millis(250))
-                {
-                    last_alive = Some(std::time::Instant::now());
-                    send(AsyncOutcome::AgentAlive);
-                }
-                // Throttled: a handler per token would drown the event loop;
-                // ten a second reads as live.
-                if show_partials && unsent && last_partial.elapsed() >= std::time::Duration::from_millis(100) {
-                    unsent = false;
-                    last_partial = std::time::Instant::now();
-                    send(AsyncOutcome::AgentPartial { text: asm.text.clone() });
-                }
-            });
-            // A transport error AFTER the provider said "done" is the end of
-            // the stream, not a failure of it.
-            let (body, status) = if (200..300).contains(&status) || (status == 0 && asm.finished) {
-                (asm.into_body(), if status == 0 { 200 } else { status })
-            } else {
-                (err, status)
-            };
-            send(AsyncOutcome::AgentReply { status, body });
-        });
-    }
-
-    /// Read one delivered `Ask` onto its control and raise the event it earned.
-    ///
-    /// Runs on the interpreter thread, from `drain_async_ops`, with the raw
-    /// status and body — so the narration and the parse are the same ones the
-    /// call has always used.
+    /// Read one delivered reply onto its control and raise the event it earned. Runs on the
+    /// interpreter thread, from `drain_async_ops`, with the raw status and body.
     fn agent_delivered(&mut self, obj: &str, status: u16, body: &str) {
-        use crate::agent_runtime as ag;
+        self.with_agent(obj, |h, c| crate::agent_door::delivered(h, c, status, body));
+    }
 
-        // Spec 072 — a round of a tool-offering Ask.
-        if self.tool_loops.contains_key(obj) {
-            self.tool_loop_delivered(obj, status, body);
-            return;
-        }
-        self.obj_set(obj, "Busy", "0".to_owned());
-        if self.agent_is_verbose(obj) {
-            self.agent_log(format!("[agent {obj}] ── response ─────────────────────"));
-            self.agent_log(format!("[agent {obj}] status: {status}"));
-            // The raw body, before anything is read out of it. When the parse
-            // disagrees with what the provider sent, this is the only place the
-            // disagreement is visible.
-            self.agent_log_block(obj, "body", body);
-        }
-        // Status 0 is the transport convention: no HTTP response happened at
-        // all and the body IS the failure. Handing that to `parse_reply` would
-        // dress a dead socket up as a malformed document.
-        if status == 0 {
-            self.agent_failed(obj, body.trim());
-            return;
-        }
-        // R17 — the usage the provider reported, even with no tools.
-        let usage = crate::agent_tools::usage_from_body(body);
-        self.obj_set(obj, "LastInputTokens", usage.input.to_string());
-        self.obj_set(obj, "LastOutputTokens", usage.output.to_string());
-        self.obj_set(obj, "LastToolCallCount", "0".to_owned());
-        match ag::parse_reply(status, body) {
-            Ok(text) => {
-                // Cut off by `MaximumTokens`: the model is asked to go on, and
-                // `onResponse` waits for the whole answer.
-                let reason = ag::stop_reason_of(body);
-                if reason.as_deref().is_some_and(ag::is_cut_by_length)
-                    && self.agent_continue_plain(obj, &text, usage)
-                {
-                    return;
-                }
-                self.plain_asks.remove(obj);
-                self.agent_publish_stop(obj, reason.as_deref(), 0);
-                self.agent_answered(obj, text)
-            }
-            Err(message) => {
-                self.plain_asks.remove(obj);
-                self.agent_failed(obj, &message)
-            }
+    /// Spec 068 — a KnowledgeBase search a worker finished for this agent's tool loop: answer the
+    /// call and move the loop on.
+    fn kb_tool_delivered(&mut self, obj: &str, call_id: &str, text: String) {
+        self.with_agent(obj, |h, c| crate::agent_door::tool_worker_delivered(h, c, call_id, text));
+    }
+
+    /// At every `COBOL-WAIT-EVENT`: a program-answered call whose handler has run gets its result,
+    /// and the loop moves on.
+    fn tool_loops_resume(&mut self) {
+        let ready: Vec<String> = self.agents.iter().filter(|(_, c)| c.awaits_resume()).map(|(obj, _)| obj.clone()).collect();
+        for obj in ready {
+            self.with_agent(&obj, |h, c| crate::agent_door::resume(h, c));
         }
     }
 
-    /// A reply arrived: `LastReply`, `ResponseDataItem`, `Result`, and
-    /// `onResponse`. Shared by a plain `Ask` and the last round of a tool loop.
-    fn agent_answered(&mut self, obj: &str, text: String) {
-        if self.agent_is_verbose(obj) {
-            self.agent_log_block(obj, "reply", &text);
+    /// The event queue handed `onToolCall` to the program. `ctrl` is the form's spelling of the id;
+    /// the loop is keyed by the caller's, so they are compared without regard to case.
+    fn tool_loop_dispatched(&mut self, ctrl: &str) {
+        let hit = self.agents.iter_mut().find(|(obj, c)| c.is_loop() && obj.trim().eq_ignore_ascii_case(ctrl.trim()));
+        if let Some((_, c)) = hit {
+            c.dispatched();
         }
-        self.obj_set(obj, "LastReply", text.clone());
-        // `ResponseDataItem` names a WORKING-STORAGE item that receives
-        // the reply. The generated `<agent>-ASK` paragraph used to MOVE
-        // the answer into it straight after `Ask` — which has returned
-        // at once since 1.65.63, so it always moved spaces. The reply is
-        // written here instead, when it exists, and only into an item
-        // the program actually declares.
-        let target = self.obj_get(obj, "ResponseDataItem");
-        let target = target.trim();
-        if !target.is_empty() && self.env.contains(target) {
-            self.env.set_str(target, &text);
-        }
-        self.obj_set(obj, "Result", text);
-        self.obj_set(obj, "LastError", String::new());
-        if self.agent_is_verbose(obj) {
-            self.agent_log(format!("[agent {obj}] LastReply set — onResponse fires next"));
-        }
-        self.queue_control_event(obj, "onResponse");
-    }
-
-    /// Record a failed `Ask` and raise `onError`.
-    ///
-    /// `LastReply` is cleared rather than left holding the previous answer: a
-    /// stale reply after a failed call is how a handler reports success it did
-    /// not have.
-    fn agent_failed(&mut self, obj: &str, message: &str) {
-        self.obj_set(obj, "LastReply", String::new());
-        self.obj_set(obj, "LastError", message.to_owned());
-        if self.agent_is_verbose(obj) {
-            self.agent_log_block(obj, "error", message);
-            self.agent_log(format!(
-                "[agent {obj}] LastError set, LastReply cleared — onError will fire"
-            ));
-        }
-        self.queue_control_event(obj, "onError");
     }
 
     /// Is this control's verbose switch on?
@@ -13281,18 +12863,9 @@ impl Interpreter {
         self.obj_get(obj, "Verbose").eq_ignore_ascii_case("true")
     }
 
-    /// Print a block of text under one label, one line per line of the text.
-    ///
-    /// Verbatim: no clipping, no flattening, no summary. A payload or a reply
-    /// is evidence, and evidence that has been shortened cannot be compared
-    /// against what the provider's own documentation says should be there
-    /// (operator, 2026-09-07: "the url, the payload, the headers, all of it,
-    /// and then response or the error, verbatim not summarized").
-    fn agent_log_block(&mut self, obj: &str, label: &str, text: &str) {
-        self.log_block("agent", obj, label, text);
-    }
-
-    /// The same, under any control kind's tag — `[agent X]`, `[search X]`.
+    /// Print a block of text under one label, one line per line of the text, under a control
+    /// kind's tag — `[search X]` (an agent's are `agent_door`'s). Verbatim: no clipping, no
+    /// flattening, no summary.
     fn log_block(&mut self, kind: &str, obj: &str, label: &str, text: &str) {
         // The shape of the lines is `narration::block`'s, which the desktop runner writes too.
         for line in crate::narration::block(kind, obj, label, text) {
@@ -17010,46 +16583,26 @@ impl Interpreter {
                 none
             }
             // ── Spec 072 — AgentObject tools ──
+            // The declared tools' rules are `agent_door`'s, which the desktop runner follows too.
             "ADDTOOL" => {
                 let key = obj.trim().to_ascii_uppercase();
-                let name = arg(0);
                 let list = self.agent_declared_tools.entry(key).or_default();
-                list.retain(|t| !t.name.eq_ignore_ascii_case(&name));
-                list.push(agent_loop::DeclaredTool {
-                    name,
-                    description: arg(1),
-                    params: Vec::new(),
-                });
-                val("1".into())
+                val(crate::agent_door::add_tool(list, arg(0), arg(1)))
             }
             "ADDTOOLPARAMETER" => {
                 let key = obj.trim().to_ascii_uppercase();
-                let (tool, name, description) = (arg(0), arg(1), arg(2));
-                let found = self
+                let added = self
                     .agent_declared_tools
                     .get_mut(&key)
-                    .and_then(|l| l.iter_mut().find(|t| t.name.eq_ignore_ascii_case(&tool)));
-                match found {
-                    Some(t) => {
-                        t.params.retain(|(n, _)| !n.eq_ignore_ascii_case(&name));
-                        t.params.push((name, description));
-                        val("1".into())
-                    }
-                    None => val("0".into()),
-                }
+                    .is_some_and(|l| crate::agent_door::add_tool_parameter(l, &arg(0), arg(1), arg(2)));
+                val(if added { "1" } else { "0" }.into())
             }
             "REMOVETOOL" => {
                 let key = obj.trim().to_ascii_uppercase();
-                let name = arg(0);
                 let removed = self
                     .agent_declared_tools
                     .get_mut(&key)
-                    .map(|l| {
-                        let before = l.len();
-                        l.retain(|t| !t.name.eq_ignore_ascii_case(&name));
-                        before != l.len()
-                    })
-                    .unwrap_or(false);
+                    .is_some_and(|l| crate::agent_door::remove_tool(l, &arg(0)));
                 val(if removed { "1" } else { "0" }.into())
             }
             "SETTOOLRESULT" => {

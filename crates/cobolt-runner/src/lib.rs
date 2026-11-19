@@ -30,6 +30,7 @@
 //!
 //! The runner never names itself after its crate: its words are "the PowerRustCOBOL runner".
 
+mod agent;
 pub mod app;
 mod audio;
 mod aws;
@@ -59,7 +60,7 @@ pub use pins::Pins;
 /// The capabilities this runner provides (A27). T15: console programs; T32: the file dialogs (A33);
 /// T38: files on disk of every organisation (A34); T49: the sound player (A36); T48: the AWS controls (A38);
 /// T39c: the text files and pictures a built-in names by its path (A39); T41: `EXEC SQL` (A41);
-/// T42: the HTTP built-ins (A45); T47b: the KnowledgeBase control (A49).
+/// T42: the HTTP built-ins (A45); T47b: the KnowledgeBase control (A49); T47c: the AgentObject (A50).
 pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::CONSOLE,
     cap::ENV,
@@ -75,6 +76,7 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::SQL,
     cap::HTTP,
     cap::KB,
+    cap::AGENT,
 ];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row

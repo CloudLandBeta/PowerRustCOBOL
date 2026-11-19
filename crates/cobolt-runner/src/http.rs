@@ -51,6 +51,12 @@ impl Clients {
         self.clients.remove(&Some(inst));
     }
 
+    /// A copy of form instance `inst`'s client, for a request sent outside a call into the module (an
+    /// AgentObject's next round, T47c); a window that never made one has a client as new.
+    pub(crate) fn of(&self, inst: u32) -> HttpClient {
+        self.clients.get(&Some(inst)).cloned().unwrap_or_default()
+    }
+
     /// The run ends.
     pub(crate) fn end(&mut self) {
         self.clients.clear();

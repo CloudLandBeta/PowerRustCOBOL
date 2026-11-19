@@ -1937,6 +1937,29 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
       - `desktop_controls_the_runner_lacks_are_named`: 13 of 13, with a KnowledgeBase served on its own and inside a Panel, an AgentObject beside it still refused, and `[rag] embedder = "builtin"` sending a KnowledgeBase to the Cargo path with the semantic model's reason (another embedder, or no KnowledgeBase, does not).
       - `subset_table`: control types 71 = 67 served + 4 on the Cargo path; 26 of 26 fixed points.
     - **Left for this task:** AgentObject (T47c), and the twins of `model_list_hosts` and the agent host tests.
+  - *AgentObject, first part, done 2026-11-19 (2.0.621, "T47c"). Its file and Knowledge Base tools and the `model_list_hosts` twins are still open, so the box stays empty:*
+    - **One implementation of the rules:** the interpreter's AgentObject conversation moved into a module both hosts call, `cobolt_runtime::agent_door`, with no change of behaviour. It holds:
+      - the declared tools (`AddTool`, `AddToolParameter`, `RemoveTool`) and the methods the runner answers (`Ask`, `SetToolResult`, `SetPrompt`, `SetModel`, `GetResult()`);
+      - the plain conversation and its continuations (`MaximumContinuations`), and the tool loop (`MaximumToolRounds`, `ToolProtocol`);
+      - the streaming worker (`Job`), with the start limit and the silence limit, and what each report writes and raises (`onPartialReply`, `onResponse`, `onError`, `onToolCall`);
+      - the lines `Verbose` narrates.
+      The interpreter reaches it through `AgentSite` (`interpreter/agent_loop.rs`), which keeps its own tools (MCP files, Knowledge Base collections). Its tests pass unchanged: `test_agent_runtime` 9, `test_agent_tool_calling` 12, `test_async_rest` 5, `test_knowledge_base` 7, `test_mcp_tool_parity` 3, `test_model_list` 3, `test_model_list_file` 1, `test_registered_files` 8 (1 ignored), `test_nonvisual_property_readers` 5 (it now scans `agent_door.rs`), and the 15 queued-event unit tests.
+    - **What runs (ABI A50, a new capability `agent`, no new import):**
+      - A desktop module with an AgentObject requires `agent`.
+      - The ABI host routes an AgentObject's methods to the runner's port (`agent_call`), after the KnowledgeBase's; `Cancel` is the host's uniform one. The narration goes where `DISPLAY` goes, the properties are written at once, and bound events are queued.
+      - **`onToolCall` is followed past the queue** (`Work::ToolCall`): its handler runs, and once the instance is free again the port takes the result and sends the next round, before the program takes another event; with no handler bound it goes on at once. This is where the interpreter takes the handler's `SetToolResult`: at its next wait.
+      - The runner's port (`crates/cobolt-runner/src/agent.rs`) sends each request on a thread of its own with a copy of the calling window's HTTP client, polls every 40 ms while one is out, and lets a request go at its time limits (`PendingOp::expired`, shared with the interpreter's sweep) with `onTimeout`. A form that closes ends its conversations; a report for a cancelled or ended one is dropped.
+      - In the generator, `AgentObject` is served (`desktop_control_gap`).
+    - **What still takes the Cargo path, and why:**
+      - An AgentObject whose `ResponseDataItem` is set, or a program that uses that member or `SetProperty` on one (`D_AGENT_ITEMS`): the interpreter looks the data item up by name at run time.
+      - A program that uses `AllowFile`, `DenyFile`, `RegisterFile`, `UnregisterFile`, `AllowKnowledgeBase` or `DenyKnowledgeBase` (`D_AGENT_TOOLS`): the tools the runtime answers itself (indexed files, Knowledge Base collections) are the second part of T47c.
+    - **Tests:**
+      - **The runner twin `the_agentobject_agrees_on_both_engines`, against a local stub model server:** 24 of 24 checks. 5 dumps are equal; 5 pictures, 1 672 000 pixels, 0 differing; the same 11 narrated lines, and the same 8 requests on the stub from both engines. Seven AgentObjects, 7 buttons and 15 event handlers cover a plain `Ask` with `Verbose`; `StreamReply` and `onPartialReply`; a continuation; a declared tool, `onToolCall` and `SetToolResult`; `Ask` then `Cancel()`, with the late answer dropped; `StartTimeoutSeconds` and `onTimeout`; and a refused connection with `onError`. The stub answers by what each request asks, so the order the requests arrive in does not matter. In real time: the interpreter's run 35.7 s, the runner's 43.4 s.
+      - **The ABI host's `agent_tests`:** 2 tests, 29 checks: a method's narration, properties and answer; a piece and an answer written at once, only bound events queued; a stray report dropped; the general dispatch; `onToolCall` bound (after its handler returns, before the next event; a yielded handler still waits) and unbound (at once); `Cancel` in flight and idle; an instance's end; a host with no port.
+      - `native_desktop_refusals`: 35 of 35 checks, with an AgentObject's `AddTool`, `Ask`, `SetToolResult` and `LastReply` compiling and 4 of 4 members refused at their line.
+      - `desktop_controls_the_runner_lacks_are_named`: 14 of 14, with an AgentObject served beside a KnowledgeBase, the sign-in control beside them refused, and an AgentObject naming `ResponseDataItem` refused.
+      - `subset_table`: control types 71 = 68 served + 3 on the Cargo path; 29 of 29 fixed points.
+    - **Left for this task:** the AgentObject's file and Knowledge Base tools (T47c's second part), and the twins of `model_list_hosts`.
 
 - [ ] **T48 — Maps, the Aws controls, model lists and MCP** (R11)
   - Verify: twins of `aws_hosts`, `partiql_hosts` and `powercloud_hosts`, against local stubs. No twin sends a request signed with the live keys some example `.cfrm` files carry.

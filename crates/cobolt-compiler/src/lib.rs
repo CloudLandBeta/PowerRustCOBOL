@@ -8208,6 +8208,25 @@ fn browser_subset_doc() -> String {
          lexically on both paths, and `SearchModeReason` says why.\n",
         cobolt_wasm::support::D_KB_SEMANTIC
     ));
+    // T47c: the AgentObject is served by the interpreter's own rules; a data item it names, and the tools the
+    // runtime answers itself, are not.
+    let names = |ms: &[&str]| ms.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ");
+    d.push_str(&format!(
+        "\nThe AgentObject is served: its `Ask` is sent on a thread of its own by the interpreter's own rules (the model \
+         from `AgentAPI`, `AgentURL`, `AgentEndpoint` and `AgentModel`, with `SystemPrompt`, `Temperature` and \
+         `MaximumTokens`), with the window's HTTP client, and the program goes on meanwhile. With `StreamReply` each piece \
+         of the reply raises `onPartialReply`; a reply cut at its token limit is continued up to `MaximumContinuations` \
+         times; the answer raises `onResponse`, a failure `onError`, and a model that does not start answering within \
+         `StartTimeoutSeconds`, or does not finish within `TimeoutSeconds`, `onTimeout`. The tools the program declares \
+         (`AddTool`, `AddToolParameter`, `RemoveTool`) are offered to the model up to `MaximumToolRounds` times: each call \
+         raises `onToolCall`, its handler answers with `SetToolResult`, and the conversation goes on once the handler has \
+         returned. `Cancel` lets an `Ask` go and raises `onCancelled`. An AgentObject whose `ResponseDataItem` is set, or a \
+         program that uses one of its members {}, takes the Cargo path: {}. So does a program that uses {}: {}.\n",
+        names(cobolt_wasm::support::AGENT_ITEM_MEMBERS),
+        cobolt_wasm::support::D_AGENT_ITEMS,
+        names(cobolt_wasm::support::AGENT_TOOL_MEMBERS),
+        cobolt_wasm::support::D_AGENT_TOOLS
+    ));
     d.push_str("\nA control bound to data (Data Binding) takes the Cargo path too, whatever its type:\n\n| Bound to | Why |\n|---|---|\n");
     for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {
         d.push_str(&format!("| {source} | {why} |\n"));
@@ -14330,9 +14349,13 @@ function_prefix = "sales-"
         let mut named = ctl("WEB-2", T::WebSearch);
         named.set_prop("ResponseDataItem", cobolt_forms::PropValue::String("WS-ANSWER".into()));
         let search_named = form("FINDINTO", vec![named]);
-        // Served since T47b: the KnowledgeBase; an AgentObject beside it is not. A project that links the
+        // Served since T47b: the KnowledgeBase, and since T47c the AgentObject; the sign-in control beside
+        // them is not. An AgentObject that names a data item is not either. A project that links the
         // built-in semantic model sends its first KnowledgeBase down the Cargo path.
-        let ask = form("ASK", vec![ctl("KB-1", T::KnowledgeBase), ctl("AGT-1", T::AgentObject)]);
+        let ask = form("ASK", vec![ctl("KB-1", T::KnowledgeBase), ctl("AGT-1", T::AgentObject), ctl("AUTH-1", T::Authentication)]);
+        let mut agent_named = ctl("AGT-2", T::AgentObject);
+        agent_named.set_prop("ResponseDataItem", cobolt_forms::PropValue::String("WS-REPLY".into()));
+        let ask_named = form("ASKINTO", vec![agent_named]);
         let mut docs_panel = ctl("PNL-DOCS", T::Panel);
         docs_panel.children.push(ctl("KB-DOCS", T::KnowledgeBase));
         let docs = form("DOCS", vec![ctl("LBL-Q", T::Label), docs_panel]);
@@ -14359,6 +14382,7 @@ function_prefix = "sales-"
         let web = desktop_control_reason(&[("FIND", "forms/find.cfrm", &search)]);
         let web_named = desktop_control_reason(&[("FINDINTO", "forms/findinto.cfrm", &search_named)]);
         let service = desktop_control_reason(&[("ASK", "forms/ask.cfrm", &ask)]);
+        let agent_into = desktop_control_reason(&[("ASKINTO", "forms/askinto.cfrm", &ask_named)]);
         let kb = desktop_control_reason(&[("DOCS", "forms/docs.cfrm", &docs)]);
         let semantic = kb_semantic_reason(" Builtin ", &[("MAIN", "forms/main.cfrm", &served), ("DOCS", "forms/docs.cfrm", &docs)]);
         let lexical = kb_semantic_reason("lexical", &[("DOCS", "forms/docs.cfrm", &docs)]);
@@ -14379,21 +14403,22 @@ function_prefix = "sales-"
             ("an AwsS3 and an AwsLambda: none (T48)", aws.is_none()),
             ("a WebSearch: none (T47a)", web.is_none()),
             ("a WebSearch that names a data item: FINDINTO, forms/findinto.cfrm, WEB-2, the data items", is(&web_named, "FINDINTO", "forms/findinto.cfrm", "WEB-2", "WebSearch", "names the program's data items")),
-            ("a KnowledgeBase passes, an AgentObject beside it: ASK, forms/ask.cfrm, AGT-1, M6", is(&service, "ASK", "forms/ask.cfrm", "AGT-1", "AgentObject", "M6)")),
+            ("a KnowledgeBase and an AgentObject pass, the sign-in control beside them: ASK, forms/ask.cfrm, AUTH-1, M6", is(&service, "ASK", "forms/ask.cfrm", "AUTH-1", "Authentication", "M6)")),
+            ("an AgentObject that names a data item: ASKINTO, forms/askinto.cfrm, AGT-2, the data item", is(&agent_into, "ASKINTO", "forms/askinto.cfrm", "AGT-2", "AgentObject", "names the program's data item (ResponseDataItem)")),
             ("a KnowledgeBase inside a Panel: none (T47b)", kb.is_none()),
             ("[rag] embedder = builtin: DOCS, forms/docs.cfrm, KB-DOCS, the semantic model", is(&semantic, "DOCS", "forms/docs.cfrm", "KB-DOCS", "KnowledgeBase", "built-in semantic model")),
             ("another embedder, or no KnowledgeBase: none", lexical.is_none() && no_kb.is_none()),
             ("a Label bound to an indexed file: LBL-TOTAL, Label, M6", is(&binding, "MAIN", "forms/main.cfrm", "LBL-TOTAL", "Label", "(DESKTOP-WASM-001 M6)")),
         ];
-        println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, T47a, T47b, T48, T50, R13) ==");
-        println!("forms: 10 designs, 24 controls (4 nested), 1 binding; 13 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
+        println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, T47a, T47b, T47c, T48, T50, R13) ==");
+        println!("forms: 11 designs, 26 controls (4 nested), 1 binding; 14 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
         println!("  Maps: {text}");
         let passed = checks.iter().filter(|(_, ok)| *ok).count();
         for (what, ok) in &checks {
             println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
         }
         println!("result: {passed} of {} checks passed", checks.len());
-        assert_eq!(passed, checks.len(), "maps {maps:?}, viewer {viewer:?}, canvas {canvas:?}, web {web:?}, web_named {web_named:?}, service {service:?}, kb {kb:?}, semantic {semantic:?}, binding {binding:?}");
+        assert_eq!(passed, checks.len(), "maps {maps:?}, viewer {viewer:?}, canvas {canvas:?}, web {web:?}, web_named {web_named:?}, service {service:?}, agent_into {agent_into:?}, kb {kb:?}, semantic {semantic:?}, binding {binding:?}");
     }
 
     /// A chart that names its table's fields (`LabelField`, `ValueFields`) has

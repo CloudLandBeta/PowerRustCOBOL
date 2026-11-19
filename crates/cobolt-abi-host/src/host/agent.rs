@@ -1,0 +1,152 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! **The AgentObject on the desktop** (DESKTOP-WASM-001 T47c, ABI A50).
+//!
+//! A method called on an `AgentObject` goes to the runner's [`AgentPort`], which decides it with the
+//! interpreter's own rules (`cobolt_runtime::agent_door`) and sends its requests. The host carries
+//! out what the port answers, as the interpreter does: the narration goes to the program's output,
+//! the properties are written at once, and the events are queued for their handlers. A reply, a
+//! piece of a streamed one, an error or a time-out comes back through [`Host::agent_delivered`] the
+//! same way.
+//!
+//! `onToolCall` (spec 072) is the one event the host follows past the queue: the program answers the
+//! call in that handler, and the conversation goes on only when it has returned. When the event
+//! leaves the queue its handler runs, if one is bound, and once the instance is free again the port
+//! hears it ([`AgentPort::tool_returned`]) before the program takes another event, as the
+//! interpreter takes the handler's `SetToolResult` at its next wait. `Cancel` is the uniform one: an
+//! `Ask` in flight is let go, the control is no longer busy and hears `onCancelled`. A browser module
+//! never reaches this.
+
+use super::*;
+
+/// What the host knows of the AgentObject a method was called on.
+pub struct AgentControl<'a> {
+    /// The control's name in the form.
+    pub name: &'a str,
+    /// One of its properties, as the program would read it.
+    pub prop: &'a dyn Fn(&str) -> String,
+}
+
+/// What a method call, a report or a time-out does: the lines for the program's `DISPLAY` output
+/// (the `Verbose` narration), then the properties written, in order, then the events raised, in
+/// order, and the method's answer (`None`: the method answers nothing).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AgentEffects {
+    pub lines: Vec<String>,
+    pub props: Vec<(String, String)>,
+    pub events: Vec<String>,
+    pub answer: Option<String>,
+}
+
+/// The desktop's AgentObject (DESKTOP-WASM-001 T47c), which the runner gives the host in
+/// [`Host::agent`].
+pub trait AgentPort {
+    /// A method (`method`, upper case) of the AgentObject `c` of instance `inst`, with the argument
+    /// texts `args`: what follows, or `None` when it is not one of the control's own methods, so the
+    /// host's general dispatch answers it. `Cancel` never reaches it.
+    fn call(&mut self, inst: u32, c: &AgentControl<'_>, method: &str, args: &[&str]) -> Option<AgentEffects>;
+    /// `Cancel`: whether an `Ask` of the control was in flight. Its reports, when they come, are
+    /// dropped.
+    fn cancel(&mut self, inst: u32, ctl: &str) -> bool;
+    /// The `onToolCall` the host queued for `c` was handed to the program, and its handler, when one
+    /// is bound, has returned: the call's result is taken and the conversation goes on.
+    fn tool_returned(&mut self, inst: u32, c: &AgentControl<'_>) -> AgentEffects;
+    /// The instance `inst` ended: its conversations go, and reports still to come for it are dropped.
+    fn release(&mut self, inst: u32);
+}
+
+impl Host {
+    /// A method of the control `idx` when that control is an AgentObject and the host has a port:
+    /// `None` otherwise, and for a method that is not the control's own.
+    pub(super) fn agent_call(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Option<Result<Option<String>, CmdError>> {
+        let tree = self.trees.get(&inst)?;
+        if tree.ctls[idx].kind.type_name() != "AgentObject" {
+            return None;
+        }
+        let port = self.agent.as_mut()?;
+        let m = name.trim().to_ascii_uppercase();
+        let ctl = tree.ctl(idx).name.clone();
+        if m == "CANCEL" {
+            // The uniform asynchronous `Cancel` (spec 032): an `Ask` in flight is let go, its reports
+            // dropped when they come; the control is no longer busy and hears `onCancelled`.
+            if port.cancel(inst, &ctl) {
+                let _ = self.trees.get_mut(&inst).expect("checked").set(idx, "Busy", "0");
+                self.dom_event(inst, idx, "onCancelled", Vec::new());
+            }
+            return Some(Ok(None));
+        }
+        let prop = |p: &str| tree.get(idx, p);
+        let fx = port.call(inst, &AgentControl { name: &ctl, prop: &prop }, &m, args)?;
+        Some(Ok(self.agent_apply(inst, idx, fx)))
+    }
+
+    /// Carry out `fx` on the control `idx` of instance `inst`: its lines go to the program's output
+    /// first, then the properties are written and the events queued. `onToolCall` is queued as the
+    /// step the host follows past the queue (see the module's notes).
+    fn agent_apply(&mut self, inst: u32, idx: usize, fx: AgentEffects) -> Option<String> {
+        for line in fx.lines {
+            self.effects.push(Effect::Display(line));
+        }
+        if let Some(tree) = self.trees.get_mut(&inst) {
+            for (k, v) in &fx.props {
+                let _ = tree.set(idx, k, v);
+            }
+        }
+        for e in &fx.events {
+            if e == "onToolCall" {
+                self.work.push_back(Work::ToolCall { inst, ctl: idx });
+            } else {
+                self.dom_event(inst, idx, e, Vec::new());
+            }
+        }
+        fx.answer
+    }
+
+    /// A report of an `Ask` of the AgentObject named `ctl` of instance `inst` came, or its time ran
+    /// out, and `fx` is what that does (the runner's port decided it). Nothing happens when the
+    /// instance or the control is gone.
+    pub fn agent_delivered(&mut self, inst: u32, ctl: &str, fx: AgentEffects) {
+        let Some(idx) = self.trees.get(&inst).and_then(|t| t.by_name(ctl)) else { return };
+        self.agent_apply(inst, idx, fx);
+    }
+
+    /// The `onToolCall` queued for control `ctl` of instance `inst` left the queue: its handler, when
+    /// one is bound, is the event to run now (the port hears of it when it has returned); with none
+    /// bound, the program has nothing to answer and the port hears at once.
+    pub(super) fn agent_tool_call(&mut self, inst: u32, ctl: usize) -> Option<QueuedEvent> {
+        let c = self.trees.get(&inst)?.ctls.get(ctl)?;
+        let bound = c.has_handler("onToolCall").then_some(c.abi_id).flatten().zip(self.manifest.event_index("onToolCall"));
+        match bound {
+            Some((abi, ev)) => {
+                self.tool_waits.push((inst, ctl));
+                Some(QueuedEvent { inst, ctrl: abi, event: ev, args: Vec::new() })
+            }
+            None => {
+                self.agent_tool_returned(inst, ctl);
+                None
+            }
+        }
+    }
+
+    /// Every `onToolCall` handler handed out whose instance is free again has returned: the port
+    /// takes each call's result, before the program takes another event.
+    pub(super) fn agent_tools_returned(&mut self) {
+        while let Some(at) = self.tool_waits.iter().position(|(inst, _)| !self.busy(*inst)) {
+            let (inst, ctl) = self.tool_waits.remove(at);
+            self.agent_tool_returned(inst, ctl);
+        }
+    }
+
+    fn agent_tool_returned(&mut self, inst: u32, idx: usize) {
+        let Some(tree) = self.trees.get(&inst) else { return };
+        let Some(port) = self.agent.as_mut() else { return };
+        let ctl = tree.ctl(idx).name.clone();
+        let prop = |p: &str| tree.get(idx, p);
+        let fx = port.tool_returned(inst, &AgentControl { name: &ctl, prop: &prop });
+        self.agent_apply(inst, idx, fx);
+    }
+}

@@ -330,7 +330,7 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
             instances: 1,
             program: &program,
             // The IndexedFile control is served (T39c); only its PartiQL members are refused.
-            controls: vec![("BTN-1".into(), "Button".into()), ("IXF-1".into(), "IndexedFile".into())],
+            controls: vec![("BTN-1".into(), "Button".into()), ("IXF-1".into(), "IndexedFile".into()), ("AGT-1".into(), "AgentObject".into())],
             bindings: vec![("BTN-1".into(), "onClick".into())],
             layers: vec![],
             lines: vec![],
@@ -375,13 +375,40 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
         partiql == partiql_cases.len(),
     );
 
+    // The AgentObject (T47c): its Ask and declared tools compile; a member that names one of the program's
+    // data items, or offers a tool the runtime answers itself, is refused at its line, naming it.
+    let asked = handler(
+        "    MOVE AGT-1::AddTool( \"get_rate\" \"A rate\" \"currency:string\" ) TO WS-PATH\n    MOVE AGT-1::Ask( \"What is the rate?\" ) TO WS-PATH\n    MOVE AGT-1::SetToolResult( \"call_1\" \"1.08\" ) TO WS-PATH\n    MOVE AGT-1::LastReply TO WS-PATH\n",
+    );
+    check("a form with an AgentObject compiles, with AddTool, Ask, SetToolResult and LastReply".into(), in_form(&asked).is_ok());
+    let mut agent = 0;
+    let agent_cases = [
+        ("    MOVE \"WS-PATH\" TO AGT-1::ResponseDataItem\n", "ResponseDataItem"),
+        ("    MOVE AGT-1::SetProperty( \"LastReply\" \"x\" ) TO WS-PATH\n", "ResponseDataItem"),
+        ("    MOVE AGT-1::AllowFile( \"ORDERS\" \"read\" ) TO WS-PATH\n", "indexed-file and Knowledge Base tools"),
+        ("    MOVE AGT-1::AllowKnowledgeBase( \"KB-1\" \"docs\" ) TO WS-PATH\n", "indexed-file and Knowledge Base tools"),
+    ];
+    for (body, why) in agent_cases {
+        let src = handler(body);
+        let e = in_form(&src).err().unwrap_or_else(|| GenError::new(0, "compiled"));
+        if e.subject.to_ascii_uppercase().starts_with("AGT-1::") && e.line == line_of(&src, "AGT-1::") && e.message.contains(why) && e.message.contains("M6") {
+            agent += 1;
+        } else {
+            println!("    AgentObject case {body:?}: {} at line {}: {}", e.subject, e.line, e.message);
+        }
+    }
+    check(
+        format!("the AgentObject's members naming a data item (ResponseDataItem, SetProperty) or a runtime tool (AllowFile, AllowKnowledgeBase): {agent} of {} refused at their line, naming each", agent_cases.len()),
+        agent == agent_cases.len(),
+    );
+
     // What the runner serves still compiles.
     let plain = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-N PIC 9(4) VALUE 1.\nPROCEDURE DIVISION.\n    ADD 41 TO WS-N\n    DISPLAY \"N=\" WS-N\n    STOP RUN.\n");
     check("a console program compiles into a desktop module".into(), compile_program(&common::parse(&plain), &native()).is_ok());
 
     let took = t.elapsed().as_secs_f64() * 1000.0;
     println!("== native_desktop_refusals (DESKTOP-WASM-001 T16, T32, R13) ==");
-    println!("programs compiled: {} (23 as desktop modules refused or accepted, {} desktop form modules, 2 browser modules, 1 plain console program) in {took:.1} ms", 26 + 6 + page_verbs.len(), 6 + page_verbs.len());
+    println!("programs compiled: {} (23 as desktop modules refused or accepted, {} desktop form modules, 2 browser modules, 1 plain console program) in {took:.1} ms", 26 + 11 + page_verbs.len(), 11 + page_verbs.len());
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "pass" } else { "FAIL" });

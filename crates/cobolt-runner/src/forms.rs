@@ -108,6 +108,8 @@ enum ToProgram {
     Rest(crate::rest::RestNews),
     /// A KnowledgeBase operation on its own thread reported (T47b).
     Kb(crate::kb::KbNews),
+    /// An AgentObject's request on its own thread reported (T47c).
+    Agent(crate::agent::AgentNews),
 }
 
 /// The engine the runner gives the form host: the forms' designs, from the module's `prforms`
@@ -424,6 +426,15 @@ impl Thread {
             })
         });
         host.rest = Some(Box::new(rest.clone()));
+        // The AgentObjects (T47c), sending with the windows' HTTP clients: a request runs on a thread of
+        // its own, and its reports come back on this thread's own channel too.
+        let agent = {
+            let back = tx.clone();
+            crate::agent::Agents::new(http.clone(), move |n| {
+                let _ = back.send(ToProgram::Agent(n));
+            })
+        };
+        host.agent = Some(Box::new(agent.clone()));
         // The KnowledgeBase controls (T47b): an operation runs on a thread of its own, and each of its
         // reports comes back on this thread's own channel too.
         let kb = {
@@ -500,16 +511,20 @@ impl Thread {
         // Canvases whose `onFrame` handler ran, to present when it has returned (AutoPresent, T50).
         let mut presents: Vec<(u32, usize)> = Vec::new();
         loop {
-            let msg = match timers.iter().map(|(at, _)| *at).min() {
-                Some(due) => {
-                    let left = due.saturating_duration_since(cobolt_form_host::clock::now());
-                    // The clock may be virtual: look again soon rather than sleep through its moves.
-                    match rx.recv_timeout(left.min(Duration::from_millis(5))) {
-                        Ok(m) => Some(m),
-                        Err(mpsc::RecvTimeoutError::Timeout) => None,
-                        Err(mpsc::RecvTimeoutError::Disconnected) => return,
-                    }
-                }
+            // The clock may be virtual: a due `Sleep` is looked at again soon rather than slept through.
+            let timer = timers.iter().map(|(at, _)| at.saturating_duration_since(cobolt_form_host::clock::now()).min(Duration::from_millis(5))).min();
+            // An AgentObject's `Ask` in flight is looked at often enough to say when it ran out of time, as
+            // the interpreter's wait polls while an operation is pending (T47c).
+            let wait = match (timer, agent.polling().then_some(Duration::from_millis(40))) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+            let msg = match wait {
+                Some(left) => match rx.recv_timeout(left) {
+                    Ok(m) => Some(m),
+                    Err(mpsc::RecvTimeoutError::Timeout) => None,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                },
                 None => match rx.recv() {
                     Ok(m) => Some(m),
                     Err(_) => return,
@@ -623,6 +638,18 @@ impl Thread {
                         d.host().kb_delivered(inst, &ctl, vec![e]);
                     }
                 }
+                Some(ToProgram::Agent(n)) => {
+                    let (inst, ctl) = (n.inst, n.ctl.clone());
+                    // The control's properties as they are when the report comes (`Verbose`, `PartialReply`).
+                    let fx = {
+                        let host = d.host();
+                        let prop = |p: &str| host.control_property(inst, &ctl, p).unwrap_or_default();
+                        agent.delivered(n, &prop)
+                    };
+                    if let Some(fx) = fx {
+                        d.host().agent_delivered(inst, &ctl, fx);
+                    }
+                }
                 Some(ToProgram::Gone { link }) => {
                     links[link].gone = true;
                     if let Some(inst) = links[link].inst {
@@ -630,6 +657,10 @@ impl Thread {
                     }
                 }
                 None => {}
+            }
+            // AgentObject requests that ran out of time, and model-list entries that changed (T47c).
+            for (inst, ctl, fx) in agent.sweep() {
+                d.host().agent_delivered(inst, &ctl, fx);
             }
             // `Sleep`s that are due.
             let now = cobolt_form_host::clock::now();

@@ -165,6 +165,9 @@ pub struct FormCtx {
     /// Control ids of the form's RestClient and WebSearch controls: their members that name a data item
     /// are not on the WebAssembly path yet (DESKTOP-WASM-001 T42b, T47a).
     pub rest_clients: std::collections::HashSet<u32>,
+    /// Control ids of the form's AgentObjects: their members that name a data item, or offer a tool the
+    /// runtime answers itself, are not on the WebAssembly path yet (DESKTOP-WASM-001 T47c).
+    pub agents: std::collections::HashSet<u32>,
     /// The form's name, for diagnostics.
     pub name: String,
 }

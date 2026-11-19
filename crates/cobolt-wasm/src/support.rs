@@ -464,7 +464,7 @@ pub fn desktop_refusal(s: &Stmt, in_form: bool) -> Option<&'static str> {
 
 // ── The controls of a desktop form (DESKTOP-WASM-001 T33, plan §4.3) ─────────────────────────────
 
-const D_SERVICE: &str = "the service controls (AI and sign-in) are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_SERVICE: &str = "the sign-in control is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 /// Why a PartiQL member of the IndexedFile control sends the Build to the Cargo path (T39c serves the control).
 pub const D_PARTIQL: &str = "the IndexedFile control's PartiQL members are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 
@@ -536,15 +536,45 @@ pub fn is_rest_item_member(member: &str) -> bool {
     REST_ITEM_MEMBERS.iter().any(|s| s.eq_ignore_ascii_case(bare))
 }
 
+/// Why an AgentObject that names the program's data item takes the Cargo path (DESKTOP-WASM-001
+/// T47c): the reply is written into the item `ResponseDataItem` names, an item the interpreter looks
+/// up by name at run time and a module does not.
+pub const D_AGENT_ITEMS: &str = "the AgentObject names the program's data item (ResponseDataItem), which the interpreter looks up by name at run time; the WebAssembly path does not yet (DESKTOP-WASM-001 M6)";
+
+/// Why an AgentObject's tools that the runtime answers itself take the Cargo path (DESKTOP-WASM-001
+/// T47c): the runner offers a model the tools the program declares (`AddTool`), and not yet the
+/// application's indexed files or Knowledge Base collections.
+pub const D_AGENT_TOOLS: &str = "the AgentObject's indexed-file and Knowledge Base tools (AllowFile, DenyFile, RegisterFile, UnregisterFile, AllowKnowledgeBase, DenyKnowledgeBase) are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+
+/// The members of an AgentObject that name one of the program's data items, or write a property by
+/// its name ([`D_AGENT_ITEMS`]).
+pub const AGENT_ITEM_MEMBERS: &[&str] = &["ResponseDataItem", "SetProperty"];
+
+/// The members of an AgentObject that offer a model a tool the runtime answers itself
+/// ([`D_AGENT_TOOLS`]).
+pub const AGENT_TOOL_MEMBERS: &[&str] = &["AllowFile", "DenyFile", "RegisterFile", "UnregisterFile", "AllowKnowledgeBase", "DenyKnowledgeBase"];
+
+/// Why the AgentObject member `member` (in any case, with or without the `GET-` and `SET-` prefixes
+/// of a property's accessors) takes the Cargo path, or `None` when the runner serves it.
+pub fn agent_member_gap(member: &str) -> Option<&'static str> {
+    let m = member.trim();
+    let bare = ["GET-", "SET-"].iter().find_map(|p| m.get(..4).filter(|h| h.eq_ignore_ascii_case(p)).map(|_| &m[4..])).unwrap_or(m);
+    if AGENT_ITEM_MEMBERS.iter().any(|s| s.eq_ignore_ascii_case(bare)) {
+        return Some(D_AGENT_ITEMS);
+    }
+    AGENT_TOOL_MEMBERS.iter().any(|s| s.eq_ignore_ascii_case(m)).then_some(D_AGENT_TOOLS)
+}
+
 /// Why the desktop control `c` takes the Cargo path for what its design holds, beyond its type
-/// ([`desktop_control_gap`]): a SqlDatabase ([`D_SQL_ITEMS`]), or a RestClient or a WebSearch
-/// ([`D_REST_ITEMS`]), that names a data item.
+/// ([`desktop_control_gap`]): a SqlDatabase ([`D_SQL_ITEMS`]), a RestClient or a WebSearch
+/// ([`D_REST_ITEMS`]), or an AgentObject ([`D_AGENT_ITEMS`]), that names a data item.
 pub fn desktop_design_gap(c: &cobolt_forms::Control) -> Option<&'static str> {
     use cobolt_forms::model::ControlType as T;
     let named = |k: &str| c.get_prop(k).is_some_and(|v| !v.as_str().trim().is_empty());
     match c.control_type {
         T::SqlDatabase => (named("ConnectionDataItem") || named("ResultSetDataItem")).then_some(D_SQL_ITEMS),
         T::RestClient | T::WebSearch => (named("RequestDataItem") || named("ResponseDataItem") || named("StatusDataItem")).then_some(D_REST_ITEMS),
+        T::AgentObject => named("ResponseDataItem").then_some(D_AGENT_ITEMS),
         _ => None,
     }
 }
@@ -578,7 +608,11 @@ const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know 
 /// (`cobolt_runtime::search_door`), and since T47b the KnowledgeBase, whose
 /// methods and background operations the runner carries out by the interpreter's own rules
 /// (`cobolt_runtime::kb_door`; a project that links the built-in semantic model is judged by the
-/// Build, [`D_KB_SEMANTIC`]). It does not serve yet: the other service controls (class C),
+/// Build, [`D_KB_SEMANTIC`]), and since T47c the AgentObject, whose `Ask`, streamed reply,
+/// continuations and declared tools the runner carries out by the interpreter's own rules
+/// (`cobolt_runtime::agent_door`; its runtime-answered tools and a data item it names are judged per
+/// member, [`agent_member_gap`], and by [`desktop_design_gap`]). It does not serve yet: the sign-in
+/// control (class C),
 /// the Maps control (its places and directions are
 /// a service), the Viewer (its documents and verbs) and a type it does not know (class D). A form
 /// holding one takes the Cargo path, which names the form and the control.
@@ -586,7 +620,7 @@ pub fn desktop_control_gap(t: &cobolt_forms::model::ControlType) -> Option<&'sta
     use cobolt_forms::model::ControlType as T;
     use cobolt_forms::web_class::{class_of, Class};
     match t {
-        T::DataGrid | T::FileDropZone | T::IndexedFile | T::SqlDatabase | T::RestClient | T::WebSearch | T::KnowledgeBase => None,
+        T::DataGrid | T::FileDropZone | T::IndexedFile | T::SqlDatabase | T::RestClient | T::WebSearch | T::KnowledgeBase | T::AgentObject => None,
         t if t.is_aws() => None,
         T::Maps => Some(D_MAPS),
         T::Viewer => Some(D_VIEWER),

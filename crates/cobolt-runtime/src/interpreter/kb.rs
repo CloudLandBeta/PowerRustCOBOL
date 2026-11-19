@@ -346,7 +346,7 @@ impl Interpreter {
     /// Run a model's search of a collection. `Some(text)` when answered here;
     /// `None` when it went to a worker (the query needs the embedding server)
     /// and a `KbToolResult` will follow for `agent`.
-    pub(crate) fn kb_tool_search(&mut self, agent: &str, call: &crate::agent_tools::ToolCall) -> Option<String> {
+    pub(crate) fn kb_tool_search(&mut self, agent: &str, call: &crate::agent_tools::ToolCall, generation: u64) -> Option<String> {
         use crate::kb_runtime::{self as kr, EmbedderChoice, KbOp};
         let owner = agent.trim().to_ascii_uppercase();
         let tool = self
@@ -387,9 +387,8 @@ impl Interpreter {
             // as the indexed-file tools are.
             return Some(run());
         }
-        // The loop's own generation: the reply that carried this call has
+        // `generation` is the loop's own: the reply that carried this call has
         // already been drained, so `async_pending` no longer holds the Ask.
-        let generation = self.tool_loop_generation(agent).unwrap_or_default();
         let tx = self.async_result_tx.clone();
         let agent = agent.to_string();
         let call_id = call.id.clone();
@@ -411,7 +410,7 @@ impl Interpreter {
         "0".into()
     }
     pub(crate) fn agent_deny_kb(&mut self, _agent: &str, _kb: &str, _collection: &str) {}
-    pub(crate) fn kb_tool_search(&mut self, _agent: &str, _call: &crate::agent_tools::ToolCall) -> Option<String> {
+    pub(crate) fn kb_tool_search(&mut self, _agent: &str, _call: &crate::agent_tools::ToolCall, _generation: u64) -> Option<String> {
         Some("error: the Knowledge Base is not linked into this program".into())
     }
 }

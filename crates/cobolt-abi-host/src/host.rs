@@ -292,6 +292,8 @@ mod rest;
 pub use self::rest::{RestControl, RestEffects, RestPort};
 mod kb;
 pub use self::kb::{KbControl, KbEffects, KbEvent, KbPort};
+mod agent;
+pub use self::agent::{AgentControl, AgentEffects, AgentPort};
 
 /// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
 /// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
@@ -503,6 +505,9 @@ enum Work {
     /// An AWS operation's values (T48): written as the queue reaches them, then the event they belong
     /// to follows when a handler is bound to it. Like a link's step, it makes no call of its own.
     Apply(aws::AwsApply),
+    /// An AgentObject's `onToolCall` (T47c): its handler runs as the queue reaches it, and the port hears
+    /// when it has returned (`Host::agent_tool_call`).
+    ToolCall { inst: u32, ctl: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -625,6 +630,11 @@ pub struct Host {
     pub rest: Option<Box<dyn RestPort>>,
     /// The desktop's KnowledgeBase, which the runner gives the host (T47b, A49); `None` in a page.
     pub kb: Option<Box<dyn KbPort>>,
+    /// The desktop's AgentObject, which the runner gives the host (T47c, A50); `None` in a page.
+    pub agent: Option<Box<dyn AgentPort>>,
+    /// The `onToolCall` handlers handed to the program and not yet heard back from, `(inst, control)`
+    /// (T47c): the port hears of each when its instance is free again.
+    tool_waits: Vec<(u32, usize)>,
     /// The desktop's FileDropZone copying, which the runner gives the host (T39c); `None` in a page.
     pub drop_zones: Option<Box<dyn DropZonePort>>,
     /// What the window wrote to a control the form does not hold, by instance and upper-case name (T39c):
@@ -802,6 +812,8 @@ impl Host {
             sql: None,
             rest: None,
             kb: None,
+            agent: None,
+            tool_waits: Vec::new(),
             drop_zones: None,
             absent: HashMap::new(),
             absent_out: Vec::new(),
@@ -1466,6 +1478,7 @@ impl Host {
             Work::Event(e) => !blocked.contains(&e.inst) && self.trees.contains_key(&e.inst),
             Work::Link(s) => !blocked.contains(&s.inst) && self.trees.contains_key(&s.inst),
             Work::Apply(a) => !blocked.contains(&a.inst) && self.trees.contains_key(&a.inst),
+            Work::ToolCall { inst, .. } => !blocked.contains(inst) && self.trees.contains_key(inst),
             Work::Close { .. } | Work::Open { .. } | Work::Cancel => true,
         })
     }
@@ -1497,6 +1510,11 @@ impl Host {
         }
         self.aborted = false;
         self.reported_in_call = false;
+        // 0. An AgentObject's `onToolCall` handler that has returned: the conversation goes on before the
+        //    program takes another event, as the interpreter takes the handler's result at its next wait.
+        if !self.tool_waits.is_empty() {
+            self.agent_tools_returned();
+        }
         // 1. A task whose wait is satisfied.
         if let Some(id) = self.ready_task() {
             let t = self.tasks.get_mut(&id).unwrap();
@@ -1523,6 +1541,11 @@ impl Host {
                         break Work::Event(e);
                     }
                 }
+                Work::ToolCall { inst, ctl } => {
+                    if let Some(e) = self.agent_tool_call(inst, ctl) {
+                        break Work::Event(e);
+                    }
+                }
                 w @ Work::Open { .. } => {
                     if let Some(w) = self.sign_in_gate(w) {
                         break w;
@@ -1533,7 +1556,7 @@ impl Host {
         };
         self.stats.module_calls += 1;
         match w {
-            Work::Link(_) | Work::Apply(_) => unreachable!("taken above"),
+            Work::Link(_) | Work::Apply(_) | Work::ToolCall { .. } => unreachable!("taken above"),
             Work::Event(e) => {
                 self.stats.events_delivered += 1;
                 let desc = self.describe_event(e.inst, e.ctrl, e.event);
@@ -1981,7 +2004,13 @@ impl Host {
         if let Some(k) = self.kb.as_mut() {
             k.release(inst);
         }
-        self.work.retain(|w| !matches!(w, Work::Event(e) if e.inst == inst) && !matches!(w, Work::Apply(a) if a.inst == inst));
+        if let Some(a) = self.agent.as_mut() {
+            a.release(inst);
+        }
+        self.tool_waits.retain(|(i, _)| *i != inst);
+        self.work.retain(|w| {
+            !matches!(w, Work::Event(e) if e.inst == inst) && !matches!(w, Work::Apply(a) if a.inst == inst) && !matches!(w, Work::ToolCall { inst: i, .. } if *i == inst)
+        });
         self.auth_calls.retain(|_, (i, _, _)| *i != inst);
         self.auth_captchas.retain(|_, (i, _)| *i != inst);
         self.auth_queue.retain(|(i, _, _)| *i != inst);
@@ -2703,6 +2732,10 @@ impl Host {
         // A KnowledgeBase's methods are the runner's, on the desktop (T47b): routed by class first, as
         // `Search`, `Refresh` and `Cancel` mean something else on other controls.
         if let Some(r) = self.kb_call(inst, idx, name, args) {
+            return r;
+        }
+        // An AgentObject's `Ask`, its tools and `Cancel` are the runner's, on the desktop (T47c).
+        if let Some(r) = self.agent_call(inst, idx, name, args) {
             return r;
         }
         // An AWS control's operations are the runner's (T48).
@@ -4183,6 +4216,8 @@ mod sql_tests;
 mod rest_tests;
 #[cfg(test)]
 mod kb_tests;
+#[cfg(test)]
+mod agent_tests;
 #[cfg(test)]
 mod unhandled_tests;
 #[cfg(test)]
