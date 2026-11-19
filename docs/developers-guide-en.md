@@ -13613,6 +13613,13 @@ items are set — whichever of these it declares:
 | `SQLCA-WARNING`, `SQLCA-TRUNCATED` `PIC X` | `W` after any warning / after a cut value |
 | `SQLCA-CONNECTION` `PIC X(64)` | the current connection's name |
 
+The items set are the ones of the program that ran the statement. A `CALL`ed
+or nested program that declares its own `SQLSTATE` (or includes its own SQLCA)
+reads the status of its own statements there — a `FETCH` loop in it ends on
+`02000` — and the caller's items are left as they were. A Backend is the case
+that meets this most often: every program it exports runs with the others
+nested inside it, each with its own status items.
+
 SQLSTATE follows the standard classes — `00000` success, class `01` a warning,
 `02000` no data, anything else an error — and keeps the database's own message.
 SQLCODE is derived from it by one rule, so the two never disagree:

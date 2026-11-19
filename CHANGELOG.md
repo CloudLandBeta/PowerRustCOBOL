@@ -2,6 +2,17 @@
 
 
 
+## 2.0.608 — 2026-11-18
+
+**Fix: a `CALL`ed program's `SQLSTATE` reports its own statements, so its `FETCH` loop ends on `02000`.** Reported with the Cnd_PRC conversion (MySQL 8.0): `PERFORM UNTIL SQLSTATE NOT = "00000"` around a `FETCH` never ended and repeated the last row, which looked like "no `02000` after a `COMMIT`".
+- **Cause:** the status items were found once, at the run's first statement — the outermost program's. A called or nested program that declares `SQLSTATE` (or `SQLCODE`, `SQLMSG`, an SQLCA) of its own was never written: its loop read a value that never changed. The `COMMIT` played no part; a Backend meets it most, since every program it exports runs with the others nested inside it.
+- **Now** each statement writes the status items of the program that ran it, through the call's own activation, and leaves the caller's as they were.
+- **Where:** `cobolt-runtime` (`exec_sql.rs`, `sql_set_status`), in every host.
+- **The Developer's Guide** (§15, *Knowing how a statement went*) says whose items are set. Its translations stay deleted (2.0.498).
+- **Measured** (macOS arm64; SQLite, and MySQL 8.4 in a local container):
+  - **`test_esql_status_in_called_program`** (`cobolt-runtime`, new): the reported loop in a called program ends with `rows 003 loops 004 [02000]` and the caller's `SQLSTATE` is untouched; the quantified program passes on SQLite and on MySQL (that test is `#[ignore]`d without `PRC_TEST_MYSQL_URL`).
+  - **`tests/cobol/esql/status_in_called_program.cbl`** (new): 8 cases (S01–S07, B01), PASS 008 FAIL 000 on both engines; B01 fetches 10,000 rows in a called program.
+
 ## 2.0.607 — 2026-11-18
 
 **Fix: `GOBACK` in a `PERFORM`ed paragraph leaves the program.** Reported while converting a Micro Focus character application (Cnd_PRC): a login program PERFORMed its exit paragraph after refusing a password, and the `GOBACK` there ended only the PERFORM — the program carried on after it and let the user in. `rcrun run` and `rcrun backend run` behaved the same way.
