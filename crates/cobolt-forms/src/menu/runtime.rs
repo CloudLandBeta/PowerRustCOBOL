@@ -357,6 +357,82 @@ pub fn has_item(designed: &[MenuItem], rows: &[RuntimeRow], id: &str) -> bool {
     find(&merge_rows(designed, rows), id.trim()).is_some()
 }
 
+/// What a SideMenu row method answered ([`row_method`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowAnswer {
+    /// What the program receives: `1` for a change and `0` for a refusal (the
+    /// rows are then as they were), the count for `GetCount`, `1`/`0` for
+    /// `HasItem`, the new section's id for `AddSection`.
+    pub value: String,
+    /// The rows changed: the host writes them back to [`RUNTIME_ROWS_PROP`].
+    pub changed: bool,
+}
+
+/// The SideMenu methods that read or edit the program's rows, answered from
+/// the designed menu and the rows alone, so every host — the interpreter and
+/// the browser player — gives a program the same answer and leaves the same
+/// rows. `method` is upper case; `arg(i)` is the i-th argument, trimmed.
+/// `None` when `method` is not one of them: `ActivateItem`, `Collapse`,
+/// `Open` and the rest are the host's.
+pub fn row_method(
+    designed: &[MenuItem],
+    rows: &mut Vec<RuntimeRow>,
+    method: &str,
+    arg: &dyn Fn(usize) -> String,
+) -> Option<RowAnswer> {
+    let truthy = |s: &str| matches!(s.trim().to_ascii_uppercase().as_str(), "1" | "TRUE" | "YES" | "ON");
+    let outcome: Result<(), Refusal> = match method {
+        // AddItem(id, label [, icon [, parent-id [, action]]])
+        "ADDITEM" => add_item(designed, rows, &arg(0), &arg(1), &arg(2), &arg(3), &arg(4)),
+        "ADDSECTION" => {
+            let id = add_section(designed, rows, &arg(0));
+            return Some(RowAnswer { value: id, changed: true });
+        }
+        "REMOVEITEM" => remove_item(designed, rows, &arg(0)),
+        // A designed row's label and enabled flag are the program's too
+        // (a translated interface; a menu that waits for set-up).
+        "SETITEMLABEL" => set_label(designed, rows, &arg(0), &arg(1)),
+        "SETITEMICON" => {
+            let v = arg(1);
+            set_field(designed, rows, &arg(0), |i| i.icon = Some(v).filter(|s| !s.is_empty()))
+        }
+        "SETITEMBADGE" => {
+            let v = arg(1);
+            set_field(designed, rows, &arg(0), |i| i.badge = Some(v).filter(|s| !s.is_empty()))
+        }
+        "SETITEMENABLED" => set_enabled(designed, rows, &arg(0), truthy(&arg(1))),
+        // Spec 066 Phase C — the control a run-time row hosts in place of its
+        // label (a designed row's is the designer's, so it is refused like the
+        // other fields). Empty gives the control back.
+        "SETITEMCONTROL" => {
+            let v = arg(1).trim().to_owned();
+            set_field(designed, rows, &arg(0), |i| i.control = Some(v).filter(|s| !s.is_empty()))
+        }
+        "SETITEMACTION" => {
+            let v = arg(1);
+            set_field(designed, rows, &arg(0), |i| {
+                i.action = Some(if v.is_empty() { DEFAULT_ACTION.to_owned() } else { v })
+            })
+        }
+        // Only the program's rows: the designed menu is the developer's, and
+        // so is what the program set on it (its labels, its state).
+        "CLEAR" => {
+            rows.retain(|r| r.overlay);
+            Ok(())
+        }
+        "GETCOUNT" => return Some(RowAnswer { value: own_row_count(rows).to_string(), changed: false }),
+        "HASITEM" => {
+            let v = if has_item(designed, rows, &arg(0)) { "1" } else { "0" };
+            return Some(RowAnswer { value: v.into(), changed: false });
+        }
+        _ => return None,
+    };
+    Some(match outcome {
+        Ok(()) => RowAnswer { value: "1".into(), changed: true },
+        Err(_) => RowAnswer { value: "0".into(), changed: false },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,4 +557,48 @@ mod tests {
         assert!(!old[0].overlay);
     }
 
+    /// The answers a program receives, from the one function every host calls:
+    /// `1` for a change (the rows to write back), `0` for a refusal (the rows
+    /// as they were), the count of the program's own rows, `None` for a method
+    /// that is the host's.
+    #[test]
+    fn row_method_answers_what_every_host_answers() {
+        let d = designed();
+        let mut rows = Vec::new();
+        let call = |rows: &mut Vec<RuntimeRow>, m: &str, args: &[&str]| {
+            let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+            row_method(&d, rows, m, &|i| owned.get(i).cloned().unwrap_or_default())
+        };
+        let answer = |value: &str, changed: bool| Some(RowAnswer { value: value.into(), changed });
+        let mut table = Vec::new();
+        for (m, args, want) in [
+            ("ADDITEM", vec!["c1", "Chat 1"], answer("1", true)),
+            ("ADDITEM", vec!["c2", "Chat 2", "", "c1"], answer("1", true)),
+            ("ADDITEM", vec!["home", "Twin"], answer("0", false)),
+            ("SETITEMENABLED", vec!["home", "0"], answer("1", true)),
+            ("SETITEMENABLED", vec!["c1", "FALSE"], answer("1", true)),
+            ("SETITEMENABLED", vec!["nope", "1"], answer("0", false)),
+            ("GETCOUNT", vec![], answer("2", false)),
+            ("HASITEM", vec!["c2"], answer("1", false)),
+            ("HASITEM", vec!["nope"], answer("0", false)),
+            ("REMOVEITEM", vec!["home"], answer("0", false)),
+            ("ACTIVATEITEM", vec!["home"], None),
+            ("COLLAPSE", vec![], None),
+        ] {
+            let before = rows.clone();
+            let got = call(&mut rows, m, &args);
+            assert_eq!(got, want, "{m}({args:?})");
+            if !got.as_ref().is_some_and(|a| a.changed) {
+                assert_eq!(rows, before, "{m}({args:?}): a refusal or a read leaves the rows alone");
+            }
+            table.push(format!("{m:<15} {:<22} -> {:?}", format!("{args:?}"), got.map(|a| a.value)));
+        }
+        let merged = merge_rows(&d, &rows);
+        assert_eq!(ids(&merged), ["home", "docs", "docs/docs-new", "c1", "c1/c2"]);
+        assert!(!merged[0].enabled && !merged[2].enabled, "SetItemEnabled reaches a designed row and a program's row");
+        assert_eq!(call(&mut rows, "CLEAR", &[]), answer("1", true));
+        assert_eq!(own_row_count(&rows), 0, "Clear takes the program's rows");
+        assert!(!merge_rows(&d, &rows)[0].enabled, "and leaves what it set on a designed row");
+        println!("{}", table.join("\n"));
+    }
 }

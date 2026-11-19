@@ -8062,11 +8062,13 @@ impl Interpreter {
         let result = self.exec_perform_inner(target, span);
         self.debug_pop_frame(pushed);
         self.perform_depth -= 1;
-        // Absorb GoBack inside a PERFORM (it means "return from this PERFORM").
-        match result {
-            Err(RuntimeError::GoBack) => Ok(()),
-            other => other,
-        }
+        // `GOBACK` and `EXIT PROGRAM` leave the PROGRAM, wherever they are
+        // executed: they pass through every PERFORM to the CALL (or to `run`)
+        // that started the program. Absorbing them here made a `GOBACK` in a
+        // performed paragraph behave like the end of the PERFORM, so the
+        // program carried on after it — a login program that PERFORMed its
+        // exit paragraph after refusing a password let the user in.
+        result
     }
 
     fn exec_perform_inner(
@@ -15151,7 +15153,6 @@ impl Interpreter {
             .cloned()
             .unwrap_or_default();
         let mut rows = rt::parse_rows(&self.obj_get(obj, rt::RUNTIME_ROWS_PROP));
-        let truthy = |s: &str| matches!(s.trim().to_ascii_uppercase().as_str(), "1" | "TRUE" | "YES" | "ON");
         // `ActivateItem(id)` — do what a click on that row does (open its
         // form, go home, raise onMenuClick), from code: how a program sends
         // the operator somewhere, e.g. to a welcome form on first run. The
@@ -15179,65 +15180,13 @@ impl Interpreter {
             self.obj_set(obj, "Collapsed", if m == "COLLAPSE" { "1" } else { "0" }.into());
             return Some("1".into());
         }
-        let outcome: Result<(), rt::Refusal> = match m {
-            // AddItem(id, label [, icon [, parent-id [, action]]])
-            "ADDITEM" => rt::add_item(&designed, &mut rows, &arg(0), &arg(1), &arg(2), &arg(3), &arg(4)),
-            "ADDSECTION" => {
-                let id = rt::add_section(&designed, &mut rows, &arg(0));
-                self.obj_set(obj, rt::RUNTIME_ROWS_PROP, rt::rows_json(&rows));
-                return Some(id);
-            }
-            "REMOVEITEM" => rt::remove_item(&designed, &mut rows, &arg(0)),
-            // A designed row's label and enabled flag are the program's too
-            // (a translated interface; a menu that waits for set-up).
-            "SETITEMLABEL" => rt::set_label(&designed, &mut rows, &arg(0), &arg(1)),
-            "SETITEMICON" => {
-                let v = arg(1);
-                rt::set_field(&designed, &mut rows, &arg(0), |i| {
-                    i.icon = Some(v).filter(|s| !s.is_empty())
-                })
-            }
-            "SETITEMBADGE" => {
-                let v = arg(1);
-                rt::set_field(&designed, &mut rows, &arg(0), |i| {
-                    i.badge = Some(v).filter(|s| !s.is_empty())
-                })
-            }
-            "SETITEMENABLED" => rt::set_enabled(&designed, &mut rows, &arg(0), truthy(&arg(1))),
-            // Spec 066 Phase C — the control a run-time row hosts in place of
-            // its label (a designed row's is the designer's, so it is refused
-            // like the other fields). Empty gives the control back.
-            "SETITEMCONTROL" => {
-                let v = arg(1).trim().to_owned();
-                rt::set_field(&designed, &mut rows, &arg(0), |i| {
-                    i.control = Some(v).filter(|s| !s.is_empty())
-                })
-            }
-            "SETITEMACTION" => {
-                let v = arg(1);
-                rt::set_field(&designed, &mut rows, &arg(0), |i| {
-                    i.action = Some(if v.is_empty() { rt::DEFAULT_ACTION.to_owned() } else { v })
-                })
-            }
-            // Only the program's rows: the designed menu is the developer's,
-            // and so is what the program set on it (its labels, its state).
-            "CLEAR" => {
-                rows.retain(|r| r.overlay);
-                Ok(())
-            }
-            "GETCOUNT" => return Some(rt::own_row_count(&rows).to_string()),
-            "HASITEM" => {
-                return Some(if rt::has_item(&designed, &rows, &arg(0)) { "1" } else { "0" }.into())
-            }
-            _ => return None,
-        };
-        Some(match outcome {
-            Ok(()) => {
-                self.obj_set(obj, rt::RUNTIME_ROWS_PROP, rt::rows_json(&rows));
-                "1".into()
-            }
-            Err(_) => "0".into(),
-        })
+        // The row methods are one function every host calls (the browser
+        // player too), so a program gets the same answers everywhere.
+        let answer = rt::row_method(&designed, &mut rows, m, arg)?;
+        if answer.changed {
+            self.obj_set(obj, rt::RUNTIME_ROWS_PROP, rt::rows_json(&rows));
+        }
+        Some(answer.value)
     }
 
     fn is_snackbar(&self, obj: &str) -> bool {

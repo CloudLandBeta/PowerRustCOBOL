@@ -1059,7 +1059,29 @@ impl Interpreter {
                 connection: k("SQLCA-CONNECTION"),
             });
         }
-        let keys = self.sql_status.clone().unwrap_or_default();
+        let cached = self.sql_status.clone().unwrap_or_default();
+        // A CALLed program that declares a status item itself reads it through
+        // the call's activation divert, never under the keys found at the run's
+        // first statement (those are the outermost program's). Writing those
+        // keys left the called program's SQLSTATE as it was — a FETCH loop
+        // there never saw 02000 and ran on, repeating the last row — while
+        // the caller's item changed under it.
+        let own = |leaf: &str, keys: Vec<String>| match self.env.alias_target(leaf) {
+            Some(t) if t.contains('\u{4}') => vec![t],
+            _ => keys,
+        };
+        let keys = StatusKeys {
+            sqlstate: own("SQLSTATE", cached.sqlstate),
+            sqlcode: own("SQLCODE", cached.sqlcode),
+            sqlmsg: own("SQLMSG", cached.sqlmsg),
+            message_length: own("SQLCA-MESSAGE-LENGTH", cached.message_length),
+            rows: own("SQLCA-ROWS", cached.rows),
+            native: own("SQLCA-NATIVE-CODE", cached.native),
+            warning: own("SQLCA-WARNING", cached.warning),
+            truncated: own("SQLCA-TRUNCATED", cached.truncated),
+            connection: own("SQLCA-CONNECTION", cached.connection),
+        };
+        let message_keys = own("SQLCA-MESSAGE", self.env.keys_of_leaf("SQLCA-MESSAGE"));
         let sqlcode = sqlcode(&d.state);
         let conn = self
             .sql_unit
@@ -1075,7 +1097,7 @@ impl Interpreter {
             self.env.set(k, CobolValue::Numeric(CobolNumeric::integer(sqlcode)));
         }
         let mut msg_keys = keys.sqlmsg.clone();
-        msg_keys.extend(self.env.keys_of_leaf("SQLCA-MESSAGE"));
+        msg_keys.extend(message_keys);
         for k in &msg_keys {
             self.env.set_str(k, &d.message);
         }

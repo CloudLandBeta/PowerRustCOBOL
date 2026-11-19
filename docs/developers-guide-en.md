@@ -4861,6 +4861,25 @@ When binding, advanced metadata (widths, styles, order, filters…) is preserved
 for matching fields; the Data Binding Guardian prevents drift. See the
 properties pane for the complete set.
 
+#### The colour of the cells' text
+
+A cell's text takes, first, the colour of a value rule that matches it; then
+its column's own text colour; then the grid's `ForegroundColor`. Every column
+starts with black (`#000000`) as its text colour, and that starting black counts
+as *not chosen* when you have set the grid's `ForegroundColor`: set it, and
+every column you have not given a colour of its own draws its text in it. Black
+picked for a column in **Edit DataGrid settings…** is saved as `#000000FF` and
+is kept. On the desktop a column's cell frame draws its text in the frame's own
+colour. A grid whose `ForegroundColor` is still the default draws black text, as
+before. The desktop and the browser apply the same rule. (A chosen
+`ForegroundColor` also colours the grid lines.) The Spatial look sets
+`ForegroundColor` to white on every control, so a Spatial grid's cells are white
+unless a column names its own colour.
+
+```cobol
+           MOVE "#C0392B" TO GRID-ORDERS::ForegroundColor.
+```
+
 #### Colouring the DataGrid's filter row
 
 Switch `ShowColumnFilters` on and every column gains a small entry field under
@@ -6739,6 +6758,13 @@ The anchor is measured against **your form's own surface**, not the screen. In
 an application shell an `Embedded` form's messages appear inside its ContentPane
 — never over the shell's rail or breadcrumb — so they land where the operator is
 already looking.
+
+The same holds in a browser (a Web or Mobile application): a form's messages
+are drawn on that form — inside its window, or inside its dialog when it was
+opened with `OpenFormSync` — at its `StackAnchor`, `Margin` from its edges, with
+the measurements of its `Size`, and their buttons and ✕ close them there. (The
+browser does not yet animate them, and `MaximumVisible` and `OverflowBehavior`
+are the desktop's: a browser shows up to five messages at a time.)
 
 > ⚠️ **`StackAnchor`, not `Anchor`.** Every control already has an `Anchor`
 > property, and it is a different thing entirely: a tick box that locks the
@@ -9699,7 +9725,10 @@ extensions. Highlights a working COBOL programmer will rely on:
   `RELEASE`/`RETURN`); `SEARCH` (serial) and `SEARCH ALL` (binary search over an
   `ASCENDING`/`DESCENDING KEY` table).
 - **Sub-programs:** `CALL … USING` (with `ON EXCEPTION` / `NOT ON EXCEPTION`),
-  `CANCEL`, `GOBACK`/`EXIT PROGRAM`, nested programs.
+  `CANCEL`, `GOBACK`/`EXIT PROGRAM`, nested programs. `GOBACK` and a called
+  program's `EXIT PROGRAM` leave the program wherever they run — in a
+  `PERFORM`ed paragraph too, however deep: no statement after them runs, and
+  control goes back to the `CALL` (a `GOBACK` in the main program ends the run).
 - **Error handling:** `DECLARATIVES` with `USE AFTER STANDARD ERROR PROCEDURE`
   for centralised file-error handling.
 - **Intrinsics:** the standard library of `FUNCTION`s, including the date/time
@@ -13370,6 +13399,18 @@ both upper-cased, every character other than a letter or a digit turned into
 | `SHOP_SQL_SALES_USER` | the user name (a server database) |
 | `SHOP_SQL_SALES_PASSWORD` | the password — the only place one is accepted |
 
+The application's name is the `name` in the project file's `[project]` table,
+not the file's name: a project file `Cnd_PRC.project.toml` that says
+`name = "Cnd_PRC.project"` reads `CND_PRC_PROJECT_SQL_CONDOMINIO_USER` and
+`CND_PRC_PROJECT_SQL_CONDOMINIO_PASSWORD` for its connection `CONDOMINIO`.
+
+While you develop, you do not set these yourself: the user name and password
+you give a SQL connection in the IDE are kept in its credential vault, and the
+IDE hands them over as these variables to what it runs from the open project —
+a program or form it runs, and the Backend it starts (Run's Start Backend, and
+the Preview's). A Backend started by hand (`rcrun backend run` in a terminal)
+reads them from that terminal's environment.
+
 > ⚠️ **Never put a password in the project file.** An entry that carries a
 > `password` key is refused: connecting through it fails with `28000`, and the
 > message names the file and the variable to use instead.
@@ -13609,6 +13650,13 @@ items are set — whichever of these it declares:
 | `SQLCA-NATIVE-CODE` | the database's own error number |
 | `SQLCA-WARNING`, `SQLCA-TRUNCATED` `PIC X` | `W` after any warning / after a cut value |
 | `SQLCA-CONNECTION` `PIC X(64)` | the current connection's name |
+
+The items set are the ones of the program that ran the statement. A `CALL`ed
+or nested program that declares its own `SQLSTATE` (or includes its own SQLCA)
+reads the status of its own statements there — a `FETCH` loop in it ends on
+`02000` — and the caller's items are left as they were. A Backend is the case
+that meets this most often: every program it exports runs with the others
+nested inside it, each with its own status items.
 
 SQLSTATE follows the standard classes — `00000` success, class `01` a warning,
 `02000` no data, anything else an error — and keeps the database's own message.
@@ -14796,8 +14844,14 @@ hooks. Everything else the agent does goes through the connection (see *Only
 through the connection*, below).
 
 The IDE installs it with Claude Code's own `claude plugin` commands — it never
-edits Claude Code's files — and says the result in the Output panel. If Claude
-Code is not installed, it says where it looked. Configuring again with the same
+edits Claude Code's files — and says the result in the Output panel. Either
+Claude Code will do: the `claude` program installed on its own, or the one
+**Claude Desktop** carries for its Code tab. Both read the same plugins, so
+configuring through one serves both. The IDE looks on `PATH` and in the usual
+install folders first, then in Claude Desktop's own folder (on macOS
+`~/Library/Application Support/Claude/claude-code`, newest version first; on
+Windows `Claude\claude-code` under `%APPDATA%` and `%LOCALAPPDATA%`). If
+neither is installed, it says where it looked. Configuring again with the same
 IDE version changes nothing; after you update PowerRustCOBOL AI, configure
 again (or use **Update** in Coding Agent Settings) and every project gets the
 new version. Start a new Claude Code session to load it.
@@ -15037,7 +15091,7 @@ underneath.
 
 | Row | What it says |
 | --- | --- |
-| **Claude Code** | Where it was found, or that it was not. |
+| **Claude Code** | Where it was found — *found in Claude Desktop* when it is the copy Claude Desktop carries — or that it was not. |
 | **PowerRustCOBOL plugin** | The version installed in Claude Code against this IDE's: up to date, older (the button reads **Update**), or not installed. |
 | **Tool server** | The address it listens on, `http://127.0.0.1:<port>/mcp`. |
 | **Port** | The tools' port. **Apply port** moves the server at once; configure Claude Code again so it uses the new port too. |
@@ -18276,6 +18330,10 @@ disappear when the program ends. Nothing is written back to the menu file.
 
 Every call that changes something answers `1` when it did and `0` when it did
 not, so a program can tell.
+
+A browser (a Web or Mobile application) answers every one of these calls as the
+desktop does and draws your rows in the same places: the same rows, the same
+`1`/`0`, the same `GetCount()`.
 
 > ⚠️ **The designed menu's structure is yours at design time, not at run
 > time.** A program can never remove or replace a row that came from the menu

@@ -177,6 +177,8 @@ struct Look {
     header_bg: [u8; 4],
     header_fg: [u8; 4],
     cell_fg: [u8; 4],
+    /// The developer chose the grid's `ForegroundColor`: it is the text of every column still on its seeded black.
+    cell_fg_chosen: bool,
     line: [u8; 4],
     /// The grid's own colour as the painter lays it under each cell, faded by the control's `Transparency`.
     underlay: Option<[u8; 4]>,
@@ -363,7 +365,8 @@ impl Grid {
         };
         let header_bg = color_prop(c, "HeaderBackgroundColor").unwrap_or([60, 66, 96, 255]);
         let header_fg = color_prop(c, "HeaderForegroundColor").unwrap_or([235, 238, 250, 255]);
-        let cell_fg = chosen(c, "ForegroundColor", DEFAULT_FOREGROUND_COLOR).unwrap_or([225, 230, 250, 255]);
+        let chosen_fg = chosen(c, "ForegroundColor", DEFAULT_FOREGROUND_COLOR);
+        let cell_fg = chosen_fg.unwrap_or([225, 230, 250, 255]);
         let underlay = chosen(c, "BackgroundColor", DEFAULT_BACKGROUND_COLOR).map(|u| [u[0], u[1], u[2], (u[3] as f64 * face_opacity).round().clamp(0.0, 255.0) as u8]);
         let alt_base = color_prop(c, "AlternatingRowColor").unwrap_or([38, 44, 72, 255]);
         let alt_opacity = sv("AlternatingRowOpacity").trim().parse::<u8>().unwrap_or(20).min(100);
@@ -371,8 +374,8 @@ impl Grid {
         let axis = sv("AlternatingMode").trim().to_ascii_lowercase();
         let alt_none = matches!(axis.as_str(), "none" | "off");
         let alt_cols = matches!(axis.as_str(), "columns" | "column");
-        let line = chosen(c, "ForegroundColor", DEFAULT_FOREGROUND_COLOR).or_else(|| color_prop(c, "GridLineColor")).unwrap_or([255, 255, 255, 90]);
-        let look = Look { header_bg, header_fg, cell_fg, line, underlay, alt, alt_rows: !alt_none && !alt_cols, alt_cols, face_opacity };
+        let line = chosen_fg.or_else(|| color_prop(c, "GridLineColor")).unwrap_or([255, 255, 255, 90]);
+        let look = Look { header_bg, header_fg, cell_fg, cell_fg_chosen: chosen_fg.is_some(), line, underlay, alt, alt_rows: !alt_none && !alt_cols, alt_cols, face_opacity };
 
         // The bands above the rows.
         let show_filters = flag(c, "ShowColumnFilters", true);
@@ -829,7 +832,11 @@ impl Grid {
                 }
                 let (text, _) = format_cell_with_cobol_mask(raw, &col.ty, &col.mask);
                 if !text.is_empty() {
-                    let ink = rule.and_then(|r| parse_color(&r.foreground_color)).or_else(|| meta.and_then(|m| parse_color(&m.foreground_color))).unwrap_or(l.cell_fg);
+                    // As the desktop chooses (render.rs): a value rule's colour, else the column's own — unless it is still
+                    // the seeded black and the grid's ForegroundColor was chosen, which every cell then takes. Every column
+                    // carries that black, so the grid's colour never reached a cell (the Cnd_PRC report).
+                    let own = meta.filter(|m| !(l.cell_fg_chosen && m.foreground_is_seeded()));
+                    let ink = rule.and_then(|r| parse_color(&r.foreground_color)).or_else(|| own.and_then(|m| parse_color(&m.foreground_color))).unwrap_or(l.cell_fg);
                     let left = Self::text_left(col.align, &text, col.font, col.w);
                     cell = cell.child(self.text("t", &text, col.font, left, metrics::text_top(rh, col.font), ink));
                 }
@@ -1239,7 +1246,40 @@ mod tests {
         // 2 px of the cell's own inset and 6 more (`+ 6.0` in the painter); the row's 30 px centres a 14 px line 8 px down.
         assert_eq!((px_of(t, "left"), px_of(t, "top")), (8.0, 8.0));
         assert_eq!(style(t, "font-size"), Some("12px"));
-        assert_eq!(style(t, "color"), Some("rgb(0 0 0)"), "a column that names no colour is drawn in black, not in the grid's ForegroundColor");
+        assert_eq!(style(t, "color"), Some("rgb(27 42 78)"), "a column that names no colour of its own takes the grid's ForegroundColor (#1B2A4E)");
+    }
+
+    /// The Cnd_PRC report: a grid's `ForegroundColor` never reached its cells, because every column carries a seeded
+    /// black that was taken first. A column still on that black now takes the grid's chosen colour; a column that names
+    /// another colour keeps it; a grid whose `ForegroundColor` is still the default draws black text, as before.
+    #[test]
+    fn a_cell_takes_the_grids_foreground_unless_its_column_names_a_colour() {
+        let ink_ruled = |grid_fg: &str, a_fg: &str, a_rule: Option<&str>| -> Vec<Option<String>> {
+            let mut advanced = DataGridAdvanced::default();
+            for (name, fg) in [("A", a_fg), ("B", "#000000")] {
+                let mut column = cobolt_forms::model::DataGridColumn { id: name.into(), title: name.into(), source_name: name.into(), foreground_color: fg.into(), ..Default::default() };
+                if let (Some(rule_fg), "A") = (a_rule, name) {
+                    column.value_style_rules.push(cobolt_forms::model::DataGridValueStyleRule { value: "x".into(), foreground_color: rule_fg.into(), ..Default::default() });
+                }
+                advanced.columns.push(column);
+            }
+            let json = advanced.to_json().unwrap();
+            let (t, i) = tree_with("DataGrid", "G", &[("Columns", "A:string\nB:string"), ("Rows", "x\ty"), ("AdvancedGrid", json.as_str()), ("ForegroundColor", grid_fg)]);
+            let mut e = Empty::default();
+            e.ui.box_sizes.insert(i, (300.0, 200.0));
+            let n = data_grid(&e.cx(&t), i);
+            let row = n.find(&|x| x.has_class("pr-dg-row") && x.attr_of("data-r").is_some()).expect("a row");
+            row.children.iter().map(|cell| cell.children.iter().find(|c| c.has_class("pr-dg-t")).and_then(|t| style(t, "color")).map(str::to_owned)).collect()
+        };
+        let ink = |grid_fg: &str, a_fg: &str| ink_ruled(grid_fg, a_fg, None);
+        let rgb = |s: &str| Some(s.to_owned());
+        assert_eq!(ink("#C0392B", "#000000"), [rgb("rgb(192 57 43)"), rgb("rgb(192 57 43)")], "both columns on the seeded black take the grid's colour");
+        assert_eq!(ink("#C0392B", "#1E8449"), [rgb("rgb(30 132 73)"), rgb("rgb(192 57 43)")], "a column's own colour stays its own");
+        assert_eq!(ink("#C0392B", "#000000FF"), [rgb("rgb(0 0 0)"), rgb("rgb(192 57 43)")], "a column the editor set to black keeps it");
+        assert_eq!(ink_ruled("#C0392B", "#000000", Some("#1E8449")), [rgb("rgb(30 132 73)"), rgb("rgb(192 57 43)")], "a value rule's colour wins");
+        assert_eq!(ink("#FFFFFFFF", "#000000"), [rgb("rgb(255 255 255)"), rgb("rgb(255 255 255)")], "a Spatial applier's #FFFFFFFF is a chosen colour");
+        assert_eq!(ink("#FFFFFF", "#000000"), [rgb("rgb(0 0 0)"), rgb("rgb(0 0 0)")], "the default ForegroundColor changes nothing");
+        println!("DataGrid cell ink on the web: grid #C0392B over seeded columns, a column's own #1E8449 and #000000FF kept, a value rule wins, #FFFFFFFF counts as chosen, the default grid unchanged");
     }
 
     #[test]

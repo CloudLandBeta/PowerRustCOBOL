@@ -459,6 +459,7 @@ impl Shared {
             st.files.retain(|(i, _), _| *i != inst);
             st.dirty.retain(|(i, _)| *i != inst);
             st.toasts.retain(|t| t.inst != inst);
+            st.form_toast_recs.remove(&inst);
             let before = st.chain.len() + st.overlays.len();
             st.chain.retain(|c| c.inst != inst);
             st.overlays.retain(|i| *i != inst);
