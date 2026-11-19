@@ -21,7 +21,7 @@ use crate::host::{Effect, OpenMode};
 use crate::view::interact::{self, Act, MenuTarget, UiOp};
 use crate::view::shell::{DialogSpec, Route as AppRoute, Toast};
 use crate::view::{Empty, ViewCtx};
-use cobolt_forms::snackbar::SnackCategory;
+use cobolt_forms::snackbar::{SnackAnchor, SnackCategory, StackOrder};
 
 impl Shared {
     pub(super) fn on_effect(self: &Rc<Self>, inner: &Rc<Inner>, e: &Effect) {
@@ -94,6 +94,11 @@ impl Shared {
                 pause_on_hover: true,
                 shown_at_ms: crate::api::now_ms(),
                 corner_radius: None,
+                size: None,
+                anchor: SnackAnchor::BottomLeft,
+                margin: 12.0,
+                spacing: 8.0,
+                order: StackOrder::Auto,
             }
         };
         let id = toast.id;

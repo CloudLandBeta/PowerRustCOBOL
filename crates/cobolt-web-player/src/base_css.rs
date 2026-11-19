@@ -338,6 +338,10 @@ div.pr-line > svg > line { stroke: var(--pr-line-color, currentColor); stroke-wi
 .pr-live { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 .pr-toasts-host { position: absolute; left: 12px; bottom: 12px; z-index: 40; pointer-events: none; }
 .pr-snackbars { display: flex; flex-direction: column; gap: 8px; }
+/* A form's notifications (spec 055 R16-R17): on the form's own surface, above its layers; each stack is placed by
+   `view::shell::form_toasts` and lets the clicks between its notifications through to the form. */
+.pr-snack-layer { position: absolute; inset: 0; z-index: 2147483000; pointer-events: none; }
+.pr-snack-layer > .pr-snackbars { position: absolute; pointer-events: none; }
 .pr-snackbar { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
 .pr-snack-icon { width: 1.4em; height: 1.4em; flex: none; }
 .pr-snackbar button { background: transparent; border: 0; cursor: pointer; font: inherit; }

@@ -2292,23 +2292,37 @@ impl Host {
         }
     }
 
-    /// A method of a control, as [`methods::call`] runs it — except `ActivateItem` on a SideMenu (spec 049), which needs
-    /// the menu. The interpreter answers it from the designed rows and the program's own: `0` for an empty or unknown id,
-    /// else `1` and the shell does what a click on that row does. Here the answer comes from the same rows, and the click
-    /// is a command for the page, which holds the menu and the ContentPane (the page leaves a disabled row alone, as the
-    /// shell does).
+    /// A method of a control, as [`methods::call`] runs it — except a SideMenu's, which need the menu. `ActivateItem`
+    /// (spec 049): the interpreter answers it from the designed rows and the program's own, `0` for an empty or unknown
+    /// id, else `1` and the shell does what a click on that row does. Here the answer comes from the same rows, and the
+    /// click is a command for the page, which holds the menu and the ContentPane (the page leaves a disabled row alone,
+    /// as the shell does). The row methods (spec 066) are [`cobolt_forms::menu::runtime::row_method`], as in the
+    /// interpreter.
     fn control_method(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Result<methods::Outcome, MethodError> {
+        use cobolt_forms::menu::runtime as rt;
         let menus = &self.menus;
         let tree = self.trees.get_mut(&inst).expect("the instance is open");
-        if name.trim().eq_ignore_ascii_case("ActivateItem") && matches!(tree.ctls[idx].control_type(), Some(ControlType::SideMenu)) {
-            let id = args.first().map(|s| s.trim()).unwrap_or("");
+        if matches!(tree.ctls[idx].control_type(), Some(ControlType::SideMenu)) {
             let designed = menus.get(&tree.form_name, &tree.ctl(idx).name).map(|d| d.menu.as_slice()).unwrap_or(&[]);
-            let rows = cobolt_forms::menu::runtime::parse_rows(&tree.get(idx, cobolt_forms::menu::runtime::RUNTIME_ROWS_PROP));
-            if id.is_empty() || !cobolt_forms::menu::runtime::has_item(designed, &rows, id) {
-                return Ok(methods::Outcome { value: Some("0".into()), events: Vec::new() });
+            let mut rows = rt::parse_rows(&tree.get(idx, rt::RUNTIME_ROWS_PROP));
+            let m = name.trim().to_ascii_uppercase();
+            if m == "ACTIVATEITEM" {
+                let id = args.first().map(|s| s.trim()).unwrap_or("");
+                if id.is_empty() || !rt::has_item(designed, &rows, id) {
+                    return Ok(methods::Outcome { value: Some("0".into()), events: Vec::new() });
+                }
+                tree.command(idx, "activate-item", vec![id.to_owned()]);
+                return Ok(methods::Outcome { value: Some("1".into()), events: Vec::new() });
             }
-            tree.command(idx, "activate-item", vec![id.to_owned()]);
-            return Ok(methods::Outcome { value: Some("1".into()), events: Vec::new() });
+            // The row methods (`AddItem`, `SetItemEnabled`, `GetCount`, …) are the one function
+            // every host calls, so a program gets the same rows and the same answers in the
+            // browser as on the desktop. Before, they fell to the generic list verbs: `AddItem`
+            // appended to `Items`, which the menu never draws, and `SetItemEnabled` was refused.
+            let arg = |i: usize| args.get(i).map(|s| s.trim().to_owned()).unwrap_or_default();
+            if let Some(answer) = rt::row_method(designed, &mut rows, &m, &arg) {
+                let events = if answer.changed { tree.set(idx, rt::RUNTIME_ROWS_PROP, &rt::rows_json(&rows)) } else { Vec::new() };
+                return Ok(methods::Outcome { value: Some(answer.value), events });
+            }
         }
         methods::call(tree, idx, name, args)
     }

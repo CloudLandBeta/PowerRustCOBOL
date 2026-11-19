@@ -125,6 +125,8 @@ pub(crate) struct State {
     pub crumb_rec: Option<NodeRec>,
     toasts: Vec<Toast>,
     toast_rec: Option<NodeRec>,
+    /// Each open form's notifications, drawn inside its root (`shell::form_toasts`).
+    form_toast_recs: BTreeMap<u32, NodeRec>,
     next_toast: u32,
     banner_rec: Option<NodeRec>,
     net_rec: Option<NodeRec>,
@@ -227,6 +229,7 @@ pub(crate) fn create(inner: &Rc<Inner>, root: Element) -> Result<Box<dyn Surface
         crumb_rec: None,
         toasts: Vec::new(),
         toast_rec: None,
+        form_toast_recs: BTreeMap::new(),
         next_toast: 1,
         banner_rec: None,
         net_rec: None,
@@ -752,15 +755,38 @@ impl Shared {
 
     pub(crate) fn render_toasts(self: &Rc<Self>) {
         let Ok(mut st) = self.state.try_borrow_mut() else { return };
-        let v = shell::toast_stack(&st.toasts);
-        match st.toast_rec.as_mut() {
+        let State { toasts, toast_rec, form_toast_recs, instances, .. } = &mut *st;
+        // A form's notification is drawn on that form (spec 055 R17) — inside its root, so inside its dialog when the form
+        // is modal; the player's own notices, which belong to no form, in the page's corner.
+        let (on_forms, loose): (Vec<&Toast>, Vec<&Toast>) = toasts.iter().partition(|t| instances.contains_key(&t.inst));
+        let v = shell::toast_stack(&loose);
+        match toast_rec.as_mut() {
             Some(rec) => {
                 nodes::patch(&self.doc, rec, &v, None, &self.dispatch(Route::Toasts));
             }
             None => {
                 let rec = nodes::create(&self.doc, &v, None, &self.dispatch(Route::Toasts));
                 h::append(&self.chrome.toasts, &rec.el);
-                st.toast_rec = Some(rec);
+                *toast_rec = Some(rec);
+            }
+        }
+        let forms: BTreeSet<u32> = on_forms.iter().map(|t| t.inst).chain(form_toast_recs.keys().copied()).collect();
+        for inst in forms {
+            let Some(iv) = instances.get(&inst) else {
+                form_toast_recs.remove(&inst);
+                continue;
+            };
+            let mine: Vec<&Toast> = on_forms.iter().copied().filter(|t| t.inst == inst).collect();
+            let v = shell::form_toasts(&mine);
+            match form_toast_recs.get_mut(&inst) {
+                Some(rec) => {
+                    nodes::patch(&self.doc, rec, &v, None, &self.dispatch(Route::Toasts));
+                }
+                None => {
+                    let rec = nodes::create(&self.doc, &v, None, &self.dispatch(Route::Toasts));
+                    h::append(&iv.root, &rec.el);
+                    form_toast_recs.insert(inst, rec);
+                }
             }
         }
     }
@@ -1210,6 +1236,7 @@ impl Shared {
             st.files.clear();
             st.toasts.clear();
             st.toast_rec = None;
+            st.form_toast_recs.clear();
             st.banner_rec = None;
             st.net_rec = None;
             st.net_modal = None;

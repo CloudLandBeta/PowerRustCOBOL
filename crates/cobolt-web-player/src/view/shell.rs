@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 
 use cobolt_forms::menu::{MenuItem, MenuItemType};
-use cobolt_forms::snackbar::{corner_radii, parse_buttons, SnackButton, SnackCategory, CORNER_PROPS};
+use cobolt_forms::snackbar::{corner_radii, parse_buttons, SnackAnchor, SnackButton, SnackCategory, SnackSize, StackOrder, CORNER_PROPS};
 use cobolt_forms::toolbar::{ToolbarAction, ToolbarDef};
 
 use super::controls::{catalogue_icon, root};
@@ -211,6 +211,16 @@ pub struct Toast {
     /// The template's corners (top-left, top-right, bottom-right, bottom-left), as the desktop's
     /// notification draws them (`snackbar::corner_radii`); `None` keeps the theme's radius.
     pub corner_radius: Option<[f32; 4]>,
+    /// `Size`: the desktop's measurements for the class (`SnackSize::metrics`); `None` for the player's own notices,
+    /// which keep the theme's look.
+    pub size: Option<SnackSize>,
+    /// Where the form's stack sits (`StackAnchor`), its distance from the form's edges (`Margin`), the room between two
+    /// notifications (`StackSpacing`) and which end the newest takes (`StackOrder`) — on the FORM's surface, as on the
+    /// desktop (spec 055 R16–R17).
+    pub anchor: SnackAnchor,
+    pub margin: f64,
+    pub spacing: f64,
+    pub order: StackOrder,
 }
 
 pub fn category_name(c: SnackCategory) -> &'static str {
@@ -241,25 +251,61 @@ pub fn mint_toast(tree: &FormTree, inst: u32, ctl: usize, id: u32, text: Option<
         pause_on_hover: truthy(&tree.get(ctl, "PauseTimeoutOnHover")),
         shown_at_ms: now_ms,
         corner_radius: Some(corner_radii(int_of("CornerRadius", 12), CORNER_PROPS.map(|k| int_of(k, -1)))),
+        size: Some(SnackSize::from_prop(&tree.get(ctl, "Size"))),
+        anchor: SnackAnchor::from_prop(&tree.get(ctl, "StackAnchor")),
+        // The desktop's floors (`snackbar::mint`): a negative margin or spacing would put a notification off its surface.
+        margin: int_of("Margin", 16).max(0) as f64,
+        spacing: int_of("StackSpacing", 8).max(0) as f64,
+        order: StackOrder::from_prop(&tree.get(ctl, "StackOrder")),
     }
 }
 
 pub fn toast_view(t: &Toast) -> VNode {
+    let px = |v: f32| format!("{}px", fmt_number(v as f64));
     let mut n = VNode::new("div")
         .key(format!("toast:{}", t.id))
         .class("pr-snackbar")
         .attr("role", if matches!(t.category, SnackCategory::Error | SnackCategory::Critical) { "alert" } else { "status" })
         .attr("data-category", category_name(t.category))
         .attr("data-id", t.id.to_string());
+    let m = t.size.map(|s| s.metrics());
+    if let (Some(size), Some(m)) = (t.size, m) {
+        // The class's measurements, as the desktop's notification takes them (`SnackSize::metrics`): it had none here,
+        // and every notification was as small as its text whatever its `Size`.
+        n = n
+            .attr("data-size", size.as_str())
+            .style("box-sizing", "border-box")
+            .style("min-width", format!("min({}, 100%)", px(m.min_width)))
+            .style("max-width", format!("min({}, 100%)", px(m.max_width)))
+            .style("min-height", px(m.min_height))
+            .style("padding", format!("{} {}", px(m.pad_y), px(m.pad_x)))
+            .style("gap", px(m.gap))
+            .style("line-height", px(m.line_h));
+    }
     if let Some([tl, tr, br, bl]) = t.corner_radius {
         n = n.style("border-radius", format!("{}px {}px {}px {}px", fmt_number(tl as f64), fmt_number(tr as f64), fmt_number(br as f64), fmt_number(bl as f64)));
     }
     if let Some(icon) = catalogue_icon(t.category.defaults().icon) {
-        n = n.child(icon.key("icon").class("pr-snack-icon"));
+        let mut icon = icon.key("icon").class("pr-snack-icon");
+        if let Some(m) = m {
+            icon = icon.style("width", px(m.icon)).style("height", px(m.icon));
+        }
+        n = n.child(icon);
     }
-    n = n.child(VNode::new("span").key("text").class("pr-snack-text").text(t.text.clone()));
+    let mut text = VNode::new("span").key("text").class("pr-snack-text");
+    if let Some(m) = m {
+        text = text.style("flex", "1 1 auto").style("min-width", "0");
+        if m.line_budget != usize::MAX {
+            // Ellipsized after the class's number of lines (R22).
+            text = text.style("display", "-webkit-box").style("-webkit-box-orient", "vertical").style("-webkit-line-clamp", m.line_budget.to_string()).style("overflow", "hidden");
+        }
+    }
+    n = n.child(text.text(t.text.clone()));
     for (k, b) in t.buttons.iter().enumerate() {
         let mut bn = VNode::new("button").key(format!("b{k}")).attr("type", "button").attr("data-toast", t.id.to_string()).attr("data-part", "toast-button").attr("data-id", b.id.clone()).attr("data-dismiss", if b.dismiss { "1" } else { "0" });
+        if let Some(m) = m {
+            bn = bn.style("min-height", px(m.button_h));
+        }
         if let Some(icon) = catalogue_icon(&b.icon) {
             bn = bn.child(icon.key("icon"));
         }
@@ -274,8 +320,53 @@ pub fn toast_view(t: &Toast) -> VNode {
 }
 
 /// The container that holds the notifications of an application.
-pub fn toast_stack(toasts: &[Toast]) -> VNode {
-    VNode::new("div").key("snackbars").class("pr-snackbars").attr("aria-live", "polite").on("click").children(toasts.iter().map(toast_view))
+pub fn toast_stack(toasts: &[&Toast]) -> VNode {
+    VNode::new("div").key("snackbars").class("pr-snackbars").attr("aria-live", "polite").on("click").children(toasts.iter().map(|t| toast_view(t)))
+}
+
+/// The notifications of one form (oldest first), drawn on the form's own surface: one stack per `StackAnchor` in use,
+/// placed `Margin` from the form's edges, the newest at the end `StackOrder` gives it (spec 055 R11–R17, as
+/// `snackbar::stack_layout` places them on the desktop). The page puts it inside the form's root, so a notification of a
+/// form opened with `OpenFormSync` is in that form's modal dialog: before, every notification sat at the page's bottom-left
+/// corner, behind the dialog, where the browser lets nothing be clicked — its buttons and its ✕ could not close it.
+pub fn form_toasts(toasts: &[&Toast]) -> VNode {
+    let mut layer = VNode::new("div").key("snack-layer").class("pr-snack-layer").attr("aria-live", "polite").on("click");
+    for anchor in SnackAnchor::ALL {
+        let mine: Vec<&Toast> = toasts.iter().copied().filter(|t| t.anchor == anchor).collect();
+        let Some(first) = mine.first() else { continue };
+        let margin = format!("{}px", fmt_number(first.margin));
+        // The stack spans the form between its margins and lines its notifications up on the anchor's side, so none is
+        // ever wider than the form.
+        let align = match anchor {
+            SnackAnchor::TopLeft | SnackAnchor::CenterLeft | SnackAnchor::BottomLeft => "flex-start",
+            SnackAnchor::TopRight | SnackAnchor::CenterRight | SnackAnchor::BottomRight => "flex-end",
+            _ => "center",
+        };
+        let mut stack = VNode::new("div")
+            .key(format!("stack:{}", anchor.as_str()))
+            .class("pr-snackbars")
+            .attr("data-anchor", anchor.as_str())
+            .style("left", margin.clone())
+            .style("right", margin.clone())
+            .style("align-items", align);
+        stack = if anchor.is_top() {
+            stack.style("top", margin.clone())
+        } else if anchor.is_bottom() {
+            stack.style("bottom", margin.clone())
+        } else {
+            stack.style("top", "50%").style("transform", "translateY(-50%)")
+        };
+        // The list is oldest first. The newest goes nearest the anchor (`Auto`, `NewestFirst`) — at the bottom of a Bottom
+        // stack, at the top of the others — or furthest from it (`NewestLast`).
+        let newest_nearest = !matches!(first.order, StackOrder::NewestLast);
+        let newest_at_bottom = anchor.is_bottom() == newest_nearest;
+        stack = stack
+            .style("flex-direction", if newest_at_bottom { "column" } else { "column-reverse" })
+            .style("gap", format!("{}px", fmt_number(first.spacing)))
+            .children(mine.into_iter().map(toast_view));
+        layer = layer.child(stack);
+    }
+    layer
 }
 
 // ── routes ──────────────────────────────────────────────────────────────────
@@ -1189,6 +1280,52 @@ mod tests {
         assert_eq!(n.styles.iter().find(|(k, _)| k == "border-radius").map(|(_, v)| v.as_str()), Some("0px 12px 20px 12px"));
         let (t, i) = tree_with("Snackbar", "SNK-1", &[]);
         assert_eq!(mint_toast(&t, 0, i, 1, None, 0).corner_radius, Some([12.0; 4]), "the seeded -1 corners take CornerRadius 12");
+    }
+
+    /// The Cnd_PRC report: `Size = Large`, `StackAnchor = TopCenter` came out small at the page's bottom-left corner. A
+    /// notification now takes its class's measurements and its form's stack sits where `StackAnchor` says, `Margin` from
+    /// the form's edges, the newest nearest the anchor; the player's own notices keep the theme's look.
+    #[test]
+    fn a_notification_takes_its_size_and_its_stack_sits_at_its_anchor_on_the_form() {
+        let style = |n: &VNode, k: &str| n.styles.iter().find(|(s, _)| s == k).map(|(_, v)| v.clone());
+        let (t, i) = tree_with("Snackbar", "SNK-1", &[("Text", "x"), ("Size", "Large"), ("StackAnchor", "TopCenter"), ("Category", "Error"), ("Timeout", "0"), ("Buttons", "ok|OK||Left|true")]);
+        let a = mint_toast(&t, 7, i, 1, None, 0);
+        let b = mint_toast(&t, 7, i, 2, Some("y"), 0);
+        assert_eq!((a.size, a.anchor, a.timeout_ms, a.margin, a.spacing), (Some(SnackSize::Large), SnackAnchor::TopCenter, 0, 16.0, 8.0));
+        assert!(a.buttons[0].dismiss, "`|true` dismisses");
+        let n = toast_view(&a);
+        assert_eq!(n.attr_of("data-size"), Some("Large"));
+        for (k, v) in [("min-width", "min(320px, 100%)"), ("max-width", "min(620px, 100%)"), ("min-height", "76px"), ("padding", "12px 16px")] {
+            assert_eq!(style(&n, k).as_deref(), Some(v), "{k}");
+        }
+        let layer = form_toasts(&[&a, &b]);
+        assert_eq!(layer.classes, ["pr-snack-layer"]);
+        assert!(layer.on.contains(&"click"), "its buttons and its close are routed");
+        let stacks: Vec<&VNode> = layer.children.iter().collect();
+        assert_eq!(stacks.len(), 1, "one stack per anchor in use");
+        let s = stacks[0];
+        assert_eq!(s.attr_of("data-anchor"), Some("TopCenter"));
+        for (k, v) in [("top", "16px"), ("left", "16px"), ("right", "16px"), ("align-items", "center"), ("flex-direction", "column-reverse"), ("gap", "8px")] {
+            assert_eq!(style(s, k).as_deref(), Some(v), "{k}");
+        }
+        assert_eq!(style(s, "bottom"), None);
+        assert_eq!(s.children.len(), 2);
+        let (t, i) = tree_with("Snackbar", "SNK-2", &[("StackAnchor", "BottomRight"), ("Margin", "24"), ("StackOrder", "NewestLast")]);
+        let c = mint_toast(&t, 7, i, 3, None, 0);
+        assert_eq!(c.size, Some(SnackSize::Medium), "the default class");
+        let layer = form_toasts(&[&a, &c]);
+        assert_eq!(layer.children.len(), 2, "two anchors, two stacks");
+        let s = layer.children.iter().find(|s| s.attr_of("data-anchor") == Some("BottomRight")).unwrap();
+        for (k, v) in [("bottom", "24px"), ("right", "24px"), ("align-items", "flex-end"), ("flex-direction", "column-reverse")] {
+            assert_eq!(style(s, k).as_deref(), Some(v), "{k}");
+        }
+        let (t, i) = tree_with("Snackbar", "SNK-3", &[("StackAnchor", "CenterLeft")]);
+        let layer = form_toasts(&[&mint_toast(&t, 7, i, 4, None, 0)]);
+        let s = &layer.children[0];
+        assert_eq!((style(s, "top").as_deref(), style(s, "transform").as_deref(), style(s, "align-items").as_deref()), (Some("50%"), Some("translateY(-50%)"), Some("flex-start")));
+        let notice = Toast { size: None, ..a.clone() };
+        assert_eq!(style(&toast_view(&notice), "min-width"), None, "a notice of the player's own keeps the theme's look");
+        println!("Snackbar on the web: Large = 320-620 x 76 px; TopCenter, BottomRight (Margin 24, NewestLast) and CenterLeft stacks placed on the form");
     }
 
     #[test]

@@ -494,6 +494,17 @@ impl DataGridColumn {
         "Textbox".into()
     }
 
+    /// The column's text colour is still the black every column is seeded with
+    /// ([`DataGridColumn::default`], and every column a `Columns` line makes):
+    /// it names no colour of its own, so a grid whose `ForegroundColor` the
+    /// developer chose draws this column's text in that colour. Both painters
+    /// ask it, so the desktop and the browser agree. Only the seed's own
+    /// spelling counts: the column editor writes `#RRGGBBAA`, so a column the
+    /// developer set to black reads `#000000FF` and keeps it.
+    pub fn foreground_is_seeded(&self) -> bool {
+        self.foreground_color.trim().trim_start_matches('#').eq_ignore_ascii_case("000000")
+    }
+
     /// The cell kind the renderer draws: `control_kind` when set, else `edit_control`.
     pub fn kind(&self) -> &str {
         if self.control_kind.trim().is_empty() {

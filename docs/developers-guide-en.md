@@ -4861,6 +4861,25 @@ When binding, advanced metadata (widths, styles, order, filters…) is preserved
 for matching fields; the Data Binding Guardian prevents drift. See the
 properties pane for the complete set.
 
+#### The colour of the cells' text
+
+A cell's text takes, first, the colour of a value rule that matches it; then
+its column's own text colour; then the grid's `ForegroundColor`. Every column
+starts with black (`#000000`) as its text colour, and that starting black counts
+as *not chosen* when you have set the grid's `ForegroundColor`: set it, and
+every column you have not given a colour of its own draws its text in it. Black
+picked for a column in **Edit DataGrid settings…** is saved as `#000000FF` and
+is kept. On the desktop a column's cell frame draws its text in the frame's own
+colour. A grid whose `ForegroundColor` is still the default draws black text, as
+before. The desktop and the browser apply the same rule. (A chosen
+`ForegroundColor` also colours the grid lines.) The Spatial look sets
+`ForegroundColor` to white on every control, so a Spatial grid's cells are white
+unless a column names its own colour.
+
+```cobol
+           MOVE "#C0392B" TO GRID-ORDERS::ForegroundColor.
+```
+
 #### Colouring the DataGrid's filter row
 
 Switch `ShowColumnFilters` on and every column gains a small entry field under
@@ -6739,6 +6758,13 @@ The anchor is measured against **your form's own surface**, not the screen. In
 an application shell an `Embedded` form's messages appear inside its ContentPane
 — never over the shell's rail or breadcrumb — so they land where the operator is
 already looking.
+
+The same holds in a browser (a Web or Mobile application): a form's messages
+are drawn on that form — inside its window, or inside its dialog when it was
+opened with `OpenFormSync` — at its `StackAnchor`, `Margin` from its edges, with
+the measurements of its `Size`, and their buttons and ✕ close them there. (The
+browser does not yet animate them, and `MaximumVisible` and `OverflowBehavior`
+are the desktop's: a browser shows up to five messages at a time.)
 
 > ⚠️ **`StackAnchor`, not `Anchor`.** Every control already has an `Anchor`
 > property, and it is a different thing entirely: a tick box that locks the
@@ -18218,6 +18244,10 @@ disappear when the program ends. Nothing is written back to the menu file.
 
 Every call that changes something answers `1` when it did and `0` when it did
 not, so a program can tell.
+
+A browser (a Web or Mobile application) answers every one of these calls as the
+desktop does and draws your rows in the same places: the same rows, the same
+`1`/`0`, the same `GetCount()`.
 
 > ⚠️ **The designed menu's structure is yours at design time, not at run
 > time.** A program can never remove or replace a row that came from the menu

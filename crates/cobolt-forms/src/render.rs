@@ -10869,19 +10869,18 @@ fn render_interactive(
                 paint::ContainerClipScope::enter(painter.ctx(), paint::container_clip_of(ctrl));
             // Cell text honours the grid's ForegroundColor when explicitly set,
             // falling back to the readable default (previously hardcoded).
-            let cell_fg = {
+            let chosen_fg = {
                 let raw = sv(ctrl, "ForegroundColor");
                 let default_fg = crate::model::DEFAULT_FOREGROUND_COLOR.trim_start_matches('#');
-                paint::parse_hex(&raw)
-                    .filter(|c| {
-                        c.a() > 0
-                            && !raw
-                                .trim()
-                                .trim_start_matches('#')
-                                .eq_ignore_ascii_case(default_fg)
-                    })
-                    .unwrap_or(Color32::from_rgb(225, 230, 250))
+                paint::parse_hex(&raw).filter(|c| {
+                    c.a() > 0
+                        && !raw
+                            .trim()
+                            .trim_start_matches('#')
+                            .eq_ignore_ascii_case(default_fg)
+                })
             };
+            let cell_fg = chosen_fg.unwrap_or(Color32::from_rgb(225, 230, 250));
             let columns_raw = sv(ctrl, "Columns");
             let rows_raw = sv(ctrl, "Rows");
             let cols: Vec<(String, String)> = columns_raw
@@ -13227,10 +13226,18 @@ fn render_interactive(
                         .filter(|size| *size > 0)
                         .map(|size| size as f32)
                         .unwrap_or(font_size);
+                    // A value rule's colour, else the column's own — unless the
+                    // column's is still the seeded black and the developer chose
+                    // the grid's ForegroundColor: then the grid's. Every column
+                    // carries the seeded black, so the grid's colour never
+                    // reached a cell.
                     let mut text_color = value_rule
                         .and_then(|rule| paint::parse_hex(&rule.foreground_color))
                         .or_else(|| {
                             column_meta
+                                .filter(|column| {
+                                    !(chosen_fg.is_some() && column.foreground_is_seeded())
+                                })
                                 .and_then(|column| paint::parse_hex(&column.foreground_color))
                         })
                         .unwrap_or(cell_fg);
