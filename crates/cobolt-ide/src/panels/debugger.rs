@@ -3927,6 +3927,27 @@ impl DebuggerPanel {
         self.current_line
     }
 
+    /// Spec 084 R63 — what the MCP debug tools read: the call stack at this
+    /// stop (innermost first) as `(program, paragraph, line)`.
+    pub fn stack(&self) -> Vec<(String, String, u32)> {
+        self.frames.iter().map(|f| (f.program.clone(), f.paragraph.clone(), f.line)).collect()
+    }
+
+    /// The variables the debugger holds at this stop: `(name, value, pic)`.
+    pub fn variables(&self) -> Vec<(String, String, String)> {
+        self.vars.iter().map(|v| (v.name.clone(), v.value.clone(), v.pic.clone())).collect()
+    }
+
+    /// Why it stopped, in words; `None` while running.
+    pub fn stop_reason_text(&self) -> Option<String> {
+        self.stop_reason.as_ref().map(|r| format!("{r:?}"))
+    }
+
+    /// The paragraph it stopped in.
+    pub fn current_paragraph(&self) -> &str {
+        &self.current_para
+    }
+
     fn is_generated_control_handler_var(var: &VarSnapshot) -> bool {
         let name = var.name.to_ascii_uppercase();
         name.starts_with("COBOL-")

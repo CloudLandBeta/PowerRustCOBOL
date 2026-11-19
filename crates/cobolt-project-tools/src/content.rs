@@ -713,10 +713,23 @@ pub fn rules() -> Vec<Rule> {
             "gap-report-not-invention",
             "Never invent syntax, a property, a method, an event or a built-in to get around a \
              missing capability. If the reference does not list it, it does not exist: do the part \
-             that is supported, write a gap report in `docs/compiler-requests/`, and tell the \
-             developer both.",
+             that is supported, write a gap report with `write_gap_report` (it lands in \
+             `docs/compiler-requests/`), and tell the developer both.",
         ),
         // ── The tools ─────────────────────────────────────────────────────────
+        r(
+            "mcp-only",
+            "Everything you do to a PowerRustCOBOL project goes through these tools — never through \
+             your own file, edit, search or shell tools, and never through another program. Read with \
+             `read_file`, `list_folder`, `search_files`, `list_files` and `describe`; change files with \
+             `write_file`, `edit_file`, `rename_file`, `remove_file` and `import_file` (they keep the \
+             project and the IDE in step); change a form as the Form Designer does with \
+             `apply_change_set`; keep the project in version control with `git`; run, debug, preview \
+             and package with the run, debug and project tools; read and drive the IDE with \
+             `ide_state`, `ide_picture`, `ide_command` and `ide_widget`. When no tool does what you \
+             need, do not reach for another way: write a gap report with `write_gap_report` and tell \
+             the developer what is missing.",
+        ),
         r(
             "manifest-through-tools",
             "Never edit the project manifest by hand. It carries a seal over the main-form \
@@ -728,7 +741,9 @@ pub fn rules() -> Vec<Rule> {
             "which-server",
             "Use the `powerrustcobol-ide` tools whenever they answer (PowerRustCOBOL AI is running \
              with this project open). Use `powerrustcobol` only when the IDE is closed, and never \
-             both on one project at the same time.",
+             both on one project at the same time. The tools that need the IDE (the Form Designer, \
+             Project Settings, run, debug, the IDE's windows) answer from `powerrustcobol` that the IDE \
+             must be opened: ask the developer to open it.",
         ),
         r(
             "unsaved-in-the-ide",
@@ -749,7 +764,8 @@ fn skills(version: &str) -> Vec<Skill> {
             steps: vec![
                 s("Choose a form name that is a COBOL word (`ORDER-FORM`) and a file name for it, \
                    `forms/<name>.cfrm`. Read `powerrustcobol://reference/cfrm-format.md` first."),
-                s("Write the `.cfrm`: a `<Form name=\"…\" title=\"…\" width=\"…\" height=\"…\">` \
+                s("Write the `.cfrm` with `write_file` (or build it with `apply_change_set` while the \
+                   IDE is open): a `<Form name=\"…\" title=\"…\" width=\"…\" height=\"…\">` \
                    element, its `<working-storage>` (form-level items, `GLOBAL` when a handler \
                    uses them), its `<form-events>` (`onLoad`, `onClose`) and its `<Control>` \
                    elements. Leave `main-form` out unless the developer asked for a new main \
@@ -767,7 +783,7 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("Call `regenerate` with the path, then `check` with the path, and fix every error \
                    in the `.cfrm` (never in `generated/`) until `check` reports none."),
             ],
-            uses_tools: tools(&["validate", "add_to_project", "regenerate", "check", "render_form"]),
+            uses_tools: tools(&["write_file", "apply_change_set", "validate", "add_to_project", "regenerate", "check", "render_form"]),
             example: None,
         },
         Skill {
@@ -780,7 +796,8 @@ fn skills(version: &str) -> Vec<Skill> {
                    `powerrustcobol://reference/controls.md`, or `kb_lookup` with its type. Use only the \
                    properties, methods and events listed there."),
                 s("Add a `<Control id=\"…\" type=\"…\" x=\"…\" y=\"…\" w=\"…\" h=\"…\">` element to \
-                   the form. The id is a COBOL word, unique in the form. Inside a container, set \
+                   the form with `edit_file` (or `deploy_control` in `apply_change_set` while the IDE \
+                   is open, which the designer shows at once). The id is a COBOL word, unique in the form. Inside a container, set \
                    `parent` to the container's id — position alone does not place it there. \
                    `x`, `y`, `w` and `h` are FORM coordinates, counted from the form's top-left \
                    corner even inside a container, in multiples of 8, inside its parent, and \
@@ -809,7 +826,7 @@ fn skills(version: &str) -> Vec<Skill> {
                    error remains. A diagnostic names the control ▸ event and the line inside that \
                    handler."),
             ],
-            uses_tools: tools(&["kb_lookup", "regenerate", "check"]),
+            uses_tools: tools(&["kb_lookup", "read_file", "edit_file", "apply_change_set", "regenerate", "check"]),
             example: Some(
                 "```xml\n\
                  <Control id=\"BTN-SAVE\" type=\"Button\" x=\"16\" y=\"200\" w=\"112\" h=\"40\">\n\
@@ -836,7 +853,8 @@ fn skills(version: &str) -> Vec<Skill> {
                       file from a form's handlers."
                 .into(),
             steps: vec![
-                s("Read `powerrustcobol://reference/cidx-format.md`. Write `indexed/<name>.cidx`: the \
+                s("Read `powerrustcobol://reference/cidx-format.md`. Write `indexed/<name>.cidx` with \
+                   `write_file`: the \
                    file's COBOL name, its `assign-path` (relative paths start at the project \
                    folder, e.g. `data/customers.idx`), access mode, keys and the record's fields \
                    with their PICTUREs, offsets and lengths. Every key part names a field of the \
@@ -862,9 +880,11 @@ fn skills(version: &str) -> Vec<Skill> {
                    WS-ID )`; `IXF-1::StatusCode` and `IXF-1::LastError` say how it went. There is no \
                    `IXF-1::Open()`, `::Write()` or sequential-read method."),
                 s("Make sure the data file's folder exists (`OPEN OUTPUT` creates the file, not the \
-                   folder), then `regenerate` and `check` the form until it reports no error."),
+                   folder), then `regenerate` and `check` the form until it reports no error. \
+                   `indexed_records` lists, finds, adds, changes and deletes the file's records, as \
+                   the IDE's record grid does."),
             ],
-            uses_tools: tools(&["validate", "add_to_project", "regenerate", "check"]),
+            uses_tools: tools(&["write_file", "edit_file", "validate", "add_to_project", "regenerate", "check", "indexed_records"]),
             example: Some(
                 "```cobol\n\
                  \x20      *> <file-control> block of the form\n\
@@ -888,7 +908,8 @@ fn skills(version: &str) -> Vec<Skill> {
                       built application can use it."
                 .into(),
             steps: vec![
-                s("Put the file under `Assets/` (a sub-folder is fine). Refer to it from a form or \
+                s("Put the file under `Assets/` (a sub-folder is fine) with `import_file`, which takes \
+                   it from outside the project or as base64. Refer to it from a form or \
                    from COBOL by its project-relative path: assets are resolved against the \
                    application's folder, so the same path works under Run Form and in a built \
                    application."),
@@ -898,7 +919,7 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("Where a property takes the asset (an image or icon path), look the property up \
                    first with `kb_lookup`; then `regenerate` and `check` the form."),
             ],
-            uses_tools: tools(&["add_to_project", "kb_lookup", "regenerate", "check"]),
+            uses_tools: tools(&["import_file", "add_to_project", "kb_lookup", "regenerate", "check"]),
             example: None,
         },
         Skill {
@@ -907,7 +928,7 @@ fn skills(version: &str) -> Vec<Skill> {
                       instead of repeating logic in several handlers."
                 .into(),
             steps: vec![
-                s("Write `src/<name>.cbl` as an ordinary COBOL-85 program: `IDENTIFICATION \
+                s("Write `src/<name>.cbl` with `write_file` as an ordinary COBOL-85 program: `IDENTIFICATION \
                    DIVISION.`, `PROGRAM-ID. <NAME>.`, its data, a `LINKAGE SECTION` for what the \
                    caller passes, and `PROCEDURE DIVISION USING …` ending in `GOBACK`."),
                 s("Check every verb and clause against `powerrustcobol://reference/cobol85-supported-syntax.md`; \
@@ -917,7 +938,7 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("From a handler, `CALL \"<NAME>\" USING …` with the arguments in the order of the \
                    procedure's `USING`; then `check` the form."),
             ],
-            uses_tools: tools(&["add_to_project", "check"]),
+            uses_tools: tools(&["write_file", "add_to_project", "check"]),
             example: Some(
                 "```cobol\n\
                  \x20      IDENTIFICATION DIVISION.\n\
@@ -943,9 +964,9 @@ fn skills(version: &str) -> Vec<Skill> {
                    closed. Every answer is JSON: read it, do not guess from it."),
                 s("Call `regenerate` for every `.cfrm` or `.cidx` you changed (or with no path for \
                    all of them)."),
-                s("Call `check` (no path = the whole project). For each error, open the file it \
-                   names — for a form, the `.cfrm`, at the control ▸ event and the line inside that \
-                   handler — and fix it there. A diagnostic marked as generated code points at how \
+                s("Call `check` (no path = the whole project). For each error, read the file it \
+                   names with `read_file` — for a form, the `.cfrm`, at the control ▸ event and the line \
+                   inside that handler — and fix it there with `edit_file`. A diagnostic marked as generated code points at how \
                    a property or handler is set, never at a line to edit in `generated/`."),
                 s("Repeat until `check` reports no error. Warnings: fix the ones your change caused."),
                 s("Only when asked for a binary, call `build`. It refuses while `check` has errors. \
@@ -953,7 +974,7 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("If an error comes from something the product does not support, stop changing \
                    code around it and use the gap-report skill."),
             ],
-            uses_tools: tools(&["regenerate", "check", "build", "list_files"]),
+            uses_tools: tools(&["regenerate", "check", "read_file", "edit_file", "build", "list_files"]),
             example: None,
         },
         // ── Spec 084 R32 — building an application ───────────────────────────
@@ -1316,11 +1337,12 @@ fn skills(version: &str) -> Vec<Skill> {
                    backend configuration name; the form never holds the connection string, key, token \
                    or password. `build` scans the files it ships for secrets and lists each finding \
                    in `secret_scan`: remove every one."),
-                s("`check` the Backend files until `check` reports no error. The IDE does not start a \
-                   project's Backend yet, so a Preview shows calls to it failing; say so to the \
-                   developer rather than pretending the call works."),
+                s("`check` the Backend files until `check` reports no error. Then start the Backend \
+                   with `start_backend` (`backend_status` says whether it answers, with its latest \
+                   log lines) and serve the page with `start_web_preview`, so the form's calls reach \
+                   it; `stop_backend` stops it."),
             ],
-            uses_tools: tools(&["list_files", "kb_lookup", "add_to_project", "check"]),
+            uses_tools: tools(&["list_files", "kb_lookup", "write_file", "add_to_project", "check", "start_backend", "backend_status", "start_web_preview"]),
             example: None,
         },
         Skill {
@@ -1333,14 +1355,16 @@ fn skills(version: &str) -> Vec<Skill> {
                    Only a name neither finds is a gap."),
                 s("Do the part of the request that is supported, and check it."),
                 format!(
-                    "Write `{GAP_REPORT_DIR}/<YYYY-MM-DD>-<topic>.md` (today's date, a short \
-                     hyphenated topic) with every section of the template below, in that order. \
-                     The version line reads: kit and IDE {version}."
+                    "Write it with `write_gap_report`, which saves it as \
+                     `{GAP_REPORT_DIR}/<YYYY-MM-DD>-<topic>.md` (today's date, a short hyphenated \
+                     topic), with every section of the template below, in that order. The version \
+                     line reads: kit and IDE {version}."
                 ),
                 s("Tell the developer what you did, what is missing, and where the report is."),
-                s("Never invent the missing syntax, property, method, event or built-in instead."),
+                s("Never invent the missing syntax, property, method, event or built-in instead, and \
+                   never reach for another tool or program to get around a tool that is missing."),
             ],
-            uses_tools: tools(&["kb_lookup", "check"]),
+            uses_tools: tools(&["kb_lookup", "check", "write_gap_report"]),
             example: None,
         },
     ]
@@ -1348,12 +1372,15 @@ fn skills(version: &str) -> Vec<Skill> {
 
 fn reviewer() -> Reviewer {
     Reviewer {
-        name: "powerrustcobol-reviewer".into(),
-        summary: "Reviews a change to this PowerRustCOBOL project before it is reported done: every \
+        name: "powerrustcobol-review".into(),
+        summary: "Review a change to this PowerRustCOBOL project before it is reported done: every \
                   name against the reference, every standing rule, and a clean check. Use it after \
                   any change to a .cfrm, .cidx or COBOL source."
             .into(),
         checks: vec![
+            s("Every file was read with `read_file`, `list_folder` or `search_files` and changed with \
+               `write_file`, `edit_file`, `rename_file`, `remove_file`, `import_file` or \
+               `apply_change_set` — nothing went through another tool or program."),
             s("Every control type, property, method, event and built-in the change uses is in \
                the `powerrustcobol://reference/` resources or found by `kb_lookup` — for that control. Anything else is \
                invented: reject it."),
@@ -1403,9 +1430,13 @@ fn reviewer() -> Reviewer {
                `COBOL::SqlDatabase` in a form's handler, any control holding a connection string, \
                key, token or password, and a class C control in a project with no Backend."),
             s("`check` reports no error for the changed files. A missing capability has a gap report \
-               in `docs/compiler-requests/` instead of a workaround that pretends."),
+               (written with `write_gap_report`, in `docs/compiler-requests/`) instead of a workaround \
+               that pretends."),
         ],
-        uses_tools: vec!["check".into(), "kb_lookup".into(), "validate".into(), "list_files".into()],
+        uses_tools: ["check", "kb_lookup", "validate", "list_files", "read_file", "search_files", "render_form"]
+            .iter()
+            .map(|t| t.to_string())
+            .collect(),
     }
 }
 

@@ -38,6 +38,9 @@ use crate::project_model::{Category, CoboltProject};
 const RECORD_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long `create_project` / `open_project` wait for the IDE to open it.
 const PROJECT_SWITCH_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long an IDE tool waits for the UI thread (spec 084 Phase D). A tool
+/// that takes longer starts its work and answers at once.
+const IDE_TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// What the UI thread last published about the open project.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -95,6 +98,20 @@ pub enum HostRequest {
         path: PathBuf,
         reply: Sender<Result<Value, String>>,
     },
+    /// A tool that needs the IDE (spec 084 Phase D): the UI thread answers on
+    /// `reply`, at once or — for one that waits for the screen — a frame later.
+    IdeTool {
+        name: String,
+        args: Value,
+        reply: Sender<Result<Value, String>>,
+    },
+    /// A project file or folder was renamed (`to: Some`) or removed: the
+    /// project model, its save and the open tabs follow (spec 084 R51, R52).
+    Relist {
+        from: String,
+        to: Option<String>,
+        reply: Sender<Result<(), String>>,
+    },
 }
 
 /// What the coding agent connected over MCP is doing, as the UI thread reads
@@ -118,6 +135,9 @@ struct ActivityLog {
     running: Vec<(u64, String, String, Instant)>,
     last_done: Option<(String, String, Instant)>,
     next_id: u64,
+    /// How many calls have ended; a change on disk while it moved is a tool's
+    /// (spec 084 R68).
+    ended: u64,
 }
 
 /// The state shared between the UI thread and the listener's threads.
@@ -133,6 +153,9 @@ pub struct IdeShared {
     listener: Mutex<Option<(u16, Arc<AtomicBool>)>>,
     /// What the connected agent is doing (the mascot reads it).
     activity: Mutex<ActivityLog>,
+    /// Project files that changed on disk outside the connection, for the
+    /// next tool answer to name (spec 084 R68).
+    out_of_band: Mutex<Vec<String>>,
 }
 
 impl IdeShared {
@@ -149,9 +172,30 @@ impl IdeShared {
                 token: Mutex::new(None),
                 listener: Mutex::new(None),
                 activity: Mutex::new(ActivityLog::default()),
+                out_of_band: Mutex::new(Vec::new()),
             }),
             rx,
         )
+    }
+
+    /// How many tool calls have ended so far (UI thread, spec 084 R68).
+    pub fn calls_ended(&self) -> u64 {
+        self.activity_log().ended
+    }
+
+    /// Files that changed outside the connection, for the next answer to name
+    /// (UI thread, spec 084 R68).
+    pub fn report_out_of_band(&self, rels: &[String]) {
+        let mut pending = self.out_of_band.lock().unwrap_or_else(|p| p.into_inner());
+        for rel in rels {
+            if !pending.contains(rel) {
+                pending.push(rel.clone());
+            }
+        }
+    }
+
+    fn take_out_of_band(&self) -> Vec<String> {
+        std::mem::take(&mut *self.out_of_band.lock().unwrap_or_else(|p| p.into_inner()))
     }
 
     fn activity_log(&self) -> std::sync::MutexGuard<'_, ActivityLog> {
@@ -190,6 +234,7 @@ impl IdeShared {
             let (_, tool, target, _) = log.running.remove(i);
             log.last_done = Some((tool, target, now));
         }
+        log.ended += 1;
         drop(log);
         if let Some(ctx) = &self.ctx {
             ctx.request_repaint();
@@ -372,6 +417,28 @@ impl ProjectHost for IdeHost {
         let (reply, answer) = mpsc::channel();
         self.ask(HostRequest::OpenProject { path: path.to_path_buf(), reply }, answer)
     }
+
+    /// The project model follows, then saves (spec 084 R51, R52).
+    fn relist(&mut self, from: &str, to: Option<&str>) -> Result<(), String> {
+        let (reply, answer) = mpsc::channel();
+        if !self.shared.send(HostRequest::Relist { from: from.to_owned(), to: to.map(str::to_owned), reply }) {
+            return Err("the IDE is closing".to_owned());
+        }
+        answer
+            .recv_timeout(RECORD_TIMEOUT)
+            .unwrap_or_else(|_| Err("the IDE did not update the project in time; try again".to_owned()))
+    }
+
+    /// The UI thread runs it (spec 084 Phase D).
+    fn ide_tool(&mut self, name: &str, args: &Value) -> Result<Value, String> {
+        let (reply, answer) = mpsc::channel();
+        if !self.shared.send(HostRequest::IdeTool { name: name.to_owned(), args: args.clone(), reply }) {
+            return Err("the IDE is closing".to_owned());
+        }
+        answer
+            .recv_timeout(IDE_TOOL_TIMEOUT)
+            .unwrap_or_else(|_| Err(format!("the IDE did not answer {name} in time; try again")))
+    }
 }
 
 impl IdeHost {
@@ -511,10 +578,25 @@ impl McpHandler for IdeTools {
             return ToolResult::failed(msg);
         }
         let call = self.shared.call_started(name, &arg);
-        let result = self.tools.call_tool(name, arguments);
+        let mut result = self.tools.call_tool(name, arguments);
         self.shared.call_ended(call);
+        let changed = self.shared.take_out_of_band();
+        if !changed.is_empty() {
+            result.content.push(cobolt_mcp::Content::text(out_of_band_notice(&changed)));
+        }
         result
     }
+}
+
+/// What the next answer says about files changed outside the connection
+/// (spec 084 R68): it reports, it does not refuse.
+pub fn out_of_band_notice(changed: &[String]) -> String {
+    format!(
+        "Notice: {} changed on disk outside the MCP connection since the last call (neither a tool nor \
+         PowerRustCOBOL AI wrote it). Read it again with read_file before you change it, and make every \
+         change to the project through these tools.",
+        changed.join(", ")
+    )
 }
 
 /// Bind `127.0.0.1:<port>` and serve the tools on a background thread,
@@ -638,6 +720,21 @@ pub fn handle_record_crates(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Spec 084 R68: files changed outside the connection are reported once,
+    /// each named once, and the notice tells the agent to read them again.
+    #[test]
+    fn out_of_band_changes_are_named_once_in_the_next_answer() {
+        let (shared, _rx) = IdeShared::new(None);
+        shared.report_out_of_band(&["forms/MAIN.cfrm".into()]);
+        shared.report_out_of_band(&["forms/MAIN.cfrm".into(), "src/TOTALS.cbl".into()]);
+        let changed = shared.take_out_of_band();
+        assert_eq!(changed, vec!["forms/MAIN.cfrm".to_string(), "src/TOTALS.cbl".to_string()]);
+        assert!(shared.take_out_of_band().is_empty(), "named once, then forgotten");
+        let notice = out_of_band_notice(&changed);
+        assert!(notice.contains("forms/MAIN.cfrm, src/TOTALS.cbl"));
+        assert!(notice.contains("read_file") && notice.contains("through these tools"));
+    }
 
     fn temp_project(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("prc-080-idehost-{name}-{}", std::process::id()));
@@ -912,7 +1009,11 @@ mod tests {
         let out = post_raw(port, "Authorization: Bearer tok-gate\r\n", body);
         let v: Value = serde_json::from_str(out.split_once("\r\n\r\n").unwrap().1).unwrap();
         let names: Vec<&str> = v["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names.len(), 17, "{out}");
+        let served = cobolt_project_tools::ProjectTools::<cobolt_project_tools::HeadlessHost>::tool_list();
+        assert_eq!(names.len(), served.len(), "every tool, the IDE tools among them: {out}");
+        for name in ["read_file", "apply_change_set", "ide_state", "edit_indexed", "app_kb_search"] {
+            assert!(names.contains(&name), "{name} is listed");
+        }
         use std::io::{Read, Write};
         let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
         write!(s, "POST /mcp HTTP/1.1\r\nHost: evil.example\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();

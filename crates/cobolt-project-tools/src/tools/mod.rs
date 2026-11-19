@@ -25,6 +25,10 @@ pub mod build;
 pub mod check;
 pub mod definitions;
 pub mod crates;
+pub mod files;
+pub mod git;
+pub mod ide;
+pub mod indexed_edit;
 pub mod kb;
 pub mod list;
 pub mod regenerate;
@@ -105,6 +109,23 @@ impl<H: ProjectHost> ProjectTools<H> {
         Self { host, shared }
     }
 
+    /// A tool's answer as MCP content: its JSON as text, a picture
+    /// (`png_base64`, from `ide_picture` or a forwarded `render_form`) as
+    /// image content.
+    fn answer_content(answer: Result<Value, String>) -> ToolResult {
+        match answer {
+            Ok(Value::Object(mut map)) if map.contains_key("png_base64") => {
+                let data = map.remove("png_base64").and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default();
+                ToolResult::ok(vec![
+                    Content::Image { data, mime_type: "image/png".into() },
+                    Content::text(Value::Object(map).to_string()),
+                ])
+            }
+            Ok(v) => ToolResult::ok(vec![Content::text(v.to_string())]),
+            Err(e) => ToolResult::failed(e),
+        }
+    }
+
     pub fn host(&self) -> &H {
         &self.host
     }
@@ -118,7 +139,7 @@ impl<H: ProjectHost> ProjectTools<H> {
     pub fn tool_list() -> Vec<Tool> {
         let path_arg = |desc: &str| json!({ "type": "string", "description": desc });
         let none = json!({ "type": "object", "properties": {}, "additionalProperties": false });
-        vec![
+        let mut tools = vec![
             Tool {
                 name: "list_files".into(),
                 description: Some(
@@ -500,7 +521,34 @@ impl<H: ProjectHost> ProjectTools<H> {
                 }),
                 annotations: None,
             },
-        ]
+            Tool {
+                name: "app_kb_search".into(),
+                description: Some(
+                    "Search the application's own Knowledge Base — the collections in the project's assets/KB, \
+                     what the built application's KnowledgeBase controls and agents read — and answer the \
+                     matching passages. Read-only."
+                        .into(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "What to look for." },
+                        "collection": { "type": "string", "description": "Optional: one collection; every collection when absent." },
+                        "limit": { "type": "integer", "minimum": 1, "maximum": 50,
+                                   "description": "Most passages (default 8)." }
+                    },
+                    "required": ["query"],
+                    "additionalProperties": false
+                }),
+                annotations: None,
+            },
+        ];
+        // Spec 084 Phase D: the files, then the tools that need the running IDE.
+        tools.push(indexed_edit::tool());
+        tools.extend(files::tools());
+        tools.extend(git::tools());
+        tools.extend(ide::tools());
+        tools
     }
 
     /// The tool list, every PROJECT tool also taking the optional `project`
@@ -545,6 +593,8 @@ impl<H: ProjectHost> ProjectTools<H> {
                 let path = absolute_arg(args, "path", "open_project")?;
                 return self.host.open_project(&path);
             }
+            // Spec 084 R69–R72: the IDE-wide tools and the IDE's own windows need no project.
+            n if ide::is_ide_tool(n) && ide::project_free(n) => return self.host.ide_tool(name, args),
             _ => {}
         }
         let root: ProjectRoot = self.host.project().map_err(|e| e.message().to_owned())?;
@@ -661,9 +711,57 @@ impl<H: ProjectHost> ProjectTools<H> {
                 let path = opt_str(args, "path").ok_or("set_definition needs a 'path'")?;
                 let element = opt_str(args, "element").ok_or("set_definition needs an 'element'")?;
                 let text = args.get("text").and_then(Value::as_str).ok_or("set_definition needs a 'text' (empty clears it)")?;
+                // Spec 084 R55: never over a file the IDE holds unsaved — the form, or
+                // the manifest for a SQL connection's definition.
+                let target = if element == "sql-connection" { root.manifest().to_path_buf() } else { root.resolve(&path)? };
+                if self.host.unsaved(&target) {
+                    let shown = root.relative(&target).unwrap_or(path.clone());
+                    return Err(format!(
+                        "'{shown}' has unsaved changes in the IDE; ask the developer to save or close it, then try again"
+                    ));
+                }
                 let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
-                definitions::set_definition(&root, &path, &element, opt_str(args, "id").as_deref(), text)
+                let answer = definitions::set_definition(&root, &path, &element, opt_str(args, "id").as_deref(), text)?;
+                self.host.written(std::slice::from_ref(&target));
+                Ok(answer)
             }
+            "read_file" => files::read_file(&root, args),
+            "list_folder" => files::list_folder(&root, args),
+            "search_files" => files::search_files(&root, args),
+            "write_file" => {
+                let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+                files::write_file(&mut self.host, &root, args)
+            }
+            "edit_file" => {
+                let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+                files::edit_file(&mut self.host, &root, args)
+            }
+            "rename_file" => {
+                let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+                files::rename_file(&mut self.host, &root, args)
+            }
+            "remove_file" => {
+                let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+                files::remove_file(&mut self.host, &root, args)
+            }
+            "import_file" => {
+                let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+                files::import_file(&mut self.host, &root, args)
+            }
+            "edit_indexed" => {
+                let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+                indexed_edit::run(&mut self.host, &root, args)
+            }
+            "write_gap_report" => {
+                let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+                files::write_gap_report(&mut self.host, &root, args)
+            }
+            "git" => git::run(&mut self.host, &root, args),
+            "app_kb_search" => {
+                let q = opt_str(args, "query").ok_or("app_kb_search needs a 'query'")?;
+                kb::app_search(root.dir(), &q, opt_str(args, "collection").as_deref(), args.get("limit").and_then(Value::as_u64))
+            }
+            n if ide::is_ide_tool(n) => self.host.ide_tool(name, args),
             "check" => check::run(&self.host, &root, opt_str(args, "path").as_deref()),
             "regenerate" => {
                 let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
@@ -716,7 +814,7 @@ impl<H: ProjectHost> ProjectTools<H> {
 /// Tools that need no open project: the knowledge tools, and the two that
 /// make or choose one.
 pub fn project_free(name: &str) -> bool {
-    name.starts_with("kb_") || name == "create_project" || name == "open_project"
+    name.starts_with("kb_") || name == "create_project" || name == "open_project" || ide::project_free(name)
 }
 
 /// The [`crate::create::CreateRequest`] a `create_project` call describes
@@ -835,6 +933,11 @@ impl<H: ProjectHost> McpHandler for ProjectTools<H> {
     }
 
     fn call_tool(&mut self, name: &str, arguments: &Value) -> ToolResult {
+        // Spec 084 R66: `rcrun mcp` passes the call to the running IDE that has
+        // this project open, and answers with its answer.
+        if let Some(answer) = self.host.forward_call(name, arguments) {
+            return Self::answer_content(answer);
+        }
         if name == "run_form" {
             return match self.run_form(arguments) {
                 Ok((png, meta)) => {
@@ -854,10 +957,8 @@ impl<H: ProjectHost> McpHandler for ProjectTools<H> {
                 Err(e) => ToolResult::failed(e),
             };
         }
-        match self.call(name, arguments) {
-            Ok(v) => ToolResult::ok(vec![Content::text(v.to_string())]),
-            Err(e) => ToolResult::failed(e),
-        }
+        let answer = self.call(name, arguments);
+        Self::answer_content(answer)
     }
 
     fn capabilities(&self) -> Value {

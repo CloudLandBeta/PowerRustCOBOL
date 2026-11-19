@@ -55,6 +55,6 @@ pub mod types;
 pub use server::{dispatch, serve, McpHandler};
 pub use client::{Client, ClientError, Inbound, Mode, Session};
 pub use types::{
-    Content, InitializeResult, Message, Request, Resource, ResourceContents, Response, RpcError,
+    base64, base64_decode, Content, InitializeResult, Message, Request, Resource, ResourceContents, Response, RpcError,
     ServerInfo, Tool, ToolResult, PROTOCOL_VERSION,
 };

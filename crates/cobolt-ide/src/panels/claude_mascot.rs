@@ -96,14 +96,19 @@ impl Doing {
     /// The phrase for an MCP tool; a tool this list does not know is "working".
     pub fn of(tool: &str) -> Self {
         match tool {
-            "list_files" | "describe" => Doing::Reading,
-            "kb_lookup" | "kb_search" => Doing::Reference,
-            "check" | "validate" => Doing::Checking,
+            "list_files" | "describe" | "read_file" | "list_folder" | "search_files" | "project_settings"
+            | "sql_connections" | "ide_settings" | "ide_state" | "read_output" | "read_diagnostics" | "run_status"
+            | "backend_status" | "debug_state" => Doing::Reading,
+            "kb_lookup" | "kb_search" | "app_kb_search" | "project_kb_search" => Doing::Reference,
+            "check" | "validate" | "test_sql_connection" => Doing::Checking,
             "regenerate" => Doing::Generating,
-            "build" => Doing::Building,
-            "render_form" => Doing::Looking,
-            "run_form" => Doing::Running,
-            "set_definition" | "add_to_project" | "add_crate" | "remove_crate" | "add_powerchat" => Doing::Changing,
+            "build" | "start_web_preview" => Doing::Building,
+            "render_form" | "ide_picture" => Doing::Looking,
+            "run_form" | "run_project" | "run_mobile" | "start_backend" | "debug_start" | "debug_control" => Doing::Running,
+            "set_definition" | "add_to_project" | "add_crate" | "remove_crate" | "add_powerchat" | "write_file"
+            | "edit_file" | "rename_file" | "remove_file" | "import_file" | "write_gap_report" | "apply_change_set"
+            | "edit_indexed" | "set_project_settings" | "set_sql_connection" | "remove_sql_connection"
+            | "save_project" | "upgrade_project" | "beautify" | "indexed_records" => Doing::Changing,
             "create_project" => Doing::Creating,
             "open_project" => Doing::Opening,
             _ => Doing::Working,

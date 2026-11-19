@@ -71,6 +71,9 @@ use rand::Rng;
 // Spec 104 — the Task Wizard's ties to `CoboltApp`: its facts, its effects and the places
 // it paints. A child module, so it can read the app's private state without widening it.
 mod task_wizard_glue;
+// Spec 084 Phase D — the MCP tools that need the IDE: a child module, so they act on
+// the IDE's state as its own menus and windows do.
+mod mcp_ide_tools;
 
 use crate::data_binding_guardian::{
     validate_binding_action, validate_binding_action_in, BindingActionGate, BindingActionGateReport,
@@ -1312,6 +1315,9 @@ pub struct CoboltApp {
     agent_wizard: crate::panels::connect_agent_wizard::ConnectAgentWizard,
     /// The Claude mascot on the top edge while Claude is connected over MCP.
     claude_mascot: crate::panels::claude_mascot::ClaudeMascot,
+    /// Spec 084 Phase D — the MCP tools' own state in the IDE: the out-of-band
+    /// watch (R68), the run and pictures they wait on.
+    mcp: mcp_ide_tools::McpState,
     /// Whether this session already decided to offer the wizard or not.
     agent_wizard_decided: bool,
     claude_configure_rx: Option<
@@ -2560,6 +2566,7 @@ impl CoboltApp {
             cc_status_rx: None,
             agent_wizard: Default::default(),
             claude_mascot: Default::default(),
+            mcp: Default::default(),
             agent_wizard_decided: false,
             claude_configure_rx: None,
         };
@@ -5935,6 +5942,11 @@ impl CoboltApp {
                         },
                         Err,
                     );
+                    let _ = reply.send(result);
+                }
+                HostRequest::IdeTool { name, args, reply } => self.mcp_ide_tool(&name, &args, reply),
+                HostRequest::Relist { from, to, reply } => {
+                    let result = self.mcp_relist(&from, to.as_deref());
                     let _ = reply.send(result);
                 }
                 HostRequest::OpenProject { path, reply } => {
@@ -16938,6 +16950,7 @@ impl eframe::App for CoboltApp {
         self.follow_mcp_port();
         self.poll_claude_configure();
         self.drain_agent_tools();
+        self.mcp_frame(ctx);
         // Remember the language across restarts. Written only on a real change,
         // so this costs nothing on a normal frame.
         if self.lang != self.lang_persisted {
@@ -18258,12 +18271,14 @@ impl eframe::App for CoboltApp {
                 if let Some(err) = run.take_exit_error() {
                     self.output
                         .push_status(crate::ui_text::idef("Form {} failed: {}", &[&run.form_name, &err]));
+                    self.mcp_note_run_end(&run.form_name, Some(err.clone()));
                     if ext_error.is_none() {
                         ext_error = Some(err);
                     }
                 } else {
                     self.output
                         .push_status(crate::ui_text::idef("── Form {} finished ──", &[&run.form_name]));
+                    self.mcp_note_run_end(&run.form_name, None);
                 }
                 // The debug child ended → close the debug session with it.
                 if run.debug
@@ -18380,6 +18395,7 @@ impl eframe::App for CoboltApp {
                     self.output.push_line(line);
                 }
                 let tr = self.lang.tr();
+                self.mcp_note_run_end(&run.name, run.exit_error());
                 match run.exit_error() {
                     None => {
                         self.output.push_status(

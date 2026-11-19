@@ -242,9 +242,84 @@ fn cap(s: &str) -> String {
     out
 }
 
+/// Spec 084 R64 — search the application's own Knowledge Base: the
+/// collections under the project's `assets/KB`, the folder a KnowledgeBase
+/// control with the default Location reads. The hashing embedder needs no
+/// model; a collection another embedder indexed is searched lexically, and
+/// the answer says so.
+pub fn app_search(project: &std::path::Path, query: &str, collection: Option<&str>, limit: Option<u64>) -> Result<Value, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err("app_kb_search needs words to search for".into());
+    }
+    let limit = limit.unwrap_or(8).clamp(1, 50) as usize;
+    let Some(location) = ["assets/KB", "Assets/KB"].iter().map(|r| project.join(r)).find(|p| p.is_dir()) else {
+        return Ok(json!({
+            "query": query, "found": false, "hits": [],
+            "note": "the project has no assets/KB folder: the application has no Knowledge Base yet",
+        }));
+    };
+    let all = cobolt_kb::store::list_collections(&location);
+    let names: Vec<String> = match collection {
+        Some(c) => all.iter().filter(|n| n.eq_ignore_ascii_case(c)).cloned().collect(),
+        None => all.clone(),
+    };
+    if names.is_empty() {
+        return Err(match collection {
+            Some(c) => format!("assets/KB has no collection '{c}': {}", all.join(", ")),
+            None => "assets/KB holds no collection yet".into(),
+        });
+    }
+    let mut found = Vec::new();
+    let mut notes = Vec::new();
+    for name in &names {
+        let coll = match cobolt_kb::store::Collection::open(&location, name) {
+            Ok(c) => c,
+            Err(e) => {
+                notes.push(format!("{name}: {e}"));
+                continue;
+            }
+        };
+        match cobolt_kb::search::search(&coll, &cobolt_kb::embed::HashingEmbedder, query, limit) {
+            Ok(r) => {
+                if let Some(why) = r.reason {
+                    notes.push(format!("{name}: {why}"));
+                }
+                found.extend(r.hits.into_iter().map(|h| (name.clone(), h)));
+            }
+            Err(e) => notes.push(format!("{name}: {e}")),
+        }
+    }
+    found.sort_by(|a, b| b.1.score.total_cmp(&a.1.score));
+    found.truncate(limit);
+    let hits: Vec<Value> = found
+        .into_iter()
+        .map(|(coll, h)| json!({
+            "collection": coll, "document": h.document, "heading": h.heading,
+            "score": (h.score * 1000.0).round() / 1000.0, "text": cap(h.passage.trim()),
+        }))
+        .collect();
+    Ok(json!({ "query": query, "found": !hits.is_empty(), "hits": hits, "notes": notes }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spec 084 R64: a project without assets/KB answers that it has none,
+    /// and an empty query is refused.
+    #[test]
+    fn app_kb_search_without_a_knowledge_base_says_so() {
+        let dir = std::env::temp_dir().join(format!("prc-084-app-kb-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let v = app_search(&dir, "invoice", None, None).unwrap();
+        assert_eq!(v["found"], false);
+        assert!(v["note"].as_str().unwrap().contains("assets/KB"));
+        assert!(app_search(&dir, "  ", None, None).is_err());
+        std::fs::create_dir_all(dir.join("assets/KB")).unwrap();
+        assert!(app_search(&dir, "invoice", None, None).unwrap_err().contains("no collection"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// Spec 084 AC6: free text finds the subjects that name it — from the
     /// built-in sections when no store exists — and refuses an empty query.

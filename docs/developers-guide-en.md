@@ -14751,7 +14751,7 @@ project folders, and an IDE update reaches every project at once.
 
 ```mermaid
 flowchart LR
-    CC["Claude Code<br/>(your installation)"] -- "PowerRustCOBOL plugin:<br/>skills, reviewer" --> P[(plugin)]
+    CC["Claude Code<br/>(your installation)"] -- "PowerRustCOBOL plugin:<br/>skills" --> P[(plugin)]
     CC -- "HTTP 127.0.0.1, access token" --> IDE["PowerRustCOBOL AI<br/>tool server"]
     CC -- "stdio, when the IDE is closed" --> R["rcrun mcp"]
     IDE --> PRJ["the project open<br/>in the IDE"]
@@ -14788,8 +14788,12 @@ open. The plugin carries:
   build it in; the application shell and moving between forms; layout and
   themes — which have the agent look at each screen with `render_form` and try
   it with `run_form` before going on;
-- a reviewer the agent runs before it calls a change done;
+- a review skill the agent runs before it calls a change done;
 - the connection to the PowerRustCOBOL **tool servers** (below).
+
+The skills and the connection are all it carries: no agents, no commands, no
+hooks. Everything else the agent does goes through the connection (see *Only
+through the connection*, below).
 
 The IDE installs it with Claude Code's own `claude plugin` commands — it never
 edits Claude Code's files — and says the result in the Output panel. If Claude
@@ -14810,7 +14814,7 @@ The agent works through tools served over MCP, by one of two servers:
 | Server | When the agent uses it |
 | --- | --- |
 | `powerrustcobol-ide` | While PowerRustCOBOL AI is running. It serves the project open in the IDE, over HTTP on `127.0.0.1` (port **5720** by default), and admits only requests that carry the IDE's **access token**. |
-| `powerrustcobol` | When the IDE is closed. Claude Code starts `rcrun mcp` itself, so `rcrun` must be beside the IDE or on your `PATH`. It serves the project in the folder Claude Code was started in — or in a folder above it, so a session started in `forms/` works too. |
+| `powerrustcobol` | When the IDE is closed. Claude Code starts `rcrun mcp` itself, so `rcrun` must be beside the IDE or on your `PATH`. It serves the project in the folder Claude Code was started in — or in a folder above it, so a session started in `forms/` works too. If the IDE is running with that same project open, `rcrun` hands every call to the IDE, so the agent never writes behind the IDE's back. |
 
 Both servers tell the agent, as soon as it connects, how a PowerRustCOBOL
 application is put together, where to look for each kind of question, and the
@@ -14820,7 +14824,7 @@ control with its properties, methods and events, every built-in, and the
 is not there does not exist for the agent.
 
 **The golden rules.** Every application an agent builds follows the same
-rules, which the servers give it on connecting and its reviewer checks:
+rules, which the servers give it on connecting and its review skill checks:
 
 1. **Responsive** — every form adapts to any screen resolution and form factor.
 2. **Spatial** — the IDE and the forms wear the Spatial theme.
@@ -14926,6 +14930,45 @@ The tools the agent has are these:
 - **`open_project`** — opens an existing project, as **File ▸ Open Project**
   does.
 
+#### Only through the connection
+
+The agent reaches your project, and the IDE, **only through these tools** —
+never through its own file, edit, search or shell tools, and never through
+another program. The servers tell it so on connecting, and the skills use
+nothing else. When no tool does what it needs, it writes a gap report
+(`write_gap_report`) instead of finding another way.
+
+So the tools cover what the IDE offers you:
+
+| What you would use | The tools |
+| --- | --- |
+| Files and folders of the project | `read_file`, `list_folder`, `search_files`, `write_file`, `edit_file`, `rename_file`, `remove_file`, `import_file` — inside the project folder only; a file you hold unsaved in the IDE is refused |
+| Version control | `git` — status, diff, log, add, commit, branch, and the rest of the everyday commands |
+| The Form Designer | `apply_change_set` — every designer operation, plus deleting and renaming a control, applied whole or not at all; a form open in a designer shows the change at once and **Undo** takes it back in one step |
+| The Indexed File Editor | `edit_indexed` — the record as its text view writes it, the keys by field name, the file's properties; a **Finalized** file keeps its schema unless you agree to change it, and the stored data is never deleted |
+| Project Settings and SQL Connections | `project_settings`, `set_project_settings`, `sql_connections`, `set_sql_connection`, `remove_sql_connection`, `test_sql_connection` — a password or a key goes to the IDE's secret store and is never answered back |
+| Save, package, upgrade | `save_project`, `package_project`, `upgrade_project` |
+| Run, the Backend, the Web Preview, a device | `run_project`, `run_status`, `stop_run`, `start_backend`, `backend_status`, `stop_backend`, `start_web_preview`, `run_mobile`, `create_android_studio_project` |
+| The debugger | `debug_start`, `debug_breakpoints`, `debug_control` (continue, pause, step over, into or out, stop), `debug_state` |
+| Output, problems, Beautify | `read_output`, `read_diagnostics`, `beautify` |
+| The Knowledge Bases | `project_kb_search`, `project_kb_reindex`, `app_kb_search` (your application's `assets/KB`), `kb_lookup`, `kb_search` |
+| An indexed file's records | `indexed_records` — list, find, add, update, delete, as the record grid does |
+| IDE-wide settings | `ide_settings`, `set_ide_settings` — language, Debug Settings, Build Folder, Platform SDK location; never the tool server's port or token |
+| The IDE window | `ide_state` (tabs, designers, selection, panels), `ide_picture`, `ide_command` (open, activate or close a tab, go to a line, select controls, pick a layer, show or hide a panel, a menu entry), `ide_widget` (for anything else, by the widget's label) |
+
+The tools that need the IDE answer only while it runs; through `rcrun` they
+say to open it. Nothing the agent does through them discards your unsaved
+work: closing a tab, quitting, or a dialog button that would throw changes
+away is refused until you save. Grace and the IDE's own AI agents are not
+reached through the connection, and there is no run on the iOS simulator yet.
+
+**A file changed outside the connection is reported.** While the agent is
+connected, the IDE watches your forms, indexed definitions and COBOL sources.
+If one changes on disk between tool calls and neither a tool nor the IDE
+wrote it, the Output panel says so, and the agent's next answer names the
+file and tells it to read the file again and to make every change through the
+tools.
+
 Every answer names the project it acted on, and a call meant for another
 project than the open one is refused with both names. `create_project` and
 `open_project` are refused while the IDE has unsaved changes — they name each
@@ -14956,16 +14999,17 @@ connected*. The balloon speaks the IDE's language.
 
 | What Claude called | The balloon says |
 | --- | --- |
-| `list_files`, `describe` | Claude is reading the project |
-| `kb_lookup`, `kb_search` | Claude is reading the reference |
-| `check`, `validate` | Claude is checking the code |
+| `list_files`, `describe`, `read_file`, `list_folder`, `search_files`, and the tools that read a setting, a status or a panel | Claude is reading the project |
+| `kb_lookup`, `kb_search`, `app_kb_search`, `project_kb_search` | Claude is reading the reference |
+| `check`, `validate`, `test_sql_connection` | Claude is checking the code |
 | `regenerate` | Claude is generating COBOL |
-| `build` | Claude is building the application |
-| `render_form` | Claude is looking at a form |
-| `run_form` | Claude is running a form |
-| `set_definition`, `add_to_project`, `add_crate`, `remove_crate`, `add_powerchat` | Claude is changing the project |
+| `build`, `start_web_preview` | Claude is building the application |
+| `render_form`, `ide_picture` | Claude is looking at a form |
+| `run_form`, `run_project`, `run_mobile`, `start_backend`, `debug_start`, `debug_control` | Claude is running a form |
+| the tools that write a file, a form, an indexed definition, a setting or a record | Claude is changing the project |
 | `create_project` | Claude is creating a project |
 | `open_project` | Claude is opening a project |
+| any other tool | Claude is working |
 
 A tool that answers in a moment keeps its phrase in the balloon for two and a
 half seconds, so you can read it.

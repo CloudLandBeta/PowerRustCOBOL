@@ -194,6 +194,38 @@ pub trait ProjectHost: Send {
     fn open_project(&mut self, _path: &Path) -> Result<serde_json::Value, String> {
         Err("this host cannot open a project".to_owned())
     }
+
+    /// The project follows a rename or move of `from` to `to`, or its removal
+    /// (`to: None`): its manifest lists and, in the IDE, the open tabs (spec 084
+    /// R51, R52). The default edits the manifest; the IDE goes through its
+    /// project model, so it stays the only writer of its manifest.
+    fn relist(&mut self, from: &str, to: Option<&str>) -> Result<(), String> {
+        let root = self.project().map_err(|e| e.message().to_owned())?;
+        relist_in_manifest(root.manifest(), from, to).map(|_| ())
+    }
+
+    /// Run a tool that needs the running IDE (spec 084 Phase D, R45, R66): the
+    /// Form Designer, Project Settings, run and debug, the IDE's windows. The
+    /// IDE answers on its UI thread; a host without the IDE says so.
+    fn ide_tool(&mut self, name: &str, _args: &serde_json::Value) -> Result<serde_json::Value, String> {
+        Err(needs_ide(name))
+    }
+
+    /// Spec 084 R66 — a host that is not the IDE passes the call to the
+    /// running IDE when it has this project open, and answers with its answer;
+    /// `None` = serve it here.
+    fn forward_call(&mut self, _name: &str, _args: &serde_json::Value) -> Option<Result<serde_json::Value, String>> {
+        None
+    }
+}
+
+/// What a tool that needs the running IDE answers where the IDE is not
+/// running (spec 084 R66).
+pub fn needs_ide(name: &str) -> String {
+    format!(
+        "{name} needs PowerRustCOBOL AI running with this project open. Call open_project with the \
+         project's folder to start it, then call {name} again."
+    )
 }
 
 // ── HeadlessHost (rcrun mcp) ────────────────────────────────────────────────
@@ -207,6 +239,9 @@ pub struct HeadlessHost {
     /// `rcrun` uses it to open the project in PowerRustCOBOL AI (spec 084
     /// R20a).
     on_switch: Option<Box<dyn Fn(&Path) -> String + Send>>,
+    /// Where the running IDE serves its tools, when `rcrun` was told (spec 084
+    /// R66): the tools only the IDE answers are handed to it.
+    ide: Option<crate::forward::IdeAddress>,
 }
 
 impl HeadlessHost {
@@ -218,7 +253,14 @@ impl HeadlessHost {
             start: manifest_or_dir.into(),
             version: version.into(),
             on_switch: None,
+            ide: None,
         }
+    }
+
+    /// Hand the tools only the IDE answers to the IDE at `at` (spec 084 R66).
+    pub fn forward_to(mut self, at: Option<crate::forward::IdeAddress>) -> Self {
+        self.ide = at;
+        self
     }
 }
 
@@ -282,6 +324,38 @@ impl ProjectHost for HeadlessHost {
     fn version(&self) -> String {
         self.version.clone()
     }
+
+    /// The IDE's own tools go to the running IDE when it has this project
+    /// open (spec 084 R66); otherwise the answer says to open it.
+    fn ide_tool(&mut self, name: &str, args: &serde_json::Value) -> Result<serde_json::Value, String> {
+        let Some(at) = &self.ide else {
+            return Err(needs_ide(name));
+        };
+        let manifest = self.project().ok().map(|r| r.manifest().to_path_buf());
+        let free = crate::tools::ide::project_free(name);
+        match crate::forward::call_ide(at, name, args, manifest.as_deref(), free) {
+            Ok(v) => Ok(v),
+            Err(crate::forward::ForwardError::NotRunning) => Err(needs_ide(name)),
+            Err(crate::forward::ForwardError::OtherProject(why) | crate::forward::ForwardError::Answer(why)) => Err(why),
+        }
+    }
+
+    /// Every call goes to the running IDE when it has this project open, so
+    /// the IDE stays the only writer and sees every call (R66). Creating and
+    /// opening a project stay here: they choose which project that is.
+    fn forward_call(&mut self, name: &str, args: &serde_json::Value) -> Option<Result<serde_json::Value, String>> {
+        let at = self.ide.as_ref()?;
+        if matches!(name, "create_project" | "open_project") {
+            return None;
+        }
+        let manifest = self.project().ok().map(|r| r.manifest().to_path_buf());
+        let free = crate::tools::ide::project_free(name) || matches!(name, "kb_lookup" | "kb_search");
+        match crate::forward::call_ide(at, name, args, manifest.as_deref(), free) {
+            Ok(v) => Some(Ok(v)),
+            Err(crate::forward::ForwardError::NotRunning | crate::forward::ForwardError::OtherProject(_)) => None,
+            Err(crate::forward::ForwardError::Answer(why)) => Some(Err(why)),
+        }
+    }
 }
 
 /// Add `rel` to `[files] <list>` of the manifest at `manifest` (deduplicated,
@@ -333,7 +407,73 @@ pub fn record_in_manifest(manifest: &Path, rel: &str, list: FileList) -> Result<
         }
     }
 
-    // The re-seal: what an IDE save restates on every save.
+    changed |= reseal(&mut doc, manifest)?;
+    if !changed {
+        return Ok(());
+    }
+    std::fs::write(manifest, doc.to_string())
+        .map_err(|e| format!("the project file cannot be written ({e})"))
+}
+
+/// Follow a rename or move of `from` to `to` — or its removal, `to: None` —
+/// in every `[files]` list of the manifest at `manifest`, and re-seal (spec
+/// 084 R51, R52). `from` may be a file or a folder: every entry under a folder
+/// follows it. Only the keys the tools own are touched, as in
+/// [`record_in_manifest`]. Answers whether the manifest named it.
+pub fn relist_in_manifest(manifest: &Path, from: &str, to: Option<&str>) -> Result<bool, String> {
+    use toml_edit::DocumentMut;
+
+    let text = std::fs::read_to_string(manifest)
+        .map_err(|e| format!("the project file cannot be read ({e})"))?;
+    let mut doc: DocumentMut = text
+        .parse()
+        .map_err(|e| format!("the project file cannot be parsed ({e})"))?;
+    let from = from.replace('\\', "/").trim_end_matches('/').to_owned();
+    let to = to.map(|t| t.replace('\\', "/").trim_end_matches('/').to_owned());
+    let under = format!("{from}/");
+    let mut named = false;
+    if let Some(files) = doc.get_mut("files").and_then(|f| f.as_table_like_mut()) {
+        let keys: Vec<String> = files.iter().map(|(k, _)| k.to_owned()).collect();
+        for key in keys {
+            let Some(list) = files.get_mut(&key).and_then(|i| i.as_array_mut()) else { continue };
+            let old: Vec<String> = list.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect();
+            if !old.iter().any(|e| *e == from || e.starts_with(&under)) {
+                continue;
+            }
+            named = true;
+            let mut new = toml_edit::Array::new();
+            for entry in old {
+                let moved = if entry == from {
+                    to.clone()
+                } else if let Some(rest) = entry.strip_prefix(&under) {
+                    to.as_ref().map(|t| format!("{t}/{rest}"))
+                } else {
+                    Some(entry)
+                };
+                if let Some(m) = moved {
+                    if !new.iter().any(|v| v.as_str() == Some(m.as_str())) {
+                        new.push(m);
+                    }
+                }
+            }
+            *list = new;
+        }
+    }
+    if !named {
+        return Ok(false);
+    }
+    reseal(&mut doc, manifest)?;
+    std::fs::write(manifest, doc.to_string())
+        .map_err(|e| format!("the project file cannot be written ({e})"))?;
+    Ok(true)
+}
+
+/// The re-seal: what an IDE save restates on every save — `[forms] main-form`
+/// and `main-form-seal` for the forms the manifest now lists. Answers whether
+/// it changed anything.
+fn reseal(doc: &mut toml_edit::DocumentMut, manifest: &Path) -> Result<bool, String> {
+    use toml_edit::{value, Item, Table};
+    let mut changed = false;
     let forms: Vec<String> = doc
         .get("files")
         .and_then(|f| f.get("forms"))
@@ -385,12 +525,7 @@ pub fn record_in_manifest(manifest: &Path, rel: &str, list: FileList) -> Result<
             changed = true;
         }
     }
-
-    if !changed {
-        return Ok(());
-    }
-    std::fs::write(manifest, doc.to_string())
-        .map_err(|e| format!("the project file cannot be written ({e})"))
+    Ok(changed)
 }
 
 /// One `[[crates]]` entry as a pin (spec 044 R8); `None` for a table that

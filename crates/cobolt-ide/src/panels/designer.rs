@@ -1115,6 +1115,16 @@ impl AnimState {
 /// why Run Form showed no animation at all).
 pub(crate) use cobolt_forms::anim::anim_transform;
 
+/// One operation of a change set sent over MCP (spec 084 R56): the designer's
+/// own agent operations, plus the two the Form Designer offers by hand that
+/// they lack — deleting and renaming a control.
+#[derive(Debug, Clone)]
+pub enum McpStep {
+    Op(crate::agent::AgentOp),
+    Delete(String),
+    Rename { from: String, to: String },
+}
+
 // ── Undo / Redo command ───────────────────────────────────────────────────────
 
 #[derive(Clone)]
@@ -5716,6 +5726,99 @@ impl DesignerPanel {
         let edits = restore_track(&view, &record)?;
         self.commit_grid_edit(edits, None, Some((at, record)));
         Ok(())
+    }
+
+    /// Spec 084 R56, R57 — a change set sent over MCP: the designer's own
+    /// operations plus deleting and renaming controls, applied whole or not at
+    /// all, as ONE undo step. `Ok` carries the designer's account of what it
+    /// did; `Err` names the first operation refused (0-based), and the form,
+    /// its history and its selection are exactly as they were.
+    pub fn apply_mcp_change_set(&mut self, steps: &[McpStep]) -> Result<String, String> {
+        let form_before = self.form.clone();
+        let undo_len = self.undo_stack.len();
+        let redo_before = self.redo_stack.clone();
+        let dirty_before = self.dirty;
+        let selected_before = self.selected_ids.clone();
+        let mut account: Vec<String> = Vec::new();
+        let mut refused: Option<String> = None;
+        let mut i = 0;
+        while i < steps.len() && refused.is_none() {
+            match &steps[i] {
+                McpStep::Op(_) => {
+                    // A run of the designer's own operations: one change set.
+                    let start = i;
+                    let mut ops = Vec::new();
+                    while let Some(McpStep::Op(op)) = steps.get(i) {
+                        ops.push(op.clone());
+                        i += 1;
+                    }
+                    let cs = crate::agent::AgentChangeSet { operations: ops, note: None };
+                    let (mut status, _) = crate::agent::validate_planned(&cs, &self.form);
+                    let _ = self.plan_menu_item_ops(&cs, &mut status);
+                    if let Some((k, Some(why))) = status.iter().enumerate().find(|(_, e)| e.is_some()) {
+                        refused = Some(format!("operation {} ({}) is refused: {why}", start + k, crate::agent::op_headline(&cs.operations[k])));
+                        break;
+                    }
+                    self.apply_agent_change_set(&cs);
+                    if !self.last_change_outcome.trim().is_empty() {
+                        account.push(self.last_change_outcome.clone());
+                    }
+                }
+                McpStep::Delete(id) => {
+                    let Some(found) = self.form.controls.iter().find(|c| c.id.eq_ignore_ascii_case(id)).map(|c| c.id.clone()) else {
+                        refused = Some(format!("operation {i} (delete_control {id}) is refused: the form has no control {id}"));
+                        break;
+                    };
+                    let ids = self.cascade_ids_for(std::slice::from_ref(&found));
+                    let events = self.delete_event_count(&ids);
+                    self.delete_ids_now(&ids);
+                    account.push(format!(
+                        "deleted {} (with {} control(s) inside it and {events} event handler(s); Undo in the designer brings them back)",
+                        found,
+                        ids.len().saturating_sub(1)
+                    ));
+                    i += 1;
+                }
+                McpStep::Rename { from, to } => {
+                    let word = !to.is_empty()
+                        && !to.starts_with('-')
+                        && !to.ends_with('-')
+                        && to.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+                    let taken = self.form.controls.iter().any(|c| c.id.eq_ignore_ascii_case(to));
+                    if !word || taken || !self.rename_control(from, to) {
+                        refused = Some(format!(
+                            "operation {i} (rename_control {from} → {to}) is refused: {}",
+                            if !word {
+                                "the new id is not a COBOL word"
+                            } else if taken {
+                                "a control already has that id"
+                            } else {
+                                "the form has no control with that id"
+                            }
+                        ));
+                        break;
+                    }
+                    account.push(format!("renamed {from} to {to}"));
+                    i += 1;
+                }
+            }
+        }
+        if let Some(why) = refused {
+            self.form = form_before;
+            self.undo_stack.truncate(undo_len);
+            self.redo_stack = redo_before;
+            self.dirty = dirty_before;
+            self.selected_ids = selected_before;
+            self.move_anims.clear();
+            self.spawn_anims.clear();
+            return Err(why);
+        }
+        // One change set, one undo step.
+        let cmds: Vec<Cmd> = self.undo_stack.drain(undo_len..).collect();
+        if !cmds.is_empty() {
+            self.undo_stack.push(Cmd::Batch { cmds });
+        }
+        Ok(account.join("\n"))
     }
 
     pub fn rename_control(&mut self, old: &str, new: &str) -> bool {
@@ -28393,3 +28496,54 @@ mod anim_preview;
 #[cfg(test)]
 #[path = "designer_textbox_caption_tests.rs"]
 mod textbox_caption;
+
+// Spec 084 R56/R57: an MCP change set applies whole or not at all, and a
+// designer undoes it in one step.
+#[cfg(test)]
+mod mcp_change_set_tests {
+    use super::*;
+    use crate::agent::AgentOp;
+
+    fn designer() -> DesignerPanel {
+        let mut d = DesignerPanel::new(Form::new("F", "F", 640, 480));
+        d.form.controls.push(Control::new("A", ControlType::Button, 10, 10));
+        d
+    }
+
+    fn set_x(id: &str, x: i64) -> McpStep {
+        McpStep::Op(AgentOp::SetProperty { control_id: id.into(), key: "X".into(), value: serde_json::json!(x) })
+    }
+
+    #[test]
+    fn a_refused_step_leaves_the_form_and_the_undo_history_as_they_were() {
+        let mut d = designer();
+        let before = cobolt_forms::form_to_string(&d.form).unwrap();
+        let undo_before = d.undo_stack.len();
+        let err = d
+            .apply_mcp_change_set(&[set_x("A", 100), McpStep::Delete("NOPE".into())])
+            .unwrap_err();
+        assert!(err.contains("operation 1") && err.contains("NOPE"), "names the refused step: {err}");
+        assert_eq!(cobolt_forms::form_to_string(&d.form).unwrap(), before, "nothing changed");
+        assert_eq!(d.undo_stack.len(), undo_before, "no undo step left behind");
+        assert!(!d.dirty);
+
+        let err = d
+            .apply_mcp_change_set(&[set_x("A", 100), McpStep::Rename { from: "A".into(), to: "BAD_ID".into() }])
+            .unwrap_err();
+        assert!(err.contains("not a COBOL word"), "{err}");
+        assert_eq!(cobolt_forms::form_to_string(&d.form).unwrap(), before);
+    }
+
+    #[test]
+    fn an_applied_change_set_is_one_undo_step() {
+        let mut d = designer();
+        let before = cobolt_forms::form_to_string(&d.form).unwrap();
+        let undo_before = d.undo_stack.len();
+        d.apply_mcp_change_set(&[set_x("A", 100), McpStep::Rename { from: "A".into(), to: "B".into() }])
+            .expect("applies");
+        assert!(d.form.controls.iter().any(|c| c.id == "B"));
+        assert_eq!(d.undo_stack.len(), undo_before + 1, "one step for the whole set");
+        d.undo();
+        assert_eq!(cobolt_forms::form_to_string(&d.form).unwrap(), before, "one undo takes it all back");
+    }
+}

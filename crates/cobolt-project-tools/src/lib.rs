@@ -33,6 +33,8 @@ pub mod create;
 /// IDE's Project's Crates dialog and the `add_crate` / `remove_crate` tools.
 pub mod external_crates;
 pub mod fonts;
+/// `rcrun mcp` hands the tools only the IDE answers to the running IDE (spec 084 R66).
+pub mod forward;
 pub mod gen_paths;
 pub mod host;
 pub mod http;
