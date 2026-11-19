@@ -48,6 +48,7 @@ pub mod codec;
 pub mod deskio;
 pub mod disp;
 pub mod edited;
+pub mod exc;
 pub mod fd;
 pub mod gfx;
 pub mod file;

@@ -67,6 +67,15 @@ pub(crate) struct Para<'a> {
 pub(crate) struct LoopCtx {
     exit: BlockId,
     cycle: BlockId,
+    /// How many `TRY`s were open where the loop starts: `EXIT PERFORM` leaves the ones opened inside
+    /// it (T45).
+    tries: usize,
+}
+
+/// An open `TRY` being lowered (T45): its `FINALLY` block and the region slot that holds the block
+/// the `FINALLY` goes on to, when it has one.
+pub(crate) struct TryCtx {
+    pub(crate) finally: Option<(BlockId, u32)>,
 }
 
 /// A file of the program, as the conformance routines see it.
@@ -270,6 +279,13 @@ pub struct Lower<'a, 'b> {
     pub(crate) entries: Vec<BlockId>,
     pub(crate) ends: Vec<BlockId>,
     pub(crate) loops: Vec<LoopCtx>,
+    /// The `TRY`s open around the statement being lowered, innermost last (T45).
+    pub(crate) tries: Vec<TryCtx>,
+    /// Some `TRY` of the module has a `FINALLY`: the statements that leave a `TRY` where the
+    /// generator cannot see run it on the way (`lower_try`).
+    pub(crate) has_finally: bool,
+    /// The region slot a `TRY`'s landing reads (`Lower::resume_slot`), made when first needed.
+    pub(crate) try_resume: Option<u32>,
     pub(crate) cur_para: usize,
     pub(crate) next_sentence: Option<BlockId>,
     /// Where control goes when the last paragraph falls off its end.
@@ -568,6 +584,9 @@ impl<'a, 'b> Lower<'a, 'b> {
             entries: Vec::new(),
             ends: Vec::new(),
             loops: Vec::new(),
+            tries: Vec::new(),
+            has_finally: false,
+            try_resume: None,
             cur_para: 0,
             next_sentence: None,
             program_end: 0,
@@ -626,6 +645,18 @@ impl<'a, 'b> Lower<'a, 'b> {
         for (u, (p, _)) in order.iter().enumerate() {
             l.enter_unit(u, p);
             l.flatten()?;
+            // A FINALLY anywhere in the module: the exits the generator cannot see run it (T45).
+            if !l.has_finally {
+                l.has_finally = l.paras.iter().flat_map(|p| p.stmts).any(|s| {
+                    let mut f = false;
+                    s.walk(&mut |x| {
+                        if let Stmt::TryCatch { finally_stmts, .. } = x {
+                            f |= !finally_stmts.is_empty();
+                        }
+                    });
+                    f
+                });
+            }
             l.build_files()?;
             l.file_tables[u] = l.files.iter().map(|(n, f)| (n.clone(), (*f, l.global_files.contains(n)))).collect();
             l.prescan()?;
@@ -717,6 +748,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.layout.set_scope(u as u32, scope);
         self.take_state();
         self.loops.clear();
+        self.tries.clear();
         self.cur_para = 0;
         self.next_sentence = None;
     }
@@ -842,6 +874,20 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.emit(Ins::Pc(me));
         self.raw(I::I32Eq);
         self.raw(I::BrIf(1));
+        if self.has_finally {
+            // An open TRY of this program: its FINALLY runs first, and the exit starts again.
+            psp(self);
+            self.raw(I::I32Load(wasm_encoder::MemArg { offset: 0, align: 2, memory_index: 0 }));
+            self.i32c(cobolt_wasm_rt::exc::TRY_MARK);
+            self.raw(I::I32Eq);
+            self.raw(I::If(wasm_encoder::BlockType::Empty));
+            let resume = self.resume_slot();
+            self.base();
+            self.emit(Ins::Pc(me));
+            self.raw(I::I32Store(wasm_encoder::MemArg { offset: resume as u64, align: 2, memory_index: 0 }));
+            self.raw(I::Br(2));
+            self.raw(I::End);
+        }
         self.raw(I::Br(0));
         self.raw(I::End);
         self.raw(I::End);
@@ -2371,6 +2417,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             Stmt::Perform { target, .. } => self.perform(target, line),
             Stmt::GoTo { target, section, .. } => {
                 if let Some(&slot) = self.alter_slots.get(&self.cur_para) {
+                    self.refuse_in_try(line, "GO TO")?;
                     // An altered GO TO: the destination is whatever the slot holds.
                     self.base();
                     self.raw(I::I32Load(wasm_encoder::MemArg { offset: slot as u64, align: 2, memory_index: 0 }));
@@ -2379,7 +2426,8 @@ impl<'a, 'b> Lower<'a, 'b> {
                     return Ok(());
                 }
                 let t = self.goto_target(target, section.as_deref(), line)?;
-                self.jump(self.entries[t]);
+                let entry = self.entries[t];
+                self.escape(self.tries.len(), entry);
                 Ok(())
             }
             Stmt::Alter { from, to, .. } => self.alter_(from, to, line),
@@ -2401,7 +2449,10 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.corresponding(2, from, to, *rounded, on_size_error, not_on_size_error, line)
             }
             Stmt::Initialize { items, replacing, .. } => self.initialize_(items, replacing, line),
-            Stmt::GoToDepending { targets, depending, .. } => self.go_to_depending(targets, depending, line),
+            Stmt::GoToDepending { targets, depending, .. } => {
+                self.refuse_in_try(line, "GO TO DEPENDING ON")?;
+                self.go_to_depending(targets, depending, line)
+            }
             Stmt::Open { mode, files, extra_modes, .. } => {
                 self.open_(*mode, files, line)?;
                 for (m, fs) in extra_modes {
@@ -2416,6 +2467,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             Stmt::Continue { .. } | Stmt::SentenceEnd { .. } => Ok(()),
             Stmt::Exit { kind, .. } => self.exit(*kind, line),
             Stmt::NextSentence { .. } => {
+                self.refuse_in_try(line, "NEXT SENTENCE")?;
                 match self.next_sentence {
                     Some(b) => self.jump(b),
                     None => return self.err(line, "NEXT SENTENCE outside a sentence"),
@@ -2425,6 +2477,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             Stmt::Display { operands, upon, no_advancing, .. } => self.display(operands, upon.as_deref(), *no_advancing, line),
             Stmt::Stop { run, .. } => {
                 let _ = run;
+                self.leave_open_tries_first();
                 self.call_rt("rt_flush");
                 self.emit(Ins::RunEnd);
                 self.i32c(ret::STOP);
@@ -2432,6 +2485,10 @@ impl<'a, 'b> Lower<'a, 'b> {
                 Ok(())
             }
             Stmt::GoBack { .. } => self.exit_program(),
+            Stmt::TryCatch { try_stmts, exception_var, catch_stmts, finally_stmts, .. } => {
+                self.try_catch(try_stmts, exception_var.as_deref(), catch_stmts, finally_stmts, line)
+            }
+            Stmt::Throw { message, .. } => self.throw_(message, line),
             Stmt::Call { program, using, returning, on_exception, not_on_exception, convention: cobolt_ast::stmt::CallConvention::WebSocket, .. } => {
                 self.remote_call(program, using, returning.as_ref(), on_exception, not_on_exception, line)
             }
@@ -2493,6 +2550,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// main program ends the run.
     pub(crate) fn exit_program(&mut self) -> GenResult<()> {
         if self.cur_unit == 0 {
+            self.leave_open_tries_first();
             self.call_rt("rt_flush");
             self.emit(Ins::RunEnd);
             self.i32c(ret::DONE);
@@ -2510,23 +2568,23 @@ impl<'a, 'b> Lower<'a, 'b> {
             ExitKind::Program => self.exit_program(),
             ExitKind::Perform => match self.loops.last() {
                 Some(l) => {
-                    let x = l.exit;
-                    self.jump(x);
+                    let (x, n) = (l.exit, self.tries.len() - l.tries);
+                    self.escape(n, x);
                     Ok(())
                 }
                 None => self.err(line, "EXIT PERFORM outside an inline PERFORM"),
             },
             ExitKind::PerformCycle => match self.loops.last() {
                 Some(l) => {
-                    let c = l.cycle;
-                    self.jump(c);
+                    let (c, n) = (l.cycle, self.tries.len() - l.tries);
+                    self.escape(n, c);
                     Ok(())
                 }
                 None => self.err(line, "EXIT PERFORM CYCLE outside an inline PERFORM"),
             },
             ExitKind::Paragraph => {
                 let e = self.ends[self.cur_para];
-                self.jump(e);
+                self.escape(self.tries.len(), e);
                 Ok(())
             }
             ExitKind::Section => {
@@ -2535,7 +2593,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                     None => self.cur_para,
                 };
                 let e = self.ends[last];
-                self.jump(e);
+                self.escape(self.tries.len(), e);
                 Ok(())
             }
         }
@@ -3254,7 +3312,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             PerformTarget::Inline { stmts } => {
                 // Plain inline PERFORM: the statements once, with EXIT PERFORM.
                 let join = self.new_block("end-perform");
-                self.loops.push(LoopCtx { exit: join, cycle: join });
+                self.loops.push(LoopCtx { exit: join, cycle: join, tries: self.tries.len() });
                 self.stmts(stmts)?;
                 self.loops.pop();
                 if self.cur.is_some() {
@@ -3311,7 +3369,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.branch(body, exit);
         self.begin(body);
         let step = self.new_block("times-step");
-        self.loops.push(LoopCtx { exit, cycle: step });
+        self.loops.push(LoopCtx { exit, cycle: step, tries: self.tries.len() });
         self.stmts(stmts)?;
         self.loops.pop();
         if self.cur.is_some() {
@@ -3342,7 +3400,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.cond(cond)?;
             self.branch(exit, body);
             self.begin(body);
-            self.loops.push(LoopCtx { exit, cycle: head });
+            self.loops.push(LoopCtx { exit, cycle: head, tries: self.tries.len() });
             self.stmts(stmts)?;
             self.loops.pop();
             if self.cur.is_some() {
@@ -3356,7 +3414,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.cond(cond)?;
             self.branch(exit, body);
             self.begin(body);
-            self.loops.push(LoopCtx { exit, cycle: head });
+            self.loops.push(LoopCtx { exit, cycle: head, tries: self.tries.len() });
             self.stmts(stmts)?;
             self.loops.pop();
             if self.cur.is_some() {
@@ -3468,7 +3526,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
             self.begin(body_b);
             let cycle = self.new_block("varying-step");
-            self.loops.push(LoopCtx { exit, cycle });
+            self.loops.push(LoopCtx { exit, cycle, tries: self.tries.len() });
             self.stmts(stmts)?;
             self.loops.pop();
             if self.cur.is_some() {
@@ -3491,7 +3549,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.jump(body_b);
             self.begin(body_b);
             let cycle = self.new_block("varying-after");
-            self.loops.push(LoopCtx { exit, cycle });
+            self.loops.push(LoopCtx { exit, cycle, tries: self.tries.len() });
             self.stmts(stmts)?;
             self.loops.pop();
             if self.cur.is_some() {

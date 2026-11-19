@@ -45,7 +45,6 @@ pub const D_FORMS: &str = "a program with no form has no controls or application
 /// SQL (M4): T43 relabelled them.
 const D_BINDING: &str = "the Data Binding built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module yet (DESKTOP-WASM-001 M5)";
-const D_EXCEPTIONS: &str = "TRY, CATCH, FINALLY and THROW are not compiled into a module yet (DESKTOP-WASM-001 M5)";
 const D_CONTROLS: &str = "the non-visual controls, the keys and the model lists are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_MEDIA: &str = "animation sequences and layouts are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_PHONE: &str = "the phone's secure storage is a Mobile built-in, where a desktop program stops; that stop is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
@@ -428,8 +427,8 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("STRING", Support::Module, Native::Module),
     ("SUBTRACT", Support::Module, Native::Module),
     ("SUBTRACT CORRESPONDING", Support::Module, Native::Module),
-    ("THROW", Support::Module, Native::Cargo(D_EXCEPTIONS)),
-    ("TRY", Support::Module, Native::Cargo(D_EXCEPTIONS)),
+    ("THROW", Support::Module, Native::Module),
+    ("TRY", Support::Module, Native::Module),
     ("UNLOCK", Support::BackendOnly(BACKEND_FILES), Native::Files),
     ("UNSTRING", Support::Module, Native::Module),
     ("WRITE", Support::MemoryFiles(DISK_FILES), Native::Files),

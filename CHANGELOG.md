@@ -2,6 +2,37 @@
 
 
 
+## 2.0.614 — 2026-11-19
+
+**Feature: `TRY … CATCH … FINALLY … END-TRY` and `THROW` are computed in a WebAssembly module (DESKTOP-WASM-001 T45a, M5).** Before this, every generator refused them ("TRY is not yet supported by the WebAssembly generator"): a desktop program that used RustCOBOL's exceptions took the Cargo path, and a web or mobile form could not use them at all. Now a module runs them as the interpreter does:
+- **Every `TRY` takes a `THROW`,** with a `CATCH` clause or without one. The `CATCH` item receives the text as an alphanumeric `MOVE` puts it there: cut or padded, `JUSTIFIED RIGHT` honoured, a group's fields filled.
+- **`FINALLY` runs** after the body, or after `CATCH` when `CATCH` ends normally. It does not run when `CATCH` itself throws or leaves; the interpreter skips it then too.
+- **A `THROW` reaches the nearest open `TRY`** through `PERFORM`ed paragraphs and `CALL`ed programs: the frames between are dropped, and later `PERFORM`s still return.
+- **Leaving a `TRY` runs its `FINALLY` on the way,** innermost first: `GO TO`, `EXIT PARAGRAPH`, `EXIT SECTION`, `EXIT PERFORM [CYCLE]`, `STOP RUN`, `GOBACK` and `EXIT PROGRAM` (a called program's too).
+- **A `THROW` nobody catches** ends the run with run-time error 1112. Its text is the interpreter's: `unhandled exception: ` and the message (ABI amendment A47). A form's `onUnhandledException` receives it in `LastException`, as it does from the interpreter.
+- **What stays on the Cargo path, named at its line:**
+  - a `THROW` of a number, or of anything but alphanumeric text;
+  - a `CATCH` item that is not alphanumeric or a group;
+  - inside a `TRY`, a jump whose destination only the run knows: an altered `GO TO`, `GO TO … DEPENDING ON`, `NEXT SENTENCE`.
+- **How:**
+  - a `TRY` pushes a frame on the module's `PERFORM` stack, marked as a `TRY`'s, whose return word is its landing block; a `THROW` drops frames down to the nearest such frame;
+  - a module with no `FINALLY` anywhere has exactly the code it had before; a program with neither statement gets no new code (its module is 28 bytes larger, from the routines' state, below);
+  - `FINALLY` is lowered once, and every way into it first stores the block it goes on to.
+- **Where:**
+  - `cobolt-wasm`: `lower_try.rs` (new); `lower.rs` (the statement arms, `TryCtx`, `LoopCtx.tries`, the called program's exit); `support.rs` (Desktop column: `THROW` and `TRY` are now `Module`).
+  - `cobolt-wasm-rt`: `exc.rs` (new: `rt_throw_set`, `rt_throw_uncaught`, `rt_catch_bind`); `state.rs` (error 112, the message in flight). `assets/rt.wasm` is rebuilt.
+  - `specs/WASM-ABI-v1.md` A47; `specs/WASM-PARITY.md` #58 closed, #77 to #79 recorded (#79, found while measuring, is the interpreter's: it drops a sender's trailing spaces before a `JUSTIFIED RIGHT` store, which COBOL-85 does not, and is left for the operator); `tasks.md` T45 notes.
+- **Measured** (macOS arm64):
+  - `cobolt-wasm` `native_exceptions` (new):
+    - 21 programs under the interpreter and as a module, each in three builds (desktop in both memory layouts, browser): 63 module runs, 204 DISPLAY lines and 3 run-time errors identical, 21 of 21. Interpreter 160.7 ms; compile 2,782 ms (23 modules/s); module runs 47.4 s.
+    - The cases: the text caught and cut, `JUSTIFIED RIGHT`, a group; no `CATCH` clause, no item; a `THROW` two `PERFORM`s deep, from an inner `CATCH`, from `FINALLY`, in `EVALUATE` in a loop caught 1,000 times with the stack level after; `GO TO`, `EXIT PARAGRAPH`, `EXIT PERFORM [CYCLE]` out of a `TRY`; `STOP RUN` and `GOBACK` through nested `TRY`s; a `THROW` from a `CALL`ed program, twice; `GOBACK` and `STOP RUN` in a `CALL`ed program; a `THROW` nobody catches.
+    - Refusals: 8 of 8 at their line (4 uses, desktop and browser).
+    - WASM-PARITY #77 measured: 4 of 4 checks.
+  - `cobolt-wasm`, `cobolt-wasm-rt` and `cobolt-wasm-abi`: 202 passed in 45 targets, the player fixture after it was re-recorded. T45b's `native_pointers` is not in this change.
+  - AC10 (`subset_table`): 136 entries; 34 in the module, 42 through the runner, 13 in a form's program, 47 on the Cargo path; 8 of 8 fixed points.
+  - AC16: `rt.wasm` grew by 514 bytes (264,961 to 265,475): the three routines, linked only into a module that uses them. The two words of the message in flight make every module 28 bytes larger: each of the player's 8 generated fixtures, re-recorded. The PowerAnalyticsWeb pin matched 3 of 3 with the previous `rt.wasm` (the generator's change and the merge of 2.0.607 to 2.0.613 leave its module as it was), is re-recorded, and matches 3 of 3. No input of the shipped player's fingerprint changed, so the player is not rebuilt.
+  - The System KB is rebuilt (4,417 records); `prebuilt_chunked_kb_matches_the_published_documentation` passes.
+
 ## 2.0.613 — 2026-11-19
 
 **Feature: the MCP connection is the only channel between Claude Code and PowerRustCOBOL AI, and it reaches everything the IDE offers (spec 084 Phase D).** Before this, Claude Code worked on a project with its own file, edit and shell tools beside the 17 PowerRustCOBOL tools, so it wrote behind the IDE's back, and much of what a developer does in the IDE (the designer's delete and rename, Project Settings, SQL connections, running, debugging, the IDE's own windows) had no tool at all. Now the plugin that Configure Claude Code installs carries skills and the connection only, the servers tell the agent to work through the tools alone, and the tools cover the IDE.

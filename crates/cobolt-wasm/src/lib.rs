@@ -23,6 +23,7 @@ pub mod lower_more;
 pub mod lower_remote;
 pub mod lower_sql;
 pub mod lower_super;
+pub mod lower_try;
 pub mod pic;
 pub mod pool;
 pub mod module;

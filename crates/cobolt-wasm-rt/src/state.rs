@@ -131,6 +131,9 @@ pub mod err {
     /// answer over the 64 KiB answer region, or a value method's result over a
     /// character temporary. The error carries its own text (the byte counts).
     pub const TEXT_TOO_LARGE: u32 = 111;
+    /// A `THROW` that no `TRY` takes (DESKTOP-WASM-001 T45). The error carries its own text, the
+    /// interpreter's words: "unhandled exception: " and the message.
+    pub const UNHANDLED_EXCEPTION: u32 = 112;
 }
 
 pub struct State {
@@ -196,11 +199,14 @@ pub struct State {
     pub gfx_inst: u32,
     /// The blank slot (`WS_VOID`) the next element named outside its table takes.
     pub void_next: u32,
+    /// The message of the exception in flight (`THROW`, T45): where its text is, and how long.
+    pub exc_addr: u32,
+    pub exc_len: u32,
 }
 
 impl State {
     pub const fn new() -> State {
-        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, path_parts: false, ctemp_dynamic: 0, query_pending: false, query_failed: false, func_argc: u32::MAX, heap_base: 0, heap_end: 0, heap_rover: 0, json_path_len: 0, disp_len: 0, gfx_at: 0, gfx_cap: 0, gfx_len: 0, gfx_cmds: 0, gfx_ctrl: u32::MAX, gfx_inst: 0, void_next: 0 }
+        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, path_parts: false, ctemp_dynamic: 0, query_pending: false, query_failed: false, func_argc: u32::MAX, heap_base: 0, heap_end: 0, heap_rover: 0, json_path_len: 0, disp_len: 0, gfx_at: 0, gfx_cap: 0, gfx_len: 0, gfx_cmds: 0, gfx_ctrl: u32::MAX, gfx_inst: 0, void_next: 0, exc_addr: 0, exc_len: 0 }
     }
 }
 
