@@ -288,6 +288,9 @@ pub struct Lower<'a, 'b> {
     pub(crate) ptr_items: Vec<usize>,
     /// Where the program's table of addresses is, once a pointer statement needs it (T45b).
     pub(crate) ptr_area: Option<u32>,
+    /// The pointer statements `ptr_scan` refused, by unit and line: each is reported once, there,
+    /// and skipped when the statements are lowered.
+    pub(crate) ptr_refused: Vec<(usize, u32)>,
     /// The region slot a `TRY`'s landing reads (`Lower::resume_slot`), made when first needed.
     pub(crate) try_resume: Option<u32>,
     pub(crate) cur_para: usize,
@@ -592,6 +595,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             has_finally: false,
             ptr_items: Vec::new(),
             ptr_area: None,
+            ptr_refused: Vec::new(),
             try_resume: None,
             cur_para: 0,
             next_sentence: None,
@@ -2497,6 +2501,8 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.try_catch(try_stmts, exception_var.as_deref(), catch_stmts, finally_stmts, line)
             }
             Stmt::Throw { message, .. } => self.throw_(message, line),
+            // A pointer statement `ptr_scan` refused is reported there; the module is not made.
+            Stmt::SetPointer { .. } if self.native && self.ptr_refused.contains(&(self.cur_unit, line)) => Ok(()),
             Stmt::SetPointer { address_of, targets, source, .. } if self.native => self.set_pointer(address_of.as_ref(), targets, source, line),
             Stmt::Call { program, using, returning, on_exception, not_on_exception, convention: cobolt_ast::stmt::CallConvention::WebSocket, .. } => {
                 self.remote_call(program, using, returning.as_ref(), on_exception, not_on_exception, line)

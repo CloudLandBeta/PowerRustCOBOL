@@ -200,6 +200,47 @@ fn the_pointer_uses_a_module_does_not_compute_are_refused_at_their_line() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// A refused pointer statement is named with the program's other refusals, as every refusal the
+/// statements' lowering finds is: one run lists them all, and the Build names each. A pointer
+/// statement that keeps the rules is not refused for its neighbours.
+#[test]
+fn a_refused_pointer_is_named_with_the_programs_other_refusals() {
+    let src = program(
+        "01 WS-A PIC X(5).\n01 WS-N PIC 9(4).\n01 WS-T.\n   05 WS-E PIC X(2) OCCURS 3.\n01 WS-P USAGE POINTER.\n",
+        "01 LK-X PIC X(5).\n",
+        "    SET WS-N TO ADDRESS OF WS-A\n    SET WS-P TO ADDRESS OF WS-E (2)\n    SET WS-P TO ADDRESS OF WS-A\n\
+         EXEC RUST\n        println!(\"hi\");\n    END-EXEC.\n    DISPLAY WS-P\n",
+    );
+    let line_of = |needle: &str| src.lines().position(|l| l.contains(needle)).map(|i| i as u32 + 1).expect("the line is in the source");
+    let (receiver, element, kept, rust) =
+        (line_of("SET WS-N"), line_of("ADDRESS OF WS-E"), line_of("SET WS-P TO ADDRESS OF WS-A"), line_of("EXEC RUST"));
+    let t = Instant::now();
+    let refused: Vec<(u32, String)> = match compile_program(&common::parse(&src), &native(true)) {
+        Ok(_) => Vec::new(),
+        Err(e) => e.all().into_iter().map(|(l, m)| (l, m.to_string())).collect(),
+    };
+    let ms = t.elapsed().as_secs_f64() * 1000.0;
+    let at = |l: u32| refused.iter().filter(|(x, _)| *x == l).count();
+    let checks = [
+        ("the receiver that is not a pointer, once", at(receiver) == 1),
+        ("the element of a table, once", at(element) == 1),
+        ("EXEC RUST, after them", at(rust) == 1 && refused.last().is_some_and(|(l, _)| *l == rust)),
+        ("nothing at the pointer statement that keeps the rules", at(kept) == 0),
+        ("three refusals in all", refused.len() == 3),
+    ];
+    println!("== native_pointers: a refused pointer among the program's refusals (DESKTOP-WASM-001 T45b) ==");
+    println!("program: 2 refused SET, 1 SET that keeps the rules, 1 EXEC RUST; compiled in {ms:.1} ms");
+    for (l, m) in &refused {
+        println!("  line {l}: {m}");
+    }
+    for (what, ok) in &checks {
+        println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
+    }
+    let passed = checks.iter().filter(|(_, ok)| *ok).count();
+    println!("result: {passed} of {} checks passed", checks.len());
+    assert_eq!(passed, checks.len(), "{refused:#?}");
+}
+
 /// The two differences WASM-PARITY records for pointers (#80, #81), measured: a pointer no statement
 /// has given a value, and a LINKAGE item read after `SET ADDRESS OF … TO NULL`.
 #[test]

@@ -19,7 +19,8 @@
 //! described alike, when the LINKAGE item is an elementary record no other record redefines, and
 //! when the item whose address is taken is named whole (the interpreter numbers a table, not its
 //! element). The phase-A scan ([`Lower::ptr_scan`]) checks each `SET` against these rules before
-//! anything is lowered, and refuses the rest at its line, so the Build takes the Cargo path.
+//! anything is lowered, and refuses the rest at its line, so the Build takes the Cargo path. The
+//! scan reports every refusal with the program's others, as the statements' lowering does.
 
 use crate::error::{ErrorKind, GenResult};
 use crate::lower::Lower;
@@ -40,7 +41,9 @@ const D_PTR_SHAPE: &str = "in a WebAssembly module an item whose address a LINKA
 
 impl<'a, 'b> Lower<'a, 'b> {
     /// Phase A, every unit: check each pointer statement against the rules of this module, and
-    /// gather the items whose address the main program takes (they number the table).
+    /// gather the items whose address the main program takes (they number the table). A statement
+    /// that breaks a rule is reported at its line and skipped when the statements are lowered, and
+    /// the scan goes on, so one run names every refusal, the program's other constructs included.
     pub(crate) fn ptr_scan(&mut self, unit: usize) -> GenResult<()> {
         // A browser module refuses every pointer statement at the statement (`support`).
         if !self.native {
@@ -56,56 +59,89 @@ impl<'a, 'b> Lower<'a, 'b> {
                 });
             }
         }
-        let Some(first) = sets.first() else { return Ok(()) };
         if unit != 0 {
-            return self.err_kind(first.span().line, ErrorKind::Other, "SET", format!("SET (pointer): {D_PTR_UNIT}"));
+            for s in &sets {
+                let line = s.span().line;
+                let r = self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {D_PTR_UNIT}"));
+                self.ptr_record(line, r);
+            }
+            return Ok(());
         }
         // The LINKAGE items a pointer's value can point; the items whose address goes into a pointer.
         let mut bound: Vec<usize> = Vec::new();
         let mut taken_lines: Vec<u32> = Vec::new();
         for s in &sets {
             let Stmt::SetPointer { address_of, targets, source, span } = s else { continue };
-            let line = span.line;
-            match address_of {
-                Some(lk) => {
-                    let lk = self.ptr_based(lk, line)?;
-                    match source {
-                        PointerSource::Null => {}
-                        PointerSource::AddressOf(x) => {
-                            let x = self.ptr_taken(x, line)?;
-                            if !self.ptr_same_shape(lk, x) {
-                                return self.ptr_refuse(line, x, D_PTR_SHAPE);
-                            }
-                        }
-                        PointerSource::Pointer(p) => {
-                            self.ptr_pointer(p, line)?;
-                            bound.push(lk);
-                        }
-                    }
-                }
-                None => {
-                    for t in targets {
-                        self.ptr_pointer(t, line)?;
-                    }
-                    // `SET ptr TO NULL` and `SET ptr TO ptr-2` are parsed as `MOVE`s.
-                    let PointerSource::AddressOf(x) = source else {
-                        return self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {D_PTR_POINTER}"));
-                    };
-                    let x = self.ptr_taken(x, line)?;
-                    if !self.ptr_items.contains(&x) {
-                        self.ptr_items.push(x);
-                        taken_lines.push(line);
-                    }
-                }
-            }
+            let r = self.ptr_check(address_of.as_ref(), targets, source, span.line, &mut bound, &mut taken_lines);
+            self.ptr_record(span.line, r);
         }
         // Any address a pointer holds can reach any LINKAGE item a pointer is given to.
         for (n, &x) in self.ptr_items.clone().iter().enumerate() {
             if bound.iter().any(|&lk| !self.ptr_same_shape(lk, x)) {
-                return self.ptr_refuse(taken_lines[n], x, D_PTR_SHAPE);
+                let r = self.ptr_refuse(taken_lines[n], x, D_PTR_SHAPE);
+                self.ptr_record(taken_lines[n], r);
             }
         }
         Ok(())
+    }
+
+    /// One pointer statement against the rules (see [`Self::ptr_scan`]).
+    fn ptr_check(
+        &mut self,
+        address_of: Option<&Expr>,
+        targets: &[Expr],
+        source: &PointerSource,
+        line: u32,
+        bound: &mut Vec<usize>,
+        taken_lines: &mut Vec<u32>,
+    ) -> GenResult<()> {
+        match address_of {
+            Some(lk) => {
+                let lk = self.ptr_based(lk, line)?;
+                match source {
+                    PointerSource::Null => {}
+                    PointerSource::AddressOf(x) => {
+                        let x = self.ptr_taken(x, line)?;
+                        if !self.ptr_same_shape(lk, x) {
+                            return self.ptr_refuse(line, x, D_PTR_SHAPE);
+                        }
+                    }
+                    PointerSource::Pointer(p) => {
+                        self.ptr_pointer(p, line)?;
+                        bound.push(lk);
+                    }
+                }
+            }
+            None => {
+                for t in targets {
+                    self.ptr_pointer(t, line)?;
+                }
+                // `SET ptr TO NULL` and `SET ptr TO ptr-2` are parsed as `MOVE`s.
+                let PointerSource::AddressOf(x) = source else {
+                    return self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {D_PTR_POINTER}"));
+                };
+                let x = self.ptr_taken(x, line)?;
+                if !self.ptr_items.contains(&x) {
+                    self.ptr_items.push(x);
+                    taken_lines.push(line);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// A refused pointer statement: reported with the program's other refusals, and skipped when the
+    /// statements are lowered (the module is not made).
+    fn ptr_record(&mut self, line: u32, r: GenResult<()>) {
+        if let Err(mut e) = r {
+            if e.program.is_empty() {
+                e.program = self.units[self.cur_unit].name.clone();
+            }
+            self.diags.push(e);
+            if !self.ptr_refused.contains(&(self.cur_unit, line)) {
+                self.ptr_refused.push((self.cur_unit, line));
+            }
+        }
     }
 
     /// The statement: its rules were checked by [`Self::ptr_scan`].

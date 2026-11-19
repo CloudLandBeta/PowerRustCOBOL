@@ -2,6 +2,16 @@
 
 
 
+## 2.0.620 — 2026-11-19
+
+**Feature: a desktop Build on the WebAssembly path names a refused pointer statement together with the program's other refusals (DESKTOP-WASM-001 T45b, completed).** Since 2.0.615 a desktop module checks each `SET` of a pointer before anything else is lowered. A `SET` that breaks a rule ended the check, so the Build named only that one reason for the Cargo path and hid the program's others. The check now reports each refused `SET` at its line, once, and goes on. The statements' own refusals follow, as for every other construct, so one Build names them all. A `SET` that keeps the rules is never refused because of its neighbours. What a module computes is unchanged.
+- **Found by:** the runner's `embedded_sql_matches_the_interpreter`, red since 2.0.615. It expects the descriptor area (`DESCRIBE … INTO SQLDA`) among the reasons a dynamic-SQL program takes the Cargo path, but the program's `SET SQLDA-DATA (1) TO ADDRESS OF …` hid it. The regressions of 2.0.615 to 2.0.619 ran the runner's library and binaries but not this test.
+- **Where:** `cobolt-wasm`: `lower_ptr.rs` (the check, `ptr_check`, `ptr_record`), `lower.rs` (the refused statements are skipped when lowered); `tests/native_pointers.rs`.
+- **Measured** (macOS arm64):
+  - **The new test `a_refused_pointer_is_named_with_the_programs_other_refusals`:** 5 of 5 checks. One program has two refused `SET`s, a `SET` that keeps the rules, and an `EXEC RUST` block: each refusal is named once at its line, the `EXEC RUST` refusal after them, nothing at the kept `SET`, three in all. The old check returned at the first refusal it met (`?` on `ptr_scan`), so it could name only that one.
+  - **`embedded_sql_matches_the_interpreter`, green again:** 61 of 61 checks. 10 programs of `tests/cobol/esql` print the same lines on both paths, and `ac11_dynamic.cbl` takes the Cargo path for its descriptor area.
+  - **Regressions:** `cobolt-wasm` 146 tests in 39 test binaries (the pointer tests 4 of 4: 5 of 5 programs computed as the interpreter computes them, 5 of 5 refusals at their line); the runner's `exceptions_and_pointers`. For a program whose pointer statements keep the rules, the check and the lowering take the same path as before; only a refused statement is skipped.
+
 ## 2.0.619 — 2026-11-19
 
 **Feature: the KnowledgeBase control runs in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T47, second part).** A desktop form with a KnowledgeBase no longer sends its program down the Cargo path. The built program keeps its document collections as Run Form does:
