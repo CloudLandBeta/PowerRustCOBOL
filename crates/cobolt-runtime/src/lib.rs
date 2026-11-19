@@ -126,6 +126,9 @@ pub mod objects;
 pub mod relative;
 pub mod rest_door;
 pub mod rust_bridge;
+/// The WebSearch control's own rules, for the interpreter and the desktop runner alike
+/// (DESKTOP-WASM-001 T47a).
+pub mod search_door;
 pub mod search_runtime;
 pub mod seqfile;
 pub mod sort_core;

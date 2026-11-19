@@ -517,14 +517,15 @@ pub const D_SQL_OBJECT_ASYNC: &str = "an asynchronous statement of the program-l
 /// Why any other member of `COBOL::SqlDatabase` takes the Cargo path (T41d).
 pub const D_SQL_OBJECT_MEMBER: &str = "a desktop module runs the database's verbs (Open, Execute, Exec, Query, BeginTransaction, Commit, Rollback, IsInTransaction, Fetch, FetchAll, ColumnNames, ColumnCount, ColumnName, Close, Cancel, IsBusy, each called with its parentheses) and its properties (ConnectionString, SqlConnection, Mode, TimeoutMs, LastError, StatusCode, ResultCount, Busy) one at a time; anything else takes the Cargo path";
 
-/// Why a RestClient that names the program's data items takes the Cargo path (DESKTOP-WASM-001
-/// T42b): a request's body is read from the item `RequestDataItem` names, and its answer and status
+/// Why a RestClient or a WebSearch that names the program's data items takes the Cargo path
+/// (DESKTOP-WASM-001 T42b, T47a): a request's body is read from the item `RequestDataItem` names, and its answer and status
 /// written to the items `ResponseDataItem` and `StatusDataItem` name, items the interpreter looks up
 /// by name at run time and a module does not.
-pub const D_REST_ITEMS: &str = "the RestClient names the program's data items (RequestDataItem, ResponseDataItem, StatusDataItem), which the interpreter looks up by name at run time; the WebAssembly path does not yet (DESKTOP-WASM-001 M6)";
+pub const D_REST_ITEMS: &str = "the control names the program's data items (RequestDataItem, ResponseDataItem, StatusDataItem), which the interpreter looks up by name at run time; the WebAssembly path does not yet (DESKTOP-WASM-001 M6)";
 
-/// The members of a RestClient that name one of the program's data items, or write a property by its
-/// name: a program that uses one takes the Cargo path ([`D_REST_ITEMS`]).
+/// The members of a RestClient or a WebSearch that name one of the program's data items, or write a
+/// property by its name: a program that uses one takes the Cargo path ([`D_REST_ITEMS`]). The
+/// interpreter writes a search's answer into the items a WebSearch names as it does a RestClient's.
 pub const REST_ITEM_MEMBERS: &[&str] = &["RequestDataItem", "ResponseDataItem", "StatusDataItem", "SetProperty"];
 
 /// Is `member` one of [`REST_ITEM_MEMBERS`], in any case, with or without the `GET-` and `SET-`
@@ -536,14 +537,14 @@ pub fn is_rest_item_member(member: &str) -> bool {
 }
 
 /// Why the desktop control `c` takes the Cargo path for what its design holds, beyond its type
-/// ([`desktop_control_gap`]): a SqlDatabase ([`D_SQL_ITEMS`]) or a RestClient ([`D_REST_ITEMS`])
-/// that names a data item.
+/// ([`desktop_control_gap`]): a SqlDatabase ([`D_SQL_ITEMS`]), or a RestClient or a WebSearch
+/// ([`D_REST_ITEMS`]), that names a data item.
 pub fn desktop_design_gap(c: &cobolt_forms::Control) -> Option<&'static str> {
     use cobolt_forms::model::ControlType as T;
     let named = |k: &str| c.get_prop(k).is_some_and(|v| !v.as_str().trim().is_empty());
     match c.control_type {
         T::SqlDatabase => (named("ConnectionDataItem") || named("ResultSetDataItem")).then_some(D_SQL_ITEMS),
-        T::RestClient => (named("RequestDataItem") || named("ResponseDataItem") || named("StatusDataItem")).then_some(D_REST_ITEMS),
+        T::RestClient | T::WebSearch => (named("RequestDataItem") || named("ResponseDataItem") || named("StatusDataItem")).then_some(D_REST_ITEMS),
         _ => None,
     }
 }
@@ -566,15 +567,17 @@ const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know 
 /// the SqlDatabase, whose methods the runner runs with the interpreter's own code (one that names a
 /// data item is judged by [`desktop_design_gap`]), and since T42b the RestClient, whose requests the
 /// runner makes by the interpreter's own rules (`cobolt_runtime::rest_door`) with the window's HTTP
-/// client (one that names a data item is judged by [`desktop_design_gap`] too). It does not
-/// serve yet: the other service controls (class C), the Maps control (its places and directions are
+/// client (one that names a data item is judged by [`desktop_design_gap`] too), and since T47a the
+/// WebSearch, whose searches are RestClient requests built by its own rules
+/// (`cobolt_runtime::search_door`). It does not serve yet: the other service controls (class C),
+/// the Maps control (its places and directions are
 /// a service), the Viewer (its documents and verbs) and a type it does not know (class D). A form
 /// holding one takes the Cargo path, which names the form and the control.
 pub fn desktop_control_gap(t: &cobolt_forms::model::ControlType) -> Option<&'static str> {
     use cobolt_forms::model::ControlType as T;
     use cobolt_forms::web_class::{class_of, Class};
     match t {
-        T::DataGrid | T::FileDropZone | T::IndexedFile | T::SqlDatabase | T::RestClient => None,
+        T::DataGrid | T::FileDropZone | T::IndexedFile | T::SqlDatabase | T::RestClient | T::WebSearch => None,
         t if t.is_aws() => None,
         T::Maps => Some(D_MAPS),
         T::Viewer => Some(D_VIEWER),

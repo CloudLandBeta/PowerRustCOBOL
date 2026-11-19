@@ -1898,6 +1898,25 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
 
 - [ ] **T47 — AgentObject, KnowledgeBase and WebSearch** (R11)
   - Verify: twins of `model_list_hosts` and the agent and KB host tests, against local stubs.
+  - *WebSearch done 2026-11-19 (2.0.618, "T47a"). KnowledgeBase (T47b) and AgentObject (T47c) are still open, so the box stays empty:*
+    - **Why WebSearch came first:** it is a RestClient request whose address, headers and body come from the control's properties, so it rides on T42b's port with no new import. KnowledgeBase needs the runtime's `kb` feature in the runner and its own events, and AgentObject a tool loop, streaming and MCP: each is a step of its own.
+    - **One implementation of the rules:** the interpreter's `Search` and its accessors moved into a module both hosts call, `cobolt_runtime::search_door`, with no change of behaviour (the 24 search unit tests and its own test, 20 checks). It decides:
+      - the key: the control's `ApiKey`, else the project's;
+      - the "not configured" refusal, with nothing sent;
+      - the request, through `search_runtime`, with RestClient's `Mode`, `TimeoutMs` and backstop;
+      - `onResultsReceived` before `onComplete`;
+      - `ResultCount`, `TopTitle`, `TopSnippet`, `TopLink` and `GetResult(n)` over the last answer;
+      - the masked lines `Verbose` narrates. The masking functions moved with it.
+    - **What runs (ABI A48, no new import):**
+      - The ABI host sends a WebSearch's methods down the RestClient's port, as for a `RestClient` (`rest_call`). The port's effects gained the lines to narrate, written where `DISPLAY` goes (`Effect::Display`).
+      - The runner's port follows `search_door`. `Cancel`, `IsBusy` and `GetResult()` with no argument stay the host's own.
+      - Before a form opens, the runner gives a WebSearch the project's search key from the environment, as the interpreter's seed does.
+      - In the generator, `WebSearch` is served (`desktop_control_gap`). A WebSearch that names a data item takes the Cargo path with the RestClient's reason (`D_REST_ITEMS`, now worded for both).
+    - **Tests:**
+      - **The runner twin `the_websearch_control_agrees_on_both_engines`, against a local SearXNG stub:** 34 of 34 checks. 6 dumps are equal; 6 pictures, 2,553,600 pixels, 0 differing; 42 narrated lines are the same on both engines. It covers Sync and Async, `onResultsReceived` then `onComplete`, the accessors, a Google control with no key, `TimeoutMs`, `Cancel()` and a transport failure. Both engines run with the project's search key variable removed, so no run reaches a real provider.
+      - `desktop_controls_the_runner_lacks_are_named`: 10 of 10, with a WebSearch served, a WebSearch naming a data item refused, and a KnowledgeBase still refused.
+      - `subset_table`: control types 71 = 66 served + 5 on the Cargo path; 25 of 25 fixed points.
+    - **Left for this task:** KnowledgeBase (T47b) and AgentObject (T47c), and the twins of `model_list_hosts` and the agent and KB host tests.
 
 - [ ] **T48 — Maps, the Aws controls, model lists and MCP** (R11)
   - Verify: twins of `aws_hosts`, `partiql_hosts` and `powercloud_hosts`, against local stubs. No twin sends a request signed with the live keys some example `.cfrm` files carry.

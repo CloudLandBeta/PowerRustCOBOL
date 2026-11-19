@@ -2,6 +2,38 @@
 
 
 
+## 2.0.618 — 2026-11-19
+
+**Feature: the WebSearch control runs in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T47, first part).** A desktop form with a WebSearch control no longer sends its program down the Cargo path. The built program searches as Run Form does:
+- `Search` builds the provider's request from the control's properties. The providers are Google, Brave, Serper, Tavily and a SearXNG instance you host. The key is the control's `ApiKey`, else the project's search key from the environment.
+- A control that is not configured sends nothing. It writes `LastError` and raises `onError`.
+- `Mode = Sync` answers at once. Otherwise the search runs on its own thread, with `Busy`, `TimeoutMs`, `Cancel`, and `onResultsReceived` followed by `onComplete`.
+- `ResultCount`, `TopTitle`, `TopSnippet`, `TopLink` and `GetResult(n)` read the last answer.
+- With `Verbose` on, the program writes the same narration as Run Form, every credential masked.
+
+KnowledgeBase and AgentObject, the rest of T47, still take the Cargo path.
+- **One implementation of the rules:** the interpreter's search moved, unchanged, into a module both hosts call (`search_door` in `cobolt-runtime`, built on the RestClient's `rest_door`). It holds the key's precedence, the "not configured" refusal, the request, the endings, the accessors and the masked narration.
+- **The ABI (A48):** no new command, import or capability.
+  - The ABI host sends a WebSearch's methods down the RestClient's port (A46). The port's effects now carry the lines to narrate, which the host writes where `DISPLAY` goes.
+  - The runner's port follows `search_door`. Before a form opens, the runner gives each WebSearch the project's key, as Run Form's seed does.
+  - A WebSearch that names a data item (`RequestDataItem`, `ResponseDataItem`, `StatusDataItem`) takes the Cargo path, as a RestClient does. The refusal is now worded for both controls.
+- **The Build's documentation** (the subset document and the System KB, rebuilt) names the WebSearch among what the WebAssembly path serves. The Developer's Guide's copy is owed at the merge into `main`.
+- **Where:**
+  - `cobolt-runtime`: `search_door.rs` (new), `interpreter.rs`, `lib.rs`.
+  - `cobolt-abi-host`: `host/rest.rs`, `host/rest_tests.rs`.
+  - `cobolt-runner`: `rest.rs`, `forms.rs`.
+  - `cobolt-wasm`: `support.rs`, `module.rs`, comments in `lower.rs` and `lower_form.rs`; `tests/subset_table.rs`.
+  - `cobolt-compiler`: `lib.rs` (the Build's text and `desktop_controls_the_runner_lacks_are_named`). `assets/knowledge/chunked.data` is rebuilt.
+  - `cobolt-cli`: `tests/runner_websearch_form.rs` (new).
+  - `specs/WASM-ABI-v1.md` (A48); `tasks.md` (T47 notes); `specs/WASM-PROGRESS.md`.
+- **Measured** (macOS arm64):
+  - **The runner twin `the_websearch_control_agrees_on_both_engines`, against a local SearXNG stub:** 34 of 34 checks.
+    - 6 dumps are equal; 6 pictures (2,553,600 pixels) with 0 differing; 42 narrated lines are the same on both engines.
+    - It covers Sync and Async, the accessors, a Google control with no key, `TimeoutMs` 300, `Cancel()` and a transport failure.
+    - The project's search key variable is removed from both engines, so no run reaches a real provider.
+  - **Unit tests:** `search_door`'s own test 20 checks; the interpreter's 24 search tests; `desktop_controls_the_runner_lacks_are_named` 10 of 10; `subset_table` 25 of 25 fixed points (control types 71 = 66 served + 5 on the Cargo path).
+  - **Regressions, all green:** `cobolt-abi-host` 277 tests; `cobolt-runner`'s library and binaries 6; `cobolt-wasm` 145 tests in 39 test binaries; `cobolt-wasm-abi` 25; the RestClient twin `the_restclient_control_agrees_on_both_engines` 35 of 35 checks; the runtime's search, REST and narration tests 27; the System KB check `prebuilt_chunked_kb_matches_the_published_documentation` 1.
+
 ## 2.0.617 — 2026-11-19
 
 **Feature: DESKTOP-WASM-001 M5 is closed (T46).** M5 computes national and UTF-8 data (T44), `TRY`, `THROW`, pointers and `COBOL::"FILE-STATUS"` with the file's name in a data item (T45) in a desktop WebAssembly module. Its close measures the milestone end to end, corrects the Build's documentation, and moves the four uses of data M5 left on the Cargo path to a new task, T50a.

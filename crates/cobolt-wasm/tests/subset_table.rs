@@ -295,7 +295,9 @@ fn every_control_has_a_desktop_class() {
         }),
         // T42b: the RestClient is served; one that names a data item, by its design or by a member, is not.
         ("RestClient served (T42b)", desktop_control_gap(&ControlType::RestClient).is_none()),
-        ("WebSearch still refused (M6)", desktop_control_gap(&ControlType::WebSearch).is_some_and(|w| w.contains("M6"))),
+        // T47a: the WebSearch is served the same way; one that names a data item is not.
+        ("WebSearch served (T47a)", desktop_control_gap(&ControlType::WebSearch).is_none()),
+        ("KnowledgeBase still refused (M6)", desktop_control_gap(&ControlType::KnowledgeBase).is_some_and(|w| w.contains("M6"))),
         ("a RestClient naming no data item is served", {
             let c = cobolt_forms::Control::new("REST-1", ControlType::RestClient, 0, 0);
             cobolt_wasm::support::desktop_design_gap(&c).is_none()
@@ -304,8 +306,14 @@ fn every_control_has_a_desktop_class() {
             ["ResponseDataItem", "StatusDataItem", "RequestDataItem"].iter().all(|p| {
                 let mut c = cobolt_forms::Control::new("REST-1", ControlType::RestClient, 0, 0);
                 c.set_prop(*p, cobolt_forms::PropValue::String("WS-ITEM".into()));
-                cobolt_wasm::support::desktop_design_gap(&c).is_some_and(|w| w.contains("RestClient") && w.contains("M6"))
+                cobolt_wasm::support::desktop_design_gap(&c).is_some_and(|w| w.contains("names the program's data items") && w.contains("M6"))
             })
+        }),
+        ("a WebSearch with ResponseDataItem set is refused (M6); one naming none is served", {
+            let mut c = cobolt_forms::Control::new("WEB-1", ControlType::WebSearch, 0, 0);
+            let none = cobolt_wasm::support::desktop_design_gap(&c).is_none();
+            c.set_prop("ResponseDataItem", cobolt_forms::PropValue::String("WS-ITEM".into()));
+            none && cobolt_wasm::support::desktop_design_gap(&c).is_some_and(|w| w.contains("names the program's data items") && w.contains("M6"))
         }),
         ("the RestClient members naming a data item: SET-ResponseDataItem, StatusDataItem, SetProperty; not Get or GET-StatusCode", {
             use cobolt_wasm::support::is_rest_item_member as m;

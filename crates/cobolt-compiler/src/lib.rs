@@ -7572,8 +7572,8 @@ The Build takes the Cargo path, and says why, when:
   (`DESCRIBE`, `USING` or `INTO DESCRIPTOR`), or national or UTF-8 data in any
   other way (the Build names the item and the line). The column *On the Desktop*
   of "What runs in a browser module" below lists every statement and built-in;
-- a form holds a control the runner does not serve yet (an AI, search or sign-in
-  control; Maps; the Viewer), or a control bound to data (Data Binding): the Build
+- a form holds a control the runner does not serve yet (an AI or sign-in control;
+  Maps; the Viewer), or a control bound to data (Data Binding): the Build
   names the form, its file, the control and its type. "Controls on the Desktop"
   below lists them;
 - the runner is not installed beside the IDE or `rcrun`, and the variable
@@ -8163,6 +8163,14 @@ fn browser_subset_doc() -> String {
         cobolt_wasm::support::REST_ITEM_MEMBERS.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", "),
         cobolt_wasm::support::D_REST_ITEMS
     ));
+    d.push_str(
+        "\nThe WebSearch control is served the same way: its `Search` is such a request, built by the interpreter's own \
+         rules from its `Provider`, `Query`, `NumResults`, `SafeSearch`, `SearchEngineId` and `Endpoint`, and its \
+         `ApiKey` or else the project's search key, so it keeps its `Mode`, `TimeoutMs` and `Busy`. An answer raises \
+         `onResultsReceived` before `onComplete`; a control that is not configured sends nothing and raises `onError`; \
+         `Verbose` narrates the request and its answer with every key masked; `ResultCount`, `TopTitle`, `TopSnippet`, \
+         `TopLink` and `GetResult(n)` read the last answer. It is held to the RestClient's data items too.\n",
+    );
     d.push_str("\nA control bound to data (Data Binding) takes the Cargo path too, whatever its type:\n\n| Bound to | Why |\n|---|---|\n");
     for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {
         d.push_str(&format!("| {source} | {why} |\n"));
@@ -14279,7 +14287,13 @@ function_prefix = "sales-"
         let drawn = form("PLOT", vec![ctl("CNV-PLOT", T::Canvas2D), ctl("CNV-SCENE", T::Canvas3D)]);
         // Served since T48: the AWS controls, whose operations the runner carries out; another service control is not.
         let cloud = form("CLOUD", vec![ctl("S3-1", T::AwsS3), ctl("LAM-1", T::AwsLambda)]);
+        // Served since T47a: the WebSearch, whose searches the runner makes; one that names a data item
+        // is not, and neither is another service control.
         let search = form("FIND", vec![ctl("WEB-1", T::WebSearch)]);
+        let mut named = ctl("WEB-2", T::WebSearch);
+        named.set_prop("ResponseDataItem", cobolt_forms::PropValue::String("WS-ANSWER".into()));
+        let search_named = form("FINDINTO", vec![named]);
+        let ask = form("ASK", vec![ctl("KB-1", T::KnowledgeBase)]);
         let mut bound = form("MAIN", vec![ctl("LBL-TOTAL", T::Label)]);
         bound.data_bindings.push(cobolt_forms::model::DataBindingDef::new(
             "Bind-Total",
@@ -14300,7 +14314,9 @@ function_prefix = "sales-"
         let viewer = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &served), ("ORDERS", "forms/orders.cfrm", &second)]);
         let canvas = desktop_control_reason(&[("PLOT", "forms/plot.cfrm", &drawn)]);
         let aws = desktop_control_reason(&[("CLOUD", "forms/cloud.cfrm", &cloud)]);
-        let service = desktop_control_reason(&[("FIND", "forms/find.cfrm", &search)]);
+        let web = desktop_control_reason(&[("FIND", "forms/find.cfrm", &search)]);
+        let web_named = desktop_control_reason(&[("FINDINTO", "forms/findinto.cfrm", &search_named)]);
+        let service = desktop_control_reason(&[("ASK", "forms/ask.cfrm", &ask)]);
         let binding = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &bound)]);
         let took = t.elapsed();
         let is = |r: &Option<CargoReason>, f: &str, file: &str, c: &str, ty: &str, milestone: &str| {
@@ -14315,18 +14331,20 @@ function_prefix = "sales-"
             ("a Viewer on the second form: ORDERS, forms/orders.cfrm, VWR-DOC, M6", is(&viewer, "ORDERS", "forms/orders.cfrm", "VWR-DOC", "Viewer", "(DESKTOP-WASM-001 M6)")),
             ("a Canvas2D and a Canvas3D: none (T50)", canvas.is_none()),
             ("an AwsS3 and an AwsLambda: none (T48)", aws.is_none()),
-            ("a WebSearch: FIND, forms/find.cfrm, WEB-1, M6", is(&service, "FIND", "forms/find.cfrm", "WEB-1", "WebSearch", "M6)")),
+            ("a WebSearch: none (T47a)", web.is_none()),
+            ("a WebSearch that names a data item: FINDINTO, forms/findinto.cfrm, WEB-2, the data items", is(&web_named, "FINDINTO", "forms/findinto.cfrm", "WEB-2", "WebSearch", "names the program's data items")),
+            ("a KnowledgeBase: ASK, forms/ask.cfrm, KB-1, M6", is(&service, "ASK", "forms/ask.cfrm", "KB-1", "KnowledgeBase", "M6)")),
             ("a Label bound to an indexed file: LBL-TOTAL, Label, M6", is(&binding, "MAIN", "forms/main.cfrm", "LBL-TOTAL", "Label", "(DESKTOP-WASM-001 M6)")),
         ];
-        println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, T48, T50, R13) ==");
-        println!("forms: 7 designs, 17 controls (3 nested), 1 binding; 7 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
+        println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, T47a, T48, T50, R13) ==");
+        println!("forms: 9 designs, 20 controls (3 nested), 1 binding; 9 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
         println!("  Maps: {text}");
         let passed = checks.iter().filter(|(_, ok)| *ok).count();
         for (what, ok) in &checks {
             println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
         }
         println!("result: {passed} of {} checks passed", checks.len());
-        assert_eq!(passed, checks.len(), "maps {maps:?}, viewer {viewer:?}, canvas {canvas:?}, binding {binding:?}");
+        assert_eq!(passed, checks.len(), "maps {maps:?}, viewer {viewer:?}, canvas {canvas:?}, web {web:?}, web_named {web_named:?}, service {service:?}, binding {binding:?}");
     }
 
     /// A chart that names its table's fields (`LabelField`, `ValueFields`) has

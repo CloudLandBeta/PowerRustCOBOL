@@ -119,54 +119,10 @@ fn databind_trace_write(args: std::fmt::Arguments<'_>) {
     }
 }
 
-/// Percent-encode a query-string value per RFC 3986 (unreserved characters —
-/// ALPHA / DIGIT / `-` / `.` / `_` / `~` — pass through, everything else
-/// becomes `%XX`). Spec 039 T15: the WebSearch `SEARCH` verb's own query,
-/// search-engine id, and resolved API key all flow through this — none of
-/// this project's existing HTTP helpers (`ureq`, `http_runtime::HttpClient`)
-/// build a URL from parts, so a multi-word query would otherwise truncate at
-/// its first unescaped space (the same limitation the generated `<id>-
-/// SEARCH` COBOL paragraph's own comment documents, T14).
-/// A URL with any credential in its query string masked.
-///
-/// Google Custom Search signs in the query (`?key=…`), so a verbose line that
-/// printed the URL verbatim would put the developer's key in the program's
-/// output — and that output gets pasted into bug reports and forum posts. The
-/// convention is already set by the AgentObject's verbose switch, which logs
-/// "whether an API key is set (never the key itself)".
-///
-/// Enough of the value survives to tell two keys apart and to see that one is
-/// present at all, which is what the switch is for.
-pub(crate) fn redact_query_secrets(url: &str) -> String {
-    const SECRET_PARAMS: [&str; 3] = ["key", "api_key", "apikey"];
-    let Some((base, query)) = url.split_once('?') else {
-        return url.to_owned();
-    };
-    let masked: Vec<String> = query
-        .split('&')
-        .map(|pair| match pair.split_once('=') {
-            Some((name, value))
-                if SECRET_PARAMS
-                    .iter()
-                    .any(|p| p.eq_ignore_ascii_case(name)) =>
-            {
-                format!("{name}={}", mask_secret(value))
-            }
-            _ => pair.to_owned(),
-        })
-        .collect();
-    format!("{base}?{}", masked.join("&"))
-}
-
-/// `abcd…(24 chars)`, or `(empty)` — never the whole thing.
-pub(crate) fn mask_secret(value: &str) -> String {
-    let v = value.trim();
-    if v.is_empty() {
-        return "(empty)".to_owned();
-    }
-    let head: String = v.chars().take(4).collect();
-    format!("{head}…({} chars)", v.chars().count())
-}
+// The search's masking rules are the WebSearch control's own (DESKTOP-WASM-001 T47a); this
+// module's tests check them where the search narrates.
+#[cfg(test)]
+use crate::search_door::{mask_secret, redact_query_secrets};
 
 /// The control's OWN completion event, when it has one the designer offers.
 ///
@@ -186,6 +142,14 @@ fn completion_event_for(class: Option<&str>) -> Option<&'static str> {
     }
 }
 
+/// Percent-encode a query-string value per RFC 3986 (unreserved characters —
+/// ALPHA / DIGIT / `-` / `.` / `_` / `~` — pass through, everything else
+/// becomes `%XX`). Spec 039 T15: the WebSearch `SEARCH` verb's own query,
+/// search-engine id, and resolved API key all flow through this — none of
+/// this project's existing HTTP helpers (`ureq`, `http_runtime::HttpClient`)
+/// build a URL from parts, so a multi-word query would otherwise truncate at
+/// its first unescaped space (the same limitation the generated `<id>-
+/// SEARCH` COBOL paragraph's own comment documents, T14).
 pub(crate) fn percent_encode_query(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
@@ -3535,24 +3499,6 @@ impl Interpreter {
         });
 
         CobolValue::from_str("", 0)
-    }
-
-    /// Parse a WebSearch control's `ResponseBody` into `(title, snippet, link)`
-    /// tuples, one per result (spec 039 T15/R29).
-    ///
-    /// Five providers answer in five shapes — Google's `items[]`, Brave's
-    /// `web.results[]`, Serper's `organic[]`, Tavily's and SearXNG's
-    /// `results[]`, each naming the snippet and the link differently.
-    /// `search_runtime` owns that table, so the accessors above it read the
-    /// same triples whichever back end answered. An empty or malformed body
-    /// (not yet searched, or an error payload) yields an empty Vec rather than
-    /// an error — the same "absent data reads as nothing, not a crash"
-    /// tolerance `refresh_marker_binding` already applies to a bad row.
-    fn web_search_items(&self, obj: &str) -> Vec<(String, String, String)> {
-        crate::search_runtime::parse_results(
-            crate::search_runtime::Provider::parse(&self.obj_get(obj, "Provider")),
-            &self.obj_get(obj, "ResponseBody"),
-        )
     }
 
     /// Queue a control lifecycle event for dispatch on the next
@@ -17043,14 +16989,8 @@ impl Interpreter {
             // preserves the original behaviour for every other caller.
             "GETRESULT" if args.is_empty() => val(self.obj_get(obj, "Result")),
             "GETRESULT" => {
-                let n: usize = arg(0).trim().parse().unwrap_or(0);
-                let items = self.web_search_items(obj);
-                if n >= 1 && n <= items.len() {
-                    let (title, snippet, link) = &items[n - 1];
-                    val(format!("{title}\t{snippet}\t{link}"))
-                } else {
-                    val(String::new())
-                }
+                let prop = |p: &str| self.obj_get(obj, p);
+                val(crate::search_door::answer(&prop, "GETRESULT", &[arg(0)]).unwrap_or_default())
             }
             "SETTITLE" => {
                 self.obj_set(obj, "Title", arg(0));
@@ -17186,99 +17126,43 @@ impl Interpreter {
             // documents; the transport is the one RestClient already uses, so
             // a search is still a plain HTTP call with no bridge of its own.
             "SEARCH" => {
-                let provider =
-                    crate::search_runtime::Provider::parse(&self.obj_get(obj, "Provider"));
-                // The control's own ApiKey wins; otherwise the project's key.
-                // A form that needs a different account than the project
-                // default says so on the control instead of forcing a second
-                // project.
-                let own_key = self.obj_get(obj, "ApiKey");
-                let api_key = if own_key.trim().is_empty() {
-                    self.obj_get(obj, "_ResolvedSearchApiKey")
-                } else {
-                    own_key
+                // The control's own rules (`search_door`, which the desktop runner of a program
+                // built on the WebAssembly path follows too, DESKTOP-WASM-001 T47a).
+                let start = {
+                    let prop = |p: &str| self.obj_get(obj, p);
+                    crate::search_door::start(&prop, obj, "SEARCH", &[])
                 };
-                let endpoint = self.obj_get(obj, "Endpoint");
-                if let Some(err) =
-                    crate::search_runtime::configuration_error(provider, &api_key, &endpoint)
-                {
-                    // R33: "not configured" — fail synchronously, no request.
-                    if self.agent_is_verbose(obj) {
-                        self.log_block("search", obj, "not configured", &err);
+                match start {
+                    crate::search_door::Start::NotConfigured(fx) => {
+                        for line in fx.lines {
+                            self.agent_log(line);
+                        }
+                        for (k, v) in fx.props {
+                            self.obj_set(obj, &k, v);
+                        }
+                        for e in &fx.events {
+                            self.queue_control_event(obj, e);
+                        }
+                        CobolValue::from_str("", 0)
                     }
-                    self.obj_set(obj, "LastError", err);
-                    self.queue_control_event(obj, "onError");
-                    return CobolValue::from_str("", 0);
-                }
-                let (engine_id, query, safe) = (
-                    self.obj_get(obj, "SearchEngineId"),
-                    self.obj_get(obj, "Query"),
-                    self.obj_get(obj, "SafeSearch"),
-                );
-                let req = crate::search_runtime::build_request(
-                    provider,
-                    &crate::search_runtime::SearchParams {
-                        api_key: &api_key,
-                        engine_id: &engine_id,
-                        endpoint: &endpoint,
-                        query: &query,
-                        num_results: self
-                            .obj_get(obj, "NumResults")
-                            .trim()
-                            .parse::<u32>()
-                            .unwrap_or(10),
-                        safe_search: &safe,
-                    },
-                );
-                // Brave, Serper and Tavily authenticate in a header, so the
-                // request carries a config now instead of the stock one.
-                // `TimeoutMs` bounds a synchronous search too: it reached only
-                // the async worker, so a Sync search could hang on a slow
-                // provider (property audit, 2026-09-26).
-                let cfg = crate::http_runtime::RequestConfig {
-                    headers: req.headers.clone(),
-                    timeout_ms: self.rest_timeout_ms(obj),
-                    ..Default::default()
-                };
-                if self.agent_is_verbose(obj) {
-                    // Everything needed to compare this against the provider's
-                    // own documentation — except the credential, which is
-                    // masked. Program output gets pasted into bug reports.
-                    self.log_block("search", obj, "provider", provider.as_str());
-                    self.log_block("search", obj, "method", req.method);
-                    let shown_url = redact_query_secrets(&req.url);
-                    self.log_block("search", obj, "url", &shown_url);
-                    let headers: String = req
-                        .headers
-                        .iter()
-                        .map(|(n, v)| {
-                            let secret = n.eq_ignore_ascii_case("authorization")
-                                || n.eq_ignore_ascii_case("x-api-key")
-                                || n.eq_ignore_ascii_case("x-subscription-token");
-                            if secret {
-                                format!("{n}: {}", mask_secret(v))
-                            } else {
-                                format!("{n}: {v}")
+                    crate::search_door::Start::Request { request: r, lines } => {
+                        for line in lines {
+                            self.agent_log(line);
+                        }
+                        if r.sync {
+                            let (b, st) = self.http.send_configured(&r.verb, &r.url, r.body.as_deref(), &r.cfg);
+                            let verbose = self.agent_is_verbose(obj);
+                            for line in crate::search_door::finished(verbose, obj, &b, st).lines {
+                                self.agent_log(line);
                             }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    self.log_block("search", obj, "headers", &headers);
-                    self.log_block("search", obj, "body", &req.body);
-                    let mode = if self.rest_is_async(obj) { "async" } else { "sync" };
-                    self.log_block("search", obj, "mode", mode);
-                }
-                if self.rest_is_async(obj) {
-                    self.spawn_rest_op(obj, req.method, req.url, req.body, cfg)
-                } else {
-                    let body = (!req.body.is_empty()).then_some(req.body.as_str());
-                    let (b, st) = self.http.send_configured(req.method, &req.url, body, &cfg);
-                    if self.agent_is_verbose(obj) {
-                        self.log_block("search", obj, "status", &st.to_string());
-                        self.log_block("search", obj, "response", &b);
+                            self.rest_record(obj, &b, st);
+                            val(b)
+                        } else {
+                            self.spawn_rest_op(obj, &r.verb, r.url, r.body.unwrap_or_default(), r.cfg)
+                        }
                     }
-                    self.rest_record(obj, &b, st);
-                    val(b)
+                    crate::search_door::Start::Answer(a) => val(a),
+                    crate::search_door::Start::NotOwn => CobolValue::from_str("", 0),
                 }
             }
             // R29: read-only accessors over `ResponseBody`'s raw JSON,
@@ -17288,26 +17172,12 @@ impl Interpreter {
             // (`drain_async_ops`/`obj_set`, shared with RestClient), and
             // adding one just for this would be a bigger, riskier change
             // than parsing `ResponseBody` (already a plain property) each
-            // time one of these is invoked.
-            "RESULTCOUNT" => val(self.web_search_items(obj).len().to_string()),
-            "TOPTITLE" => val(
-                self.web_search_items(obj)
-                    .first()
-                    .map(|r| r.0.clone())
-                    .unwrap_or_default(),
-            ),
-            "TOPSNIPPET" => val(
-                self.web_search_items(obj)
-                    .first()
-                    .map(|r| r.1.clone())
-                    .unwrap_or_default(),
-            ),
-            "TOPLINK" => val(
-                self.web_search_items(obj)
-                    .first()
-                    .map(|r| r.2.clone())
-                    .unwrap_or_default(),
-            ),
+            // time one of these is invoked. The rules are the control's own
+            // (`search_door::answer`, DESKTOP-WASM-001 T47a).
+            "RESULTCOUNT" | "TOPTITLE" | "TOPSNIPPET" | "TOPLINK" => {
+                let prop = |p: &str| self.obj_get(obj, p);
+                val(crate::search_door::answer(&prop, &m, &[]).unwrap_or_default())
+            }
             // ── Maps (spec 039 T11): Directions/Geocoding/Places/
             // Distance-Matrix, backed by the `google_maps` crate — always
             // async (the tokio-runtime spin-up cost makes a same-statement

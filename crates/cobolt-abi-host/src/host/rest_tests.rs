@@ -127,6 +127,7 @@ fn a_restclient_method_is_the_ports_and_its_effects_are_carried_out_in_order() {
 
     // A request that ran now: the properties written, the method answers the body.
     script.borrow_mut().answers.push_back(Some(RestEffects {
+        lines: Vec::new(),
         props: vec![("ResponseBody".into(), "{\"id\":7}".into()), ("StatusCode".into(), "200".into())],
         events: Vec::new(),
         answer: "{\"id\":7}".into(),
@@ -142,12 +143,12 @@ fn a_restclient_method_is_the_ports_and_its_effects_are_carried_out_in_order() {
     check(queue(&h).is_empty(), "a request that ran now raises nothing");
 
     // A request started on its own thread: Busy, then an error (unbound) and an ending (bound).
-    script.borrow_mut().answers.push_back(Some(RestEffects { props: vec![("Busy".into(), "1".into())], events: Vec::new(), answer: String::new() }));
+    script.borrow_mut().answers.push_back(Some(RestEffects { lines: Vec::new(), props: vec![("Busy".into(), "1".into())], events: Vec::new(), answer: String::new() }));
     check(answer(&mut h, 0, &[]).as_deref() == Some(""), "a request on its own thread answers nothing yet");
     check(answer(&mut h, 2, &[]).as_deref() == Some("1"), "IsBusy is not the port's: it reads Busy");
-    h.rest_delivered(0, "REST-1", RestEffects { props: vec![("LastError".into(), "refused".into()), ("Busy".into(), "0".into())], events: vec!["onError".into()], answer: String::new() });
+    h.rest_delivered(0, "REST-1", RestEffects { lines: Vec::new(), props: vec![("LastError".into(), "refused".into()), ("Busy".into(), "0".into())], events: vec!["onError".into()], answer: String::new() });
     check(prop(&h, "LastError") == "refused" && queue(&h).is_empty(), "an ending writes its properties; an unbound event is not raised");
-    h.rest_delivered(0, "REST-1", RestEffects { props: vec![("StatusCode".into(), "404".into())], events: vec!["onComplete".into()], answer: String::new() });
+    h.rest_delivered(0, "REST-1", RestEffects { lines: Vec::new(), props: vec![("StatusCode".into(), "404".into())], events: vec!["onComplete".into()], answer: String::new() });
     check(prop(&h, "StatusCode") == "404" && queue(&h) == ["onComplete"], "a bound event is raised");
     h.rest_delivered(0, "NO-SUCH", RestEffects::default());
     check(queue(&h).len() == 1, "an ending for a control that is not there does nothing");

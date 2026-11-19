@@ -457,7 +457,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             let graphics = spec.controls.iter().enumerate().filter(|(_, (_, k))| crate::lower::is_graphics_object(k)).map(|(i, _)| 3 + i as u32).collect();
             let indexed_files = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "IndexedFile").map(|(i, _)| 3 + i as u32).collect();
             let sql_databases = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "SqlDatabase").map(|(i, _)| 3 + i as u32).collect();
-            let rest_clients = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "RestClient").map(|(i, _)| 3 + i as u32).collect();
+            // A WebSearch's searches are RestClient requests (T47a): the same members name data items.
+            let rest_clients = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "RestClient" || k == "WebSearch").map(|(i, _)| 3 + i as u32).collect();
             Some(FormCtx { controls, layers, layer_names: spec.layers.clone(), canvases, graphics, indexed_files, sql_databases, rest_clients, name: spec.name.clone() })
         } else {
             None

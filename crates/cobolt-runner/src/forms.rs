@@ -363,7 +363,13 @@ impl cobolt_abi_host::host::DropZonePort for DropZones {
 /// form's flattened controls for the interpreter.
 fn resolve_connections(form: &str, controls: &mut [cobolt_forms::Control]) {
     cobolt_form_host::seeding::resolve_connections(form, controls);
+    // A WebSearch with no `ApiKey` of its own uses the project's search key from the environment, as
+    // the interpreter's seed gives it (`_ResolvedSearchApiKey`, T47a).
+    let search_key = cobolt_form_host::seeding::resolve_api_keys().1;
     for c in controls {
+        if let (cobolt_forms::ControlType::WebSearch, Some(key)) = (&c.control_type, &search_key) {
+            c.set_prop("_ResolvedSearchApiKey", cobolt_forms::PropValue::String(key.clone()));
+        }
         resolve_connections(form, &mut c.children);
     }
 }
@@ -587,7 +593,16 @@ impl Thread {
                     }
                 }
                 Some(ToProgram::Rest(n)) => {
-                    if let Some((inst, ctl, fx)) = rest.delivered(n) {
+                    let news = {
+                        let host = d.host();
+                        // A WebSearch's `Verbose` as it is when the answer comes (T47a).
+                        let verbose = |inst: u32, ctl: &str| {
+                            let v = host.control_property(inst, ctl, "Verbose").unwrap_or_default();
+                            cobolt_runtime::search_door::verbose(&|_| v.clone())
+                        };
+                        rest.delivered(n, &verbose)
+                    };
+                    if let Some((inst, ctl, fx)) = news {
                         d.host().rest_delivered(inst, &ctl, fx);
                     }
                 }
