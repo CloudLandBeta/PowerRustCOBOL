@@ -157,7 +157,8 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     check("COMMIT, ROLLBACK and UNLOCK compile: import f_tx, capability files.indexed".into(), tx_ok);
     // COBOL::"FILE-STATUS" reads in the module what the file verbs left there (T39c): it needs no
     // capability of its own. The file is named by a literal, as the IndexedFile control's paragraphs
-    // name it; a name in a data item and a missing receiver are refused at the call.
+    // name it, or by an alphanumeric item read at run time (T45c); a name in a numeric item and a
+    // missing receiver are refused at the call.
     let status_none = format!(
         "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-ST PIC XX.\nPROCEDURE DIVISION.\n    COBOL::\"FILE-STATUS\" ( \"NONE\" WS-ST )\n    DISPLAY WS-ST\n    STOP RUN.\n"
     );
@@ -170,10 +171,15 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
          DATA DIVISION.\nFILE SECTION.\nFD IX.\n01 IX-REC.\n    05 IX-KEY PIC X(5).\nWORKING-STORAGE SECTION.\n01 WS-NAME PIC X(8) VALUE \"IX\".\n01 WS-ST PIC XX.\n\
          PROCEDURE DIVISION.\n    OPEN INPUT IX\n    COBOL::\"FILE-STATUS\" ( WS-NAME WS-ST )\n    STOP RUN.\n"
     );
-    let e = refusal(&status_item);
     check(
-        "COBOL::\"FILE-STATUS\" with the file's name in a data item: refused at its line, naming it".into(),
-        e.subject == "COBOL::\"FILE-STATUS\"" && e.line == line_of(&status_item, "FILE-STATUS") && e.message.contains("literal"),
+        "COBOL::\"FILE-STATUS\" with the file's name in an alphanumeric item compiles: capability files.indexed".into(),
+        caps_of(&status_item).is_some_and(|c| c == ["files.indexed"]),
+    );
+    let status_number = status_item.replace("01 WS-NAME PIC X(8) VALUE \"IX\".", "01 WS-NAME PIC 9(8) VALUE 1.");
+    let e = refusal(&status_number);
+    check(
+        "COBOL::\"FILE-STATUS\" with the file's name in a numeric item: refused at its line, naming it".into(),
+        e.subject == "COBOL::\"FILE-STATUS\"" && e.line == line_of(&status_number, "FILE-STATUS") && e.message.contains("alphanumeric"),
     );
     let status_one = format!("{HEAD}PROCEDURE DIVISION.\n    COBOL::\"FILE-STATUS\" ( \"IX\" )\n    STOP RUN.\n");
     let e = refusal(&status_one);

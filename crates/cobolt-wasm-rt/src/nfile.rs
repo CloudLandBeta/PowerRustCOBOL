@@ -468,6 +468,35 @@ pub extern "C" fn rt_nf_last_status(base: u32, handle_off: u32, target: u32) {
     crate::accept::put(base, target, &digits);
 }
 
+/// `COBOL::"FILE-STATUS" ( name-item target )` (DESKTOP-WASM-001 T45c): the file is named at run time.
+/// The name is read as the interpreter reads it: the item's characters, without the white space around
+/// them (a file's name is ASCII, so ASCII white space), in capitals. `table` is the generator's list of the module's files, in the constant area:
+/// `[count]` then `[name address, name length, handle place]` per file, names in capitals; a name not in
+/// it answers `00`, as a name no verb has set does.
+#[no_mangle]
+pub extern "C" fn rt_nf_last_status_named(base: u32, name: u32, table: u32, target: u32) {
+    let loc = crate::opd::locate(base, &crate::opd::parse(name));
+    let text = mem::bytes(loc.addr, loc.len);
+    let ws = |b: &u8| matches!(*b, b' ' | b'\t' | b'\n' | 0x0B | 0x0C | b'\r');
+    let start = text.iter().position(|b| !ws(b)).unwrap_or(text.len());
+    let end = text.iter().rposition(|b| !ws(b)).map_or(start, |i| i + 1);
+    // `get`, not indexing: a slice index brings a panic location into the routines' data, which
+    // every module carries.
+    let want = text.get(start..end).unwrap_or_default();
+    let mut handle = u32::MAX;
+    let count = mem::rd_u32(table);
+    for i in 0..count {
+        let e = table + 4 + 12 * i;
+        let (addr, len) = (mem::rd_u32(e), mem::rd_u32(e + 4));
+        let have = mem::bytes(addr, len);
+        if have.len() == want.len() && have.iter().zip(want).all(|(h, w)| *h == w.to_ascii_uppercase()) {
+            handle = mem::rd_u32(e + 8);
+            break;
+        }
+    }
+    rt_nf_last_status(base, handle, target);
+}
+
 /// `UNLOCK`, `COMMIT`, `ROLLBACK`: see [`tx`].
 #[no_mangle]
 pub extern "C" fn rt_nf_tx(base: u32, op: u32, d: u32) {

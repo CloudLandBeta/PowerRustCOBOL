@@ -309,7 +309,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// An alphanumeric item (`JUSTIFIED` or not, alphabetic or not) or a group.
-    fn is_text_item(&self, i: usize) -> bool {
+    pub(crate) fn is_text_item(&self, i: usize) -> bool {
         let it = &self.layout.items[i];
         it.is_group || it.fd.kind == K_GROUP || it.fd.kind == K_ALNUM
     }

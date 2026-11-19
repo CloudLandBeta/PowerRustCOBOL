@@ -990,6 +990,71 @@ END PROGRAM INNER2.
 END PROGRAM T39CFST.
 ";
 
+/// `COBOL::"FILE-STATUS"` with the file's name held in a data item (T45c): the name is read at run
+/// time, trimmed and upper-cased as the interpreter does, from an elementary item, a group's field, a
+/// table element and a reference-modified part; a name that is no file, and a blank one, answer `00`.
+const FILE_STATUS_NAMED: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T45CFST.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT ITEMS ASSIGN TO \"fsn.idx\"
+        ORGANIZATION IS INDEXED
+        ACCESS MODE IS DYNAMIC
+        RECORD KEY IS IT-ID.
+    SELECT GONE ASSIGN TO \"fsn-gone.dat\"
+        ORGANIZATION IS SEQUENTIAL.
+DATA DIVISION.
+FILE SECTION.
+FD ITEMS.
+01 IT-REC.
+   05 IT-ID   PIC 9(3).
+   05 IT-NAME PIC X(5).
+FD GONE.
+01 GONE-REC PIC X(4).
+WORKING-STORAGE SECTION.
+01 WS-NAME PIC X(12).
+01 WS-NAMES.
+   05 WS-N1 PIC X(5) VALUE \"ITEMS\".
+   05 WS-N2 PIC X(4) VALUE \"GONE\".
+01 WS-T.
+   05 WS-TN PIC X(6) OCCURS 2.
+01 WS-ST PIC XX.
+PROCEDURE DIVISION.
+MAIN-PARA.
+    MOVE \"ITEMS\" TO WS-NAME
+    MOVE \"XX\" TO WS-ST
+    COBOL::\"FILE-STATUS\" ( WS-NAME WS-ST )
+    DISPLAY \"before \" WS-ST
+    OPEN OUTPUT ITEMS
+    MOVE 1 TO IT-ID
+    MOVE \"ONE\" TO IT-NAME
+    WRITE IT-REC INVALID KEY CONTINUE END-WRITE
+    WRITE IT-REC INVALID KEY CONTINUE END-WRITE
+    MOVE \"  items\" TO WS-NAME
+    COBOL::\"FILE-STATUS\" ( WS-NAME WS-ST )
+    DISPLAY \"spaces and case \" WS-ST
+    COBOL::\"FILE-STATUS\" ( WS-N1 WS-ST )
+    DISPLAY \"group field \" WS-ST
+    CLOSE ITEMS
+    OPEN INPUT GONE
+    MOVE \"gone\" TO WS-TN(2)
+    COBOL::\"FILE-STATUS\" ( WS-TN(2) WS-ST )
+    DISPLAY \"table element \" WS-ST
+    COBOL::\"FILE-STATUS\" ( WS-NAMES(6:4) WS-ST )
+    DISPLAY \"reference modified \" WS-ST
+    MOVE \"NO-SUCH\" TO WS-NAME
+    MOVE \"XX\" TO WS-ST
+    COBOL::\"FILE-STATUS\" ( WS-NAME WS-ST )
+    DISPLAY \"no file \" WS-ST
+    MOVE SPACES TO WS-NAME
+    MOVE \"XX\" TO WS-ST
+    COBOL::\"FILE-STATUS\" ( WS-NAME WS-ST )
+    DISPLAY \"blank \" WS-ST
+    STOP RUN.
+";
+
 /// then holds: they act only on an INDEXED file's engine and set no FILE STATUS.
 /// `UNLOCK` is not a reserved word to the front end, so an open operand list (`DISPLAY`, `OPEN`) would
 /// take it as operands: the sentence before each `UNLOCK` ends with a period.
@@ -1483,6 +1548,11 @@ const PROGRAMS: &[(&str, &str, &[&str])] = &[
             "two programs 42",
         ],
     ),
+    (
+        "file status by a name in an item",
+        FILE_STATUS_NAMED,
+        &["before 00", "spaces and case 22", "group field 22", "table element 35", "reference modified 35", "no file 00", "blank 00"],
+    ),
     ("transactions", TRANSACTIONS, &["commit 00", "rollback 00", "unlock sequential 00", "after close"]),
     (
         "linage",
@@ -1680,7 +1750,8 @@ fn files_of_every_organisation_match_the_interpreter() {
     println!("              a missing key (23), the end (10), a CLOSE of a closed file (42), on INDEXED, RELATIVE, LINE SEQUENTIAL and");
     println!("              SEQUENTIAL files with and without a FILE STATUS clause, a SORT work file (00) and its GIVING file, a file one");
     println!("              nested program declares (35) and a file two declare (the last verb's, 42); the name in any case;");
-    println!("              into PIC XX, 99, a group, X(5), X");
+    println!("              into PIC XX, 99, a group, X(5), X; the name in a data item (T45c): an item, trimmed and in any case,");
+    println!("              a group's field, a table element, a part of a group; a name that is no file and a blank one (00)");
     println!("  transactions: COMMIT, ROLLBACK, UNLOCK on an INDEXED file opened I-O; UNLOCK on a SEQUENTIAL file");
     println!("  linage:     LINAGE stated and in data items (a footing item of 0 falls back), ADVANCING 1, 2, PAGE, a data item");
     println!("              and none, AT/NOT AT END-OF-PAGE, LINAGE-COUNTER displayed/moved (also to numeric-edited items)/compared, reopen, a failed OPEN");

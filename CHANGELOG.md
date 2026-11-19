@@ -2,6 +2,27 @@
 
 
 
+## 2.0.616 — 2026-11-19
+
+**Feature: `COBOL::"FILE-STATUS"` takes the file's name from a data item in a desktop WebAssembly module (DESKTOP-WASM-001 T45c, M5), and T45 is done.** Before this, only a literal name was computed in the module (T39c); a name held in a data item sent the Build to the Cargo path. Now the module reads the name at run time as the interpreter does:
+- **The name is the item's characters,** without the spaces around them and in any case: `"  items"` names the file `ITEMS`. An item, a group, a group's field, a table element and a part of an item (`WS-NAMES(6:4)`) all work.
+- **The answer is the interpreter's:** the last status of the file of that name, whichever program of the module ran its verb; `00` before any verb, for a name that is no file of the module, and for a blank name.
+- **Still on the Cargo path, named at its line:** a name in a numeric item, or in anything but alphanumeric text.
+- **How:** the generator puts every file name of the module in a table, each with the place its status is kept, chosen as for a literal of that name. A routine trims the item's text, puts it in capitals and looks it up. Nothing crosses to the host.
+- **T45 is done.** Its last check, a runner test per entry equal to the interpreter, is the new `exceptions_and_pointers_match_the_interpreter`: four programs, packaged into `prc-runner` and run under `rcrun run`, print the same bytes and end with the same exit code. They cover `TRY`, `CATCH`, `FINALLY` and `THROW` through `PERFORM`s, nested `TRY`s, `CALL`ed programs, `GO TO`, `EXIT PARAGRAPH`, `EXIT PERFORM [CYCLE]`, `GOBACK` and `STOP RUN`, and pointers to text and to packed numbers. A `THROW` nobody catches is left out of it: the runner words that error "Runtime error 1112 at line …" and `rcrun run` "Runtime error: …", a difference older than T45. T45's other check, that `EXEC RUST` is the only entry left on the Cargo path, moved to T51, the close of M6, whose entries stay on the Cargo path until then.
+- **Where:**
+  - `cobolt-wasm`: `lower_form.rs` (`file_status_named`, and `status_place`, which the literal form now shares); `lower_try.rs` (`is_text_item` is shared).
+  - `cobolt-wasm-rt`: `nfile.rs` (`rt_nf_last_status_named`). `assets/rt.wasm` is rebuilt.
+  - `cobolt-runner`: `tests/files.rs` (the new program), `tests/exceptions_and_pointers.rs` (new).
+  - `tasks.md` T45 notes; the box is ticked.
+- **Measured** (macOS arm64):
+  - `cobolt-runner` `files_of_every_organisation_match_the_interpreter`: the new program, packaged into `prc-runner` and run under `rcrun run`, prints the same 7 lines and leaves the same 2 files (20,480 bytes): an item, the name with spaces around it and in small letters, a group's field, a table element, a part of a group, a name that is no file, a blank name. With the other 12 programs: 250 of 250 checks (775.7 s); this program: generate 49.4 ms, runner 2,922.7 ms, `rcrun run` 231.2 ms.
+  - `cobolt-runner` `exceptions_and_pointers_match_the_interpreter` (new): 4 of 4 programs identical, 61 checks: `try` 29 lines (560 bytes), `try-call` 9 lines, `pointers` 12 lines, `pointers-n` 4 lines, each ending with exit code 0 under both.
+  - `cobolt-wasm` `native_desktop_refusals`: 13 of 13 and 33 of 33 checks. The name in a `PIC 9(8)` item is refused at its line; the name in an alphanumeric item, which T39c refused, now compiles.
+  - `cobolt-wasm`, `cobolt-wasm-rt` and `cobolt-wasm-abi`: 204 passed in 46 targets with the routine's first build; the one failure, the player's fixture, was the 48 bytes below. With the final build, `player_fixture`, `rt_blob`, `native_desktop_refusals`, `native_exceptions` and `native_pointers` pass again (`native_exceptions` 21 of 21 programs, `native_pointers` 5 of 5).
+  - AC16: `rt.wasm` grows by 540 bytes (266,625 to 267,165), all of it the new routine, linked only into a module that uses it. A first build of the routine indexed a slice, which put a panic location (48 bytes) into the routines' data, which every module carries; it now uses `get`, and a module that does not name a file in a data item is byte for byte what it was: the player's 8 generated fixtures and the PowerAnalyticsWeb pin match as committed.
+  - AC10 (`subset_table`): 136 entries; 35 in the module, 42 through the runner, 13 in a form's program, 46 on the Cargo path, as at T45b (`FILE-STATUS` is one entry, already in the module since T39c); 8 of 8 fixed points.
+
 ## 2.0.615 — 2026-11-19
 
 **Feature: `USAGE POINTER`, `SET … TO ADDRESS OF` and `SET ADDRESS OF` are computed in a desktop WebAssembly module (DESKTOP-WASM-001 T45b, M5).** Before this, a desktop program that used a pointer took the Cargo path ("pointers and ADDRESS OF are not compiled into a module yet"). Now its module runs them as the interpreter does:

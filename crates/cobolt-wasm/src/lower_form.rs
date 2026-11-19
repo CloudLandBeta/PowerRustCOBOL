@@ -1246,7 +1246,8 @@ impl Lower<'_, '_> {
     /// of the file the program `SELECT`s under that name, `00` before any verb and for a name that is no
     /// such file, as the interpreter's `last_file_status` answers. The IndexedFile control's generated
     /// paragraphs call it after every verb. The file is named by a literal there; a name held in a data
-    /// item is refused (M5), so the Build takes the Cargo path, and so are fewer than two arguments.
+    /// item is read at run time (T45c, [`Self::file_status_named`]). Fewer than two arguments are
+    /// refused, so the Build takes the Cargo path.
     fn desktop_file_status(&mut self, using: &[CallArg], line: u32) -> GenResult<()> {
         let subject = "COBOL::\"FILE-STATUS\"".to_string();
         if using.len() < 2 {
@@ -1255,13 +1256,9 @@ impl Lower<'_, '_> {
         let ex = |a: &CallArg| match a {
             CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
         };
-        let Expr::Literal(Literal::String(file), _) = ex(&using[0]) else {
-            return self.err_kind(
-                line,
-                crate::error::ErrorKind::Other,
-                subject.clone(),
-                format!("{subject} with the file's name in a data item is not on the WebAssembly path yet (DESKTOP-WASM-001 M5); name the file with a literal"),
-            );
+        let name = ex(&using[0]);
+        let Expr::Literal(Literal::String(file), _) = &name else {
+            return self.file_status_named(&name, &ex(&using[1]), line);
         };
         // The interpreter keeps one status per name for the whole run, whichever program's verb set
         // it, and answers `00` for a name no verb has set. So a file of this program (or a GLOBAL one
@@ -1271,8 +1268,21 @@ impl Lower<'_, '_> {
         // any of them. A SORT work file answers `00`: `SORT`, `RELEASE` and `RETURN` set no status
         // under its name. A name no program declares answers `00`. A file the runner refuses is
         // refused here too.
-        let up = file.trim().to_ascii_uppercase();
-        let handle = match self.file(file.trim(), line) {
+        let handle = self.status_place(file, line)?;
+        let target = self.receiver(&ex(&using[1]))?;
+        self.base();
+        self.i32c(handle as i32);
+        self.i32c(target as i32);
+        self.call_rt("rt_nf_last_status");
+        Ok(())
+    }
+
+    /// Where the status `COBOL::"FILE-STATUS"` answers for the file `name` is kept: the handle place
+    /// of the native file the name designates from this program, else of another program's native
+    /// file of that name, else `u32::MAX` (the answer is `00`). A file the runner refuses is refused.
+    fn status_place(&self, name: &str, line: u32) -> GenResult<u32> {
+        let up = name.trim().to_ascii_uppercase();
+        Ok(match self.file(name.trim(), line) {
             Ok(fi) if fi.kind == crate::lower::FileKind::Native => fi.handle_off,
             Ok(_) => u32::MAX,
             Err(e) if self.native_refusals.contains_key(&up) => return Err(e),
@@ -1282,12 +1292,54 @@ impl Lower<'_, '_> {
                 .filter_map(|t| t.get(&up))
                 .find(|(fi, _)| fi.kind == crate::lower::FileKind::Native)
                 .map_or(u32::MAX, |(fi, _)| fi.handle_off),
+        })
+    }
+
+    /// `COBOL::"FILE-STATUS" ( name-item target )` (DESKTOP-WASM-001 T45c): the file is named at run
+    /// time. Every file name of the module goes into a table, each with the status place a literal of
+    /// that name would read ([`Self::status_place`]); the routine reads the item's characters as the
+    /// interpreter does (trimmed, in capitals) and looks them up, and a name not in the table answers
+    /// `00`. The name is alphanumeric text: an item, a group, an element, a part of one.
+    fn file_status_named(&mut self, name: &Expr, target: &Expr, line: u32) -> GenResult<()> {
+        let subject = "COBOL::\"FILE-STATUS\"".to_string();
+        let text = match name {
+            Expr::RefMod { .. } => true,
+            Expr::Identifier(..) | Expr::Qualified { .. } => self.resolve_item(name).is_ok_and(|i| self.is_text_item(i)),
+            Expr::Subscript { base, .. } => self.resolve_item(base).is_ok_and(|i| self.is_text_item(i)),
+            _ => false,
         };
-        let target = self.receiver(&ex(&using[1]))?;
+        if !text {
+            return self.err_kind(
+                line,
+                crate::error::ErrorKind::Other,
+                subject.clone(),
+                format!("{subject} in a WebAssembly module names the file with an alphanumeric literal or an alphanumeric or group item; the interpreter's reading of any other value as a file's name is not computed in a module, so the Build takes the Cargo path"),
+            );
+        }
+        let names: std::collections::BTreeSet<String> =
+            self.files.keys().cloned().chain(self.file_tables.iter().flat_map(|t| t.keys().cloned())).collect();
+        let mut entries: Vec<(String, u32)> = Vec::new();
+        for n in names {
+            let place = self.status_place(&n, line)?;
+            if place != u32::MAX {
+                entries.push((n, place));
+            }
+        }
+        let mut table = (entries.len() as u32).to_le_bytes().to_vec();
+        for (n, place) in &entries {
+            let at = self.pool.intern(n.as_bytes());
+            table.extend_from_slice(&at.to_le_bytes());
+            table.extend_from_slice(&(n.len() as u32).to_le_bytes());
+            table.extend_from_slice(&place.to_le_bytes());
+        }
+        let table = self.pool.intern(&table);
+        let name = self.operand_or_temp(name)?;
+        let target = self.receiver(target)?;
         self.base();
-        self.i32c(handle as i32);
+        self.i32c(name as i32);
+        self.i32c(table as i32);
         self.i32c(target as i32);
-        self.call_rt("rt_nf_last_status");
+        self.call_rt("rt_nf_last_status_named");
         Ok(())
     }
 
