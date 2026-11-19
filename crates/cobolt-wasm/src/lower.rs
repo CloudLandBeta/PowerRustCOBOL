@@ -410,12 +410,12 @@ pub struct Lower<'a, 'b> {
 /// use (reference modification, INSPECT, STRING, a function's argument, arithmetic, a CALL, a
 /// control's property …) takes the Cargo path.
 pub(crate) const D_TEXT_USE: &str =
-    "this use of national or UTF-8 data is not computed in a WebAssembly module yet, so the Build takes the Cargo path (DESKTOP-WASM-001 M5)";
+    "this use of national or UTF-8 data is not computed in a WebAssembly module yet, so the Build takes the Cargo path (DESKTOP-WASM-001 M6)";
 
 /// Why a desktop module refuses national or UTF-8 data in a program with a `PROGRAM COLLATING
 /// SEQUENCE`: the module compares such data by code point only.
 const D_TEXT_COLLATING: &str =
-    "national or UTF-8 data in a program with a PROGRAM COLLATING SEQUENCE take the Cargo path (DESKTOP-WASM-001 M5)";
+    "national or UTF-8 data in a program with a PROGRAM COLLATING SEQUENCE take the Cargo path (DESKTOP-WASM-001 M6)";
 
 /// What an operand is, as far as national and UTF-8 data are concerned (DESKTOP-WASM-001 T44):
 /// the generator admits a desktop module's national or UTF-8 item only beside these.

@@ -65,7 +65,7 @@ pub(crate) struct LinageMeta {
     pub body: (u32, u32),
     pub footing: (u32, u32),
 }
-const D_LINE_TEXT: &str = "national and UTF-8 text in a LINE SEQUENTIAL record is not on the WebAssembly path yet (DESKTOP-WASM-001 M5)";
+const D_LINE_TEXT: &str = "national and UTF-8 text in a LINE SEQUENTIAL record is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 
 impl Lower<'_, '_> {
     /// Lay out a file the desktop runner keeps: its description in the module's `prfiles` section,

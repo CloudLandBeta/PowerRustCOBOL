@@ -432,8 +432,8 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
         let line = line_of(&src, needle);
         let e = refusal(&src);
         check(
-            format!("{what}: \"WS-N\" refused at line {line}, unit T16G, the Cargo path, M5"),
-            e.subject == "WS-N" && e.line == line && e.program == "T16G" && e.message.contains("Cargo path") && e.message.contains("M5"),
+            format!("{what}: \"WS-N\" refused at line {line}, unit T16G, the Cargo path, M6"),
+            e.subject == "WS-N" && e.line == line && e.program == "T16G" && e.message.contains("Cargo path") && e.message.contains("M6"),
         );
     }
     // A PROGRAM COLLATING SEQUENCE would weigh national data: refused at the item's declaration.
@@ -444,7 +444,7 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
     let decl = line_of(&collating, "01 WS-N");
     check(
         format!("a PROGRAM COLLATING SEQUENCE: \"WS-N\" refused at its declaration, line {decl}"),
-        e.subject == "WS-N" && e.line == decl && e.message.contains("COLLATING SEQUENCE") && e.message.contains("M5"),
+        e.subject == "WS-N" && e.line == decl && e.message.contains("COLLATING SEQUENCE") && e.message.contains("M6"),
     );
     let page = program("01 WS-N PIC N(6).\n", "WS-X");
     check(

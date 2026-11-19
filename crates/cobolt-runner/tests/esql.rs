@@ -159,8 +159,9 @@ fn embedded_sql_matches_the_interpreter() {
     let opts = cobolt_wasm::Options { native: true, ..cobolt_wasm::Options::default() };
     let mut checks = 0;
 
-    // The descriptor area needs pointers: the generator refuses, naming it among its reasons (the
-    // program's `SET` of a pointer is another), so the Build takes the Cargo path.
+    // The descriptor area reaches its host variables through the pointers in its table, which a
+    // module does not hold: the generator refuses, naming it among its reasons (the program's `SET`
+    // of a pointer in that table is another), so the Build takes the Cargo path.
     let refused: Vec<String> = cobolt_wasm::compile_program(&parse(&esql.join(REFUSED), &root.0), &opts)
         .err()
         .map(|e| e.all().into_iter().map(|(line, m)| format!("line {line}: {m}")).collect())

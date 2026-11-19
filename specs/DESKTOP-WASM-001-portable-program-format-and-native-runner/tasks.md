@@ -1858,8 +1858,39 @@ The code says five things the plan did not settle. Each is applied in the tasks 
     - **Runner twins, one per entry:** `TRY`/`THROW` and `SET` pointer in the new `cobolt-runner` `exceptions_and_pointers_match_the_interpreter` (4 of 4 programs identical to `rcrun run`, byte for byte and in exit code, 61 checks); `FILE-STATUS` with the name in a data item in `files_of_every_organisation_match_the_interpreter`. A `THROW` nobody catches is left out of the twin: the runner words a run-time error "Runtime error 1112 at line …" and `rcrun run` "Runtime error: …", a difference older than T45; the generator's own test compares that error's text with the interpreter's.
     - **AC10:** the assertion that `EXEC RUST` is the only `Cargo(_)` entry left moved to T51 (decision recorded under T45a).
 
-- [ ] **T46 — M5 close**
+- [x] **T46 — M5 close**
   - Do: the milestone close (preamble).
+  - *Closed 2026-11-19 (2.0.617), run one after another at normal priority, at `c97bf9d2` (2.0.616) with this task's relabels in the tree (they change only the texts of four refusals). The operator was using the machine during the NIST census, the corpus and the generator comparison (load average 3 to 6 during the last), which changes their times but not their counts:*
+    - **Pixel parity (AC19), the full run** (`cobolt-bench pixel-parity`, 15.6 min): 6 projects, all 6 on the WebAssembly path; 426 frame pairs, **426 identical, 0 differing pixels**. Reads and dumps 27 of 27 equal; expected reads 18 of 18. The Cargo-built frames match their goldens, 408 of 408 (ParityControls has none).
+      - ParityControls 18 of 18 frames, PowerCallOfDuty 12 of 12, PowerCloud 72 of 72, PowerCobolCraft 66 of 66, PowerGraphics 120 of 120, PowerSpatial 138 of 138.
+    - **The reference projects' paths** (`cobolt-bench build-goal`, 5 Builds each, a fresh build folder each, 5.6 min): all six take the WebAssembly path, 30 of 30 Builds.
+      - PowerCallOfDuty 0.4 s, PowerCloud 0.5 s, PowerCobolCraft 0.7 s, PowerGraphics 0.6 s, PowerSpatial 0.4 s.
+      - The ten-times project (90 forms, 66 550 lines, 10 indexed files; the same tree hash as at M4): 61.6 s (front end 29.3 s, generator 31.9 s, peak 7 198 MB). It is over the 30 s goal, which is reported, not enforced (D24; plan §5).
+      - **The generator's 31.9 s, against 17.6 s at the M4 close, is the machine, not the code.** The generator alone (`build-goal --runs 0`) on the same ten-times project, M4's commit `8b272b03` and this one taken in turn: M4 26.7 s and 25.1 s, this one 26.5 s and 27.1 s. Two runs of this one just before gave 32.2 s and 23.3 s. The spread within one commit is wider than any difference between the two.
+      - None of the five reference projects uses national or UTF-8 data, `TRY`, `THROW`, pointers or an SQL descriptor (their forms, Common Code and indexed files searched), so M5 moved none of them; they had all moved at M3.
+    - **NIST through the runner (AC9), on both axes:**
+
+      | Module | Compiled (of in scope) | Ran clean, 0 failures | PASS markers | Census |
+      |---|---|---|---|---|
+      | NC (Nucleus) | 95 of 95 | 95 | 4 615 | 1 120 s |
+      | SQ (Sequential I/O) | 85 of 85 | 85 | 624 | 993 s |
+      | IX (Indexed I/O) | 41 of 41 | 41 | 574 | 646 s |
+      | RL (Relative I/O) | 34 of 34 | 34 | 354 | 540 s |
+      | ST (Sort-Merge) | 39 of 39 | 39 | 735 | 716 s |
+      | IF (Intrinsic Functions) | 45 of 45 | 45 | 841 | 514 s |
+      | IC (Inter-Program Communication) | 25 of 25 | 25 | 309 | 298 s |
+      | SM (Source Text Manipulation) | 16 of 16 | 16 | 311 | 235 s |
+
+      - 380 of 380 programs, 8 363 PASS markers, 0 FAIL, none over the harness's 20 s limit. Every module's PASS count equals the M4 close's.
+      - Run by the harness (`nist_conformance run`) with `RCRUN` set to `nist_runner_run`, which builds each program on the WebAssembly path and runs it with `prc-runner`; no line was refused.
+    - **The corpus** (`nist_runner_run compare`, 14.3 min): 64 programs, 47 compiled, 17 refused with the construct named (62, 45 and 17 at the M4 close); **36 of 47 identical** (interpreter 153.2 s, runner 229.0 s).
+      - The two programs new since M4, `call/test-goback-in-perform.cbl` and `esql/status_in_called_program.cbl` (they came with the fixes 2.0.607 and 2.0.608), compile and are identical.
+      - The 17 refused are the M4 close's 17 programs. T45 moved `TRY`, `THROW` and pointers, yet none of the 17 left: `esql/ac11_dynamic.cbl` now stops at `SET SQLDA-DATA (1) TO ADDRESS OF WS-CODE`, a pointer in the descriptor's table, and `esql/ac18_mixed.cbl` at the descriptor area itself; both wait for T50a's descriptor (below).
+      - The 11 that differ are the M4 close's 11: 7 `fileiot*` programs print the same lines under both engines and reach the 20 s limit under both; `call/test-call-exception`, `call/test-call-returning`, `esql/ac8_units_of_work` and `media/test-image-builtins` differ by the interpreter's own log lines on standard output (WASM-PARITY row 54).
+    - The release runner is 73.6 MiB (77 176 944 bytes), 448 bytes more than at the M4 close.
+    - **The list of what still takes the Cargo path:** the Build's documentation (`cobolt-compiler`, "The Build" in the subset document, and the System KB, rebuilt) still said pointers, `TRY` and `THROW` take the Cargo path, which T45 moved; its statement table had been right since T45. It now names `TRY`, `CATCH`, `FINALLY`, `THROW` and pointers in the main program as built, and what M5 left: a pointer in a called program, an SQL descriptor area, and national or UTF-8 data in any use but those T44 computes. The Developer's Guide's copy is owed at the merge into `main`, as at M2, M3 and M4.
+    - **Relabelled, and a task added:** four refusals said they waited for M5 and are still refused after it: other uses of national or UTF-8 data (`D_TEXT_USE`), such data in a program with a `PROGRAM COLLATING SEQUENCE` (`D_TEXT_COLLATING`), national or UTF-8 text in a `LINE SEQUENTIAL` record (`D_LINE_TEXT`), and the SQL descriptor area (`D_DESCRIPTOR`). No task took them: they are uses of data, not entries of the native column that T45 went through. They now name M6, and **T50a** (new) holds them, so that R11's end state at T51 includes them. `native_desktop_refusals` checks the new texts, 2 of 2.
+    - **Decision, the SQL descriptor area:** the interpreter fills a descriptor's entries by their names (`DESCRIBE`) and reaches the host variables through the pointers in its table (`SQLDA-DATA(i)`). A module's pointers are whole items outside any table (T45b), so the descriptor cannot be served by T45b's pointers; T50a gives it a design of its own.
 
 ## Phase M6 — The non-visual controls
 
@@ -1909,6 +1940,14 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
     - **Not measured:** no twin pictures a Canvas3D; the headless rasteriser has no 3D path.
     - **Left for this task:** the Viewer's documents and verbs, and the window methods the ABI host does not carry out yet.
   - Verify: runner twins. The ABI host's list of unimplemented window methods is empty.
+
+- [ ] **T50a — The data uses M5 left on the Cargo path** (R11; C4)
+  - *Added 2026-11-19 at the M5 close (T46): these refusals named M5, and no task took them. They are uses of data, not entries of the native column, so T45 did not cover them. R11's end state (T51) needs them.*
+  - Do:
+    - national and UTF-8 data in every use the interpreter computes: reference modification, `INSPECT`, `STRING`, `UNSTRING`, a function's argument, `ACCEPT`, `SET`, arithmetic, a `CALL` parameter, a control's property, an SQL host variable, a `SORT` key, a condition-name, a number moved in or out, a JSON group (`D_TEXT_USE`), and in a program with a `PROGRAM COLLATING SEQUENCE` (`D_TEXT_COLLATING`);
+    - national and UTF-8 text in a `LINE SEQUENTIAL` record (`D_LINE_TEXT`);
+    - the SQL descriptor area: `DESCRIBE … INTO`, `USING DESCRIPTOR` and `INTO DESCRIPTOR`, whose host variables are reached through the pointers in the descriptor's table (`D_DESCRIPTOR`; a module's pointers are whole items outside any table since T45b).
+  - Verify: runner twins against `rcrun run` for each use, and `native_desktop_refusals` without these refusals.
 
 - [ ] **T51 — M6 close** (R11's end state)
   - Verify:

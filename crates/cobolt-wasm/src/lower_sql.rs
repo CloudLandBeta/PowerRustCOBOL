@@ -41,7 +41,7 @@ const STATUS_LEAVES: &[&str] = &[
     "SQLCA-CONNECTION",
 ];
 
-const D_DESCRIPTOR: &str = "an SQL descriptor area (DESCRIBE, USING DESCRIPTOR) needs pointers, which are not compiled into a module yet (DESKTOP-WASM-001 M5)";
+const D_DESCRIPTOR: &str = "an SQL descriptor area (DESCRIBE, USING or INTO DESCRIPTOR) is not computed in a WebAssembly module yet: the interpreter fills its entries by their names and reaches the host variables through the pointers in its table, and a module's pointers are whole items outside any table, so the Build takes the Cargo path (DESKTOP-WASM-001 M6)";
 const D_FILE_RECORD: &str = "is in a file record of a program containing this one, which the runner's copy of the declarations does not carry";
 
 /// One cell: an item, and the subscripts of the occurrence (an indicator table's).

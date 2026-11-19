@@ -7564,12 +7564,14 @@ The Build takes the Cargo path, and says why, when:
   names the construct, its file and its line. The path builds console programs
   and form programs (the controls the runner draws, opening forms, the shell and
   its SideMenu, timers and file dialogs), files of every organisation, `SORT` and
-  `MERGE`, `EXEC SQL` and HTTP, and national and UTF-8 data that is moved,
-  displayed, compared, initialised, measured (`LENGTH`, `BYTE-LENGTH`) or given a
-  `VALUE`. A program takes the Cargo path when it uses pointers, `TRY` or `THROW`,
-  or uses national or UTF-8 data in any other way (the Build names the item and
-  the line). The column *On the Desktop* of "What runs in a browser module" below
-  lists every statement and built-in;
+  `MERGE`, `EXEC SQL` and HTTP, `TRY`, `CATCH`, `FINALLY` and `THROW`, pointers
+  in the main program (`USAGE POINTER`, `SET … TO ADDRESS OF`, `SET ADDRESS OF`),
+  and national and UTF-8 data that is moved, displayed, compared, initialised,
+  measured (`LENGTH`, `BYTE-LENGTH`) or given a `VALUE`. A program takes the Cargo
+  path when it uses a pointer in a called program, an SQL descriptor area
+  (`DESCRIBE`, `USING` or `INTO DESCRIPTOR`), or national or UTF-8 data in any
+  other way (the Build names the item and the line). The column *On the Desktop*
+  of "What runs in a browser module" below lists every statement and built-in;
 - a form holds a control the runner does not serve yet (an AI, search or sign-in
   control; Maps; the Viewer), or a control bound to data (Data Binding): the Build
   names the form, its file, the control and its type. "Controls on the Desktop"
