@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use super::Interpreter;
 use crate::async_op::{AsyncOutcome, KbHit};
+use crate::kb_door;
 
 /// The events a KnowledgeBase raises; each one has a payload queued with it.
 const KB_EVENTS: [&str; 5] = ["onProgress", "onIndexed", "onSearchComplete", "onBusy", "onError"];
@@ -40,9 +41,9 @@ pub(crate) struct KbPayload {
 /// What the interpreter keeps per KnowledgeBase between calls.
 #[derive(Debug, Default)]
 pub(crate) struct KbControlState {
-    pub results: Vec<KbHit>,
-    pub collections: Vec<String>,
-    pub documents: Vec<String>,
+    /// The last search's results and the lists its methods made ([`kb_door::State`], the
+    /// desktop runner's too).
+    pub kept: kb_door::State,
     pub cancel: Arc<AtomicBool>,
 }
 
@@ -85,72 +86,18 @@ impl Interpreter {
             self.kb_states
                 .entry(payload.obj.trim().to_ascii_uppercase())
                 .or_default()
+                .kept
                 .results = results;
         }
     }
 
     /// A KnowledgeBase worker reported. Runs on the interpreter thread from the
     /// async drain; `obj` is the control's id as the operation was started.
+    /// What each report raises and carries is [`kb_door::delivered`]'s, the
+    /// desktop runner's too (DESKTOP-WASM-001 T47b).
     pub(crate) fn kb_delivered(&mut self, obj: &str, outcome: AsyncOutcome) {
-        let s = |k: &str, v: String| (k.to_string(), v);
-        match outcome {
-            AsyncOutcome::KbProgress { document, current, total, passage, passages } => self.kb_raise(
-                obj,
-                "onProgress",
-                vec![
-                    s("ProgressDocument", document),
-                    s("ProgressCurrent", current.to_string()),
-                    s("ProgressTotal", total.to_string()),
-                    s("ProgressPassage", passage.to_string()),
-                    s("ProgressPassages", passages.to_string()),
-                ],
-                None,
-            ),
-            AsyncOutcome::KbIndexed { added, updated, removed, skipped, note, passages, mode } => {
-                let mut props = vec![
-                    s("AddedCount", added.to_string()),
-                    s("UpdatedCount", updated.to_string()),
-                    s("RemovedCount", removed.to_string()),
-                    s("SkippedCount", skipped.len().to_string()),
-                    s("SkippedDocuments", skipped.join("; ")),
-                    s("PassageCount", passages.to_string()),
-                    s("Busy", "0".into()),
-                ];
-                // Said on EVERY update that indexed something, the clean case
-                // included — a reason left over from an earlier update must
-                // not read as this one's (operator, 2026-09-27: no
-                // confirmation that the embedding was done).
-                if !mode.is_empty() {
-                    props.push(s("SearchMode", mode));
-                    props.push(s("SearchModeReason", note));
-                }
-                self.kb_raise(obj, "onIndexed", props, None);
-            }
-            AsyncOutcome::KbSearchDone { hits, mode, reason } => self.kb_raise(
-                obj,
-                "onSearchComplete",
-                vec![
-                    s("ResultCount", hits.len().to_string()),
-                    s("SearchMode", mode),
-                    s("SearchModeReason", reason),
-                    s("Busy", "0".into()),
-                ],
-                Some(hits),
-            ),
-            AsyncOutcome::KbBusy { message } => self.kb_raise(
-                obj,
-                "onBusy",
-                vec![s("LastError", message), s("Busy", "0".into())],
-                None,
-            ),
-            AsyncOutcome::KbError { message } => self.kb_raise(
-                obj,
-                "onError",
-                vec![s("LastError", message), s("Busy", "0".into())],
-                None,
-            ),
-            // Not a KnowledgeBase outcome; never routed here.
-            _ => {}
+        if let Some(e) = kb_door::delivered(kb_door::Report(outcome)) {
+            self.kb_raise(obj, &e.name, e.props, e.results);
         }
     }
 }
@@ -158,232 +105,72 @@ impl Interpreter {
 #[cfg(feature = "kb")]
 impl Interpreter {
     fn kb_config(&self, obj: &str) -> crate::kb_runtime::KbConfig {
-        use crate::kb_runtime::{app_base, resolve_location, EmbedderChoice, KbConfig};
-        let get = |p: &str| self.obj_get(obj, p);
-        let num = |p: &str, default: u64| get(p).trim().parse::<u64>().unwrap_or(default);
-        // Spec 076 R13 — a model-list entry gives the endpoint embedder its
-        // API, endpoint, model and key.
-        let entry_name = get("ModelEntry").trim().to_string();
-        let from_entry = (!entry_name.is_empty())
-            .then(|| crate::model_list::get(&entry_name))
-            .flatten()
-            .map(|(e, _)| (e, crate::key_store::key_store().get(&entry_name).unwrap_or_default()));
-        // An entry that names no model leaves the control's own
-        // `EmbeddingModel` in charge — it used to hand the embedder an empty
-        // model (property audit, 2026-09-26).
-        let (url, api, model, key) = match from_entry {
-            Some((e, key)) => {
-                let model = if e.model.trim().is_empty() { get("EmbeddingModel") } else { e.model };
-                (e.url, e.api, model, key)
-            }
-            None => (get("EmbeddingURL"), get("EmbeddingAPI"), get("EmbeddingModel"), get("EmbeddingAPIKey")),
-        };
-        KbConfig {
-            location: resolve_location(&get("Location")),
-            collection: get("Collection").trim().to_string(),
-            embedder: EmbedderChoice::from_name(&get("Embedder")),
-            url,
-            api,
-            model,
-            key,
-            write_wait: std::time::Duration::from_millis(num("WriteWaitMilliseconds", 5000)),
-            max_results: num("MaximumResults", 5) as usize,
-            archive_limits: cobolt_kb::convert::Limits {
-                max_unpacked_bytes: num("ArchiveMaximumMegabytes", 500).saturating_mul(1024 * 1024),
-                max_files: num("ArchiveMaximumFiles", 10_000) as usize,
-                max_depth: num("ArchiveMaximumDepth", 3).min(u64::from(u8::MAX)) as u8,
-            },
-            models_dir: cobolt_kb::model::app_models_dir(&app_base()),
-        }
+        kb_door::config(&|p: &str| self.obj_get(obj, p))
     }
 
     fn kb_state(&mut self, obj: &str) -> &mut KbControlState {
         self.kb_states.entry(obj.trim().to_ascii_uppercase()).or_default()
     }
 
-    fn kb_fail(&mut self, obj: &str, message: String) -> String {
-        self.obj_set(obj, "LastError", message);
-        "0".into()
-    }
-
-    /// Start a background operation. `"1"` when it started; `"0"` with
-    /// `LastError` set when it could not — one operation at a time per control.
-    fn kb_start(&mut self, obj: &str, op: crate::kb_runtime::KbOp) -> String {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        if self.async_pending.contains_key(obj) {
-            return self.kb_fail(
-                obj,
-                "another Knowledge Base operation is still running on this control".into(),
-            );
-        }
-        let entry_name = self.obj_get(obj, "ModelEntry").trim().to_string();
-        if !entry_name.is_empty() {
-            let Some((entry, _)) = crate::model_list::get(&entry_name) else {
-                return self.kb_fail(
-                    obj,
-                    format!(
-                        "model entry '{entry_name}' does not exist — the program has not handed \
-                         it over with COBOL-MODEL-SET"
-                    ),
-                );
-            };
-            // The same early answer an AgentObject gives: an entry whose API
-            // needs a key, with none stored, fails here and now rather than
-            // as an authentication error from the provider much later.
-            let key = crate::key_store::key_store().get(&entry_name);
-            if entry.needs_key() && key.as_deref().map(str::trim).unwrap_or("").is_empty() {
-                return self.kb_fail(
-                    obj,
-                    format!(
-                        "model entry '{entry_name}' has no key stored, and its API ({}) needs \
-                         one — store it with COBOL-KEY-SET",
-                        entry.api
-                    ),
-                );
-            }
-        }
-        let cfg = self.kb_config(obj);
-        let generation = self
-            .async_generations
-            .entry(obj.to_string())
-            .or_insert_with(|| Arc::new(AtomicU64::new(0)))
-            .fetch_add(1, Ordering::Relaxed)
-            + 1;
-        let cancel = Arc::new(AtomicBool::new(false));
-        self.kb_state(obj).cancel = cancel.clone();
-        self.obj_set(obj, "Busy", "1".into());
-        self.obj_set(obj, "LastError", String::new());
-        self.async_pending.insert(
-            obj.to_string(),
-            crate::async_op::PendingOp {
-                generation,
-                started_at: std::time::Instant::now(),
-                // No interpreter-side timeout: indexing a large folder takes
-                // as long as it takes, and Cancel is the way out.
-                timeout_ms: 0,
-                awaiting_start: None,
-            },
-        );
-        let tx = self.async_result_tx.clone();
-        let ctrl_id = obj.to_string();
-        std::thread::spawn(move || {
-            crate::kb_runtime::run(cfg, op, cancel, |outcome| {
-                let _ = tx.send(crate::async_op::AsyncOpResult {
-                    ctrl_id: ctrl_id.clone(),
-                    generation,
-                    outcome,
-                });
-            });
-        });
-        "1".into()
-    }
-
     /// A method called on a KnowledgeBase. `None` when the name is not one of
-    /// its own, so the general dispatch handles it.
+    /// its own, so the general dispatch handles it. What each method answers,
+    /// writes or starts is [`kb_door::call`]'s, the desktop runner's too
+    /// (DESKTOP-WASM-001 T47b); the interpreter runs the operation it starts
+    /// on a thread of its own, one at a time per control.
     pub(crate) fn kb_method(&mut self, obj: &str, m: &str, args: &[crate::value::CobolValue]) -> Option<String> {
-        use crate::kb_runtime::{self as kr, KbOp};
-        let arg = |i: usize| {
-            args.get(i)
-                .map(|v| v.as_display_string().trim().to_string())
-                .unwrap_or_default()
-        };
-        // Text is taken as written: trailing spaces a COBOL item pads with are
-        // not part of a document.
-        let text = |i: usize| {
-            args.get(i)
-                .map(|v| v.as_display_string().trim_end().to_string())
-                .unwrap_or_default()
-        };
-        let index = |i: usize| arg(i).parse::<usize>().ok().filter(|n| *n >= 1);
-        let answer = match m {
-            "CREATECOLLECTION" => {
-                let cfg = self.kb_config(obj);
-                match kr::create_collection(&cfg, &arg(0)) {
-                    Ok(()) => "1".into(),
-                    Err(e) => self.kb_fail(obj, e),
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let texts: Vec<String> = args.iter().map(|v| v.as_display_string()).collect();
+        let running = self.async_pending.contains_key(obj);
+        let mut kept = std::mem::take(&mut self.kb_state(obj).kept);
+        let call = kb_door::call(&|p: &str| self.obj_get(obj, p), &mut kept, running, m, &texts);
+        self.kb_state(obj).kept = kept;
+        match call {
+            kb_door::Call::NotOwn => None,
+            kb_door::Call::Done { props, answer } => {
+                for (p, v) in props {
+                    self.obj_set(obj, &p, v);
                 }
+                Some(answer)
             }
-            "REMOVECOLLECTION" => {
-                let cfg = self.kb_config(obj);
-                match kr::remove_collection(&cfg, &arg(0)) {
-                    Ok(()) => "1".into(),
-                    Err(e) => self.kb_fail(obj, e),
+            kb_door::Call::Start { job, props } => {
+                let generation = self
+                    .async_generations
+                    .entry(obj.to_string())
+                    .or_insert_with(|| Arc::new(AtomicU64::new(0)))
+                    .fetch_add(1, Ordering::Relaxed)
+                    + 1;
+                let cancel = Arc::new(AtomicBool::new(false));
+                self.kb_state(obj).cancel = cancel.clone();
+                for (p, v) in props {
+                    self.obj_set(obj, &p, v);
                 }
+                self.async_pending.insert(
+                    obj.to_string(),
+                    crate::async_op::PendingOp {
+                        generation,
+                        started_at: std::time::Instant::now(),
+                        // No interpreter-side timeout: indexing a large folder takes
+                        // as long as it takes, and Cancel is the way out.
+                        timeout_ms: 0,
+                        awaiting_start: None,
+                    },
+                );
+                let tx = self.async_result_tx.clone();
+                let ctrl_id = obj.to_string();
+                std::thread::spawn(move || {
+                    job.run(cancel, |report| {
+                        let _ = tx.send(crate::async_op::AsyncOpResult { ctrl_id: ctrl_id.clone(), generation, outcome: report.0 });
+                    });
+                });
+                Some("1".into())
             }
-            "LISTCOLLECTIONS" => {
-                let cfg = self.kb_config(obj);
-                let names = kr::list_collections(&cfg);
-                let n = names.len();
-                self.kb_state(obj).collections = names;
-                self.obj_set(obj, "CollectionCount", n.to_string());
-                n.to_string()
-            }
-            "GETCOLLECTION" => {
-                let st = self.kb_state(obj);
-                index(0).and_then(|i| st.collections.get(i - 1).cloned()).unwrap_or_default()
-            }
-            "LISTDOCUMENTS" => {
-                let cfg = self.kb_config(obj);
-                match kr::list_documents(&cfg) {
-                    Ok(names) => {
-                        let n = names.len();
-                        self.kb_state(obj).documents = names;
-                        self.obj_set(obj, "DocumentCount", n.to_string());
-                        n.to_string()
-                    }
-                    Err(e) => self.kb_fail(obj, e),
-                }
-            }
-            "GETDOCUMENT" => {
-                let st = self.kb_state(obj);
-                index(0).and_then(|i| st.documents.get(i - 1).cloned()).unwrap_or_default()
-            }
-            "GETRESULTDOCUMENT" | "GETRESULTHEADING" | "GETRESULTPASSAGE" | "GETRESULTSCORE" => {
-                let st = self.kb_state(obj);
-                index(0)
-                    .and_then(|i| st.results.get(i - 1))
-                    .map(|h| match m {
-                        "GETRESULTDOCUMENT" => h.document.clone(),
-                        "GETRESULTHEADING" => h.heading.clone(),
-                        "GETRESULTPASSAGE" => h.passage.clone(),
-                        _ => format!("{:.4}", h.score),
-                    })
-                    .unwrap_or_default()
-            }
-            "ADDDOCUMENT" | "UPDATEDOCUMENT" => {
-                let op = KbOp::Put { name: arg(0), bytes: text(1).into_bytes() };
-                self.kb_start(obj, op)
-            }
-            "IMPORTDOCUMENT" => {
-                let source = std::path::PathBuf::from(arg(0));
-                let name = if arg(1).is_empty() {
-                    source.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string()
-                } else {
-                    arg(1)
-                };
-                self.kb_start(obj, KbOp::Import { source, name })
-            }
-            "DELETEDOCUMENT" => {
-                let op = KbOp::Delete { name: arg(0) };
-                self.kb_start(obj, op)
-            }
-            "REFRESH" => self.kb_start(obj, KbOp::Refresh),
-            "REINDEX" => self.kb_start(obj, KbOp::Reindex),
-            "SEARCH" => {
-                let max = arg(1).parse::<usize>().ok().filter(|n| *n > 0);
-                let max = max.unwrap_or_else(|| self.kb_config(obj).max_results);
-                self.kb_start(obj, KbOp::Search { query: text(0), max })
-            }
-            "FETCHMODEL" => self.kb_start(obj, KbOp::FetchModel),
-            "CANCEL" => {
+            kb_door::Call::Cancel => {
                 let flag = self.kb_state(obj).cancel.clone();
-                flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                flag.store(true, Ordering::Relaxed);
                 self.cancel_async_op(obj);
-                "1".into()
+                Some("1".into())
             }
-            _ => return None,
-        };
-        Some(answer)
+        }
     }
 }
 

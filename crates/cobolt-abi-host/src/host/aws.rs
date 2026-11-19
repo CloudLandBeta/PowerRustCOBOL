@@ -169,9 +169,15 @@ impl Host {
         fx.answer
     }
 
+    /// The control `idx` now holds `rows`: an AWS control's row set, or a KnowledgeBase's search
+    /// results (T47b), which travel the same way with their event.
     fn aws_rows(&mut self, inst: u32, idx: usize, rows: Vec<Value>) {
-        let Some(name) = self.trees.get(&inst).map(|t| t.ctl(idx).name.clone()) else { return };
-        if let Some(port) = self.aws.as_mut() {
+        let Some((name, kb)) = self.trees.get(&inst).map(|t| (t.ctl(idx).name.clone(), t.ctls[idx].kind.type_name() == "KnowledgeBase")) else { return };
+        if kb {
+            if let Some(port) = self.kb.as_mut() {
+                port.set_results(inst, &name, rows);
+            }
+        } else if let Some(port) = self.aws.as_mut() {
             port.set_rows(inst, &name, rows);
         }
     }

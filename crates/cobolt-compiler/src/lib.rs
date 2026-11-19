@@ -2612,7 +2612,7 @@ fn classify<'p>(
             return Err(CargoReason::ExecRust { file: file.to_string(), line });
         }
     }
-    if let Some(reason) = desktop_control_reason(forms) {
+    if let Some(reason) = desktop_control_reason(forms).or_else(|| kb_semantic_reason(&proj.rag.embedder, forms)) {
         return Err(reason);
     }
     opts.runner.clone().filter(|p| p.is_file()).or_else(runner_path).ok_or(CargoReason::RunnerUnavailable)
@@ -2662,6 +2662,28 @@ fn desktop_control_reason(forms: &[(&str, &str, &cobolt_forms::Form)]) -> Option
         }
     }
     None
+}
+
+/// The first KnowledgeBase of `forms`, in the forms' order and each form's document order, as the
+/// reason the Build takes the Cargo path when the project links the built-in semantic model
+/// (`embedder` is `[rag] embedder`): the runner carries the Knowledge Base without it
+/// (DESKTOP-WASM-001 T47b, [`cobolt_wasm::support::D_KB_SEMANTIC`]). `None` for any other embedder.
+fn kb_semantic_reason(embedder: &str, forms: &[(&str, &str, &cobolt_forms::Form)]) -> Option<CargoReason> {
+    fn first(cs: &[cobolt_forms::Control]) -> Option<&cobolt_forms::Control> {
+        cs.iter().find_map(|c| if matches!(c.control_type, cobolt_forms::ControlType::KnowledgeBase) { Some(c) } else { first(&c.children) })
+    }
+    if !embedder.trim().eq_ignore_ascii_case("builtin") {
+        return None;
+    }
+    forms.iter().find_map(|(id, file, form)| {
+        first(&form.controls).map(|c| CargoReason::DesktopControl {
+            form: id.to_string(),
+            file: file.to_string(),
+            control: c.id.clone(),
+            control_type: c.control_type.as_str().to_string(),
+            reason: cobolt_wasm::support::D_KB_SEMANTIC.to_string(),
+        })
+    })
 }
 
 /// The generator's refusal as the reason the Build takes the Cargo path (DESKTOP-WASM-001 R13):
@@ -7576,6 +7598,9 @@ The Build takes the Cargo path, and says why, when:
   Maps; the Viewer), or a control bound to data (Data Binding): the Build
   names the form, its file, the control and its type. "Controls on the Desktop"
   below lists them;
+- a form holds a KnowledgeBase and the project sets `[rag] embedder = "builtin"`:
+  the built-in semantic model is linked into the program, which the runner does
+  not carry;
 - the runner is not installed beside the IDE or `rcrun`, and the variable
   `PRC_RUNNER` names none.
 
@@ -8171,6 +8196,18 @@ fn browser_subset_doc() -> String {
          `Verbose` narrates the request and its answer with every key masked; `ResultCount`, `TopTitle`, `TopSnippet`, \
          `TopLink` and `GetResult(n)` read the last answer. It is held to the RestClient's data items too.\n",
     );
+    // T47b: the KnowledgeBase is served by the interpreter's own rules; the built-in semantic model is not.
+    d.push_str(&format!(
+        "\nThe KnowledgeBase control is served: the runner answers its collection, document and result methods at once \
+         and runs `AddDocument`, `UpdateDocument`, `ImportDocument`, `DeleteDocument`, `Refresh`, `Reindex`, `Search` and \
+         `FetchModel` on a thread of its own, one at a time per control, by the interpreter's own rules. Each event \
+         (`onProgress`, then `onIndexed`, `onSearchComplete`, `onBusy` or `onError`) carries its own values, written as \
+         its handler is about to run; `Cancel` lets a running operation go and raises `onCancelled`. The collections \
+         are the same folders under `Location` as on the Cargo path. A project that sets `[rag] embedder = \"builtin\"` \
+         and has a KnowledgeBase takes the Cargo path: {}. Without that setting, an `Embedder` of `Builtin` searches \
+         lexically on both paths, and `SearchModeReason` says why.\n",
+        cobolt_wasm::support::D_KB_SEMANTIC
+    ));
     d.push_str("\nA control bound to data (Data Binding) takes the Cargo path too, whatever its type:\n\n| Bound to | Why |\n|---|---|\n");
     for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {
         d.push_str(&format!("| {source} | {why} |\n"));
@@ -14293,7 +14330,12 @@ function_prefix = "sales-"
         let mut named = ctl("WEB-2", T::WebSearch);
         named.set_prop("ResponseDataItem", cobolt_forms::PropValue::String("WS-ANSWER".into()));
         let search_named = form("FINDINTO", vec![named]);
-        let ask = form("ASK", vec![ctl("KB-1", T::KnowledgeBase)]);
+        // Served since T47b: the KnowledgeBase; an AgentObject beside it is not. A project that links the
+        // built-in semantic model sends its first KnowledgeBase down the Cargo path.
+        let ask = form("ASK", vec![ctl("KB-1", T::KnowledgeBase), ctl("AGT-1", T::AgentObject)]);
+        let mut docs_panel = ctl("PNL-DOCS", T::Panel);
+        docs_panel.children.push(ctl("KB-DOCS", T::KnowledgeBase));
+        let docs = form("DOCS", vec![ctl("LBL-Q", T::Label), docs_panel]);
         let mut bound = form("MAIN", vec![ctl("LBL-TOTAL", T::Label)]);
         bound.data_bindings.push(cobolt_forms::model::DataBindingDef::new(
             "Bind-Total",
@@ -14317,6 +14359,10 @@ function_prefix = "sales-"
         let web = desktop_control_reason(&[("FIND", "forms/find.cfrm", &search)]);
         let web_named = desktop_control_reason(&[("FINDINTO", "forms/findinto.cfrm", &search_named)]);
         let service = desktop_control_reason(&[("ASK", "forms/ask.cfrm", &ask)]);
+        let kb = desktop_control_reason(&[("DOCS", "forms/docs.cfrm", &docs)]);
+        let semantic = kb_semantic_reason(" Builtin ", &[("MAIN", "forms/main.cfrm", &served), ("DOCS", "forms/docs.cfrm", &docs)]);
+        let lexical = kb_semantic_reason("lexical", &[("DOCS", "forms/docs.cfrm", &docs)]);
+        let no_kb = kb_semantic_reason("builtin", &[("MAIN", "forms/main.cfrm", &served)]);
         let binding = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &bound)]);
         let took = t.elapsed();
         let is = |r: &Option<CargoReason>, f: &str, file: &str, c: &str, ty: &str, milestone: &str| {
@@ -14333,18 +14379,21 @@ function_prefix = "sales-"
             ("an AwsS3 and an AwsLambda: none (T48)", aws.is_none()),
             ("a WebSearch: none (T47a)", web.is_none()),
             ("a WebSearch that names a data item: FINDINTO, forms/findinto.cfrm, WEB-2, the data items", is(&web_named, "FINDINTO", "forms/findinto.cfrm", "WEB-2", "WebSearch", "names the program's data items")),
-            ("a KnowledgeBase: ASK, forms/ask.cfrm, KB-1, M6", is(&service, "ASK", "forms/ask.cfrm", "KB-1", "KnowledgeBase", "M6)")),
+            ("a KnowledgeBase passes, an AgentObject beside it: ASK, forms/ask.cfrm, AGT-1, M6", is(&service, "ASK", "forms/ask.cfrm", "AGT-1", "AgentObject", "M6)")),
+            ("a KnowledgeBase inside a Panel: none (T47b)", kb.is_none()),
+            ("[rag] embedder = builtin: DOCS, forms/docs.cfrm, KB-DOCS, the semantic model", is(&semantic, "DOCS", "forms/docs.cfrm", "KB-DOCS", "KnowledgeBase", "built-in semantic model")),
+            ("another embedder, or no KnowledgeBase: none", lexical.is_none() && no_kb.is_none()),
             ("a Label bound to an indexed file: LBL-TOTAL, Label, M6", is(&binding, "MAIN", "forms/main.cfrm", "LBL-TOTAL", "Label", "(DESKTOP-WASM-001 M6)")),
         ];
-        println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, T47a, T48, T50, R13) ==");
-        println!("forms: 9 designs, 20 controls (3 nested), 1 binding; 9 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
+        println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, T47a, T47b, T48, T50, R13) ==");
+        println!("forms: 10 designs, 24 controls (4 nested), 1 binding; 13 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
         println!("  Maps: {text}");
         let passed = checks.iter().filter(|(_, ok)| *ok).count();
         for (what, ok) in &checks {
             println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
         }
         println!("result: {passed} of {} checks passed", checks.len());
-        assert_eq!(passed, checks.len(), "maps {maps:?}, viewer {viewer:?}, canvas {canvas:?}, web {web:?}, web_named {web_named:?}, service {service:?}, binding {binding:?}");
+        assert_eq!(passed, checks.len(), "maps {maps:?}, viewer {viewer:?}, canvas {canvas:?}, web {web:?}, web_named {web_named:?}, service {service:?}, kb {kb:?}, semantic {semantic:?}, binding {binding:?}");
     }
 
     /// A chart that names its table's fields (`LabelField`, `ValueFields`) has

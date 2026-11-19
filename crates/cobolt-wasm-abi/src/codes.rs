@@ -170,6 +170,9 @@ pub mod cap {
     pub const FILES_TEXT: &str = "files.text";
     /// A picture's size read, and a picture fitted to a size: `COBOL::"IMAGE-INFO"` and `"IMAGE-FIT"` (A39).
     pub const IMAGES: &str = "images";
+    /// The desktop's KnowledgeBase control: the application's document collections, indexed and searched
+    /// on the runner's threads (A49).
+    pub const KB: &str = "kb";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
@@ -188,6 +191,7 @@ pub mod cap {
         AWS,
         FILES_TEXT,
         IMAGES,
+        KB,
     ];
 }
 

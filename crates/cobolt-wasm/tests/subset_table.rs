@@ -297,7 +297,9 @@ fn every_control_has_a_desktop_class() {
         ("RestClient served (T42b)", desktop_control_gap(&ControlType::RestClient).is_none()),
         // T47a: the WebSearch is served the same way; one that names a data item is not.
         ("WebSearch served (T47a)", desktop_control_gap(&ControlType::WebSearch).is_none()),
-        ("KnowledgeBase still refused (M6)", desktop_control_gap(&ControlType::KnowledgeBase).is_some_and(|w| w.contains("M6"))),
+        // T47b: the KnowledgeBase is served; its built-in semantic model is the Build's to judge.
+        ("KnowledgeBase served (T47b)", desktop_control_gap(&ControlType::KnowledgeBase).is_none()),
+        ("AgentObject still refused (M6)", desktop_control_gap(&ControlType::AgentObject).is_some_and(|w| w.contains("M6"))),
         ("a RestClient naming no data item is served", {
             let c = cobolt_forms::Control::new("REST-1", ControlType::RestClient, 0, 0);
             cobolt_wasm::support::desktop_design_gap(&c).is_none()

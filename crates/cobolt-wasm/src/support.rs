@@ -464,7 +464,7 @@ pub fn desktop_refusal(s: &Stmt, in_form: bool) -> Option<&'static str> {
 
 // ── The controls of a desktop form (DESKTOP-WASM-001 T33, plan §4.3) ─────────────────────────────
 
-const D_SERVICE: &str = "the service controls (AI, search and sign-in) are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_SERVICE: &str = "the service controls (AI and sign-in) are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 /// Why a PartiQL member of the IndexedFile control sends the Build to the Cargo path (T39c serves the control).
 pub const D_PARTIQL: &str = "the IndexedFile control's PartiQL members are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 
@@ -549,6 +549,12 @@ pub fn desktop_design_gap(c: &cobolt_forms::Control) -> Option<&'static str> {
     }
 }
 
+/// Why a project whose KnowledgeBase uses the built-in semantic model takes the Cargo path
+/// (DESKTOP-WASM-001 T47b): the runner carries the Knowledge Base without the model, which would make every
+/// program built on the WebAssembly path larger by the model's engine; the Build links it into a program
+/// of its own instead. A project setting, `[rag] embedder = "builtin"`, not a control's design.
+pub const D_KB_SEMANTIC: &str = "the project links the built-in semantic model ([rag] embedder = \"builtin\"), which the PowerRustCOBOL runner does not carry; the Cargo path builds it into the program";
+
 const D_MAPS: &str = "the Maps control's places and directions are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_VIEWER: &str = "the Viewer's documents and verbs are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know takes the Cargo path (DESKTOP-WASM-001 M6)";
@@ -569,7 +575,10 @@ const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know 
 /// runner makes by the interpreter's own rules (`cobolt_runtime::rest_door`) with the window's HTTP
 /// client (one that names a data item is judged by [`desktop_design_gap`] too), and since T47a the
 /// WebSearch, whose searches are RestClient requests built by its own rules
-/// (`cobolt_runtime::search_door`). It does not serve yet: the other service controls (class C),
+/// (`cobolt_runtime::search_door`), and since T47b the KnowledgeBase, whose
+/// methods and background operations the runner carries out by the interpreter's own rules
+/// (`cobolt_runtime::kb_door`; a project that links the built-in semantic model is judged by the
+/// Build, [`D_KB_SEMANTIC`]). It does not serve yet: the other service controls (class C),
 /// the Maps control (its places and directions are
 /// a service), the Viewer (its documents and verbs) and a type it does not know (class D). A form
 /// holding one takes the Cargo path, which names the form and the control.
@@ -577,7 +586,7 @@ pub fn desktop_control_gap(t: &cobolt_forms::model::ControlType) -> Option<&'sta
     use cobolt_forms::model::ControlType as T;
     use cobolt_forms::web_class::{class_of, Class};
     match t {
-        T::DataGrid | T::FileDropZone | T::IndexedFile | T::SqlDatabase | T::RestClient | T::WebSearch => None,
+        T::DataGrid | T::FileDropZone | T::IndexedFile | T::SqlDatabase | T::RestClient | T::WebSearch | T::KnowledgeBase => None,
         t if t.is_aws() => None,
         T::Maps => Some(D_MAPS),
         T::Viewer => Some(D_VIEWER),

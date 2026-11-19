@@ -106,6 +106,8 @@ enum ToProgram {
     Sql(crate::sql::SqlNews),
     /// A RestClient request on its own thread ended or ran out of time (T42b).
     Rest(crate::rest::RestNews),
+    /// A KnowledgeBase operation on its own thread reported (T47b).
+    Kb(crate::kb::KbNews),
 }
 
 /// The engine the runner gives the form host: the forms' designs, from the module's `prforms`
@@ -422,6 +424,15 @@ impl Thread {
             })
         });
         host.rest = Some(Box::new(rest.clone()));
+        // The KnowledgeBase controls (T47b): an operation runs on a thread of its own, and each of its
+        // reports comes back on this thread's own channel too.
+        let kb = {
+            let back = tx.clone();
+            crate::kb::Kb::new(move |n| {
+                let _ = back.send(ToProgram::Kb(n));
+            })
+        };
+        host.kb = Some(Box::new(kb.clone()));
         // A FileDropZone's `CommitFiles()` (T39c): the interpreter's own copy, anchored at the
         // application's folder as the interpreter anchors it.
         host.drop_zones = Some(Box::new(DropZones));
@@ -604,6 +615,12 @@ impl Thread {
                     };
                     if let Some((inst, ctl, fx)) = news {
                         d.host().rest_delivered(inst, &ctl, fx);
+                    }
+                }
+                Some(ToProgram::Kb(n)) => {
+                    let (inst, ctl) = (n.inst, n.ctl.clone());
+                    if let Some(e) = kb.delivered(n) {
+                        d.host().kb_delivered(inst, &ctl, vec![e]);
                     }
                 }
                 Some(ToProgram::Gone { link }) => {

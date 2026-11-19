@@ -37,6 +37,7 @@ pub mod files;
 pub mod forms;
 mod gfx;
 mod http;
+mod kb;
 mod rest;
 pub mod messages;
 pub mod pins;
@@ -58,7 +59,7 @@ pub use pins::Pins;
 /// The capabilities this runner provides (A27). T15: console programs; T32: the file dialogs (A33);
 /// T38: files on disk of every organisation (A34); T49: the sound player (A36); T48: the AWS controls (A38);
 /// T39c: the text files and pictures a built-in names by its path (A39); T41: `EXEC SQL` (A41);
-/// T42: the HTTP built-ins (A45).
+/// T42: the HTTP built-ins (A45); T47b: the KnowledgeBase control (A49).
 pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::CONSOLE,
     cap::ENV,
@@ -73,6 +74,7 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::IMAGES,
     cap::SQL,
     cap::HTTP,
+    cap::KB,
 ];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row

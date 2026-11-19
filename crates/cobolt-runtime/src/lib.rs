@@ -90,6 +90,9 @@ pub mod partiql;
 pub mod kb_transport;
 #[cfg(feature = "kb")]
 pub(crate) mod kb_runtime;
+/// The KnowledgeBase control's own rules, for the interpreter and the desktop runner alike
+/// (DESKTOP-WASM-001 T47b). Its methods need the `kb` feature; what a report raises does not.
+pub mod kb_door;
 
 /// The variable naming a folder that already holds the built-in model, which
 /// a KnowledgeBase then uses before looking beside the application — for a

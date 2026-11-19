@@ -581,6 +581,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         && (builtin_list.iter().any(|b| crate::lower_remote::is_desktop_aws(b)) || forms.iter().any(|f| f.controls.iter().any(|(_, kind)| kind.starts_with("Aws"))));
     // A desktop module with a SqlDatabase needs the runner's connections (T41c, A43).
     let uses_sql_control = opts.native && forms.iter().any(|f| f.controls.iter().any(|(_, kind)| kind == "SqlDatabase"));
+    // A desktop module with a KnowledgeBase needs the runner's Knowledge Base (T47b, A49).
+    let uses_kb = opts.native && forms.iter().any(|f| f.controls.iter().any(|(_, kind)| kind == "KnowledgeBase"));
     // A desktop module's disk files: their declarations go to the `prfiles` section and their
     // organisations to the capabilities (T38, A34).
     let file_caps: BTreeSet<&'static str> = names.file_caps.clone();
@@ -1612,8 +1614,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         // A desktop capability's import is named with its namespace (A29).
         imports: glue_list.iter().map(|g| if native_cap(g).is_some() { format!("{}.{g}", import_module(g)) } else { g.to_string() }).collect(),
         // A27: what the `prn` imports need, in the order of `cap::ALL`; none for a browser module. The
-        // file dialogs, the sound player and AWS are verbs of the application object and calls on controls, with no
-        // import of their own (A33, A36, A38).
+        // file dialogs, the sound player, AWS and the Knowledge Base are verbs of the application object and calls
+        // on controls, with no import of their own (A33, A36, A38, A49).
         capabilities: cobolt_wasm_abi::codes::cap::ALL
             .iter()
             .filter(|c| {
@@ -1623,6 +1625,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
                     || (**c == cobolt_wasm_abi::codes::cap::AUDIO && uses_audio)
                     || (**c == cobolt_wasm_abi::codes::cap::AWS && uses_aws)
                     || (**c == cobolt_wasm_abi::codes::cap::SQL && uses_sql_control)
+                    || (**c == cobolt_wasm_abi::codes::cap::KB && uses_kb)
             })
             .map(|c| c.to_string())
             .collect(),

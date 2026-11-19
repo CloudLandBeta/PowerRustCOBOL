@@ -2,6 +2,48 @@
 
 
 
+## 2.0.619 — 2026-11-19
+
+**Feature: the KnowledgeBase control runs in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T47, second part).** A desktop form with a KnowledgeBase no longer sends its program down the Cargo path. The built program keeps its document collections as Run Form does:
+- `CreateCollection`, `RemoveCollection`, `ListCollections`, `GetCollection`, `ListDocuments`, `GetDocument` and the four `GetResult…` answer at once.
+- `AddDocument`, `UpdateDocument`, `ImportDocument`, `DeleteDocument`, `Refresh`, `Reindex`, `Search` and `FetchModel` run on a thread of their own, one at a time per control, with `Busy`. A second operation while one runs, or a `ModelEntry` the program has not handed over, answers `0` with `LastError` saying why.
+- Each event (`onProgress`, then `onIndexed`, `onSearchComplete`, `onBusy` or `onError`) carries its own values, written as its handler is about to run, so two progress reports never overwrite each other. A finished search's results become the control's with its `onSearchComplete`.
+- `Cancel` lets a running operation go, clears `Busy` and raises `onCancelled`; its later reports are dropped.
+- The collections are the same folders under `Location` as on the Cargo path.
+
+A project that sets `[rag] embedder = "builtin"` and has a KnowledgeBase still takes the Cargo path, and the Build says why: the runner carries the Knowledge Base without the built-in semantic model, which would make every program built on the WebAssembly path larger (the Knowledge Base without it adds 2.6 MiB). Without that setting, an `Embedder` of `Builtin` searches lexically on both paths and `SearchModeReason` says why. AgentObject, the rest of T47, still takes the Cargo path.
+- **One implementation of the rules:** the interpreter's KnowledgeBase methods and the mapping of its workers' reports moved, unchanged, into a module both hosts call (`kb_door` in `cobolt-runtime`). The methods need the runtime's `kb` feature; the report mapping is in every build.
+- **The ABI (A49):** a new capability, `kb`, which a desktop module with a KnowledgeBase requires; no new command or import.
+  - The ABI host sends a KnowledgeBase's methods to the runner's port before any other dispatch, as the interpreter routes them by class. `Cancel` is the host's uniform one. Each report's event waits in the queue with its values (A38's way), and a search's results travel with it.
+  - The runner's port follows `kb_door` and runs each operation on a thread of its own with the interpreter's workers. The runner links the runtime's `kb` feature, without the semantic model.
+- **The Build's documentation** (the subset document and the System KB, rebuilt) names the KnowledgeBase among what the WebAssembly path serves, and the semantic model among the reasons for the Cargo path. The service controls still refused are the AI and sign-in ones. The Developer's Guide's copy is owed at the merge into `main`.
+- **Where:**
+  - `cobolt-runtime`: `kb_door.rs` (new), `interpreter/kb.rs`, `lib.rs`.
+  - `cobolt-abi-host`: `host/kb.rs` and `host/kb_tests.rs` (new), `host.rs`, `host/aws.rs`.
+  - `cobolt-runner`: `kb.rs` (new), `forms.rs`, `lib.rs`, `Cargo.toml`.
+  - `cobolt-wasm-abi`: `codes.rs` (the capability). `cobolt-wasm`: `support.rs`, `module.rs`; `tests/subset_table.rs`.
+  - `cobolt-compiler`: `lib.rs` (`kb_semantic_reason`, the Build's text, `desktop_controls_the_runner_lacks_are_named`). `assets/knowledge/chunked.data` is rebuilt.
+  - `cobolt-cli`: `tests/runner_knowledgebase_form.rs` (new).
+  - `specs/WASM-ABI-v1.md` (A49, the capability list); `tasks.md` (T47 notes); `specs/WASM-PROGRESS.md`.
+- **Measured** (macOS arm64):
+  - **The runner twin `the_knowledgebase_control_agrees_on_both_engines`:** 26 of 26 checks. 6 dumps are equal, and 6 pictures (2,553,600 pixels) have 0 differing. Two KnowledgeBase controls, 9 buttons and 14 event handlers:
+    - the collection methods;
+    - `AddDocument` making the control busy, and a second operation refused;
+    - `onProgress` and `onIndexed` reading their own values;
+    - updating, importing, listing and reading documents;
+    - a `Search` with a maximum, the best result first;
+    - deleting a document;
+    - `onError` with no collection;
+    - `Refresh` then `Cancel()`.
+    Each engine starts from an empty folder, in real time: 54.5 s under the interpreter, 54.8 s under the runner.
+  - **The runner's size:** the release `prc-runner` is 79,869,776 bytes for macOS arm64, against 77,176,944 before: the Knowledge Base adds 2,692,832 bytes (3.5%) to every program built on the WebAssembly path.
+  - **Unit tests:** the ABI host's `kb_tests` 2 tests, 16 checks; the interpreter's `test_knowledge_base` 7 tests, `test_nonvisual_property_readers` 5, `test_class_c_catalogue` 2, `test_model_list` 3; `desktop_controls_the_runner_lacks_are_named` 13 of 13; `subset_table` 26 of 26 fixed points (control types 71 = 67 served + 4 on the Cargo path).
+  - **Regressions:**
+    - `cobolt-wasm` 145 tests in 39 test binaries; `cobolt-abi-host` 279; `cobolt-wasm-abi` 25.
+    - The WebSearch twin 34 of 34 and the RestClient twin 35 of 35 checks, 0 differing pixels (2,553,600 and 3,404,800).
+    - `cobolt-runner` 19 passed and 2 ignored. Its `embedded_sql_matches_the_interpreter` is red since 2.0.615, for a reason of its own (2.0.620).
+    - The System KB, rebuilt with 4,420 records: `prebuilt_chunked_kb_matches_the_published_documentation` green.
+
 ## 2.0.618 — 2026-11-19
 
 **Feature: the WebSearch control runs in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T47, first part).** A desktop form with a WebSearch control no longer sends its program down the Cargo path. The built program searches as Run Form does:
