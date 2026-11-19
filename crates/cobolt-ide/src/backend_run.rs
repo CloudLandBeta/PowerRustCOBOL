@@ -120,6 +120,11 @@ impl BackendRun {
         if let Some(origin) = page_origin {
             command.arg("--page-origin").arg(origin);
         }
+        // The SQL connections' credentials the IDE keeps in its vault, as the
+        // `<APP>_SQL_<NAME>_*` variables the Backend's catalog reads — what a
+        // program the IDE runs in-process is handed (spec 087 R33). Only this
+        // child sees them; they are never written or printed.
+        command.envs(crate::runner::project_sql_credentials_for(project_dir));
         let mut child = command
             .current_dir(project_dir)
             .stdin(Stdio::null())

@@ -13373,6 +13373,18 @@ both upper-cased, every character other than a letter or a digit turned into
 | `SHOP_SQL_SALES_USER` | the user name (a server database) |
 | `SHOP_SQL_SALES_PASSWORD` | the password — the only place one is accepted |
 
+The application's name is the `name` in the project file's `[project]` table,
+not the file's name: a project file `Cnd_PRC.project.toml` that says
+`name = "Cnd_PRC.project"` reads `CND_PRC_PROJECT_SQL_CONDOMINIO_USER` and
+`CND_PRC_PROJECT_SQL_CONDOMINIO_PASSWORD` for its connection `CONDOMINIO`.
+
+While you develop, you do not set these yourself: the user name and password
+you give a SQL connection in the IDE are kept in its credential vault, and the
+IDE hands them over as these variables to what it runs from the open project —
+a program or form it runs, and the Backend it starts (Run's Start Backend, and
+the Preview's). A Backend started by hand (`rcrun backend run` in a terminal)
+reads them from that terminal's environment.
+
 > ⚠️ **Never put a password in the project file.** An entry that carries a
 > `password` key is refused: connecting through it fails with `28000`, and the
 > message names the file and the variable to use instead.

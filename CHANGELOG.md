@@ -2,6 +2,14 @@
 
 
 
+## 2.0.609 — 2026-11-18
+
+**Fix: the Backend the IDE starts gets the SQL credentials the IDE keeps for the project.** Reported with the Cnd_PRC conversion: a Backend started from the IDE could not connect to its SQL database until the developer set `CND_PRC_PROJECT_SQL_CONDOMINIO_USER` and `_PASSWORD` by hand, although the IDE held both in its vault. A program or form the IDE runs was already handed them (spec 087 R33); the Backend child process was not.
+- **Now** Run's Start Backend and the Preview's backend start `rcrun backend run` with the open project's `<APP>_SQL_<NAME>_USER` / `_PASSWORD` in that child's environment only, as Run Form's child already gets them. A process started in any other folder gets none; nothing is written or printed.
+- **Where:** `cobolt-ide` (`backend_run.rs`; `runner::project_sql_credentials_for`).
+- **The Developer's Guide** (§15, under the SQL connection variables) says the prefix is the `[project]` table's `name`, not the file's name, with the reported project as the example, and that the IDE hands the vault's values to what it runs, the Backend included. Its translations stay deleted (2.0.498).
+- **Test:** `the_backend_of_the_open_project_gets_its_sql_credentials_and_no_other_folder_does` (`cobolt-ide`, new).
+
 ## 2.0.608 — 2026-11-18
 
 **Fix: a `CALL`ed program's `SQLSTATE` reports its own statements, so its `FETCH` loop ends on `02000`.** Reported with the Cnd_PRC conversion (MySQL 8.0): `PERFORM UNTIL SQLSTATE NOT = "00000"` around a `FETCH` never ended and repeated the last row, which looked like "no `02000` after a `COMMIT`".
