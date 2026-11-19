@@ -222,3 +222,86 @@ content; they name `render_form`/`run_form` for checks.
 - End to end (manual, operator): Help → Claude Code Settings → Configure; in a project folder run
   `claude`, `/mcp` shows both servers; ask it to `kb_search` "SideMenu", create a project, add a
   form, `render_form` it. Not driven by the agent (CLAUDE.md: never drive the IDE).
+
+## Phase D — the MCP connection is the only channel (R44–R73)
+
+Decided by the agent under the operator's instruction of 2026-11-18 ("do what is
+right for the project in the long term"); each decision is marked **(D)**.
+
+### Shape
+
+- **One tool catalogue, both servers (R45, R66).** Every tool's schema lives in
+  `cobolt-project-tools` (`tools/mod.rs` lists the groups). A tool either runs
+  in `cobolt-project-tools` (files, git, indexed definitions, gap report) or is
+  an **IDE tool**: `ProjectHost::ide_tool(name, args)`. The IDE host sends
+  `HostRequest::IdeTool` to the UI thread, which answers through
+  `app/mcp_ide_tools.rs` (a child module of `app`, so it reaches the IDE's state
+  the way the menus do). The headless host answers an IDE tool with "needs
+  PowerRustCOBOL AI open: call open_project", and `open_project` starts the IDE
+  (R20a). **(D)** The Form Designer, Project Settings, run/debug and the IDE's
+  windows live in the IDE crate. Moving them into a library only so that
+  `rcrun` could do them headless would be a large refactor for a case R66
+  already covers.
+- **Nothing blocks the UI thread.** An IDE tool that takes time (run, Backend,
+  debug) starts the work and answers at once; a status tool reads its progress.
+- **Writes keep the IDE the only writer.** File tools write through the host:
+  the IDE host refuses a file with unsaved edits (R55, now also
+  `set_definition`), records listed files through the project model, and reloads
+  open tabs (`written`). Rename and remove of a listed file go to the UI thread,
+  which updates the manifest and seal as the Project panel does.
+- **(D) Removal is recoverable (R52)** by moving to `<project>/.recycle/<UTC
+  stamp>/<path>`. A project-local folder works the same on macOS, Linux and
+  Windows, needs no new dependency, and is never in a manifest list, so Build
+  ignores it.
+- **(D) Binary content** travels as base64 with a MIME type (`read_file`,
+  `write_file`). `import_file` copies bytes from an absolute path the developer
+  named.
+
+### Tool catalogue
+
+| Group | Tools | Where |
+|---|---|---|
+| Files (R49–R54) | `read_file`, `list_folder`, `search_files`, `write_file`, `edit_file`, `rename_file`, `remove_file`, `import_file` | both |
+| Report (R65) | `write_gap_report` | both |
+| Git (R64) | `git` (`status`, `diff`, `log`, `add`, `commit`, `push`, `pull`, `branch`, `switch`) | both; runs `git` in the project folder; never prints a credential |
+| Forms (R56, R57) | `apply_change_set` — the designer's `AgentOp` change set, validated whole first, applied as one undo step; adds `delete_control`, `rename_control` ops | IDE |
+| Indexed (R58) | `edit_indexed` — add / change / remove fields and keys of a `.cidx` | both |
+| Project (R59–R61) | `project_settings`, `set_project_settings`, `sql_connections`, `set_sql_connection`, `remove_sql_connection`, `test_sql_connection`, `save_project`, `package_project`, `upgrade_project` | IDE |
+| Run (R62) | `run_project`, `run_status`, `stop_run`, `start_backend`, `backend_status`, `stop_backend`, `start_web_preview`, `run_mobile`, `create_android_studio_project` | IDE |
+| Debug (R63) | `debug_start`, `debug_breakpoints`, `debug_control`, `debug_state` | IDE |
+| Knowledge and data (R64) | `project_kb_search`, `project_kb_reindex`, `app_kb_search`, `indexed_records`, `read_output`, `read_diagnostics`, `beautify` | IDE |
+| IDE-wide (R69) | `ide_settings`, `set_ide_settings` | IDE |
+| The IDE (R70–R72) | `ide_state`, `ide_picture`, `ide_command`, `ide_widget` | IDE |
+
+### The plugin and its text (R44, R46, R47)
+
+- `bundle.rs`: no `agents/`. The reviewer becomes the skill
+  `powerrustcobol-review`.
+- `content.rs`: every skill step names its tool; the server instructions open
+  with the MCP-only rule and the gap-report fallback. A test (AC22) scans every
+  skill, the instructions, the tool descriptions and the resources for
+  built-in tool names and shell commands used on a project.
+
+### Changes outside the connection (R68)
+
+- The IDE keeps, per project file, the size and modification time it last
+  wrote or that a tool wrote (`IdeShared` records tool writes). Each frame,
+  while an agent is connected, a cheap scan (at most once a second) of the
+  manifest's lists and their folders finds a file whose stamp moved with no
+  write behind it. That gives one Output line (`Tr`) and a notice queued for
+  the next tool answer (`out_of_band` field).
+
+### `rcrun mcp` forwarding (R66)
+
+- The plugin passes the port and token to `rcrun mcp` as environment variables
+  (`user_config`). Before serving each request, `rcrun mcp` tries the IDE at
+  `127.0.0.1:<port>/mcp` with the token. When the IDE answers, it forwards the
+  JSON-RPC body and returns the IDE's answer. When the IDE does not answer, it
+  serves the request itself.
+
+### Coverage (R73)
+
+- `cobolt-ide/src/agent_kit/coverage.rs`: a table of every menu entry
+  (`menu_layout`), every `AgentOp`, every Project Settings field and every
+  panel, each with its tool. A test walks the live lists and fails when one is
+  missing.

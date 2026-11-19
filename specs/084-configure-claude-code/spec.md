@@ -5,9 +5,11 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — Configure Claude Code
 
-- **Status:** approved (operator, 2026-10-02)
+- **Status:** Phases A–C approved (operator, 2026-10-02) and shipped. **Phase D
+  draft** (operator's rule of 2026-11-18, below), awaiting approval.
 - **Folder:** specs/084-configure-claude-code/
-- **Author:** Claude (for the operator)   **Date:** 2026-10-02
+- **Author:** Claude (for the operator)   **Date:** 2026-10-02; Phase D
+  2026-11-18
 - **Supersedes:** the per-project export of spec 080 (R1–R6, R15, the reference
   pack of R7, and the project-folder file layout of R2). Spec 080's tool set
   (`cobolt-project-tools`), its rules (R8, R16–R19), its skills (R9) and its
@@ -32,11 +34,24 @@ written into project folders. Claude Code can create a project, open one, and
 edit the project open in the IDE. IDE-wide settings for the integration live in
 a new **Claude Code Settings** window in the Help menu.
 
-It is delivered in three phases. **Phase A** is the integration itself
+It is delivered in four phases. **Phase A** is the integration itself
 (R1–R29, R35–R38). **Phase B** gives Claude Code eyes and hands on a running
 form: `render_form` and `run_form` (R30–R31). **Phase C** gives it the
 application-level knowledge an application like PowerDemo3 or PowerChat needs:
 three skills, a patterns pack and an architecture map (R32–R34).
+
+**Phase D** (R44–R73) makes the MCP connection the only channel. The operator's
+rule, 2026-11-18: *"I do not want anything outside the MCP, except Skills added
+to Claude Code by the PowerRustCOBOL AI 'Configure Claude Code' option.
+Everything else goes through the MCP connection."* An audit of 2.0.611 found
+the connection itself was MCP only, but the skills sent Claude Code to its own
+file tools to write forms, COBOL, indexed definitions, menus and assets, and
+most of what the IDE can do had no tool. Phase D gives every such action a
+tool — the files, the Form Designer, the project and IDE-wide settings, run and
+debug, the knowledge bases, the IDE's own windows — rewrites the skills and
+instructions to use only the tools, reduces the plugin to skills plus the
+connection, and has the IDE report a project file that changed outside the
+connection.
 
 ## 2. Goals / Non-goals
 
@@ -53,13 +68,29 @@ three skills, a patterns pack and an architecture map (R32–R34).
     a form with scripted events), not only prove that it compiles.
   - Claude Code can build a multi-form application in the manner of PowerDemo3
     or PowerChat from the knowledge it is given.
+  - **Phase D:** Claude Code reaches PowerRustCOBOL AI only through the MCP
+    connection. The plugin adds nothing to Claude Code but skills and that
+    connection.
+  - **Phase D:** everything the developer can do to a project in the IDE, Claude
+    Code can do through a tool. That covers files, forms, settings, run, debug,
+    knowledge bases and git, the IDE-wide settings, and the IDE's own windows.
 - **Non-goals:**
   - Coding agents other than Claude Code. The content stays agent-neutral
     (spec 080 R20) so a later spec can add one.
   - Migrating per-project kits. No project has one yet (operator, 2026-10-02).
   - The "Export AI…" button in Project Settings (agents and models export). It
     is a different feature and is unchanged.
-  - Driving the IDE's own user interface. `run_form` runs a form, not the IDE.
+  - *(Removed 2026-11-18: "Driving the IDE's own user interface." The operator
+    put it in scope; it is R70–R72 of Phase D, through the MCP connection.
+    `run_form` itself still runs a form, not the IDE.)*
+  - **Grace and the IDE's AI agents** (asking Grace or a specialist, the agents
+    database, model settings). They were not chosen for Phase D (operator,
+    2026-11-18); a later amendment can add them.
+  - **The egui inspection endpoint** on `127.0.0.1:5719` stays as it is today
+    (operator, 2026-11-18). Phase D neither changes it nor relies on it.
+  - **Restricting Claude Code's own tools.** R8 stands, and R44 allows no hook,
+    so Claude Code is not stopped from using its file or shell tools. Phase D
+    makes them unnecessary (R45–R47) and makes their use visible (R68).
 
 ## 3. User stories
 
@@ -80,6 +111,15 @@ three skills, a patterns pack and an architecture map (R32–R34).
 - As a developer, I want to ask Claude Code for a whole application — a main
   form with a side menu, forms loaded into its content pane, data files, web
   calls — and get one that follows the product's own patterns.
+- As a developer, I want every change Claude Code makes to my project to go
+  through PowerRustCOBOL AI's own tools. Then the IDE stays the one writer of
+  the project, sees each change, and shows it as Claude makes it.
+- As a developer, I want Claude Code to be able to do anything I can do in the
+  IDE: design a form, change a setting, run, debug, look at the IDE. Then I
+  never have to finish a task by hand because a tool is missing.
+- As a developer, I want to be told when a project file changed outside the
+  MCP connection, so that a change Claude Code made with its own tools does not
+  go unnoticed.
 
 ## 4. Requirements (EARS)
 
@@ -106,7 +146,8 @@ three skills, a patterns pack and an architecture map (R32–R34).
 
 - **R7 (ubiquitous):** The plugin shall contain the spec 080 skills (R9) and the
   reviewer (R10), and the connection to both tool servers: the IDE over HTTP,
-  and `rcrun mcp` over stdio for when the IDE is closed.
+  and `rcrun mcp` over stdio for when the IDE is closed. *(Amended by R44: the
+  reviewer is delivered as a skill.)*
 - **R8 (constraint):** The plugin shall pre-approve the PowerRustCOBOL project
   tools on both servers, where Claude Code lets a plugin do so. **Deviation
   (T1 spike, 2026-10-02):** Claude Code 2.1.158 offers no plugin-level or CLI
@@ -249,11 +290,171 @@ three skills, a patterns pack and an architecture map (R32–R34).
 - **R43 (ubiquitous):** Help ▸ Claude Code Settings is named **Coding Agent
   Settings**.
 
+### Phase D — the MCP connection is the only channel (operator, 2026-11-18)
+
+Unless a requirement says otherwise, each tool below is served by both tool
+servers. A tool that needs the running IDE (the designer's live state, the
+debugger, the IDE's windows and settings) is served through the IDE as R66
+says.
+
+**The channel**
+
+- **R44 (constraint):** The plugin shall carry only skills and the definition
+  of the two tool servers, with the port and token settings that definition
+  needs. It shall carry no agent, hook, command, output style, settings file or
+  any other Claude Code component. The reviewer of R7 shall be a skill.
+- **R45 (ubiquitous):** Every action Claude Code needs on a PowerRustCOBOL
+  project or on PowerRustCOBOL AI shall have an MCP tool or resource. That
+  includes reading, searching, creating, changing, renaming, moving or
+  removing a file; checking, building, running and debugging; looking anything
+  up; and seeing or acting on the IDE.
+- **R46 (constraint):** No skill, server instruction, tool description, tool
+  answer or resource shall tell Claude Code to use its own file, search or
+  shell tools, or any program, to act on a project or on PowerRustCOBOL AI.
+  Every step of a skill that acts on the project shall name the tool that
+  carries it out.
+- **R47 (ubiquitous):** The server instructions shall state the rule: the
+  project and the product are reached only through these tools and resources.
+  When a capability has no tool, Claude Code shall report the gap with the
+  gap-report tool (R65) and stop, not work around it.
+- **R48 (constraint):** The rule is enforced by R45–R47 and made visible by
+  R68, not by restricting Claude Code. R8 stands.
+
+**Project files**
+
+- **R49 (event):** Claude Code shall be able to read any file of the project.
+  A text file comes whole or as a range of lines. A binary file comes with its
+  type and its bytes in a form MCP can carry. Claude Code shall also be able
+  to list a folder, and to search the project's files by text or by pattern.
+  A search answers with the file, the line and the matching text.
+- **R50 (event):** Claude Code shall be able to create a file, replace a
+  file's content, and change a file by replacing an exact piece of its text.
+  The answer says what changed. A file of a kind the project lists (a form,
+  Common Code, an indexed definition, an asset) is recorded in the project as
+  `add_to_project` records it.
+- **R51 (event):** Claude Code shall be able to rename or move a file or a
+  folder. Every place the IDE's own rename updates (the manifest, the
+  main-form seal, references) is updated the same way.
+- **R52 (event):** Claude Code shall be able to remove a file or a folder. The
+  developer shall be able to recover it, and the answer says where it went.
+  (User code is never lost.)
+- **R53 (event):** Claude Code shall be able to import a file the developer
+  names, from outside the project, into `Assets/` or another project folder.
+  Binary files arrive unchanged.
+- **R54 (constraint):** The file tools shall not write generated code
+  (`generated/`, generated copybooks), which only `regenerate` and the Build
+  write. They shall not write the manifest, which stays sealed and is written
+  through the tools that change the project. They shall refuse any path
+  outside the project folder, except the source of an import (R53), which is
+  only read.
+- **R55 (state):** While the IDE holds unsaved edits in a file, every tool that
+  would write that file shall refuse and name it. This includes
+  `set_definition`, which today is not checked.
+
+**Forms, menus and indexed definitions**
+
+- **R56 (event):** Claude Code shall be able to do to a form everything the
+  Form Designer offers, sent as one change set that applies whole or not at
+  all. That includes creating a form; adding, copying, deleting, moving,
+  resizing and renaming controls; properties; data bindings; tab order;
+  layers; events and their handlers; procedures; the form's COBOL structure
+  blocks; animations; DataGrid columns; toolbars; menu items; and a web form's
+  stylesheet. The validation and the control identities shall be the ones the
+  designer uses.
+- **R57 (state):** While the form is open in a designer, a change set shall
+  appear in it at once and join its undo history.
+- **R58 (event):** Claude Code shall be able to create and change an indexed
+  definition (`.cidx`) field by field, as the IDE's definition editor does.
+
+**The project**
+
+- **R59 (event):** Claude Code shall be able to read and change every field
+  of Project Settings, through the IDE's project model, which saves and seals
+  the project. That includes its connections and the Backend's exports. A
+  secret (a password, a key) goes where the IDE keeps it, and no tool answer
+  ever contains one (as R38).
+- **R60 (event):** Claude Code shall be able to create, change, remove and
+  test a SQL connection. The test answers with success or the database's own
+  error, and never with a password.
+- **R61 (event):** Claude Code shall be able to save the project, package it,
+  and upgrade a project made by an older version, as the IDE does.
+- **R62 (event):** Claude Code shall be able to run the project as Run does,
+  read its output and exit status, and stop it. It shall be able to start and
+  stop a Web or Mobile project's Backend, with its address and whether it
+  answers. It shall be able to start the Web Preview and get its address, run
+  a Mobile project on an Android device or emulator or on the iOS simulator,
+  and create the Android Studio project.
+- **R63 (event):** Claude Code shall be able to debug: start a session, set
+  and clear breakpoints, continue, pause, step over, into and out, read the
+  call stack, variables and watches, and stop. It is the debugger the IDE
+  shows, and while the IDE is open the session is visible in it.
+- **R64 (event):** Claude Code shall be able to:
+  - search and reindex the Project KB, and search the Application KB;
+  - browse, find, add, change and remove the records of an indexed file, as
+    the record grid does;
+  - read the Output panel, the diagnostics log and the Run Form inspector;
+  - beautify a COBOL source or a form's code, as Beautify does;
+  - use git on the project: status, diff, commit, push, pull and branches.
+  The developer's own git credentials are used and never appear in an answer.
+- **R65 (event):** Claude Code shall be able to write a gap report through a
+  tool. The report goes where the gap-report skill says, in its format.
+
+**Both servers**
+
+- **R66 (state):** While the IDE is running, `rcrun mcp` shall pass every call
+  to the IDE's tool server and answer with its answer. The IDE then stays the
+  only writer of the open project and sees every call; the mascot of 2.0.612
+  shows them. While the IDE is closed, `rcrun mcp` serves every tool that does
+  not need the IDE. A tool that needs it answers that PowerRustCOBOL AI must
+  be open, and how to open it (R20a).
+- **R67 (ubiquitous):** Each tool shall say in its description whether it
+  changes anything, and what. A tool that runs the developer's code shall say
+  so, as `run_form` does.
+
+**Changes outside the connection**
+
+- **R68 (event):** While Claude Code is connected (as the mascot defines it),
+  when a file in the open project changes on disk and neither a tool nor the
+  IDE wrote it, the IDE shall do two things. It shall write an Output line
+  naming the file. Its next tool answer shall name the file, say that it
+  changed outside the MCP connection, and say that the change must be made
+  through the tools. It reports and does not refuse (operator, 2026-11-18). A
+  change the developer makes in another editor is reported the same way.
+
+**IDE-wide settings and the IDE itself** (operator, 2026-11-18)
+
+- **R69 (event):** Claude Code shall be able to read and change the IDE-wide
+  settings: the IDE theme, the default form theme, the IDE's language, Debug
+  Settings, the Build Folder and the Platform SDK paths. The tool server's
+  port and token are not among them: they stay the developer's.
+- **R70 (event):** Claude Code shall be able to see the IDE: the open project,
+  the open tabs and windows and which one is active, the controls selected in
+  a designer, the panels shown, and a picture of the IDE window or of one panel.
+- **R71 (event):** Claude Code shall be able to act on the IDE through its own
+  operations, each by name. It shall be able to open, activate and close a
+  designer, editor or document tab; go to a line; select controls; switch a
+  designer layer; show or hide a panel; and carry out any entry of the File,
+  Settings, Run, View and Help menus. For what no named operation covers, it
+  shall be able to point at, click, type into and scroll an IDE widget, served
+  only through the token-gated connection.
+- **R72 (constraint):** No UI tool shall discard unsaved work. A call that would
+  close a tab, a window or the project with unsaved changes refuses and names
+  them, as R17 does.
+
+**Coverage**
+
+- **R73 (ubiquitous):** One list shall map every IDE capability to the tool or
+  resource that reaches it: each menu entry, each Form Designer operation, each
+  Project Settings field, each panel. A test shall fail when the list leaves
+  one of them without a tool.
+
 ### Unchanged from spec 080
 
 - **R28 (constraint):** The tools shall stay on `127.0.0.1` (spec 080 R12) and
   expose nothing outside the open project's folder except `create_project` and
-  `open_project` (spec 080 R13, extended by R15–R16).
+  `open_project` (spec 080 R13, extended by R15–R16). *(Phase D adds the source
+  of an import (R53, read only), the IDE-wide settings (R69) and the IDE itself
+  (R70–R72).)*
 - **R29 (ubiquitous):** Every new IDE string shall be translated in all six
   languages. The text Claude Code reads (instructions, skills, resources) stays
   English (spec 080 R22).
@@ -320,6 +521,68 @@ three skills, a patterns pack and an architecture map (R32–R34).
 - [ ] **AC20** (R33) — `resources/list` lists the patterns pack with at least the
   five named patterns, and the pattern test passes.
 
+**Phase D**
+
+- [ ] **AC21** (R44) — The plugin bundle holds only `skills/`, the server
+  definitions and the plugin manifest. It has no `agents/`, `hooks/`,
+  `commands/` or settings. The reviewer is a skill.
+- [ ] **AC22** (R46, R47) — A test reads every skill, the server instructions,
+  every tool description and every resource. It finds no step that sends Claude
+  Code to its own Read, Write, Edit, Glob, Grep or Bash tools, or to a shell
+  command, to act on a project. It finds the MCP-only rule in the instructions.
+- [ ] **AC23** (R49–R54) — In a temporary project, the file tools do the
+  following:
+  - read a form whole and a range of lines;
+  - search for a paragraph name and get file and line;
+  - create Common Code and find it recorded in the manifest;
+  - change a handler by an exact replacement;
+  - rename a form and find the manifest and seal updated;
+  - remove a file and recover it from where the answer says;
+  - import a PNG byte for byte.
+  
+  A write into `generated/`, the manifest, or `../` is refused.
+- [ ] **AC24** (R55) — With a form held unsaved in the IDE, `set_definition`
+  and every file tool refuse to write it and name it.
+- [ ] **AC25** (R56, R57) — A change set that adds a Button, sets its Caption,
+  binds `onClick` to a new handler and adds a menu item is applied in one call.
+  The form then passes `check`. A form open in a designer shows the change and
+  undoes it in one step. A change set with one invalid operation changes
+  nothing and names the operation.
+- [ ] **AC26** (R58–R61) — An indexed definition built field by field passes
+  `check`. A Project Settings field changed by a tool is the value the Settings
+  form shows, and the project is still sealed. A SQL connection created and
+  tested by a tool reports success against the test database, and no answer
+  contains its password. Save, Package and Upgrade each do what the menu does.
+- [ ] **AC27** (R62) — Run on a console project returns its DISPLAY lines and
+  exit status. A run that does not end is stopped by a tool. A Web project's
+  Backend started by a tool answers at the address returned, and the Web
+  Preview's address serves the page.
+- [ ] **AC28** (R63) — A debug session stops at a breakpoint, steps over a
+  line, reads a variable's value and continues to the end. While the IDE is
+  open, its debugger shows the same line.
+- [ ] **AC29** (R64, R65) — Project KB search finds a document added to the
+  project's Knowledge Base after a reindex. Record tools add, find and remove
+  a record of an indexed file. The Output text read by a tool contains a line
+  the IDE just wrote. Beautify through a tool gives the same text as the IDE's
+  Beautify. A git commit through a tool appears in `git log`. A gap report
+  through a tool is written where the skill says.
+- [ ] **AC30** (R66) — With the IDE running, a call through `rcrun mcp` is
+  answered by the IDE: its Output shows the call, and the mascot sees it. With
+  the IDE closed, a tool that needs it answers that PowerRustCOBOL AI must be
+  open.
+- [ ] **AC31** (R68) — While an agent is connected, a form changed on disk by a
+  test (not by a tool) gets an Output line, and the next tool answer names the
+  form and says it changed outside the MCP connection. A change written by a
+  tool gets no such notice.
+- [ ] **AC32** (R69) — The IDE theme and language changed by a tool are the
+  ones Settings shows. The port and token are not offered.
+- [ ] **AC33** (R70–R72) — Through tools, the IDE opens a form in a designer,
+  selects a control, shows the Output panel and returns a picture of the
+  window in which they show. Closing a tab that holds unsaved changes refuses
+  and names them.
+- [ ] **AC34** (R73) — The coverage test lists every menu entry, designer
+  operation, Project Settings field and panel with its tool, and passes.
+
 ## 6. Constraints & steering check
 
 - **i18n (6 languages):** yes. The menu item, the Claude Code Settings window
@@ -339,7 +602,18 @@ three skills, a patterns pack and an architecture map (R32–R34).
   reports is what `rcrun run-form` and a compiled application do.
 - **Never drive the application:** `run_form` runs a form off screen through
   the form host; it is not UI automation of the IDE, which CLAUDE.md forbids
-  for verification.
+  for verification. *(Phase D: R70–R72 let the developer's Claude Code drive
+  the developer's IDE through the token-gated MCP connection; that is a product
+  capability. The operator's rule for agents that develop PowerRustCOBOL
+  itself, "verify with tests, never by clicking the window", is unchanged.)*
+- **Phase D:**
+  - **i18n:** the Output lines of R68 and any new IDE text are translated in
+    all six languages. Tool texts stay English (R29).
+  - **Generated code:** only `regenerate` and the Build write `generated/`
+    (R54).
+  - **Docs:** the Guide's coding-agent section describes the tool groups, the
+    MCP-only rule and R68.
+  - **Fix vs feature:** feature; `z` only.
 - **Facts this spec relies on, and how they were checked:**
   - A stdio MCP server is started in the folder Claude Code was launched from,
     and receives `CLAUDE_PROJECT_DIR` set to that folder. Tested 2026-10-02
@@ -362,6 +636,18 @@ three skills, a patterns pack and an architecture map (R32–R34).
 - **Q4 — The follow-up capabilities:** folded into this spec as Phase B
   (`render_form`, `run_form`) and Phase C (skills, patterns pack, architecture
   map).
+
+- **Q5 — The egui inspection endpoint (5719):** unchanged (operator,
+  2026-11-18).
+- **Q6 — A file changed outside the connection:** report it; do not refuse
+  (R68; operator, 2026-11-18).
+- **Q7 — Scope beyond the project:** IDE-wide settings, and the IDE's windows
+  and state, which means driving the IDE's UI (R69–R72). Grace and the AI
+  agents were not chosen (operator, 2026-11-18).
+- **Q8 — Approval:** the operator asked for Phase D to be completed, merged
+  into main and pushed while away, and to decide open points "as is right for
+  the project in the long term" (2026-11-18). The decisions taken that way are
+  recorded in `plan.md`, Phase D.
 
 ## 8. Open questions
 

@@ -131,3 +131,25 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 phase touched; report each `test result:` line. Operator end-to-end check after
 Phase A: Help → Claude Code Settings → Configure; `claude` in a project, `/mcp`,
 `kb_search`, `create_project`.
+
+## Phase D — the MCP connection is the only channel
+
+- [ ] **T20 — IDE-tool routing.** `ProjectHost::ide_tool`, `HostRequest::IdeTool`,
+  `app/mcp_ide_tools.rs`; the headless answer. *Serves:* R45, R66.
+- [ ] **T21 — File tools, gap report, git.** Plus the unsaved gate on
+  `set_definition`. *Verify:* AC23, AC24. *Serves:* R49–R55, R64 (git), R65.
+- [ ] **T22 — The plugin and its text.** Reviewer as a skill, no agents;
+  skills and instructions rewritten; the scan test. *Verify:* AC21, AC22.
+  *Serves:* R44, R46, R47.
+- [ ] **T23 — Forms and indexed definitions.** `apply_change_set` (all or
+  nothing; `delete_control`, `rename_control`), `edit_indexed`. *Verify:*
+  AC25, AC26 (indexed). *Serves:* R56–R58.
+- [ ] **T24 — Project, run and data.** Settings, SQL connections, save,
+  package, upgrade; run, Backend, preview, mobile; Output, diagnostics,
+  beautify, KBs, records. *Verify:* AC26, AC27, AC29. *Serves:* R59–R62, R64.
+- [ ] **T25 — Debugger.** *Verify:* AC28. *Serves:* R63.
+- [ ] **T26 — IDE-wide settings and the IDE itself.** *Verify:* AC32, AC33.
+  *Serves:* R69–R72.
+- [ ] **T27 — Changes outside the connection.** *Verify:* AC31. *Serves:* R68.
+- [ ] **T28 — `rcrun mcp` forwards to the IDE.** *Verify:* AC30. *Serves:* R66.
+- [ ] **T29 — Coverage table and test; Guide.** *Verify:* AC34. *Serves:* R73.
