@@ -251,6 +251,13 @@ fn is_subsequence(needle: &[String], hay: &[String]) -> bool {
     needle.iter().all(|n| it.any(|h| h == n))
 }
 
+/// The layout of the first record description of an `FD` written as text (`cobolt_ast::fd_text`,
+/// the text a desktop module carries for each INDEXED file): what [`compute_layout`] gives the `FD`
+/// the text was made from, which the text parses back to. `None` when it does not parse.
+pub fn layout_from_definition(text: &str) -> Option<RecordLayout> {
+    crate::indexed_import::definition_record(text).map(|r| compute_layout(&r))
+}
+
 /// Compute the byte layout of an FD `01` record by walking its subordinate
 /// items in declaration order (groups recurse; elementary items take
 /// `digits + decimals` bytes). OCCURS multiplies the subtree width.

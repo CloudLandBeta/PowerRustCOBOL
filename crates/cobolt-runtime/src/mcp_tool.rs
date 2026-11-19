@@ -172,6 +172,29 @@ pub struct FileAccess {
 }
 
 impl FileAccess {
+    /// The access facts of a file whose records the program's own `FD` lays out (`layout`, its first
+    /// record description): the data file `path`, the record's length, its key and its elementary
+    /// items as columns. Both hosts build `AllowFile`'s facts here, the interpreter from the `FD` it
+    /// parsed and the desktop runner from the same `FD`'s text in the module (DESKTOP-WASM-001 T47c).
+    pub fn of_layout(path: impl Into<std::path::PathBuf>, layout: &crate::files::RecordLayout, primary: crate::indexed::KeySpec) -> Self {
+        let columns = layout
+            .fields
+            .iter()
+            .filter(|f| !f.is_group)
+            .map(|f| ColumnLayout {
+                name: f.name.clone(),
+                offset: f.offset,
+                len: f.len,
+            })
+            .collect();
+        Self {
+            path: path.into(),
+            record_len: layout.len,
+            primary,
+            columns,
+        }
+    }
+
     /// Build access facts from a definition **at design time** — the IDE's
     /// Grid Browser case, and the case tests construct.
     ///
@@ -776,6 +799,77 @@ pub fn tool_for(description: &FileDescription) -> cobolt_mcp::Tool {
             "properties": serde_json::Value::Object(properties),
         }),
         annotations: None,
+    }
+}
+
+// ── An AgentObject's file tools (spec 072, spec 075), one implementation for both hosts ──────────
+//
+// The interpreter and the desktop runner (DESKTOP-WASM-001 T47c) keep a tool set per program and
+// answer an AgentObject's `AllowFile` and its tool calls here, so what a model is offered and what a
+// search returns are the same on both paths.
+
+/// `AllowFile(fd-name [, cidx-path])` — let every agent of the program search the file whose access
+/// facts are `access`. What the file MEANS comes from its `.cidx` (`cidx`, or the definition of the
+/// file `fd` in the delivered `indexed/` folder); how its records are LAID OUT comes from the
+/// program's own `FD`, never the other way round (spec 065 R30). Whether the file is now offered.
+pub fn allow_file(set: &mut IndexedToolSet, fd: &str, cidx: &str, access: FileAccess) -> bool {
+    let description = if cidx.trim().is_empty() {
+        find_description(&fd.trim().to_ascii_uppercase())
+    } else {
+        read_description(cidx.trim())
+    };
+    let Some(description) = description else {
+        return false;
+    };
+    set.deny(&description.name);
+    set.allow(description, access);
+    true
+}
+
+/// The delivered definition whose file is `fd` — searched in the `indexed/` tree the application
+/// anchors on, which is where a build stages every definition the project declares.
+pub fn find_description(fd: &str) -> Option<FileDescription> {
+    fn walk(dir: &std::path::Path, fd: &str, depth: usize) -> Option<FileDescription> {
+        if depth > 4 {
+            return None;
+        }
+        let entries = std::fs::read_dir(dir).ok()?;
+        let mut subdirs = Vec::new();
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                subdirs.push(p);
+            } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("cidx")) {
+                if let Some(d) = read_description_at(&p) {
+                    if d.name.eq_ignore_ascii_case(fd) {
+                        return Some(d);
+                    }
+                }
+            }
+        }
+        subdirs.iter().find_map(|d| walk(d, fd, depth + 1))
+    }
+    walk(&cobolt_forms::assets::resolve("indexed"), fd, 0)
+}
+
+/// The tools the set offers a model, as an AgentObject's request lists them.
+pub fn agent_tool_specs(set: &IndexedToolSet) -> Vec<crate::agent_tools::ToolSpec> {
+    set.tools()
+        .into_iter()
+        .map(|t| crate::agent_tools::ToolSpec { name: t.name, description: t.description.unwrap_or_default(), parameters: t.input_schema })
+        .collect()
+}
+
+/// A model's call of one of the set's tools, answered as the text the model reads back: the
+/// result's text, or `error: …` when the search failed. Read-only (R18).
+pub fn agent_tool_answer(set: &IndexedToolSet, call: &crate::agent_tools::ToolCall) -> String {
+    let r = set.call(&call.name, call.arguments.as_ref().unwrap_or(&serde_json::Value::Null));
+    let text: Vec<String> = r.content.iter().filter_map(|c| c.as_text().map(str::to_owned)).collect();
+    let text = text.join("\n");
+    if r.is_error.unwrap_or(false) {
+        format!("error: {text}")
+    } else {
+        text
     }
 }
 

@@ -385,8 +385,8 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     let agent_cases = [
         ("    MOVE \"WS-PATH\" TO AGT-1::ResponseDataItem\n", "ResponseDataItem"),
         ("    MOVE AGT-1::SetProperty( \"LastReply\" \"x\" ) TO WS-PATH\n", "ResponseDataItem"),
-        ("    MOVE AGT-1::AllowFile( \"ORDERS\" \"read\" ) TO WS-PATH\n", "indexed-file and Knowledge Base tools"),
-        ("    MOVE AGT-1::AllowKnowledgeBase( \"KB-1\" \"docs\" ) TO WS-PATH\n", "indexed-file and Knowledge Base tools"),
+        ("    MOVE AGT-1::AllowFile( WS-PATH \"orders.cidx\" ) TO WS-PATH\n", "names its file in a data item"),
+        ("    MOVE AGT-1::AllowKnowledgeBase( \"KB-1\" \"docs\" ) TO WS-PATH\n", "Knowledge Base tools"),
     ];
     for (body, why) in agent_cases {
         let src = handler(body);
@@ -398,8 +398,54 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
         }
     }
     check(
-        format!("the AgentObject's members naming a data item (ResponseDataItem, SetProperty) or a runtime tool (AllowFile, AllowKnowledgeBase): {agent} of {} refused at their line, naming each", agent_cases.len()),
+        format!("the AgentObject's members naming a data item (ResponseDataItem, SetProperty, AllowFile's file name) or a Knowledge Base tool (AllowKnowledgeBase): {agent} of {} refused at their line, naming each", agent_cases.len()),
         agent == agent_cases.len(),
+    );
+
+    // Its file tools (T47c, A51): an AllowFile naming an INDEXED file of the form by a literal, with or
+    // without its definition, DenyFile, RegisterFile and UnregisterFile compile, and the module requires
+    // `agent.files`, which a module without them does not; an AllowFile naming a file that is not
+    // INDEXED is refused at its line, naming it.
+    let caps = |r: &Result<cobolt_wasm::Compiled, GenError>| -> Vec<String> {
+        r.as_ref()
+            .ok()
+            .and_then(|c| cobolt_wasm_abi::scan::scan_module(&c.wasm).ok())
+            .and_then(|scan| scan.embedded_manifest().ok())
+            .map(|m| m.capabilities)
+            .unwrap_or_default()
+    };
+    let with_files = |body: &str| {
+        handler(body).replacen(
+            "PROGRAM-ID. MAIN-FORM.\nDATA DIVISION.\n",
+            "PROGRAM-ID. MAIN-FORM.\nENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n\
+             \x20   SELECT ORDERS ASSIGN TO \"orders.dat\" ORGANIZATION IS INDEXED ACCESS IS DYNAMIC RECORD KEY IS ORD-ID.\n\
+             \x20   SELECT NOTES ASSIGN TO \"notes.txt\" ORGANIZATION IS LINE SEQUENTIAL.\n\
+             DATA DIVISION.\nFILE SECTION.\nFD ORDERS.\n01 ORD-REC.\n   05 ORD-ID PIC 9(6).\n   05 ORD-CUSTOMER PIC X(30).\n\
+             FD NOTES.\n01 NOTE-LINE PIC X(80).\n",
+            1,
+        )
+    };
+    let tools = with_files(
+        "    MOVE AGT-1::AllowFile( \"ORDERS\" \"orders.cidx\" ) TO WS-PATH\n    MOVE AGT-1::AllowFile( \"ORDERS\" ) TO WS-PATH\n\
+         \x20   MOVE AGT-1::RegisterFile( \"data/x.dat\" \"x.cidx\" \"X\" ) TO WS-PATH\n    MOVE AGT-1::UnregisterFile( \"X\" ) TO WS-PATH\n\
+         \x20   AGT-1::DenyFile( \"ORDERS\" )\n",
+    );
+    let compiled = in_form(&tools);
+    if let Err(e) = &compiled {
+        println!("    file tools: {} at line {}: {}", e.subject, e.line, e.message);
+    }
+    let needs = caps(&compiled);
+    check(
+        format!("a form whose AgentObject uses AllowFile (an INDEXED file, with and without its definition), RegisterFile, UnregisterFile and DenyFile compiles, requiring {needs:?}"),
+        compiled.is_ok() && needs.iter().any(|c| c == "agent") && needs.iter().any(|c| c == "agent.files"),
+    );
+    let plain_agent = caps(&in_form(&asked));
+    check(format!("a form whose AgentObject uses none of them requires {plain_agent:?}, not agent.files"), plain_agent.iter().any(|c| c == "agent") && !plain_agent.iter().any(|c| c == "agent.files"));
+    let notes = with_files("    MOVE AGT-1::AllowFile( \"NOTES\" ) TO WS-PATH\n");
+    let e = in_form(&notes).err().unwrap_or_else(|| GenError::new(0, "compiled"));
+    check(
+        format!("AllowFile naming a LINE SEQUENTIAL file: refused at its line, naming it ({} at line {})", e.subject, e.line),
+        e.subject.to_ascii_uppercase() == "AGT-1::ALLOWFILE" && e.line == line_of(&notes, "AGT-1::") && e.message.contains("not INDEXED") && e.message.contains("M6"),
     );
 
     // What the runner serves still compiles.
@@ -408,7 +454,7 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
 
     let took = t.elapsed().as_secs_f64() * 1000.0;
     println!("== native_desktop_refusals (DESKTOP-WASM-001 T16, T32, R13) ==");
-    println!("programs compiled: {} (23 as desktop modules refused or accepted, {} desktop form modules, 2 browser modules, 1 plain console program) in {took:.1} ms", 26 + 11 + page_verbs.len(), 11 + page_verbs.len());
+    println!("programs compiled: {} (23 as desktop modules refused or accepted, {} desktop form modules, 2 browser modules, 1 plain console program) in {took:.1} ms", 26 + 14 + page_verbs.len(), 14 + page_verbs.len());
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "pass" } else { "FAIL" });

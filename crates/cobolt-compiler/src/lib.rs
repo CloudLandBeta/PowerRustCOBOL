@@ -8220,12 +8220,18 @@ fn browser_subset_doc() -> String {
          `StartTimeoutSeconds`, or does not finish within `TimeoutSeconds`, `onTimeout`. The tools the program declares \
          (`AddTool`, `AddToolParameter`, `RemoveTool`) are offered to the model up to `MaximumToolRounds` times: each call \
          raises `onToolCall`, its handler answers with `SetToolResult`, and the conversation goes on once the handler has \
-         returned. `Cancel` lets an `Ask` go and raises `onCancelled`. An AgentObject whose `ResponseDataItem` is set, or a \
-         program that uses one of its members {}, takes the Cargo path: {}. So does a program that uses {}: {}.\n",
+         returned. `Cancel` lets an `Ask` go and raises `onCancelled`. The indexed files the program offers ({}) are \
+         searched by the runner as by the interpreter: what a file means comes from its `.cidx`, how its records are laid \
+         out from the program's own `FD`. An AgentObject whose `ResponseDataItem` is set, or a program that uses one of its \
+         members {}, takes the Cargo path: {}. So does a program that uses {}: {}; and one whose `AllowFile` names its file \
+         in a data item ({}), or names a file that is not INDEXED ({}).\n",
+        names(cobolt_wasm::support::AGENT_FILE_MEMBERS),
         names(cobolt_wasm::support::AGENT_ITEM_MEMBERS),
         cobolt_wasm::support::D_AGENT_ITEMS,
         names(cobolt_wasm::support::AGENT_TOOL_MEMBERS),
-        cobolt_wasm::support::D_AGENT_TOOLS
+        cobolt_wasm::support::D_AGENT_TOOLS,
+        cobolt_wasm::support::D_AGENT_FILE_NAME,
+        cobolt_wasm::support::D_AGENT_FILE_ORG
     ));
     d.push_str("\nA control bound to data (Data Binding) takes the Cargo path too, whatever its type:\n\n| Bound to | Why |\n|---|---|\n");
     for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {

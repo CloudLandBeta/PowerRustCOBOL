@@ -118,7 +118,8 @@ pub struct Names {
     pub builtins: std::collections::BTreeSet<String>,
     /// A desktop module's files, by number: the `prfiles` section (DESKTOP-WASM-001 T38, ABI A34).
     pub native_files: Vec<cobolt_wasm_abi::files::FileDecl>,
-    /// The capabilities of the organisations whose files a verb of the program uses.
+    /// The capabilities of the organisations whose files a verb of the program uses, and the agents'
+    /// file tools when a program calls one (A51).
     pub file_caps: std::collections::BTreeSet<&'static str>,
     /// A desktop module's `EXEC SQL` programs and statements, by number: the `prsql` section
     /// (DESKTOP-WASM-001 T41, ABI A41).
@@ -396,6 +397,9 @@ pub struct Lower<'a, 'b> {
     /// region offset of its place, one per name in the program as the interpreter keeps one open
     /// file per name.
     pub(crate) native_ids: HashMap<String, (u32, u32)>,
+    /// What each of those files' `ASSIGN` names, trimmed: a data item whose value is the path, or the
+    /// path itself. An AgentObject's `AllowFile` sends the path it names (T47c, ABI A51).
+    pub(crate) native_assigns: HashMap<String, String>,
     /// A desktop module's files the runner cannot keep yet: name -> why, said at the verb.
     pub(crate) native_refusals: HashMap<String, String>,
     /// What the in-memory and SORT files of every unit are (`FileInfo::meta`).
@@ -644,6 +648,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             unit_base,
             external_handles: HashMap::new(),
             native_ids: HashMap::new(),
+            native_assigns: HashMap::new(),
             native_refusals: HashMap::new(),
             file_meta: Vec::new(),
             uses_heap: false,

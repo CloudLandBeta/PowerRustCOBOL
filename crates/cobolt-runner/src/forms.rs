@@ -430,7 +430,7 @@ impl Thread {
         // its own, and its reports come back on this thread's own channel too.
         let agent = {
             let back = tx.clone();
-            crate::agent::Agents::new(http.clone(), move |n| {
+            crate::agent::Agents::new(http.clone(), files.decls.clone(), move |n| {
                 let _ = back.send(ToProgram::Agent(n));
             })
         };

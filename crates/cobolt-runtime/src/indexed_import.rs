@@ -79,23 +79,7 @@ fn map_key(k: &KeyDescriptor) -> KeyDef {
 /// the position the runtime's own layout rules give it. A condition name (`88`)
 /// has no field of its own in a `.cidx` and is left out.
 pub fn fields_from_definition(text: &str) -> Option<Vec<IndexedField>> {
-    use cobolt_ast::program::DataSection;
-
-    let source = format!(
-        "IDENTIFICATION DIVISION.\nPROGRAM-ID. DEFINITION.\nENVIRONMENT DIVISION.\n\
-         INPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT F ASSIGN TO \"x\"\n\
-         \x20       ORGANIZATION IS INDEXED RECORD KEY IS K.\nDATA DIVISION.\nFILE SECTION.\n\
-         {text}\nPROCEDURE DIVISION.\n    STOP RUN.\n"
-    );
-    let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&source, cobolt_lexer::SourceFormat::Free));
-    if parsed.diagnostics.iter().any(|d| d.is_error()) {
-        return None;
-    }
-    let program = parsed.program?;
-    let record = program.data?.sections.into_iter().find_map(|section| match section {
-        DataSection::FileSection(fds) => fds.into_iter().next().and_then(|fd| fd.records.into_iter().next()),
-        _ => None,
-    })?;
+    let record = definition_record(text)?;
     if record.children.iter().all(|c| c.level == 88) {
         return None; // an elementary 01: nothing a field tree can hold
     }
@@ -109,6 +93,28 @@ pub fn fields_from_definition(text: &str) -> Option<Vec<IndexedField>> {
     let mut filler = 0u32;
     let root = field_from_decl(&record, &mut listing, &mut filler)?;
     Some(vec![root])
+}
+
+/// The first record description of the FD text `text` (`cobolt_ast::fd_text`), parsed back by the
+/// ordinary parser, or `None` when it does not parse.
+pub(crate) fn definition_record(text: &str) -> Option<cobolt_ast::data::DataDecl> {
+    use cobolt_ast::program::DataSection;
+
+    let source = format!(
+        "IDENTIFICATION DIVISION.\nPROGRAM-ID. DEFINITION.\nENVIRONMENT DIVISION.\n\
+         INPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT F ASSIGN TO \"x\"\n\
+         \x20       ORGANIZATION IS INDEXED RECORD KEY IS K.\nDATA DIVISION.\nFILE SECTION.\n\
+         {text}\nPROCEDURE DIVISION.\n    STOP RUN.\n"
+    );
+    let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&source, cobolt_lexer::SourceFormat::Free));
+    if parsed.diagnostics.iter().any(|d| d.is_error()) {
+        return None;
+    }
+    let program = parsed.program?;
+    program.data?.sections.into_iter().find_map(|section| match section {
+        DataSection::FileSection(fds) => fds.into_iter().next().and_then(|fd| fd.records.into_iter().next()),
+        _ => None,
+    })
 }
 
 /// The `*> @offset+length` comments of the first record of `text`, one entry per

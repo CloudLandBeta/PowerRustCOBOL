@@ -803,6 +803,73 @@ impl Drop for TempCopy {
     }
 }
 
+/// An AgentObject's `RegisterFile(data-path, cidx-path [, name])` — let every agent of the program
+/// search an indexed file named by its path, with no `FD` (spec 075), in the tool set `set`. One
+/// implementation for the interpreter and the desktop runner (DESKTOP-WASM-001 T47c).
+///
+/// Answers whether the file is now offered, and the properties to write on the control, in order:
+/// `RegisterResult` (`MEMORY`, `DISK` or a refusal code), `RegisterMessage`, `RegisteredName`,
+/// `RegisterFileBytes` and `RegisterLimitBytes` — kept apart from `LastError`, which an `Ask` in
+/// flight may be about to write. Nothing is kept once the program ends (R6a), and no path reaches a
+/// model. `free_memory` pins the free memory a test reports; `None` asks the system.
+pub fn register_for_agent(
+    set: &mut crate::mcp_tool::IndexedToolSet,
+    data: &str,
+    cidx: &str,
+    name: &str,
+    free_memory: Option<u64>,
+) -> (bool, Vec<(&'static str, String)>) {
+    let limit = set.memory_limit();
+    let fixed;
+    let system = SystemMemory;
+    let free: &dyn FreeMemory = match free_memory {
+        Some(bytes) => {
+            fixed = FixedMemory(bytes);
+            &fixed
+        }
+        None => &system,
+    };
+    let fetch = Fetcher { smb: crate::smb_source::fetcher() };
+    let outcome = register(data, cidx, name, limit, free, &fetch);
+    let shown = Location::parse(data).map(|l| l.display()).unwrap_or_default();
+    match outcome {
+        Ok(r) => {
+            let result = match r.fit {
+                Fit::Memory => "MEMORY",
+                Fit::InPlace => "DISK",
+            };
+            let message = match r.fit {
+                Fit::Memory => format!("{} is held in memory ({} bytes)", r.description.name, r.size),
+                Fit::InPlace => format!(
+                    "{} is {} bytes, over what memory allows, and is read in place from disk",
+                    r.description.name, r.size
+                ),
+            };
+            tracing::info!(target: "mcp", "registered {shown} as {}: {result}", r.description.name);
+            let props = vec![
+                ("RegisterResult", result.to_string()),
+                ("RegisterMessage", message),
+                ("RegisteredName", r.description.name.clone()),
+                ("RegisterFileBytes", r.size.to_string()),
+                ("RegisterLimitBytes", r.limit.to_string()),
+            ];
+            set.register(r.description, r.access, r.source);
+            (true, props)
+        }
+        Err(refusal) => {
+            tracing::warn!(target: "mcp", "{shown} not registered: {} {}", refusal.code, refusal.message);
+            let props = vec![
+                ("RegisterResult", refusal.code.to_string()),
+                ("RegisterMessage", refusal.message),
+                ("RegisteredName", String::new()),
+                ("RegisterFileBytes", refusal.size.to_string()),
+                ("RegisterLimitBytes", refusal.bound.to_string()),
+            ];
+            (false, props)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

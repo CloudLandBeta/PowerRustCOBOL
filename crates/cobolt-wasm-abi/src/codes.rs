@@ -176,6 +176,9 @@ pub mod cap {
     /// The desktop's AgentObject: a model asked on the runner's threads, its reply streamed back, and
     /// the tools the program declares (A50).
     pub const AGENT: &str = "agent";
+    /// The AgentObject's indexed-file tools, which the runner answers itself: `AllowFile`, `DenyFile`,
+    /// `RegisterFile` and `UnregisterFile` (A51).
+    pub const AGENT_FILES: &str = "agent.files";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
@@ -196,6 +199,7 @@ pub mod cap {
         IMAGES,
         KB,
         AGENT,
+        AGENT_FILES,
     ];
 }
 

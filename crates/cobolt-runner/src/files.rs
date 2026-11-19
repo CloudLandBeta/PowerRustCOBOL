@@ -81,7 +81,7 @@ fn open_mode(mode: i32) -> Option<OpenMode> {
 }
 
 /// A declared key as the engines take it (the interpreter's `declared_key_spec`).
-fn key_spec(k: &KeyDecl, dup: bool) -> KeySpec {
+pub(crate) fn key_spec(k: &KeyDecl, dup: bool) -> KeySpec {
     let parts: Vec<(usize, usize)> = k.parts.iter().map(|&(o, l)| (o as usize, l as usize)).collect();
     if k.split {
         KeySpec::split(parts, dup)

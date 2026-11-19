@@ -544,15 +544,25 @@ pub const D_AGENT_ITEMS: &str = "the AgentObject names the program's data item (
 /// Why an AgentObject's tools that the runtime answers itself take the Cargo path (DESKTOP-WASM-001
 /// T47c): the runner offers a model the tools the program declares (`AddTool`), and not yet the
 /// application's indexed files or Knowledge Base collections.
-pub const D_AGENT_TOOLS: &str = "the AgentObject's indexed-file and Knowledge Base tools (AllowFile, DenyFile, RegisterFile, UnregisterFile, AllowKnowledgeBase, DenyKnowledgeBase) are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+pub const D_AGENT_TOOLS: &str = "the AgentObject's Knowledge Base tools (AllowKnowledgeBase, DenyKnowledgeBase) are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+
+/// Why an AgentObject's `AllowFile` that names its file in a data item takes the Cargo path.
+pub const D_AGENT_FILE_NAME: &str = "the AgentObject's AllowFile names its file in a data item, which the interpreter looks up by name at run time; the WebAssembly path takes the file's name as a literal (DESKTOP-WASM-001 M6)";
+
+/// Why an AgentObject's `AllowFile` that names a file that is not INDEXED takes the Cargo path.
+pub const D_AGENT_FILE_ORG: &str = "the AgentObject's AllowFile names a file that is not INDEXED; the WebAssembly path lays out only an INDEXED file's records for a model's search (DESKTOP-WASM-001 M6)";
 
 /// The members of an AgentObject that name one of the program's data items, or write a property by
 /// its name ([`D_AGENT_ITEMS`]).
 pub const AGENT_ITEM_MEMBERS: &[&str] = &["ResponseDataItem", "SetProperty"];
 
-/// The members of an AgentObject that offer a model a tool the runtime answers itself
-/// ([`D_AGENT_TOOLS`]).
-pub const AGENT_TOOL_MEMBERS: &[&str] = &["AllowFile", "DenyFile", "RegisterFile", "UnregisterFile", "AllowKnowledgeBase", "DenyKnowledgeBase"];
+/// The members of an AgentObject that offer a model a Knowledge Base collection, which the runtime
+/// searches itself ([`D_AGENT_TOOLS`]).
+pub const AGENT_TOOL_MEMBERS: &[&str] = &["AllowKnowledgeBase", "DenyKnowledgeBase"];
+
+/// The members of an AgentObject that offer a model an indexed file, which the runner searches itself
+/// (T47c, ABI A51): the module requires `agent.files`.
+pub const AGENT_FILE_MEMBERS: &[&str] = &["AllowFile", "DenyFile", "RegisterFile", "UnregisterFile"];
 
 /// Why the AgentObject member `member` (in any case, with or without the `GET-` and `SET-` prefixes
 /// of a property's accessors) takes the Cargo path, or `None` when the runner serves it.

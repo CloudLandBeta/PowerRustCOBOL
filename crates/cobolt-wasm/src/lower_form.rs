@@ -386,9 +386,75 @@ impl Lower<'_, '_> {
     /// temporaries, so they come before the path is started), then start the
     /// path and add each segment with its arguments.
     fn build_path(&mut self, ctrl: u32, segs: &[Seg<'_>]) -> GenResult<()> {
-        let arg_opds = self.path_args(segs)?;
-        self.emit_path(ctrl, segs, arg_opds);
+        let mut arg_opds = self.path_args(segs)?;
+        let whole = self.agent_file_args(ctrl, segs, &mut arg_opds)?;
+        self.emit_path_keeping(ctrl, segs, arg_opds, whole);
         Ok(())
+    }
+
+    /// An AgentObject's file tools in a desktop module (DESKTOP-WASM-001 T47c, ABI A51): the module
+    /// requires `agent.files`, and `AllowFile( fd-name [cidx-path] )` sends two more arguments than
+    /// the program wrote, for the runner to lay the file out as the interpreter does from the program's
+    /// own `FD`: the file's number in `prfiles`, and the path its `ASSIGN` names now (a data item's
+    /// value, sent with every character, or the literal). The argument `cidx-path` is always sent, empty
+    /// when not written, so they are the third and the fourth; the answer is which argument is sent
+    /// whole.
+    ///
+    /// The file is named by a literal; one named by a data item, which the interpreter looks up by name
+    /// at run time, takes the Cargo path, and so does a file that is not INDEXED, whose `FD` the module
+    /// carries no text of. A literal that names no file of the program gets nothing more, and the
+    /// runner answers `0`, as the interpreter does.
+    fn agent_file_args(&mut self, ctrl: u32, segs: &[Seg<'_>], arg_opds: &mut [Vec<u32>]) -> GenResult<Option<usize>> {
+        if !self.native || segs.len() != 1 || !self.form.as_ref().is_some_and(|f| f.agents.contains(&ctrl)) {
+            return Ok(None);
+        }
+        let seg = &segs[0];
+        let member = seg.name.trim().to_ascii_uppercase();
+        if !crate::support::AGENT_FILE_MEMBERS.iter().any(|m| m.eq_ignore_ascii_case(&member)) {
+            return Ok(None);
+        }
+        self.names.file_caps.insert(cobolt_wasm_abi::codes::cap::AGENT_FILES);
+        if member != "ALLOWFILE" {
+            return Ok(None);
+        }
+        // With no argument the program names no file: the runner answers 0, as the interpreter does.
+        let Some(first) = seg.args.first() else {
+            return Ok(None);
+        };
+        let span = first.span();
+        let subject = {
+            let ctl = self.form.as_ref().and_then(|f| f.controls.iter().find(|(_, &v)| v == ctrl).map(|(k, _)| k.clone())).unwrap_or_default();
+            format!("{ctl}::{}", seg.name)
+        };
+        let fd = match first {
+            Expr::Literal(Literal::String(n), _) => n.trim().to_ascii_uppercase(),
+            _ => {
+                let why = crate::support::D_AGENT_FILE_NAME;
+                return self.err_kind(span.line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {why}"));
+            }
+        };
+        let Some(&(id, _)) = self.native_ids.get(&fd) else {
+            return Ok(None);
+        };
+        if self.names.native_files.get(id as usize).is_none_or(|d| d.definition.is_none()) {
+            let why = crate::support::D_AGENT_FILE_ORG;
+            return self.err_kind(span.line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {why}"));
+        }
+        let assign = self.native_assigns.get(&fd).cloned().unwrap_or_default();
+        let path = match self.layout.lookup(&assign, &[]) {
+            Ok(i) => self.item_operand(i, &[], None, span.line)?,
+            Err(_) => self.operand_or_temp(&Expr::Literal(Literal::String(assign), span))?,
+        };
+        let id = self.operand_or_temp(&Expr::Literal(Literal::String(id.to_string()), span))?;
+        let args = &mut arg_opds[0];
+        args.truncate(2);
+        while args.len() < 2 {
+            let empty = self.operand_or_temp(&Expr::Literal(Literal::String(String::new()), span))?;
+            args.push(empty);
+        }
+        args.push(id);
+        args.push(path);
+        Ok(Some(3))
     }
 
     /// The operands of every segment's arguments, evaluated now.

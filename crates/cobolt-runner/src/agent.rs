@@ -16,8 +16,10 @@
 //! ([`Agents::polling`], [`Agents::sweep`]) to say when it ran out of time, with the interpreter's
 //! own rule (`PendingOp::expired`).
 //!
-//! The tools the runtime answers itself (indexed files, Knowledge Base collections) are not offered
-//! here yet: a program that allows one takes the Cargo path (the Build refuses the method).
+//! The indexed files the program lets its agents search (`AllowFile`, `RegisterFile`, ABI A51) are
+//! offered and searched as the interpreter offers and searches them (`cobolt_runtime::mcp_tool`). A
+//! program that lets them search a Knowledge Base collection still takes the Cargo path (the Build
+//! refuses the method).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -29,7 +31,9 @@ use cobolt_abi_host::host::{AgentControl, AgentEffects, AgentPort};
 use cobolt_runtime::agent_door::{self, AgentHost, Conversation, DeclaredTool, Job, Method, Report, Seen};
 use cobolt_runtime::agent_tools::{ToolCall, ToolSpec};
 use cobolt_runtime::async_op::PendingOp;
+use cobolt_runtime::mcp_tool::{self, FileAccess, IndexedToolSet};
 use cobolt_runtime::HttpClient;
+use cobolt_wasm_abi::files::FileDecl;
 
 use crate::http::Clients;
 
@@ -70,6 +74,9 @@ struct State {
     /// Each instance's `SetToolResult(call-id, text)`, waiting to be collected: the interpreter keeps
     /// them per program.
     results: HashMap<u32, HashMap<String, String>>,
+    /// Each instance's indexed files its agents may search (`AllowFile`, `RegisterFile`): the
+    /// interpreter keeps one set per program, which every AgentObject of the form offers.
+    files: HashMap<u32, IndexedToolSet>,
 }
 
 fn key(inst: u32, ctl: &str) -> (u32, String) {
@@ -82,6 +89,8 @@ fn key(inst: u32, ctl: &str) -> (u32, String) {
 pub(crate) struct Agents {
     state: Rc<RefCell<State>>,
     http: Rc<RefCell<Clients>>,
+    /// The module's file declarations (`prfiles`): an `AllowFile` names its file by its number there.
+    decls: Arc<Vec<FileDecl>>,
     /// Where a report goes: the program thread's own channel, from the request's thread.
     send: Arc<dyn Fn(AgentNews) + Send + Sync>,
 }
@@ -92,6 +101,8 @@ struct Site<'a> {
     inst: u32,
     agent: &'a mut Agent,
     results: &'a mut HashMap<String, String>,
+    /// The instance's searchable files.
+    files: &'a IndexedToolSet,
     prop: &'a dyn Fn(&str) -> String,
     /// The HTTP client a request is sent with.
     client: &'a dyn Fn() -> HttpClient,
@@ -129,7 +140,7 @@ impl AgentHost for Site<'_> {
     fn set_item(&mut self, _item: &str, _text: &str) {}
 
     fn runtime_tools(&self) -> Vec<ToolSpec> {
-        Vec::new()
+        mcp_tool::agent_tool_specs(self.files)
     }
 
     fn declared_tools(&self) -> Vec<DeclaredTool> {
@@ -140,9 +151,10 @@ impl AgentHost for Site<'_> {
         "IndexedFile"
     }
 
-    /// Never reached: no runtime tool is offered, and a call to a tool not offered is told so first.
+    /// A call to one of the instance's searchable files.
     fn run_tool(&mut self, call: &ToolCall, _generation: u64) -> Option<String> {
-        Some(format!("error: no tool named '{}' is offered", call.name))
+        // A consultable indexed file (spec 065), read-only, answered here as the interpreter does.
+        Some(mcp_tool::agent_tool_answer(self.files, call))
     }
 
     fn take_tool_result(&mut self, call_id: &str) -> Option<String> {
@@ -185,8 +197,8 @@ impl AgentHost for Site<'_> {
 }
 
 impl Agents {
-    pub(crate) fn new(http: Rc<RefCell<Clients>>, send: impl Fn(AgentNews) + Send + Sync + 'static) -> Agents {
-        Agents { state: Rc::default(), http, send: Arc::new(send) }
+    pub(crate) fn new(http: Rc<RefCell<Clients>>, decls: Arc<Vec<FileDecl>>, send: impl Fn(AgentNews) + Send + Sync + 'static) -> Agents {
+        Agents { state: Rc::default(), http, decls, send: Arc::new(send) }
     }
 
     /// Run the door's rules `f` for the agent `ctl` of instance `inst`, whose properties `prop` reads,
@@ -209,8 +221,9 @@ impl Agents {
         }
         let agent = st.agents.get_mut(&k)?;
         let results = st.results.entry(inst).or_default();
+        let files = st.files.entry(inst).or_default();
         let mut conv = agent.conv.take();
-        let mut site = Site { inst, agent, results, prop, client, send: &self.send, fx: AgentEffects::default() };
+        let mut site = Site { inst, agent, results, files, prop, client, send: &self.send, fx: AgentEffects::default() };
         let r = f(&mut site, &mut conv);
         let fx = std::mem::take(&mut site.fx);
         drop(site);
@@ -278,6 +291,9 @@ impl Agents {
 
 impl AgentPort for Agents {
     fn call(&mut self, inst: u32, c: &AgentControl<'_>, method: &str, args: &[&str]) -> Option<AgentEffects> {
+        if let Some(fx) = self.file_tool(inst, method, args) {
+            return Some(fx);
+        }
         let texts: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
         let what = {
             let mut st = self.state.borrow_mut();
@@ -339,5 +355,57 @@ impl AgentPort for Agents {
         }
         st.agents.retain(|(i, _), _| *i != inst);
         st.results.remove(&inst);
+        st.files.remove(&inst);
+    }
+}
+
+impl Agents {
+    /// The file tools of an AgentObject (spec 072, spec 075), which the program's tool set answers:
+    /// `AllowFile`, `DenyFile`, `RegisterFile` and `UnregisterFile`, decided as the interpreter
+    /// decides them (`cobolt_runtime::mcp_tool`, `cobolt_runtime::registered_file`). `None` for any
+    /// other method.
+    ///
+    /// `AllowFile` reaches the runner with two more arguments than the program wrote (ABI A51): its
+    /// file's number in the module's `prfiles` section and the path its `ASSIGN` names now, sent with
+    /// every character. Without them the program named no file of its own, and the answer is `0`.
+    fn file_tool(&self, inst: u32, method: &str, args: &[&str]) -> Option<AgentEffects> {
+        let arg = |i: usize| args.get(i).copied().unwrap_or("");
+        let answer = |ok: bool| Some(if ok { "1" } else { "0" }.to_owned());
+        let mut st = self.state.borrow_mut();
+        let files = st.files.entry(inst).or_default();
+        match method {
+            "ALLOWFILE" => {
+                let access = arg(2).trim().parse::<usize>().ok().and_then(|id| self.allowed_file(id, arg(3)));
+                let ok = access.is_some_and(|access| mcp_tool::allow_file(files, arg(0), arg(1), access));
+                Some(AgentEffects { answer: answer(ok), ..AgentEffects::default() })
+            }
+            "DENYFILE" => {
+                files.deny(arg(0));
+                Some(AgentEffects::default())
+            }
+            "REGISTERFILE" => {
+                let (ok, props) = cobolt_runtime::registered_file::register_for_agent(files, arg(0), arg(1), arg(2), None);
+                let props = props.into_iter().map(|(k, v)| (k.to_owned(), v)).collect();
+                Some(AgentEffects { props, answer: answer(ok), ..AgentEffects::default() })
+            }
+            "UNREGISTERFILE" => Some(AgentEffects { answer: answer(files.unregister(arg(0))), ..AgentEffects::default() }),
+            _ => None,
+        }
+    }
+
+    /// The access facts of the module's file `id` for `AllowFile`, as the interpreter builds them from
+    /// the program's `FD`: the record layout the `FD`'s text gives, the RECORD KEY (the whole record
+    /// when the record holds none), and the path, its trailing spaces dropped and anchored as an OPEN
+    /// anchors it.
+    fn allowed_file(&self, id: usize, path: &str) -> Option<FileAccess> {
+        let decl = self.decls.get(id)?;
+        let layout = cobolt_runtime::files::layout_from_definition(decl.definition.as_deref()?)?;
+        let primary = decl.keys.first().map(|k| crate::files::key_spec(k, false)).unwrap_or(cobolt_runtime::indexed::KeySpec {
+            parts: Vec::new(),
+            offset: 0,
+            len: layout.len.max(1),
+            duplicates: false,
+        });
+        Some(FileAccess::of_layout(cobolt_runtime::file_core::anchor_path(path.trim_end()), &layout, primary))
     }
 }

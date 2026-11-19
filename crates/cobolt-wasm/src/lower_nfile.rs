@@ -215,6 +215,7 @@ impl Lower<'_, '_> {
                 self.names.native_files.push(decl);
                 let h = self.layout.alloc_hidden(12);
                 self.native_ids.insert(name.clone(), (id, h));
+                self.native_assigns.insert(name.clone(), fc.assign.trim().to_string());
                 (id, h)
             }
         };

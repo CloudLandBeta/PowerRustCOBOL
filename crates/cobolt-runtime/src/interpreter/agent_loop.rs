@@ -63,13 +63,7 @@ impl AgentHost for AgentSite<'_> {
     }
 
     fn runtime_tools(&self) -> Vec<ToolSpec> {
-        let mut tools: Vec<ToolSpec> = self
-            .i
-            .mcp_tools
-            .tools()
-            .into_iter()
-            .map(|t| ToolSpec { name: t.name, description: t.description.unwrap_or_default(), parameters: t.input_schema })
-            .collect();
+        let mut tools: Vec<ToolSpec> = crate::mcp_tool::agent_tool_specs(&self.i.mcp_tools);
         tools.extend(self.i.kb_tool_specs(self.obj));
         tools
     }
@@ -93,10 +87,7 @@ impl AgentHost for AgentSite<'_> {
             return self.i.kb_tool_search(self.obj, call, generation);
         }
         // A consultable indexed file (spec 065), read-only.
-        let r = self.i.mcp_tools.call(&call.name, call.arguments.as_ref().unwrap_or(&serde_json::Value::Null));
-        let text: Vec<String> = r.content.iter().filter_map(|c| c.as_text().map(str::to_owned)).collect();
-        let text = text.join("\n");
-        Some(if r.is_error.unwrap_or(false) { format!("error: {text}") } else { text })
+        Some(crate::mcp_tool::agent_tool_answer(&self.i.mcp_tools, call))
     }
 
     fn take_tool_result(&mut self, call_id: &str) -> Option<String> {
@@ -183,35 +174,8 @@ impl Interpreter {
                 len: layout.len.max(1),
                 duplicates: false,
             });
-        let columns = layout
-            .fields
-            .iter()
-            .filter(|f| !f.is_group)
-            .map(|f| crate::mcp_tool::ColumnLayout {
-                name: f.name.clone(),
-                offset: f.offset,
-                len: f.len,
-            })
-            .collect();
-        let description = if cidx.trim().is_empty() {
-            find_description(&key)
-        } else {
-            crate::mcp_tool::read_description(cidx.trim())
-        };
-        let Some(description) = description else {
-            return false;
-        };
-        self.mcp_tools.deny(&description.name);
-        self.mcp_tools.allow(
-            description,
-            crate::mcp_tool::FileAccess {
-                path: path.into(),
-                record_len: layout.len,
-                primary,
-                columns,
-            },
-        );
-        true
+        let access = crate::mcp_tool::FileAccess::of_layout(path, layout, primary);
+        crate::mcp_tool::allow_file(&mut self.mcp_tools, &key, cidx, access)
     }
 }
 
@@ -224,78 +188,10 @@ impl Interpreter {
     /// flight may be about to write. Nothing is kept once the program ends
     /// (R6a), and no path reaches a model.
     pub(super) fn agent_register_file(&mut self, obj: &str, data: &str, cidx: &str, name: &str) -> bool {
-        use crate::registered_file as reg;
-        let limit = self.mcp_tools.memory_limit();
-        let fixed;
-        let system = reg::SystemMemory;
-        let free: &dyn reg::FreeMemory = match self.free_memory_probe {
-            Some(bytes) => {
-                fixed = reg::FixedMemory(bytes);
-                &fixed
-            }
-            None => &system,
-        };
-        let fetch = reg::Fetcher { smb: crate::smb_source::fetcher() };
-        let outcome = reg::register(data, cidx, name, limit, free, &fetch);
-        let shown = reg::Location::parse(data).map(|l| l.display()).unwrap_or_default();
-        match outcome {
-            Ok(r) => {
-                let result = match r.fit {
-                    reg::Fit::Memory => "MEMORY",
-                    reg::Fit::InPlace => "DISK",
-                };
-                let message = match r.fit {
-                    reg::Fit::Memory => format!("{} is held in memory ({} bytes)", r.description.name, r.size),
-                    reg::Fit::InPlace => format!(
-                        "{} is {} bytes, over what memory allows, and is read in place from disk",
-                        r.description.name, r.size
-                    ),
-                };
-                tracing::info!(target: "mcp", "registered {shown} as {}: {result}", r.description.name);
-                self.obj_set(obj, "RegisterResult", result.into());
-                self.obj_set(obj, "RegisterMessage", message);
-                self.obj_set(obj, "RegisteredName", r.description.name.clone());
-                self.obj_set(obj, "RegisterFileBytes", r.size.to_string());
-                self.obj_set(obj, "RegisterLimitBytes", r.limit.to_string());
-                self.mcp_tools.register(r.description, r.access, r.source);
-                true
-            }
-            Err(refusal) => {
-                tracing::warn!(target: "mcp", "{shown} not registered: {} {}", refusal.code, refusal.message);
-                self.obj_set(obj, "RegisterResult", refusal.code.into());
-                self.obj_set(obj, "RegisterMessage", refusal.message);
-                self.obj_set(obj, "RegisteredName", String::new());
-                self.obj_set(obj, "RegisterFileBytes", refusal.size.to_string());
-                self.obj_set(obj, "RegisterLimitBytes", refusal.bound.to_string());
-                false
-            }
+        let (ok, props) = crate::registered_file::register_for_agent(&mut self.mcp_tools, data, cidx, name, self.free_memory_probe);
+        for (prop, value) in props {
+            self.obj_set(obj, prop, value);
         }
+        ok
     }
-}
-
-/// The delivered definition whose file is `fd` — searched in the `indexed/`
-/// tree the application anchors on, which is where a build stages every
-/// definition the project declares.
-fn find_description(fd: &str) -> Option<crate::mcp_tool::FileDescription> {
-    fn walk(dir: &std::path::Path, fd: &str, depth: usize) -> Option<crate::mcp_tool::FileDescription> {
-        if depth > 4 {
-            return None;
-        }
-        let entries = std::fs::read_dir(dir).ok()?;
-        let mut subdirs = Vec::new();
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                subdirs.push(p);
-            } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("cidx")) {
-                if let Some(d) = crate::mcp_tool::read_description_at(&p) {
-                    if d.name.eq_ignore_ascii_case(fd) {
-                        return Some(d);
-                    }
-                }
-            }
-        }
-        subdirs.iter().find_map(|d| walk(d, fd, depth + 1))
-    }
-    walk(&cobolt_forms::assets::resolve("indexed"), fd, 0)
 }

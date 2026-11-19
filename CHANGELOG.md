@@ -2,6 +2,42 @@
 
 
 
+## 2.0.622 — 2026-11-19
+
+**Feature: an AgentObject's indexed-file tools run in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T47c, second part).** A desktop form whose AgentObject lets the model search the application's indexed files no longer sends its program down the Cargo path. The built program offers and answers those tools as Run Form does:
+- `AllowFile("NAME" [cidx-path])` offers the file the program declares, with what it means from its `.cidx` (the one named, or the one of that name under `indexed/`) and its record layout from the program's own `FD`. It answers `1`, or `0` when the program declares no file of that name.
+- The model's `search_<file>` call is answered by the program itself, reading the file on disk, and the conversation goes on with the result.
+- `RegisterFile`, `UnregisterFile` and `DenyFile` work as under the interpreter; `RegisterFile` writes `RegisterResult`, `RegisterMessage`, `RegisteredName`, `RegisterFileBytes` and `RegisterLimitBytes`.
+
+Three uses still take the Cargo path, and the Build says why:
+- An `AllowFile` that names its file in a data item: the module must know at Build time which file's layout to carry.
+- An `AllowFile` that names a file that is not INDEXED: the module carries the record description of indexed files only.
+- `AllowKnowledgeBase` and `DenyKnowledgeBase`: the rest of T47c's second part.
+
+- **One implementation of the rules:** what the interpreter did for the four file members moved, unchanged, into functions both hosts call: `mcp_tool::allow_file`, `find_description`, `agent_tool_specs`, `agent_tool_answer`, `FileAccess::of_layout`, and `registered_file::register_for_agent`. A form's file layout is rebuilt from its `FD` text by `files::layout_from_definition`, the parse the `.cidx` import already used (`indexed_import::definition_record`).
+- **The ABI (A51):** a new capability, `agent.files`, which a desktop module requires when its AgentObject uses one of the four members; no new command or import.
+  - `AllowFile("NAME" …)` reaches the runner with two more arguments than the program wrote: the file's number in the module's file table (`prfiles`, which holds an INDEXED file's `FD` text and keys) and the path its `ASSIGN` names at the call. The program's own `cidx-path` argument is always sent, empty when not written.
+  - The runner keeps one set of searchable files per form instance, as the interpreter keeps one per program, and lets it go when the form closes.
+- **The Build's documentation** (the subset document and the System KB, rebuilt) names the file tools among what the WebAssembly path serves, and the two new refusals.
+- **Where:**
+  - `cobolt-runtime`: `mcp_tool.rs`, `registered_file.rs`, `files.rs`, `indexed_import.rs`, `interpreter/agent_loop.rs`.
+  - `cobolt-runner`: `agent.rs`, `files.rs`, `forms.rs`, `lib.rs`.
+  - `cobolt-wasm-abi`: `codes.rs` (the capability). `cobolt-wasm`: `support.rs`, `lower.rs`, `lower_form.rs`, `lower_nfile.rs`; `tests/subset_table.rs`, `tests/native_desktop_refusals.rs`.
+  - `cobolt-compiler`: `lib.rs` (the Build's text). `assets/knowledge/chunked.data` is rebuilt.
+  - `cobolt-cli`: `tests/runner_agent_files_form.rs` (new).
+  - `specs/WASM-ABI-v1.md` (A51, the capability list); `tasks.md` (T47 notes); `specs/WASM-PROGRESS.md`.
+- **Measured** (macOS arm64):
+  - **The runner twin `the_agentobject_file_tools_agree_on_both_engines`:** 14 of 14 checks, against a local stub model server. One form with an INDEXED file of 3 orders, 2 AgentObjects, 6 buttons and 9 event handlers. Three dumps are equal; three pictures (684,000 pixels) with 0 differing; the same 4 requests on the stub from both engines, the search's result among them (ACME's two orders). In real time: the interpreter 23.1 s, the runner 23.1 s.
+  - **The interpreter, unchanged:** `test_agent_runtime` 9, `test_agent_tool_calling` 12, `test_registered_files` 8 (1 ignored), `test_file_memory_limit` 1, `test_mcp_tool_parity` 3, `test_nonvisual_property_readers` 5, `test_knowledge_base` 7, `test_indexed_definition` 6, `test_partiql_binding` 1, `test_grid_write_back` 56; the library's tests of the tool sets, registered files, indexed files, agents and asynchronous operations, 131 (1 ignored).
+  - **The generator:** `native_desktop_refusals` 38 of 38 checks, 57 programs compiled (the four file members compile and require `agent.files`; an AllowFile naming its file in a data item, and one naming a LINE SEQUENTIAL file, are refused at their line); `subset_table` 71 control types = 68 served + 3 on the Cargo path, 29 of 29 fixed points (the file members are served, the Knowledge Base members are not).
+  - **Regressions, all green:**
+    - the whole `cobolt-runner` suite: 20 passed, 0 failed, 2 ignored, in 12 binaries (3,079 s);
+    - `cobolt-wasm`: 146 passed; `cobolt-abi-host`: 281; `cobolt-wasm-abi`: 25;
+    - the AgentObject (24 of 24), KnowledgeBase (26 of 26), WebSearch (35 of 35) and RestClient (34 of 34) twins;
+    - `cobolt-compiler --lib`: 262 passed, 1 ignored (2,484 s);
+    - the System KB: 4,424 records from 8 documents, 15,691,776 bytes; `prebuilt_chunked_kb_matches_the_published_documentation` passes.
+  - **The release `prc-runner`:** 79,912,448 bytes, 42,672 fewer than at 2.0.621 (79,955,120).
+
 ## 2.0.621 — 2026-11-19
 
 **Feature: the AgentObject runs in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T47c, first part).** A desktop form with an AgentObject no longer sends its program down the Cargo path. The built program asks its model as Run Form does:

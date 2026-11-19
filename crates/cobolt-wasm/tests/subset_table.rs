@@ -309,14 +309,15 @@ fn every_control_has_a_desktop_class() {
             c.set_prop("ResponseDataItem", cobolt_forms::PropValue::String("WS-REPLY".into()));
             none && cobolt_wasm::support::desktop_design_gap(&c).is_some_and(|w| w.contains("ResponseDataItem") && w.contains("M6"))
         }),
-        ("the AgentObject members refused: SET-ResponseDataItem, SetProperty, AllowFile, registerfile, AllowKnowledgeBase; not Ask, AddTool, SetToolResult or GET-LastReply", {
+        ("the AgentObject members refused: SET-ResponseDataItem, SetProperty, AllowKnowledgeBase, denyknowledgebase; not Ask, AddTool, SetToolResult, GET-LastReply or the file tools", {
             use cobolt_wasm::support::{agent_member_gap as m, D_AGENT_ITEMS, D_AGENT_TOOLS};
             m("SET-ResponseDataItem") == Some(D_AGENT_ITEMS)
                 && m("SetProperty") == Some(D_AGENT_ITEMS)
-                && m("AllowFile") == Some(D_AGENT_TOOLS)
-                && m("registerfile") == Some(D_AGENT_TOOLS)
                 && m("AllowKnowledgeBase") == Some(D_AGENT_TOOLS)
-                && ["Ask", "AddTool", "AddToolParameter", "SetToolResult", "GET-LastReply", "Cancel"].iter().all(|x| m(x).is_none())
+                && m("denyknowledgebase") == Some(D_AGENT_TOOLS)
+                && ["Ask", "AddTool", "AddToolParameter", "SetToolResult", "GET-LastReply", "Cancel", "AllowFile", "DenyFile", "registerfile", "UnregisterFile"]
+                    .iter()
+                    .all(|x| m(x).is_none())
         }),
         ("a RestClient naming no data item is served", {
             let c = cobolt_forms::Control::new("REST-1", ControlType::RestClient, 0, 0);
