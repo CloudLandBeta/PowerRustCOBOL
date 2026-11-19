@@ -62,6 +62,7 @@ pub mod mv;
 pub mod nat;
 pub mod nfile;
 pub mod opd;
+pub mod ptr;
 pub mod remote;
 pub mod sql;
 pub mod state;

@@ -2,6 +2,34 @@
 
 
 
+## 2.0.615 — 2026-11-19
+
+**Feature: `USAGE POINTER`, `SET … TO ADDRESS OF` and `SET ADDRESS OF` are computed in a desktop WebAssembly module (DESKTOP-WASM-001 T45b, M5).** Before this, a desktop program that used a pointer took the Cargo path ("pointers and ADDRESS OF are not compiled into a module yet"). Now its module runs them as the interpreter does:
+- **`SET ptr … TO ADDRESS OF item`** gives the pointer the interpreter's number for the item: 1, 2, … in the order the program first takes each item's address. Taking the same item's address again gives the same number, so pointers compare, copy and `DISPLAY` as they do under the interpreter.
+- **`SET ADDRESS OF linkage-item TO ADDRESS OF item`, `TO ptr` or `TO NULL`** makes every later reference to the LINKAGE item read and write the other item, numbers included.
+- **`SET ptr TO NULL` and `SET ptr TO ptr-2`** are `MOVE`s on both engines, as the parser has always made them. **`IF ptr = NULL`** now holds in a module when the interpreter's does: `NULL` compared with a number is the number 0 in every module, as the interpreter evaluates it (before, a module compared it as a character, and the condition never held).
+- **A pointer's `DISPLAY`** shows its number as the interpreter shows it, without padding (`1`, not `000000001`).
+- **What stays on the Cargo path, named at its line:**
+  - pointers in a called program (the interpreter numbers its addresses apart);
+  - `SET ADDRESS OF` of anything but an elementary 01 or 77 LINKAGE item that no other record redefines;
+  - `ADDRESS OF` a LINKAGE item, an item in a table, a subscripted or reference-modified item, or a 66 or 88;
+  - a pointer that is not a `USAGE POINTER` item outside the LINKAGE SECTION;
+  - an item whose address can reach a LINKAGE item described otherwise (the interpreter would read the LINKAGE item with the other item's description).
+- **How:** the generator knows every item whose address the program takes, so it lays out the program's table in its storage: a count, an address per number, a number per item. `SET ADDRESS OF` stores the address in the slot through which every reference to a LINKAGE item already goes. Nothing crosses to the host, so the ABI is unchanged.
+- **Where:**
+  - `cobolt-wasm`: `lower_ptr.rs` (new: the phase-A check and the statement); `lower.rs` (the scan, the statement arm, the table's place); `layout.rs` (a pointer item is marked); `support.rs` (Desktop column: `SET (pointer)` is now `Module`).
+  - `cobolt-wasm-rt`: `ptr.rs` (new: `rt_ptr_take`, `rt_ptr_bind`, `rt_ptr_point`, `rt_ptr_unbind`); `fd.rs` (`AUX_POINTER`); `disp.rs` (a pointer's number); `cmp.rs` (`NULL` against a number). `assets/rt.wasm` is rebuilt.
+  - `specs/WASM-PARITY.md` #80 to #82 recorded; `tasks.md` T45 notes.
+- **Measured** (macOS arm64):
+  - `cobolt-wasm` `native_pointers` (new):
+    - 5 programs under the interpreter and as a desktop module in both memory layouts: 10 module runs, 40 DISPLAY lines identical, 5 of 5. They cover the interpreter's own pointer test; numbers in first-named order, compared, copied and cleared; `SET ADDRESS OF` straight to `ADDRESS OF` and to another item; a `COMP-3` item changed through the LINKAGE item; a pointer never set, the same address taken twice, and `SET ADDRESS OF … TO NULL`.
+    - Refusals: 5 of 5 at their line (a LINKAGE group, an item described otherwise, a LINKAGE item's address, a table's element, a receiver that is not a pointer).
+    - WASM-PARITY #80 and #81 measured: 6 of 6 checks.
+  - `cobolt-wasm`, `cobolt-wasm-rt` and `cobolt-wasm-abi`: 204 passed in 46 targets, and the player fixture after it was re-recorded.
+  - AC10 (`subset_table`): 136 entries; 35 in the module, 42 through the runner, 13 in a form's program, 46 on the Cargo path; 8 of 8 fixed points.
+  - AC16: `rt.wasm` grew by 1,150 bytes (265,475 to 266,625): the four pointer routines, linked only into a module that uses them, and the two changed checks. Those checks are in the comparison and `DISPLAY` routines every module links, so every module grows: the player's 8 generated fixtures by 59 to 79 bytes each, re-recorded. The PowerAnalyticsWeb pin matched 3 of 3 with the previous `rt.wasm` (the generator's change leaves its module as it was), is re-recorded, and matches 3 of 3. No input of the shipped player's fingerprint changed, so the player is not rebuilt.
+  - The System KB is rebuilt (4,417 records); `prebuilt_chunked_kb_matches_the_published_documentation` passes.
+
 ## 2.0.614 — 2026-11-19
 
 **Feature: `TRY … CATCH … FINALLY … END-TRY` and `THROW` are computed in a WebAssembly module (DESKTOP-WASM-001 T45a, M5).** Before this, every generator refused them ("TRY is not yet supported by the WebAssembly generator"): a desktop program that used RustCOBOL's exceptions took the Cargo path, and a web or mobile form could not use them at all. Now a module runs them as the interpreter does:

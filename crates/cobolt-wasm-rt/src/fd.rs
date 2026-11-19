@@ -48,6 +48,9 @@ pub const K_NATIONAL: u8 = 9;
 pub const K_GROUP: u8 = 10;
 /// `USAGE INDEX`: a 32-bit unsigned occurrence displacement/number.
 pub const K_INDEX: u8 = 11;
+/// The `aux` of a [`K_INDEX`] item declared `USAGE POINTER` (DESKTOP-WASM-001 T45b): `DISPLAY` shows
+/// the number it holds as the interpreter shows an item with no `PICTURE`, without padding.
+pub const AUX_POINTER: u32 = 1;
 /// `PIC N(n)` in a desktop module: the interpreter's image, n UTF-16 code units big-endian; `aux`
 /// is n (DESKTOP-WASM-001 T44, [`crate::nat`]). A browser module describes it as [`K_NATIONAL`].
 pub const K_NATIONAL16: u8 = 12;

@@ -889,7 +889,8 @@ fn item_fd(d: &DataDecl, sign: Option<SignClause>, usage: Usage) -> GenResult<Fd
             Usage::ObjectReference if d.object_class.is_none() => {
                 Fd { kind: K_ALNUM, flags: 0, digits: 0, scale: 0, len: cobolt_wasm_abi::codes::WINDOW_HANDLE_LEN, aux: 0 }
             }
-            Usage::Index | Usage::Pointer | Usage::ObjectReference => {
+            Usage::Pointer => Fd { kind: K_INDEX, flags: 0, digits: 9, scale: 0, len: 4, aux: AUX_POINTER },
+            Usage::Index | Usage::ObjectReference => {
                 Fd { kind: K_INDEX, flags: 0, digits: 9, scale: 0, len: 4, aux: 0 }
             }
             _ => return Err(GenError::new(line, format!("{}: an elementary item needs a PICTURE", decl_name(d)))),
@@ -931,7 +932,8 @@ fn item_fd(d: &DataDecl, sign: Option<SignClause>, usage: Usage) -> GenResult<Fd
                 }
                 Usage::Comp1 => Fd { kind: K_FLOAT32, flags: F_SIGNED, digits: 0, scale: 0, len: 4, aux: 0 },
                 Usage::Comp2 => Fd { kind: K_FLOAT64, flags: F_SIGNED, digits: 0, scale: 0, len: 8, aux: 0 },
-                Usage::Index | Usage::Pointer | Usage::ObjectReference => {
+                Usage::Pointer => Fd { kind: K_INDEX, flags: 0, digits: 9, scale: 0, len: 4, aux: AUX_POINTER },
+                Usage::Index | Usage::ObjectReference => {
                     Fd { kind: K_INDEX, flags: 0, digits: 9, scale: 0, len: 4, aux: 0 }
                 }
                 other => {

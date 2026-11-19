@@ -284,6 +284,10 @@ pub struct Lower<'a, 'b> {
     /// Some `TRY` of the module has a `FINALLY`: the statements that leave a `TRY` where the
     /// generator cannot see run it on the way (`lower_try`).
     pub(crate) has_finally: bool,
+    /// The items whose address the main program takes, in the order of the table (T45b).
+    pub(crate) ptr_items: Vec<usize>,
+    /// Where the program's table of addresses is, once a pointer statement needs it (T45b).
+    pub(crate) ptr_area: Option<u32>,
     /// The region slot a `TRY`'s landing reads (`Lower::resume_slot`), made when first needed.
     pub(crate) try_resume: Option<u32>,
     pub(crate) cur_para: usize,
@@ -586,6 +590,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             loops: Vec::new(),
             tries: Vec::new(),
             has_finally: false,
+            ptr_items: Vec::new(),
+            ptr_area: None,
             try_resume: None,
             cur_para: 0,
             next_sentence: None,
@@ -657,6 +663,8 @@ impl<'a, 'b> Lower<'a, 'b> {
                     f
                 });
             }
+            // The pointer statements, checked before anything is lowered (T45b).
+            l.ptr_scan(u)?;
             l.build_files()?;
             l.file_tables[u] = l.files.iter().map(|(n, f)| (n.clone(), (*f, l.global_files.contains(n)))).collect();
             l.prescan()?;
@@ -2489,6 +2497,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.try_catch(try_stmts, exception_var.as_deref(), catch_stmts, finally_stmts, line)
             }
             Stmt::Throw { message, .. } => self.throw_(message, line),
+            Stmt::SetPointer { address_of, targets, source, .. } if self.native => self.set_pointer(address_of.as_ref(), targets, source, line),
             Stmt::Call { program, using, returning, on_exception, not_on_exception, convention: cobolt_ast::stmt::CallConvention::WebSocket, .. } => {
                 self.remote_call(program, using, returning.as_ref(), on_exception, not_on_exception, line)
             }

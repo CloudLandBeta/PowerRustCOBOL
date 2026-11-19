@@ -156,7 +156,8 @@ pub fn display_val(v: &Val) {
 fn display_numeric_item(loc: &Loc) {
     let fd = &loc.fd;
     let v = codec::load_value(loc);
-    if fd.is_float() {
+    // A pointer holds a number with no PICTURE, which the interpreter shows as it is (T45b).
+    if fd.is_float() || (fd.kind == crate::fd::K_INDEX && fd.aux == crate::fd::AUX_POINTER) {
         display_val(&v);
         return;
     }

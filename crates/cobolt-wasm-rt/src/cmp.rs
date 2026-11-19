@@ -44,8 +44,10 @@ fn view(base: u32, o: &Opd, other_numeric: bool, other_strict: bool) -> View {
             // against anything else — an edited item included, which is
             // characters here (`IF EDIT = ZERO` with `0009999` holding
             // "0000000", NC126A LEV-TEST-GF-3-19).
+            // `NULL` is the number 0 to the interpreter (`literal_to_value`), so against a number
+            // it is that number: `IF ptr = NULL` (DESKTOP-WASM-001 T45b).
             let _ = other_numeric;
-            if o.fig == FIG_ZERO && other_strict {
+            if (o.fig == FIG_ZERO || o.fig == FIG_NULL) && other_strict {
                 View::Num(Val::ZERO, o.fd)
             } else {
                 View::Fill(fig_byte(o.fig))

@@ -44,7 +44,6 @@ pub const D_FORMS: &str = "a program with no form has no controls or application
 /// The `BINDING-…` built-ins drive a Data Binding, which moves with the bound controls (M6), not with
 /// SQL (M4): T43 relabelled them.
 const D_BINDING: &str = "the Data Binding built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
-const D_POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module yet (DESKTOP-WASM-001 M5)";
 const D_CONTROLS: &str = "the non-visual controls, the keys and the model lists are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_MEDIA: &str = "animation sequences and layouts are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_PHONE: &str = "the phone's secure storage is a Mobile built-in, where a desktop program stops; that stop is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
@@ -131,8 +130,8 @@ pub fn support(s: &Stmt) -> Support {
         // OUTPUT PROCEDURE sorts in memory; USING and GIVING name files.
         Stmt::Sort { .. } | Stmt::Release { .. } | Stmt::Return { .. } => MemoryFiles(SORT_FILES),
         Stmt::Merge { .. } => BackendOnly("MERGE reads files, which are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"),
-        // Nothing lowers it (DESKTOP-WASM-001 C13): it used to be classed as
-        // compiled, and was refused with the generic "not yet supported".
+        // A browser module does not lower it (DESKTOP-WASM-001 C13); a desktop
+        // module does (T45b, `lower_ptr`).
         Stmt::SetPointer { .. } => BackendOnly(POINTERS),
         Stmt::Unlock { .. } | Stmt::Commit { .. } | Stmt::Rollback { .. } => {
             BackendOnly("file input/output runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE")
@@ -420,7 +419,7 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("REWRITE", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("ROLLBACK", Support::BackendOnly(BACKEND_FILES), Native::Files),
     ("SEARCH", Support::Module, Native::Module),
-    ("SET (pointer)", Support::BackendOnly(POINTERS), Native::Cargo(D_POINTERS)),
+    ("SET (pointer)", Support::BackendOnly(POINTERS), Native::Module),
     ("SORT", Support::MemoryFiles(SORT_FILES), Native::Files),
     ("START", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("STOP", Support::Module, Native::Module),
