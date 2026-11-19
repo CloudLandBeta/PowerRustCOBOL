@@ -2,6 +2,17 @@
 
 
 
+## 2.0.607 — 2026-11-18
+
+**Fix: `GOBACK` in a `PERFORM`ed paragraph leaves the program.** Reported while converting a Micro Focus character application (Cnd_PRC): a login program PERFORMed its exit paragraph after refusing a password, and the `GOBACK` there ended only the PERFORM — the program carried on after it and let the user in. `rcrun run` and `rcrun backend run` behaved the same way.
+- **Cause:** `PERFORM` absorbed the end-of-program signal that `GOBACK` (and a called program's `EXIT PROGRAM`) raise, so it ended like the paragraph's last statement. It now passes through every PERFORM in progress to the `CALL` that started the program, or ends the run in the main program.
+- **Where:** `cobolt-runtime` (`exec_perform`), which every host runs: `rcrun run`, `rcrun run-form`, embedded forms, a built application, the Backend.
+- **The Developer's Guide** (the *Sub-programs* line of the COBOL-85 highlights) says `GOBACK` and `EXIT PROGRAM` leave the program from a performed paragraph too. Its translations stay deleted (2.0.498).
+- **Measured** (macOS arm64):
+  - **`test_goback_in_perform`** (`cobolt-runtime`, new), 5 tests: the reported TESTGOBACK/SUBGB pair (`Principal recebeu: ANTES DO FIM`), `GO TO` an exit paragraph, the main program's run ending at a performed `GOBACK`, `EXIT PROGRAM` in a performed paragraph, and the quantified program below.
+  - **`tests/cobol/call/test-goback-in-perform.cbl`** (new): 11 checks (G01–G10, B01), 0 failed; B01 makes 20,000 CALLs that each return through two PERFORM levels, in 1,040 ms (19,230 CALLs a second, a debug `rcrun`).
+  - **NIST CCVS85**, both axes unchanged: compile 420/420; execution NC 95/95, SQ 85/85, IX 41/41, RL 34/34, IF 45/45, IC 25/25, ST 39/39, SM 16/16 — 8,362 assertions passed, 0 failed, `DELETED` as in the ledger. The `cobolt-runtime` suite: 211 test targets, 1,680 passed, 0 failed.
+
 ## 2.0.545 — 2026-11-16
 
 **Fix: on Windows, a window on a second monitor is fitted to that monitor and stays on it.** The form host fits the main window and the windows docked to it on the screen (2.0.535). On Windows it took the monitor's size, less 48 points for a task bar, but placed that area at the primary monitor's corner, because Windows was never asked where the screen is. So a window dragged onto a monitor right of or below the primary was fitted and then pulled back onto the primary. This was the follow-up noted under 2.0.535.

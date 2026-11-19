@@ -9699,7 +9699,10 @@ extensions. Highlights a working COBOL programmer will rely on:
   `RELEASE`/`RETURN`); `SEARCH` (serial) and `SEARCH ALL` (binary search over an
   `ASCENDING`/`DESCENDING KEY` table).
 - **Sub-programs:** `CALL … USING` (with `ON EXCEPTION` / `NOT ON EXCEPTION`),
-  `CANCEL`, `GOBACK`/`EXIT PROGRAM`, nested programs.
+  `CANCEL`, `GOBACK`/`EXIT PROGRAM`, nested programs. `GOBACK` and a called
+  program's `EXIT PROGRAM` leave the program wherever they run — in a
+  `PERFORM`ed paragraph too, however deep: no statement after them runs, and
+  control goes back to the `CALL` (a `GOBACK` in the main program ends the run).
 - **Error handling:** `DECLARATIVES` with `USE AFTER STANDARD ERROR PROCEDURE`
   for centralised file-error handling.
 - **Intrinsics:** the standard library of `FUNCTION`s, including the date/time
