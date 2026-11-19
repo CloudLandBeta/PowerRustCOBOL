@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cobolt_mcp::{McpHandler, ServerInfo, Tool, ToolResult};
 use cobolt_project_tools::http::{serve_http, HttpGate};
@@ -38,6 +38,9 @@ use crate::project_model::{Category, CoboltProject};
 const RECORD_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long `create_project` / `open_project` wait for the IDE to open it.
 const PROJECT_SWITCH_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long an IDE tool waits for the UI thread (spec 084 Phase D). A tool
+/// that takes longer starts its work and answers at once.
+const IDE_TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// What the UI thread last published about the open project.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -95,6 +98,46 @@ pub enum HostRequest {
         path: PathBuf,
         reply: Sender<Result<Value, String>>,
     },
+    /// A tool that needs the IDE (spec 084 Phase D): the UI thread answers on
+    /// `reply`, at once or — for one that waits for the screen — a frame later.
+    IdeTool {
+        name: String,
+        args: Value,
+        reply: Sender<Result<Value, String>>,
+    },
+    /// A project file or folder was renamed (`to: Some`) or removed: the
+    /// project model, its save and the open tabs follow (spec 084 R51, R52).
+    Relist {
+        from: String,
+        to: Option<String>,
+        reply: Sender<Result<(), String>>,
+    },
+}
+
+/// What the coding agent connected over MCP is doing, as the UI thread reads
+/// it each frame (the Claude mascot). The transport has no session — every
+/// request is one POST, answered and closed — so "connected" is "an admitted
+/// request arrived lately": only a client holding the access token that
+/// Configure Claude Code gave out gets past the gate.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentActivity {
+    /// When the last admitted MCP request arrived.
+    pub last_seen: Option<Instant>,
+    /// The tool calls running now, oldest first: `(tool, target, started)`.
+    pub running: Vec<(String, String, Instant)>,
+    /// The last call that finished: `(tool, target, ended)`.
+    pub last_done: Option<(String, String, Instant)>,
+}
+
+#[derive(Default)]
+struct ActivityLog {
+    last_seen: Option<Instant>,
+    running: Vec<(u64, String, String, Instant)>,
+    last_done: Option<(String, String, Instant)>,
+    next_id: u64,
+    /// How many calls have ended; a change on disk while it moved is a tool's
+    /// (spec 084 R68).
+    ended: u64,
 }
 
 /// The state shared between the UI thread and the listener's threads.
@@ -108,6 +151,11 @@ pub struct IdeShared {
     token: Mutex<Option<String>>,
     /// The running listener: its port and the flag that stops it.
     listener: Mutex<Option<(u16, Arc<AtomicBool>)>>,
+    /// What the connected agent is doing (the mascot reads it).
+    activity: Mutex<ActivityLog>,
+    /// Project files that changed on disk outside the connection, for the
+    /// next tool answer to name (spec 084 R68).
+    out_of_band: Mutex<Vec<String>>,
 }
 
 impl IdeShared {
@@ -123,9 +171,84 @@ impl IdeShared {
                 tools: Arc::new(Shared::new().with_renderer(form_renderer()).with_runner(form_runner())),
                 token: Mutex::new(None),
                 listener: Mutex::new(None),
+                activity: Mutex::new(ActivityLog::default()),
+                out_of_band: Mutex::new(Vec::new()),
             }),
             rx,
         )
+    }
+
+    /// How many tool calls have ended so far (UI thread, spec 084 R68).
+    pub fn calls_ended(&self) -> u64 {
+        self.activity_log().ended
+    }
+
+    /// Files that changed outside the connection, for the next answer to name
+    /// (UI thread, spec 084 R68).
+    pub fn report_out_of_band(&self, rels: &[String]) {
+        let mut pending = self.out_of_band.lock().unwrap_or_else(|p| p.into_inner());
+        for rel in rels {
+            if !pending.contains(rel) {
+                pending.push(rel.clone());
+            }
+        }
+    }
+
+    fn take_out_of_band(&self) -> Vec<String> {
+        std::mem::take(&mut *self.out_of_band.lock().unwrap_or_else(|p| p.into_inner()))
+    }
+
+    fn activity_log(&self) -> std::sync::MutexGuard<'_, ActivityLog> {
+        self.activity.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// An admitted MCP request arrived (listener thread).
+    pub fn seen(&self) {
+        self.activity_log().last_seen = Some(Instant::now());
+        if let Some(ctx) = &self.ctx {
+            ctx.request_repaint();
+        }
+    }
+
+    /// A tool call starts; the id ends it.
+    pub fn call_started(&self, tool: &str, target: &str) -> u64 {
+        let mut log = self.activity_log();
+        log.next_id += 1;
+        let id = log.next_id;
+        let now = Instant::now();
+        log.last_seen = Some(now);
+        log.running.push((id, tool.to_owned(), target.to_owned(), now));
+        drop(log);
+        if let Some(ctx) = &self.ctx {
+            ctx.request_repaint();
+        }
+        id
+    }
+
+    /// The call `id` has answered.
+    pub fn call_ended(&self, id: u64) {
+        let mut log = self.activity_log();
+        let now = Instant::now();
+        log.last_seen = Some(now);
+        if let Some(i) = log.running.iter().position(|(n, ..)| *n == id) {
+            let (_, tool, target, _) = log.running.remove(i);
+            log.last_done = Some((tool, target, now));
+        }
+        log.ended += 1;
+        drop(log);
+        if let Some(ctx) = &self.ctx {
+            ctx.request_repaint();
+        }
+    }
+
+    /// What the connected agent is doing now (UI thread).
+    pub fn activity(&self) -> AgentActivity {
+        let log = self.activity_log();
+        AgentActivity {
+            last_seen: log.last_seen,
+            running: log.running.iter().map(|(_, t, a, s)| (t.clone(), a.clone(), *s)).collect(),
+            last_done: log.last_done.clone(),
+        }
     }
 
     /// Publish this frame's snapshot (UI thread).
@@ -294,6 +417,28 @@ impl ProjectHost for IdeHost {
         let (reply, answer) = mpsc::channel();
         self.ask(HostRequest::OpenProject { path: path.to_path_buf(), reply }, answer)
     }
+
+    /// The project model follows, then saves (spec 084 R51, R52).
+    fn relist(&mut self, from: &str, to: Option<&str>) -> Result<(), String> {
+        let (reply, answer) = mpsc::channel();
+        if !self.shared.send(HostRequest::Relist { from: from.to_owned(), to: to.map(str::to_owned), reply }) {
+            return Err("the IDE is closing".to_owned());
+        }
+        answer
+            .recv_timeout(RECORD_TIMEOUT)
+            .unwrap_or_else(|_| Err("the IDE did not update the project in time; try again".to_owned()))
+    }
+
+    /// The UI thread runs it (spec 084 Phase D).
+    fn ide_tool(&mut self, name: &str, args: &Value) -> Result<Value, String> {
+        let (reply, answer) = mpsc::channel();
+        if !self.shared.send(HostRequest::IdeTool { name: name.to_owned(), args: args.clone(), reply }) {
+            return Err("the IDE is closing".to_owned());
+        }
+        answer
+            .recv_timeout(IDE_TOOL_TIMEOUT)
+            .unwrap_or_else(|_| Err(format!("the IDE did not answer {name} in time; try again")))
+    }
 }
 
 impl IdeHost {
@@ -432,8 +577,26 @@ impl McpHandler for IdeTools {
         if let Some(msg) = decision.message(root.as_ref()) {
             return ToolResult::failed(msg);
         }
-        self.tools.call_tool(name, arguments)
+        let call = self.shared.call_started(name, &arg);
+        let mut result = self.tools.call_tool(name, arguments);
+        self.shared.call_ended(call);
+        let changed = self.shared.take_out_of_band();
+        if !changed.is_empty() {
+            result.content.push(cobolt_mcp::Content::text(out_of_band_notice(&changed)));
+        }
+        result
     }
+}
+
+/// What the next answer says about files changed outside the connection
+/// (spec 084 R68): it reports, it does not refuse.
+pub fn out_of_band_notice(changed: &[String]) -> String {
+    format!(
+        "Notice: {} changed on disk outside the MCP connection since the last call (neither a tool nor \
+         PowerRustCOBOL AI wrote it). Read it again with read_file before you change it, and make every \
+         change to the project through these tools.",
+        changed.join(", ")
+    )
 }
 
 /// Bind `127.0.0.1:<port>` and serve the tools on a background thread,
@@ -454,7 +617,17 @@ pub fn start_listener(shared: &Arc<IdeShared>, port: u16) -> Result<String, Stri
     std::thread::Builder::new()
         .name("coding-agent-tools".into())
         .spawn(move || {
-            let _ = serve_http(listener, move || IdeTools::new(Arc::clone(&for_handler)), gate);
+            // The transport builds a handler only for a request that passed
+            // every check, the access token included: that is the agent being
+            // connected (the mascot).
+            let _ = serve_http(
+                listener,
+                move || {
+                    for_handler.seen();
+                    IdeTools::new(Arc::clone(&for_handler))
+                },
+                gate,
+            );
         })
         .map_err(|e| e.to_string())?;
     *shared.listener.lock().unwrap_or_else(|p| p.into_inner()) = Some((port, stop));
@@ -548,6 +721,21 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Spec 084 R68: files changed outside the connection are reported once,
+    /// each named once, and the notice tells the agent to read them again.
+    #[test]
+    fn out_of_band_changes_are_named_once_in_the_next_answer() {
+        let (shared, _rx) = IdeShared::new(None);
+        shared.report_out_of_band(&["forms/MAIN.cfrm".into()]);
+        shared.report_out_of_band(&["forms/MAIN.cfrm".into(), "src/TOTALS.cbl".into()]);
+        let changed = shared.take_out_of_band();
+        assert_eq!(changed, vec!["forms/MAIN.cfrm".to_string(), "src/TOTALS.cbl".to_string()]);
+        assert!(shared.take_out_of_band().is_empty(), "named once, then forgotten");
+        let notice = out_of_band_notice(&changed);
+        assert!(notice.contains("forms/MAIN.cfrm, src/TOTALS.cbl"));
+        assert!(notice.contains("read_file") && notice.contains("through these tools"));
+    }
+
     fn temp_project(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("prc-080-idehost-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -621,6 +809,37 @@ mod tests {
         stop_listener(&shared);
         assert_eq!(shared.listening_port(), None);
         println!("ide listener: before Configure 401; no/wrong/old token 401; right token lists files; rebound {port} -> {port2}, old port released");
+    }
+
+    /// The Claude mascot's source: a refused request (no token, wrong token) is
+    /// not an agent; an admitted one is seen, and its call is running until it
+    /// answers, then the last one done.
+    #[test]
+    fn only_admitted_requests_count_as_agent_activity() {
+        let (shared, _rx) = IdeShared::new(None);
+        let dir = temp_project("activity");
+        shared.publish(Snapshot { manifest: Some(dir.join("Demo.project.toml")), ..Default::default() });
+        let port = free_port();
+        start_listener(&shared, port).expect("binds");
+        shared.set_token(Some("tok-act".into()));
+        let body = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_files","arguments":{}}}).to_string();
+        assert!(post_raw(port, "Authorization: Bearer nope\r\n", &body).starts_with("HTTP/1.1 401"));
+        assert_eq!(shared.activity(), AgentActivity::default(), "a refused request leaves no trace");
+
+        assert!(post_raw(port, "Authorization: Bearer tok-act\r\n", &body).contains("forms/MAIN.cfrm"));
+        let a = shared.activity();
+        assert!(a.last_seen.is_some() && a.running.is_empty(), "{a:?}");
+        assert_eq!(a.last_done.as_ref().map(|(t, ..)| t.as_str()), Some("list_files"));
+
+        let id = shared.call_started("check", "forms/MAIN.cfrm");
+        assert_eq!(shared.activity().running.iter().map(|(t, a, _)| (t.as_str(), a.as_str())).collect::<Vec<_>>(), [("check", "forms/MAIN.cfrm")]);
+        shared.call_ended(id);
+        let a = shared.activity();
+        assert!(a.running.is_empty());
+        assert_eq!(a.last_done.map(|(t, x, _)| (t, x)), Some(("check".to_owned(), "forms/MAIN.cfrm".to_owned())));
+        stop_listener(&shared);
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("agent activity: 401 leaves none; an admitted list_files is seen and done; check runs, then is done");
     }
 
     /// Spec 084 AC9 (R17): a project switch is refused while anything is
@@ -790,7 +1009,11 @@ mod tests {
         let out = post_raw(port, "Authorization: Bearer tok-gate\r\n", body);
         let v: Value = serde_json::from_str(out.split_once("\r\n\r\n").unwrap().1).unwrap();
         let names: Vec<&str> = v["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names.len(), 17, "{out}");
+        let served = cobolt_project_tools::ProjectTools::<cobolt_project_tools::HeadlessHost>::tool_list();
+        assert_eq!(names.len(), served.len(), "every tool, the IDE tools among them: {out}");
+        for name in ["read_file", "apply_change_set", "ide_state", "edit_indexed", "app_kb_search"] {
+            assert!(names.contains(&name), "{name} is listed");
+        }
         use std::io::{Read, Write};
         let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
         write!(s, "POST /mcp HTTP/1.1\r\nHost: evil.example\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();

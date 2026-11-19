@@ -2,6 +2,100 @@
 
 
 
+## 2.0.613 — 2026-11-19
+
+**Feature: the MCP connection is the only channel between Claude Code and PowerRustCOBOL AI, and it reaches everything the IDE offers (spec 084 Phase D).** Before this, Claude Code worked on a project with its own file, edit and shell tools beside the 17 PowerRustCOBOL tools, so it wrote behind the IDE's back, and much of what a developer does in the IDE (the designer's delete and rename, Project Settings, SQL connections, running, debugging, the IDE's own windows) had no tool at all. Now the plugin that Configure Claude Code installs carries skills and the connection only, the servers tell the agent to work through the tools alone, and the tools cover the IDE.
+- **The plugin**: skills only, no agents. The reviewer is now the `powerrustcobol-review` skill. A test fails if a skill or the instructions send the agent to its own tools (`Bash`, `Read`, `Edit`, `Write`, `Grep`, `Glob`, a shell, `WebFetch`) or name a tool no server lists. The new rule `mcp-only` says: everything through these tools; when none fits, `write_gap_report`.
+- **Files, git, gap reports**: `read_file`, `list_folder`, `search_files`, `write_file`, `edit_file`, `rename_file`, `remove_file`, `import_file`, `write_gap_report`, `git`. All stay inside the project folder; a file the IDE holds unsaved is refused; a rename or removal follows the project file, the open tabs and the designers.
+- **The Form Designer**: `apply_change_set` runs every designer operation, plus `delete_control` and `rename_control`, whole or not at all. A refused step names itself and changes nothing. In an open designer the change shows at once and Undo takes it back in one step.
+- **The Indexed File Editor**: `edit_indexed` takes the record as the editor's text view writes it, keys by field (they follow their fields when the record moves them) and the file's properties. It regenerates the facade and copybooks, creates an empty data file when there is none, and refuses to change a Finalized schema unless the developer agreed (`confirm_recreate`). It never deletes the stored data.
+- **The project**: `project_settings`/`set_project_settings` (every field, through the project model, which saves and seals; secrets go to the IDE's store and are answered only as set or not set); `sql_connections`, `set_sql_connection`, `remove_sql_connection`, `test_sql_connection`; `save_project`, `package_project`, `upgrade_project`.
+- **Running and debugging**: `run_project`, `run_status`, `stop_run`; `start_backend`, `backend_status`, `stop_backend`; `start_web_preview`, `run_mobile` (Android), `create_android_studio_project`; `debug_start`, `debug_breakpoints`, `debug_control`, `debug_state`.
+- **Panes and data**: `read_output`, `read_diagnostics`, `beautify`, `project_kb_search`, `project_kb_reindex`, `app_kb_search` (the application's `assets/KB`), `indexed_records`.
+- **The IDE itself**: `ide_settings`/`set_ide_settings` (language, Debug Settings, Build Folder, Platform SDK location; never the port or the token); `ide_state`; `ide_picture`; `ide_command` (open, activate or close a tab, go to a line, select controls, pick a layer, show or hide a panel, any menu entry); `ide_widget` (the widget tree, click, type, scroll — through the IDE's inspection plugin). Nothing discards unsaved work: closing a dirty tab, quitting, or pressing a discarding dialog button is refused.
+- **`rcrun mcp` hands every call to the IDE** when the IDE runs with the same project open, so there is one writer. With the IDE closed, the IDE tools answer "open the IDE".
+- **A file changed outside the connection is reported.** While Claude is connected, the IDE watches forms, indexed definitions and COBOL sources. A change between calls that neither a tool nor the IDE wrote gets an Output line, and the next tool answer names the file.
+- **Coverage**: `agent_kit/coverage.rs` maps every menu entry, designer operation and pane to its tool, with exhaustive matches, so a new menu entry or operation does not compile without one. Its tests check that every mapped tool is served and every IDE tool is on the map. Two gaps are listed: the iOS simulator run, which the IDE itself lacks, and Grace and the IDE's own agents, which the developer put out of scope.
+- **The mascot** names the new tools with its existing phrases.
+- **Where:** `cobolt-project-tools` (`tools/{files,git,ide,indexed_edit,kb}.rs`, `forward.rs`, `host.rs`, `content.rs`); `cobolt-mcp` (base64); `cobolt-cli` (`rcrun mcp` forwards); `cobolt-ide` (`app/mcp_ide_tools.rs` and `app/mcp_ide_tools/{project,run,ide}.rs`, `agent_kit/{ide_host,coverage}.rs`, `claude_code/bundle.rs`, `panels/designer.rs` `apply_mcp_change_set`, `panels/debugger.rs` accessors, `panels/claude_mascot.rs`, i18n `mcp_out_of_band` in six languages); Developer's Guide *Only through the connection*.
+
+## 2.0.612 — 2026-11-18
+
+**Feature: while Claude is connected to the IDE over MCP, a Claude mascot on the top edge of the window says what Claude is doing.** Before this, the only sign that a coding agent was working in the IDE was one Output line per tool call. Now a small orange Claude creature sits on the top edge of the IDE window. Its balloon says what Claude is doing, in the IDE's language, and on a second line names the file or name the tool was given. Examples: *Claude is checking the code*, *Claude is generating COBOL*, *Claude is looking at a form*.
+- **It shows only while Claude is connected.** That means the tool server is listening and a request carrying the access token arrived in the last two minutes, or a tool call is still running. The server keeps no open connection between requests, so a quiet Claude fades out after two minutes and comes back with its next request. A refused request (no token, or the wrong one) never shows it. It reflects the IDE's own tool server; `rcrun mcp` runs without a window.
+- **It never gets in the way.** It is painted on its own layer and takes no clicks or keys. When the pointer comes within about 80 points of it, or onto it, it runs to the end of the top edge farther from the pointer. If its way passes the pointer, it ducks under it, so it never runs through the pointer. A balloon with the pointer resting on it turns almost transparent, which happens in a narrow window, where the mascot has nowhere farther to go.
+- **What the balloon says** comes from the tool. Ten phrases cover the 17 tools, and *Claude is working* covers any tool added later. A call that answers in a moment keeps its phrase for 2.5 s so it can be read. With no call running, the balloon says *Claude is connected*. There are 12 new `Tr` keys (`mascot_*`) in all six languages.
+- **Where:**
+  - `agent_kit/ide_host.rs`: `IdeShared` records each admitted request and each tool call (`seen`, `call_started`, `call_ended`, `activity` → `AgentActivity`). The handler that marks a request as seen is built only after the HTTP gate admits it.
+  - New `panels/claude_mascot.rs`: the sprite, the balloon and the flee logic. It repaints every frame only while running from the pointer, 20 times a second while a call works, and otherwise only at its next change (a blink, the end of a held phrase, the end of the two minutes).
+  - `app.rs`: the call at the end of each frame.
+- **The Developer's Guide** (*Working with a coding agent*) has a new subsection, *Seeing what Claude is doing: the mascot*, with the tool-to-phrase table. Its translations stay deleted (2.0.498).
+- **Measured** (macOS arm64):
+  - `panels::claude_mascot` (new, 6 of 6):
+    - when it shows;
+    - the phrase for each tool and the 2.5 s hold;
+    - the far end it runs to;
+    - over five pointer heights in the top band, the sprite never covers the pointer on its way across;
+    - a long path keeps its end;
+    - a headless frame: no body cells while disconnected, more than 40 at the top right while connected, at the left end after the pointer lands on it, and gone when the listener stops.
+  - `only_admitted_requests_count_as_agent_activity` (`agent_kit::ide_host`, new): over the real listener, a 401 leaves no trace, and an admitted `list_files` is seen and recorded as done.
+
+## 2.0.611 — 2026-11-18
+
+**Fix: in the browser, a SideMenu's run-time rows are drawn and answer as on the desktop, a Snackbar sits on its form at its anchor and size and closes, and a DataGrid's `ForegroundColor` reaches its cells.** Four defects from the Cnd_PRC conversion (a Web application with a Backend).
+- **SideMenu:** `AddItem`, `SetItemEnabled` and the other row methods fell to the browser's list verbs. `AddItem` filled `Items`, which a SideMenu never draws, and answered nothing (a `PIC 9(1)` item read 0); `GetCount()` counted those items (134); `SetItemEnabled` stopped the handler with run-time error -4. The row methods are now one function, `cobolt_forms::menu::runtime::row_method`, that the interpreter and the player both call, so the rows and the `1`/`0` answers are the same everywhere.
+- **Snackbar:** every notification was drawn in one host at the page's bottom-left corner, with no measurements for `Size` and no use of `StackAnchor`. A form opened with `OpenFormSync` is a modal dialog, so that host sat behind it, where the browser lets nothing be clicked: OK and ✕ could not close a `Timeout = 0` message. A form's notifications are now drawn on that form's surface (inside its dialog), one stack per `StackAnchor`, `Margin` from its edges, newest at the end `StackOrder` gives it, with the `Size` class's measurements (`SnackSize::metrics`). The player's own notices keep their place and look. Not changed: the browser does not animate notifications, and keeps five at most whatever `MaximumVisible` and `OverflowBehavior` say.
+- **DataGrid:** every column carries a text colour, seeded `#000000`, and both painters took it before the grid's, so a grid's chosen `ForegroundColor` never reached a cell — on the desktop too. A column still on the seeded `#000000` now takes the grid's chosen colour; a column's own colour (black chosen in the column editor is `#000000FF` and stays), a value rule's and a cell frame's still win; a grid on the default `ForegroundColor` draws as before. The desktop painter (`render.rs`) and the player follow the same rule (`DataGridColumn::foreground_is_seeded`).
+- **What changes on screen:** the Spatial and Neumorphic Dark looks set every control's `ForegroundColor` to `#FFFFFFFF` over a dark surface, so their grids whose columns name no colour now draw white cell text where it was black on dark. The spec 056 corpus golden moves for the two forms with such a grid, `PowerDemo3/forms/Responsive Layout/responsive-dock-form.cfrm` and `responsive-dashboard-form.cfrm` (their grids' `#1F2933FF`), and is rewritten as this named change. A grid given a light `BackgroundColor` while keeping a white `ForegroundColor` now shows white on light: set its `ForegroundColor`.
+- **Guidance:** the plugin's rules (`cobolt-project-tools` `content.rs`, six places) and the Form Designer agent's prompt (`DEFAULT_FORM_DESIGNER_AGENT_PROMPT`) said a grid's cells ignore its `ForegroundColor` and told an agent to colour every column; they now say the cells take it unless a column, value rule or frame names its own.
+- **The shipped player** (`assets/web-player`) is rebuilt.
+- **The Developer's Guide**: *Rows your program adds* (the browser answers alike), §Snackbar *Where they appear* (the browser), the DataGrid's new *The colour of the cells' text*. Its translations stay deleted (2.0.498).
+- **Measured** (macOS arm64, Chrome headless):
+  - **`page_snackbar_and_side_menu_rows`** (`cobolt-web-bundle`, new, 2 tests): a `Size = Large`, `TopCenter`, `Timeout = 0` Snackbar on an `OpenFormSync` form shows inside the modal dialog, 320 × 76 px, 16 px below the form's top, centred to 0.0 px; OK closes it, then ✕ does, each raising `onClosed`. A SideMenu's `onLoad` reads `1/1/001` (AddItem, SetItemEnabled, GetCount), the added row is drawn and the designed row is disabled.
+  - **`side_menu_row_methods_edit_the_rows_the_menu_draws`** (player, new): 134 `AddItem` calls each answer 1 and are drawn, `GetCount` 134, `SetItemEnabled` on a designed and a program row, 2 refusals answer 0, `Clear`.
+  - **`row_method_answers_what_every_host_answers`** (`cobolt-forms`, new): 12 calls with their answers and the rows they leave.
+  - **`a_notification_takes_its_size_and_its_stack_sits_at_its_anchor_on_the_form`** (player, new): Large's measurements; TopCenter, BottomRight with `Margin` 24 and `NewestLast`, CenterLeft.
+  - **`datagrid_cell_ink_follows_foreground`** (`cobolt-forms`, new) reads the painted text in 7 cases: grid `#C0392B` over two seeded columns paints both red; a column's own `#1E8449`, a column set to `#000000FF`, a value rule's and a cell frame's ink each keep their cell; a grid on `#FFFFFFFF` paints white; the default grid paints black. **`a_cell_takes_the_grids_foreground_unless_its_column_names_a_colour`** (player, new) asserts the same in the browser (6 cases; the browser draws no cell frame); `a_cells_text_is_put_where_the_desktops_layout_puts_it` now expects the grid's `#1B2A4E` where it pinned black.
+
+## 2.0.610 — 2026-11-18
+
+**Fix: Configure Claude Code finds the Claude Code inside Claude Desktop on macOS.** Reported by the operator, who works in Claude Desktop: the IDE's connection looked only for a `claude` installed on its own. On macOS it searched `PATH`, `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`, `/opt/homebrew/bin` and `/usr/local/bin`, so a Mac with Claude Desktop alone reported Claude Code not found and left Configure disabled. Windows already searched the desktop app's folders (2.0.396).
+- **Now** the search also covers Claude Desktop's own copy, the one its Code tab runs: `~/Library/Application Support/Claude/claude-code/<version>/<build>/claude.app/Contents/MacOS/claude`, newest version first, after the command-line install folders. That copy reads the same user plugins as a `claude` installed on its own (both list `powerrustcobol@powerrustcobol` 2.0.606 on this Mac), so configuring through either serves both.
+- **Coding Agent Settings** shows *found in Claude Desktop: <path>* for that copy (macOS or Windows). The not-found messages name both Claude Code and Claude Desktop, and *configured* says to start a new session in Claude Code or in Claude Desktop's Code tab, in all six languages.
+- **Where:** `cobolt-ide` (`claude_code/configure.rs`: `macos_desktop_dirs`, `is_desktop_copy`; `panels/claude_code_settings.rs`; `i18n.rs`, one new key `cc_claude_found_desktop`).
+- **The Developer's Guide** (*Configure Claude Code*, *Coding Agent Settings*) says either program will do and where the IDE looks. Its translations stay deleted (2.0.498).
+- **Test:** `macos_finds_the_claude_desktop_carries_newest_version_first` (`cobolt-ide`, new): two versions and a build with no app in a temporary tree; 2.1.325 is found before 2.1.99; a missing folder adds nothing; Desktop copies on macOS and Windows are named as such, a Homebrew or `~/.claude/local` one is not. Not run on Linux, which has no Claude Desktop folder in the search.
+
+## 2.0.609 — 2026-11-18
+
+**Fix: the Backend the IDE starts gets the SQL credentials the IDE keeps for the project.** Reported with the Cnd_PRC conversion: a Backend started from the IDE could not connect to its SQL database until the developer set `CND_PRC_PROJECT_SQL_CONDOMINIO_USER` and `_PASSWORD` by hand, although the IDE held both in its vault. A program or form the IDE runs was already handed them (spec 087 R33); the Backend child process was not.
+- **Now** Run's Start Backend and the Preview's backend start `rcrun backend run` with the open project's `<APP>_SQL_<NAME>_USER` / `_PASSWORD` in that child's environment only, as Run Form's child already gets them. A process started in any other folder gets none; nothing is written or printed.
+- **Where:** `cobolt-ide` (`backend_run.rs`; `runner::project_sql_credentials_for`).
+- **The Developer's Guide** (§15, under the SQL connection variables) says the prefix is the `[project]` table's `name`, not the file's name, with the reported project as the example, and that the IDE hands the vault's values to what it runs, the Backend included. Its translations stay deleted (2.0.498).
+- **Test:** `the_backend_of_the_open_project_gets_its_sql_credentials_and_no_other_folder_does` (`cobolt-ide`, new).
+
+## 2.0.608 — 2026-11-18
+
+**Fix: a `CALL`ed program's `SQLSTATE` reports its own statements, so its `FETCH` loop ends on `02000`.** Reported with the Cnd_PRC conversion (MySQL 8.0): `PERFORM UNTIL SQLSTATE NOT = "00000"` around a `FETCH` never ended and repeated the last row, which looked like "no `02000` after a `COMMIT`".
+- **Cause:** the status items were found once, at the run's first statement — the outermost program's. A called or nested program that declares `SQLSTATE` (or `SQLCODE`, `SQLMSG`, an SQLCA) of its own was never written: its loop read a value that never changed. The `COMMIT` played no part; a Backend meets it most, since every program it exports runs with the others nested inside it.
+- **Now** each statement writes the status items of the program that ran it, through the call's own activation, and leaves the caller's as they were.
+- **Where:** `cobolt-runtime` (`exec_sql.rs`, `sql_set_status`), in every host.
+- **The Developer's Guide** (§15, *Knowing how a statement went*) says whose items are set. Its translations stay deleted (2.0.498).
+- **Measured** (macOS arm64; SQLite, and MySQL 8.4 in a local container):
+  - **`test_esql_status_in_called_program`** (`cobolt-runtime`, new): the reported loop in a called program ends with `rows 003 loops 004 [02000]` and the caller's `SQLSTATE` is untouched; the quantified program passes on SQLite and on MySQL (that test is `#[ignore]`d without `PRC_TEST_MYSQL_URL`).
+  - **`tests/cobol/esql/status_in_called_program.cbl`** (new): 8 cases (S01–S07, B01), PASS 008 FAIL 000 on both engines; B01 fetches 10,000 rows in a called program.
+
+## 2.0.607 — 2026-11-18
+
+**Fix: `GOBACK` in a `PERFORM`ed paragraph leaves the program.** Reported while converting a Micro Focus character application (Cnd_PRC): a login program PERFORMed its exit paragraph after refusing a password, and the `GOBACK` there ended only the PERFORM — the program carried on after it and let the user in. `rcrun run` and `rcrun backend run` behaved the same way.
+- **Cause:** `PERFORM` absorbed the end-of-program signal that `GOBACK` (and a called program's `EXIT PROGRAM`) raise, so it ended like the paragraph's last statement. It now passes through every PERFORM in progress to the `CALL` that started the program, or ends the run in the main program.
+- **Where:** `cobolt-runtime` (`exec_perform`), which every host runs: `rcrun run`, `rcrun run-form`, embedded forms, a built application, the Backend.
+- **The Developer's Guide** (the *Sub-programs* line of the COBOL-85 highlights) says `GOBACK` and `EXIT PROGRAM` leave the program from a performed paragraph too. Its translations stay deleted (2.0.498).
+- **Measured** (macOS arm64):
+  - **`test_goback_in_perform`** (`cobolt-runtime`, new), 5 tests: the reported TESTGOBACK/SUBGB pair (`Principal recebeu: ANTES DO FIM`), `GO TO` an exit paragraph, the main program's run ending at a performed `GOBACK`, `EXIT PROGRAM` in a performed paragraph, and the quantified program below.
+  - **`tests/cobol/call/test-goback-in-perform.cbl`** (new): 11 checks (G01–G10, B01), 0 failed; B01 makes 20,000 CALLs that each return through two PERFORM levels, in 1,040 ms (19,230 CALLs a second, a debug `rcrun`).
+  - **NIST CCVS85**, both axes unchanged: compile 420/420; execution NC 95/95, SQ 85/85, IX 41/41, RL 34/34, IF 45/45, IC 25/25, ST 39/39, SM 16/16 — 8,362 assertions passed, 0 failed, `DELETED` as in the ledger. The `cobolt-runtime` suite: 211 test targets, 1,680 passed, 0 failed.
+
 ## 2.0.606 — 2026-11-18
 
 **Feature (DESKTOP-WASM-001 T44, national and UTF-8 data): a Desktop program with `PIC N` or `PIC U` items takes the WebAssembly path when it moves, displays, compares, initialises or measures them, or gives them a `VALUE`. The built program holds each such item as the interpreter does (`PIC N` as UTF-16, `PIC U` as UTF-8 padded with spaces) and computes it by the interpreter's rules, so it shows and stores the same characters and the same bytes.** Until 2.0.604 the Build put such a program on the WebAssembly path, where the module held national data as plain bytes and answered otherwise; 2.0.604 sent it to the Cargo path. This change brings the common uses back.
@@ -1186,6 +1280,18 @@
   - browser module bytes are unchanged (the PowerAnalyticsWeb pin matches);
   - NIST on generated modules is unchanged, each with 0 failures: Nucleus 95/95 (4 612 assertions passed), Intrinsic Functions 45/45 (841), Inter-program Communication 25/25 (309).
 
+## 2.0.545 — 2026-11-16
+
+**Fix: on Windows, a window on a second monitor is fitted to that monitor and stays on it.** The form host fits the main window and the windows docked to it on the screen (2.0.535). On Windows it took the monitor's size, less 48 points for a task bar, but placed that area at the primary monitor's corner, because Windows was never asked where the screen is. So a window dragged onto a monitor right of or below the primary was fitted and then pulled back onto the primary. This was the follow-up noted under 2.0.535.
+- **Now the platform is asked for the screen the window is on.** On Windows that is the work area of the monitor most of the window is on: the monitor less its task bar, where that monitor really sits. The window's frame goes to the platform in pixels and the area comes back in the window's own points. macOS already answered with its visible frame, and is unchanged.
+- **Where:** `cobolt-os-blur` (`usable_screen_area` now takes the window's frame and scale; Windows asks `MonitorFromRect` and `GetMonitorInfoW`), and the form host's fit, which reaches `rcrun run-form`, a built application and a shell application.
+- **Not changed:** Linux reports a monitor's size but not where it sits, so under X11 a window on a second monitor can still be pulled onto the primary. Under Wayland a window's position is not reported, and the group is not fitted at all.
+- **The Developer's Guide** (§11, after *Every window stays on the screen*) says the screen is the one the window is on, with a Note on the old Windows behaviour and a Caveat for Linux. Its translations stay deleted (2.0.498).
+- **Measured** (macOS arm64; the Windows calls type-checked for `x86_64-pc-windows-gnu`, and the crate for `x86_64-unknown-linux-gnu`):
+  - **`a_window_on_a_second_monitor_is_fitted_there_and_stays_there`** (`cobolt-form-host`, new): 3 of 3 checks, 36 frames in about 16 ms. The desk is a 2K monitor at 100 % (the primary) with a laptop at 150 % right of it from pixel 2560. The window moves from the 2K monitor to the laptop and back. Its zoom is 1.000, then 0.720, then 1.000, and each time it is inside the work area of the monitor it is on. **Without the platform's answer**, as on Windows before, the window was zoomed for the laptop and then pulled to pixel 38 of the 2K monitor.
+  - **`a_frame_goes_to_pixels_and_a_work_area_back_to_points`** (`cobolt-os-blur`, new): the conversions on both sides of the Windows call, including a monitor left of the primary.
+  - `a_form_larger_than_the_screen_zooms_just_enough_on_every_screen` still passes, 4 of 4.
+
 ## 2.0.544 — 2026-11-16
 
 **Fix: a program's handlers and other contained programs can now use the records of a `GLOBAL` file on the WebAssembly path, as COBOL-85 requires.**
@@ -1287,6 +1393,33 @@
   - 1 877 passed in the form renderer. Its one red is three PowerDemo3 goldens recorded before this work;
   - 2 030 passed in the IDE. Its one red is the known translations check.
 
+## 2.0.539 — 2026-11-16
+
+**Fix: the Linux `.deb` and `.rpm` now install what the IDE needs to start, so it starts on a minimal or server install too.** Found while testing the Claude Code integration with the published 2.0.477 `.deb` on a clean Ubuntu 24.04, where the IDE stopped before opening its window. A desktop install was not affected, because a desktop already has every library involved.
+- **The sound library could be the wrong one.** The `.deb` asked for `libasound2 | libasound2t64`. On Ubuntu 24.04 `libasound2` is only a name, and two packages answer to it: the real ALSA library and `liboss4-salsa-asound2`, an OSS stand-in without the ALSA functions. On a minimal install apt picked the stand-in, and the IDE stopped at once on `undefined symbol: snd_pcm_get_params`. The real library now comes first, and the old name carries a version, `libasound2t64 | libasound2 (>= 1.0.16)`. The stand-in gives the name no version, so it can no longer satisfy it.
+- **The libraries the IDE opens at start were not declared.** The IDE opens the X11 window libraries and EGL while it starts, so no dependency scan sees them, and the packages declared none. On a minimal install it stopped on `libXcursor.so.1: cannot open shared object file`, then on the next missing library. The `.deb` now also depends on `libegl1`, `libgl1-mesa-dri`, `libx11-6`, `libx11-xcb1`, `libxcursor1`, `libxi6`, `libxkbcommon0` and `libxkbcommon-x11-0`. The `.rpm` requires the same libraries by soname. On Ubuntu 22.04 and Debian 12, `libegl1` alone leaves EGL without a driver ("failed to open swrast"), hence `libgl1-mesa-dri`. On Fedora, `libEGL.so.1` already brings Mesa's drivers.
+- **How the list was found:** the released IDE was started on a minimal x86_64 Ubuntu 24.04, adding one package per failure, and the library map of the running IDE was then read. That map holds 51 libraries, all from packages; the eight above are the ones the IDE opens itself.
+- **Measured**, with a package that carries the new dependency line and the 2.0.477 release's files, on x86_64 installs without recommended packages and without any X server package:
+  - The IDE starts and serves its tools on port 5720 within about 10 s on Ubuntu 22.04, Ubuntu 24.04 and Debian 12, with no library errors. The display came from a separate container.
+  - apt resolves the line on Ubuntu 22.04, Ubuntu 24.04, Debian 12 and Debian 13, always to the real ALSA library.
+  - Fedora 45 has a provider for each of the eight sonames the `.rpm` requires.
+- **Test:** `the_linux_packages_declare_what_the_ide_opens_at_start` (`cobolt-compiler`, warmup, new) reads the release workflow. It requires the ALSA alternative in the new order with its version, the eight libraries in the `.deb`, and the eight sonames in the `.rpm`. On the old dependency line it fails.
+- **The Developer's Guide** (§3, the Linux paragraph under the downloads table) lists the graphics libraries and the `apt` line for the archive. `sudo apt install libasound2` fails on Ubuntu 24.04 with "no installation candidate", so it now names `libasound2t64` there. A new Caveat explains `undefined symbol: snd_pcm_get_params` and its cure for packages up to 2.0.538.
+- **Not changed:** the `.tar.gz` still relies on the desktop, as the Guide says. Only the X11 path was measured; a Wayland session uses libraries a Wayland desktop always has. openSUSE was not checked. Published packages keep their old dependency line until the next release is built.
+
+## 2.0.538 — 2026-11-16
+
+**Integration: eight fixes made on their own branches since 2.0.500 reach main.** Each was cut from main at 2.0.500 and tested there, but none had been merged. They were already on `features-2x-desktop-wasm`, so main lagged behind it. Each is cherry-picked with its own number and its entry below, and its code is identical to the original commit's:
+- **2.0.501:** a recursion with no end stops with a runtime error instead of crashing (`fixes-2x-perform-stack`).
+- **2.0.504:** the WebAssembly generator's tests follow the workspace's Rust floor and recognise every timing line (`fixes-2x-wasm-red-tests`).
+- **2.0.505:** the form host's example-corpus golden follows the SideMenu fix of 2.0.311 (`fixes-2x-powerchat-golden`). This turns `corpus_golden` green on main again.
+- **2.0.506:** the IDE's live crates.io tests no longer depend on what crates.io publishes next (`fixes-2x-egui-alias-tests`).
+- **2.0.508:** a program compiled to WebAssembly no longer loses its output when it ends past its last statement (`fixes-2x-run-end-flush`).
+- **2.0.509:** a RETURN-CODE too large for an exit code is held at the nearest end instead of wrapping around (`fixes-2x-exit-code-wrap`).
+- **2.0.515:** the example CALL check knows a Web or Mobile project's Backend programs (`fixes-2x-oficina-calls`).
+- **2.0.534:** the picture of a form matches Run Form in every pixel (`fixes-2x-snapshot-visuals`).
+- **The version goes to 2.0.538,** because main already stood at 2.0.535 and 2.0.536 and 2.0.537 belong to `features-2x-desktop-wasm`.
+
 ## 2.0.536 — 2026-11-16
 
 **Fix: a form larger than the screen is zoomed just enough to fit, and the zoom settles.** The report came from a two-monitor setup. An application built and first run on a 2K monitor, then run on the laptop's smaller screen, "does not adapt": its text and icons stayed very small. When a window and the windows docked to it do not fit the screen, the whole application is zoomed down until they do. That zoom did not stop at what the group needed.
@@ -1315,6 +1448,18 @@
   - Built and checked: console fixtures 2 of 2; the form fixture 1 of 1 (27 steps, 6 of 6 pictures, 3 of 3 expected reads).
   - Modules laid out as two platforms on one runner: console 4 of 4 and form 2 of 2, with the same pictures and reads from both.
   - The run of the workflow on the four platforms is owed to the operator.
+
+## 2.0.535 — 2026-11-16
+
+**Fix: a form larger than the screen is zoomed just enough to fit, and the zoom settles.** The report came from a two-monitor setup. An application built and first run on a 2K monitor, then run on the laptop's smaller screen, "does not adapt": its text and icons stayed very small. When a window and the windows docked to it do not fit the screen, the whole application is zoomed down until they do. That zoom did not stop at what the group needed.
+- **The cause:** the fit measured the window again in the frame its own new zoom took effect. The platform measures a window before each frame, at the zoom in force at that moment. Those readings were therefore still in the old zoom's points, and the window still had the old zoom's pixels. Fitted on that mix, the group came out at another zoom, which was set in turn, frame after frame. A form without a responsive layout also took its own size from what its window read in the new points, which was larger than the form.
+- **Now the fit waits one frame after a zoom change**, until the readings are taken at that zoom, and it measures a window with no size limits of its own in its form's points. The zoom is the largest at which the group fits, the window's pixels hold the form at that zoom, and both settle within three frames. On a monitor where the form fits, the application returns to full size. Moved back, it is reduced again, just enough.
+- **Where:** the form host fits the main window of `rcrun run-form`, of a built application and of a shell application, on Windows, Linux and macOS. Windows and Linux give no work area, so their fit starts from the monitor's size less a task bar. That path drifted the most.
+- **The Developer's Guide** (§11, *Multi-form applications and the main form*, after *Every window stays on the screen*) says the zoom is just enough and is worked out again for each screen. It suggests a responsive layout to keep text at full size on smaller screens, and has a Note on the old behaviour. Its translations stay deleted (2.0.498).
+- **Measured** (macOS arm64):
+  - **`a_form_larger_than_the_screen_zooms_just_enough_on_every_screen`** (`cobolt-form-host`, new): 4 of 4 checks, 48 frames in about 30 ms. A simulated screen in pixels measures the window as the platform does, before each frame, and carries out the host's resize and move commands. The screen is a laptop at 150 % (1280 × 720 points, scaled down to the 320 × 200 test form), followed by a 2K monitor at 100 % and the laptop again. Two paths are checked: the monitor size (Windows, Linux) and a work area from the platform (macOS). The zoom is 0.720 on the laptop, the largest at which the form and its title bar fit, and 1.000 on the 2K monitor. Each time, the window's pixels hold the form at that zoom and stay on the screen.
+  - **Without the fix**, after twelve frames on the laptop, the monitor-size path is at 0.747 and still moving. It fell to 0.5 on the second frame, then set 0.52, 0.54 … 0.75, one per frame. The window was left at a size matching none of them. The work-area path is at 0.5, the floor.
+- **Not changed, found while checking:** on Windows and Linux the fit places the window as if the screen started at the primary monitor's corner. A window started on a monitor to the right of or below the primary can therefore be pulled onto the primary.
 
 ## 2.0.534 — 2026-11-16
 

@@ -178,3 +178,43 @@ fn side_menu_rows_are_the_interpreters_on_every_surface() {
     }
     println!("result: 2 of 2 surfaces passed");
 }
+
+/// The SideMenu row methods (spec 066) in the browser answer and leave what the interpreter answers and leaves. They fell
+/// to the list verbs: `AddItem` appended to `Items`, which the menu never draws, and answered nothing (a `PIC 9` item read
+/// 0), `GetCount()` counted those `Items`, and `SetItemEnabled` was refused with run-time error -4 (the Cnd_PRC report).
+#[test]
+fn side_menu_row_methods_edit_the_rows_the_menu_draws() {
+    use cobolt_forms::menu::runtime as rt;
+    use cobolt_forms::menu::{MenuDefinition, MenuItem};
+    let mut h = host(false);
+    let (tree, side) = crate::tree::testing::tree_with("SideMenu", "SIDEMENU-1", &[]);
+    let form = tree.form_name.clone();
+    h.trees.insert(1, tree);
+    h.menus.insert(&form, "SIDEMENU-1", MenuDefinition { menu: vec![MenuItem::new_action("home", "Home")], hash: String::new() });
+    let call = |h: &mut Host, m: &str, args: &[&str]| h.control_method(1, side, m, args).unwrap().value.unwrap_or_default();
+    let drawn = |h: &Host| -> Vec<(String, bool)> {
+        let designed = h.menus.get(&form, "SIDEMENU-1").map(|d| d.menu.clone()).unwrap_or_default();
+        let rows = rt::parse_rows(&h.trees[&1].get(side, rt::RUNTIME_ROWS_PROP));
+        rt::merge_rows(&designed, &rows).iter().map(|i| (i.id.clone(), i.enabled)).collect()
+    };
+    let mut answers = Vec::new();
+    for k in 1..=134 {
+        answers.push(call(&mut h, "AddItem", &[&format!(" m{k} "), &format!("Option {k}"), "", "", "open-form:f"]));
+    }
+    assert!(answers.iter().all(|a| a == "1"), "each AddItem answers 1");
+    assert_eq!(call(&mut h, "GetCount", &[]), "134", "the program's own rows");
+    assert_eq!(drawn(&h).len(), 135, "the designed row and the 134 added, as the menu draws them");
+    assert_eq!(drawn(&h)[1], ("m1".to_owned(), true), "the id trimmed");
+    assert!(h.trees[&1].get(side, "Items").is_empty(), "nothing goes to the list property the menu does not draw");
+    assert_eq!(call(&mut h, "SetItemEnabled", &["home", "0"]), "1", "a designed row");
+    assert_eq!(call(&mut h, "SetItemEnabled", &["m2", "0"]), "1", "a program's row");
+    assert_eq!(call(&mut h, "SetItemEnabled", &["nope", "1"]), "0", "no such row");
+    assert_eq!(call(&mut h, "AddItem", &["home", "Twin"]), "0", "a designed id is refused");
+    let d = drawn(&h);
+    assert_eq!((d[0].1, d[2].1, d[3].1), (false, false, true));
+    assert_eq!(call(&mut h, "HasItem", &["m134"]), "1");
+    assert_eq!(call(&mut h, "Clear", &[]), "1");
+    assert_eq!(call(&mut h, "GetCount", &[]), "0");
+    assert_eq!(drawn(&h), vec![("home".to_owned(), false)], "Clear keeps what the program set on a designed row");
+    println!("SideMenu rows on the web: 134 AddItem answered 1 and drawn, GetCount 134, SetItemEnabled on a designed and a program row, 2 refusals answered 0, Clear");
+}

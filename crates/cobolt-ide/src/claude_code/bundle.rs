@@ -15,9 +15,12 @@
 //!   .claude-plugin/marketplace.json
 //!   powerrustcobol/.claude-plugin/plugin.json   (userConfig: port, token)
 //!   powerrustcobol/.mcp.json                    (IDE over HTTP, rcrun over stdio)
-//!   powerrustcobol/skills/<name>/SKILL.md
-//!   powerrustcobol/agents/powerrustcobol-reviewer.md
+//!   powerrustcobol/skills/<name>/SKILL.md       (the review is a skill too)
 //! ```
+//!
+//! Skills and the connection, nothing else (spec 084 R44–R46): no agents, no
+//! hooks, no commands, no settings. Everything Claude Code does to a project
+//! goes through the MCP connection.
 //!
 //! No `CLAUDE.md` (R9): the rules travel as the servers' instructions. No
 //! token and no home folder in any file (R10): the token is a `userConfig`
@@ -104,9 +107,10 @@ fn readme_file(version: &str) -> String {
          \n\
          # PowerRustCOBOL AI\n\
          \n\
-         Version {version}. This plugin gives Claude Code the same tools the PowerRustCOBOL AI IDE uses: open a project, check it, \
-         regenerate a form, build, render a form, run a form, and look names up in the product's reference. It also carries a few \
-         skills (create a form, add a control, check and fix, write Common Code) and a reviewer agent.\n\
+         Version {version}. This plugin connects Claude Code to PowerRustCOBOL AI over MCP, and everything Claude Code does to a \
+         project goes through that connection: read and change files, change forms as the Form Designer does, check, regenerate, \
+         build, run, debug, preview, version control, Project and IDE settings, and the IDE's own windows. It also carries skills \
+         (create a form, add a control, check and fix, write Common Code, review a change, and more); nothing else.\n\
          \n\
          ## Setup\n\
          \n\
@@ -148,15 +152,19 @@ fn skill_file(c: &KitContent, s: &Skill) -> String {
     out
 }
 
-fn reviewer_file(c: &KitContent) -> String {
+/// The review, as a skill (spec 084 R45): Claude Code runs it in its own
+/// conversation, through the same connection, instead of as a subagent.
+fn review_skill_file(c: &KitContent) -> String {
     let r = &c.reviewer;
     let mut out = format!(
-        "---\nname: {}\ndescription: {}\n---\n\n\
-         You review a change to a PowerRustCOBOL project before it is reported done. You do not \
-         change files: you report what is wrong, file by file, or that the change passes.\n\n\
+        "---\nname: {}\ndescription: {}\n---\n\n# {}\n\n\
+         Review a change to a PowerRustCOBOL project before you report it done. Do not change files \
+         while you review: report what is wrong, file by file, or that the change passes; then fix \
+         what you reported and review again.\n\n\
          ## Checks\n\n",
         r.name,
-        yaml_str(&r.summary)
+        yaml_str(&r.summary),
+        r.name
     );
     for (i, check) in r.checks.iter().enumerate() {
         out.push_str(&format!("{}. {}\n", i + 1, check));
@@ -217,7 +225,9 @@ pub fn files(version: &str, rcrun: &RcrunLocation) -> Vec<BundleFile> {
                     "powerrustcobol": {
                         "type": "stdio",
                         "command": rcrun_command(rcrun),
-                        "args": ["mcp"]
+                        "args": ["mcp"],
+                        // Spec 084 R66: rcrun hands the IDE's own tools to the running IDE.
+                        "env": { "PRC_IDE_PORT": "${user_config.port}", "PRC_IDE_TOKEN": "${user_config.token}" }
                     }
                 }
             })),
@@ -228,7 +238,7 @@ pub fn files(version: &str, rcrun: &RcrunLocation) -> Vec<BundleFile> {
     for skill in &c.skills {
         out.push(BundleFile { rel: format!("{PLUGIN}/skills/{}/SKILL.md", skill.name), text: skill_file(&c, skill) });
     }
-    out.push(BundleFile { rel: format!("{PLUGIN}/agents/{}.md", c.reviewer.name), text: reviewer_file(&c) });
+    out.push(BundleFile { rel: format!("{PLUGIN}/skills/{}/SKILL.md", c.reviewer.name), text: review_skill_file(&c) });
     out
 }
 
@@ -265,22 +275,33 @@ pub fn check(files: &[BundleFile], personal: &crate::ai_bundle::Personal, llm: &
 mod tests {
     use super::*;
 
-    /// Spec 084 AC4 / AC19: thirteen skills (spec 087 added embedded SQL, WASM-015 the Web and Backend ones), the
-    /// reviewer, both servers, the
-    /// `userConfig` port and token; no `CLAUDE.md`, no settings, no token, no
+    /// Spec 084 AC4 / AC19 / AC21: fourteen skills (spec 087 added embedded SQL, WASM-015 the Web and Backend ones,
+    /// Phase D the review), both servers, the
+    /// `userConfig` port and token; no agents, hooks, commands or settings, no `CLAUDE.md`, no token, no
     /// `docs/powerrustcobol/` path; every file passes the redaction check.
     #[test]
     fn the_bundle_holds_the_plugin_and_nothing_personal() {
         let files = files("1.80.test", &RcrunLocation::UnderHome("Apps/PowerRustCOBOL/rcrun".into()));
         let rels: Vec<&str> = files.iter().map(|f| f.rel.as_str()).collect();
         let skills = rels.iter().filter(|r| r.ends_with("/SKILL.md")).count();
-        assert_eq!(skills, 13, "{rels:?}");
+        assert_eq!(skills, 14, "{rels:?}");
         for skill in ["build-an-application", "shell-and-navigation", "layout-and-themes"] {
             let rel = format!("{PLUGIN}/skills/powerrustcobol-{skill}/SKILL.md");
             let text = &files.iter().find(|f| f.rel == rel).unwrap_or_else(|| panic!("{rel}")).text;
             assert!(text.contains("render_form"), "{rel} names render_form");
         }
-        assert!(rels.contains(&"powerrustcobol/agents/powerrustcobol-reviewer.md"));
+        assert!(rels.contains(&"powerrustcobol/skills/powerrustcobol-review/SKILL.md"));
+        // R44: skills and the connection only.
+        for f in &files {
+            let under = f.rel.strip_prefix(&format!("{PLUGIN}/")).unwrap_or(&f.rel);
+            assert!(
+                under.starts_with("skills/")
+                    || [".claude-plugin/plugin.json", ".claude-plugin/icon.svg", ".mcp.json", "README.md"].contains(&under)
+                    || f.rel == ".claude-plugin/marketplace.json",
+                "{} is neither a skill nor the connection",
+                f.rel
+            );
+        }
         assert!(!rels.iter().any(|r| r.ends_with("CLAUDE.md") || r.ends_with("settings.json")), "{rels:?}");
 
         let get = |rel: &str| -> Value { serde_json::from_str(&files.iter().find(|f| f.rel == rel).unwrap().text).unwrap() };
@@ -303,7 +324,41 @@ mod tests {
         let llm = crate::llm::LlmConfig::load_defaults_for_test();
         let personal = crate::ai_bundle::Personal::from_environment();
         check(&files, &personal, &llm).expect("nothing personal, no key");
-        println!("plugin bundle: {} files — 13 skills (3 for building an application, 1 for embedded SQL, 2 for the web kinds), the reviewer, 2 servers, userConfig port + sensitive token; no CLAUDE.md, settings or home path", files.len());
+        println!("plugin bundle: {} files — 14 skills (3 for building an application, 1 for embedded SQL, 2 for the web kinds, the review), 2 servers, userConfig port + sensitive token; no agents, CLAUDE.md, settings or home path", files.len());
+    }
+
+    /// Spec 084 AC22: no skill, and no instruction, sends Claude Code to its
+    /// own file, edit, search or shell tools: every tool a skill names is one
+    /// the servers list, and the text names none of Claude Code's own.
+    #[test]
+    fn no_skill_sends_claude_to_its_own_tools() {
+        let listed: Vec<String> = cobolt_project_tools::ProjectTools::<cobolt_project_tools::HeadlessHost>::tool_list()
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+        let c = kit("1.80.test");
+        for s in &c.skills {
+            for t in &s.uses_tools {
+                assert!(listed.contains(t), "skill {} names `{t}`, which no server lists", s.name);
+            }
+        }
+        for t in &c.reviewer.uses_tools {
+            assert!(listed.contains(t), "the review names `{t}`, which no server lists");
+        }
+        let mut texts: Vec<(String, String)> = files("1.80.test", &RcrunLocation::OnPath)
+            .into_iter()
+            .filter(|f| f.rel.ends_with("SKILL.md"))
+            .map(|f| (f.rel, f.text))
+            .collect();
+        texts.push(("instructions".into(), content::server_instructions("1.80.test")));
+        for (rel, text) in &texts {
+            for own in ["Bash", "the Write tool", "the Edit tool", "the Read tool", "Grep", "Glob", "your shell", "a terminal", "WebFetch"] {
+                assert!(!text.contains(own), "{rel} sends Claude Code to `{own}`");
+            }
+        }
+        let instructions = content::server_instructions("1.80.test");
+        assert!(instructions.contains("write_gap_report") && instructions.contains("never through"), "the MCP-only rule is in the instructions");
+        println!("plugin bundle: every tool a skill names is served; no skill or instruction names Claude Code's own tools; the MCP-only rule is in the instructions");
     }
 
     /// The written bundle passes Claude Code's own `claude plugin validate`

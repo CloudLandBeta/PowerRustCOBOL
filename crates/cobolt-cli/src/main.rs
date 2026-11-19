@@ -454,7 +454,10 @@ fn cmd_mcp(args: &[String]) {
                 manifest,
                 &cobolt_project_tools::ide_launch::IdeEnv::from_machine(beside.as_deref()),
             )
-        });
+        })
+        // Spec 084 R66 — the IDE's own tools go to the running IDE, at the
+        // address and token the plugin's settings give.
+        .forward_to(cobolt_project_tools::forward::IdeAddress::from_env());
     // `render_form` pictures forms with the render engine rcrun already links
     // for run-form (spec 084 R30).
     let renderer: cobolt_project_tools::tools::render::Renderer =

@@ -2621,11 +2621,12 @@ impl Host {
         }
     }
 
-    /// A method of a control, as [`methods::call`] runs it — except `ActivateItem` on a SideMenu (spec 049), which needs
-    /// the menu. The interpreter answers it from the designed rows and the program's own: `0` for an empty or unknown id,
-    /// else `1` and the shell does what a click on that row does. Here the answer comes from the same rows, and the click
-    /// is a command for the page, which holds the menu and the ContentPane (the page leaves a disabled row alone, as the
-    /// shell does).
+    /// A method of a control, as [`methods::call`] runs it — except a SideMenu's, which need the menu. `ActivateItem`
+    /// (spec 049): the interpreter answers it from the designed rows and the program's own, `0` for an empty or unknown
+    /// id, else `1` and the shell does what a click on that row does. Here the answer comes from the same rows, and the
+    /// click is a command for the page, which holds the menu and the ContentPane (the page leaves a disabled row alone,
+    /// as the shell does). The row methods (spec 066) are [`cobolt_forms::menu::runtime::row_method`], as in the
+    /// interpreter.
     fn control_method(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Result<methods::Outcome, MethodError> {
         use cobolt_forms::menu::runtime as rt;
         let menus = &self.menus;
@@ -2657,13 +2658,14 @@ impl Host {
                 let _ = tree.set(idx, "Collapsed", if m == "COLLAPSE" { "1" } else { "0" });
                 return answer("1");
             }
-            // The rows the program adds and edits (spec 066): the interpreter's own dispatch.
-            let arg = |i: usize| args.get(i).map(|s| (*s).to_owned()).unwrap_or_default();
-            if let Some((value, changed)) = rt::row_method(designed, &mut rows, &m, &arg) {
-                if changed {
-                    let _ = tree.set(idx, rt::RUNTIME_ROWS_PROP, &rt::rows_json(&rows));
-                }
-                return answer(&value);
+            // The rows the program adds and edits (spec 066): the one function every host calls, the
+            // interpreter's own dispatch, so a program gets the same rows and the same answers on every
+            // surface. Its arguments are trimmed, as the interpreter trims them; a change hands back the
+            // events of the write, so the browser draws the new rows (2.0.611).
+            let arg = |i: usize| args.get(i).map(|s| s.trim().to_owned()).unwrap_or_default();
+            if let Some(row) = rt::row_method(designed, &mut rows, &m, &arg) {
+                let events = if row.changed { tree.set(idx, rt::RUNTIME_ROWS_PROP, &rt::rows_json(&rows)) } else { Vec::new() };
+                return Ok(methods::Outcome { value: Some(row.value), events });
             }
         }
         methods::call(tree, idx, name, args)

@@ -131,3 +131,37 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 phase touched; report each `test result:` line. Operator end-to-end check after
 Phase A: Help → Claude Code Settings → Configure; `claude` in a project, `/mcp`,
 `kb_search`, `create_project`.
+
+## Phase D — the MCP connection is the only channel
+
+- [x] **T20 — IDE-tool routing.** `ProjectHost::ide_tool`, `HostRequest::IdeTool`,
+  `app/mcp_ide_tools.rs`; the headless answer. *Serves:* R45, R66. *(Tools that
+  need a later frame keep their reply in `McpState::waits`, answered within 50 s,
+  under the listener's 60.)*
+- [x] **T21 — File tools, gap report, git.** Plus the unsaved gate on
+  `set_definition`. *Verify:* AC23, AC24. *Serves:* R49–R55, R64 (git), R65.
+- [x] **T22 — The plugin and its text.** Reviewer as a skill, no agents;
+  skills and instructions rewritten; the scan test. *Verify:* AC21, AC22.
+  *Serves:* R44, R46, R47.
+- [x] **T23 — Forms and indexed definitions.** `apply_change_set` (all or
+  nothing; `delete_control`, `rename_control`), `edit_indexed`. *Verify:*
+  AC25, AC26 (indexed). *Serves:* R56–R58. *(`edit_indexed` is a project tool,
+  not an IDE one: the record in the Indexed File Editor's text view, keys by
+  field that follow their fields, the Finalized guard with `confirm_recreate`;
+  the data file is never deleted.)*
+- [x] **T24 — Project, run and data.** Settings, SQL connections, save,
+  package, upgrade; run, Backend, preview, mobile; Output, diagnostics,
+  beautify, KBs, records. *Verify:* AC26, AC27, AC29. *Serves:* R59–R62, R64.
+  *(`app_kb_search` is a project tool too — `cobolt-kb` lives there. The iOS
+  simulator run is a gap: the IDE has none; `run_mobile` says so.)*
+- [x] **T25 — Debugger.** *Verify:* AC28. *Serves:* R63.
+- [x] **T26 — IDE-wide settings and the IDE itself.** *Verify:* AC32, AC33.
+  *Serves:* R69–R72. *(The IDE theme and the form theme are project settings,
+  so `set_project_settings` holds them. `ide_picture` and `ide_widget` go
+  through the IDE's built-in inspection plugin: an AccessKit tree, a
+  screenshot, synthesized pointer and text events.)*
+- [x] **T27 — Changes outside the connection.** *Verify:* AC31. *Serves:* R68.
+- [x] **T28 — `rcrun mcp` forwards to the IDE.** *Verify:* AC30. *Serves:* R66.
+- [x] **T29 — Coverage table and test; Guide.** *Verify:* AC34. *Serves:* R73.
+  *(`agent_kit/coverage.rs`: exhaustive matches over `menu_layout::Item` and
+  `AgentOp`, the panes, and the gaps; three tests.)*

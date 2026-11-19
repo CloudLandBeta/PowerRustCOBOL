@@ -7811,11 +7811,13 @@ impl Interpreter {
         let result = self.exec_perform_inner(target, span);
         self.debug_pop_frame(pushed);
         self.perform_depth -= 1;
-        // Absorb GoBack inside a PERFORM (it means "return from this PERFORM").
-        match result {
-            Err(RuntimeError::GoBack) => Ok(()),
-            other => other,
-        }
+        // `GOBACK` and `EXIT PROGRAM` leave the PROGRAM, wherever they are
+        // executed: they pass through every PERFORM to the CALL (or to `run`)
+        // that started the program. Absorbing them here made a `GOBACK` in a
+        // performed paragraph behave like the end of the PERFORM, so the
+        // program carried on after it — a login program that PERFORMed its
+        // exit paragraph after refusing a password let the user in.
+        result
     }
 
     fn exec_perform_inner(
@@ -14575,12 +14577,13 @@ impl Interpreter {
             self.obj_set(obj, "Collapsed", if m == "COLLAPSE" { "1" } else { "0" }.into());
             return Some("1".into());
         }
-        // The row methods: the one dispatch the ABI host runs too (DESKTOP-WASM-001 T31).
-        let (answer, changed) = rt::row_method(&designed, &mut rows, m, arg)?;
-        if changed {
+        // The row methods are one function every host calls (the browser
+        // player too), so a program gets the same answers everywhere.
+        let answer = rt::row_method(&designed, &mut rows, m, arg)?;
+        if answer.changed {
             self.obj_set(obj, rt::RUNTIME_ROWS_PROP, rt::rows_json(&rows));
         }
-        Some(answer)
+        Some(answer.value)
     }
 
     fn is_snackbar(&self, obj: &str) -> bool {

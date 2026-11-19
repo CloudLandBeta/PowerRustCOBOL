@@ -109,6 +109,29 @@ pub fn set_project_sql(manifest: Option<&std::path::Path>, app: &str, credential
     }
 }
 
+/// The SQL connections' vault credentials, as `<APP>_SQL_<NAME>_*` variables,
+/// for a process the IDE starts in `project_dir` — the Backend's `rcrun
+/// backend run` — when that folder is the open project's; nothing for any
+/// other folder. A Backend started from the IDE used to see none of them and
+/// could not connect unless the developer set the variables by hand.
+pub fn project_sql_credentials_for(project_dir: &std::path::Path) -> Vec<(String, String)> {
+    sql_credentials_for(PROJECT_SQL.lock().ok().and_then(|g| g.clone()), project_dir)
+}
+
+fn sql_credentials_for(recorded: Option<ProjectSql>, project_dir: &std::path::Path) -> Vec<(String, String)> {
+    let Some(p) = recorded else {
+        return Vec::new();
+    };
+    let same = |a: &std::path::Path, b: &std::path::Path| match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    };
+    match p.manifest.parent() {
+        Some(dir) if same(dir, project_dir) => p.credentials,
+        _ => Vec::new(),
+    }
+}
+
 /// Hand the project's SQL connections to an interpreter about to run. `Err`
 /// says why the project file's SQL connections cannot be used.
 fn apply_project_sql_catalog(interp: &mut Interpreter) -> Result<(), String> {
@@ -844,5 +867,27 @@ mod stop_tests {
         assert!(matches!(ended, Some(RunMsg::Stopped)), "Stop ends the run as Stopped: {ended:?}");
         run.join().unwrap();
         println!("Stop: a PERFORM UNTIL 1 = 0 loop ended {} ms after Stop, reported Stopped", pressed.elapsed().as_millis());
+    }
+
+    /// The Backend the IDE starts gets the open project's SQL credentials from the vault (the Cnd_PRC report: it got
+    /// none and could not connect until the developer set `CND_PRC_PROJECT_SQL_CONDOMINIO_USER` and `_PASSWORD` by hand);
+    /// a process started in any other folder gets none.
+    #[test]
+    fn the_backend_of_the_open_project_gets_its_sql_credentials_and_no_other_folder_does() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("Cnd_PRC");
+        let other = root.path().join("Other");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let creds = vec![
+            ("CND_PRC_PROJECT_SQL_CONDOMINIO_USER".to_owned(), "app".to_owned()),
+            ("CND_PRC_PROJECT_SQL_CONDOMINIO_PASSWORD".to_owned(), "s3cret".to_owned()),
+        ];
+        let recorded = || Some(ProjectSql { manifest: project.join("Cnd_PRC.project.toml"), app: "Cnd_PRC.project".into(), credentials: creds.clone() });
+        assert_eq!(sql_credentials_for(recorded(), &project), creds, "the open project's folder");
+        assert_eq!(sql_credentials_for(recorded(), &project.join(".").join("..").join("Cnd_PRC")), creds, "spelt another way");
+        assert!(sql_credentials_for(recorded(), &other).is_empty(), "another folder");
+        assert!(sql_credentials_for(None, &project).is_empty(), "no project open");
+        println!("Backend SQL credentials: 2 variables for the open project's folder (2 spellings), none for another folder or with no project");
     }
 }

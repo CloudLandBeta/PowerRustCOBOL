@@ -142,7 +142,14 @@ impl ClaudeCodeSettingsWindow {
                     ui.label(match &view.status {
                         PluginStatus::Checking => tr.cc_checking.to_owned(),
                         PluginStatus::NoClaude => tr.cc_claude_missing.to_owned(),
-                        PluginStatus::Claude { path, .. } => tr.cc_claude_found.replacen("{}", &path.display().to_string(), 1),
+                        PluginStatus::Claude { path, .. } => {
+                            let found = if crate::claude_code::configure::is_desktop_copy(path) {
+                                tr.cc_claude_found_desktop
+                            } else {
+                                tr.cc_claude_found
+                            };
+                            found.replacen("{}", &path.display().to_string(), 1)
+                        }
                     });
                 });
                 row(ui, tr.cc_plugin, &mut |ui| {

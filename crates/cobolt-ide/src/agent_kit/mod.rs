@@ -8,14 +8,16 @@
 //!
 //! The IDE serves the project tools of `cobolt-project-tools` over HTTP on
 //! `127.0.0.1` ([`ide_host`]). What tells a coding agent how to use them — the
-//! rules, skills, reviewer and reference — is no longer exported into each
-//! project (spec 080's kit): it is served live by the tool servers and carried
-//! by the Claude Code plugin that Configure Claude Code installs
-//! ([`crate::claude_code`]).
+//! rules, skills and reference — is no longer exported into each project
+//! (spec 080's kit): it is served live by the tool servers and carried by the
+//! Claude Code plugin that Configure Claude Code installs
+//! ([`crate::claude_code`]). [`coverage`] maps what the IDE offers to the
+//! tool that reaches it (spec 084 R73).
 
 // Agent-neutral content and the reference pack live in `cobolt-project-tools`
 // so `rcrun` serves them too (spec 084 T3); re-exported under their old paths.
 pub use cobolt_project_tools::{content, reference};
+pub mod coverage;
 pub mod ide_host;
 
 #[cfg(test)]

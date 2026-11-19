@@ -82,7 +82,7 @@ DB-SEARCH rect=[70 15 370 49] font=11
 DB-SETTINGS rect=[14 680 156 716] font=11
 DB-TITLE rect=[522 16 1006 48] font=17
 SB-INFO rect=[0 730 1020 756] font=11
-shapes=521 digest=4e5b1294026f62d3
+shapes=521 digest=07d44af1f665a093
 ## Preview 0.75x 1020x645
 DB-BAR rect=[188 318 1002 498] font=11
 DB-CUSTOMERS rect=- font=13
@@ -124,7 +124,7 @@ DB-SEARCH rect=[70 15 370 49] font=11
 DB-SETTINGS rect=[14 680 156 716] font=11
 DB-TITLE rect=[522 16 1006 48] font=17
 SB-INFO rect=[0 730 1020 756] font=11
-shapes=521 digest=4e5b1294026f62d3
+shapes=521 digest=07d44af1f665a093
 ## Canvas 1x 1360x860
 DB-BAR rect=[238 200 783 501] font=13
 DB-CUSTOMERS rect=[238 515 504 816] font=13
@@ -208,7 +208,7 @@ DB-SEARCH rect=[70 15 370 49] font=13
 DB-SETTINGS rect=[14 784 206 820] font=13
 DB-TITLE rect=[650 16 1346 48] font=20
 SB-INFO rect=[0 834 1360 860] font=13
-shapes=721 digest=70f18c5805c0117c
+shapes=721 digest=d25f84df3e09755c
 ## Preview 1x 1360x860
 DB-BAR rect=[238 200 783 501] font=13
 DB-CUSTOMERS rect=[238 515 504 816] font=13
@@ -250,7 +250,7 @@ DB-SEARCH rect=[70 15 370 49] font=13
 DB-SETTINGS rect=[14 784 206 820] font=13
 DB-TITLE rect=[650 16 1346 48] font=20
 SB-INFO rect=[0 834 1360 860] font=13
-shapes=721 digest=70f18c5805c0117c
+shapes=721 digest=d25f84df3e09755c
 ## Canvas 1.5x 2040x1290
 DB-BAR rect=[238 200 1123 716] font=17
 DB-CUSTOMERS rect=[238 730 674 1246] font=17
@@ -334,7 +334,7 @@ DB-SEARCH rect=[70 15 370 49] font=17
 DB-SETTINGS rect=[14 1214 206 1250] font=17
 DB-TITLE rect=[650 16 2026 48] font=26
 SB-INFO rect=[0 1264 2040 1290] font=17
-shapes=721 digest=d4545118bf90c726
+shapes=721 digest=8291e608ac8636be
 ## Preview 1.5x 2040x1290
 DB-BAR rect=[238 200 1123 716] font=17
 DB-CUSTOMERS rect=[238 730 674 1246] font=17
@@ -376,4 +376,4 @@ DB-SEARCH rect=[70 15 370 49] font=17
 DB-SETTINGS rect=[14 1214 206 1250] font=17
 DB-TITLE rect=[650 16 2026 48] font=26
 SB-INFO rect=[0 1264 2040 1290] font=17
-shapes=721 digest=d4545118bf90c726
+shapes=721 digest=8291e608ac8636be

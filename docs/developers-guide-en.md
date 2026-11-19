@@ -194,7 +194,14 @@ application in `/opt/powerrustcobol` and link `powerrustcobol` and `rcrun` into
 > format.
 
 Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the
-OpenGL, X11 or Wayland libraries your desktop already provides.
+graphics libraries every desktop already has: OpenGL (EGL) with its Mesa
+drivers, and the X11 or Wayland libraries. On a minimal or server install the
+`.deb` and `.rpm` fetch them for you. With the archive you install them
+yourself; on Debian and Ubuntu:
+
+```bash
+sudo apt install libegl1 libgl1-mesa-dri libx11-xcb1 libxcursor1 libxi6 libxkbcommon-x11-0
+```
 
 > **Note — sound on Linux.** The IDE and `rcrun` carry the sound built-ins
 > (§11, *Playing sound*), which reach the sound card through **ALSA**, so on
@@ -202,10 +209,18 @@ OpenGL, X11 or Wayland libraries your desktop already provides.
 > 24.04 and Debian 13; `alsa-lib` on Fedora). Every desktop installs it with its
 > sound system; on a minimal or server install the `.deb` and `.rpm` fetch it
 > for you, and with the archive you install it yourself
-> (`sudo apt install libasound2`). **Building** an application that plays sound
+> (`sudo apt install libasound2t64` on Ubuntu 24.04 and Debian 13,
+> `sudo apt install libasound2` on older releases). **Building** an application that plays sound
 > on Linux also needs the ALSA development package — `libasound2-dev`, or
 > `alsa-lib-devel` on Fedora; one that never calls an `AUDIO-…` built-in is
 > built without sound and needs neither. macOS and Windows need nothing.
+
+> ⚠️ **Caveat — the IDE stops at once with `undefined symbol: snd_pcm_get_params`.**
+> On Ubuntu 24.04 another package, `liboss4-salsa-asound2`, also answers to the
+> name `libasound2`, but it is an OSS stand-in without the ALSA functions the IDE
+> calls. Packages up to 2.0.538 could let apt pick it on a minimal install.
+> Install the real library with `sudo apt install libasound2t64`; apt then
+> replaces the stand-in.
 
 Launch the IDE; on first run you are greeted with an empty workspace and the
 prompt *"Open a COBOL file to get started."* You can either open a single `.cbl`
@@ -4851,6 +4866,25 @@ When binding, advanced metadata (widths, styles, order, filters…) is preserved
 for matching fields; the Data Binding Guardian prevents drift. See the
 properties pane for the complete set.
 
+#### The colour of the cells' text
+
+A cell's text takes, first, the colour of a value rule that matches it; then
+its column's own text colour; then the grid's `ForegroundColor`. Every column
+starts with black (`#000000`) as its text colour, and that starting black counts
+as *not chosen* when you have set the grid's `ForegroundColor`: set it, and
+every column you have not given a colour of its own draws its text in it. Black
+picked for a column in **Edit DataGrid settings…** is saved as `#000000FF` and
+is kept. On the desktop a column's cell frame draws its text in the frame's own
+colour. A grid whose `ForegroundColor` is still the default draws black text, as
+before. The desktop and the browser apply the same rule. (A chosen
+`ForegroundColor` also colours the grid lines.) The Spatial look sets
+`ForegroundColor` to white on every control, so a Spatial grid's cells are white
+unless a column names its own colour.
+
+```cobol
+           MOVE "#C0392B" TO GRID-ORDERS::ForegroundColor.
+```
+
 #### Colouring the DataGrid's filter row
 
 Switch `ShowColumnFilters` on and every column gains a small entry field under
@@ -6729,6 +6763,13 @@ The anchor is measured against **your form's own surface**, not the screen. In
 an application shell an `Embedded` form's messages appear inside its ContentPane
 — never over the shell's rail or breadcrumb — so they land where the operator is
 already looking.
+
+The same holds in a browser (a Web or Mobile application): a form's messages
+are drawn on that form — inside its window, or inside its dialog when it was
+opened with `OpenFormSync` — at its `StackAnchor`, `Margin` from its edges, with
+the measurements of its `Size`, and their buttons and ✕ close them there. (The
+browser does not yet animate them, and `MaximumVisible` and `OverflowBehavior`
+are the desktop's: a browser shows up to five messages at a time.)
 
 > ⚠️ **`StackAnchor`, not `Anchor`.** Every control already has an `Anchor`
 > property, and it is a different thing entirely: a tick box that locks the
@@ -9693,7 +9734,10 @@ extensions. Highlights a working COBOL programmer will rely on:
   is left on the last one. `SEARCH` (serial) and `SEARCH ALL` (binary search over an
   `ASCENDING`/`DESCENDING KEY` table).
 - **Sub-programs:** `CALL … USING` (with `ON EXCEPTION` / `NOT ON EXCEPTION`),
-  `CANCEL`, `GOBACK`/`EXIT PROGRAM`, nested programs.
+  `CANCEL`, `GOBACK`/`EXIT PROGRAM`, nested programs. `GOBACK` and a called
+  program's `EXIT PROGRAM` leave the program wherever they run — in a
+  `PERFORM`ed paragraph too, however deep: no statement after them runs, and
+  control goes back to the `CALL` (a `GOBACK` in the main program ends the run).
 - **Error handling:** `DECLARATIVES` with `USE AFTER STANDARD ERROR PROCEDURE`
   for centralised file-error handling.
 - **Intrinsics:** the standard library of `FUNCTION`s, including the date/time
@@ -13364,6 +13408,18 @@ both upper-cased, every character other than a letter or a digit turned into
 | `SHOP_SQL_SALES_USER` | the user name (a server database) |
 | `SHOP_SQL_SALES_PASSWORD` | the password — the only place one is accepted |
 
+The application's name is the `name` in the project file's `[project]` table,
+not the file's name: a project file `Cnd_PRC.project.toml` that says
+`name = "Cnd_PRC.project"` reads `CND_PRC_PROJECT_SQL_CONDOMINIO_USER` and
+`CND_PRC_PROJECT_SQL_CONDOMINIO_PASSWORD` for its connection `CONDOMINIO`.
+
+While you develop, you do not set these yourself: the user name and password
+you give a SQL connection in the IDE are kept in its credential vault, and the
+IDE hands them over as these variables to what it runs from the open project —
+a program or form it runs, and the Backend it starts (Run's Start Backend, and
+the Preview's). A Backend started by hand (`rcrun backend run` in a terminal)
+reads them from that terminal's environment.
+
 > ⚠️ **Never put a password in the project file.** An entry that carries a
 > `password` key is refused: connecting through it fails with `28000`, and the
 > message names the file and the variable to use instead.
@@ -13603,6 +13659,13 @@ items are set — whichever of these it declares:
 | `SQLCA-NATIVE-CODE` | the database's own error number |
 | `SQLCA-WARNING`, `SQLCA-TRUNCATED` `PIC X` | `W` after any warning / after a cut value |
 | `SQLCA-CONNECTION` `PIC X(64)` | the current connection's name |
+
+The items set are the ones of the program that ran the statement. A `CALL`ed
+or nested program that declares its own `SQLSTATE` (or includes its own SQLCA)
+reads the status of its own statements there — a `FETCH` loop in it ends on
+`02000` — and the caller's items are left as they were. A Backend is the case
+that meets this most often: every program it exports runs with the others
+nested inside it, each with its own status items.
 
 SQLSTATE follows the standard classes — `00000` success, class `01` a warning,
 `02000` no data, anything else an error — and keeps the database's own message.
@@ -14745,7 +14808,7 @@ project folders, and an IDE update reaches every project at once.
 
 ```mermaid
 flowchart LR
-    CC["Claude Code<br/>(your installation)"] -- "PowerRustCOBOL plugin:<br/>skills, reviewer" --> P[(plugin)]
+    CC["Claude Code<br/>(your installation)"] -- "PowerRustCOBOL plugin:<br/>skills" --> P[(plugin)]
     CC -- "HTTP 127.0.0.1, access token" --> IDE["PowerRustCOBOL AI<br/>tool server"]
     CC -- "stdio, when the IDE is closed" --> R["rcrun mcp"]
     IDE --> PRJ["the project open<br/>in the IDE"]
@@ -14782,12 +14845,22 @@ open. The plugin carries:
   build it in; the application shell and moving between forms; layout and
   themes — which have the agent look at each screen with `render_form` and try
   it with `run_form` before going on;
-- a reviewer the agent runs before it calls a change done;
+- a review skill the agent runs before it calls a change done;
 - the connection to the PowerRustCOBOL **tool servers** (below).
 
+The skills and the connection are all it carries: no agents, no commands, no
+hooks. Everything else the agent does goes through the connection (see *Only
+through the connection*, below).
+
 The IDE installs it with Claude Code's own `claude plugin` commands — it never
-edits Claude Code's files — and says the result in the Output panel. If Claude
-Code is not installed, it says where it looked. Configuring again with the same
+edits Claude Code's files — and says the result in the Output panel. Either
+Claude Code will do: the `claude` program installed on its own, or the one
+**Claude Desktop** carries for its Code tab. Both read the same plugins, so
+configuring through one serves both. The IDE looks on `PATH` and in the usual
+install folders first, then in Claude Desktop's own folder (on macOS
+`~/Library/Application Support/Claude/claude-code`, newest version first; on
+Windows `Claude\claude-code` under `%APPDATA%` and `%LOCALAPPDATA%`). If
+neither is installed, it says where it looked. Configuring again with the same
 IDE version changes nothing; after you update PowerRustCOBOL AI, configure
 again (or use **Update** in Coding Agent Settings) and every project gets the
 new version. Start a new Claude Code session to load it.
@@ -14804,7 +14877,7 @@ The agent works through tools served over MCP, by one of two servers:
 | Server | When the agent uses it |
 | --- | --- |
 | `powerrustcobol-ide` | While PowerRustCOBOL AI is running. It serves the project open in the IDE, over HTTP on `127.0.0.1` (port **5720** by default), and admits only requests that carry the IDE's **access token**. |
-| `powerrustcobol` | When the IDE is closed. Claude Code starts `rcrun mcp` itself, so `rcrun` must be beside the IDE or on your `PATH`. It serves the project in the folder Claude Code was started in — or in a folder above it, so a session started in `forms/` works too. |
+| `powerrustcobol` | When the IDE is closed. Claude Code starts `rcrun mcp` itself, so `rcrun` must be beside the IDE or on your `PATH`. It serves the project in the folder Claude Code was started in — or in a folder above it, so a session started in `forms/` works too. If the IDE is running with that same project open, `rcrun` hands every call to the IDE, so the agent never writes behind the IDE's back. |
 
 Both servers tell the agent, as soon as it connects, how a PowerRustCOBOL
 application is put together, where to look for each kind of question, and the
@@ -14814,7 +14887,7 @@ control with its properties, methods and events, every built-in, and the
 is not there does not exist for the agent.
 
 **The golden rules.** Every application an agent builds follows the same
-rules, which the servers give it on connecting and its reviewer checks:
+rules, which the servers give it on connecting and its review skill checks:
 
 1. **Responsive** — every form adapts to any screen resolution and form factor.
 2. **Spatial** — the IDE and the forms wear the Spatial theme.
@@ -14928,6 +15001,45 @@ The tools the agent has are these:
 - **`open_project`** — opens an existing project, as **File ▸ Open Project**
   does.
 
+#### Only through the connection
+
+The agent reaches your project, and the IDE, **only through these tools** —
+never through its own file, edit, search or shell tools, and never through
+another program. The servers tell it so on connecting, and the skills use
+nothing else. When no tool does what it needs, it writes a gap report
+(`write_gap_report`) instead of finding another way.
+
+So the tools cover what the IDE offers you:
+
+| What you would use | The tools |
+| --- | --- |
+| Files and folders of the project | `read_file`, `list_folder`, `search_files`, `write_file`, `edit_file`, `rename_file`, `remove_file`, `import_file` — inside the project folder only; a file you hold unsaved in the IDE is refused |
+| Version control | `git` — status, diff, log, add, commit, branch, and the rest of the everyday commands |
+| The Form Designer | `apply_change_set` — every designer operation, plus deleting and renaming a control, applied whole or not at all; a form open in a designer shows the change at once and **Undo** takes it back in one step |
+| The Indexed File Editor | `edit_indexed` — the record as its text view writes it, the keys by field name, the file's properties; a **Finalized** file keeps its schema unless you agree to change it, and the stored data is never deleted |
+| Project Settings and SQL Connections | `project_settings`, `set_project_settings`, `sql_connections`, `set_sql_connection`, `remove_sql_connection`, `test_sql_connection` — a password or a key goes to the IDE's secret store and is never answered back |
+| Save, package, upgrade | `save_project`, `package_project`, `upgrade_project` |
+| Run, the Backend, the Web Preview, a device | `run_project`, `run_status`, `stop_run`, `start_backend`, `backend_status`, `stop_backend`, `start_web_preview`, `run_mobile`, `create_android_studio_project` |
+| The debugger | `debug_start`, `debug_breakpoints`, `debug_control` (continue, pause, step over, into or out, stop), `debug_state` |
+| Output, problems, Beautify | `read_output`, `read_diagnostics`, `beautify` |
+| The Knowledge Bases | `project_kb_search`, `project_kb_reindex`, `app_kb_search` (your application's `assets/KB`), `kb_lookup`, `kb_search` |
+| An indexed file's records | `indexed_records` — list, find, add, update, delete, as the record grid does |
+| IDE-wide settings | `ide_settings`, `set_ide_settings` — language, Debug Settings, Build Folder, Platform SDK location; never the tool server's port or token |
+| The IDE window | `ide_state` (tabs, designers, selection, panels), `ide_picture`, `ide_command` (open, activate or close a tab, go to a line, select controls, pick a layer, show or hide a panel, a menu entry), `ide_widget` (for anything else, by the widget's label) |
+
+The tools that need the IDE answer only while it runs; through `rcrun` they
+say to open it. Nothing the agent does through them discards your unsaved
+work: closing a tab, quitting, or a dialog button that would throw changes
+away is refused until you save. Grace and the IDE's own AI agents are not
+reached through the connection, and there is no run on the iOS simulator yet.
+
+**A file changed outside the connection is reported.** While the agent is
+connected, the IDE watches your forms, indexed definitions and COBOL sources.
+If one changes on disk between tool calls and neither a tool nor the IDE
+wrote it, the Output panel says so, and the agent's next answer names the
+file and tells it to read the file again and to make every change through the
+tools.
+
 Every answer names the project it acted on, and a call meant for another
 project than the open one is refused with both names. `create_project` and
 `open_project` are refused while the IDE has unsaved changes — they name each
@@ -14947,13 +15059,56 @@ no unsaved edits in it.
 Answer *Yes, and don't ask again* for the PowerRustCOBOL tools: Claude Code
 gives a plugin no way to approve its own tools for you.
 
+#### Seeing what Claude is doing: the mascot
+
+While Claude is connected to the IDE's tool server, a small orange Claude
+creature sits on the **top edge** of the IDE window, with a balloon that says
+what Claude is doing — *Claude is checking the code*, *Claude is generating
+COBOL*, *Claude is looking at a form* — and, on a second line, the file or name
+the tool was given. When no tool is running, the balloon says *Claude is
+connected*. The balloon speaks the IDE's language.
+
+| What Claude called | The balloon says |
+| --- | --- |
+| `list_files`, `describe`, `read_file`, `list_folder`, `search_files`, and the tools that read a setting, a status or a panel | Claude is reading the project |
+| `kb_lookup`, `kb_search`, `app_kb_search`, `project_kb_search` | Claude is reading the reference |
+| `check`, `validate`, `test_sql_connection` | Claude is checking the code |
+| `regenerate` | Claude is generating COBOL |
+| `build`, `start_web_preview` | Claude is building the application |
+| `render_form`, `ide_picture` | Claude is looking at a form |
+| `run_form`, `run_project`, `run_mobile`, `start_backend`, `debug_start`, `debug_control` | Claude is running a form |
+| the tools that write a file, a form, an indexed definition, a setting or a record | Claude is changing the project |
+| `create_project` | Claude is creating a project |
+| `open_project` | Claude is opening a project |
+| any other tool | Claude is working |
+
+A tool that answers in a moment keeps its phrase in the balloon for two and a
+half seconds, so you can read it.
+
+**It shows only while Claude is connected.** That means the tool server is
+listening and a request carrying the IDE's access token arrived within the
+last two minutes, or a tool is still running (a long `build` keeps the mascot
+for as long as the build lasts). A request without the token never shows it.
+The server keeps no open connection between requests, so when Claude goes
+quiet for two minutes the mascot leaves; it comes back with Claude's next
+request. It reflects the IDE's tool server only. While the IDE is closed,
+Claude works through `rcrun mcp`, which has no window to show it in.
+
+**It never gets in your way.** It takes no clicks and no keys. When the
+pointer comes within about 80 points of it, or onto it, it runs to the other
+end of the top edge, the end farther from the pointer. If its way passes the
+pointer, it ducks under it. While it runs, the balloon is hidden. If the
+pointer rests on the balloon where the mascot has nowhere farther to go (a
+narrow window), the balloon turns almost transparent so you can see what is
+underneath.
+
 #### Coding Agent Settings
 
 **Settings ▸ Coding Agent Settings** shows, for the whole IDE:
 
 | Row | What it says |
 | --- | --- |
-| **Claude Code** | Where it was found, or that it was not. |
+| **Claude Code** | Where it was found — *found in Claude Desktop* when it is the copy Claude Desktop carries — or that it was not. |
 | **PowerRustCOBOL plugin** | The version installed in Claude Code against this IDE's: up to date, older (the button reads **Update**), or not installed. |
 | **Tool server** | The address it listens on, `http://127.0.0.1:<port>/mcp`. |
 | **Port** | The tools' port. **Apply port** moves the server at once; configure Claude Code again so it uses the new port too. |
@@ -18192,6 +18347,10 @@ disappear when the program ends. Nothing is written back to the menu file.
 
 Every call that changes something answers `1` when it did and `0` when it did
 not, so a program can tell.
+
+A browser (a Web or Mobile application) answers every one of these calls as the
+desktop does and draws your rows in the same places: the same rows, the same
+`1`/`0`, the same `GetCount()`.
 
 > ⚠️ **The designed menu's structure is yours at design time, not at run
 > time.** A program can never remove or replace a row that came from the menu
