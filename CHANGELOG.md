@@ -2,6 +2,27 @@
 
 
 
+## 2.0.612 — 2026-11-18
+
+**Feature: while Claude is connected to the IDE over MCP, a Claude mascot on the top edge of the window says what Claude is doing.** Before this, the only sign that a coding agent was working in the IDE was one Output line per tool call. Now a small orange Claude creature sits on the top edge of the IDE window. Its balloon says what Claude is doing, in the IDE's language, and on a second line names the file or name the tool was given. Examples: *Claude is checking the code*, *Claude is generating COBOL*, *Claude is looking at a form*.
+- **It shows only while Claude is connected.** That means the tool server is listening and a request carrying the access token arrived in the last two minutes, or a tool call is still running. The server keeps no open connection between requests, so a quiet Claude fades out after two minutes and comes back with its next request. A refused request (no token, or the wrong one) never shows it. It reflects the IDE's own tool server; `rcrun mcp` runs without a window.
+- **It never gets in the way.** It is painted on its own layer and takes no clicks or keys. When the pointer comes within about 80 points of it, or onto it, it runs to the end of the top edge farther from the pointer. If its way passes the pointer, it ducks under it, so it never runs through the pointer. A balloon with the pointer resting on it turns almost transparent, which happens in a narrow window, where the mascot has nowhere farther to go.
+- **What the balloon says** comes from the tool. Ten phrases cover the 17 tools, and *Claude is working* covers any tool added later. A call that answers in a moment keeps its phrase for 2.5 s so it can be read. With no call running, the balloon says *Claude is connected*. There are 12 new `Tr` keys (`mascot_*`) in all six languages.
+- **Where:**
+  - `agent_kit/ide_host.rs`: `IdeShared` records each admitted request and each tool call (`seen`, `call_started`, `call_ended`, `activity` → `AgentActivity`). The handler that marks a request as seen is built only after the HTTP gate admits it.
+  - New `panels/claude_mascot.rs`: the sprite, the balloon and the flee logic. It repaints every frame only while running from the pointer, 20 times a second while a call works, and otherwise only at its next change (a blink, the end of a held phrase, the end of the two minutes).
+  - `app.rs`: the call at the end of each frame.
+- **The Developer's Guide** (*Working with a coding agent*) has a new subsection, *Seeing what Claude is doing: the mascot*, with the tool-to-phrase table. Its translations stay deleted (2.0.498).
+- **Measured** (macOS arm64):
+  - `panels::claude_mascot` (new, 6 of 6):
+    - when it shows;
+    - the phrase for each tool and the 2.5 s hold;
+    - the far end it runs to;
+    - over five pointer heights in the top band, the sprite never covers the pointer on its way across;
+    - a long path keeps its end;
+    - a headless frame: no body cells while disconnected, more than 40 at the top right while connected, at the left end after the pointer lands on it, and gone when the listener stops.
+  - `only_admitted_requests_count_as_agent_activity` (`agent_kit::ide_host`, new): over the real listener, a 401 leaves no trace, and an admitted `list_files` is seen and recorded as done.
+
 ## 2.0.545 — 2026-11-16
 
 **Fix: on Windows, a window on a second monitor is fitted to that monitor and stays on it.** The form host fits the main window and the windows docked to it on the screen (2.0.535). On Windows it took the monitor's size, less 48 points for a task bar, but placed that area at the primary monitor's corner, because Windows was never asked where the screen is. So a window dragged onto a monitor right of or below the primary was fitted and then pulled back onto the primary. This was the follow-up noted under 2.0.535.

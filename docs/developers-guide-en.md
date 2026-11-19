@@ -14945,6 +14945,48 @@ no unsaved edits in it.
 Answer *Yes, and don't ask again* for the PowerRustCOBOL tools: Claude Code
 gives a plugin no way to approve its own tools for you.
 
+#### Seeing what Claude is doing: the mascot
+
+While Claude is connected to the IDE's tool server, a small orange Claude
+creature sits on the **top edge** of the IDE window, with a balloon that says
+what Claude is doing — *Claude is checking the code*, *Claude is generating
+COBOL*, *Claude is looking at a form* — and, on a second line, the file or name
+the tool was given. When no tool is running, the balloon says *Claude is
+connected*. The balloon speaks the IDE's language.
+
+| What Claude called | The balloon says |
+| --- | --- |
+| `list_files`, `describe` | Claude is reading the project |
+| `kb_lookup`, `kb_search` | Claude is reading the reference |
+| `check`, `validate` | Claude is checking the code |
+| `regenerate` | Claude is generating COBOL |
+| `build` | Claude is building the application |
+| `render_form` | Claude is looking at a form |
+| `run_form` | Claude is running a form |
+| `set_definition`, `add_to_project`, `add_crate`, `remove_crate`, `add_powerchat` | Claude is changing the project |
+| `create_project` | Claude is creating a project |
+| `open_project` | Claude is opening a project |
+
+A tool that answers in a moment keeps its phrase in the balloon for two and a
+half seconds, so you can read it.
+
+**It shows only while Claude is connected.** That means the tool server is
+listening and a request carrying the IDE's access token arrived within the
+last two minutes, or a tool is still running (a long `build` keeps the mascot
+for as long as the build lasts). A request without the token never shows it.
+The server keeps no open connection between requests, so when Claude goes
+quiet for two minutes the mascot leaves; it comes back with Claude's next
+request. It reflects the IDE's tool server only. While the IDE is closed,
+Claude works through `rcrun mcp`, which has no window to show it in.
+
+**It never gets in your way.** It takes no clicks and no keys. When the
+pointer comes within about 80 points of it, or onto it, it runs to the other
+end of the top edge, the end farther from the pointer. If its way passes the
+pointer, it ducks under it. While it runs, the balloon is hidden. If the
+pointer rests on the balloon where the mascot has nowhere farther to go (a
+narrow window), the balloon turns almost transparent so you can see what is
+underneath.
+
 #### Coding Agent Settings
 
 **Settings ▸ Coding Agent Settings** shows, for the whole IDE:

@@ -1310,6 +1310,8 @@ pub struct CoboltApp {
     cc_status_rx: Option<std::sync::mpsc::Receiver<crate::panels::claude_code_settings::PluginStatus>>,
     /// The first-run Connect a coding agent wizard (spec 084).
     agent_wizard: crate::panels::connect_agent_wizard::ConnectAgentWizard,
+    /// The Claude mascot on the top edge while Claude is connected over MCP.
+    claude_mascot: crate::panels::claude_mascot::ClaudeMascot,
     /// Whether this session already decided to offer the wizard or not.
     agent_wizard_decided: bool,
     claude_configure_rx: Option<
@@ -2557,6 +2559,7 @@ impl CoboltApp {
             cc_status: Default::default(),
             cc_status_rx: None,
             agent_wizard: Default::default(),
+            claude_mascot: Default::default(),
             agent_wizard_decided: false,
             claude_configure_rx: None,
         };
@@ -18478,6 +18481,14 @@ impl eframe::App for CoboltApp {
             }
         }
 
+        // The Claude mascot: on the top edge while Claude talks to the IDE over
+        // MCP, saying what it is doing; painted on its own layer, takes no input.
+        {
+            let tr = self.lang.tr();
+            let listening = self.agent_tools.listening_port().is_some();
+            let activity = self.agent_tools.activity();
+            self.claude_mascot.show(ctx, listening, &activity, &tr, std::time::Instant::now());
+        }
         self.tick_walkthrough(ctx);
         self.save_layout_grid_color(ctx);
         // Spec 104 — last: the Task Wizard reads everything this frame painted.

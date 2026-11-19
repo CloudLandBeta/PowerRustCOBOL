@@ -12,6 +12,7 @@ pub(crate) mod fixed_dialog;
 mod beautify_style;
 pub mod magnifier;
 pub mod claude_code_settings;
+pub mod claude_mascot;
 pub mod cobol_structure;
 pub mod code_search;
 pub mod connect_agent_wizard;

@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cobolt_mcp::{McpHandler, ServerInfo, Tool, ToolResult};
 use cobolt_project_tools::http::{serve_http, HttpGate};
@@ -97,6 +97,29 @@ pub enum HostRequest {
     },
 }
 
+/// What the coding agent connected over MCP is doing, as the UI thread reads
+/// it each frame (the Claude mascot). The transport has no session — every
+/// request is one POST, answered and closed — so "connected" is "an admitted
+/// request arrived lately": only a client holding the access token that
+/// Configure Claude Code gave out gets past the gate.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentActivity {
+    /// When the last admitted MCP request arrived.
+    pub last_seen: Option<Instant>,
+    /// The tool calls running now, oldest first: `(tool, target, started)`.
+    pub running: Vec<(String, String, Instant)>,
+    /// The last call that finished: `(tool, target, ended)`.
+    pub last_done: Option<(String, String, Instant)>,
+}
+
+#[derive(Default)]
+struct ActivityLog {
+    last_seen: Option<Instant>,
+    running: Vec<(u64, String, String, Instant)>,
+    last_done: Option<(String, String, Instant)>,
+    next_id: u64,
+}
+
 /// The state shared between the UI thread and the listener's threads.
 pub struct IdeShared {
     snapshot: Mutex<Snapshot>,
@@ -108,6 +131,8 @@ pub struct IdeShared {
     token: Mutex<Option<String>>,
     /// The running listener: its port and the flag that stops it.
     listener: Mutex<Option<(u16, Arc<AtomicBool>)>>,
+    /// What the connected agent is doing (the mascot reads it).
+    activity: Mutex<ActivityLog>,
 }
 
 impl IdeShared {
@@ -123,9 +148,62 @@ impl IdeShared {
                 tools: Arc::new(Shared::new().with_renderer(form_renderer()).with_runner(form_runner())),
                 token: Mutex::new(None),
                 listener: Mutex::new(None),
+                activity: Mutex::new(ActivityLog::default()),
             }),
             rx,
         )
+    }
+
+    fn activity_log(&self) -> std::sync::MutexGuard<'_, ActivityLog> {
+        self.activity.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// An admitted MCP request arrived (listener thread).
+    pub fn seen(&self) {
+        self.activity_log().last_seen = Some(Instant::now());
+        if let Some(ctx) = &self.ctx {
+            ctx.request_repaint();
+        }
+    }
+
+    /// A tool call starts; the id ends it.
+    pub fn call_started(&self, tool: &str, target: &str) -> u64 {
+        let mut log = self.activity_log();
+        log.next_id += 1;
+        let id = log.next_id;
+        let now = Instant::now();
+        log.last_seen = Some(now);
+        log.running.push((id, tool.to_owned(), target.to_owned(), now));
+        drop(log);
+        if let Some(ctx) = &self.ctx {
+            ctx.request_repaint();
+        }
+        id
+    }
+
+    /// The call `id` has answered.
+    pub fn call_ended(&self, id: u64) {
+        let mut log = self.activity_log();
+        let now = Instant::now();
+        log.last_seen = Some(now);
+        if let Some(i) = log.running.iter().position(|(n, ..)| *n == id) {
+            let (_, tool, target, _) = log.running.remove(i);
+            log.last_done = Some((tool, target, now));
+        }
+        drop(log);
+        if let Some(ctx) = &self.ctx {
+            ctx.request_repaint();
+        }
+    }
+
+    /// What the connected agent is doing now (UI thread).
+    pub fn activity(&self) -> AgentActivity {
+        let log = self.activity_log();
+        AgentActivity {
+            last_seen: log.last_seen,
+            running: log.running.iter().map(|(_, t, a, s)| (t.clone(), a.clone(), *s)).collect(),
+            last_done: log.last_done.clone(),
+        }
     }
 
     /// Publish this frame's snapshot (UI thread).
@@ -432,7 +510,10 @@ impl McpHandler for IdeTools {
         if let Some(msg) = decision.message(root.as_ref()) {
             return ToolResult::failed(msg);
         }
-        self.tools.call_tool(name, arguments)
+        let call = self.shared.call_started(name, &arg);
+        let result = self.tools.call_tool(name, arguments);
+        self.shared.call_ended(call);
+        result
     }
 }
 
@@ -454,7 +535,17 @@ pub fn start_listener(shared: &Arc<IdeShared>, port: u16) -> Result<String, Stri
     std::thread::Builder::new()
         .name("coding-agent-tools".into())
         .spawn(move || {
-            let _ = serve_http(listener, move || IdeTools::new(Arc::clone(&for_handler)), gate);
+            // The transport builds a handler only for a request that passed
+            // every check, the access token included: that is the agent being
+            // connected (the mascot).
+            let _ = serve_http(
+                listener,
+                move || {
+                    for_handler.seen();
+                    IdeTools::new(Arc::clone(&for_handler))
+                },
+                gate,
+            );
         })
         .map_err(|e| e.to_string())?;
     *shared.listener.lock().unwrap_or_else(|p| p.into_inner()) = Some((port, stop));
@@ -621,6 +712,37 @@ mod tests {
         stop_listener(&shared);
         assert_eq!(shared.listening_port(), None);
         println!("ide listener: before Configure 401; no/wrong/old token 401; right token lists files; rebound {port} -> {port2}, old port released");
+    }
+
+    /// The Claude mascot's source: a refused request (no token, wrong token) is
+    /// not an agent; an admitted one is seen, and its call is running until it
+    /// answers, then the last one done.
+    #[test]
+    fn only_admitted_requests_count_as_agent_activity() {
+        let (shared, _rx) = IdeShared::new(None);
+        let dir = temp_project("activity");
+        shared.publish(Snapshot { manifest: Some(dir.join("Demo.project.toml")), ..Default::default() });
+        let port = free_port();
+        start_listener(&shared, port).expect("binds");
+        shared.set_token(Some("tok-act".into()));
+        let body = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_files","arguments":{}}}).to_string();
+        assert!(post_raw(port, "Authorization: Bearer nope\r\n", &body).starts_with("HTTP/1.1 401"));
+        assert_eq!(shared.activity(), AgentActivity::default(), "a refused request leaves no trace");
+
+        assert!(post_raw(port, "Authorization: Bearer tok-act\r\n", &body).contains("forms/MAIN.cfrm"));
+        let a = shared.activity();
+        assert!(a.last_seen.is_some() && a.running.is_empty(), "{a:?}");
+        assert_eq!(a.last_done.as_ref().map(|(t, ..)| t.as_str()), Some("list_files"));
+
+        let id = shared.call_started("check", "forms/MAIN.cfrm");
+        assert_eq!(shared.activity().running.iter().map(|(t, a, _)| (t.as_str(), a.as_str())).collect::<Vec<_>>(), [("check", "forms/MAIN.cfrm")]);
+        shared.call_ended(id);
+        let a = shared.activity();
+        assert!(a.running.is_empty());
+        assert_eq!(a.last_done.map(|(t, x, _)| (t, x)), Some(("check".to_owned(), "forms/MAIN.cfrm".to_owned())));
+        stop_listener(&shared);
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("agent activity: 401 leaves none; an admitted list_files is seen and done; check runs, then is done");
     }
 
     /// Spec 084 AC9 (R17): a project switch is refused while anything is
