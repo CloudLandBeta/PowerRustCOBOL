@@ -14814,8 +14814,14 @@ open. The plugin carries:
 - the connection to the PowerRustCOBOL **tool servers** (below).
 
 The IDE installs it with Claude Code's own `claude plugin` commands — it never
-edits Claude Code's files — and says the result in the Output panel. If Claude
-Code is not installed, it says where it looked. Configuring again with the same
+edits Claude Code's files — and says the result in the Output panel. Either
+Claude Code will do: the `claude` program installed on its own, or the one
+**Claude Desktop** carries for its Code tab. Both read the same plugins, so
+configuring through one serves both. The IDE looks on `PATH` and in the usual
+install folders first, then in Claude Desktop's own folder (on macOS
+`~/Library/Application Support/Claude/claude-code`, newest version first; on
+Windows `Claude\claude-code` under `%APPDATA%` and `%LOCALAPPDATA%`). If
+neither is installed, it says where it looked. Configuring again with the same
 IDE version changes nothing; after you update PowerRustCOBOL AI, configure
 again (or use **Update** in Coding Agent Settings) and every project gets the
 new version. Start a new Claude Code session to load it.
@@ -14973,7 +14979,7 @@ gives a plugin no way to approve its own tools for you.
 
 | Row | What it says |
 | --- | --- |
-| **Claude Code** | Where it was found, or that it was not. |
+| **Claude Code** | Where it was found — *found in Claude Desktop* when it is the copy Claude Desktop carries — or that it was not. |
 | **PowerRustCOBOL plugin** | The version installed in Claude Code against this IDE's: up to date, older (the button reads **Update**), or not installed. |
 | **Tool server** | The address it listens on, `http://127.0.0.1:<port>/mcp`. |
 | **Port** | The tools' port. **Apply port** moves the server at once; configure Claude Code again so it uses the new port too. |

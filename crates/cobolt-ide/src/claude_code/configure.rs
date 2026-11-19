@@ -66,6 +66,11 @@ pub fn candidate_dirs(home: Option<&Path>) -> Vec<PathBuf> {
     }
     dirs.push(PathBuf::from("/opt/homebrew/bin"));
     dirs.push(PathBuf::from("/usr/local/bin"));
+    if cfg!(target_os = "macos") {
+        if let Some(home) = home {
+            dirs.extend(macos_desktop_dirs(&home.join(MACOS_DESKTOP_ROOT)));
+        }
+    }
     if cfg!(windows) {
         dirs.extend(windows_dirs(
             std::env::var_os("APPDATA").map(PathBuf::from).as_deref(),
@@ -91,6 +96,46 @@ pub fn windows_dirs(appdata: Option<&Path>, local_appdata: Option<&Path>) -> Vec
         dirs.extend(folders_below(&l.join("AnthropicClaude"), 3));
     }
     dirs
+}
+
+/// Where Claude Desktop keeps, below the home folder on macOS, the Claude Code
+/// it runs for its Code tab: `<version>/<build>/claude.app/Contents/MacOS/claude`.
+pub const MACOS_DESKTOP_ROOT: &str = "Library/Application Support/Claude/claude-code";
+
+/// The folders holding Claude Desktop's own `claude` on macOS, below `root`
+/// ([`MACOS_DESKTOP_ROOT`]): one per `<version>/<build>`, the newest version
+/// first, so an update the app left the older copy beside is not passed over.
+/// That copy reads the same plugins as a `claude` installed on its own, so
+/// configuring through it serves both. A missing `root` adds nothing.
+pub fn macos_desktop_dirs(root: &Path) -> Vec<PathBuf> {
+    let subfolders = |dir: &Path| -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .map(|entries| entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect())
+            .unwrap_or_default();
+        found.sort();
+        found
+    };
+    let version = |p: &PathBuf| -> Vec<u64> {
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        name.split('.').map(|part| part.parse().unwrap_or(0)).collect()
+    };
+    let mut versions = subfolders(root);
+    versions.sort_by_key(|p| std::cmp::Reverse(version(p)));
+    versions
+        .iter()
+        .flat_map(|v| subfolders(v))
+        .map(|build| build.join("claude.app").join("Contents").join("MacOS"))
+        .filter(|dir| dir.is_dir())
+        .collect()
+}
+
+/// `claude` is the copy Claude Desktop carries (macOS or Windows), not one
+/// installed on its own — what Coding Agent Settings names it.
+/// Both separators are split on, so a Windows path reads the same on any host.
+pub fn is_desktop_copy(path: &Path) -> bool {
+    let text = path.to_string_lossy().to_ascii_lowercase();
+    let parts: Vec<&str> = text.split(['/', '\\']).collect();
+    parts.windows(2).any(|w| w == ["claude", "claude-code"]) || parts.contains(&"anthropicclaude")
 }
 
 /// `root` and every folder below it, at most `depth` levels down.
@@ -332,6 +377,36 @@ mod tests {
         assert_eq!(find_claude(&dirs), Some(exe));
         assert!(windows_dirs(None, None).is_empty());
         println!("windows_dirs: npm and a three-level versioned folder found; absent roots add nothing");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A Mac with Claude Desktop and no `claude` of its own: the copy the app
+    /// keeps for its Code tab is found, the newest version first, and named as
+    /// Claude Desktop's.
+    #[test]
+    fn macos_finds_the_claude_desktop_carries_newest_version_first() {
+        let base = std::env::temp_dir().join(format!("prc-claude-mac-{}", std::process::id()));
+        let root = base.join(MACOS_DESKTOP_ROOT);
+        let exe_in = |version: &str, build: &str| {
+            let dir = root.join(version).join(build).join("claude.app/Contents/MacOS");
+            std::fs::create_dir_all(&dir).unwrap();
+            let exe = dir.join("claude");
+            std::fs::write(&exe, b"").unwrap();
+            exe
+        };
+        let old = exe_in("2.1.99", "aaaa");
+        let new = exe_in("2.1.325", "485fdac4332e");
+        std::fs::create_dir_all(root.join("2.1.400").join("empty")).unwrap();
+        let dirs = macos_desktop_dirs(&root);
+        assert_eq!(dirs, [new.parent().unwrap(), old.parent().unwrap()], "2.1.325 before 2.1.99; a build with no app adds nothing");
+        assert_eq!(find_claude(&dirs), Some(new.clone()));
+        assert!(macos_desktop_dirs(&base.join("nowhere")).is_empty());
+        assert!(is_desktop_copy(&new));
+        assert!(is_desktop_copy(Path::new(r"C:\Users\a\AppData\Roaming\Claude\claude-code\2.1.317\claude.exe")));
+        assert!(is_desktop_copy(Path::new(r"C:\Users\a\AppData\Local\AnthropicClaude\app-1.0\claude.exe")));
+        assert!(!is_desktop_copy(Path::new("/opt/homebrew/bin/claude")));
+        assert!(!is_desktop_copy(Path::new("/Users/a/.claude/local/claude")));
+        println!("macos_desktop_dirs: 2.1.325 found before 2.1.99, an empty build skipped, absent root adds nothing; desktop copies named");
         let _ = std::fs::remove_dir_all(&base);
     }
 }

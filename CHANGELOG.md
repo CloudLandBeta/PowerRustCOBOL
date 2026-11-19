@@ -2,6 +2,15 @@
 
 
 
+## 2.0.610 — 2026-11-18
+
+**Fix: Configure Claude Code finds the Claude Code inside Claude Desktop on macOS.** Reported by the operator, who works in Claude Desktop: the IDE's connection looked only for a `claude` installed on its own. On macOS it searched `PATH`, `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`, `/opt/homebrew/bin` and `/usr/local/bin`, so a Mac with Claude Desktop alone reported Claude Code not found and left Configure disabled. Windows already searched the desktop app's folders (2.0.396).
+- **Now** the search also covers Claude Desktop's own copy, the one its Code tab runs: `~/Library/Application Support/Claude/claude-code/<version>/<build>/claude.app/Contents/MacOS/claude`, newest version first, after the command-line install folders. That copy reads the same user plugins as a `claude` installed on its own (both list `powerrustcobol@powerrustcobol` 2.0.606 on this Mac), so configuring through either serves both.
+- **Coding Agent Settings** shows *found in Claude Desktop: <path>* for that copy (macOS or Windows). The not-found messages name both Claude Code and Claude Desktop, and *configured* says to start a new session in Claude Code or in Claude Desktop's Code tab, in all six languages.
+- **Where:** `cobolt-ide` (`claude_code/configure.rs`: `macos_desktop_dirs`, `is_desktop_copy`; `panels/claude_code_settings.rs`; `i18n.rs`, one new key `cc_claude_found_desktop`).
+- **The Developer's Guide** (*Configure Claude Code*, *Coding Agent Settings*) says either program will do and where the IDE looks. Its translations stay deleted (2.0.498).
+- **Test:** `macos_finds_the_claude_desktop_carries_newest_version_first` (`cobolt-ide`, new): two versions and a build with no app in a temporary tree; 2.1.325 is found before 2.1.99; a missing folder adds nothing; Desktop copies on macOS and Windows are named as such, a Homebrew or `~/.claude/local` one is not. Not run on Linux, which has no Claude Desktop folder in the search.
+
 ## 2.0.609 — 2026-11-18
 
 **Fix: the Backend the IDE starts gets the SQL credentials the IDE keeps for the project.** Reported with the Cnd_PRC conversion: a Backend started from the IDE could not connect to its SQL database until the developer set `CND_PRC_PROJECT_SQL_CONDOMINIO_USER` and `_PASSWORD` by hand, although the IDE held both in its vault. A program or form the IDE runs was already handed them (spec 087 R33); the Backend child process was not.
