@@ -351,28 +351,101 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     }
     check(format!("the page's {} own verbs (COBOL::\"MESSAGEBOX\" …) in a form's handler: {refused} refused at their line, naming each", page_verbs.len()), refused == page_verbs.len());
 
-    // The IndexedFile control (T39c): a form holding one compiles, and so do the members every control
-    // has; a PartiQL member (a method, a property a statement answers in, the binding query) is
-    // refused at its line, naming it, as T48 waits for them.
+    // The IndexedFile control (T39c, T48): a form holding one compiles, and so do the members every
+    // control has and its PartiQL members, which the runner runs (A55); the module requires `partiql`,
+    // since the control hears `_START` as the form starts (its AutoOpen), and a form with no IndexedFile
+    // does not. Its binding members, the ones naming a data item, and a statement on a control whose
+    // design names one are refused at their line, naming the member.
+    let form_of = |src: &str, controls: &[(&str, &str)], opts: &Options| {
+        let program = common::parse(src);
+        let spec = FormSpec {
+            name: "MAIN-FORM".into(),
+            main: true,
+            instances: 1,
+            program: &program,
+            controls: controls.iter().map(|(n, k)| (n.to_string(), k.to_string())).collect(),
+            bindings: vec![("BTN-1".into(), "onClick".into())],
+            layers: vec![],
+            lines: vec![],
+        };
+        compile_project(&[spec], opts)
+    };
+    let pcaps = |r: &Result<cobolt_wasm::Compiled, GenError>| -> Vec<String> {
+        r.as_ref()
+            .ok()
+            .and_then(|c| cobolt_wasm_abi::scan::scan_module(&c.wasm).ok())
+            .and_then(|scan| scan.embedded_manifest().ok())
+            .map(|m| m.capabilities)
+            .unwrap_or_default()
+    };
     let plain_members = handler("    MOVE IXF-1::OpenMode TO WS-PATH\n    MOVE IXF-1::IsBusy() TO WS-PATH\n    MOVE \"I-O\" TO IXF-1::OpenMode\n");
-    check("a form with an IndexedFile control compiles, reading and writing its OpenMode and asking IsBusy()".into(), in_form(&plain_members).is_ok());
+    let plain = in_form(&plain_members);
+    check(
+        format!("a form with an IndexedFile control compiles, reading and writing its OpenMode and asking IsBusy(), requiring {:?}", pcaps(&plain)),
+        plain.is_ok() && pcaps(&plain).iter().any(|c| c == "partiql"),
+    );
+    let bare = form_of(&handler("    MOVE \"x\" TO WS-PATH\n"), &[("BTN-1", "Button")], &native());
+    check(format!("a form with no IndexedFile requires {:?}, not partiql", pcaps(&bare)), bare.is_ok() && !pcaps(&bare).iter().any(|c| c == "partiql"));
+    let members = in_form(&handler(
+        "    MOVE IXF-1::Execute( \"SELECT A FROM T WHERE A = ? AND B = ?\" WS-PATH 7 ) TO WS-PATH\n\
+         \x20   MOVE IXF-1::ExecuteTransaction( \"DELETE FROM T WHERE A = ?\" BTN-1::Caption ) TO WS-PATH\n\
+         \x20   MOVE IXF-1::Fetch() TO WS-PATH\n    MOVE IXF-1::Get( \"A\" ) TO WS-PATH\n    MOVE IXF-1::Get( 2 ) TO WS-PATH\n\
+         \x20   MOVE IXF-1::ColumnNames() TO WS-PATH\n    MOVE IXF-1::ColumnCount() TO WS-PATH\n\
+         \x20   MOVE IXF-1::StatusCode TO WS-PATH\n    MOVE IXF-1::ResultCount TO WS-PATH\n    MOVE IXF-1::LastError TO WS-PATH\n",
+    ));
+    if let Err(e) = &members {
+        println!("    IndexedFile members: {} at line {}: {}", e.subject, e.line, e.message);
+    }
+    check(
+        format!(
+            "the IndexedFile's PartiQL members (Execute, ExecuteTransaction, Fetch, Get by name and place, ColumnNames, ColumnCount, StatusCode, ResultCount, LastError) compile, requiring {:?}",
+            pcaps(&members)
+        ),
+        members.is_ok() && pcaps(&members).iter().any(|c| c == "partiql"),
+    );
     let mut partiql = 0;
     let partiql_cases = [
-        ("    MOVE IXF-1::Execute( \"SELECT A FROM T\" ) TO WS-PATH\n", "IXF-1::EXECUTE"),
-        ("    MOVE IXF-1::Fetch() TO WS-PATH\n", "IXF-1::FETCH"),
-        ("    MOVE IXF-1::StatusCode TO WS-PATH\n", "IXF-1::STATUSCODE"),
-        ("    MOVE \"SELECT A FROM T\" TO IXF-1::BindingQuery\n", "IXF-1::BINDINGQUERY"),
+        ("    MOVE \"SELECT A FROM T\" TO IXF-1::BindingQuery\n", "IXF-1::BINDINGQUERY", "binding"),
+        ("    MOVE IXF-1::RefreshBinding() TO WS-PATH\n", "IXF-1::REFRESHBINDING", "binding"),
+        ("    MOVE \"WS-PATH\" TO IXF-1::StatusDataItem\n", "IXF-1::STATUSDATAITEM", "StatusDataItem"),
+        ("    MOVE IXF-1::CurrentRecordDataItem TO WS-PATH\n", "IXF-1::CURRENTRECORDDATAITEM", "CurrentRecordDataItem"),
+        ("    MOVE IXF-1::SetProperty( \"StatusDataItem\" \"WS-PATH\" ) TO WS-PATH\n", "IXF-1::SETPROPERTY", "StatusDataItem"),
     ];
-    for (body, subject) in partiql_cases {
+    for (body, subject, why) in partiql_cases {
         let src = handler(body);
         let e = in_form(&src).err().unwrap_or_else(|| GenError::new(0, "compiled"));
-        if e.subject == subject && e.line == line_of(&src, "IXF-1::") && e.message.contains("PartiQL members") && e.message.contains("M6") {
+        if e.subject.eq_ignore_ascii_case(subject) && e.line == line_of(&src, "IXF-1::") && e.message.contains(why) && e.message.contains("M6") {
             partiql += 1;
+        } else {
+            println!("    IndexedFile case {body:?}: {} at line {}: {}", e.subject, e.line, e.message);
         }
     }
     check(
-        format!("the IndexedFile control's PartiQL members (Execute, Fetch, StatusCode read, BindingQuery written): {partiql} of {} refused at their line, naming each", partiql_cases.len()),
+        format!("the IndexedFile's binding members and the ones naming a data item (BindingQuery, RefreshBinding, StatusDataItem, CurrentRecordDataItem, SetProperty): {partiql} of {} refused at their line, naming each", partiql_cases.len()),
         partiql == partiql_cases.len(),
+    );
+    // A control whose design names a data item (the Build says which, `Options::partiql_items`): a
+    // statement on it is refused, reading its properties is not.
+    let items = Options { native: true, partiql_items: vec!["main-form/ixf-1".into()], ..Options::default() };
+    let three = [("BTN-1", "Button"), ("IXF-1", "IndexedFile"), ("AGT-1", "AgentObject")];
+    let (mut writers, mut readers) = (0, 0);
+    for call in ["Execute( \"SELECT A FROM T\" )", "ExecuteTransaction( \"SELECT A FROM T\" )", "Fetch()"] {
+        let src = handler(&format!("    MOVE IXF-1::{call} TO WS-PATH\n"));
+        let e = form_of(&src, &three, &items).err().unwrap_or_else(|| GenError::new(0, "compiled"));
+        if e.subject.to_ascii_uppercase().starts_with("IXF-1::") && e.line == line_of(&src, "IXF-1::") && e.message.contains("StatusDataItem") {
+            writers += 1;
+        } else {
+            println!("    a statement on a control naming a data item {call:?}: {} at line {}: {}", e.subject, e.line, e.message);
+        }
+    }
+    for call in ["StatusCode", "Get( 1 )", "ColumnCount()"] {
+        if form_of(&handler(&format!("    MOVE IXF-1::{call} TO WS-PATH\n")), &three, &items).is_ok() {
+            readers += 1;
+        }
+    }
+    check(
+        format!("an IndexedFile whose design names a data item: Execute, ExecuteTransaction, Fetch {writers} of 3 refused at their line; StatusCode, Get, ColumnCount {readers} of 3 compile"),
+        writers == 3 && readers == 3,
     );
 
     // The AgentObject (T47c): its Ask and declared tools compile; a member that names one of the program's

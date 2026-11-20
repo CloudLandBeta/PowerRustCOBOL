@@ -467,18 +467,60 @@ pub fn desktop_refusal(s: &Stmt, in_form: bool) -> Option<&'static str> {
 // ── The controls of a desktop form (DESKTOP-WASM-001 T33, plan §4.3) ─────────────────────────────
 
 const D_SERVICE: &str = "the sign-in control is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
-/// Why a PartiQL member of the IndexedFile control sends the Build to the Cargo path (T39c serves the control).
-pub const D_PARTIQL: &str = "the IndexedFile control's PartiQL members are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+/// The IndexedFile control's PartiQL members a desktop module runs (DESKTOP-WASM-001 T48, ABI A55):
+/// the methods, which the runner runs by the interpreter's own rules (`cobolt_runtime::partiql::door`),
+/// and the properties a statement answers in.
+pub const PARTIQL_MEMBERS: &[&str] = &["Execute", "ExecuteTransaction", "Fetch", "Get", "ColumnNames", "ColumnCount", "ResultCount", "StatusCode", "LastError"];
 
-/// The members of the IndexedFile control that run or read a PartiQL statement: its methods, the
-/// properties a statement answers in, and the binding query (`partiql.rs` in the interpreter). The
-/// control's other members are the ones every control has.
-pub const PARTIQL_MEMBERS: &[&str] =
-    &["Execute", "ExecuteTransaction", "Fetch", "Get", "ColumnNames", "ColumnCount", "RefreshBinding", "ResultCount", "StatusCode", "LastError", "BindingQuery"];
+/// The PartiQL methods that write the data items `StatusDataItem` and `CurrentRecordDataItem` name.
+pub const PARTIQL_ITEM_WRITERS: &[&str] = &["Execute", "ExecuteTransaction", "Fetch"];
 
-/// Is `member` one of [`PARTIQL_MEMBERS`] (in any case)?
-pub fn is_partiql_member(member: &str) -> bool {
-    PARTIQL_MEMBERS.iter().any(|m| m.eq_ignore_ascii_case(member))
+/// Why an IndexedFile that names the program's data items takes the Cargo path when the program runs a
+/// statement on it (DESKTOP-WASM-001 T48): `StatusDataItem` receives each statement's FILE STATUS and
+/// `CurrentRecordDataItem` the record `Fetch` reads, items the interpreter looks up by name at run time
+/// and a module does not. The generated paragraphs of a form that declares the file write them as
+/// verbs, which the WebAssembly path compiles.
+pub const D_PARTIQL_ITEMS: &str = "the IndexedFile names the program's data items (StatusDataItem, CurrentRecordDataItem), which a PartiQL statement writes by name at run time under the interpreter; the WebAssembly path does not yet (DESKTOP-WASM-001 M6)";
+
+/// Why the IndexedFile's binding members take the Cargo path (a control bound to a PartiQL query is
+/// judged by [`desktop_binding_gap`]).
+pub const D_PARTIQL_BINDING: &str = "a PartiQL binding is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+
+/// The IndexedFile members a desktop module refuses, with why.
+pub const PARTIQL_GAPS: &[(&str, &str)] = &[
+    ("RefreshBinding", D_PARTIQL_BINDING),
+    ("BindingQuery", D_PARTIQL_BINDING),
+    ("StatusDataItem", D_PARTIQL_ITEMS),
+    ("CurrentRecordDataItem", D_PARTIQL_ITEMS),
+    // A property set by name at run time may be one of the two.
+    ("SetProperty", D_PARTIQL_ITEMS),
+];
+
+/// Why the IndexedFile member `member` (in any case, with or without the `GET-` and `SET-` prefixes of
+/// a property's accessors) takes the Cargo path, or `None` when the runner serves it (T48).
+pub fn partiql_member_gap(member: &str) -> Option<&'static str> {
+    let m = member.trim();
+    let bare = ["GET-", "SET-"].iter().find_map(|p| m.get(..4).filter(|h| h.eq_ignore_ascii_case(p)).map(|_| &m[4..])).unwrap_or(m);
+    PARTIQL_GAPS.iter().find(|(name, _)| name.eq_ignore_ascii_case(bare)).map(|(_, why)| *why)
+}
+
+/// The IndexedFile controls of `form` whose design names one of the program's data items
+/// (`StatusDataItem`, `CurrentRecordDataItem`), as `FORM/CONTROL` in upper case, for
+/// [`crate::module::Options::partiql_items`]: a statement run on one is refused ([`D_PARTIQL_ITEMS`]).
+/// The form's generated paragraphs write the same items with verbs, so naming one is no gap by itself.
+pub fn partiql_item_controls(form: &cobolt_forms::Form) -> Vec<String> {
+    fn walk(form: &str, cs: &[cobolt_forms::Control], out: &mut Vec<String>) {
+        for c in cs {
+            let named = |k: &str| c.get_prop(k).is_some_and(|v| !v.as_str().trim().is_empty());
+            if c.control_type == cobolt_forms::model::ControlType::IndexedFile && (named("StatusDataItem") || named("CurrentRecordDataItem")) {
+                out.push(format!("{form}/{}", c.id).to_ascii_uppercase());
+            }
+            walk(form, &c.children, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(&form.name, &form.controls, &mut out);
+    out
 }
 /// Why a SqlDatabase that names the program's data items takes the Cargo path (DESKTOP-WASM-001
 /// T41c): `ConnectionDataItem` receives the handle `Open` gives and `ResultSetDataItem` the row
@@ -603,7 +645,8 @@ const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know 
 /// connections and route table (A38), and since T39c the FileDropZone, whose files the form host
 /// takes in and whose `CommitFiles()` the runner copies with the interpreter's own code, and the
 /// IndexedFile control, whose generated paragraphs reach the file with the program's own verbs and
-/// `COBOL::"FILE-STATUS"` (its PartiQL members wait for T48, [`is_partiql_member`]), and since T41c
+/// `COBOL::"FILE-STATUS"` (since T48 its PartiQL members run in the runner, [`PARTIQL_MEMBERS`];
+/// [`partiql_member_gap`] names the ones that do not), and since T41c
 /// the SqlDatabase, whose methods the runner runs with the interpreter's own code (one that names a
 /// data item is judged by [`desktop_design_gap`]), and since T42b the RestClient, whose requests the
 /// runner makes by the interpreter's own rules (`cobolt_runtime::rest_door`) with the window's HTTP

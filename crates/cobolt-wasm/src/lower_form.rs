@@ -49,6 +49,21 @@ pub(crate) struct Seg<'e> {
     pub index: Option<&'e Expr>,
 }
 
+/// Which arguments of a path's last segment go with every character (`rt_path_arg_whole`), the spaces
+/// around their text kept; every other argument is trimmed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Whole {
+    None,
+    One(usize),
+    All,
+}
+
+impl From<Option<usize>> for Whole {
+    fn from(one: Option<usize>) -> Whole {
+        one.map_or(Whole::None, Whole::One)
+    }
+}
+
 /// `X::Split(sep)` with a subscript after it is the part of that index (the interpreter's `eval_expr`
 /// of a subscripted `Split`): is `base` that `Split`?
 pub(crate) fn is_split_member(base: &Expr) -> bool {
@@ -298,15 +313,20 @@ impl Lower<'_, '_> {
         let forms_served = self.form.is_some();
         if forms_served && ctrl != CTRL_APP {
             // The IndexedFile control serves its generated paragraphs' file through the program's own
-            // verbs (T39c); its PartiQL members run a statement over the file, which waits for T48.
+            // verbs (T39c), and its PartiQL members run in the runner (T48); its binding members, the
+            // ones naming a data item, and a statement on a control whose design names one, do not.
             if let (Some(f), Some(member)) = (&self.form, first) {
-                if f.indexed_files.contains(&ctrl) && crate::support::is_partiql_member(member) {
+                let gap = f.indexed_files.contains(&ctrl).then(|| crate::support::partiql_member_gap(member)).flatten().or_else(|| {
+                    (f.partiql_items.contains(&ctrl) && crate::support::PARTIQL_ITEM_WRITERS.iter().any(|m| m.eq_ignore_ascii_case(member)))
+                        .then_some(crate::support::D_PARTIQL_ITEMS)
+                });
+                if let Some(why) = gap {
                     let root = match root {
                         Expr::Identifier(n, _) => n.as_str(),
                         _ => "",
                     };
                     let subject = format!("{root}::{member}");
-                    return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_PARTIQL));
+                    return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {why}"));
                 }
                 // A SqlDatabase's methods are the runner's (T41c); a member that names one of the
                 // program's data items, which the interpreter looks up by name, is not.
@@ -387,9 +407,84 @@ impl Lower<'_, '_> {
     /// path and add each segment with its arguments.
     fn build_path(&mut self, ctrl: u32, segs: &[Seg<'_>]) -> GenResult<()> {
         let mut arg_opds = self.path_args(segs)?;
-        let whole = self.agent_file_args(ctrl, segs, &mut arg_opds)?;
+        let whole = if self.partiql_args(ctrl, segs, &mut arg_opds)? { Whole::All } else { self.agent_file_args(ctrl, segs, &mut arg_opds)?.into() };
         self.emit_path_keeping(ctrl, segs, arg_opds, whole);
         Ok(())
+    }
+
+    /// The PartiQL methods of an IndexedFile in a desktop module (DESKTOP-WASM-001 T48, ABI A55)
+    /// make the module require `partiql`. `Execute`, `ExecuteTransaction` and `Get` send every
+    /// argument with every character, as the interpreter reads them, and one argument more: the kind
+    /// of each argument after the statement, one character each (`N` a number, `P` a control's
+    /// property, `S` anything else; `cobolt_runtime::partiql::door::ArgKind`), so the runner types
+    /// each as the interpreter types it by its declaration (R3). Answers whether the arguments go whole.
+    fn partiql_args(&mut self, ctrl: u32, segs: &[Seg<'_>], arg_opds: &mut [Vec<u32>]) -> GenResult<bool> {
+        if !self.native || segs.len() != 1 || !self.form.as_ref().is_some_and(|f| f.indexed_files.contains(&ctrl)) {
+            return Ok(false);
+        }
+        let seg = &segs[0];
+        let member = seg.name.trim().to_ascii_uppercase();
+        if !matches!(member.as_str(), "EXECUTE" | "EXECUTETRANSACTION" | "FETCH" | "GET" | "COLUMNNAMES" | "COLUMNCOUNT") {
+            return Ok(false);
+        }
+        self.names.file_caps.insert(cobolt_wasm_abi::codes::cap::PARTIQL);
+        if !matches!(member.as_str(), "EXECUTE" | "EXECUTETRANSACTION" | "GET") {
+            return Ok(false);
+        }
+        // `Execute`'s first argument is the statement, which has no kind.
+        let first = usize::from(member != "GET");
+        let mut kinds = String::new();
+        for (e, &o) in seg.args.iter().zip(arg_opds[0].iter()).skip(first) {
+            kinds.push(self.partiql_kind(e, o));
+        }
+        let span = seg.args.first().map_or_else(|| cobolt_lexer::Span::new(0, 0, 0, 0), |a| a.span());
+        let k = self.operand_or_temp(&Expr::Literal(Literal::String(kinds), span))?;
+        arg_opds[0].push(k);
+        Ok(true)
+    }
+
+    /// The kind of one argument of a PartiQL method, as the interpreter types it (`partiql_arg` and
+    /// `partiql_note_origins`): a control's property (`P`), whatever it holds; a data item by its
+    /// declaration, numeric (`N`) or not (`S`); a reference modification always alphanumeric; a
+    /// literal and anything else by its value (`opd`, the operand it was evaluated into).
+    fn partiql_kind(&mut self, e: &Expr, opd: u32) -> char {
+        fn literal(l: &Literal) -> char {
+            match l {
+                Literal::Integer(_) | Literal::IntegerDigits(..) | Literal::Float(_) | Literal::Decimal(..) => 'N',
+                Literal::Figurative(cobolt_ast::expr::FigurativeConstant::Zero | cobolt_ast::expr::FigurativeConstant::Null) => 'N',
+                Literal::Figurative(cobolt_ast::expr::FigurativeConstant::All(inner)) => literal(inner),
+                _ => 'S',
+            }
+        }
+        match e {
+            Expr::Member { recv, args, parens: false, .. } if args.is_empty() => match recv.as_ref() {
+                Expr::Identifier(root, _)
+                    if self.form.as_ref().is_some_and(|f| f.controls.contains_key(&root.to_ascii_uppercase())) && self.layout.lookup(root, &[]).is_err() =>
+                {
+                    'P'
+                }
+                _ => self.operand_kind(opd),
+            },
+            Expr::RefMod { .. } => 'S',
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                if self.is_numeric_item(e) {
+                    'N'
+                } else {
+                    'S'
+                }
+            }
+            Expr::Literal(l, _) => literal(l),
+            _ => self.operand_kind(opd),
+        }
+    }
+
+    /// `N` for an operand that holds a number (a numeric literal, a computed value), `S` otherwise.
+    fn operand_kind(&self, opd: u32) -> char {
+        let tag = opd.checked_sub(self.pool.base).and_then(|at| self.pool.bytes.get(at as usize)).copied();
+        match tag {
+            Some(cobolt_wasm_rt::opd::T_LIT_NUM | cobolt_wasm_rt::opd::T_TEMP) => 'N',
+            _ => 'S',
+        }
     }
 
     /// An AgentObject's tools that the runner answers itself, in a desktop module (DESKTOP-WASM-001
@@ -479,12 +574,13 @@ impl Lower<'_, '_> {
 
     /// Start the path and add each segment with its (already evaluated) arguments.
     pub(crate) fn emit_path(&mut self, ctrl: u32, segs: &[Seg<'_>], arg_opds: Vec<Vec<u32>>) {
-        self.emit_path_keeping(ctrl, segs, arg_opds, None);
+        self.emit_path_keeping(ctrl, segs, arg_opds, Whole::None);
     }
 
-    /// [`Self::emit_path`], with argument `whole` of the last segment sent with every character,
-    /// the spaces around its text kept (`rt_path_arg_whole`); every other argument is trimmed.
-    pub(crate) fn emit_path_keeping(&mut self, ctrl: u32, segs: &[Seg<'_>], arg_opds: Vec<Vec<u32>>, whole: Option<usize>) {
+    /// [`Self::emit_path`], with the arguments of the last segment that `whole` names sent with every
+    /// character, the spaces around their text kept (`rt_path_arg_whole`); every other argument is
+    /// trimmed.
+    pub(crate) fn emit_path_keeping(&mut self, ctrl: u32, segs: &[Seg<'_>], arg_opds: Vec<Vec<u32>>, whole: Whole) {
         if ctrl == CTRL_APP {
             if let Some(first) = segs.first() {
                 self.names.builtins.insert(first.name.to_string());
@@ -513,7 +609,7 @@ impl Lower<'_, '_> {
             for (j, o) in opds.into_iter().enumerate() {
                 self.base();
                 self.i32c(o as i32);
-                let keep = k == last && whole == Some(j);
+                let keep = k == last && (whole == Whole::All || whole == Whole::One(j));
                 self.call_rt(if keep { "rt_path_arg_whole" } else { "rt_path_arg" });
             }
         }
@@ -1000,13 +1096,58 @@ impl Lower<'_, '_> {
         }
     }
 
+    /// `COBOL::"INIT-FORM"` in a desktop module whose form holds IndexedFile controls (DESKTOP-WASM-001
+    /// T48, ABI A55): each control, in the order of the manifest, hears `_START` with the program's
+    /// `SELECT`s, their names and the `ASSIGN`s as written (each list TAB-separated), as the interpreter
+    /// reads them at `COBOL-INIT-FORM`: the runner opens a control whose `AutoOpen` is on when the
+    /// program does not declare its file (whose generated paragraphs open it otherwise), and knows
+    /// which files the program drives with its verbs, for `AutoCommit`.
+    fn partiql_start(&mut self, line: u32) -> GenResult<()> {
+        let mut ctrls: Vec<u32> = match &self.form {
+            Some(f) if self.native => f.indexed_files.iter().copied().collect(),
+            _ => return Ok(()),
+        };
+        if ctrls.is_empty() {
+            return Ok(());
+        }
+        ctrls.sort_unstable();
+        let (mut names, mut assigns) = (Vec::new(), Vec::new());
+        if let Some(io) = self.prog.environment.as_ref().and_then(|e| e.input_output.as_ref()) {
+            for fc in &io.file_controls {
+                names.push(fc.name.clone());
+                assigns.push(fc.assign.clone());
+            }
+        }
+        self.names.file_caps.insert(cobolt_wasm_abi::codes::cap::PARTIQL);
+        let span = cobolt_lexer::Span::new(0, 0, line, 0);
+        let args = [Expr::Literal(Literal::String(names.join("\t")), span), Expr::Literal(Literal::String(assigns.join("\t")), span)];
+        // Asked, not queued: the interpreter resolves each control's file here, before the program's
+        // `OPEN` (a direct import) can publish its FD definition into the file, so the start must
+        // reach the host in program order. The answer is empty and unused.
+        let k = self.ctemp_next;
+        if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
+            return self.too_many_reads(line, "this statement reads more than four properties or character-valued functions; split it into statements that read at most four");
+        }
+        for ctrl in ctrls {
+            let seg = Seg { name: "_START", args: &args, parens: true, index: None };
+            let arg_opds = self.path_args(std::slice::from_ref(&seg))?;
+            self.emit_path_keeping(ctrl, std::slice::from_ref(&seg), arg_opds, Whole::All);
+            self.i32c(Q_CALLR as i32);
+            self.i32c(k as i32);
+            self.i32c(1);
+            self.call_rt("rt_cmd_query");
+        }
+        Ok(())
+    }
+
     /// A built-in `CALL "COBOL-NAME"` that belongs to the page.
     pub(crate) fn builtin_call(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
         let app = Expr::Identifier("COBOL".to_string(), cobolt_lexer::Span::new(0, 0, line, 0));
         self.desktop_gate(CTRL_APP, &app, Some(name), line)?;
         match name {
-            // The page builds the form when it opens it.
-            "INIT-FORM" => Ok(()),
+            // The page builds the form when it opens it; a desktop form's IndexedFile controls hear
+            // that it starts (T48).
+            "INIT-FORM" => self.partiql_start(line),
             "WAIT-EVENT" => self.wait_event(using, line),
             // `COBOL-SET-PROPERTY obj prop value` / `COBOL-GET-PROPERTY obj prop dest`
             // name the control and the property in literals; SET-PROPERTY may
@@ -1179,7 +1320,7 @@ impl Lower<'_, '_> {
                 // the spaces around its text kept, as the interpreter reads the item.
                 let whole = (other == "CHART-SET-TABLE").then_some(1);
                 let arg_opds = self.path_args(std::slice::from_ref(&seg))?;
-                self.emit_path_keeping(CTRL_APP, std::slice::from_ref(&seg), arg_opds, whole);
+                self.emit_path_keeping(CTRL_APP, std::slice::from_ref(&seg), arg_opds, whole.into());
                 self.call_rt("rt_cmd_call");
                 self.suspend_if_waiting(CTRL_APP, other);
                 if let Some(dest) = receiver {

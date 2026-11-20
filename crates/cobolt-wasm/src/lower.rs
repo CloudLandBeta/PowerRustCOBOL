@@ -157,9 +157,14 @@ pub struct FormCtx {
     /// Control ids of the form's other graphics objects ([`is_graphics_object`]): a method of one
     /// may draw on a canvas by its handle, so the drawing waiting for a canvas goes ahead of it.
     pub graphics: std::collections::HashSet<u32>,
-    /// Control ids of the form's IndexedFile controls: their PartiQL members are not on the
-    /// WebAssembly path yet (DESKTOP-WASM-001 T48).
+    /// Control ids of the form's IndexedFile controls: their PartiQL members run in the runner
+    /// (DESKTOP-WASM-001 T48, ABI A55), each hears `_START` when the form starts, and the binding
+    /// members and the ones naming a data item are refused ([`crate::support::partiql_member_gap`]).
     pub indexed_files: std::collections::HashSet<u32>,
+    /// Control ids of the form's IndexedFile controls whose design names a data item
+    /// (`StatusDataItem`, `CurrentRecordDataItem`; [`crate::module::Options::partiql_items`]): a
+    /// statement run on one is refused ([`crate::support::D_PARTIQL_ITEMS`]).
+    pub partiql_items: std::collections::HashSet<u32>,
     /// Control ids of the form's SqlDatabase controls: their members that name a data item are not on
     /// the WebAssembly path yet (DESKTOP-WASM-001 T41c).
     pub sql_databases: std::collections::HashSet<u32>,

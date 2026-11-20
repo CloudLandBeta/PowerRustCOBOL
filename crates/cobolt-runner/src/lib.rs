@@ -42,6 +42,7 @@ mod kb;
 mod rest;
 pub mod messages;
 pub mod pins;
+mod partiql;
 mod sql;
 
 use std::io::{BufRead, Write};
@@ -81,6 +82,7 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::AGENT_KB,
     cap::MODELS,
     cap::MCP_SEARCH,
+    cap::PARTIQL,
 ];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row
@@ -196,7 +198,7 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
         Err(msg) => return refuse(lang, msg),
     };
     let mut st = State::new(lang, pins);
-    st.files = files::Files::new(checked.files.clone());
+    st.files = std::rc::Rc::new(std::cell::RefCell::new(files::Files::new(checked.files.clone())));
     st.sql = checked.sql.clone().map(sql::SqlRun::new);
     let mut store = Store::new(&engine, st);
     let instance = match linker.instantiate(&mut store, &loaded.module) {
@@ -344,7 +346,8 @@ pub struct State {
     /// A form module's ABI host and the regions of its arena (T30); `None` for a console program.
     pub(crate) forms: Option<forms::FormRun>,
     /// The program's files on disk (T38).
-    pub(crate) files: files::Files,
+    /// The program's files, shared with the IndexedFile controls' port (T48).
+    pub(crate) files: std::rc::Rc<std::cell::RefCell<files::Files>>,
     /// The program's `EXEC SQL` work (T41); `None` when it has none.
     pub(crate) sql: Option<sql::SqlRun>,
     /// The SQL built-ins' connections (T41b), which the SqlDatabase controls share (T41c).
@@ -364,7 +367,7 @@ impl State {
             exit_code: None,
             fatal: None,
             forms: None,
-            files: files::Files::default(),
+            files: std::rc::Rc::default(),
             sql: None,
             db: std::rc::Rc::default(),
             http: std::rc::Rc::default(),
@@ -634,7 +637,7 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                             let Some(path) = read_mem(&mut caller, path, path_len) else { return FILE_FAILED };
                             let path = String::from_utf8_lossy(&path).into_owned();
                             let exclusive = flags & cobolt_wasm_abi::files::verb::OPEN_EXCLUSIVE != 0;
-                            caller.data_mut().files.open(id as u32, slot as u32, mode, &path, exclusive)
+                            caller.data_mut().files.borrow_mut().open(id as u32, slot as u32, mode, &path, exclusive)
                         },
                     )
                     .map_err(fail)?;
@@ -642,7 +645,7 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
             (NATIVE_IMPORT_MODULE, "f_close") => {
                 linker
                     .func_wrap(NATIVE_IMPORT_MODULE, "f_close", |mut caller: Caller<'_, State>, _id: i32, slot: i32, how: i32| -> i32 {
-                        caller.data_mut().files.close(slot as u32, how)
+                        caller.data_mut().files.borrow_mut().close(slot as u32, how)
                     })
                     .map_err(fail)?;
             }
@@ -665,7 +668,7 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                          -> i32 {
                             let key = if key_len >= 0 { read_mem(&mut caller, key, key_len) } else { None };
                             let (status, record, delivered) =
-                                caller.data_mut().files.read(id as u32, slot as u32, how, kor as u32, key.as_deref(), rel);
+                                caller.data_mut().files.borrow_mut().read(id as u32, slot as u32, how, kor as u32, key.as_deref(), rel);
                             if let Some(record) = record {
                                 let n = record.len().min(cap.max(0) as usize);
                                 if write_mem(&mut caller, rec, &record[..n]).is_none()
@@ -691,7 +694,7 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                         "f_write",
                         |mut caller: Caller<'_, State>, id: i32, slot: i32, rec: i32, len: i32, rel: i64, out: i32| -> i32 {
                             let Some(record) = read_mem(&mut caller, rec, len) else { return FILE_FAILED };
-                            let (status, assigned) = caller.data_mut().files.write(id as u32, slot as u32, &record, rel);
+                            let (status, assigned) = caller.data_mut().files.borrow_mut().write(id as u32, slot as u32, &record, rel);
                             if let Some(at) = assigned {
                                 if write_mem(&mut caller, out, &(at as i64).to_le_bytes()).is_none() {
                                     return FILE_FAILED;
@@ -709,7 +712,7 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                         "f_rewrite",
                         |mut caller: Caller<'_, State>, id: i32, slot: i32, rec: i32, len: i32, rel: i64| -> i32 {
                             let Some(record) = read_mem(&mut caller, rec, len) else { return FILE_FAILED };
-                            caller.data_mut().files.rewrite(id as u32, slot as u32, &record, rel)
+                            caller.data_mut().files.borrow_mut().rewrite(id as u32, slot as u32, &record, rel)
                         },
                     )
                     .map_err(fail)?;
@@ -721,7 +724,7 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                         "f_delete",
                         |mut caller: Caller<'_, State>, id: i32, slot: i32, key: i32, key_len: i32, rel: i64| -> i32 {
                             let key = if key_len >= 0 { read_mem(&mut caller, key, key_len) } else { None };
-                            caller.data_mut().files.delete(id as u32, slot as u32, key.as_deref(), rel)
+                            caller.data_mut().files.borrow_mut().delete(id as u32, slot as u32, key.as_deref(), rel)
                         },
                     )
                     .map_err(fail)?;
@@ -733,7 +736,7 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                         "f_start",
                         |mut caller: Caller<'_, State>, id: i32, slot: i32, op: i32, kor: i32, key: i32, key_len: i32, rel: i64| -> i32 {
                             let key = if key_len >= 0 { read_mem(&mut caller, key, key_len) } else { None };
-                            caller.data_mut().files.start(id as u32, slot as u32, op, kor as u32, key.as_deref(), rel)
+                            caller.data_mut().files.borrow_mut().start(id as u32, slot as u32, op, kor as u32, key.as_deref(), rel)
                         },
                     )
                     .map_err(fail)?;
@@ -741,7 +744,7 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
             (NATIVE_IMPORT_MODULE, "f_tx") => {
                 linker
                     .func_wrap(NATIVE_IMPORT_MODULE, "f_tx", |mut caller: Caller<'_, State>, op: i32, id: i32, slot: i32| -> i32 {
-                        caller.data_mut().files.tx(op, id, slot);
+                        caller.data_mut().files.borrow_mut().tx(op, id, slot);
                         0
                     })
                     .map_err(fail)?;

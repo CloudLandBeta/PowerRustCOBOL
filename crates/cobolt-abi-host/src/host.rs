@@ -294,6 +294,8 @@ mod kb;
 pub use self::kb::{KbControl, KbEffects, KbEvent, KbPort};
 mod agent;
 pub use self::agent::{AgentControl, AgentEffects, AgentPort, ModelsPort};
+mod partiql;
+pub use self::partiql::{PartiqlControl, PartiqlEffects, PartiqlPort};
 
 /// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
 /// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
@@ -635,6 +637,9 @@ pub struct Host {
     /// The application's model list, its keys and the model providers, which the runner gives the host
     /// (T48, A53); `None` in a page.
     pub models: Option<Box<dyn ModelsPort>>,
+    /// The desktop's IndexedFile control, whose PartiQL members the runner runs on its file store
+    /// (T48, A55); `None` in a page.
+    pub partiql: Option<Box<dyn PartiqlPort>>,
     /// The `onToolCall` handlers handed to the program and not yet heard back from, `(inst, control)`
     /// (T47c): the port hears of each when its instance is free again.
     tool_waits: Vec<(u32, usize)>,
@@ -817,6 +822,7 @@ impl Host {
             kb: None,
             agent: None,
             models: None,
+            partiql: None,
             tool_waits: Vec::new(),
             drop_zones: None,
             absent: HashMap::new(),
@@ -2011,6 +2017,9 @@ impl Host {
         if let Some(a) = self.agent.as_mut() {
             a.release(inst);
         }
+        if let Some(p) = self.partiql.as_mut() {
+            p.release(inst);
+        }
         self.tool_waits.retain(|(i, _)| *i != inst);
         self.work.retain(|w| {
             !matches!(w, Work::Event(e) if e.inst == inst) && !matches!(w, Work::Apply(a) if a.inst == inst) && !matches!(w, Work::ToolCall { inst: i, .. } if *i == inst)
@@ -2748,6 +2757,10 @@ impl Host {
         }
         // A SqlDatabase's statements are the runner's, on the desktop (T41c).
         if let Some(r) = self.sql_call(inst, idx, name, args) {
+            return r;
+        }
+        // An IndexedFile's PartiQL members are the runner's, on the desktop (T48).
+        if let Some(r) = self.partiql_call(inst, idx, name, args) {
             return r;
         }
         // A RestClient's requests are the runner's, on the desktop (T42b).
@@ -4235,6 +4248,8 @@ mod rest_tests;
 mod kb_tests;
 #[cfg(test)]
 mod agent_tests;
+#[cfg(test)]
+mod partiql_tests;
 #[cfg(test)]
 mod unhandled_tests;
 #[cfg(test)]

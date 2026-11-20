@@ -284,7 +284,7 @@ impl Driver {
     /// Perform one call the ABI host asked for (ABI v1 §4), as the browser's loader does.
     fn perform(&mut self, call: &ModuleCall) -> CallResult {
         // A file the program opens belongs to the instance the call acts on (T38).
-        self.store.data_mut().files.begin_call(call_inst(call));
+        self.store.data_mut().files.borrow_mut().begin_call(call_inst(call));
         if let Some(sql) = self.store.data_mut().sql.as_mut() {
             sql.begin_call(call_inst(call));
         }
@@ -295,7 +295,7 @@ impl Driver {
                 ModuleCall::OpenForm { form, opener } => {
                     let inst = self.call::<(i32, i32), i32>("pr_open_form", (*form as i32, *opener))?;
                     if let Ok(inst) = u32::try_from(inst) {
-                        self.store.data_mut().files.opened_form(inst);
+                        self.store.data_mut().files.borrow_mut().opened_form(inst);
                         if let Some(sql) = self.store.data_mut().sql.as_mut() {
                             sql.opened_form(inst);
                         }
@@ -312,7 +312,7 @@ impl Driver {
                     // interpreter of a closed form drops its own; a close still running (a task) has
                     // not closed the window yet.
                     if status != 1 && status != 2 {
-                        self.store.data_mut().files.forget_instance(*inst);
+                        self.store.data_mut().files.borrow_mut().forget_instance(*inst);
                         // Its SQL cursors and prepared statements too; the main window's ends the run unit (T41).
                         if let Some(sql) = self.store.data_mut().sql.as_mut() {
                             sql.forget_instance(*inst);
@@ -450,6 +450,10 @@ impl Thread {
         // A FileDropZone's `CommitFiles()` (T39c): the interpreter's own copy, anchored at the
         // application's folder as the interpreter anchors it.
         host.drop_zones = Some(Box::new(DropZones));
+        // The IndexedFile controls' PartiQL members (T48), on the program's own file store, so a
+        // control and the program's verbs share a file as under the interpreter.
+        let store_files = std::rc::Rc::new(std::cell::RefCell::new(crate::files::Files::new(files)));
+        host.partiql = Some(Box::new(crate::partiql::Port::new(store_files.clone())));
         // The canvases and the graphics objects (T50).
         let graphics = crate::gfx::install(&mut host);
         // A form the Build has no program for is designed but not in the manifest: it cannot open.
@@ -469,7 +473,7 @@ impl Thread {
             let linker = crate::linker_for(&engine, abi, &imports)?;
             let mut st = State::new(lang, pins);
             st.forms = Some(FormRun { host, layout, gfx, graphics });
-            st.files = crate::files::Files::new(files);
+            st.files = store_files;
             st.sql = sql.map(crate::sql::SqlRun::new);
             st.db = db;
             st.http = http;

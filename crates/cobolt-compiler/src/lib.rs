@@ -3246,7 +3246,9 @@ fn build_core(
         Ok(runner) => {
             clock.enter(BuildPhase::Generate);
             report(0.50, "Generating the WebAssembly module…");
-            let wasm_opts = cobolt_wasm::Options { native: true, name: bin_name.clone(), ..cobolt_wasm::Options::default() };
+            // T48: an IndexedFile whose design names a data item refuses a statement run on it.
+            let partiql_items = designs.iter().flat_map(|(_, _, f)| cobolt_wasm::support::partiql_item_controls(f)).collect();
+            let wasm_opts = cobolt_wasm::Options { native: true, name: bin_name.clone(), partiql_items, ..cobolt_wasm::Options::default() };
             // A form project is one module with every form whose program the Build has: the main
             // form's (the program above) first, then each openable form's (T30). A refusal in a
             // form's program names that form's generated file.
@@ -8135,14 +8137,19 @@ fn browser_subset_doc() -> String {
             d.push_str(&format!("| {} | {why} |\n", t.as_str()));
         }
     }
-    // T39c: the IndexedFile control is served through the program's own verbs; its PartiQL members
-    // are refused where they are used.
+    // T39c: the IndexedFile control is served through the program's own verbs; T48: its PartiQL
+    // members run in the runner, and the ones that are not are refused where they are used.
     d.push_str(&format!(
         "\nThe IndexedFile control is served: its generated paragraphs use the file verbs and `COBOL::\"FILE-STATUS\"`, which \
-         the WebAssembly path compiles. A form that uses one of its PartiQL members ({}) takes the Cargo path, which names the \
-         member and its line: {}.\n",
+         the WebAssembly path compiles, and the runner runs its PartiQL members ({}) with the interpreter's own code, on the \
+         program's own files: a statement works on the file the program holds open, `AutoOpen` and `AutoCommit` behave as \
+         under the interpreter, and `COMMIT` and `ROLLBACK` reach the control's file. A form that uses one of these members \
+         takes the Cargo path, which names the member and its line:\n\n| Member | Why |\n|---|---|\n{}\nA statement \
+         (`Execute`, `ExecuteTransaction`, `Fetch`) run on an IndexedFile whose `StatusDataItem` or `CurrentRecordDataItem` \
+         is set takes the Cargo path too: {}.\n",
         cobolt_wasm::support::PARTIQL_MEMBERS.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", "),
-        cobolt_wasm::support::D_PARTIQL
+        cobolt_wasm::support::PARTIQL_GAPS.iter().map(|(m, why)| format!("| `{m}` | {why} |\n")).collect::<String>(),
+        cobolt_wasm::support::D_PARTIQL_ITEMS
     ));
     // T41c: the SqlDatabase is served, its methods run with the interpreter's own code; one that names a
     // data item is refused, by its design or where a member names one.
@@ -16879,11 +16886,15 @@ mod published_documentation_tests {
         for (source, why) in cobolt_wasm::support::DESKTOP_BINDING_GAPS {
             assert!(controls.contains(&format!("| {source} | {why} |")), "binding to {source} is not listed");
         }
-        // T39c: the IndexedFile control's PartiQL members are named, with their reason.
-        assert!(controls.contains(cobolt_wasm::support::D_PARTIQL), "the PartiQL members' reason is not there");
+        // T48: the IndexedFile control's PartiQL members are named, and the ones the runner does not
+        // serve are listed with their reason.
         for m in cobolt_wasm::support::PARTIQL_MEMBERS {
             assert!(controls.contains(&format!("`{m}`")), "the PartiQL member {m} is not named");
         }
+        for (m, why) in cobolt_wasm::support::PARTIQL_GAPS {
+            assert!(controls.contains(&format!("| `{m}` | {why} |")), "the PartiQL gap {m} is not listed with its reason");
+        }
+        assert!(controls.contains(cobolt_wasm::support::D_PARTIQL_ITEMS), "the data-item reason is not there");
         println!("browser subset: {builtins} built-ins and {statements} statements in the System KB");
         println!("controls on the Desktop: {listed} listed with their reason, {served} served and not listed, {} binding sources", cobolt_wasm::support::DESKTOP_BINDING_GAPS.len());
     }

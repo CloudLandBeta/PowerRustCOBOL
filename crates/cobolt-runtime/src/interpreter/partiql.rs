@@ -22,26 +22,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::{Interpreter, OpenFile};
-use crate::indexed::{status, IndexedEngine, IndexedStore, OpenMode};
-use crate::partiql::analyze::{analyze, Analyzed};
-use crate::partiql::exec::{bind, execute, execute_unit, Arg, ColInfo, Item, Outcome};
-use crate::partiql::parser::{parse_script, parse_statement};
+use crate::indexed::{status, OpenMode};
+use crate::partiql::door::{self, canonical, file_error, open_mode_of, ControlState, GetBy, Target};
+use crate::partiql::exec::{Arg, ColInfo, Item, Outcome};
+use crate::partiql::parser::parse_statement;
 use crate::partiql::schema::Schema;
 use crate::partiql::value::Value;
 use crate::partiql::PartiqlError;
 use crate::value::CobolValue;
 
-/// What one `IndexedFile` control keeps between calls.
+/// What one `IndexedFile` control keeps between calls: its result set, by the rules the desktop
+/// runner keeps it by too ([`door::ControlState`]), and the file it names.
 #[derive(Default)]
 pub(crate) struct PartiqlControl {
-    items: Vec<Item>,
-    /// The next item `Fetch` delivers.
-    cursor: usize,
-    /// The item `Fetch` last delivered, for `Get`.
-    fetched: Option<Item>,
-    columns: Arc<Vec<ColInfo>>,
-    /// The properties the last `Fetch` wrote, blanked by the next.
-    published: Vec<String>,
+    state: ControlState,
     target: Option<Target>,
 }
 
@@ -69,32 +63,6 @@ pub(crate) enum ArgOrigin {
     Property(String),
     /// A data item, by its storage key: typed by its declaration (R3).
     Item(String),
-}
-
-fn canonical(p: &std::path::Path) -> PathBuf {
-    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
-}
-
-/// The file a control names, resolved.
-struct Target {
-    /// The `IndexedFile` property as it was read; a change re-resolves.
-    cidx: String,
-    def: Arc<cobolt_indexed::IndexedDefinition>,
-    schema: Arc<Schema>,
-    data_path: PathBuf,
-}
-
-fn file_error(code: &'static str, message: impl Into<String>) -> PartiqlError {
-    PartiqlError { status: code, exception: "", message: message.into(), pos: None }
-}
-
-fn open_mode_of(text: &str) -> OpenMode {
-    match text.trim().to_ascii_uppercase().as_str() {
-        "OUTPUT" => OpenMode::Output,
-        "EXTEND" => OpenMode::Extend,
-        "I-O" | "IO" | "INPUT-OUTPUT" => OpenMode::Io,
-        _ => OpenMode::Input,
-    }
 }
 
 impl Interpreter {
@@ -200,31 +168,22 @@ impl Interpreter {
             "FETCH" => Some(self.partiql_fetch(obj)),
             "GET" => {
                 let key = Self::partiql_key(obj);
-                let which = args.first().cloned();
                 let ctl = self.partiql.get(&key)?;
-                let Some(item) = &ctl.fetched else { return Some(String::new()) };
-                let position = match &which {
-                    Some(CobolValue::Numeric(n)) => Some(n.mantissa.max(0) as usize / 10usize.pow(n.decimals as u32)),
-                    Some(v) => v.as_display_string().trim().parse::<usize>().ok(),
-                    None => None,
+                let which = match args.first() {
+                    Some(CobolValue::Numeric(n)) => GetBy::Place(n.mantissa.max(0) / 10i128.pow(n.decimals as u32)),
+                    Some(v) => GetBy::Text(v.as_display_string()),
+                    None => GetBy::None,
                 };
-                let index = match position {
-                    Some(p) => p.checked_sub(1),
-                    None => {
-                        let name = which.map(|v| v.as_display_string().trim().to_ascii_uppercase()).unwrap_or_default();
-                        item.cols.iter().position(|c| c.name.to_ascii_uppercase() == name)
-                    }
-                };
-                Some(index.map(|i| item.text(i)).unwrap_or_default())
+                Some(ctl.state.get(which))
             }
             "COLUMNNAMES" => {
                 let key = Self::partiql_key(obj);
                 let ctl = self.partiql.get(&key)?;
-                Some(ctl.columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>().join("\t"))
+                Some(ctl.state.column_names().join("\t"))
             }
             "COLUMNCOUNT" => {
                 let key = Self::partiql_key(obj);
-                Some(self.partiql.get(&key).map_or(0, |c| c.columns.len()).to_string())
+                Some(self.partiql.get(&key).map_or(0, |c| c.state.column_count()).to_string())
             }
             _ => None,
         }
@@ -232,7 +191,7 @@ impl Interpreter {
 
     /// The names of the columns the control's last result set has.
     pub(super) fn partiql_column_names(&self, obj: &str) -> Vec<String> {
-        self.partiql.get(&Self::partiql_key(obj)).map(|c| c.columns.iter().map(|x| x.name.clone()).collect()).unwrap_or_default()
+        self.partiql.get(&Self::partiql_key(obj)).map(|c| c.state.column_names()).unwrap_or_default()
     }
 
     // ── Running a statement ──
@@ -272,24 +231,15 @@ impl Interpreter {
     }
 
     fn partiql_outcome_run(&mut self, obj: &str, text: &str, args: &[Arg], unit: bool) -> Outcome {
-        let parsed = if unit { parse_script(text) } else { parse_statement(text).map(|p| vec![p]) };
-        let parsed = match parsed {
-            Ok(p) => p,
+        let statements = match door::parse(text, unit) {
+            Ok(s) => s,
             Err(e) => return Outcome::failed(e),
         };
         let schema = match self.partiql_resolve(obj) {
             Ok(s) => s,
             Err(e) => return Outcome::failed(e),
         };
-        let mut analyzed: Vec<Analyzed> = Vec::with_capacity(parsed.len());
-        for p in &parsed {
-            match analyze(p, &schema, unit) {
-                Ok(a) => analyzed.push(a),
-                Err(e) => return Outcome::failed(e),
-            }
-        }
-        let refs: Vec<&Analyzed> = analyzed.iter().collect();
-        let params = match bind(&refs, args) {
+        let prepared = match statements.prepare(&schema, args) {
             Ok(p) => p,
             Err(e) => return Outcome::failed(e),
         };
@@ -299,16 +249,10 @@ impl Interpreter {
         };
         let mut handle = self.open_files.remove(&fkey);
         let outcome = match handle.as_mut() {
-            Some(OpenFile::Indexed(store)) => {
-                if unit {
-                    execute_unit(store.as_mut(), &schema, &analyzed, &params)
-                } else {
-                    execute(store.as_mut(), &schema, &analyzed[0], &params)
-                }
-            }
+            Some(OpenFile::Indexed(store)) => prepared.run(store.as_mut(), &schema),
             _ => Outcome::failed(file_error(status::LOGIC_ERROR, "the file is not open")),
         };
-        if outcome.error.is_none() && analyzed.iter().any(|a| !matches!(a.stmt, crate::partiql::analyze::RStmt::Select(_) | crate::partiql::analyze::RStmt::Exists(_))) {
+        if outcome.error.is_none() && prepared.writes() {
             let data_path = self.partiql.get(&Self::partiql_key(obj)).and_then(|c| c.target.as_ref()).map(|t| t.data_path.clone());
             if let Some(dp) = data_path {
                 if self.partiql_auto_commit(obj, &schema.table, &dp) {
@@ -328,27 +272,19 @@ impl Interpreter {
     /// `StatusCode`, `LastError`, and `StatusDataItem`. Answers the count.
     fn partiql_apply(&mut self, obj: &str, o: Outcome) -> usize {
         let key = Self::partiql_key(obj);
-        let ctl = self.partiql.entry(key).or_default();
-        let stale = std::mem::take(&mut ctl.published);
-        let n = o.items.len();
-        let last_error = o.last_error();
-        let has_columns = !o.columns.is_empty();
-        ctl.items = o.items;
-        ctl.cursor = 0;
-        ctl.fetched = None;
-        ctl.columns = o.columns;
-        for p in stale {
-            self.obj_set(obj, &p, String::new());
+        let mut ctl = self.partiql.remove(&key).unwrap_or_default();
+        let mut sets: Vec<(String, String)> = Vec::new();
+        let applied = ctl.state.apply(o, &mut |p, v| sets.push((p.to_string(), v)));
+        self.partiql.insert(key, ctl);
+        for (p, v) in sets {
+            self.obj_set(obj, &p, v);
         }
-        self.obj_set(obj, "ResultCount", n.to_string());
-        self.obj_set(obj, "StatusCode", o.status.to_string());
-        self.obj_set(obj, "LastError", last_error);
-        self.partiql_status_item(obj, o.status);
+        self.partiql_status_item(obj, applied.status);
         // Bindings with no query of their own show the new result (R34).
-        if o.error.is_none() && has_columns {
+        if applied.follow {
             self.partiql_follow(obj);
         }
-        o.count
+        applied.count
     }
 
     fn partiql_status_item(&mut self, obj: &str, code: &str) {
@@ -362,51 +298,26 @@ impl Interpreter {
     /// `Fetch()`: the next item, TAB-separated; past the last, empty with `10`.
     fn partiql_fetch(&mut self, obj: &str) -> String {
         let key = Self::partiql_key(obj);
-        let (item, stale) = {
-            let Some(ctl) = self.partiql.get_mut(&key) else {
-                self.obj_set(obj, "StatusCode", "10".to_string());
-                self.partiql_status_item(obj, "10");
-                return String::new();
-            };
-            if ctl.cursor >= ctl.items.len() {
-                ctl.fetched = None;
-                (None, std::mem::take(&mut ctl.published))
-            } else {
-                let item = ctl.items[ctl.cursor].clone();
-                ctl.cursor += 1;
-                ctl.fetched = Some(item.clone());
-                (Some(item), std::mem::take(&mut ctl.published))
-            }
-        };
-        for p in stale {
-            self.obj_set(obj, &p, String::new());
-        }
-        let Some(item) = item else {
+        let Some(mut ctl) = self.partiql.remove(&key) else {
             self.obj_set(obj, "StatusCode", "10".to_string());
             self.partiql_status_item(obj, "10");
             return String::new();
         };
-        let mut published = Vec::new();
-        for (i, col) in item.cols.iter().enumerate() {
-            if let Some(p) = &col.prop {
-                self.obj_set(obj, p, item.text(i));
-                published.push(p.clone());
+        let mut sets: Vec<(String, String)> = Vec::new();
+        let fetched = ctl.state.fetch(&mut |p, v| sets.push((p.to_string(), v)));
+        self.partiql.insert(key, ctl);
+        for (p, v) in sets {
+            self.obj_set(obj, &p, v);
+        }
+        if let Some(rec) = &fetched.record {
+            let into = self.obj_get(obj, "CurrentRecordDataItem");
+            let into = into.trim();
+            if !into.is_empty() && self.env.is_declared(into, &[]) {
+                self.env.set_group_bytes(into, rec);
             }
         }
-        if let Some(ctl) = self.partiql.get_mut(&key) {
-            ctl.published = published;
-        }
-        let into = self.obj_get(obj, "CurrentRecordDataItem");
-        let into = into.trim();
-        if !into.is_empty() && !item.rec.is_empty() && self.env.is_declared(into, &[]) {
-            self.env.set_group_bytes(into, &item.rec);
-        }
-        self.obj_set(obj, "StatusCode", "00".to_string());
-        self.partiql_status_item(obj, "00");
-        (0..item.values.len())
-            .map(|i| item.text(i).replace('\t', " "))
-            .collect::<Vec<_>>()
-            .join("\t")
+        self.partiql_status_item(obj, fetched.status);
+        fetched.row
     }
 
     // ── The file ──
@@ -421,43 +332,10 @@ impl Interpreter {
                 return Ok(t.schema.clone());
             }
         }
-        if cidx.is_empty() {
-            return Err(file_error(status::FILE_NOT_FOUND, "the IndexedFile property names no definition (.cidx)"));
-        }
-        let def_file = cobolt_forms::assets::resolve(&cidx);
-        let def = cobolt_indexed::load_indexed(&def_file)
-            .map_err(|_| file_error(status::FILE_NOT_FOUND, format!("cannot read the definition {cidx}")))?;
-        let table = std::path::Path::new(&cidx)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_ascii_uppercase();
-        let data_path = cobolt_forms::assets::resolve(&def.assign_path);
-        let from_def = Schema::from_definition(&table, &def)
-            .map_err(|m| file_error(status::ATTR_MISMATCH, format!("the definition does not describe a record: {m}")))?;
-        let mut schema = from_def.clone();
-        if data_path.exists() {
-            if let Ok(Some(info)) = crate::indexed_import::inspect_any_path(&data_path) {
-                if info.record_format.max_len() as usize != from_def.record_len {
-                    return Err(file_error(
-                        status::ATTR_MISMATCH,
-                        format!("the data file's records are {} bytes; the definition says {}", info.record_format.max_len(), from_def.record_len),
-                    ));
-                }
-                // The layout the file carries wins (R10) when it agrees.
-                if let Some(text) = info.definition {
-                    let (p, a) = Schema::keys_of_definition(&def);
-                    if let Ok(s) = Schema::from_fd_text(&table, &text, p, a) {
-                        if s.record_len == from_def.record_len {
-                            schema = s;
-                        }
-                    }
-                }
-            }
-        }
-        let schema = Arc::new(schema);
+        let target = door::resolve(&cidx)?;
+        let schema = target.schema.clone();
         let ctl = self.partiql.entry(key).or_default();
-        ctl.target = Some(Target { cidx, def: Arc::new(def), schema: schema.clone(), data_path });
+        ctl.target = Some(target);
         Ok(schema)
     }
 
@@ -475,32 +353,20 @@ impl Interpreter {
         }
         let mode = open_mode_of(&self.obj_get(obj, "OpenMode"));
         let path = data_path.to_string_lossy().to_string();
-        if !data_path.exists() {
-            // R10: a file that is not there is made from the definition — for a
-            // program that may write. A read-only open finds nothing (35).
-            if mode == OpenMode::Input {
-                return Err(file_error(status::FILE_NOT_FOUND, "the data file does not exist"));
-            }
-            if let Some(dir) = data_path.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            crate::indexed_ide::create_empty_from_definition(&def, &data_path)
-                .map_err(|e| file_error(status::IO_ERROR, format!("cannot create the data file: {e}")))?;
-        }
+        // R10: a file that is not there is made from the definition, for a program that may write.
+        door::create_if_missing(&def, &data_path, mode)?;
         let fkey = format!("{}:{}", schema.table, key);
         if !self.acquire_share_lock(&fkey, &path, super::share_lock_is_exclusive(None, false)) {
             return Err(file_error(status::UNAVAILABLE, "the file is in use by another run"));
         }
-        let mut engine = self.partiql_engine(&def, &path);
         let user = self.obj_get(obj, "OperatorName");
-        if !user.trim().is_empty() {
-            engine.set_registered_user(Some(user.trim().to_string()));
-        }
-        let code = engine.open(mode);
-        if !code.starts_with('0') {
-            self.forget_failed_open(&fkey);
-            return Err(file_error(code, super::partiql_status_text(code)));
-        }
+        let engine = match door::open_engine(&def, &path, mode, &user, self.partiql_engine_config()) {
+            Ok(e) => e,
+            Err(e) => {
+                self.forget_failed_open(&fkey);
+                return Err(e);
+            }
+        };
         self.open_files.insert(fkey.clone(), OpenFile::Indexed(engine));
         let canon = canonical(&data_path);
         self.partiql_open.insert(canon.clone(), fkey.clone());
@@ -508,45 +374,9 @@ impl Interpreter {
         Ok(fkey)
     }
 
-    /// The engine for a definition, chosen as an `OPEN` verb chooses it: the
-    /// container's own magic first, then the run's configured engine.
-    fn partiql_engine(&self, def: &cobolt_indexed::IndexedDefinition, path: &str) -> Box<dyn IndexedStore> {
-        use crate::indexed::IndexedFile;
-        use crate::indexed_disk::DiskIndexedFile;
-        use crate::indexed_redb::RedbIndexedFile;
-        let (primary, alts) = crate::indexed_ide::key_specs_from_def(def);
-        let reclen = (def.record_length() as usize).max(1);
-        let names: Vec<Option<String>> = std::iter::once(def.keys.primary.name.clone())
-            .chain(def.keys.alternates.iter().map(|k| k.name.clone()))
-            .collect();
-        let text = Some(crate::indexed_ide::definition_text_of(def));
-        let engine = crate::file_core::detect_container_engine(path).unwrap_or(self.indexed_engine);
-        if engine == IndexedEngine::Redb && def.storage == cobolt_indexed::StorageMode::Disk {
-            let mut e = RedbIndexedFile::new(path, reclen, primary, alts);
-            e.set_key_names(names);
-            e.set_compressing(def.compression);
-            e.set_definition(text);
-            e.set_log_level(self.indexed_log_level);
-            e.set_log_format(self.indexed_log_format);
-            return Box::new(e);
-        }
-        match def.storage {
-            cobolt_indexed::StorageMode::Memory => {
-                let mut e = IndexedFile::new(path, reclen, primary, alts);
-                e.set_key_names(names);
-                e.set_compressing(def.compression);
-                e.set_persist(def.persistence);
-                e.set_definition(text);
-                Box::new(e)
-            }
-            cobolt_indexed::StorageMode::Disk => {
-                let mut e = DiskIndexedFile::new(path, reclen, primary, alts);
-                e.set_key_names(names);
-                e.set_compressing(def.compression);
-                e.set_definition(text);
-                Box::new(e)
-            }
-        }
+    /// The engine a control's new file is made with, and the log the run keeps of it.
+    fn partiql_engine_config(&self) -> door::EngineConfig {
+        door::EngineConfig { engine: self.indexed_engine, log_level: self.indexed_log_level, log_format: self.indexed_log_format }
     }
 
     // ── Data binding (spec 108, R30–R37) ──
@@ -593,7 +423,7 @@ impl Interpreter {
         let query = if own.trim().is_empty() { self.obj_get(id, "_BindingPartiqlQuery") } else { own };
         let (items, columns): (Vec<Item>, Arc<Vec<ColInfo>>) = if query.trim().is_empty() {
             match self.partiql.get(&Self::partiql_key(&ctl)) {
-                Some(c) => (c.items.clone(), c.columns.clone()),
+                Some(c) => (c.state.items.clone(), c.state.columns.clone()),
                 None => return 0,
             }
         } else {
@@ -746,8 +576,8 @@ impl Interpreter {
             }
         }
         let held = self.partiql.entry(format!("CARDS:{}", group.to_ascii_uppercase())).or_default();
-        held.items = items.to_vec();
-        held.columns = columns.clone();
+        held.state.items = items.to_vec();
+        held.state.columns = columns.clone();
         let _ = ctl;
         row_count
     }
@@ -763,7 +593,7 @@ impl Interpreter {
         };
         let ctl = self.obj_get(group, "_BindingPartiqlControl").trim().to_owned();
         let card_key = format!("CARDS:{}", group.to_ascii_uppercase());
-        let held = self.partiql.get(&card_key).and_then(|c| n.checked_sub(1).and_then(|i| c.items.get(i)).cloned().map(|it| (it, c.columns.clone())));
+        let held = self.partiql.get(&card_key).and_then(|c| n.checked_sub(1).and_then(|i| c.state.items.get(i)).cloned().map(|it| (it, c.state.columns.clone())));
         let Some((item, columns)) = held else {
             return say(self, "23", "the card has no record behind it".to_owned());
         };
@@ -810,7 +640,7 @@ impl Interpreter {
         // The card now holds what the record holds.
         let fresh = self.partiql_outcome(&ctl, &format!("SELECT {all} FROM {table} WHERE {where_}"), &key_args, false);
         if let (Some(f), Some(held)) = (fresh.items.first(), self.partiql.get_mut(&card_key)) {
-            if let Some(slot) = held.items.get_mut(n - 1) {
+            if let Some(slot) = held.state.items.get_mut(n - 1) {
                 *slot = f.clone();
             }
         }
@@ -923,19 +753,12 @@ impl Interpreter {
     /// by default for a program that declares no `SELECT` for this file, off for
     /// one that does — it drives the file with the verbs and keeps its transaction.
     fn partiql_auto_commit(&self, obj: &str, table: &str, data_path: &std::path::Path) -> bool {
-        match self.obj_get(obj, "AutoCommit").trim().to_ascii_lowercase().as_str() {
-            "1" | "true" | "yes" | "on" => true,
-            "0" | "false" | "no" | "off" => false,
-            _ => !self.partiql_declares_file(table, data_path),
-        }
+        door::auto_commit(&self.obj_get(obj, "AutoCommit"), self.partiql_declares_file(table, data_path))
     }
 
     /// Whether the program declares a `SELECT` for this file (by name, or by the file it assigns).
     fn partiql_declares_file(&self, table: &str, data_path: &std::path::Path) -> bool {
-        self.file_specs.iter().any(|(name, spec)| {
-            name.eq_ignore_ascii_case(table)
-                || std::path::Path::new(&spec.assign).file_name().is_some_and(|f| Some(f) == data_path.file_name())
-        })
+        door::declares_file(self.file_specs.iter().map(|(name, spec)| (name.as_str(), spec.assign.as_str())), table, data_path)
     }
 
     /// `AutoOpen` on a control whose file the program does not declare: the form's
@@ -948,8 +771,7 @@ impl Interpreter {
             .map(|(id, _)| id.clone())
             .collect();
         for id in ids {
-            let on = matches!(self.obj_get(&id, "AutoOpen").trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on");
-            if !on {
+            if !door::is_on(&self.obj_get(&id, "AutoOpen")) {
                 continue;
             }
             if let Ok(schema) = self.partiql_resolve(&id) {
@@ -1035,24 +857,20 @@ impl Interpreter {
     }
 
     fn partiql_file_outcome_run(&mut self, file: &str, text: &str, args: &[Arg]) -> Outcome {
-        let parsed = match parse_statement(text) {
-            Ok(p) => p,
+        let statement = match door::parse(text, false) {
+            Ok(s) => s,
             Err(e) => return Outcome::failed(e),
         };
         let Some(schema) = self.partiql_spec_schema(file) else {
             return Outcome::failed(file_error(status::FILE_NOT_FOUND, "the program declares no such indexed file"));
         };
-        let a = match analyze(&parsed, &schema, false) {
-            Ok(a) => a,
-            Err(e) => return Outcome::failed(e),
-        };
-        let params = match bind(&[&a], args) {
+        let prepared = match statement.prepare(&schema, args) {
             Ok(p) => p,
             Err(e) => return Outcome::failed(e),
         };
         match self.open_files.remove(file) {
             Some(OpenFile::Indexed(mut store)) => {
-                let o = execute(store.as_mut(), &schema, &a, &params);
+                let o = prepared.run(store.as_mut(), &schema);
                 self.open_files.insert(file.to_string(), OpenFile::Indexed(store));
                 o
             }

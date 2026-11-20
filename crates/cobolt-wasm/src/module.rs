@@ -91,11 +91,15 @@ pub struct Options {
     /// imports (ABI A27, A29) and the manifest lists the capabilities they need. Unset, they are
     /// refused (or, for the console, ignored) as in a browser module.
     pub native: bool,
+    /// The IndexedFile controls whose design names one of the program's data items
+    /// (`StatusDataItem`, `CurrentRecordDataItem`), as `FORM/CONTROL` in upper case (DESKTOP-WASM-001
+    /// T48): the Build knows the designs, the generator does not. A statement run on one is refused.
+    pub partiql_items: Vec<String>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None, file_heap: DEFAULT_FILE_HEAP, contract: None, remote: Vec::new(), mobile: false, native: false }
+        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None, file_heap: DEFAULT_FILE_HEAP, contract: None, remote: Vec::new(), mobile: false, native: false, partiql_items: Vec::new() }
     }
 }
 
@@ -460,7 +464,26 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             // A WebSearch's searches are RestClient requests (T47a): the same members name data items.
             let rest_clients = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "RestClient" || k == "WebSearch").map(|(i, _)| 3 + i as u32).collect();
             let agents = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "AgentObject").map(|(i, _)| 3 + i as u32).collect();
-            Some(FormCtx { controls, layers, layer_names: spec.layers.clone(), canvases, graphics, indexed_files, sql_databases, rest_clients, agents, name: spec.name.clone() })
+            let partiql_items = spec
+                .controls
+                .iter()
+                .enumerate()
+                .filter(|(_, (n, k))| k == "IndexedFile" && opts.partiql_items.iter().any(|p| p.eq_ignore_ascii_case(&format!("{}/{n}", spec.name))))
+                .map(|(i, _)| 3 + i as u32)
+                .collect();
+            Some(FormCtx {
+                controls,
+                layers,
+                layer_names: spec.layers.clone(),
+                canvases,
+                graphics,
+                indexed_files,
+                partiql_items,
+                sql_databases,
+                rest_clients,
+                agents,
+                name: spec.name.clone(),
+            })
         } else {
             None
         };

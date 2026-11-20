@@ -1080,11 +1080,6 @@ fn map_open_mode(m: OpenMode) -> crate::indexed::OpenMode {
 /// it as `ALL OTHER` is the honest half: it is no weaker than the behaviour
 /// before this existed, and it never refuses an open the standard permits.
 /// Expressing it properly needs a second lock for the writer set.
-/// The text of an engine's FILE STATUS, for a PartiQL statement's `LastError`.
-fn partiql_status_text(code: &str) -> &'static str {
-    crate::partiql::exec::status_text(code)
-}
-
 fn share_lock_is_exclusive(sharing: Option<cobolt_ast::stmt::ShareMode>, lock: bool) -> bool {
     use cobolt_ast::stmt::ShareMode;
     lock || matches!(sharing, Some(ShareMode::NoOther))

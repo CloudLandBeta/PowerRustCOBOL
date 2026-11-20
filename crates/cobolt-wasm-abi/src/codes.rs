@@ -216,6 +216,10 @@ pub mod cap {
     /// files the form's AgentObjects let a model search, which the runner answers with the interpreter's
     /// own function (A54).
     pub const MCP_SEARCH: &str = "mcp.search";
+    /// The IndexedFile control's PartiQL members (`Execute`, `ExecuteTransaction`, `Fetch`, `Get`,
+    /// `ColumnNames`, `ColumnCount`), which the runner runs by the interpreter's own rules on its
+    /// file store, and the `_START` each such control hears when its form starts (A55).
+    pub const PARTIQL: &str = "partiql";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
@@ -240,6 +244,7 @@ pub mod cap {
         AGENT_KB,
         MODELS,
         MCP_SEARCH,
+        PARTIQL,
     ];
 }
 

@@ -13,6 +13,7 @@
 //! grammar is only a cross-check reference for the syntax and precedence.
 
 pub mod analyze;
+pub mod door;
 pub mod exec;
 pub mod lexer;
 pub mod parser;

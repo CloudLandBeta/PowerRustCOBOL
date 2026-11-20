@@ -2,6 +2,49 @@
 
 
 
+## 2.0.627 — 2026-11-20
+
+**Feature: an IndexedFile control's PartiQL members run in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T48, the IndexedFile).** A desktop form whose handlers ask an IndexedFile control `Execute`, `ExecuteTransaction`, `Fetch`, `Get`, `ColumnNames` or `ColumnCount`, or read its `ResultCount`, `StatusCode` and `LastError`, no longer sends its program down the Cargo path. The statements run in the built program as under Run Form:
+- The file the control's `IndexedFile` names is resolved, the statement parsed, checked against the file's definition and bound, the file opened (created when it is not there and `OpenMode` lets the control write), the statement run, and its result published as the control's properties.
+- Each `?` argument is typed as the interpreter types it, by its declaration: a numeric item or literal, a control's property, or anything else.
+- `AutoOpen` opens, as the form starts, a file the program does not declare; `AutoCommit` follows whether the program declares it.
+- The file store is the program's: a control works on the program's own open file when the program holds it; the program's `OPEN` of a file a control opened takes it over; `COMMIT` and `ROLLBACK` reach the files the controls opened; a form that closes closes them.
+
+Still on the Cargo path, refused at their line: `BindingQuery` and `RefreshBinding` (a Data Binding); `StatusDataItem`, `CurrentRecordDataItem` and `SetProperty`, which name a data item the interpreter looks up by name at run time; and a statement on a control whose design names a data item in one of them.
+
+- **One implementation of the rules:** the interpreter's PartiQL arm moved, unchanged in behaviour, into `cobolt_runtime::partiql::door` (`resolve`, `parse`, `prepare`, `open_engine`, `auto_commit`, `declares_file`, `ControlState`), which both hosts call.
+- **The ABI (A55):** a new capability, `partiql`, which a desktop module requires whenever a form holds an IndexedFile. No new command or import:
+  - the members reach the control with every character of their arguments, plus one more argument naming each argument's kind;
+  - as the form starts, each IndexedFile is asked `_START` with the program's `SELECT`s. It is asked, not queued, so it reaches the runner before the program's first `OPEN`, where the interpreter resolves the control's file.
+  - The ABI host asks its PartiQL port (`PartiqlPort`); the runner's port works on the program's own file store.
+- **The Build's documentation** (the subset document and the System KB, rebuilt) lists the members as served by the runner's `partiql`.
+- **Where:**
+  - `cobolt-runtime`: `partiql/door.rs` (new), `partiql/mod.rs`, `interpreter/partiql.rs`, `interpreter.rs`.
+  - `cobolt-abi-host`: `host.rs`, `host/partiql.rs` (new), `host/partiql_tests.rs` (new).
+  - `cobolt-runner`: `partiql.rs` (new), `files.rs`, `forms.rs`, `lib.rs`.
+  - `cobolt-wasm-abi`: `codes.rs`. `cobolt-wasm`: `support.rs`, `lower.rs`, `lower_form.rs`, `module.rs`; `tests/native_desktop_refusals.rs`.
+  - `cobolt-compiler`: `lib.rs`. `cobolt-cli`: `tests/runner_partiql_form.rs` (new). `assets/knowledge/chunked.data` is rebuilt.
+  - `specs/WASM-ABI-v1.md` (A55, the capability list); `tasks.md` (T48 notes); `specs/WASM-PROGRESS.md`.
+- **Measured** (macOS arm64):
+  - **The runner twin `the_indexedfile_partiql_members_agree_on_both_engines`:** 16 of 16 checks. One form with 5 IndexedFile controls over one customer record, 5 buttons, 5 event handlers and 30 member calls:
+    - a PRCIDXD1 file `AutoOpen` makes, with `?` arguments of every kind, `Fetch`, `Get` by name and by place, `ColumnNames`, `ColumnCount` and a fetch past the last row;
+    - a redb file with `AutoCommit` off: `ExecuteTransaction`, the program's `COMMIT` and `ROLLBACK`, a statement that does not parse, an unknown column, and a numeric item compared with text;
+    - a file in memory;
+    - the program's own open file, whose `READ` sees the control's `INSERT` and whose `ROLLBACK` undoes it;
+    - a file the program's `OPEN` takes over from the control, which opens it again after the program's `CLOSE`.
+
+    Three dumps are equal; three pictures (972,000 pixels) have 0 differing. In real time: the interpreter 19.4 s, the runner 24.7 s.
+  - **The generator:** `native_desktop_refusals` 50 of 50 checks (a form with an IndexedFile requires `partiql`, one without does not; the members compile; the five that name a data item are refused at their line; on a control whose design names a data item, the three statements are refused and the readers compile). `subset_table`: 136 entries, 55 through the runner, 33 on the Cargo path, 0 faults.
+  - **The interpreter, unchanged:** the nine `test_partiql_*` files 13 passed; the library's PartiQL tests 31 passed; `partiql_hosts` 6 of 6 cells (`rcrun run-form` and an embedded child form, on PRCIDXD1, redb and memory), and the program the Cargo path builds 3 of 3 cells (`the_same_answers_in_a_built_binary`, run with `--ignored`, 570 s).
+  - **Regressions, all green:**
+    - the whole `cobolt-runner` suite: 21 passed, 0 failed, 2 ignored, in 12 binaries (3,726 s);
+    - `cobolt-wasm`: 146 passed; `cobolt-abi-host`: 282; `cobolt-wasm-abi`: 25;
+    - `cobolt-compiler --lib`: 262 passed, 1 ignored (2,821 s);
+    - `desktop_wasm_build`: 39 of 39 checks (486 s);
+    - the desktop shell twins `runner_shell_hosts`: 16 of 16. Eleven passed in the parallel run; the five that ran past their 60-second script limit there, on both engines, while 16 twins built at once, pass one at a time: 56 checks, 7,568,000 pixels, 0 differing;
+    - the System KB: 4,422 records from 8 documents, 15,683,584 bytes; `prebuilt_chunked_kb_matches_the_published_documentation` passes.
+  - **The release `prc-runner`:** 80,059,136 bytes, 57,184 more than at 2.0.626 (80,001,952).
+
 ## 2.0.626 — 2026-11-20
 
 **Feature: `COBOL::"MCP-SEARCH"` runs in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T48, the MCP search).** A desktop form whose handler searches the files its AgentObjects allowed, `COBOL::"MCP-SEARCH" ( tool-name arguments-json result )`, no longer sends its program down the Cargo path. The search runs in the built program as under Run Form:
