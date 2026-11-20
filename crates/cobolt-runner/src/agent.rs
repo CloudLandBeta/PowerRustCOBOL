@@ -29,11 +29,12 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use cobolt_abi_host::host::{AgentControl, AgentEffects, AgentPort};
+use cobolt_abi_host::host::{AgentControl, AgentEffects, AgentPort, ModelsPort};
 use cobolt_runtime::agent_door::{self, AgentHost, Conversation, DeclaredTool, Job, Method, Report, Seen};
 use cobolt_runtime::agent_tools::{ToolCall, ToolSpec};
 use cobolt_runtime::async_op::PendingOp;
 use cobolt_runtime::kb_door::{self, AgentKbTool, ToolSearch};
+use cobolt_runtime::model_door;
 use cobolt_runtime::mcp_tool::{self, FileAccess, IndexedToolSet};
 use cobolt_runtime::HttpClient;
 use cobolt_wasm_abi::files::FileDecl;
@@ -83,6 +84,9 @@ struct State {
     /// Each instance's Knowledge Base collections handed to its agents (`AllowKnowledgeBase`): the
     /// interpreter keeps one list per program, each collection its agent's own.
     kbs: HashMap<u32, Vec<AgentKbTool>>,
+    /// Each instance's models its last `COBOL::"MODEL-LIST"` found: the interpreter keeps one list per
+    /// program (T48).
+    provider_models: HashMap<u32, Vec<String>>,
 }
 
 fn key(inst: u32, ctl: &str) -> (u32, String) {
@@ -392,6 +396,42 @@ impl AgentPort for Agents {
         st.results.remove(&inst);
         st.files.remove(&inst);
         st.kbs.remove(&inst);
+        st.provider_models.remove(&inst);
+    }
+}
+
+#[cfg(test)]
+mod model_tests {
+    /// The generator writes the answers where the ABI's table says, and the runner's rules answer
+    /// where theirs say: the two tables are one.
+    #[test]
+    fn the_abi_and_the_rules_name_the_same_arguments() {
+        let abi = cobolt_wasm_abi::codes::MODEL_VERBS;
+        let rules = cobolt_runtime::model_door::VERBS;
+        assert_eq!(abi, rules);
+        println!("model-list built-ins: {} of {} rows equal (name, fewest arguments, arguments written)", abi.len(), rules.len());
+    }
+}
+
+/// The application's model list, its keys and the providers (T48, A53): the interpreter's own rules
+/// (`model_door`), with the calling window's HTTP client for `MODEL-LIST` and `MODEL-TEST`, which wait
+/// for their answer as the interpreter's do.
+impl ModelsPort for Agents {
+    fn call(&mut self, inst: u32, verb: &str, args: &[&str]) -> Vec<(usize, String)> {
+        let http = self.http.borrow_mut().client().clone();
+        let mut st = self.state.borrow_mut();
+        let models = st.provider_models.entry(inst).or_default();
+        let mut read = |i: usize, how: model_door::Read| -> Result<String, std::convert::Infallible> {
+            let text = args.get(i).copied().unwrap_or("");
+            Ok(match how {
+                model_door::Read::Text => text.to_owned(),
+                model_door::Read::Number => model_door::whole_number(text).to_string(),
+            })
+        };
+        match model_door::run(verb, args.len(), &mut read, &http, models) {
+            Some(Ok(answers)) => answers.into_iter().map(|(i, a)| (i, a.text())).collect(),
+            _ => Vec::new(),
+        }
     }
 }
 

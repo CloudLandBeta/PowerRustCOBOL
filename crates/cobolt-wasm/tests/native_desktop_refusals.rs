@@ -234,16 +234,16 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     check("SORT with INPUT and OUTPUT PROCEDUREs compiles into a desktop module".into(), sorted.is_ok());
 
     // A built-in the runner does not serve yet: refused at its line, with the reason of its Desktop class.
-    let models = format!(
-        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-LIST PIC X(200).\n01 WS-N PIC 9(3).\n\
-         PROCEDURE DIVISION.\n    COBOL::\"MODEL-LIST\" ( WS-LIST WS-N )\n    STOP RUN.\n"
+    let mcp = format!(
+        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-OUT PIC X(200).\n\
+         PROCEDURE DIVISION.\n    COBOL::\"MCP-SEARCH\" ( \"search_orders\" \"{{}}\" WS-OUT )\n    STOP RUN.\n"
     );
-    let e = refusal(&models);
+    let e = refusal(&mcp);
     check(
-        "COBOL::\"MODEL-LIST\": refused at its line, the model lists (M6)".into(),
-        e.subject == "COBOL::\"MODEL-LIST\""
-            && e.line == line_of(&models, "MODEL-LIST")
-            && e.message.contains("the model lists are not on the WebAssembly path yet")
+        "COBOL::\"MCP-SEARCH\": refused at its line, the MCP search (M6)".into(),
+        e.subject == "COBOL::\"MCP-SEARCH\""
+            && e.line == line_of(&mcp, "MCP-SEARCH")
+            && e.message.contains("the MCP search and PartiQL are not on the WebAssembly path yet")
             && e.message.contains("M6"),
     );
 
@@ -456,6 +456,39 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     check(
         format!("a form whose AgentObject uses AllowKnowledgeBase (a literal, no collection, a data item) and DenyKnowledgeBase compiles, requiring {kb_needs:?}"),
         kb.is_ok() && kb_needs.iter().any(|c| c == "agent") && kb_needs.iter().any(|c| c == "agent.kb") && !kb_needs.iter().any(|c| c == "agent.files"),
+    );
+    // The model list, its keys and the providers (T48, A53): the twelve built-ins compile in a form's
+    // handler and the module requires `models`, which a module without them does not; a call with fewer
+    // arguments than the interpreter runs it with, and one in a program with no form, are refused at
+    // their line.
+    let models = in_form(&handler(
+        "    COBOL::\"MODEL-SET\" ( \"e\" \"Ollama\" \"http://127.0.0.1:1/v1\" \"m\" WS-PATH )\n    COBOL::\"MODEL-COUNT\" ( WS-PATH )\n\
+         \x20   COBOL::\"MODEL-GET\" ( 1 WS-PATH WS-PATH WS-PATH WS-PATH )\n    COBOL::\"MODEL-REMOVE\" ( \"e\" WS-PATH )\n\
+         \x20   COBOL::\"KEY-SET\" ( \"e\" WS-PATH WS-PATH )\n    COBOL::\"KEY-IS-SET\" ( \"e\" WS-PATH )\n    COBOL::\"KEY-REMOVE\" ( \"e\" )\n\
+         \x20   COBOL::\"PROVIDER-COUNT\" ( WS-PATH )\n    COBOL::\"PROVIDER-GET\" ( 2 WS-PATH WS-PATH WS-PATH WS-PATH )\n\
+         \x20   COBOL::\"MODEL-LIST\" ( \"Ollama\" \"http://127.0.0.1:1\" \" \" WS-PATH WS-PATH WS-PATH )\n    COBOL::\"MODEL-LIST-GET\" ( 1 WS-PATH )\n\
+         \x20   COBOL::\"MODEL-TEST\" ( \"Ollama\" \"http://127.0.0.1:1\" \"m\" \" \" WS-PATH )\n",
+    ));
+    if let Err(e) = &models {
+        println!("    model list: {} at line {}: {}", e.subject, e.line, e.message);
+    }
+    let model_needs = caps(&models);
+    check(
+        format!("a form's handler calling the 12 built-ins of the model list, its keys and the providers compiles, requiring {model_needs:?}"),
+        models.is_ok() && model_needs.iter().any(|c| c == "models"),
+    );
+    check(format!("a form calling none of them requires {plain_agent:?}, not models"), !plain_agent.iter().any(|c| c == "models"));
+    let short = handler("    COBOL::\"MODEL-SET\" ( \"e\" \"Ollama\" \"u\" )\n");
+    let e = in_form(&short).err().unwrap_or_else(|| GenError::new(0, "compiled"));
+    check(
+        format!("COBOL::\"MODEL-SET\" with 3 arguments: refused at its line ({} at line {})", e.subject, e.line),
+        e.subject == "COBOL::\"MODEL-SET\"" && e.line == line_of(&short, "MODEL-SET") && e.message.contains("at least 4 arguments"),
+    );
+    let console = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-N PIC 9(2).\nPROCEDURE DIVISION.\n    COBOL::\"MODEL-COUNT\" ( WS-N )\n    STOP RUN.\n");
+    let e = refusal(&console);
+    check(
+        format!("COBOL::\"MODEL-COUNT\" in a program with no form: refused at its line ({} at line {})", e.subject, e.line),
+        e.subject == "COBOL::\"MODEL-COUNT\"" && e.line == line_of(&console, "MODEL-COUNT") && e.message.contains("form's handler only"),
     );
     let notes = with_files("    MOVE AGT-1::AllowFile( \"NOTES\" ) TO WS-PATH\n");
     let e = in_form(&notes).err().unwrap_or_else(|| GenError::new(0, "compiled"));

@@ -1896,7 +1896,7 @@ The code says five things the plan did not settle. Each is applied in the tasks 
 
 Each task here moves its controls out of the `DesktopControl` fallback. It is verified by runner twins of the `rcrun` host tests for those controls, and by pixel parity on every reference project that uses them.
 
-- [ ] **T47 — AgentObject, KnowledgeBase and WebSearch** (R11)
+- [x] **T47 — AgentObject, KnowledgeBase and WebSearch** (R11)
   - Verify: twins of `model_list_hosts` and the agent and KB host tests, against local stubs.
   - *WebSearch done 2026-11-19 (2.0.618, "T47a"):*
     - **Why WebSearch came first:** it is a RestClient request whose address, headers and body come from the control's properties, so it rides on T42b's port with no new import. KnowledgeBase needs the runtime's `kb` feature in the runner and its own events, and AgentObject a tool loop, streaming and MCP: each is a step of its own.
@@ -1992,6 +1992,9 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
       - `native_desktop_refusals`: 39 of 39 checks, 57 programs compiled: a form whose AgentObject uses `AllowKnowledgeBase` (by a literal, with no collection, and by a data item) and `DenyKnowledgeBase` compiles and requires `agent` and `agent.kb`; a form whose AgentObject uses none of the members requires `agent` alone. The other test: 13 of 13.
       - `subset_table`: 9 of 9; 71 control types = 68 served + 3 on the Cargo path, 29 of 29 fixed points; 136 entries classified (53 statements, 83 built-ins), 0 faults; the Knowledge Base members are served.
     - **Left for this task:** the twins of `model_list_hosts`.
+  - *The `model_list_hosts` twin done 2026-11-20 (2.0.624), with T48's model lists; T47 is done:*
+    - **The twin:** `the_model_list_keys_and_providers_agree_on_both_engines` runs `model_list_hosts`' order (an entry beats the Configuration, which beats the agent's own settings) on both engines, with the built-ins that make the entry and its key: 18 of 18 checks (T48 below).
+    - **T47's verification, all against local stubs:** the twins of the agent and Knowledge Base host tests are `runner_agent_form` (24 of 24 checks), `runner_agent_files_form` (14 of 14), `runner_agent_kb_form` (14 of 14), `runner_knowledgebase_form` (26 of 26) and `runner_websearch_form` (34 of 34); `model_list_hosts` itself still passes (1 passed; its built-binary test, a Debug Build on the Cargo path, stays ignored as by default).
 
 - [ ] **T48 — Maps, the Aws controls, model lists and MCP** (R11)
   - Verify: twins of `aws_hosts`, `partiql_hosts` and `powercloud_hosts`, against local stubs. No twin sends a request signed with the live keys some example `.cfrm` files carry.
@@ -2009,6 +2012,27 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
       - `desktop_controls_the_runner_lacks_are_named` 8 of 8, with an AWS form served; the runner twins 13 of 13; `cobolt-wasm` and `cobolt-wasm-abi` 154 of 154; the PowerAnalyticsWeb pin 3 of 3.
     - **PowerCloud** still takes the Cargo path, for the reasons T39c lists (the image built-ins and its FileDropZone).
     - **Left for this task:** Maps, the model lists and MCP, and the `partiql_hosts` and `powercloud_hosts` twins. `PARTIQL` is still refused, and PowerCloud cannot be twinned while it takes the Cargo path.
+  - *The model lists done 2026-11-20 (2.0.624); Maps and MCP are still open, so the box stays empty:*
+    - **One implementation of the rules:** the interpreter's twelve arms moved, unchanged, into `cobolt_runtime::model_door`, which both hosts call. `VERBS` gives each built-in's fewest arguments and the arguments it writes. `run` reads an argument only when the built-in needs it, in the order it needs it, and takes the key of a `MODEL-LIST` or `MODEL-TEST` with a blank key from the store, when a sixth argument names an entry.
+    - **What runs (ABI A53, a new capability `models`, no new import):**
+      - A form's handler that calls one of the twelve makes the module require `models`. The call goes to the application object with every argument as text; the runner answers with `model_door`, and the generated code moves each answer from the application's `BuiltinAnswer<n>` into argument `n`.
+      - The model list and the key store are the application's files, as under the interpreter. The models a provider last listed belong to the form instance that asked.
+      - `MODEL-LIST` and `MODEL-TEST` use the calling window's HTTP client and wait for the answer, as the interpreter's do.
+    - **What still takes the Cargo path:** a call with fewer arguments than the interpreter runs it with, and one in a program with no form, as AWS's keys. `D_CONTROLS` now names the MCP search and PartiQL only.
+    - **Tests:**
+      - **The runner twin `the_model_list_keys_and_providers_agree_on_both_engines`, against four local stubs (the entry's server, the Configuration's, the agent's own and a provider):** 18 of 18 checks. One form with 2 AgentObjects, 8 buttons and 12 event handlers covers all twelve built-ins:
+        - the providers' catalogue;
+        - an entry, and one with no name; the count into a numeric and an alphanumeric item; the entry read back;
+        - `model_list_hosts`' order: the entry, then the Configuration, then the agent's own settings;
+        - a key stored, asked about, removed and asked about again, never in a request;
+        - a provider's two models, the second read back, and a connection test;
+        - the entry removed, and an Ask naming it failing as spec 076 says.
+        Four dumps are equal, four pictures (1,033,600 pixels) have 0 differing, each server receives the same requests from both engines ([1, 1, 1, 2]), and both engines leave the same list in the project's settings folder. In real time: the interpreter 36.6 s, the runner 36.1 s.
+      - `model_door`'s own test: 10 of 10 checks. The runner's `the_abi_and_the_rules_name_the_same_arguments`: 12 of 12 rows equal.
+      - `native_desktop_refusals`: 43 of 43 checks. The twelve compile in a form's handler and require `models`; a form calling none does not; `MODEL-SET` with 3 arguments, and `MODEL-COUNT` in a program with no form, are refused at their line. `subset_table`: 136 entries, 54 through the runner, 34 on the Cargo path, 0 faults.
+      - `desktop_wasm_build`: a `MODEL-LIST` in a program with no form is refused at its line, naming the form's handler. Two of that test's checks expect the pointer refusal's text from before 2.0.615; 2.0.625 corrects them.
+      - The interpreter, unchanged: `test_model_list` 3, `test_model_list_file` 1, `test_providers` 1, `test_cobol_object_call` 2, `test_sql_database_object` 4; the library's tests of the model list, the key store and the providers.
+    - **Left for this task:** Maps, MCP (`MCP-SEARCH` with it) and PartiQL, and the `partiql_hosts` and `powercloud_hosts` twins.
 
 - [ ] **T49 — AUDIO, ANIMATIONSEQUENCE and LAYOUT** (R11)
   - *Sound done 2026-11-16 (2.0.555); `ANIMATIONSEQUENCE` and `LAYOUT` are still open, so the box stays empty:*

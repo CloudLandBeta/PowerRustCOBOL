@@ -142,6 +142,32 @@ pub const CONFORMANCE_IMPORTS: &[&str] = &["file_open", "file_read", "file_write
 /// of [`cap`], and runs only on the runner.
 pub const NATIVE_IMPORT_MODULE: &str = "prn";
 
+/// The built-ins of the application's model list, its keys and the model providers (A53): each with
+/// the fewest arguments it runs with and the arguments it writes, 0-based, in the order it writes them.
+/// A desktop module sends the call to the application object with every argument as text, then moves
+/// the application's `BuiltinAnswer<n>` into argument `n` (1-based) of each one it writes and has.
+/// `cobolt_runtime::model_door::VERBS` is the same table: the runner's tests hold the two equal.
+pub const MODEL_VERBS: &[(&str, usize, &[usize])] = &[
+    ("MODEL-SET", 4, &[4]),
+    ("MODEL-REMOVE", 1, &[1]),
+    ("MODEL-COUNT", 1, &[0]),
+    ("MODEL-GET", 2, &[1, 2, 3, 4]),
+    ("KEY-SET", 1, &[2]),
+    ("KEY-REMOVE", 1, &[1]),
+    ("KEY-IS-SET", 2, &[1]),
+    ("PROVIDER-COUNT", 1, &[0]),
+    ("PROVIDER-GET", 2, &[1, 2, 3, 4]),
+    ("MODEL-LIST", 4, &[3, 4]),
+    ("MODEL-LIST-GET", 2, &[1]),
+    ("MODEL-TEST", 4, &[4]),
+];
+
+/// The row of [`MODEL_VERBS`] for `name` (any case): the fewest arguments, and the arguments written.
+pub fn model_verb(name: &str) -> Option<(usize, &'static [usize])> {
+    let n = name.trim().to_ascii_uppercase();
+    MODEL_VERBS.iter().find(|(v, _, _)| *v == n).map(|(_, min, out)| (*min, *out))
+}
+
 /// The capabilities a manifest may require (A27): what a module needs beyond ABI v1 §3. A manifest
 /// without `capabilities` needs none. A name is never retired and never changes its meaning: a new
 /// meaning is a new name.
@@ -182,6 +208,10 @@ pub mod cap {
     /// The AgentObject's Knowledge Base tools, which the runner answers itself with the form's
     /// KnowledgeBase: `AllowKnowledgeBase` and `DenyKnowledgeBase` (A52).
     pub const AGENT_KB: &str = "agent.kb";
+    /// The application's model list, its keys and the model providers: `COBOL::"MODEL-SET"` and the
+    /// other built-ins of [`super::MODEL_VERBS`], which the runner answers with the interpreter's own
+    /// rules (A53).
+    pub const MODELS: &str = "models";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
@@ -204,6 +234,7 @@ pub mod cap {
         AGENT,
         AGENT_FILES,
         AGENT_KB,
+        MODELS,
     ];
 }
 

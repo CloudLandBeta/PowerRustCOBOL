@@ -44,7 +44,7 @@ pub const D_FORMS: &str = "a program with no form has no controls or application
 /// The `BINDING-…` built-ins drive a Data Binding, which moves with the bound controls (M6), not with
 /// SQL (M4): T43 relabelled them.
 const D_BINDING: &str = "the Data Binding built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
-const D_CONTROLS: &str = "the non-visual controls, the keys and the model lists are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_CONTROLS: &str = "the MCP search and PartiQL are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_MEDIA: &str = "animation sequences and layouts are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_PHONE: &str = "the phone's secure storage is a Mobile built-in, where a desktop program stops; that stop is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_REMOTE: &str = "remote calls, backend verbs and identity operations are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
@@ -290,26 +290,27 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("IMAGE-FIT", Support::BackendOnly(FILES), Native::Host(cap::IMAGES)),
     c("IMAGE-INFO", Support::BackendOnly(FILES), Native::Host(cap::IMAGES)),
     c("INIT-FORM", Support::Module, Native::Form),
-    c("KEY-IS-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("KEY-REMOVE", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("KEY-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    // The runner answers the model list, the keys and the providers with the interpreter's rules (T48, A53).
+    c("KEY-IS-SET", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
+    c("KEY-REMOVE", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
+    c("KEY-SET", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
     c("LAYOUT", Support::Unsupported("the player has no command to install a layout script at run time yet (spec 109 S6, WASM-PARITY #47)"), cargo(D_MEDIA)),
     c("MCP-SEARCH", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("MODEL-COUNT", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("MODEL-GET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("MODEL-LIST", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("MODEL-LIST-GET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("MODEL-REMOVE", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("MODEL-SET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("MODEL-TEST", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("MODEL-COUNT", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
+    c("MODEL-GET", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
+    c("MODEL-LIST", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
+    c("MODEL-LIST-GET", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
+    c("MODEL-REMOVE", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
+    c("MODEL-SET", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
+    c("MODEL-TEST", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
     c("NEXT-ROW", Support::BackendOnly(SQL), Native::Host(cap::SQL)),
     c("OPEN-DB", Support::BackendOnly(SQL), Native::Host(cap::SQL)),
     c("OPEN-FILE-DIALOG", Support::Unsupported(NO_PATHS), Native::Host(cap::DIALOGS)),
     c("PARTIQL", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
     c("PARTIQL-ERROR", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
     c("PARTIQL-FETCH", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
-    c("PROVIDER-COUNT", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
-    c("PROVIDER-GET", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    c("PROVIDER-COUNT", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
+    c("PROVIDER-GET", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
     c("RAISE-EVENT", Support::Module, Native::Form),
     c("ROW-COUNT", Support::BackendOnly(SQL), Native::Host(cap::SQL)),
     c("SAVE-FILE-DIALOG", Support::Unsupported(NO_PATHS), Native::Host(cap::DIALOGS)),

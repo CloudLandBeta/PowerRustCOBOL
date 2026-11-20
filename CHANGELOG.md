@@ -2,6 +2,41 @@
 
 
 
+## 2.0.624 — 2026-11-20
+
+**Feature: the application's model list, its keys and the model providers run in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T48, the model lists; T47 done).** A desktop form whose handlers keep the application's model list, store its keys, or ask a provider which models it offers no longer sends its program down the Cargo path. The twelve built-ins run in the built program as under Run Form:
+- `COBOL::"MODEL-SET"`, `"MODEL-REMOVE"`, `"MODEL-COUNT"` and `"MODEL-GET"` keep the application's model list in `settings/models.json`, shared with the IDE's Run Form and with a program built on the Cargo path.
+- `COBOL::"KEY-SET"`, `"KEY-REMOVE"` and `"KEY-IS-SET"` keep an entry's key in the application's key store, `settings/model-keys.dat`; no call returns a key.
+- `COBOL::"PROVIDER-COUNT"` and `"PROVIDER-GET"` read the providers' catalogue; `COBOL::"MODEL-LIST"`, `"MODEL-LIST-GET"` and `"MODEL-TEST"` ask a provider which models it offers, read them back, and test a connection. With a blank key and an entry named, the entry's stored key is used.
+- An AgentObject whose `ModelEntry` names an entry the program made goes to that entry's server, as under the interpreter: spec 076's order, the entry, then the `Configuration`, then the agent's own settings.
+
+Two uses still take the Cargo path: a call with fewer arguments than the interpreter runs the built-in with, and a call in a program with no form, as the AWS keys do.
+
+- **One implementation of the rules:** the interpreter's twelve arms moved, unchanged, into `cobolt_runtime::model_door`, which both hosts call: `VERBS` (each built-in's fewest arguments, and the arguments it writes) and `run` (an argument is read only when the built-in needs it, in the order it needs it).
+- **The ABI (A53):** a new capability, `models`, which a desktop module requires when a form's handler calls one of the twelve; no new command or import. The call reaches the application object with every argument as text; what the built-in writes comes back as the application's `BuiltinAnswer<n>`, which the generated code moves into argument `n`. The models a provider last listed belong to the form instance that asked. No host records the arguments, a key among them.
+- **The Build's documentation** (the subset document and the System KB, rebuilt) lists the twelve built-ins as served by the runner's `models`; the reason left for the MCP search and PartiQL names only those.
+- **Where:**
+  - `cobolt-runtime`: `model_door.rs` (new), `lib.rs`, `interpreter.rs`.
+  - `cobolt-abi-host`: `host.rs`, `host/agent.rs` (the `ModelsPort`).
+  - `cobolt-runner`: `agent.rs`, `forms.rs`, `lib.rs`.
+  - `cobolt-wasm-abi`: `codes.rs` (the capability and `MODEL_VERBS`). `cobolt-wasm`: `support.rs`, `lower_form.rs`; `tests/native_desktop_refusals.rs`.
+  - `cobolt-compiler`: `tests/desktop_wasm_build.rs`. `assets/knowledge/chunked.data` is rebuilt.
+  - `cobolt-cli`: `tests/runner_model_list_form.rs` (new).
+  - `specs/WASM-ABI-v1.md` (A53, the capability list, §12.1); `tasks.md` (T47 done, T48 notes); `specs/WASM-PROGRESS.md`.
+- **Measured** (macOS arm64):
+  - **The runner twin `the_model_list_keys_and_providers_agree_on_both_engines`:** 18 of 18 checks, against four local stub servers (the entry's, the Configuration's, the agent's own and a provider). One form with 2 AgentObjects, 8 buttons and 12 event handlers covers all twelve built-ins and spec 076's order. Four dumps are equal; four pictures (1,033,600 pixels) with 0 differing; each server receives the same requests from both engines ([1, 1, 1, 2]); both engines leave the same list in the project's settings folder; no request carries the key. In real time: the interpreter 36.6 s, the runner 36.1 s.
+  - **The rules:** `model_door`'s own test 10 of 10 checks; the ABI's table and the rules' 12 of 12 rows equal.
+  - **The generator:** `native_desktop_refusals` 43 of 43 checks (the twelve compile in a form's handler and require `models`; a form calling none does not; `MODEL-SET` with 3 arguments and `MODEL-COUNT` in a program with no form are refused at their line); `subset_table`: 136 entries, 54 through the runner and 34 on the Cargo path, 0 faults.
+  - **The interpreter, unchanged:** `test_model_list` 3, `test_model_list_file` 1, `test_providers` 1, `test_cobol_object_call` 2, `test_sql_database_object` 4, with the agent, Knowledge Base, file and asynchronous tests (70 passed, 1 ignored in all); the library's tests of the model list, the key store, the providers, the Knowledge Base, agents and the MCP tools, 46.
+  - **Regressions, all green:**
+    - the whole `cobolt-runner` suite: 21 passed, 0 failed, 2 ignored, in 12 binaries (3,541 s), the new table test among them;
+    - `cobolt-wasm`: 146 passed; `cobolt-abi-host`: 281; `cobolt-wasm-abi`: 25;
+    - the twins of the AgentObject (24 of 24), its indexed-file tools (14 of 14) and Knowledge Base tools (14 of 14), the KnowledgeBase (26 of 26), the WebSearch (34 of 34) and the RestClient (35 of 35); `model_list_hosts` 1 passed, its built-binary test ignored as by default;
+    - `cobolt-compiler --lib`: 262 passed, 1 ignored (2,957 s);
+    - `desktop_wasm_build`: its `MODEL-LIST` check passes, refused at its line in a program with no form. Two of its checks expect the pointer refusal's text from before 2.0.615 and fail on this branch since then; 2.0.625 corrects them;
+    - the System KB: 4,418 records from 8 documents, 15,667,200 bytes; `prebuilt_chunked_kb_matches_the_published_documentation` passes.
+  - **The release `prc-runner`:** 79,998,112 bytes, 6,032 more than at 2.0.623 (79,992,080).
+
 ## 2.0.623 — 2026-11-19
 
 **Feature: an AgentObject's Knowledge Base tools run in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T47c, second part).** A desktop form whose AgentObject lets the model search the form's KnowledgeBase collections no longer sends its program down the Cargo path. The built program offers and answers those tools as Run Form does:

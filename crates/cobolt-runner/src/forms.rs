@@ -435,6 +435,9 @@ impl Thread {
             })
         };
         host.agent = Some(Box::new(agent.clone()));
+        // The model list, its keys and the providers (T48): the agents' port, whose HTTP clients
+        // `MODEL-LIST` and `MODEL-TEST` use.
+        host.models = Some(Box::new(agent.clone()));
         // The KnowledgeBase controls (T47b): an operation runs on a thread of its own, and each of its
         // reports comes back on this thread's own channel too.
         let kb = {

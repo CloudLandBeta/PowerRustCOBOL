@@ -293,7 +293,7 @@ pub use self::rest::{RestControl, RestEffects, RestPort};
 mod kb;
 pub use self::kb::{KbControl, KbEffects, KbEvent, KbPort};
 mod agent;
-pub use self::agent::{AgentControl, AgentEffects, AgentPort};
+pub use self::agent::{AgentControl, AgentEffects, AgentPort, ModelsPort};
 
 /// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
 /// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
@@ -632,6 +632,9 @@ pub struct Host {
     pub kb: Option<Box<dyn KbPort>>,
     /// The desktop's AgentObject, which the runner gives the host (T47c, A50); `None` in a page.
     pub agent: Option<Box<dyn AgentPort>>,
+    /// The application's model list, its keys and the model providers, which the runner gives the host
+    /// (T48, A53); `None` in a page.
+    pub models: Option<Box<dyn ModelsPort>>,
     /// The `onToolCall` handlers handed to the program and not yet heard back from, `(inst, control)`
     /// (T47c): the port hears of each when its instance is free again.
     tool_waits: Vec<(u32, usize)>,
@@ -813,6 +816,7 @@ impl Host {
             rest: None,
             kb: None,
             agent: None,
+            models: None,
             tool_waits: Vec::new(),
             drop_zones: None,
             absent: HashMap::new(),
@@ -3534,6 +3538,13 @@ impl Host {
             // program's receiver reads the answer from the application object.
             "AWS-SET-CREDENTIALS" | "AWS-CLEAR-CREDENTIALS" | "AWS-CREDENTIALS-SET" if self.opts.desktop => {
                 self.aws_credentials(&m, args);
+                Ok(None)
+            }
+            // The application's model list, its keys and the providers (A53): the runner answers with
+            // the interpreter's own rules, and the program's receivers read each answer from the
+            // application object. The arguments, a key among them, are never logged.
+            v if self.opts.desktop && cobolt_wasm_abi::codes::model_verb(v).is_some() => {
+                self.models_call(inst, v, args);
                 Ok(None)
             }
             "AUDIO-STATE" if self.opts.desktop => {

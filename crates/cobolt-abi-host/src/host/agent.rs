@@ -70,7 +70,32 @@ pub trait AgentPort {
     fn release(&mut self, inst: u32);
 }
 
+/// The application's model list, its keys and the model providers (DESKTOP-WASM-001 T48, A53), which
+/// the runner gives the host in [`Host::models`].
+pub trait ModelsPort {
+    /// The built-in `verb` (upper case, one of `codes::MODEL_VERBS`) called by instance `inst` with the
+    /// argument texts `args`: the arguments it writes, by 0-based place, with their texts.
+    fn call(&mut self, inst: u32, verb: &str, args: &[&str]) -> Vec<(usize, String)>;
+}
+
 impl Host {
+    /// A model-list built-in (A53): the answers go to the application's `BuiltinAnswer<n>`, `n` the
+    /// argument's 1-based place, which the generated code moves into the arguments; an earlier call's
+    /// answers are cleared first. A host with no port answers nothing.
+    pub(super) fn models_call(&mut self, inst: u32, verb: &str, args: &[&str]) {
+        let most = cobolt_wasm_abi::codes::MODEL_VERBS.iter().flat_map(|(_, _, w)| w.iter()).max().copied().unwrap_or(0);
+        for i in 0..=most {
+            self.app.remove(&format!("builtinanswer{}", i + 1));
+        }
+        let answers = match self.models.as_mut() {
+            Some(port) => port.call(inst, verb, args),
+            None => Vec::new(),
+        };
+        for (i, text) in answers {
+            self.app.insert(format!("builtinanswer{}", i + 1), text);
+        }
+    }
+
     /// A method of the control `idx` when that control is an AgentObject and the host has a port:
     /// `None` otherwise, and for a method that is not the control's own.
     pub(super) fn agent_call(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Option<Result<Option<String>, CmdError>> {

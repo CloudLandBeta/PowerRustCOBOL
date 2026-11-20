@@ -119,16 +119,17 @@ const HTTP: &str = "\
            STOP RUN.
 ";
 
-/// A built-in the runner does not serve yet: the model lists (DESKTOP-WASM-001 M6).
+/// A built-in the runner serves in a form's handler only: the model list, in a program with no form
+/// (DESKTOP-WASM-001 T48). The program is built, never run; its endpoint is a local port nothing serves.
 const MODELS: &str = "\
        IDENTIFICATION DIVISION.
        PROGRAM-ID. T16MODELS.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
-       01 WS-LIST    PIC X(200).
        01 WS-COUNT   PIC 9(3).
+       01 WS-STATUS  PIC X(40).
        PROCEDURE DIVISION.
-           COBOL::\"MODEL-LIST\" ( WS-LIST WS-COUNT )
+           COBOL::\"MODEL-LIST\" ( \"Ollama\" \"http://127.0.0.1:9\" \" \" WS-COUNT WS-STATUS )
            STOP RUN.
 ";
 
@@ -405,7 +406,7 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     let http_reason = reason_of(&r);
     check(
         &format!("COBOL::\"MODEL-LIST\" in the main program → Refused at src/main.cbl line {models_line}"),
-        matches!(&http_reason, Ok(CargoReason::Refused { construct, file, line, reason }) if construct == "COBOL::\"MODEL-LIST\"" && file == "src/main.cbl" && *line == models_line && reason.contains("the model lists")),
+        matches!(&http_reason, Ok(CargoReason::Refused { construct, file, line, reason }) if construct == "COBOL::\"MODEL-LIST\"" && file == "src/main.cbl" && *line == models_line && reason.contains("in a form's handler only")),
     );
     // The HTTP built-ins are the runner's since T42 (A45): the same program builds on the WebAssembly path.
     let m = project(&root, "prct16http", &console_manifest("prct16http", "src/main.cbl", &["src/main.cbl"], ""), &[("src/main.cbl", HTTP)]);
