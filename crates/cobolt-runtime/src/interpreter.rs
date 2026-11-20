@@ -1620,7 +1620,7 @@ pub struct Interpreter {
     /// when it looks like one, and a data item is typed by its declaration.
     partiql_arg_origin: Vec<partiql::ArgOrigin>,
     /// Spec 108 — the last `COBOL::"PARTIQL"` result of each file the program opened.
-    partiql_files: HashMap<String, partiql::FileResults>,
+    partiql_files: HashMap<String, crate::partiql::door::FileResults>,
     /// Spec 108 — data path of every file a control holds → its `open_files` key.
     partiql_open: HashMap<std::path::PathBuf, String>,
     /// Spec 108 — the `open_files` keys of the files controls opened (closed when the run ends).

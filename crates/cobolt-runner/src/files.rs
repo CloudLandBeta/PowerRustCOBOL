@@ -485,4 +485,17 @@ impl Files {
     pub fn partiql_hold(&mut self, inst: u32, canon: PathBuf, engine: Box<dyn IndexedStore>, mode: OpenMode, lock: Option<std::fs::File>) {
         self.ctl_files.insert((inst, canon), CtlFile { engine, mode, lock });
     }
+
+    /// File `id` as the module describes it (`COBOL::"PARTIQL"`, A56).
+    pub fn declared(&self, id: u32) -> Option<&FileDecl> {
+        self.decl(id)
+    }
+
+    /// The INDEXED file the program holds open at `slot` (`COBOL::"PARTIQL"`, A56).
+    pub fn indexed_at(&mut self, slot: u32) -> Option<&mut dyn IndexedStore> {
+        match &mut self.open.get_mut(&slot)?.handle {
+            Handle::Indexed(e) => Some(e.as_mut()),
+            _ => None,
+        }
+    }
 }

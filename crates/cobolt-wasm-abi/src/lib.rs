@@ -31,6 +31,8 @@ pub mod manifest;
 pub mod sql;
 /// The HTTP built-ins of a desktop module (A45).
 pub mod http;
+/// `COBOL::"PARTIQL"` and its two siblings in a desktop module (A56).
+pub mod partiql;
 
 #[cfg(feature = "scan")]
 pub mod scan;

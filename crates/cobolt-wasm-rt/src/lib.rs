@@ -937,3 +937,13 @@ pub extern "C" fn rt_switches_env(base: u32, table: u32, name: u32) {
 pub extern "C" fn rt_gfx_send() {
     gfx::send();
 }
+
+/// `COBOL::"PARTIQL"`, `"PARTIQL-FETCH"` and `"PARTIQL-ERROR"` (ABI A56): the static record `spec`
+/// (`pq::partiql`). Here, at the end, with its module, so the lines of the routines above stay where
+/// they are.
+#[no_mangle]
+pub extern "C" fn rt_partiql(base: u32, spec: u32) {
+    pq::partiql(base, spec);
+}
+
+pub mod pq;

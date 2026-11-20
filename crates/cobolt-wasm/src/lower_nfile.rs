@@ -210,6 +210,27 @@ impl Lower<'_, '_> {
                             .filter(|d| *d > 0),
                         _ => None,
                     },
+                    // A56: the keys as `COBOL::"PARTIQL"` finds them, spelled as the interpreter's
+                    // `FileSpec` holds them.
+                    named_keys: match (fc.organization, fc.record_key.as_deref()) {
+                        (FileOrganization::Indexed, Some(rk)) => {
+                            let parts = |ps: &[cobolt_ast::program::KeyField]| ps.iter().map(|p| (p.name.clone(), p.quals.clone())).collect::<Vec<_>>();
+                            Some(cobolt_wasm_abi::files::NamedKeys {
+                                record: cobolt_wasm_abi::files::NamedKey {
+                                    name: rk.to_ascii_uppercase(),
+                                    quals: fc.record_key_quals.iter().map(|q| q.to_ascii_uppercase()).collect(),
+                                    parts: parts(&fc.record_key_parts),
+                                    dup: false,
+                                },
+                                alternates: fc
+                                    .alternate_keys
+                                    .iter()
+                                    .map(|ak| cobolt_wasm_abi::files::NamedKey { name: ak.field.clone(), quals: ak.quals.clone(), parts: parts(&ak.parts), dup: ak.with_duplicates })
+                                    .collect(),
+                            })
+                        }
+                        _ => None,
+                    },
                 };
                 let id = self.names.native_files.len() as u32;
                 self.names.native_files.push(decl);

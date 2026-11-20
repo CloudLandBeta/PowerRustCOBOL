@@ -44,7 +44,6 @@ pub const D_FORMS: &str = "a program with no form has no controls or application
 /// The `BINDING-…` built-ins drive a Data Binding, which moves with the bound controls (M6), not with
 /// SQL (M4): T43 relabelled them.
 const D_BINDING: &str = "the Data Binding built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
-const D_CONTROLS: &str = "PartiQL is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_MEDIA: &str = "animation sequences and layouts are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_PHONE: &str = "the phone's secure storage is a Mobile built-in, where a desktop program stops; that stop is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_REMOTE: &str = "remote calls, backend verbs and identity operations are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
@@ -307,9 +306,9 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("NEXT-ROW", Support::BackendOnly(SQL), Native::Host(cap::SQL)),
     c("OPEN-DB", Support::BackendOnly(SQL), Native::Host(cap::SQL)),
     c("OPEN-FILE-DIALOG", Support::Unsupported(NO_PATHS), Native::Host(cap::DIALOGS)),
-    c("PARTIQL", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
-    c("PARTIQL-ERROR", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
-    c("PARTIQL-FETCH", Support::BackendOnly(FILES), cargo(D_CONTROLS)),
+    c("PARTIQL", Support::BackendOnly(FILES), Native::Host(cap::PARTIQL_FILES)),
+    c("PARTIQL-ERROR", Support::BackendOnly(FILES), Native::Host(cap::PARTIQL_FILES)),
+    c("PARTIQL-FETCH", Support::BackendOnly(FILES), Native::Host(cap::PARTIQL_FILES)),
     c("PROVIDER-COUNT", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
     c("PROVIDER-GET", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
     c("RAISE-EVENT", Support::Module, Native::Form),

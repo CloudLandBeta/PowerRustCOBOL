@@ -413,3 +413,92 @@ impl ControlState {
         self.columns.len()
     }
 }
+
+// ── `COBOL::"PARTIQL"`, `"PARTIQL-FETCH"` and `"PARTIQL-ERROR"` (spec 108 Q6, D12): the same
+// statements on a file the program's own FD opened, for programs that have no control. The
+// interpreter and the desktop runner (DESKTOP-WASM-001 T48, ABI A56) both run them with these.
+
+/// A key as the program's `SELECT` names it: its data name and qualifiers, and a split key's parts.
+pub struct KeyRef<'a> {
+    pub name: &'a str,
+    pub quals: &'a [String],
+    pub parts: Vec<(&'a str, &'a [String])>,
+    pub duplicates: bool,
+}
+
+/// The schema of a file the program declares: its first record description's `layout`, and the
+/// keys found in it by name, as the program's `SELECT` names them. `None` when the `SELECT` names
+/// no RECORD KEY, or the RECORD KEY is not a field of the record; an ALTERNATE RECORD KEY that is
+/// not is left out.
+pub fn declared_schema(file: &str, layout: &crate::files::RecordLayout, primary: Option<KeyRef<'_>>, alternates: &[KeyRef<'_>]) -> Option<Schema> {
+    use crate::partiql::schema::KeyInput;
+    let key_of = |k: &KeyRef<'_>, alt: bool| -> Option<KeyInput> {
+        let ranges: Vec<(String, usize, usize)> = if k.parts.is_empty() {
+            let f = layout.field_qualified(k.name, k.quals)?;
+            vec![(f.name.clone(), f.offset, f.len)]
+        } else {
+            k.parts
+                .iter()
+                .map(|(name, quals)| layout.field_qualified(name, quals).map(|f| (f.name.clone(), f.offset, f.len)))
+                .collect::<Option<Vec<_>>>()?
+        };
+        Some(KeyInput { name: alt.then(|| k.name.to_string()), parts: ranges, duplicates: k.duplicates })
+    };
+    let primary = key_of(&primary?, false)?;
+    let alternates: Vec<KeyInput> = alternates.iter().filter_map(|k| key_of(k, true)).collect();
+    Some(Schema::from_layout(file, layout, primary, alternates))
+}
+
+/// `COBOL::"PARTIQL"`: `text` (its trailing spaces gone) parsed, checked against the file's
+/// `schema` (`None`: the program declares no such indexed file), bound to `args` and run on
+/// `store`, the program's open file (`None`: it is not open).
+pub fn run_declared(text: &str, schema: Option<&Schema>, args: &[Arg], store: Option<&mut dyn IndexedStore>) -> Outcome {
+    let statement = match parse(text, false) {
+        Ok(s) => s,
+        Err(e) => return Outcome::failed(e),
+    };
+    let Some(schema) = schema else {
+        return Outcome::failed(file_error(status::FILE_NOT_FOUND, "the program declares no such indexed file"));
+    };
+    let prepared = match statement.prepare(schema, args) {
+        Ok(p) => p,
+        Err(e) => return Outcome::failed(e),
+    };
+    match store {
+        Some(store) => prepared.run(store, schema),
+        None => Outcome::failed(file_error(status::NOT_OPEN_INPUT, "the file is not open")),
+    }
+}
+
+/// What `COBOL::"PARTIQL"` left for one file, for `"PARTIQL-FETCH"` and `"PARTIQL-ERROR"`.
+#[derive(Default)]
+pub struct FileResults {
+    items: Vec<Item>,
+    cursor: usize,
+    error: String,
+}
+
+impl FileResults {
+    /// The results of a statement, and the count and status the program receives.
+    pub fn of(o: Outcome) -> (FileResults, usize, &'static str) {
+        let error = o.last_error();
+        (FileResults { items: o.items, cursor: 0, error }, o.count, o.status)
+    }
+
+    /// `"PARTIQL-FETCH"`: the next item's values, TAB-separated (a TAB inside a value becomes a
+    /// space), and `00`; past the last, nothing and `10`.
+    pub fn fetch(&mut self) -> (String, &'static str) {
+        match self.items.get(self.cursor) {
+            Some(item) => {
+                self.cursor += 1;
+                ((0..item.values.len()).map(|i| item.text(i).replace('\t', " ")).collect::<Vec<_>>().join("\t"), "00")
+            }
+            None => (String::new(), "10"),
+        }
+    }
+
+    /// `"PARTIQL-ERROR"`: the last statement's error text, empty when it ran.
+    pub fn error(&self) -> &str {
+        &self.error
+    }
+}

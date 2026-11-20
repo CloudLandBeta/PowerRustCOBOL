@@ -234,17 +234,49 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     check("SORT with INPUT and OUTPUT PROCEDUREs compiles into a desktop module".into(), sorted.is_ok());
 
     // A built-in the runner does not serve yet: refused at its line, with the reason of its Desktop class.
-    let partiql = format!(
-        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-OUT PIC X(200).\n01 WS-N PIC 9(4).\n\
-         PROCEDURE DIVISION.\n    COBOL::\"PARTIQL\" ( \"ORDERS\" \"SELECT * FROM ORDERS\" WS-N WS-OUT )\n    STOP RUN.\n"
+    let binding = format!(
+        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-OUT PIC X(200).\n\
+         PROCEDURE DIVISION.\n    COBOL::\"BINDING-LOAD\" ( \"B1\" WS-OUT )\n    STOP RUN.\n"
     );
-    let e = refusal(&partiql);
+    let e = refusal(&binding);
     check(
-        format!("COBOL::\"PARTIQL\": refused at its line, PartiQL (M6) ({} at line {}: {})", e.subject, e.line, e.message),
-        e.subject == "COBOL::\"PARTIQL\""
-            && e.line == line_of(&partiql, "PARTIQL")
-            && e.message.contains("PartiQL is not on the WebAssembly path yet")
+        format!("COBOL::\"BINDING-LOAD\": refused at its line, Data Binding (M6) ({} at line {}: {})", e.subject, e.line, e.message),
+        e.subject == "COBOL::\"BINDING-LOAD\""
+            && e.line == line_of(&binding, "BINDING-LOAD")
+            && e.message.contains("the Data Binding built-ins are not on the WebAssembly path yet")
             && e.message.contains("M6"),
+    );
+
+    // `COBOL::"PARTIQL"` and its two siblings are the runner's (T48, A56): the module asks for
+    // `partiql.files` and imports `pq_file`. One given fewer arguments than it takes is refused at its
+    // line, naming what it takes.
+    let partiql = format!(
+        "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT ORDERS ASSIGN TO \"orders.dat\"\n\
+         \x20       ORGANIZATION IS INDEXED ACCESS MODE IS DYNAMIC RECORD KEY IS ORD-ID.\n\
+         DATA DIVISION.\nFILE SECTION.\nFD ORDERS.\n01 ORD-REC.\n    05 ORD-ID PIC 9(4).\n    05 ORD-NAME PIC X(20).\n\
+         WORKING-STORAGE SECTION.\n01 WS-OUT PIC X(200).\n01 WS-ST PIC XX.\n01 WS-N PIC 9(4).\n01 WS-ID PIC 9(4) VALUE 7.\n\
+         PROCEDURE DIVISION.\n    OPEN I-O ORDERS\n\
+         \x20   COBOL::\"PARTIQL\" ( \"ORDERS\" \"SELECT * FROM ORDERS WHERE ORD-ID = ?\" WS-N WS-ST WS-ID )\n\
+         \x20   COBOL::\"PARTIQL-FETCH\" ( \"ORDERS\" WS-OUT WS-ST )\n\
+         \x20   COBOL::\"PARTIQL-ERROR\" ( \"ORDERS\" WS-OUT )\n    CLOSE ORDERS\n    STOP RUN.\n"
+    );
+    let pq_scan = compile_program(&common::parse(&partiql), &native()).ok().and_then(|m| cobolt_wasm_abi::scan::scan_module(&m.wasm).ok());
+    check(
+        "COBOL::\"PARTIQL\", \"PARTIQL-FETCH\" and \"PARTIQL-ERROR\" compile: capabilities files.indexed and partiql.files, import pq_file".into(),
+        pq_scan.is_some_and(|s| {
+            s.imports.iter().any(|i| i.name == "pq_file") && s.embedded_manifest().is_ok_and(|m| m.capabilities == ["files.indexed", "partiql.files"])
+        }),
+    );
+    let short_pq = format!(
+        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-OUT PIC X(200).\n\
+         PROCEDURE DIVISION.\n    COBOL::\"PARTIQL-FETCH\" ( \"ORDERS\" WS-OUT )\n    STOP RUN.\n"
+    );
+    let e = refusal(&short_pq);
+    check(
+        format!("COBOL::\"PARTIQL-FETCH\" with 2 arguments: refused at its line, naming what it takes ({} at line {}: {})", e.subject, e.line, e.message),
+        e.subject == "COBOL::\"PARTIQL-FETCH\""
+            && e.line == line_of(&short_pq, "PARTIQL-FETCH")
+            && e.message.contains("takes the file and the data items that receive the row and the status"),
     );
 
     // The HTTP built-ins are the runner's (T42, A45): the module asks for `http` and imports `http_call`.

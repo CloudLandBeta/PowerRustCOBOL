@@ -2,6 +2,35 @@
 
 
 
+## 2.0.628 — 2026-11-20
+
+**Feature: `COBOL::"PARTIQL"`, `"PARTIQL-FETCH"` and `"PARTIQL-ERROR"` run in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T48, the PartiQL built-ins).** A desktop program that runs PartiQL statements on a file its own `SELECT` declares and holds open no longer takes the Cargo path, in a console program and in a form's handler alike. The statements run in the built program as under `rcrun run` and Run Form:
+- the file argument is trimmed and taken in any case, and the statement's trailing spaces are dropped;
+- the statement is parsed, checked against the file's first record description and its keys (a split key and the alternate keys included), bound to its `?` arguments, and run on the program's open file;
+- each `?` argument is typed as the interpreter types it, by its declaration: a numeric item or a numeric literal is a number, anything else is text. A numeric item whose characters are no number of its picture (a group `MOVE` left letters or spaces in it) is taken by its characters, as the interpreter takes it: digits with a sign before or after them, or a signed item's last digit carrying its sign, are still a number; anything else goes as text, so the statement fails and names it rather than matching a number decoding would invent;
+- the count, the status, the row and the error go into their receivers as the interpreter sets them, in its order; a `JUSTIFIED RIGHT` receiver takes the text's end;
+- the results stay with the program, one set per file it names, for `PARTIQL-FETCH` and `PARTIQL-ERROR`; a form instance keeps its own, and they go when it closes.
+
+A call with fewer arguments than the built-in takes, or with more than 256 `?` arguments, is refused at its line, so the Build takes the Cargo path. A browser module still refuses the three built-ins (they are the Backend's).
+
+- **One implementation of the rules:** what the interpreter's arms did between reading the arguments and setting the receivers moved, unchanged in behaviour, into `cobolt_runtime::partiql::door` (`declared_schema`, `run_declared`, `FileResults`), which the interpreter and the runner both call.
+- **The ABI (A56):** a new capability, `partiql.files`, with one `prn` import, `pq_file(op, req, req_len, buf, cap) -> i64` (`cobolt_wasm_abi::partiql`). The request names the program's files, the file argument, and for a statement its text and each argument with its kind, every character of each. A file's description in the module (`prfiles`) gains its keys by name (`named_keys`, optional, so an older module still reads).
+- **The module's routine** (`cobolt-wasm-rt` `pq.rs`, `rt.wasm` rebuilt): the request goes out in the scratch area and the answer comes back into the receivers. Its data section is unchanged, so every module's data is as before, and no other routine's body changed.
+- **A module now carries only the function types it uses (DESKTOP-WASM-001 AC16).** Until now every module copied all of the routine blob's types, in the blob's order, and the types of every glue function, desktop ones included. The new routine's host import added a type to the blob and moved another, which moved every module's bytes, the browser's too: the seventh time since 2.0.593 that a desktop change moved the PowerAnalyticsWeb pin. Now the generator interns each linked routine's signature and the types its blocks name, in the routines' order, and a glue function's types only when the module makes that glue. A routine or an import added for the desktop no longer moves a module that does not use it. Every module's bytes change once with this entry, so **the PowerAnalyticsWeb pin (`desktop_wasm_unchanged`) and the player's generated fixture are recorded again here**; a browser module's type section shrinks from 68 types and more to the ones it uses.
+- **The Build's documentation** (the subset document and the System KB, rebuilt) lists the three built-ins as served by the runner's `partiql.files`.
+- **Where:**
+  - `cobolt-runtime`: `partiql/door.rs`, `interpreter/partiql.rs`, `interpreter.rs`.
+  - `cobolt-wasm-abi`: `partiql.rs` (new), `lib.rs`, `codes.rs`, `files.rs`.
+  - `cobolt-wasm-rt`: `pq.rs` (new), `lib.rs`, `deskio.rs`, `host.rs`. `cobolt-wasm`: `assets/rt.wasm`, `assets/rt.sources.hash`, `link.rs`, `lower_form.rs`, `lower_nfile.rs`, `module.rs`, `support.rs`; `tests/native_desktop_refusals.rs`, `tests/type_section.rs` (new).
+  - `cobolt-runner`: `partiql.rs`, `files.rs`, `forms.rs`, `lib.rs`; `tests/partiql_builtins.rs` (new). `cobolt-cli`: `tests/runner_partiql_form.rs`.
+  - Recorded again: `cobolt-web-player/tests/fixtures/generated/` (the generated modules), `cobolt-web-tests/tests/fixtures/power-analytics-web.sha256`. `assets/knowledge/chunked.data` is rebuilt.
+  - `specs/WASM-ABI-v1.md` (A56, the capability list); `tasks.md` (T48 notes); `specs/WASM-PROGRESS.md`.
+- **Measured** (macOS arm64):
+  - **The console twin** (`cobolt-runner` `the_partiql_builtins_match_the_interpreter`): 68 of 68 checks; 48 lines printed the same and 4 files (45,056 bytes) equal; the runner 3.6 s, `rcrun run` 3.7 s. It found, before this commit, that a numeric item holding letters went as a number (`0000 00` against the interpreter's `0000 94`), and that the runner listed the import without the capability.
+  - **The form twin** (`cobolt-cli` `runner_partiql_form`): 18 of 18 checks; three dumps equal; three pictures (972,000 pixels) with 0 differing; the interpreter 18.8 s, the runner 20.6 s.
+  - `native_desktop_refusals` 13 of 13 and 52 of 52; `subset_table` 136 entries, 58 through the runner, 30 on the Cargo path, 0 faults; `type_section` 84 types in 3 modules, 0 unused.
+  - Regressions: `cobolt-wasm` 148 passed; the PowerAnalyticsWeb pin recorded again, then equal (`program.wasm` 742,844 bytes); the whole `cobolt-runner` suite 22 passed, 2 ignored; the interpreter's nine `test_partiql_*` files 13 passed and its library's PartiQL tests 31; the desktop Build test (`desktop_wasm_build`) 39 of 39 checks; the System KB rebuilt (4,422 records) and its check passing.
+
 ## 2.0.627 — 2026-11-20
 
 **Feature: an IndexedFile control's PartiQL members run in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T48, the IndexedFile).** A desktop form whose handlers ask an IndexedFile control `Execute`, `ExecuteTransaction`, `Fetch`, `Get`, `ColumnNames` or `ColumnCount`, or read its `ResultCount`, `StatusCode` and `LastError`, no longer sends its program down the Cargo path. The statements run in the built program as under Run Form:

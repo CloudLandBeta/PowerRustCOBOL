@@ -221,6 +221,27 @@ impl Blob {
         Ok(out)
     }
 
+    /// The types body `idx`'s blocks name (a `block`, `loop` or `if` with parameters or more than
+    /// one result), in order: with no indirect call (refused above), the only types a body names
+    /// besides its own signature. A stub names none.
+    pub fn block_types(&self, idx: u32) -> Result<Vec<u32>, LinkError> {
+        if self.is_stub(idx) {
+            return Ok(Vec::new());
+        }
+        let body = self.body(idx);
+        let mut out = Vec::new();
+        let mut ops = body.get_operators_reader().map_err(|e| LinkError(e.to_string()))?;
+        while !ops.eof() {
+            if let Operator::Block { blockty: wasmparser::BlockType::FuncType(t) }
+            | Operator::Loop { blockty: wasmparser::BlockType::FuncType(t) }
+            | Operator::If { blockty: wasmparser::BlockType::FuncType(t) } = ops.read().map_err(|e| LinkError(e.to_string()))?
+            {
+                out.push(t);
+            }
+        }
+        Ok(out)
+    }
+
     /// Everything reachable from the exported routines in `roots`.
     pub fn closure(&self, roots: &[&str]) -> Result<Closure, LinkError> {
         let mut funcs: BTreeSet<u32> = BTreeSet::new();

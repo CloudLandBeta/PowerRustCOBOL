@@ -1267,6 +1267,8 @@ impl Lower<'_, '_> {
             }
             // On the desktop the module keeps every file's last status (T39c).
             "FILE-STATUS" if self.native => self.desktop_file_status(using, line),
+            // On the desktop the runner runs PartiQL on the program's own open files (T48).
+            "PARTIQL" | "PARTIQL-FETCH" | "PARTIQL-ERROR" if self.native => self.desktop_partiql(name, using, line),
             // The page's own verbs (ABI §12.1) are not the desktop's: under the interpreter a form's
             // windows are `ME`'s and a handle's, and a desktop form has no message box (T6, T32). A
             // desktop module refuses them, so the Build takes the Cargo path, which reports them as the
@@ -1744,6 +1746,77 @@ impl Lower<'_, '_> {
         Ok(())
     }
 
+    /// `COBOL::"PARTIQL" ( file statement count status [arguments] )`, `"PARTIQL-FETCH" ( file row
+    /// status )` and `"PARTIQL-ERROR" ( file text )` in a desktop module (DESKTOP-WASM-001 T48, ABI
+    /// A56): the runner runs the statement with the interpreter's own rules on the file the program's
+    /// `SELECT` declares and holds open, and keeps each file's results for the program. The module
+    /// sends the program's files (their numbers and slots), so the runner finds the one the file
+    /// argument names among them. Each `?` argument goes with its kind, as the interpreter types it by
+    /// its declaration (`partiql_kind`; a control's property is a text here, as the interpreter's
+    /// value of it is). Fewer arguments than the built-in takes are refused, so the Build takes the
+    /// Cargo path, where the interpreter does what it does with them.
+    fn desktop_partiql(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
+        use cobolt_wasm_rt::pq;
+        /// More `?` arguments than the request has room for in the scratch area.
+        const MOST_ARGS: usize = 256;
+        let subject = format!("COBOL::\"{name}\"");
+        let (op, takes, what) = match name {
+            "PARTIQL" => (pq::RUN, 4, "the file, the statement and the data items that receive the count and the status, then the statement's arguments"),
+            "PARTIQL-FETCH" => (pq::FETCH, 3, "the file and the data items that receive the row and the status"),
+            _ => (pq::ERROR, 2, "the file and the data item that receives the error's text"),
+        };
+        if using.len() < takes {
+            return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes {what}"));
+        }
+        if using.len() - takes > MOST_ARGS {
+            return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} with more than {MOST_ARGS} arguments is not on the WebAssembly path"));
+        }
+        let ex = |a: &CallArg| match a {
+            CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+        };
+        let file = self.operand_or_temp(&ex(&using[0]))?;
+        let mut words = vec![op, file, 0, 0, 0, 0, 0];
+        match op {
+            pq::RUN => {
+                words[2] = self.operand_or_temp(&ex(&using[1]))?;
+                words[3] = self.receiver(&ex(&using[2]))?;
+                words[4] = self.receiver(&ex(&using[3]))?;
+            }
+            pq::FETCH => {
+                words[2] = self.receiver(&ex(&using[1]))?;
+                words[3] = self.receiver(&ex(&using[2]))?;
+            }
+            _ => words[2] = self.receiver(&ex(&using[1]))?,
+        }
+        // The program's files, in the order of their numbers.
+        let mut files: Vec<(u32, u32)> = self.native_ids.values().copied().collect();
+        files.sort_unstable();
+        let mut table = vec![files.len() as u32];
+        for (id, handle_off) in files {
+            table.extend([id, handle_off]);
+        }
+        words[5] = self.pool.spec(&table);
+        if op == pq::RUN {
+            let args = &using[takes..];
+            words[6] = args.len() as u32;
+            for a in args {
+                let e = ex(a);
+                let o = self.operand_or_temp(&e)?;
+                let kind = match self.partiql_kind(&e, o) {
+                    'N' => pq::NUMBER,
+                    _ => pq::TEXT,
+                };
+                words.extend([o, u32::from(kind)]);
+            }
+        }
+        // The import `pq_file` makes the module require `partiql.files` (A56).
+        let spec = self.pool.spec(&words);
+        self.base();
+        self.i32c(spec as i32);
+        self.call_rt("rt_partiql");
+        Ok(())
+    }
+
     /// Move the application object's property `prop` (as text) into `dest`.
     fn app_property_into(&mut self, prop: &str, dest: &Expr, line: u32) -> GenResult<()> {
         let k = self.ctemp_next;
@@ -1811,5 +1884,22 @@ mod tests {
             assert_eq!(a, r, "http::{name}: the ABI says {a}, the runtime {r}");
         }
         println!("http_call: {} of {} operations equal in the ABI and the runtime", ops.len(), ops.len());
+    }
+
+    /// The runtime's copy of what crosses `pq_file` (A56) is the ABI's, as for `http_call`.
+    #[test]
+    fn the_runtime_speaks_the_abis_partiql_operations() {
+        use cobolt_wasm_abi::partiql as abi;
+        use cobolt_wasm_rt::pq as rt;
+        let words = [("RUN", abi::RUN, rt::RUN), ("FETCH", abi::FETCH, rt::FETCH), ("ERROR", abi::ERROR, rt::ERROR), ("TAIL", abi::TAIL, rt::TAIL)];
+        for (name, a, r) in words {
+            assert_eq!(a, r, "partiql::{name}: the ABI says {a}, the runtime {r}");
+        }
+        let kinds = [("NUMBER", abi::NUMBER, rt::NUMBER), ("TEXT", abi::TEXT, rt::TEXT)];
+        for (name, a, r) in kinds {
+            assert_eq!(a, r, "partiql::{name}: the ABI says {a}, the runtime {r}");
+        }
+        assert_eq!(abi::TAIL, cobolt_wasm_abi::http::TAIL, "the runner writes a TAIL answer with http::part");
+        println!("pq_file: {} of {} operations and {} of {} kinds equal in the ABI and the runtime; TAIL equals http's", words.len(), words.len(), kinds.len(), kinds.len());
     }
 }

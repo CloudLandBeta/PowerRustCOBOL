@@ -39,15 +39,6 @@ pub(crate) struct PartiqlControl {
     target: Option<Target>,
 }
 
-/// The last `COBOL::"PARTIQL"` result on one file: its items, the next one
-/// `PARTIQL-FETCH` delivers, and the text of the last error.
-#[derive(Default)]
-pub(crate) struct FileResults {
-    items: Vec<Item>,
-    cursor: usize,
-    error: String,
-}
-
 /// A file a control opened and still holds.
 pub(crate) struct OwnedFile {
     key: String,
@@ -789,28 +780,22 @@ impl Interpreter {
 
     /// The schema of a file the program declares, from its FD layout and keys.
     fn partiql_spec_schema(&self, file: &str) -> Option<Schema> {
-        use crate::partiql::schema::KeyInput;
         let spec = self.file_specs.get(file)?;
-        let layout = &spec.layout;
-        let key_of = |name: &str, quals: &[String], parts: &[super::KeyField], dup: bool, alt: bool| -> Option<KeyInput> {
-            let ranges: Vec<(String, usize, usize)> = if parts.is_empty() {
-                let f = layout.field_qualified(name, quals)?;
-                vec![(f.name.clone(), f.offset, f.len)]
-            } else {
-                parts
-                    .iter()
-                    .map(|p| layout.field_qualified(&p.name, &p.quals).map(|f| (f.name.clone(), f.offset, f.len)))
-                    .collect::<Option<Vec<_>>>()?
-            };
-            Some(KeyInput { name: alt.then(|| name.to_string()), parts: ranges, duplicates: dup })
-        };
-        let primary = key_of(spec.record_key.as_deref()?, &spec.record_key_quals, &spec.record_key_parts, false, false)?;
-        let alternates: Vec<KeyInput> = spec
+        fn parts(ps: &[super::KeyField]) -> Vec<(&str, &[String])> {
+            ps.iter().map(|p| (p.name.as_str(), p.quals.as_slice())).collect()
+        }
+        let primary = spec.record_key.as_deref().map(|name| door::KeyRef {
+            name,
+            quals: &spec.record_key_quals,
+            parts: parts(&spec.record_key_parts),
+            duplicates: false,
+        });
+        let alternates: Vec<door::KeyRef<'_>> = spec
             .alternate_keys
             .iter()
-            .filter_map(|ak| key_of(&ak.field, &ak.quals, &ak.parts, ak.with_duplicates, true))
+            .map(|ak| door::KeyRef { name: &ak.field, quals: &ak.quals, parts: parts(&ak.parts), duplicates: ak.with_duplicates })
             .collect();
-        Some(Schema::from_layout(file, layout, primary, alternates))
+        door::declared_schema(file, &spec.layout, primary, &alternates)
     }
 
     fn partiql_set_item(&mut self, arg: &super::CallArg, value: &str, numeric: bool) {
@@ -839,11 +824,7 @@ impl Interpreter {
             args.push(self.partiql_arg(item.as_deref(), v));
         }
         let outcome = self.partiql_file_outcome(&file, &text, &args);
-        let mut res = FileResults::default();
-        res.error = outcome.last_error();
-        let count = outcome.count;
-        let status = outcome.status;
-        res.items = outcome.items;
+        let (res, count, status) = door::FileResults::of(outcome);
         self.partiql_files.insert(file, res);
         self.partiql_set_item(&using[2], &count.to_string(), true);
         self.partiql_set_item(&using[3], status, false);
@@ -857,30 +838,17 @@ impl Interpreter {
     }
 
     fn partiql_file_outcome_run(&mut self, file: &str, text: &str, args: &[Arg]) -> Outcome {
-        let statement = match door::parse(text, false) {
-            Ok(s) => s,
-            Err(e) => return Outcome::failed(e),
+        let schema = self.partiql_spec_schema(file);
+        let mut held = self.open_files.remove(file);
+        let store = match &mut held {
+            Some(OpenFile::Indexed(store)) => Some(store.as_mut() as &mut dyn crate::indexed::IndexedStore),
+            _ => None,
         };
-        let Some(schema) = self.partiql_spec_schema(file) else {
-            return Outcome::failed(file_error(status::FILE_NOT_FOUND, "the program declares no such indexed file"));
-        };
-        let prepared = match statement.prepare(&schema, args) {
-            Ok(p) => p,
-            Err(e) => return Outcome::failed(e),
-        };
-        match self.open_files.remove(file) {
-            Some(OpenFile::Indexed(mut store)) => {
-                let o = prepared.run(store.as_mut(), &schema);
-                self.open_files.insert(file.to_string(), OpenFile::Indexed(store));
-                o
-            }
-            other => {
-                if let Some(h) = other {
-                    self.open_files.insert(file.to_string(), h);
-                }
-                Outcome::failed(file_error(status::NOT_OPEN_INPUT, "the file is not open"))
-            }
+        let o = door::run_declared(text, schema.as_ref(), args, store);
+        if let Some(h) = held {
+            self.open_files.insert(file.to_string(), h);
         }
+        o
     }
 
     pub(crate) fn partiql_builtin_fetch(
@@ -890,12 +858,8 @@ impl Interpreter {
     ) -> Result<(), super::RuntimeError> {
         let file = self.eval_call_arg(&using[0], span)?.as_display_string().trim().to_ascii_uppercase();
         let (row, code) = match self.partiql_files.get_mut(&file) {
-            Some(r) if r.cursor < r.items.len() => {
-                let item = &r.items[r.cursor];
-                r.cursor += 1;
-                ((0..item.values.len()).map(|i| item.text(i).replace('\t', " ")).collect::<Vec<_>>().join("\t"), "00")
-            }
-            _ => (String::new(), "10"),
+            Some(r) => r.fetch(),
+            None => (String::new(), "10"),
         };
         self.partiql_set_item(&using[1], &row, false);
         self.partiql_set_item(&using[2], code, false);
@@ -908,7 +872,7 @@ impl Interpreter {
         span: super::Span,
     ) -> Result<(), super::RuntimeError> {
         let file = self.eval_call_arg(&using[0], span)?.as_display_string().trim().to_ascii_uppercase();
-        let text = self.partiql_files.get(&file).map(|r| r.error.clone()).unwrap_or_default();
+        let text = self.partiql_files.get(&file).map(|r| r.error().to_string()).unwrap_or_default();
         self.partiql_set_item(&using[1], &text, false);
         Ok(())
     }

@@ -220,6 +220,9 @@ pub mod cap {
     /// `ColumnNames`, `ColumnCount`), which the runner runs by the interpreter's own rules on its
     /// file store, and the `_START` each such control hears when its form starts (A55).
     pub const PARTIQL: &str = "partiql";
+    /// `COBOL::"PARTIQL"`, `"PARTIQL-FETCH"` and `"PARTIQL-ERROR"` on the files the program's own
+    /// `SELECT`s declare, which the runner runs by the interpreter's own rules on its file store (A56).
+    pub const PARTIQL_FILES: &str = "partiql.files";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
@@ -245,6 +248,7 @@ pub mod cap {
         MODELS,
         MCP_SEARCH,
         PARTIQL,
+        PARTIQL_FILES,
     ];
 }
 
@@ -269,6 +273,9 @@ pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[
     (cap::SQL, &["sql_exec", "sql_db", "sql_obj"]),
     // A45: the HTTP built-ins, run by the runner with the interpreter's own client (`crate::http`).
     (cap::HTTP, &["http_call"]),
+    // A56: `COBOL::"PARTIQL"` and its two siblings, run by the runner with the interpreter's own rules
+    // (`crate::partiql`).
+    (cap::PARTIQL_FILES, &["pq_file"]),
 ];
 
 /// The file verbs in [`NATIVE_IMPORT_MODULE`] (A34): a file is named by its number in the module's

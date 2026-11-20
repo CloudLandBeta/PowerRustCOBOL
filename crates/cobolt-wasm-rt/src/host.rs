@@ -112,6 +112,12 @@ mod imp {
         /// last of it without its trailing spaces), and its number (bits 32 to 47) and whole length (bits
         /// 0 to 31) returned, or -1.
         pub fn http_call(op: u32, a: u32, a_len: u32, b: u32, b_len: u32, buf: u32, cap: u32) -> i64;
+        // A desktop module only (ABI A56): `COBOL::"PARTIQL"` and its two siblings, run by the runner.
+        /// Operation `op` (`crate::pq`) with the `req_len` bytes of the request at `req`; the
+        /// answer's text is written at `buf` (at most `cap` bytes: its first, or with `TAIL` the last of
+        /// it without its trailing spaces), and its number (bits 32 to 62) and whole length (bits 0 to
+        /// 31) returned, or -1.
+        pub fn pq_file(op: u32, req: u32, req_len: u32, buf: u32, cap: u32) -> i64;
     }
 }
 
@@ -314,6 +320,41 @@ mod imp {
         let from = if tail { ans.len() - n } else { 0 };
         crate::mem::bytes_mut(buf, n as u32).copy_from_slice(&ans[from..from + n]);
         let number = HTTP_NUMBER.with(|v| *v.borrow());
+        ((u64::from(number) << 32) | ans.len() as u64) as i64
+    }
+    std::thread_local! {
+        /// The number the next `pq_file` answers with the text in `BUILTIN_ANSWER` (A56).
+        pub static PQ_NUMBER: RefCell<u32> = const { RefCell::new(0) };
+    }
+    /// `COBOL::"PARTIQL"` and its two siblings (A56): recorded with the built-ins' imports, as
+    /// `("pq_file", [the request's words, then each text it names], [op, cap])`; the text written is
+    /// the first `cap` bytes of `BUILTIN_ANSWER`, or with `TAIL` the last of it without its trailing
+    /// spaces.
+    pub unsafe fn pq_file(op: u32, req: u32, req_len: u32, buf: u32, cap: u32) -> i64 {
+        let words: Vec<u32> = (0..req_len / 4).map(|i| crate::mem::rd_u32(req + 4 * i)).collect();
+        let mut texts = vec![crate::mem::bytes(req, req_len).to_vec()];
+        let nfiles = words[0] as usize;
+        let mut k = 1 + 2 * nfiles;
+        let text = |k: usize| crate::mem::bytes(words[k], words[k + 1]).to_vec();
+        texts.push(text(k));
+        k += 2;
+        if op & !crate::pq::TAIL == crate::pq::RUN {
+            texts.push(text(k));
+            let nargs = words[k + 2] as usize;
+            for i in 0..nargs {
+                texts.push(text(k + 4 + 3 * i));
+            }
+        }
+        BUILTIN_CALLS.with(|c| c.borrow_mut().push(("pq_file", texts, vec![op as i64, cap as i64])));
+        let mut ans = BUILTIN_ANSWER.with(|a| a.borrow().clone());
+        let tail = op & crate::pq::TAIL != 0;
+        if tail {
+            ans.truncate(ans.iter().rposition(|&c| c != b' ').map_or(0, |e| e + 1));
+        }
+        let n = ans.len().min(cap as usize);
+        let from = if tail { ans.len() - n } else { 0 };
+        crate::mem::bytes_mut(buf, n as u32).copy_from_slice(&ans[from..from + n]);
+        let number = PQ_NUMBER.with(|v| *v.borrow());
         ((u64::from(number) << 32) | ans.len() as u64) as i64
     }
 }

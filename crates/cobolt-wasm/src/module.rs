@@ -714,12 +714,23 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let closure = blob.closure(&root_list).map_err(|e| GenError::new(0, e.to_string()))?;
 
     // ── types ────────────────────────────────────────────────────────────
+    // Only the routines' types the module uses: each linked routine's signature, then the types its
+    // blocks name, in the routines' order. A type the blob holds for a routine this module does not
+    // link never enters it, so a routine added to the blob, or its types reordered, does not move
+    // another module's bytes (DESKTOP-WASM-001 AC16).
     let mut types = Types { list: Vec::new() };
     let mut blob_types: HashMap<u32, u32> = HashMap::new();
-    for (i, t) in blob.types.iter().enumerate() {
-        let p: Vec<ValType> = t.params().iter().map(wp).collect();
-        let r: Vec<ValType> = t.results().iter().map(wp).collect();
-        blob_types.insert(i as u32, types.intern(&p, &r));
+    let mut used: Vec<u32> = closure.funcs.iter().map(|&f| blob.type_of(f)).collect();
+    for &f in &closure.funcs {
+        used.extend(blob.block_types(f).map_err(|e| GenError::new(0, e.to_string()))?);
+    }
+    for i in used {
+        if let std::collections::hash_map::Entry::Vacant(v) = blob_types.entry(i) {
+            let t = &blob.types[i as usize];
+            let p: Vec<ValType> = t.params().iter().map(wp).collect();
+            let r: Vec<ValType> = t.results().iter().map(wp).collect();
+            v.insert(types.intern(&p, &r));
+        }
     }
     let ty_block = types.intern(&[], &[ValType::I32]);
     let ty_i32_void = types.intern(&[ValType::I32], &[]);
@@ -733,7 +744,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // environment ones of a desktop module's. Each is backed by a host import
     // of the same name, in the `pr` namespace or, for a desktop capability, in
     // `prn` (ABI A27, A29).
-    const GLUE_ORDER: [&str; 30] = [
+    const GLUE_ORDER: [&str; 31] = [
         "flush",
         "abort",
         "query",
@@ -764,6 +775,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         "sql_db",
         "sql_obj",
         "http_call",
+        "pq_file",
     ];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
@@ -809,20 +821,19 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let ty_i32_i32_i32_i32_ret = types.intern(&[ValType::I32; 4], &[ValType::I32]);
     let ty_i32_i32_ret = types.intern(&[ValType::I32, ValType::I32], &[ValType::I32]);
     let ty_i32_ret1 = types.intern(&[ValType::I32], &[ValType::I32]);
-    // (host import type, glue function type)
-    let ty_f64_ret = types.intern(&[], &[ValType::F64]);
-    let ty_f_open = types.intern(&[ValType::I32; 6], &[ValType::I32]);
-    let ty_f_read = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64, ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]);
-    let ty_f_write = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64, ValType::I32], &[ValType::I32]);
-    let ty_f_rewrite = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64], &[ValType::I32]);
-    let ty_f_start = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64], &[ValType::I32]);
-    let ty_t_write = types.intern(&[ValType::I32; 7], &[ValType::I32]);
-    let ty_img_fit = types.intern(&[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64, ValType::I64, ValType::I32, ValType::I32], &[ValType::I32]);
-    let ty_sql_db = types.intern(&[ValType::I32, ValType::I64, ValType::I64, ValType::I32, ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]);
-    let ty_http = types.intern(&[ValType::I32; 7], &[ValType::I64]);
-    let glue_types = |name: &str| -> (u32, u32) {
-        match name {
-            "now" | "random" => (ty_f64_ret, ty_f64_ret),
+    // (host import type, glue function type) of each glue function the module makes, interned in
+    // `GLUE_ORDER`'s order and only for the glue it needs: a module carries no type of an import it
+    // does not make (a browser module none of the desktop's), so a glue function added for one kind
+    // of module does not move another's bytes (DESKTOP-WASM-001 AC16).
+    let mut glue_sigs: HashMap<&'static str, (u32, u32)> = HashMap::new();
+    for &g in &glue_list {
+        use ValType::{F64, I32, I64};
+        let same = |types: &mut Types, p: &[ValType], r: &[ValType]| {
+            let t = types.intern(p, r);
+            (t, t)
+        };
+        let pair = match g {
+            "now" | "random" => same(&mut types, &[], &[F64]),
             "query" => (ty_i32_ret1, ty_i32_i32_i32_i32_ret),
             "remote" => (ty_i32_ret1, ty_i32_i32_ret),
             "flush" => (ty_i32_void, ty_i32_i32_void),
@@ -839,28 +850,31 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             // A31: minutes east of UTC.
             "tz_offset" => (ty_i32_ret, ty_i32_ret),
             // A34: the runner's disk files; a RELATIVE record number crosses as an i64.
-            "f_open" => (ty_f_open, ty_f_open),
+            "f_open" => same(&mut types, &[I32; 6], &[I32]),
             "f_close" => (ty_i32_i32_i32_ret, ty_i32_i32_i32_ret),
-            "f_read" => (ty_f_read, ty_f_read),
-            "f_write" => (ty_f_write, ty_f_write),
-            "f_rewrite" | "f_delete" => (ty_f_rewrite, ty_f_rewrite),
-            "f_start" => (ty_f_start, ty_f_start),
+            "f_read" => same(&mut types, &[I32, I32, I32, I32, I32, I32, I64, I32, I32, I32], &[I32]),
+            "f_write" => same(&mut types, &[I32, I32, I32, I32, I64, I32], &[I32]),
+            "f_rewrite" | "f_delete" => same(&mut types, &[I32, I32, I32, I32, I64], &[I32]),
+            "f_start" => same(&mut types, &[I32, I32, I32, I32, I32, I32, I64], &[I32]),
             // A35: UNLOCK, COMMIT, ROLLBACK.
             "f_tx" => (ty_i32_i32_i32_ret, ty_i32_i32_i32_ret),
             // A39: a built-in's text file and pictures.
-            "t_write" => (ty_t_write, ty_t_write),
-            "img_fit" => (ty_img_fit, ty_img_fit),
+            "t_write" | "sql_obj" => same(&mut types, &[I32; 7], &[I32]),
+            "img_fit" => same(&mut types, &[I32, I32, I32, I32, I64, I64, I32, I32], &[I32]),
             "img_info" => (ty_i32_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
             // A41: an `EXEC SQL` statement, run by the runner.
             "sql_exec" => (ty_i32_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
             // A42: a SQL built-in; the handle and the column cross as i64s.
-            "sql_db" => (ty_sql_db, ty_sql_db),
-            "sql_obj" => (ty_t_write, ty_t_write),
+            "sql_db" => same(&mut types, &[I32, I64, I64, I32, I32, I32, I32], &[I32]),
             // A45: an HTTP built-in; the answer's number and length cross as one i64.
-            "http_call" => (ty_http, ty_http),
+            "http_call" => same(&mut types, &[I32; 7], &[I64]),
+            // A56: `COBOL::"PARTIQL"` and its two siblings; the answer's number and length cross as one i64.
+            "pq_file" => same(&mut types, &[I32; 5], &[I64]),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
-        }
-    };
+        };
+        glue_sigs.insert(g, pair);
+    }
+    let glue_types = |name: &str| -> (u32, u32) { glue_sigs[name] };
     let n_imports = glue_list.len() as u32;
     let imp_of = |name: &str| -> u32 { glue_list.iter().position(|g| *g == name).unwrap() as u32 };
     let mut defs: Vec<Def> = Vec::new();
@@ -1191,6 +1205,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         ("sql_db", 7),
         ("sql_obj", 7),
         ("http_call", 7),
+        ("pq_file", 5),
     ] {
         if let Some(&at) = glue_final.get(g) {
             let mut f = Function::new([]);

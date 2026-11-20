@@ -217,3 +217,94 @@ impl PartiqlPort for Port {
         self.programs.remove(&inst);
     }
 }
+
+/// **`COBOL::"PARTIQL"`, `"PARTIQL-FETCH"` and `"PARTIQL-ERROR"`** (T48, ABI A56): a statement on a
+/// file the program's own `SELECT` declares and holds open, run by the interpreter's own rules
+/// (`door::run_declared`) on the program's file store. The schema is the file's first record
+/// description with the keys found in it by name, as the interpreter builds it from the program's FD
+/// (`door::declared_schema`). Each form instance keeps its own results, one set for each file it
+/// names, as each form's interpreter keeps its own; a console program has one (`None`).
+#[derive(Default)]
+pub(crate) struct Builtins {
+    /// The form instance the current call acts on (`None`: a console program, or a form still starting).
+    calling: Option<u32>,
+    /// The files whose results were made during the current call before its instance was known.
+    made_in_call: Vec<String>,
+    results: HashMap<(Option<u32>, String), door::FileResults>,
+    /// Each file's schema, by its number in `prfiles`, made once from its description.
+    schemas: HashMap<u32, Option<Rc<cobolt_runtime::partiql::schema::Schema>>>,
+}
+
+/// The schema `COBOL::"PARTIQL"` checks a statement against: `None` when the `SELECT` names no
+/// RECORD KEY, a key is not a field of the record, or the file has no record description.
+fn declared_schema(d: &cobolt_wasm_abi::files::FileDecl) -> Option<cobolt_runtime::partiql::schema::Schema> {
+    let keys = d.named_keys.as_ref()?;
+    let record = cobolt_runtime::partiql::schema::parse_fd_text(d.definition.as_deref()?).ok()?;
+    let layout = cobolt_runtime::files::compute_layout(&record);
+    fn key(k: &cobolt_wasm_abi::files::NamedKey, duplicates: bool) -> door::KeyRef<'_> {
+        door::KeyRef { name: &k.name, quals: &k.quals, parts: k.parts.iter().map(|(n, q)| (n.as_str(), q.as_slice())).collect(), duplicates }
+    }
+    let alternates: Vec<door::KeyRef<'_>> = keys.alternates.iter().map(|k| key(k, k.dup)).collect();
+    door::declared_schema(&d.name, &layout, Some(key(&keys.record, false)), &alternates)
+}
+
+impl Builtins {
+    /// A call into the module begins; it acts on form instance `inst` when it names one.
+    pub(crate) fn begin_call(&mut self, inst: Option<u32>) {
+        self.calling = inst;
+        self.made_in_call.clear();
+    }
+
+    /// The form instance an `OpenForm` call made is `inst`: the results its program made while it
+    /// started, before the instance was known, are its own.
+    pub(crate) fn opened_form(&mut self, inst: u32) {
+        for file in std::mem::take(&mut self.made_in_call) {
+            if let Some(r) = self.results.remove(&(None, file.clone())) {
+                self.results.insert((Some(inst), file), r);
+            }
+        }
+    }
+
+    /// Form instance `inst`'s window closed: its results go, as its interpreter's do.
+    pub(crate) fn forget_instance(&mut self, inst: u32) {
+        self.results.retain(|(i, _), _| *i != Some(inst));
+    }
+
+    /// Operation `op` (`cobolt_wasm_abi::partiql`, `TAIL` ignored) of the program whose files are
+    /// `ids` (`(id, slot)`), on the file argument `file`, with the statement `text` and its `args`
+    /// (`(kind, text)`), as the interpreter's arms run it: the answer's number and text; `None` for
+    /// an operation it does not know.
+    pub(crate) fn call(&mut self, files: &mut Files, op: u32, ids: &[(u32, u32)], file: &[u8], text: &[u8], args: &[(u8, Vec<u8>)]) -> Option<(usize, String)> {
+        use cobolt_wasm_abi::partiql as pq;
+        let file = String::from_utf8_lossy(file).trim().to_ascii_uppercase();
+        let key = (self.calling, file.clone());
+        match op & !pq::TAIL {
+            pq::RUN => {
+                let text = String::from_utf8_lossy(text).trim_end().to_string();
+                let args: Vec<Arg> = args
+                    .iter()
+                    .map(|(kind, t)| door::arg_of(&String::from_utf8_lossy(t), if *kind == pq::NUMBER { ArgKind::Number } else { ArgKind::Value }))
+                    .collect();
+                let found = ids.iter().copied().find(|(id, _)| files.declared(*id).is_some_and(|d| d.name == file));
+                let schema = found.and_then(|(id, _)| {
+                    let d = files.declared(id)?;
+                    self.schemas.entry(id).or_insert_with(|| declared_schema(d).map(Rc::new)).clone()
+                });
+                let store = found.and_then(|(_, slot)| files.indexed_at(slot));
+                let outcome = door::run_declared(&text, schema.as_deref(), &args, store);
+                let (res, count, status) = door::FileResults::of(outcome);
+                if self.calling.is_none() && !self.made_in_call.contains(&file) {
+                    self.made_in_call.push(file);
+                }
+                self.results.insert(key, res);
+                Some((count, status.to_string()))
+            }
+            pq::FETCH => Some(match self.results.get_mut(&key).map(door::FileResults::fetch) {
+                Some((row, "00")) => (1, row),
+                _ => (0, String::new()),
+            }),
+            pq::ERROR => Some((0, self.results.get(&key).map(|r| r.error().to_string()).unwrap_or_default())),
+            _ => None,
+        }
+    }
+}

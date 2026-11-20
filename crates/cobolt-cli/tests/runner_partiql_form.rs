@@ -19,7 +19,10 @@
 //! - `IXF-MEM` (a file held in memory, persisted): the flow of spec 108's host test;
 //! - `IXF-SHARED`, whose file the form's program declares and opens as the form starts (`AutoOpen`
 //!   performs the generated paragraph): the control works on the program's open file, the program's
-//!   `READ` sees what the control inserted, and `ROLLBACK` undoes it (spec 108 R9, R24);
+//!   `READ` sees what the control inserted, and `ROLLBACK` undoes it (spec 108 R9, R24). The handler
+//!   then runs `COBOL::"PARTIQL"` on the same open file, the file named in lower case with spaces,
+//!   fetches its row and past it, and reads the error of a statement naming a column the file does
+//!   not have (ABI A56);
 //! - `IXF-ADOPT`, whose file the program declares but has not opened: the control opens it, then the
 //!   program's `OPEN` takes the control's file over, its `READ` and `WRITE` work on it, the control
 //!   works on the program's file, and after the program's `CLOSE` the control opens it again.
@@ -257,7 +260,22 @@ fn project(root: &Path) -> PathBuf {
     on_click(
         &mut form,
         "BTN-SHARED",
-        &["01 WS-N1     PIC 9(4).", "01 WS-N2     PIC 9(4).", "01 WS-N3     PIC 9(4).", "01 WS-F1     PIC X(8).", "01 WS-L      PIC X(120)."],
+        &[
+            "01 WS-N1     PIC 9(4).",
+            "01 WS-N2     PIC 9(4).",
+            "01 WS-N3     PIC 9(4).",
+            "01 WS-N4     PIC 9(4).",
+            "01 WS-N5     PIC 9(4).",
+            "01 WS-S1     PIC X(2).",
+            "01 WS-S2     PIC X(2).",
+            "01 WS-S3     PIC X(2).",
+            "01 WS-S4     PIC X(2).",
+            "01 WS-R      PIC X(8).",
+            "01 WS-R2     PIC X(4).",
+            "01 WS-E      PIC X(19).",
+            "01 WS-F1     PIC X(8).",
+            "01 WS-L      PIC X(160).",
+        ],
         &[
             "MOVE IXF-SHARED::Execute(\"SELECT CUST-NAME FROM SHARED WHERE CUST-ID = 50\") TO WS-N1",
             "MOVE IXF-SHARED::Execute(\"INSERT INTO SHARED VALUE {'CUST-ID': 51, 'CUST-NAME': 'Ctl', 'CUST-BALANCE': 5}\") TO WS-N2",
@@ -268,7 +286,12 @@ fn project(root: &Path) -> PathBuf {
             "END-READ",
             "ROLLBACK",
             "MOVE IXF-SHARED::Execute(\"SELECT CUST-ID FROM SHARED WHERE CUST-ID BETWEEN 50 AND 51\") TO WS-N3",
-            "STRING \"sel \" WS-N1 \" ins \" WS-N2 \" read \" WS-F1 \" after rollback \" WS-N3 \"|\" DELIMITED BY SIZE INTO WS-L",
+            "COBOL::\"PARTIQL\" ( \" shr-file \" \"SELECT SH-NAME FROM SHR-FILE WHERE SH-ID = ?\" WS-N4 WS-S1 50 )",
+            "COBOL::\"PARTIQL-FETCH\" ( \"SHR-FILE\" WS-R WS-S2 )",
+            "COBOL::\"PARTIQL-FETCH\" ( \"SHR-FILE\" WS-R2 WS-S3 )",
+            "COBOL::\"PARTIQL\" ( \"SHR-FILE\" \"SELECT NOPE FROM SHR-FILE\" WS-N5 WS-S4 )",
+            "COBOL::\"PARTIQL-ERROR\" ( \"SHR-FILE\" WS-E )",
+            "STRING \"sel \" WS-N1 \" ins \" WS-N2 \" read \" WS-F1 \" after rollback \" WS-N3 \"|pq \" WS-N4 \" \" WS-S1 \" \" WS-R \" \" WS-S2 \" \" WS-S3 \" bad \" WS-N5 \" \" WS-S4 \" \" WS-E \"|\" DELIMITED BY SIZE INTO WS-L",
             "MOVE WS-L TO LBL-SHARED::Caption",
         ],
     );
@@ -521,13 +544,16 @@ fn the_indexedfile_partiql_members_agree_on_both_engines() {
         ("the redb file: the program's ROLLBACK undoes a transaction, COMMIT keeps one".into(), at(0, "LBL-REDB", "Caption").starts_with("tx 0002 rb 0000 tx 0001 commit 0001|")),
         ("a numeric item compared with text is 94 (R3)".into(), at(0, "LBL-REDB", "Caption").contains("|typed 94|")),
         ("the file in memory: 2 rows, the first Ana's".into(), at(1, "LBL-MEM", "Caption").starts_with("n 0002 r ")),
-        ("the program's open file: the control reads it, the READ sees its INSERT, ROLLBACK undoes it".into(), at(1, "LBL-SHARED", "Caption").trim_end() == "sel 0001 ins 0001 read Ctl      after rollback 0001|"),
+        ("the program's open file: the control reads it, the READ sees its INSERT, ROLLBACK undoes it".into(), at(1, "LBL-SHARED", "Caption").starts_with("sel 0001 ins 0001 read Ctl      after rollback 0001|")),
+        ("COBOL::\"PARTIQL\" in the handler, on the same open file: 1 row and 00, the row, then 10 past it".into(), at(1, "LBL-SHARED", "Caption").contains("|pq 0001 00 Pre      00 10 bad 0000 ")),
+        ("COBOL::\"PARTIQL-ERROR\" names the column the file does not have".into(), at(1, "LBL-SHARED", "Caption").contains(" Validation")),
         ("the program's OPEN takes the control's file over; after its CLOSE the control opens it again".into(), at(2, "LBL-ADOPT", "Caption").trim_end() == "ins 0001 read Own      write written  sel 0002 reopened 0002|"),
     ]);
 
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     println!("== the_indexedfile_partiql_members_agree_on_both_engines (DESKTOP-WASM-001 T48: R10, R11, ABI A55) ==");
     println!("form {FORM}: 5 IndexedFile controls (PRCIDXD1 made by AutoOpen, redb, memory, the program's open file, a file the program's OPEN takes over), 5 buttons, 5 event handlers, 30 member calls");
+    println!("  and in one handler COBOL::\"PARTIQL\" (twice), \"PARTIQL-FETCH\" (a row, then past it) and \"PARTIQL-ERROR\" on the program's open file (ABI A56)");
     println!("  INSERT / UPDATE / DELETE / SELECT with ? from a numeric item, an alphanumeric item, a literal and a TextBox; Fetch, Get by name and place, ColumnNames, ColumnCount, a fetch past the end;");
     println!("  ExecuteTransaction, COMMIT and ROLLBACK with AutoCommit off; a parse error, an unknown column, a numeric item against text; spec 108 R9 sharing both ways");
     println!("real time; {} dumps and {} pictures per engine, each run on the files made afresh", shots.len(), shots.len());

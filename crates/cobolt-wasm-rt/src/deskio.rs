@@ -42,7 +42,7 @@ const ANSWER_AT: u32 = 2 * PLACE;
 /// The text of argument `o`, as the interpreter's value of it: every character of a data item or a
 /// literal, and a number's text. A number's text is made in place `place` (0 or 1) of the scratch
 /// area; anything else is read where it is.
-fn arg_text(base: u32, o: u32, place: u32) -> (u32, u32) {
+pub(crate) fn arg_text(base: u32, o: u32, place: u32) -> (u32, u32) {
     let at = st().ws + WS_SCRATCH + place * PLACE;
     let number = |v: &Val| -> (u32, u32) {
         let mut num = [0u8; 64];
@@ -161,7 +161,7 @@ fn digits(n: u64, out: &mut [u8; 20]) -> &[u8] {
 /// numeric-edited item takes the number as a `MOVE` does; an item of characters takes its digits
 /// at its right end, spaces before them, and the digits' left end when they do not fit (the
 /// interpreter's `CobolValue::assign` of a number into text, which ignores `JUSTIFIED`).
-fn put_number(base: u32, target: u32, n: u64) {
+pub(crate) fn put_number(base: u32, target: u32, n: u64) {
     let loc = locate(base, &parse(target));
     if loc.fd.is_numeric() || loc.fd.kind == K_NUM_EDITED {
         codec::store_value(&loc, Val::Dec(CobolNumeric::new(i128::from(n), 0)), false, false);
@@ -237,7 +237,7 @@ pub fn image_info(base: u32, path: u32, width: u32, height: u32, format: u32, st
 /// - a numeric-edited item takes the number they spell, edited, and the characters themselves when
 ///   they spell none;
 /// - a floating-point item keeps its value: the interpreter has no rule for text into a float.
-fn put_text(base: u32, target: u32, text: &[u8]) {
+pub(crate) fn put_text(base: u32, target: u32, text: &[u8]) {
     let loc = locate(base, &parse(target));
     let fd = &loc.fd;
     if fd.is_float() {

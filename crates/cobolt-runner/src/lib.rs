@@ -61,7 +61,8 @@ pub use pins::Pins;
 /// The capabilities this runner provides (A27). T15: console programs; T32: the file dialogs (A33);
 /// T38: files on disk of every organisation (A34); T49: the sound player (A36); T48: the AWS controls (A38);
 /// T39c: the text files and pictures a built-in names by its path (A39); T41: `EXEC SQL` (A41);
-/// T42: the HTTP built-ins (A45); T47b: the KnowledgeBase control (A49); T47c: the AgentObject (A50).
+/// T42: the HTTP built-ins (A45); T47b: the KnowledgeBase control (A49); T47c: the AgentObject (A50);
+/// T48: the PartiQL built-ins on the program's own files (A56).
 pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::CONSOLE,
     cap::ENV,
@@ -83,6 +84,7 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::MODELS,
     cap::MCP_SEARCH,
     cap::PARTIQL,
+    cap::PARTIQL_FILES,
 ];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row
@@ -121,6 +123,8 @@ pub const PROVIDED_IMPORTS: &[(u32, &str, &str)] = &[
     (1, NATIVE_IMPORT_MODULE, "sql_obj"),
     // T42: the HTTP built-ins (A45).
     (1, NATIVE_IMPORT_MODULE, "http_call"),
+    // T48: `COBOL::"PARTIQL"` and its two siblings (A56).
+    (1, NATIVE_IMPORT_MODULE, "pq_file"),
 ];
 
 /// `pr_run`'s answers (the generator's `ret`): the run finished, or `STOP RUN`.
@@ -354,6 +358,8 @@ pub struct State {
     pub(crate) db: std::rc::Rc<std::cell::RefCell<sql::Builtins>>,
     /// The HTTP built-ins' clients, one per window (T42).
     pub(crate) http: std::rc::Rc<std::cell::RefCell<http::Clients>>,
+    /// `COBOL::"PARTIQL"`'s results, one set per window (T48).
+    pub(crate) pq: std::rc::Rc<std::cell::RefCell<partiql::Builtins>>,
 }
 
 impl State {
@@ -371,6 +377,7 @@ impl State {
             sql: None,
             db: std::rc::Rc::default(),
             http: std::rc::Rc::default(),
+            pq: std::rc::Rc::default(),
         }
     }
 }
@@ -911,6 +918,40 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                             match write_mem(&mut caller, buf, shown) {
                                 Some(()) => h::answer(number, len),
                                 None => h::FAILED,
+                            }
+                        },
+                    )
+                    .map_err(fail)?;
+            }
+            // T48, A56: `COBOL::"PARTIQL"` and its two siblings, run by the interpreter's own rules on
+            // the program's open file. The request names the texts in memory 0; the answer's text goes to
+            // `buf`, at most `cap` bytes (its first, or with `TAIL` its last without its trailing spaces);
+            // answers its number and whole length.
+            (NATIVE_IMPORT_MODULE, "pq_file") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "pq_file",
+                        |mut caller: Caller<'_, State>, op: i32, req: i32, req_len: i32, buf: i32, cap: i32| -> i64 {
+                            use cobolt_wasm_abi::partiql as pq;
+                            let op = op as u32;
+                            let Some(bytes) = read_mem(&mut caller, req, req_len) else { return pq::FAILED };
+                            let Some(r) = pq::decode(op, &bytes) else { return pq::FAILED };
+                            let mut text_at = |(at, len): (u32, u32)| read_mem(&mut caller, at as i32, len as i32);
+                            let Some(file) = text_at(r.file) else { return pq::FAILED };
+                            let Some(text) = text_at(r.text) else { return pq::FAILED };
+                            let mut args = Vec::with_capacity(r.args.len());
+                            for &(kind, at, len) in &r.args {
+                                let Some(t) = text_at((at, len)) else { return pq::FAILED };
+                                args.push((kind, t));
+                            }
+                            let (files, store) = (caller.data().files.clone(), caller.data().pq.clone());
+                            let Some((number, text)) = store.borrow_mut().call(&mut files.borrow_mut(), op, &r.files, &file, &text, &args) else { return pq::FAILED };
+                            let tail = if op & pq::TAIL != 0 { cobolt_wasm_abi::http::TAIL } else { 0 };
+                            let (shown, len) = http::part(tail, &text, cap.max(0) as usize);
+                            match write_mem(&mut caller, buf, shown) {
+                                Some(()) => pq::answer(number, len),
+                                None => pq::FAILED,
                             }
                         },
                     )

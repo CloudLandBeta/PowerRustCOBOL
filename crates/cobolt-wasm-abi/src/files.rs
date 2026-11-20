@@ -108,6 +108,38 @@ pub struct FileDecl {
     /// delivers a record number with more digits is status 14.
     #[serde(default)]
     pub rel_digits: Option<u32>,
+    /// INDEXED: the keys as the `SELECT` names them, which `COBOL::"PARTIQL"` (A56) finds in the
+    /// first record description by name, as the interpreter does; `None` when the `SELECT` names no
+    /// RECORD KEY.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub named_keys: Option<NamedKeys>,
+}
+
+/// The keys of an INDEXED file as its `SELECT` names them (A56).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NamedKeys {
+    /// The RECORD KEY.
+    pub record: NamedKey,
+    /// Each ALTERNATE RECORD KEY, in the `SELECT`'s order, whether or not its field is in the record.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternates: Vec<NamedKey>,
+}
+
+/// One key as the `SELECT` names it, spelled as the interpreter holds it: the RECORD KEY's name and
+/// qualifiers in upper case, an ALTERNATE RECORD KEY's and every split key's parts as written.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NamedKey {
+    /// The key's data name (a split key's own name).
+    pub name: String,
+    /// Its `OF`/`IN` chain, innermost first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quals: Vec<String>,
+    /// A split key's parts, each a data name and its `OF`/`IN` chain; empty for a key of one field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<(String, Vec<String>)>,
+    /// `WITH DUPLICATES`.
+    #[serde(default)]
+    pub dup: bool,
 }
 
 /// One key of an INDEXED file: the `(offset, length)` of each part in the record.
@@ -199,6 +231,10 @@ mod tests {
                 engine: Some("redb".into()),
                 definition: None,
                 rel_digits: None,
+                named_keys: Some(NamedKeys {
+                    record: NamedKey { name: "CUST-ID".into(), quals: vec![], parts: vec![], dup: false },
+                    alternates: vec![NamedKey { name: "CUST-KEY".into(), quals: vec!["CUST-REC".into()], parts: vec![("CUST-REGION".into(), vec![]), ("CUST-NAME".into(), vec![])], dup: true }],
+                }),
             }],
         };
         let bytes = s.encode();
