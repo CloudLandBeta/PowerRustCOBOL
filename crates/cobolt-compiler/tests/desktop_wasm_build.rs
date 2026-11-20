@@ -93,7 +93,8 @@ const CALLS_FILES: &str = "\
 ";
 
 /// A construct the WebAssembly path refuses, in Common Code (AC11). It was a file on disk until disk
-/// files took the WebAssembly path (T38, M3); a pointer stays on the Cargo path until M5.
+/// files took the WebAssembly path (T38, M3); since 2.0.615 a pointer is computed in a module in the
+/// main program only, so one set in a called program still takes the Cargo path.
 const FILES: &str = "\
        IDENTIFICATION DIVISION.
        PROGRAM-ID. T16FILES.
@@ -394,10 +395,10 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     let files_reason = reason_of(&r);
     let text = r.as_ref().err().map(|e| e.to_string()).unwrap_or_default();
     check(
-        &format!("a pointer in Common Code → Refused at src/files.cbl line {open_line}"),
-        matches!(&files_reason, Ok(CargoReason::Refused { construct, file, line, reason }) if construct == "SET (pointer)" && file == "src/files.cbl" && *line == open_line && reason.starts_with("pointers and ADDRESS OF are not compiled into a module")),
+        &format!("a pointer set in a called program → Refused at src/files.cbl line {open_line}"),
+        matches!(&files_reason, Ok(CargoReason::Refused { construct, file, line, reason }) if construct == "SET" && file == "src/files.cbl" && *line == open_line && reason.starts_with("SET (pointer): ") && reason.contains("in the main program only")),
     );
-    check("the message names the file, the line and why", text.contains(&format!("src/files.cbl line {open_line}")) && text.contains("ADDRESS OF"));
+    check("the message names the file, the line and why", text.contains(&format!("src/files.cbl line {open_line}")) && text.contains("SET (pointer)") && text.contains("in the main program only"));
     let models_line = line_of(MODELS, "MODEL-LIST");
     let m = project(&root, "prct16models", &console_manifest("prct16models", "src/main.cbl", &["src/main.cbl"], ""), &[("src/main.cbl", MODELS)]);
     let t = Instant::now();

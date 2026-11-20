@@ -2,6 +2,13 @@
 
 
 
+## 2.0.625 — 2026-11-20
+
+**Feature: the desktop Build's test expects the pointer refusal of 2.0.615 (DESKTOP-WASM-001).** Since 2.0.615 a desktop module computes pointers in the main program, and the Build refuses a `SET` of a pointer only in a called program, naming the construct `SET` and the reason `SET (pointer): pointers are computed in a WebAssembly module in the main program only; …`. Two checks of `desktop_wasm_build` still expected the earlier construct `SET (pointer)` and the earlier reason, which named `ADDRESS OF`. They failed on this branch from 2.0.615 on. Nothing a developer sees changes.
+- **The checks now expect:** a pointer set in a called program in Common Code is `Refused` at `src/files.cbl` line 8, with the construct `SET` and the reason that names the main program; the Build's message names the file, the line, `SET (pointer)` and the main program. The fixture's comment says the same.
+- **Where:** `cobolt-compiler`: `tests/desktop_wasm_build.rs`.
+- **Measured** (macOS arm64): `desktop_wasm_build` 39 of 39 checks (it was 37 of 39), in 501.6 s.
+
 ## 2.0.624 — 2026-11-20
 
 **Feature: the application's model list, its keys and the model providers run in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T48, the model lists; T47 done).** A desktop form whose handlers keep the application's model list, store its keys, or ask a provider which models it offers no longer sends its program down the Cargo path. The twelve built-ins run in the built program as under Run Form:
