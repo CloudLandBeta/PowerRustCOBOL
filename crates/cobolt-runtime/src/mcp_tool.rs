@@ -808,6 +808,18 @@ pub fn tool_for(description: &FileDescription) -> cobolt_mcp::Tool {
 // answer an AgentObject's `AllowFile` and its tool calls here, so what a model is offered and what a
 // search returns are the same on both paths.
 
+/// `COBOL::"MCP-SEARCH" ( tool-name arguments-json result )` (spec 065): the in-process front door onto
+/// the tool an external MCP client reaches over the wire, run on the program's own tool set. The text
+/// the program's `result` receives: the result's text parts, one per line. A malformed `arguments-json`
+/// is the caller's mistake, not a reason to fail the run: it reads as no filters, which returns
+/// everything within the limit rather than nothing. The tool's name and the arguments are trimmed.
+pub fn search_text(set: &IndexedToolSet, tool: &str, arguments: &str) -> String {
+    let arguments: serde_json::Value =
+        serde_json::from_str(arguments.trim()).unwrap_or(serde_json::Value::Object(Default::default()));
+    let result = set.call(tool.trim(), &arguments);
+    result.content.iter().filter_map(|c| c.as_text()).collect::<Vec<_>>().join("\n")
+}
+
 /// `AllowFile(fd-name [, cidx-path])` — let every agent of the program search the file whose access
 /// facts are `access`. What the file MEANS comes from its `.cidx` (`cidx`, or the definition of the
 /// file `fd` in the delivered `indexed/` folder); how its records are LAID OUT comes from the

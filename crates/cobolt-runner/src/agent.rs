@@ -398,6 +398,15 @@ impl AgentPort for Agents {
         st.kbs.remove(&inst);
         st.provider_models.remove(&inst);
     }
+
+    /// `COBOL::"MCP-SEARCH"` (A54): the interpreter's own function, on the files the instance's
+    /// AgentObjects allowed, as the interpreter keeps one tool set for each program. An instance that
+    /// allowed none searches an empty set, which names the tool it does not serve.
+    fn mcp_search(&mut self, inst: u32, tool: &str, arguments: &str) -> Option<String> {
+        let st = self.state.borrow();
+        let empty = IndexedToolSet::new();
+        Some(mcp_tool::search_text(st.files.get(&inst).unwrap_or(&empty), tool, arguments))
+    }
 }
 
 #[cfg(test)]

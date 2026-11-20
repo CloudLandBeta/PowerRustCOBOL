@@ -11457,20 +11457,9 @@ impl Interpreter {
                 let tool = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let args_text = self.eval_call_arg(&using[1], span)?.as_display_string();
                 let result_name = self.expr_to_name(call_arg_expr(&using[2]));
-
-                // A malformed argument string is the caller's mistake, not a
-                // reason to fail the run — it reads as "no filters", which
-                // returns everything within the limit rather than nothing.
-                let arguments: serde_json::Value = serde_json::from_str(args_text.trim())
-                    .unwrap_or(serde_json::Value::Object(Default::default()));
-
-                let result = self.mcp_tools.call(tool.trim(), &arguments);
-                let text = result
-                    .content
-                    .iter()
-                    .filter_map(|c| c.as_text())
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                // One implementation for both hosts (DESKTOP-WASM-001 T48): the desktop runner
+                // answers the same call with the same function.
+                let text = crate::mcp_tool::search_text(&self.mcp_tools, &tool, &args_text);
                 self.env.set_str(&result_name, &text);
             }
 

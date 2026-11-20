@@ -44,7 +44,7 @@ pub const D_FORMS: &str = "a program with no form has no controls or application
 /// The `BINDING-…` built-ins drive a Data Binding, which moves with the bound controls (M6), not with
 /// SQL (M4): T43 relabelled them.
 const D_BINDING: &str = "the Data Binding built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
-const D_CONTROLS: &str = "the MCP search and PartiQL are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_CONTROLS: &str = "PartiQL is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_MEDIA: &str = "animation sequences and layouts are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_PHONE: &str = "the phone's secure storage is a Mobile built-in, where a desktop program stops; that stop is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_REMOTE: &str = "remote calls, backend verbs and identity operations are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
@@ -295,7 +295,8 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("KEY-REMOVE", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
     c("KEY-SET", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
     c("LAYOUT", Support::Unsupported("the player has no command to install a layout script at run time yet (spec 109 S6, WASM-PARITY #47)"), cargo(D_MEDIA)),
-    c("MCP-SEARCH", Support::BackendOnly(SECRETS), cargo(D_CONTROLS)),
+    // The runner searches the files the form's AgentObjects allowed, with the interpreter's function (T48, A54).
+    c("MCP-SEARCH", Support::BackendOnly(SECRETS), Native::Host(cap::MCP_SEARCH)),
     c("MODEL-COUNT", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
     c("MODEL-GET", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
     c("MODEL-LIST", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),

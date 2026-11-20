@@ -68,6 +68,13 @@ pub trait AgentPort {
     fn tool_returned(&mut self, inst: u32, c: &AgentControl<'_>) -> AgentEffects;
     /// The instance `inst` ended: its conversations go, and reports still to come for it are dropped.
     fn release(&mut self, inst: u32);
+    /// `COBOL::"MCP-SEARCH" ( tool arguments result )` called by instance `inst` (A54): the text the
+    /// result receives, searched in the files the instance's AgentObjects allowed. `None`: the port
+    /// does not search, and the result receives nothing.
+    fn mcp_search(&mut self, inst: u32, tool: &str, arguments: &str) -> Option<String> {
+        let _ = (inst, tool, arguments);
+        None
+    }
 }
 
 /// The application's model list, its keys and the model providers (DESKTOP-WASM-001 T48, A53), which
@@ -93,6 +100,17 @@ impl Host {
         };
         for (i, text) in answers {
             self.app.insert(format!("builtinanswer{}", i + 1), text);
+        }
+    }
+
+    /// `COBOL::"MCP-SEARCH"` (A54): the result goes to the application's `BuiltinAnswer3`, which the
+    /// generated code moves into the third argument; an earlier answer is cleared first. A host with no
+    /// AgentObject port answers nothing.
+    pub(super) fn mcp_search(&mut self, inst: u32, args: &[&str]) {
+        self.app.remove("builtinanswer3");
+        let arg = |i: usize| args.get(i).copied().unwrap_or("");
+        if let Some(text) = self.agent.as_mut().and_then(|port| port.mcp_search(inst, arg(0), arg(1))) {
+            self.app.insert("builtinanswer3".to_owned(), text);
         }
     }
 

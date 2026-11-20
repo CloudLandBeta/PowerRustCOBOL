@@ -1105,7 +1105,16 @@ impl Lower<'_, '_> {
             // On the desktop the runner keeps an AWS connection's keys (T48).
             aws if self.native && crate::lower_remote::is_desktop_aws(aws) => self.desktop_aws(aws, using, line),
             // On the desktop the runner answers the model list, its keys and the providers (T48).
-            models if self.native && cobolt_wasm_abi::codes::model_verb(models).is_some() => self.desktop_models(models, using, line),
+            models if self.native && cobolt_wasm_abi::codes::model_verb(models).is_some() => {
+                let (min, writes) = cobolt_wasm_abi::codes::model_verb(models).expect("one of the model-list built-ins");
+                let why = "the runner serves the model list, its keys and the providers in a form's handler only";
+                self.desktop_app_builtin(models, using, line, cobolt_wasm_abi::codes::cap::MODELS, min, writes, why)
+            }
+            // On the desktop the runner searches the files the form's AgentObjects allowed (T48).
+            "MCP-SEARCH" if self.native => {
+                let why = "the runner searches the files a form's AgentObjects allowed, in a form's handler only";
+                self.desktop_app_builtin(name, using, line, cobolt_wasm_abi::codes::cap::MCP_SEARCH, 3, &[2], why)
+            }
             // On the desktop the runner writes a built-in's text file and reads and fits its pictures (T39c).
             "APPEND-FILE" | "WRITE-FILE" if self.native => self.desktop_text_write(name, using, line),
             "IMAGE-FIT" | "IMAGE-INFO" if self.native => self.desktop_image(name, using, line),
@@ -1301,25 +1310,40 @@ impl Lower<'_, '_> {
         Ok(())
     }
 
-    /// The application's model list, its keys and the model providers in a desktop module (DESKTOP-WASM-001
-    /// T48, ABI A53): `COBOL::"MODEL-SET"` and the other built-ins of `codes::MODEL_VERBS`, with the
-    /// interpreter's arguments. The module requires `models`. The call goes to the application object with
-    /// every argument as text, and the runner answers it with the interpreter's own rules
-    /// (`cobolt_runtime::model_door`); what the built-in writes comes back as the application's
+    /// A built-in the runner answers on the application object, in a desktop module (DESKTOP-WASM-001 T48):
+    /// - the application's model list, its keys and the model providers (ABI A53): `COBOL::"MODEL-SET"`
+    ///   and the other built-ins of `codes::MODEL_VERBS`, answered with the interpreter's own rules
+    ///   (`cobolt_runtime::model_door`); the module requires `models`;
+    /// - `COBOL::"MCP-SEARCH"` (ABI A54), answered with the interpreter's own function
+    ///   (`cobolt_runtime::mcp_tool::search_text`) on the files the form's AgentObjects allowed; the module
+    ///   requires `mcp.search`.
+    ///
+    /// The call goes to the application object with every argument as text (`cap` names what the module
+    /// requires); what the built-in writes (`writes`, 0-based) comes back as the application's
     /// `BuiltinAnswer<n>`, `n` the argument's place, and is moved into that argument. A call with fewer
-    /// arguments than the interpreter runs the built-in with is refused, so the Build takes the Cargo path,
-    /// which reports it as the interpreter does; so is one in a program with no form, as AWS's keys are.
-    fn desktop_models(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
+    /// arguments than the interpreter runs the built-in with (`min`) is refused, so the Build takes the Cargo
+    /// path, which reports it as the interpreter does; so is one in a program with no form (`form_only` says
+    /// why), as AWS's keys are.
+    #[allow(clippy::too_many_arguments)]
+    fn desktop_app_builtin(
+        &mut self,
+        name: &str,
+        using: &[CallArg],
+        line: u32,
+        cap: &'static str,
+        min: usize,
+        writes: &[usize],
+        form_only: &str,
+    ) -> GenResult<()> {
         let subject = format!("COBOL::\"{name}\"");
         if self.form.is_none() {
             return self.err_kind(
                 line,
                 crate::error::ErrorKind::Other,
                 subject.clone(),
-                format!("{subject}: the runner serves the model list, its keys and the providers in a form's handler only, so a program with no form takes the Cargo path"),
+                format!("{subject}: {form_only}, so a program with no form takes the Cargo path"),
             );
         }
-        let (min, writes) = cobolt_wasm_abi::codes::model_verb(name).expect("one of the model-list built-ins");
         if using.len() < min {
             return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes at least {min} arguments"));
         }
@@ -1329,7 +1353,7 @@ impl Lower<'_, '_> {
                 CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
             })
             .collect();
-        self.names.file_caps.insert(cobolt_wasm_abi::codes::cap::MODELS);
+        self.names.file_caps.insert(cap);
         let seg = Seg { name, args: &args, parens: true, index: None };
         self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
         self.call_rt("rt_cmd_call");

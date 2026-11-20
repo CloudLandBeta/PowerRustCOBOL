@@ -2,6 +2,39 @@
 
 
 
+## 2.0.626 — 2026-11-20
+
+**Feature: `COBOL::"MCP-SEARCH"` runs in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T48, the MCP search).** A desktop form whose handler searches the files its AgentObjects allowed, `COBOL::"MCP-SEARCH" ( tool-name arguments-json result )`, no longer sends its program down the Cargo path. The search runs in the built program as under Run Form:
+- It searches the files the form's AgentObjects allowed: `AllowFile` and `RegisterFile`, less `DenyFile` and `UnregisterFile`. Each form instance keeps one set, as the interpreter keeps one per program.
+- The tool's name and the arguments are trimmed. Arguments that are not JSON read as no filters. The result is the search's text, one part per line.
+- Before any file is allowed, the search answers that the tool is not served, as under the interpreter.
+
+Two uses still take the Cargo path: a call with fewer than three arguments, and one in a program with no form.
+
+- **One implementation of the rule:** the interpreter's arm moved, unchanged, into `cobolt_runtime::mcp_tool::search_text`, which both hosts call.
+- **The ABI (A54):** a new capability, `mcp.search`, which a desktop module requires when a form's handler calls the search; no new command or import. The call reaches the application object with every argument as text, as A53's built-ins do. The result comes back as the application's `BuiltinAnswer3`, which the generated code moves into the third argument. The ABI host asks its AgentObject port (`AgentPort::mcp_search`); a port that does not search answers nothing.
+- **The Build's documentation** (the subset document and the System KB, rebuilt) lists the search as served by the runner's `mcp.search`; the reason left names PartiQL only.
+- **Found by the twin, queued as a separate fix:** a value moved into a control property loses all its trailing whitespace under the interpreter but only its trailing spaces in a module, so an item whose text ends in a newline differs, on the desktop and in the browser.
+- **Where:**
+  - `cobolt-runtime`: `mcp_tool.rs`, `interpreter.rs`.
+  - `cobolt-abi-host`: `host.rs`, `host/agent.rs`.
+  - `cobolt-runner`: `agent.rs`, `lib.rs`.
+  - `cobolt-wasm-abi`: `codes.rs`. `cobolt-wasm`: `support.rs`, `lower_form.rs`; `tests/native_desktop_refusals.rs`.
+  - `cobolt-cli`: `tests/runner_mcp_search_form.rs` (new). `assets/knowledge/chunked.data` is rebuilt.
+  - `specs/WASM-ABI-v1.md` (A54, the capability list, §12.1); `tasks.md` (T48 notes); `specs/WASM-PROGRESS.md`.
+- **Measured** (macOS arm64):
+  - **The runner twin `the_mcp_search_agrees_on_both_engines`:** 13 of 13 checks. One form with an INDEXED file of 3 orders, 2 AgentObjects that ask no model, 5 buttons and 5 event handlers runs 11 searches: before any file is allowed; a filter in lower case; `limit` 1; arguments that are not JSON; a filter nothing matches; a result longer than its item; a file the other AgentObject registered; after `DenyFile`. Three dumps are equal; three pictures (684,000 pixels) with 0 differing; no request leaves the machine. In real time: the interpreter 27.6 s, the runner 29.0 s.
+  - **The generator:** `native_desktop_refusals` 47 of 47 checks (the search compiles in a form's handler and requires `mcp.search`; a form not calling it does not; two arguments, and a program with no form, are refused at their line; `PARTIQL` in a program with no form is refused with PartiQL's reason).
+  - **The interpreter, unchanged:** `test_mcp_tool_parity`, `test_agent_tool_calling`, `test_registered_files`, `test_file_memory_limit`, `test_agent_runtime`, `test_knowledge_base`, `test_async_rest`, `test_cobol_object_call` and the other control tests: 61 passed, 1 ignored; the library's tests of the MCP tools, registered files, agents, the Knowledge Base and asynchronous calls: 41 passed.
+  - **Regressions, all green:**
+    - the twins of the AgentObject (24 of 24), its indexed-file tools (14 of 14) and Knowledge Base tools (14 of 14), the KnowledgeBase (26 of 26), the WebSearch (34 of 34), the RestClient (35 of 35) and the model lists (18 of 18): 7 passed;
+    - the whole `cobolt-runner` suite: 21 passed, 0 failed, 2 ignored, in 12 binaries (3,435 s);
+    - `cobolt-wasm`: 146 passed; `cobolt-abi-host`: 281; `cobolt-wasm-abi`: 25;
+    - `cobolt-compiler --lib`: 262 passed, 1 ignored (2,746 s);
+    - `desktop_wasm_build`: 39 of 39 checks (581 s);
+    - the System KB: 4,418 records from 8 documents, 15,667,200 bytes; `prebuilt_chunked_kb_matches_the_published_documentation` passes.
+  - **The release `prc-runner`:** 80,001,952 bytes, 3,840 more than at 2.0.624 (79,998,112).
+
 ## 2.0.625 — 2026-11-20
 
 **Feature: the desktop Build's test expects the pointer refusal of 2.0.615 (DESKTOP-WASM-001).** Since 2.0.615 a desktop module computes pointers in the main program, and the Build refuses a `SET` of a pointer only in a called program, naming the construct `SET` and the reason `SET (pointer): pointers are computed in a WebAssembly module in the main program only; …`. Two checks of `desktop_wasm_build` still expected the earlier construct `SET (pointer)` and the earlier reason, which named `ADDRESS OF`. They failed on this branch from 2.0.615 on. Nothing a developer sees changes.

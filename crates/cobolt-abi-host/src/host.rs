@@ -3547,6 +3547,12 @@ impl Host {
                 self.models_call(inst, v, args);
                 Ok(None)
             }
+            // The MCP search (A54): the runner searches the files the instance's AgentObjects allowed,
+            // and the program's receiver reads the result from the application object.
+            "MCP-SEARCH" if self.opts.desktop => {
+                self.mcp_search(inst, args);
+                Ok(None)
+            }
             "AUDIO-STATE" if self.opts.desktop => {
                 let (state, position, length) = match self.audio.as_mut() {
                     Some(a) => a.state(inst),

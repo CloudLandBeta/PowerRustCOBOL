@@ -212,6 +212,10 @@ pub mod cap {
     /// other built-ins of [`super::MODEL_VERBS`], which the runner answers with the interpreter's own
     /// rules (A53).
     pub const MODELS: &str = "models";
+    /// `COBOL::"MCP-SEARCH" ( tool-name arguments-json result )`, the in-process front door onto the
+    /// files the form's AgentObjects let a model search, which the runner answers with the interpreter's
+    /// own function (A54).
+    pub const MCP_SEARCH: &str = "mcp.search";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
@@ -235,6 +239,7 @@ pub mod cap {
         AGENT_FILES,
         AGENT_KB,
         MODELS,
+        MCP_SEARCH,
     ];
 }
 

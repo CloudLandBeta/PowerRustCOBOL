@@ -234,16 +234,16 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     check("SORT with INPUT and OUTPUT PROCEDUREs compiles into a desktop module".into(), sorted.is_ok());
 
     // A built-in the runner does not serve yet: refused at its line, with the reason of its Desktop class.
-    let mcp = format!(
-        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-OUT PIC X(200).\n\
-         PROCEDURE DIVISION.\n    COBOL::\"MCP-SEARCH\" ( \"search_orders\" \"{{}}\" WS-OUT )\n    STOP RUN.\n"
+    let partiql = format!(
+        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-OUT PIC X(200).\n01 WS-N PIC 9(4).\n\
+         PROCEDURE DIVISION.\n    COBOL::\"PARTIQL\" ( \"ORDERS\" \"SELECT * FROM ORDERS\" WS-N WS-OUT )\n    STOP RUN.\n"
     );
-    let e = refusal(&mcp);
+    let e = refusal(&partiql);
     check(
-        "COBOL::\"MCP-SEARCH\": refused at its line, the MCP search (M6)".into(),
-        e.subject == "COBOL::\"MCP-SEARCH\""
-            && e.line == line_of(&mcp, "MCP-SEARCH")
-            && e.message.contains("the MCP search and PartiQL are not on the WebAssembly path yet")
+        format!("COBOL::\"PARTIQL\": refused at its line, PartiQL (M6) ({} at line {}: {})", e.subject, e.line, e.message),
+        e.subject == "COBOL::\"PARTIQL\""
+            && e.line == line_of(&partiql, "PARTIQL")
+            && e.message.contains("PartiQL is not on the WebAssembly path yet")
             && e.message.contains("M6"),
     );
 
@@ -489,6 +489,37 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     check(
         format!("COBOL::\"MODEL-COUNT\" in a program with no form: refused at its line ({} at line {})", e.subject, e.line),
         e.subject == "COBOL::\"MODEL-COUNT\"" && e.line == line_of(&console, "MODEL-COUNT") && e.message.contains("form's handler only"),
+    );
+    // The MCP search (T48, A54): in a form's handler it compiles and the module requires `mcp.search`,
+    // which a module without it does not; with fewer than three arguments, and in a program with no form,
+    // it is refused at its line.
+    let search = in_form(&handler("    COBOL::\"MCP-SEARCH\" ( \"search_orders\" \"{}\" WS-PATH )\n"));
+    if let Err(e) = &search {
+        println!("    MCP search: {} at line {}: {}", e.subject, e.line, e.message);
+    }
+    let search_needs = caps(&search);
+    check(
+        format!("a form's handler calling COBOL::\"MCP-SEARCH\" compiles, requiring {search_needs:?}"),
+        search.is_ok() && search_needs.iter().any(|c| c == "mcp.search") && !search_needs.iter().any(|c| c == "models"),
+    );
+    check(
+        format!("a form not calling it requires {plain_agent:?} and {model_needs:?}, not mcp.search"),
+        !plain_agent.iter().chain(model_needs.iter()).any(|c| c == "mcp.search"),
+    );
+    let short = handler("    COBOL::\"MCP-SEARCH\" ( \"search_orders\" \"{}\" )\n");
+    let e = in_form(&short).err().unwrap_or_else(|| GenError::new(0, "compiled"));
+    check(
+        format!("COBOL::\"MCP-SEARCH\" with 2 arguments: refused at its line ({} at line {})", e.subject, e.line),
+        e.subject == "COBOL::\"MCP-SEARCH\"" && e.line == line_of(&short, "MCP-SEARCH") && e.message.contains("at least 3 arguments"),
+    );
+    let mcp = format!(
+        "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-OUT PIC X(200).\n\
+         PROCEDURE DIVISION.\n    COBOL::\"MCP-SEARCH\" ( \"search_orders\" \"{{}}\" WS-OUT )\n    STOP RUN.\n"
+    );
+    let e = refusal(&mcp);
+    check(
+        format!("COBOL::\"MCP-SEARCH\" in a program with no form: refused at its line ({} at line {}: {})", e.subject, e.line, e.message),
+        e.subject == "COBOL::\"MCP-SEARCH\"" && e.line == line_of(&mcp, "MCP-SEARCH") && e.message.contains("form's handler only"),
     );
     let notes = with_files("    MOVE AGT-1::AllowFile( \"NOTES\" ) TO WS-PATH\n");
     let e = in_form(&notes).err().unwrap_or_else(|| GenError::new(0, "compiled"));
