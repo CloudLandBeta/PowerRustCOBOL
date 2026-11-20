@@ -2,6 +2,21 @@
 
 
 
+## 2.0.630 — 2026-11-20
+
+**Feature: the PowerCloud example behaves alike on the WebAssembly path and under Run Form, which closes the Maps, AWS, model list and MCP task (DESKTOP-WASM-001 T48).** A new twin runs the whole example on both engines, against local stand-ins for AWS. No product code changed: the twin found no difference between the engines once it ran each one as it is meant to run.
+
+- **The twin** (`cobolt-cli` `runner_powercloud_hosts`, the twin of `powercloud_hosts`):
+  - It copies the example into a temporary project whose six AWS connections lead to the fake MCP server, with a local web server standing in for S3's temporary link, and builds it once on the WebAssembly path.
+  - The same 16 scenarios then run, in the same order, under `rcrun run-form` and in the built program: every tab (Settings, DynamoDB, S3, Lambda, Polly, EC2, Rekognition), a new pet through its popup, edit, view and delete through theirs, an EC2 switch with its Working window, a photo refused with no stack and no bucket, keys that cannot deploy, the six languages of the main form, a status line written again in a new language, and the popups told the language.
+  - For each scenario it compares the values read, the windows and popups, and the requests the fake server received; it compares five pictures pixel for pixel, and the photos the program fitted into its cache byte for byte. It also checks `powercloud_hosts`' own expectations on the built program.
+  - Nothing reaches AWS: the keys are planted (visibly fake, and not shaped like AWS's own key ids and account numbers, so no credential scanner takes them for real ones), the machine's own AWS sign-in is out of reach (`HOME` is the test's own and the `AWS_*` variables are removed), and no secret may appear in any output.
+- **Each engine runs as it is meant to:**
+  - `rcrun run-form` is given the project's form theme with `--theme-default`, as the IDE gives it. Without it, Run Form drew Liquid Glass and the built program drew Spatial: 166,637 pixels differed in every picture.
+  - The built program works in the `data` folder beside it, which the Build filled: a built program's relative paths start at its own folder (since 1.91.201). The twin resets and reads that folder for the built program, and the project's own `data` for Run Form.
+- **Where:** `cobolt-cli`: `tests/runner_powercloud_hosts.rs` (new). `tasks.md` (T48 done; two notes of 2.0.628 and 2.0.629 corrected: PowerCloud has taken the WebAssembly path since 2.0.583, not the Cargo path); `specs/WASM-PROGRESS.md`.
+- **Measured** (macOS arm64): 78 of 78 checks. 16 scenarios on each engine, 84 hosted calls on each, equal; five 1120 x 740 pictures, 4,144,000 pixels compared, 0 differing; 7 cached photos equal byte for byte; the six languages' 322 reads equal. Real time: Run Form 456.9 s, the built program 405.6 s; `rcrun build` on the WebAssembly path 80.6 s; the whole test 955 s.
+
 ## 2.0.629 — 2026-11-20
 
 **Feature: the Maps control runs in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T48, Maps).** A desktop form with a Maps control no longer takes the Cargo path. The control behaves as under Run Form:
