@@ -187,3 +187,77 @@ fn cancel_release_and_a_host_without_a_port() {
     check(page.rest_call(0, idx, "Get", &["users/7"]).is_none(), "with no port, the general dispatch answers as before");
     println!("── cancel_release_and_a_host_without_a_port (RestClient) ──\n  Cancel idle and running, release, no port: {checks} of {checks} checks");
 }
+
+/// A port that records the class of each control it is asked about, and answers a collection write.
+struct ClassPort(Rc<RefCell<Vec<(String, String, String)>>>);
+
+impl RestPort for ClassPort {
+    fn call(&mut self, _inst: u32, c: &RestControl<'_>, method: &str, _args: &[&str]) -> Option<RestEffects> {
+        self.0.borrow_mut().push((c.class.to_owned(), c.name.to_owned(), method.to_owned()));
+        (method == "ADDMARKER").then(|| RestEffects { props: vec![("Markers".into(), "M1\t1\t2\tOne\t".into())], ..RestEffects::default() })
+    }
+    fn cancel(&mut self, _inst: u32, _ctl: &str) -> bool {
+        false
+    }
+    fn release(&mut self, _inst: u32) {}
+}
+
+/// DESKTOP-WASM-001 T48: a Maps control's methods are the port's on the desktop, as a RestClient's
+/// are; a page has no port, and the browser's own answer stands.
+#[test]
+fn a_maps_method_is_the_ports_on_the_desktop() {
+    let form = load_form_from_str(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="main-form" title="Web" width="640" height="480" index-base="1">
+  <Control id="MAP-1" type="Maps" x="0" y="0" w="320" h="240"></Control>
+</Form>"#,
+    )
+    .expect("the form loads");
+    let manifest = |desktop: bool| Manifest {
+        contract: None,
+        remote: Vec::new(),
+        capabilities: if desktop { vec!["http".into()] } else { Vec::new() },
+        abi: 1,
+        generator: "test".into(),
+        project: "web".into(),
+        variant: VariantInfo { multi_memory: true, conformance: false },
+        limits: Limits::default(),
+        names: vec!["AddMarker".into(), "IsBusy".into()],
+        events: vec!["onClick".into()],
+        forms: vec![FormEntry {
+            id: 0,
+            name: "main-form".into(),
+            main: true,
+            instances: 1,
+            region_size: 64,
+            controls: vec![ControlEntry { id: 3, name: "MAP-1".into(), kind: "Maps".into() }],
+            handlers: vec![],
+            layers: vec![],
+        }],
+        builtins: vec![],
+        imports: vec![],
+        sizes: Default::default(),
+    };
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let mut h = Host::new(manifest(true), HostOptions { desktop: true, ..HostOptions::default() });
+    h.rest = Some(Box::new(ClassPort(Rc::clone(&seen))));
+    h.add_form(form.clone()).unwrap();
+    h.create_tree(0, 0, None, Vec::new()).expect("the tree builds");
+    let mut checks = 0;
+    let mut check = |ok: bool, what: &str| {
+        assert!(ok, "{what}");
+        checks += 1;
+    };
+    check(answer(&mut h, 0, &["M1", "1", "2", "One"]).as_deref() == Some(""), "AddMarker answers nothing");
+    check(seen.borrow().first() == Some(&("Maps".into(), "MAP-1".into(), "ADDMARKER".into())), "the port is asked, with the class Maps");
+    check(h.control_property(0, "MAP-1", "Markers").unwrap() == "M1\t1\t2\tOne\t", "the property the port answers is written");
+    check(answer(&mut h, 1, &[]).as_deref() == Some("0"), "IsBusy is not the port's: it reads Busy");
+
+    // A page: no port, so the browser's own answer stands (the collection methods are refused there).
+    let mut page = Host::new(manifest(false), HostOptions::default());
+    page.add_form(form).unwrap();
+    page.create_tree(0, 0, None, Vec::new()).expect("the tree builds");
+    let idx = page.trees[&0].by_name("MAP-1").unwrap();
+    check(page.rest_call(0, idx, "AddMarker", &["M1"]).is_none(), "with no port, a Maps method is not the port's");
+    println!("── a_maps_method_is_the_ports_on_the_desktop (DESKTOP-WASM-001 T48) ──\n  the port asked with the class, its property written, IsBusy the host's, a page without a port: {checks} of {checks} checks");
+}

@@ -372,11 +372,14 @@ impl cobolt_abi_host::host::DropZonePort for DropZones {
 fn resolve_connections(form: &str, controls: &mut [cobolt_forms::Control]) {
     cobolt_form_host::seeding::resolve_connections(form, controls);
     // A WebSearch with no `ApiKey` of its own uses the project's search key from the environment, as
-    // the interpreter's seed gives it (`_ResolvedSearchApiKey`, T47a).
-    let search_key = cobolt_form_host::seeding::resolve_api_keys().1;
+    // the interpreter's seed gives it (`_ResolvedSearchApiKey`, T47a); a Maps control, the project's
+    // Google Maps key (`_ResolvedMapsApiKey`, T48).
+    let (maps_key, search_key) = cobolt_form_host::seeding::resolve_api_keys();
     for c in controls {
-        if let (cobolt_forms::ControlType::WebSearch, Some(key)) = (&c.control_type, &search_key) {
-            c.set_prop("_ResolvedSearchApiKey", cobolt_forms::PropValue::String(key.clone()));
+        match (&c.control_type, &search_key, &maps_key) {
+            (cobolt_forms::ControlType::WebSearch, Some(key), _) => c.set_prop("_ResolvedSearchApiKey", cobolt_forms::PropValue::String(key.clone())),
+            (cobolt_forms::ControlType::Maps, _, Some(key)) => c.set_prop("_ResolvedMapsApiKey", cobolt_forms::PropValue::String(key.clone())),
+            _ => {}
         }
         resolve_connections(form, &mut c.children);
     }

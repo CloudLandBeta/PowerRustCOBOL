@@ -372,6 +372,17 @@ fn draw_tile_stand_in(
     drew
 }
 
+/// The folder a test names for the tiles (`PRC_TEST_MAP_TILES`), holding
+/// `<zoom>/<x>/<y>.png`, or `None`. With one named, no map reaches the network:
+/// each tile is read from the folder when it is first asked for, so it is drawn
+/// on the next frame in every run alike (DESKTOP-WASM-001 R28), and one the
+/// folder lacks is a tile that failed. Never set outside a test.
+fn test_tiles() -> Option<&'static std::path::Path> {
+    static DIR: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
+    DIR.get_or_init(|| std::env::var_os("PRC_TEST_MAP_TILES").filter(|v| !v.is_empty()).map(std::path::PathBuf::from))
+        .as_deref()
+}
+
 /// Start a background fetch for one tile, unless one is already in flight
 /// or has already resolved. Mirrors `file_dialog.rs`'s `begin`/`take`
 /// shape: never blocks the calling (paint) frame, wakes the context when
@@ -383,6 +394,12 @@ fn request_tile(ctx: &egui::Context, key: TileKey) {
     }
     let (zoom, x, y) = key;
     let (tx, rx) = std::sync::mpsc::channel();
+    if let Some(dir) = test_tiles() {
+        let file = dir.join(zoom.to_string()).join(x.to_string()).join(format!("{y}.png"));
+        let _ = tx.send(std::fs::read(file).ok());
+        map.insert(key, TileSlot::Loading(rx));
+        return;
+    }
     let ctx = ctx.clone();
     std::thread::spawn(move || {
         let url = format!("https://tile.openstreetmap.org/{zoom}/{x}/{y}.png");

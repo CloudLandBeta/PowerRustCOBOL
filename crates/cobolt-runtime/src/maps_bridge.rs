@@ -11,8 +11,8 @@
 //!
 //! `google_maps` is `reqwest`+async; this crate's interpreter is
 //! synchronous and stays that way (plan.md §4 Decision 5) — [`run`] is
-//! called from inside the background worker thread `Interpreter::
-//! spawn_maps_op` already spawns, and privately builds a minimal
+//! called (through `maps_door::run`) from inside the background worker
+//! thread the host spawns for the call, and privately builds a minimal
 //! current-thread `tokio::Runtime` just for the one blocking `.block_on()`
 //! call this function makes. Nothing here ever runs on the interpreter's
 //! own thread.

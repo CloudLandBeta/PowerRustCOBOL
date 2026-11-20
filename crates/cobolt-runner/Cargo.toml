@@ -40,11 +40,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 # operations; the form host publishes the project's connections to them), `images` since T39c (IMAGE-FIT and
 # IMAGE-INFO, ABI A39: the interpreter's own picture code), `kb` since T47b (the KnowledgeBase control, ABI A49:
 # the interpreter's own workers; without the built-in semantic model, so a project that links it takes the
-# Cargo path).
+# Cargo path), `maps` since T48 (the Maps control's places and directions: Google's client).
 cobolt-abi-host  = { path = "../cobolt-abi-host" }
 cobolt-form-host = { path = "../cobolt-form-host", default-features = false, features = ["graphics", "aws"] }
 cobolt-forms     = { path = "../cobolt-forms", features = ["render"] }
-cobolt-runtime   = { path = "../cobolt-runtime", default-features = false, features = ["audio", "graphics", "aws", "images", "sql", "http", "kb"] }
+cobolt-runtime   = { path = "../cobolt-runtime", default-features = false, features = ["audio", "graphics", "aws", "images", "sql", "http", "kb", "maps"] }
 # The graphics library the interpreter draws with (T50); the form host already links it.
 cobolt-graphics  = { path = "../cobolt-graphics" }
 # The file declarations name an INDEXED file's engine choice as the parser does (T38).

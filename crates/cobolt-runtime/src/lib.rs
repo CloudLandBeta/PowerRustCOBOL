@@ -111,6 +111,9 @@ pub fn kb_model_is_cached(models_dir: &std::path::Path) -> bool {
     cobolt_kb::model::model_is_cached(models_dir)
 }
 pub mod maps_bridge;
+/// The Maps control's own rules, for the interpreter and the desktop runner alike
+/// (DESKTOP-WASM-001 T48).
+pub mod maps_door;
 /// Spec 065 — the indexed-file tool served over MCP.
 pub mod mcp_tool;
 /// Indexed files registered by path while a program runs (spec 075).

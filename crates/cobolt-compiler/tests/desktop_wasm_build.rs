@@ -27,7 +27,7 @@
 //! - the forms' current code is compiled, not a stale generated file: the front end runs before
 //!   the toolchain is looked for (the twin of `regenerate_before_build_tests`);
 //! - (T33) a form of controls the runner draws builds on the WebAssembly path; one holding a
-//!   control the runner does not serve yet (Maps, inside a Panel) takes the Cargo path, naming the
+//!   control the runner does not serve yet (a Viewer, inside a Panel) takes the Cargo path, naming the
 //!   form, its file and the control;
 //! - (T34) a Build asked for the WebAssembly path alone (`wasm_only`) stops where the Cargo path
 //!   would start, with the reason and nothing compiled, and builds a served form as before.
@@ -487,19 +487,19 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
         r.as_ref().is_ok_and(|b| b.path == BuildPath::Wasm && b.binary_path.is_file()),
     );
     let mut panel = ctl("PNL-SIDE", cobolt_forms::ControlType::Panel);
-    panel.children.push(ctl("MAP-CITY", cobolt_forms::ControlType::Maps));
-    let m = form_project("prct33maps", vec![ctl("BTN-GO", cobolt_forms::ControlType::Button), panel]);
+    panel.children.push(ctl("VWR-DOC", cobolt_forms::ControlType::Viewer));
+    let m = form_project("prct33viewer", vec![ctl("BTN-GO", cobolt_forms::ControlType::Button), panel]);
     let t = Instant::now();
     let r = build_project(&m, &opts(Some(&runner)));
-    let maps_ms = ms(t);
-    let maps_reason = reason_of(&r);
+    let viewer_ms = ms(t);
+    let viewer_reason = reason_of(&r);
     let text = r.as_ref().err().map(|e| e.to_string()).unwrap_or_default();
     check(
-        "Maps inside a Panel → DesktopControl { MAIN, forms/main.cfrm, MAP-CITY, Maps }",
-        matches!(&maps_reason, Ok(CargoReason::DesktopControl { form, file, control, control_type, reason })
-            if form == "MAIN" && file == "forms/main.cfrm" && control == "MAP-CITY" && control_type == "Maps" && reason.contains("(DESKTOP-WASM-001 M6)")),
+        "a Viewer inside a Panel → DesktopControl { MAIN, forms/main.cfrm, VWR-DOC, Viewer }",
+        matches!(&viewer_reason, Ok(CargoReason::DesktopControl { form, file, control, control_type, reason })
+            if form == "MAIN" && file == "forms/main.cfrm" && control == "VWR-DOC" && control_type == "Viewer" && reason.contains("(DESKTOP-WASM-001 M6)")),
     );
-    check("the message names the file, the form, the control and Rust", text.contains("forms/main.cfrm") && text.contains("MAP-CITY") && text.contains("Rust toolchain is required"));
+    check("the message names the file, the form, the control and Rust", text.contains("forms/main.cfrm") && text.contains("VWR-DOC") && text.contains("Rust toolchain is required"));
     check("nothing compiled: no bin/", !m.parent().unwrap().join("bin").exists());
 
     // ── 8. wasm_only (T34): a Build asked for the WebAssembly path alone stops where the Cargo path
@@ -507,10 +507,10 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     let wasm_only = |m: &Path| build_project(m, &BuildOptions { wasm_only: true, ..opts(Some(&runner)) });
     let t = Instant::now();
     let r = wasm_only(&m);
-    let only_maps_ms = ms(t);
+    let only_viewer_ms = ms(t);
     check(
-        "wasm_only, Maps in a Panel → WasmOnly { DesktopControl MAP-CITY }",
-        matches!(&r, Err(CompilerError::WasmOnly { reason: CargoReason::DesktopControl { control, .. } }) if control == "MAP-CITY"),
+        "wasm_only, a Viewer in a Panel → WasmOnly { DesktopControl VWR-DOC }",
+        matches!(&r, Err(CompilerError::WasmOnly { reason: CargoReason::DesktopControl { control, .. } }) if control == "VWR-DOC"),
     );
     check(
         "its message says only the WebAssembly path was asked for, and names no toolchain",
@@ -549,8 +549,8 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     println!("   refused: {http_reason:?} in {http_ms:.1} ms");
     println!("4. build_path = \"cargo\": stopped in {chosen_ms:.1} ms, bin/ unchanged");
     println!("7. a form of a Button and a Label: {served_path:?} in {served_ms:.1} ms");
-    println!("   a form with Maps in a Panel: {maps_reason:?} in {maps_ms:.1} ms");
-    println!("8. wasm_only: the Maps form stopped in {only_maps_ms:.1} ms; the Button and Label form built in {only_served_ms:.1} ms");
+    println!("   a form with a Viewer in a Panel: {viewer_reason:?} in {viewer_ms:.1} ms");
+    println!("8. wasm_only: the Viewer form stopped in {only_viewer_ms:.1} ms; the Button and Label form built in {only_served_ms:.1} ms");
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "pass" } else { "FAIL" });

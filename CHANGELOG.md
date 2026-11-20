@@ -2,6 +2,34 @@
 
 
 
+## 2.0.629 — 2026-11-20
+
+**Feature: the Maps control runs in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T48, Maps).** A desktop form with a Maps control no longer takes the Cargo path. The control behaves as under Run Form:
+- `Geocode`, `ReverseGeocode`, `Directions`, `DistanceMatrix` and `PlacesSearch` ask Google's Maps services with the project's Google Maps key; `TraceRoad` asks OpenRouteService with the key the program passes. Each runs on a thread of its own, one at a time per control: the control is `Busy` at once, the answer lands in `ResponseBody` and raises `onComplete`, a failure writes `LastError` and raises `onError`, `TimeoutMs` raises `onTimeout`, and `Cancel` raises `onCancelled` and drops the ending. A second service call while one runs is ignored, before its key is looked at;
+- a call with no key sends nothing: it writes the reason in `LastError` at once and raises `onError`;
+- `AddMarker`, `RemoveMarker`, `AddRoute`, `RemoveRoute`, `ClearRoutes`, `AddRegion`, `RemoveRegion` and `ClearRegions` edit `Markers`, `Routes` and `Regions` as the interpreter does (a marker is appended as given; a route or a region replaces the one with its id);
+- the map is drawn, panned, zoomed and clicked by the form host, as before.
+
+A browser module is unchanged.
+
+- **One implementation of the rules:** the interpreter's Maps arms moved, unchanged in behaviour, into `cobolt_runtime::maps_door` (`start`, `run`, `is_service`), which the interpreter and the runner both call.
+- **The ABI:** no new import or capability. A Maps method is a call on the control, which the ABI host now hands to the runner's port as it does a RestClient's and a WebSearch's (`rest_call`); a page has no port, so a browser's answer is unchanged.
+- **The runner** resolves the project's Google Maps key as it resolves the search key, and links the runtime's `maps` feature (Google's Maps client). Its release binary grows from 80,126,064 to 82,340,496 bytes (2,214,432 more, 2.8 %).
+- **The tile test folder:** with `PRC_TEST_MAP_TILES` set to a folder, the form host reads each tile from `<folder>/<zoom>/<x>/<y>.png` and asks no tile server; a missing file is a failed tile. It is never set by default, and lets a test picture a map with no network.
+- **The Build's documentation** (the subset document and the System KB, rebuilt) says the Maps control is served; the Viewer stays on the Cargo path.
+- **The web player** is rebuilt (`plain/` and `threaded/`, `player-build.json`): its sources (`cobolt-abi-host`, `cobolt-forms`) changed since it was last made.
+- **Where:**
+  - `cobolt-runtime`: `maps_door.rs` (new), `interpreter.rs`, `lib.rs`, `maps_bridge.rs`.
+  - `cobolt-abi-host`: `host/rest.rs`, `host/rest_tests.rs`. `cobolt-runner`: `rest.rs`, `forms.rs`, `Cargo.toml`. `cobolt-forms`: `map_tiles.rs`.
+  - `cobolt-wasm`: `support.rs`, `tests/subset_table.rs`. `cobolt-compiler`: `lib.rs`, `tests/desktop_wasm_build.rs` (its example of a control the runner lacks is now a Viewer). `cobolt-cli`: `tests/runner_maps_form.rs` (new).
+  - `assets/web-player/` (rebuilt), `assets/knowledge/chunked.data` (rebuilt); `tasks.md` (T48 notes); `specs/WASM-PROGRESS.md`.
+- **Measured** (macOS arm64):
+  - **The form twin** (`cobolt-cli` `runner_maps_form`): 20 of 20 checks. One form with a Maps control over four tiles from a test folder, a ListBox its events write to, 5 buttons and 9 event handlers: the eight collection methods (a marker with five arguments and with four, a route replaced by its id, a region with five arguments and with seven); `Geocode` and `TraceRoad` with no key; `TraceRoad` on its own thread with `IsBusy`, `Busy` and a `Geocode` ignored while it runs; `Cancel`; a pointer click on the designed marker. Six dumps are equal and three pictures (1,134,000 pixels) have 0 differing; no request reaches a provider. In real time: the interpreter 30.5 s, the runner 33.7 s.
+  - The ABI host: `a_maps_method_is_the_ports_on_the_desktop`, and the crate 283 passed. The runtime: `maps_door` 4 unit tests, the library's Maps tests 13, `test_maps_collections` 8.
+  - `subset_table`: 136 entries, 58 through the runner, 30 on the Cargo path, 0 faults. The subset document's tests: 15 of 15 checks; controls on the Desktop: 2 listed with their reason, 69 served.
+  - Regressions: `cobolt-wasm` 148 passed; the whole `cobolt-runner` suite 22 passed, 2 ignored; the desktop Build test (`desktop_wasm_build`) 39 of 39 checks; `cobolt-forms --features render` 1,881 passed, 2 ignored; the PowerAnalyticsWeb pin 3 of 3 artefacts equal (`program.wasm` 742,844 bytes, unchanged); the web player fresh (its freshness test 6 of 6); the System KB rebuilt (4,424 records) and its check passing.
+  - **Not a regression:** `cobolt-forms`' `css_effective_perf` failed under background priority (`taskpolicy -b`, the efficiency cores: 449 to 791 ms against its 100 ms debug budget) and passes at normal priority (81 ms, twice). Nothing it measures changed since it last passed (2.0.580).
+
 ## 2.0.628 — 2026-11-20
 
 **Feature: `COBOL::"PARTIQL"`, `"PARTIQL-FETCH"` and `"PARTIQL-ERROR"` run in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T48, the PartiQL built-ins).** A desktop program that runs PartiQL statements on a file its own `SELECT` declares and holds open no longer takes the Cargo path, in a console program and in a form's handler alike. The statements run in the built program as under `rcrun run` and Run Form:

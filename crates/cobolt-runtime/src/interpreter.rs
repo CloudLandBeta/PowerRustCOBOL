@@ -3370,33 +3370,46 @@ impl Interpreter {
         CobolValue::from_str("", 0)
     }
 
-    /// Spawn a background `google_maps` operation (spec 039 T11) — the
-    /// Maps control's Geocode/ReverseGeocode/Directions/DistanceMatrix/
-    /// PlacesSearch verbs. Mirrors [`Self::spawn_rest_op`] exactly (same
-    /// `async_pending`/`async_generations`/`async_result_tx` bookkeeping,
-    /// same `AsyncOpResult` delivery — `drain_async_ops` needs no changes
-    /// at all to handle this) with one difference: `google_maps` is
-    /// `reqwest`+async, so the worker thread privately builds a small
-    /// `tokio::Runtime` and `.block_on()`s the call inside it (plan.md §4
-    /// Decision 5) — the interpreter's own event loop stays fully
-    /// synchronous; only this one background thread ever touches tokio.
-    ///
-    /// The API key is read from `_ResolvedMapsApiKey`, a runtime-only
-    /// property the host seeds at Run/Build time (T12) — never a literal
-    /// on the control (R31).
-    fn spawn_maps_op(&mut self, obj: &str, verb: &str, args: Vec<String>) -> CobolValue {
-        if self.async_pending.contains_key(obj) {
+    /// A method of a Maps control (spec 039 T11), by the control's own rules
+    /// (`crate::maps_door`, DESKTOP-WASM-001 T48): a collection method edits
+    /// `Markers`, `Routes` or `Regions`; a service method (`Geocode`,
+    /// `ReverseGeocode`, `Directions`, `DistanceMatrix`, `PlacesSearch`,
+    /// `TraceRoad`) runs on a background thread with the same
+    /// `async_pending`/`async_generations`/`async_result_tx` bookkeeping as a
+    /// RestClient request ([`Self::spawn_rest_op`]), so `drain_async_ops`
+    /// delivers it as one. `google_maps` is `reqwest`+async: the worker thread
+    /// privately builds a small `tokio::Runtime` and `.block_on()`s the call
+    /// (plan.md §4 Decision 5), so the interpreter's own event loop stays
+    /// synchronous. The Google key is `_ResolvedMapsApiKey`, a runtime-only
+    /// property the host seeds at Run/Build time (T12), never a literal on the
+    /// control (R31); OpenRouteService's is the first argument of `TraceRoad`,
+    /// supplied by the running program and never written to the project.
+    fn maps_method(&mut self, obj: &str, method: &str, args: &[String]) -> CobolValue {
+        if crate::maps_door::is_service(method) && self.async_pending.contains_key(obj) {
             return CobolValue::from_str("", 0); // one in-flight op per control
         }
-        let api_key = self.obj_get(obj, "_ResolvedMapsApiKey");
-        if api_key.trim().is_empty() {
-            // R33: "not configured" — fail synchronously with no worker
-            // thread at all, rather than a network call that would 400.
-            self.obj_set(obj, "LastError", "Maps API key not configured".into());
-            self.queue_control_event(obj, "onError");
-            return CobolValue::from_str("", 0);
-        }
-        let timeout_ms = self.rest_timeout_ms(obj);
+        let start = {
+            let prop = |p: &str| self.obj_get(obj, p);
+            crate::maps_door::start(&prop, method, args)
+        };
+        let request = match start {
+            crate::maps_door::Start::NotOwn => return CobolValue::from_str("", 0),
+            crate::maps_door::Start::Set(prop, value) => {
+                self.obj_set(obj, prop, value);
+                return CobolValue::from_str("", 0);
+            }
+            crate::maps_door::Start::NotConfigured(fx) => {
+                // R33: fail synchronously with no worker thread at all.
+                for (k, v) in fx.props {
+                    self.obj_set(obj, &k, v);
+                }
+                for e in fx.events {
+                    self.queue_control_event(obj, &e);
+                }
+                return CobolValue::from_str("", 0);
+            }
+            crate::maps_door::Start::Request(r) => r,
+        };
         let generation = {
             let gen = self
                 .async_generations
@@ -3410,80 +3423,18 @@ impl Interpreter {
             crate::async_op::PendingOp {
                 generation,
                 started_at: std::time::Instant::now(),
-                timeout_ms,
+                timeout_ms: request.timeout_ms,
                 awaiting_start: None,
             },
         );
 
         let tx = self.async_result_tx.clone();
         let ctrl_id = obj.to_string();
-        let verb = verb.to_owned();
         std::thread::spawn(move || {
-            let outcome = match crate::maps_bridge::run(&api_key, &verb, &args) {
-                Ok(body) => crate::async_op::AsyncOutcome::HttpSuccess { body, status: 200 },
-                Err(message) => crate::async_op::AsyncOutcome::HttpError { message },
+            let outcome = match crate::maps_door::run(&request) {
+                (body, 0) => crate::async_op::AsyncOutcome::HttpError { message: body },
+                (body, status) => crate::async_op::AsyncOutcome::HttpSuccess { body, status },
             };
-            let _ = tx.send(crate::async_op::AsyncOpResult {
-                ctrl_id,
-                generation,
-                outcome,
-            });
-        });
-
-        CobolValue::from_str("", 0)
-    }
-
-    /// `TraceRoad(key, fromLat, fromLng, toLat, toLng)` — a road route from
-    /// OpenRouteService, on the same async lifecycle as every other Maps
-    /// operation (spec 032): returns an empty string at once, sets `Busy`, and
-    /// delivers `metres⇥seconds⇥polyline` in `ResponseBody` on `onComplete`.
-    ///
-    /// The key is `args[0]`, not `_ResolvedMapsApiKey`: this provider's
-    /// credential is supplied by the running program, typically from a field
-    /// the operator typed it into, and is never written to the project.
-    fn spawn_ors_op(&mut self, obj: &str, args: Vec<String>) -> CobolValue {
-        if self.async_pending.contains_key(obj) {
-            return CobolValue::from_str("", 0); // one in-flight op per control
-        }
-        if args.first().map(|k| k.trim().is_empty()).unwrap_or(true) {
-            // Same shape as a missing Maps key: fail without a worker thread
-            // and without a request that would certainly be refused.
-            self.obj_set(
-                obj,
-                "LastError",
-                "TraceRoad: no OpenRouteService key was supplied".into(),
-            );
-            self.queue_control_event(obj, "onError");
-            return CobolValue::from_str("", 0);
-        }
-        let timeout_ms = self.rest_timeout_ms(obj);
-        let generation = {
-            let gen = self
-                .async_generations
-                .entry(obj.to_string())
-                .or_insert_with(|| Arc::new(AtomicU64::new(0)));
-            gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
-        };
-        self.obj_set(obj, "Busy", "1".into());
-        self.async_pending.insert(
-            obj.to_string(),
-            crate::async_op::PendingOp {
-                generation,
-                started_at: std::time::Instant::now(),
-                timeout_ms,
-                awaiting_start: None,
-            },
-        );
-
-        let tx = self.async_result_tx.clone();
-        let ctrl_id = obj.to_string();
-        std::thread::spawn(move || {
-            let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("");
-            let outcome =
-                match crate::ors_bridge::trace_road(a(0), a(1), a(2), a(3), a(4), timeout_ms) {
-                    Ok(body) => crate::async_op::AsyncOutcome::HttpSuccess { body, status: 200 },
-                    Err(message) => crate::async_op::AsyncOutcome::HttpError { message },
-                };
             let _ = tx.send(crate::async_op::AsyncOpResult {
                 ctrl_id,
                 generation,
@@ -16584,101 +16535,19 @@ impl Interpreter {
                 val(crate::search_door::answer(&prop, &m, &[]).unwrap_or_default())
             }
             // ── Maps (spec 039 T11): Directions/Geocoding/Places/
-            // Distance-Matrix, backed by the `google_maps` crate — always
-            // async (the tokio-runtime spin-up cost makes a same-statement
-            // Sync variant not worth offering, unlike RestClient's GET/POST).
-            "GEOCODE" => self.spawn_maps_op(obj, "GEOCODE", vec![arg(0)]),
-            "REVERSEGEOCODE" => self.spawn_maps_op(obj, "REVERSEGEOCODE", vec![arg(0), arg(1)]),
-            "DIRECTIONS" => self.spawn_maps_op(obj, "DIRECTIONS", vec![arg(0), arg(1)]),
-            "DISTANCEMATRIX" => {
-                self.spawn_maps_op(obj, "DISTANCEMATRIX", vec![arg(0), arg(1)])
-            }
-            "PLACESSEARCH" => self.spawn_maps_op(obj, "PLACESSEARCH", vec![arg(0), arg(1)]),
-            // The other door to a road route: OpenRouteService, whose key is
-            // the FIRST ARGUMENT rather than a project setting — the program
-            // asks its operator for it and the platform never stores it.
-            "TRACEROAD" => {
-                self.spawn_ors_op(obj, vec![arg(0), arg(1), arg(2), arg(3), arg(4)])
-            }
-            // Markers accessors (R18) — the property write path
-            // (`SET <mapid>::Markers TO ...`) already works generically
-            // (Markers is a plain string property like any other), these
-            // are the ergonomic alternative so a developer doesn't have to
-            // hand-format the tab/newline-separated shape themselves. Not
-            // duplicated here as a shared parser with `cobolt_forms::
-            // parse_map_markers` — `cobolt-runtime` does not depend on
-            // `cobolt-forms` outside tests, and the shape is one line of
-            // string formatting, not worth a cross-crate dependency for.
-            "ADDMARKER" => {
-                let (id, lat, lng, label, info) = (arg(0), arg(1), arg(2), arg(3), arg(4));
-                let line = format!("{id}\t{lat}\t{lng}\t{label}\t{info}");
-                let existing = self.obj_get(obj, "Markers");
-                let updated = if existing.trim().is_empty() {
-                    line
-                } else {
-                    format!("{existing}\n{line}")
-                };
-                self.obj_set(obj, "Markers", updated);
-                none
-            }
-            "REMOVEMARKER" => {
-                let target_id = arg(0);
-                let existing = self.obj_get(obj, "Markers");
-                let updated: String = existing
-                    .lines()
-                    .filter(|line| {
-                        line.split('\t').next().unwrap_or("") != target_id.as_str()
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                self.obj_set(obj, "Markers", updated);
-                none
-            }
-            // Routes and regions, the same collection shape as markers: one
-            // TAB-separated line each, appended to a plain string property.
-            //
-            // `geometry` is either an encoded polyline — exactly what
-            // DIRECTIONS returns in its sixth field, so a route can be traced
-            // straight from the answer — or an explicit `lat,lng;lat,lng;…`
-            // list for geometry the program computed itself. Nothing here has
-            // to know which: the renderer tells them apart.
-            "ADDROUTE" => {
-                let (id, color, width, geometry) = (arg(0), arg(1), arg(2), arg(3));
-                let line = format!("{id}\t{color}\t{width}\t{geometry}");
-                let updated = append_collection_line(&self.obj_get(obj, "Routes"), &line);
-                self.obj_set(obj, "Routes", updated);
-                none
-            }
-            "REMOVEROUTE" => {
-                let updated = remove_collection_line(&self.obj_get(obj, "Routes"), &arg(0));
-                self.obj_set(obj, "Routes", updated);
-                none
-            }
-            "CLEARROUTES" => {
-                self.obj_set(obj, "Routes", String::new());
-                none
-            }
-            "ADDREGION" => {
-                let (id, fill, stroke, width, geometry) =
-                    (arg(0), arg(1), arg(2), arg(3), arg(4));
-                // Label and info come AFTER the geometry and are optional, so
-                // the five-argument call that shipped first still works and
-                // simply has no info window.
-                let (label, info) = (arg(5), arg(6));
-                let line =
-                    format!("{id}\t{fill}\t{stroke}\t{width}\t{geometry}\t{label}\t{info}");
-                let updated = append_collection_line(&self.obj_get(obj, "Regions"), &line);
-                self.obj_set(obj, "Regions", updated);
-                none
-            }
-            "REMOVEREGION" => {
-                let updated = remove_collection_line(&self.obj_get(obj, "Regions"), &arg(0));
-                self.obj_set(obj, "Regions", updated);
-                none
-            }
-            "CLEARREGIONS" => {
-                self.obj_set(obj, "Regions", String::new());
-                none
+            // Distance-Matrix, backed by the `google_maps` crate.
+            // The Maps control's places and directions, its road route and its
+            // markers, routes and regions, by its own rules (`maps_door`): the
+            // data methods are always async (the tokio-runtime spin-up cost makes
+            // a same-statement Sync variant not worth offering, unlike
+            // RestClient's GET/POST); the collections are TAB-separated lines in
+            // plain properties (`SET <mapid>::Markers TO ...` works generically
+            // too), these the ergonomic alternative to hand-formatting them.
+            "GEOCODE" | "REVERSEGEOCODE" | "DIRECTIONS" | "DISTANCEMATRIX" | "PLACESSEARCH"
+            | "TRACEROAD" | "ADDMARKER" | "REMOVEMARKER" | "ADDROUTE" | "REMOVEROUTE"
+            | "CLEARROUTES" | "ADDREGION" | "REMOVEREGION" | "CLEARREGIONS" => {
+                let texts: Vec<String> = (0..args.len()).map(arg).collect();
+                self.maps_method(obj, &m, &texts)
             }
             // An omitted verb falls back to `DefaultMethod` (`rest_door::start`).
             "CALL" => {
@@ -18842,25 +18711,6 @@ fn find_units(hay: &[u32], needle: &[u32]) -> Option<usize> {
         return None;
     }
     hay.windows(needle.len()).position(|w| w == needle)
-}
-
-fn append_collection_line(existing: &str, line: &str) -> String {
-    let id = line.split('\t').next().unwrap_or("");
-    let mut out: Vec<&str> = existing
-        .lines()
-        .filter(|l| !l.trim().is_empty() && l.split('\t').next().unwrap_or("") != id)
-        .collect();
-    out.push(line);
-    out.join("\n")
-}
-
-/// Drop the record with this id from a newline-separated collection property.
-fn remove_collection_line(existing: &str, id: &str) -> String {
-    existing
-        .lines()
-        .filter(|l| !l.trim().is_empty() && l.split('\t').next().unwrap_or("") != id)
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 pub fn literal_to_value(lit: &Literal) -> CobolValue {
@@ -22797,7 +22647,7 @@ MAIN.
     fn maps_op_delivered_result_updates_response_body_and_fires_on_complete() {
         // Proves the delivery HALF of the bridge — `drain_async_ops`
         // applying an `AsyncOpResult` — without a real network call: a
-        // real `spawn_maps_op` worker thread would send exactly this
+        // real `maps_method` worker thread would send exactly this
         // shape over `async_result_tx` once `maps_bridge::run` returns
         // (tested independently — this is deliberately a stub result, the
         // same boundary `datagrid_refresh_binding_updates_rows_from_cobol_

@@ -22,6 +22,13 @@
 //! `onResultsReceived` before `onComplete`; `Verbose` narrates the request and its ending, every
 //! credential masked; `ResultCount`, `TopTitle`, `TopSnippet`, `TopLink` and `GetResult(n)` read the
 //! last answer.
+//!
+//! A Maps control's places, directions and road route are such requests too (T48), made by the
+//! control's own rules (`cobolt_runtime::maps_door`, which the interpreter follows): always on a
+//! thread of their own, whatever the `Mode`, with Google's client or OpenRouteService's in place of
+//! the window's HTTP client, and a RestClient's endings; a second while one runs is ignored before
+//! the key is looked at, as under the interpreter; one with no key sends nothing and raises
+//! `onError`. Its markers, routes and regions are properties the port rewrites.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -30,7 +37,7 @@ use std::sync::Arc;
 
 use cobolt_abi_host::host::{RestControl, RestEffects, RestPort};
 use cobolt_runtime::rest_door::{self, Effects, Request, Start};
-use cobolt_runtime::search_door;
+use cobolt_runtime::{maps_door, search_door};
 
 use crate::http::Clients;
 
@@ -120,6 +127,14 @@ impl Port {
         }
         let client = client.clone();
         drop(http);
+        let timeout_ms = request.timeout_ms;
+        self.spawn(inst, c, search, timeout_ms, move || client.send_configured(&request.verb, &request.url, request.body.as_deref(), &request.cfg))
+    }
+
+    /// Run `work` for the control `c` of instance `inst` on a thread of its own, the control busy, its
+    /// ending (the body and the status) coming back as [`RestNews`], and a second thread waiting out
+    /// `timeout_ms` (0: none). A second request while one runs is ignored (spec 032 R6).
+    fn spawn(&mut self, inst: u32, c: &RestControl<'_>, search: bool, timeout_ms: u64, work: impl FnOnce() -> (String, u16) + Send + 'static) -> RestEffects {
         let ctl = c.name.trim().to_ascii_uppercase();
         let generation = {
             let mut r = self.requests.borrow_mut();
@@ -134,9 +149,8 @@ impl Port {
             generation
         };
         let send = Arc::clone(&self.send);
-        let timeout_ms = request.timeout_ms;
         std::thread::spawn(move || {
-            let (body, status) = client.send_configured(&request.verb, &request.url, request.body.as_deref(), &request.cfg);
+            let (body, status) = work();
             send(RestNews::Done { generation, inst, body, status });
         });
         if timeout_ms > 0 {
@@ -164,6 +178,23 @@ impl Port {
             }
         }
     }
+
+    /// A method of the Maps control `c` (T48), by the control's own rules.
+    fn maps(&mut self, inst: u32, c: &RestControl<'_>, method: &str, args: &[String]) -> Option<RestEffects> {
+        if maps_door::is_service(method) && self.requests.borrow().running.contains_key(&(inst, c.name.trim().to_ascii_uppercase())) {
+            // One request in flight per control, ignored before its key is looked at (spec 032 R6).
+            return Some(RestEffects::default());
+        }
+        Some(match maps_door::start(c.prop, method, args) {
+            maps_door::Start::NotOwn => return None,
+            maps_door::Start::Set(prop, value) => RestEffects { props: vec![(prop.to_owned(), value)], ..RestEffects::default() },
+            maps_door::Start::NotConfigured(fx) => host_effects(fx),
+            maps_door::Start::Request(request) => {
+                let timeout_ms = request.timeout_ms;
+                self.spawn(inst, c, false, timeout_ms, move || maps_door::run(&request))
+            }
+        })
+    }
 }
 
 impl RestPort for Port {
@@ -171,6 +202,9 @@ impl RestPort for Port {
         let args: Vec<String> = args.iter().map(|a| a.trim().to_owned()).collect();
         if c.class == "WebSearch" {
             return self.search(inst, c, method, &args);
+        }
+        if c.class == "Maps" {
+            return self.maps(inst, c, method, &args);
         }
         // A module never holds the data item `RequestDataItem` names: the Build sends a RestClient that
         // names one down the Cargo path (T42b).

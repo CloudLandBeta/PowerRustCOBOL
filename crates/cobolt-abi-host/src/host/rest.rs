@@ -4,8 +4,8 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! **The RestClient and WebSearch controls on the desktop** (DESKTOP-WASM-001 T42b, ABI A46; T47a,
-//! A48).
+//! **The RestClient, WebSearch and Maps controls on the desktop** (DESKTOP-WASM-001 T42b, ABI A46;
+//! T47a, A48; T48).
 //!
 //! A method called on a RestClient goes to the runner's [`RestPort`], which carries it out by the
 //! control's own rules (`cobolt_runtime::rest_door`, the interpreter's) with the window's HTTP client,
@@ -15,14 +15,17 @@
 //! [`Host::rest_delivered`]. `Cancel` lets a running request go, as on every asynchronous control;
 //! `IsBusy` reads `Busy`. A WebSearch takes the same road (T47a): its `Search` is a request the port
 //! builds from the control's search properties, by the control's own rules
-//! (`cobolt_runtime::search_door`), and its accessors read the last answer. A browser module never
-//! reaches this, and a host with no port answers as before.
+//! (`cobolt_runtime::search_door`), and its accessors read the last answer. So does a Maps control
+//! (T48): its places, directions and road routes are requests on a thread of the runner, and its
+//! markers, routes and regions are properties the port rewrites, by the control's own rules
+//! (`cobolt_runtime::maps_door`). A browser module never reaches this, and a host with no port
+//! answers as before.
 
 use super::*;
 
-/// What the host knows of the RestClient or WebSearch a method was called on.
+/// What the host knows of the RestClient, WebSearch or Maps control a method was called on.
 pub struct RestControl<'a> {
-    /// The control's type: `RestClient` or `WebSearch`.
+    /// The control's type: `RestClient`, `WebSearch` or `Maps`.
     pub class: &'a str,
     /// The control's name in the form.
     pub name: &'a str,
@@ -41,10 +44,10 @@ pub struct RestEffects {
     pub answer: String,
 }
 
-/// The desktop's RestClient (DESKTOP-WASM-001 T42b) and WebSearch (T47a), which the runner gives the
-/// host in [`Host::rest`].
+/// The desktop's RestClient (DESKTOP-WASM-001 T42b), WebSearch (T47a) and Maps (T48), which the
+/// runner gives the host in [`Host::rest`].
 pub trait RestPort {
-    /// A method (`method`, upper case) of the RestClient or WebSearch `c` of instance `inst`, with the
+    /// A method (`method`, upper case) of the RestClient, WebSearch or Maps `c` of instance `inst`, with the
     /// argument texts `args`: what follows, or `None` when it is not one of the control's own methods,
     /// so the host's general dispatch answers it (`IsBusy`, a property).
     fn call(&mut self, inst: u32, c: &RestControl<'_>, method: &str, args: &[&str]) -> Option<RestEffects>;
@@ -55,12 +58,12 @@ pub trait RestPort {
 }
 
 impl Host {
-    /// A method of the control `idx` when that control is a RestClient or a WebSearch and the host has
-    /// a port: `None` otherwise, and for a method that is not the control's own.
+    /// A method of the control `idx` when that control is a RestClient, a WebSearch or a Maps and the
+    /// host has a port: `None` otherwise, and for a method that is not the control's own.
     pub(super) fn rest_call(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Option<Result<Option<String>, CmdError>> {
         let tree = self.trees.get(&inst)?;
         let class = tree.ctls[idx].kind.type_name();
-        if class != "RestClient" && class != "WebSearch" {
+        if !matches!(class.as_str(), "RestClient" | "WebSearch" | "Maps") {
             return None;
         }
         let port = self.rest.as_mut()?;
@@ -89,7 +92,7 @@ impl Host {
         self.service_apply(inst, idx, &fx.props, &fx.events, fx.answer)
     }
 
-    /// A request of the RestClient or WebSearch named `ctl` of instance `inst` that ran on its own
+    /// A request of the RestClient, WebSearch or Maps named `ctl` of instance `inst` that ran on its own
     /// thread ended, or ran out of time, and `fx` is what that does (the runner's port decided it).
     /// Nothing happens when the instance or the control is gone.
     pub fn rest_delivered(&mut self, inst: u32, ctl: &str, fx: RestEffects) {

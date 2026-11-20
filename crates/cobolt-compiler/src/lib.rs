@@ -7596,8 +7596,8 @@ The Build takes the Cargo path, and says why, when:
   (`DESCRIBE`, `USING` or `INTO DESCRIPTOR`), or national or UTF-8 data in any
   other way (the Build names the item and the line). The column *On the Desktop*
   of "What runs in a browser module" below lists every statement and built-in;
-- a form holds a control the runner does not serve yet (an AI or sign-in control;
-  Maps; the Viewer), or a control bound to data (Data Binding): the Build
+- a form holds a control the runner does not serve yet (the sign-in control, the
+  Viewer), or a control bound to data (Data Binding): the Build
   names the form, its file, the control and its type. "Controls on the Desktop"
   below lists them;
 - a form holds a KnowledgeBase and the project sets `[rag] embedder = "builtin"`:
@@ -8202,6 +8202,18 @@ fn browser_subset_doc() -> String {
          `onResultsReceived` before `onComplete`; a control that is not configured sends nothing and raises `onError`; \
          `Verbose` narrates the request and its answer with every key masked; `ResultCount`, `TopTitle`, `TopSnippet`, \
          `TopLink` and `GetResult(n)` read the last answer. It is held to the RestClient's data items too.\n",
+    );
+    // T48: the Maps control is served by the interpreter's own rules (`cobolt_runtime::maps_door`).
+    d.push_str(
+        "\nThe Maps control is served: the runner asks Google's Maps services for `Geocode`, `ReverseGeocode`, \
+         `Directions`, `DistanceMatrix` and `PlacesSearch` with the project's Google Maps key, and OpenRouteService for \
+         `TraceRoad` with the key the program passes, each on a thread of its own, one at a time per control, by the \
+         interpreter's own rules: the control is `Busy` at once, the answer lands in `ResponseBody` and raises \
+         `onComplete`, a failure writes `LastError` and raises `onError`, `TimeoutMs` raises `onTimeout` and `Cancel` \
+         raises `onCancelled`. A call with no key sends nothing and raises `onError` at once. `AddMarker`, \
+         `RemoveMarker`, `AddRoute`, `RemoveRoute`, `ClearRoutes`, `AddRegion`, `RemoveRegion` and `ClearRegions` edit \
+         `Markers`, `Routes` and `Regions` as under the interpreter, and the map is drawn, panned, zoomed and clicked as \
+         under Run Form.\n",
     );
     // T47b: the KnowledgeBase is served by the interpreter's own rules; the built-in semantic model is not.
     d.push_str(&format!(
@@ -14350,8 +14362,12 @@ function_prefix = "sales-"
         // Served since T39c: the IndexedFile control, whose paragraphs use the file verbs.
         let served = form("MAIN", vec![ctl("BTN-GO", T::Button), ctl("LBL-HELLO", T::Label), panel.clone(), ctl("GRD-ROWS", T::DataGrid), ctl("IXF-ORDERS", T::IndexedFile)]);
         let mut nested = panel.clone();
-        nested.children.push(ctl("MAP-CITY", T::Maps));
-        let with_maps = form("MAIN", vec![ctl("BTN-GO", T::Button), nested]);
+        nested.children.push(ctl("VWR-NOTES", T::Viewer));
+        let with_viewer = form("MAIN", vec![ctl("BTN-GO", T::Button), nested]);
+        // Served since T48: the Maps control, whose places, directions and collections the runner carries out.
+        let mut map_panel = panel.clone();
+        map_panel.children.push(ctl("MAP-CITY", T::Maps));
+        let mapped = form("ROUTE", vec![map_panel]);
         let second = form("ORDERS", vec![ctl("LBL-X", T::Label), ctl("VWR-DOC", T::Viewer)]);
         // Served since T50: the canvases, drawn by the runner with the interpreter's graphics library.
         let drawn = form("PLOT", vec![ctl("CNV-PLOT", T::Canvas2D), ctl("CNV-SCENE", T::Canvas3D)]);
@@ -14389,7 +14405,8 @@ function_prefix = "sales-"
 
         let t = std::time::Instant::now();
         let none = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &served)]);
-        let maps = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &with_maps)]);
+        let nested_viewer = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &with_viewer)]);
+        let map = desktop_control_reason(&[("ROUTE", "forms/route.cfrm", &mapped)]);
         let viewer = desktop_control_reason(&[("MAIN", "forms/main.cfrm", &served), ("ORDERS", "forms/orders.cfrm", &second)]);
         let canvas = desktop_control_reason(&[("PLOT", "forms/plot.cfrm", &drawn)]);
         let aws = desktop_control_reason(&[("CLOUD", "forms/cloud.cfrm", &cloud)]);
@@ -14407,11 +14424,12 @@ function_prefix = "sales-"
             matches!(r, Some(CargoReason::DesktopControl { form, file: fl, control, control_type, reason })
                 if form == f && fl == file && control == c && control_type == ty && reason.contains(milestone))
         };
-        let text = maps.as_ref().map(|r| r.to_string()).unwrap_or_default();
+        let text = nested_viewer.as_ref().map(|r| r.to_string()).unwrap_or_default();
         let checks = [
             ("Button, Label, Panel + TextBox, DataGrid: none", none.is_none()),
-            ("Maps inside a Panel: MAIN, forms/main.cfrm, MAP-CITY, Maps, M6", is(&maps, "MAIN", "forms/main.cfrm", "MAP-CITY", "Maps", "(DESKTOP-WASM-001 M6)")),
-            ("the message names the file, the form and the control", text.contains("forms/main.cfrm") && text.contains("MAIN") && text.contains("MAP-CITY (Maps)")),
+            ("a Viewer inside a Panel: MAIN, forms/main.cfrm, VWR-NOTES, Viewer, M6", is(&nested_viewer, "MAIN", "forms/main.cfrm", "VWR-NOTES", "Viewer", "(DESKTOP-WASM-001 M6)")),
+            ("the message names the file, the form and the control", text.contains("forms/main.cfrm") && text.contains("MAIN") && text.contains("VWR-NOTES (Viewer)")),
+            ("a Maps inside a Panel: none (T48)", map.is_none()),
             ("a Viewer on the second form: ORDERS, forms/orders.cfrm, VWR-DOC, M6", is(&viewer, "ORDERS", "forms/orders.cfrm", "VWR-DOC", "Viewer", "(DESKTOP-WASM-001 M6)")),
             ("a Canvas2D and a Canvas3D: none (T50)", canvas.is_none()),
             ("an AwsS3 and an AwsLambda: none (T48)", aws.is_none()),
@@ -14425,14 +14443,14 @@ function_prefix = "sales-"
             ("a Label bound to an indexed file: LBL-TOTAL, Label, M6", is(&binding, "MAIN", "forms/main.cfrm", "LBL-TOTAL", "Label", "(DESKTOP-WASM-001 M6)")),
         ];
         println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, T47a, T47b, T47c, T48, T50, R13) ==");
-        println!("forms: 11 designs, 26 controls (4 nested), 1 binding; 14 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
-        println!("  Maps: {text}");
+        println!("forms: 12 designs, 29 controls (6 nested), 1 binding; 15 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
+        println!("  a Viewer inside a Panel: {text}");
         let passed = checks.iter().filter(|(_, ok)| *ok).count();
         for (what, ok) in &checks {
             println!("  {} {what}", if *ok { "pass" } else { "FAIL" });
         }
         println!("result: {passed} of {} checks passed", checks.len());
-        assert_eq!(passed, checks.len(), "maps {maps:?}, viewer {viewer:?}, canvas {canvas:?}, web {web:?}, web_named {web_named:?}, service {service:?}, agent_into {agent_into:?}, kb {kb:?}, semantic {semantic:?}, binding {binding:?}");
+        assert_eq!(passed, checks.len(), "nested viewer {nested_viewer:?}, map {map:?}, viewer {viewer:?}, canvas {canvas:?}, web {web:?}, web_named {web_named:?}, service {service:?}, agent_into {agent_into:?}, kb {kb:?}, semantic {semantic:?}, binding {binding:?}");
     }
 
     /// A chart that names its table's fields (`LabelField`, `ValueFields`) has

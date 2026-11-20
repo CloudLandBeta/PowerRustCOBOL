@@ -630,7 +630,6 @@ pub fn desktop_design_gap(c: &cobolt_forms::Control) -> Option<&'static str> {
 /// of its own instead. A project setting, `[rag] embedder = "builtin"`, not a control's design.
 pub const D_KB_SEMANTIC: &str = "the project links the built-in semantic model ([rag] embedder = \"builtin\"), which the PowerRustCOBOL runner does not carry; the Cargo path builds it into the program";
 
-const D_MAPS: &str = "the Maps control's places and directions are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_VIEWER: &str = "the Viewer's documents and verbs are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know takes the Cargo path (DESKTOP-WASM-001 M6)";
 
@@ -657,18 +656,18 @@ const D_UNKNOWN: &str = "a control of a type the WebAssembly path does not know 
 /// Build, [`D_KB_SEMANTIC`]), and since T47c the AgentObject, whose `Ask`, streamed reply,
 /// continuations and declared tools the runner carries out by the interpreter's own rules
 /// (`cobolt_runtime::agent_door`; its runtime-answered tools and a data item it names are judged per
-/// member, [`agent_member_gap`], and by [`desktop_design_gap`]). It does not serve yet: the sign-in
-/// control (class C),
-/// the Maps control (its places and directions are
-/// a service), the Viewer (its documents and verbs) and a type it does not know (class D). A form
+/// member, [`agent_member_gap`], and by [`desktop_design_gap`]), and since T48 the Maps control, whose
+/// places, directions and road routes the runner asks for and whose markers, routes and regions it
+/// edits by the interpreter's own rules (`cobolt_runtime::maps_door`). It does not serve yet: the
+/// sign-in control (class C), the Viewer (its documents and verbs) and a type it does not know
+/// (class D). A form
 /// holding one takes the Cargo path, which names the form and the control.
 pub fn desktop_control_gap(t: &cobolt_forms::model::ControlType) -> Option<&'static str> {
     use cobolt_forms::model::ControlType as T;
     use cobolt_forms::web_class::{class_of, Class};
     match t {
-        T::DataGrid | T::FileDropZone | T::IndexedFile | T::SqlDatabase | T::RestClient | T::WebSearch | T::KnowledgeBase | T::AgentObject => None,
+        T::DataGrid | T::FileDropZone | T::IndexedFile | T::SqlDatabase | T::RestClient | T::WebSearch | T::KnowledgeBase | T::AgentObject | T::Maps => None,
         t if t.is_aws() => None,
-        T::Maps => Some(D_MAPS),
         T::Viewer => Some(D_VIEWER),
         _ => match class_of(t) {
             Class::A | Class::B | Class::E => None,
