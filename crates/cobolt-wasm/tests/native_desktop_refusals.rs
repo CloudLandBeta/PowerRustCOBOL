@@ -376,7 +376,7 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     );
 
     // The AgentObject (T47c): its Ask and declared tools compile; a member that names one of the program's
-    // data items, or offers a tool the runtime answers itself, is refused at its line, naming it.
+    // data items is refused at its line, naming it.
     let asked = handler(
         "    MOVE AGT-1::AddTool( \"get_rate\" \"A rate\" \"currency:string\" ) TO WS-PATH\n    MOVE AGT-1::Ask( \"What is the rate?\" ) TO WS-PATH\n    MOVE AGT-1::SetToolResult( \"call_1\" \"1.08\" ) TO WS-PATH\n    MOVE AGT-1::LastReply TO WS-PATH\n",
     );
@@ -386,7 +386,6 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
         ("    MOVE \"WS-PATH\" TO AGT-1::ResponseDataItem\n", "ResponseDataItem"),
         ("    MOVE AGT-1::SetProperty( \"LastReply\" \"x\" ) TO WS-PATH\n", "ResponseDataItem"),
         ("    MOVE AGT-1::AllowFile( WS-PATH \"orders.cidx\" ) TO WS-PATH\n", "names its file in a data item"),
-        ("    MOVE AGT-1::AllowKnowledgeBase( \"KB-1\" \"docs\" ) TO WS-PATH\n", "Knowledge Base tools"),
     ];
     for (body, why) in agent_cases {
         let src = handler(body);
@@ -398,7 +397,7 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
         }
     }
     check(
-        format!("the AgentObject's members naming a data item (ResponseDataItem, SetProperty, AllowFile's file name) or a Knowledge Base tool (AllowKnowledgeBase): {agent} of {} refused at their line, naming each", agent_cases.len()),
+        format!("the AgentObject's members naming a data item (ResponseDataItem, SetProperty, AllowFile's file name): {agent} of {} refused at their line, naming each", agent_cases.len()),
         agent == agent_cases.len(),
     );
 
@@ -440,7 +439,24 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
         compiled.is_ok() && needs.iter().any(|c| c == "agent") && needs.iter().any(|c| c == "agent.files"),
     );
     let plain_agent = caps(&in_form(&asked));
-    check(format!("a form whose AgentObject uses none of them requires {plain_agent:?}, not agent.files"), plain_agent.iter().any(|c| c == "agent") && !plain_agent.iter().any(|c| c == "agent.files"));
+    check(
+        format!("a form whose AgentObject uses none of them requires {plain_agent:?}, not agent.files or agent.kb"),
+        plain_agent.iter().any(|c| c == "agent") && !plain_agent.iter().any(|c| c == "agent.files" || c == "agent.kb"),
+    );
+    // Its Knowledge Base tools (T47c, A52): AllowKnowledgeBase, with and without a collection and with the
+    // KnowledgeBase named in a data item, and DenyKnowledgeBase compile, and the module requires `agent.kb`.
+    let kb = in_form(&handler(
+        "    MOVE AGT-1::AllowKnowledgeBase( \"KB-1\" \"docs\" ) TO WS-PATH\n    MOVE AGT-1::AllowKnowledgeBase( \"KB-1\" ) TO WS-PATH\n\
+         \x20   MOVE AGT-1::AllowKnowledgeBase( WS-PATH ) TO WS-PATH\n    AGT-1::DenyKnowledgeBase( \"KB-1\" )\n",
+    ));
+    if let Err(e) = &kb {
+        println!("    Knowledge Base tools: {} at line {}: {}", e.subject, e.line, e.message);
+    }
+    let kb_needs = caps(&kb);
+    check(
+        format!("a form whose AgentObject uses AllowKnowledgeBase (a literal, no collection, a data item) and DenyKnowledgeBase compiles, requiring {kb_needs:?}"),
+        kb.is_ok() && kb_needs.iter().any(|c| c == "agent") && kb_needs.iter().any(|c| c == "agent.kb") && !kb_needs.iter().any(|c| c == "agent.files"),
+    );
     let notes = with_files("    MOVE AGT-1::AllowFile( \"NOTES\" ) TO WS-PATH\n");
     let e = in_form(&notes).err().unwrap_or_else(|| GenError::new(0, "compiled"));
     check(

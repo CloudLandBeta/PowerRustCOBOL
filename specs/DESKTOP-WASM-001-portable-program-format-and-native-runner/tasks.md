@@ -1975,6 +1975,23 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
       - `native_desktop_refusals`: 38 of 38 checks, 57 programs compiled: the four file members compile and require `agent.files`, a module without them does not, and an `AllowFile` naming its file in a data item, or naming a LINE SEQUENTIAL file, is refused at its line.
       - `subset_table`: 71 control types = 68 served + 3 on the Cargo path, 29 of 29 fixed points; the file members are served, the Knowledge Base members are not.
     - **Left for this task:** the AgentObject's Knowledge Base tools, and the twins of `model_list_hosts`.
+  - *AgentObject's Knowledge Base tools done 2026-11-19 (2.0.623, "T47c", second part, b). The `model_list_hosts` twins are still open, so the box stays empty:*
+    - **One implementation of the rules:** what the interpreter did for `AllowKnowledgeBase` and `DenyKnowledgeBase` moved, unchanged, into `kb_door`, which both hosts call: `AgentKbTool` (one collection handed to one agent), `allow_for_agent`, `deny_for_agent`, `agent_tool_is`, `agent_tool_specs` and `agent_search`. Each host gives these functions its own way to read a KnowledgeBase's properties: the interpreter reads its controls, and the runner reads the form's (`AgentControl::knowledge_base`, `Host::knowledge_base_property`).
+    - **What runs (ABI A52, a new capability `agent.kb`, no new import, no hidden argument):**
+      - A desktop module whose AgentObject uses either member requires `agent.kb`. The KnowledgeBase is named as the program wrote it, by a literal or by a data item's value, and the runner finds it in the form.
+      - The runner keeps one list per form instance and lets it go when the form closes. Each collection belongs to the agent it was handed to; the tool is `kb_<control>_<collection>`.
+      - The model's call is answered with the KnowledgeBase's settings as they are at that moment. A lexical search answers at once. A search that needs the embedding server runs on a thread of its own, and its text returns as `agent_door::Report::ToolResult`, which `agent_door::reported` hands to `tool_worker_delivered`, where the interpreter's worker result already went.
+    - **What still takes the Cargo path:** of the AgentObject's members, only an `AllowFile` that names its file in a data item (`D_AGENT_FILE_NAME`), or names a file that is not INDEXED (`D_AGENT_FILE_ORG`), as at 2.0.622. `D_AGENT_TOOLS` is gone.
+    - **Tests:**
+      - **The runner twin `the_agentobject_knowledge_base_tools_agree_on_both_engines`, against a local stub that serves both the model and the embedding server:** 14 of 14 checks. One form with two KnowledgeBases (KB-1 lexical, KB-2 with its embeddings from the stub), 2 AgentObjects, 5 buttons and 12 event handlers. It covers:
+        - `AllowKnowledgeBase` of a control's own collection, of another collection, of a Label, and of a name no collection may have;
+        - a request whose model searches both collections, one at once and one on a worker, and answers with both results;
+        - the other agent's request, offering no collection;
+        - `DenyKnowledgeBase` of KB-2, then a request offering KB-1's collection only.
+        Three dumps are equal, three pictures (684,000 pixels) have 0 differing, and the stub receives the same 7 requests from both engines, 2 of them to the embedding server.
+      - `native_desktop_refusals`: 39 of 39 checks, 57 programs compiled: a form whose AgentObject uses `AllowKnowledgeBase` (by a literal, with no collection, and by a data item) and `DenyKnowledgeBase` compiles and requires `agent` and `agent.kb`; a form whose AgentObject uses none of the members requires `agent` alone. The other test: 13 of 13.
+      - `subset_table`: 9 of 9; 71 control types = 68 served + 3 on the Cargo path, 29 of 29 fixed points; 136 entries classified (53 statements, 83 built-ins), 0 faults; the Knowledge Base members are served.
+    - **Left for this task:** the twins of `model_list_hosts`.
 
 - [ ] **T48 — Maps, the Aws controls, model lists and MCP** (R11)
   - Verify: twins of `aws_hosts`, `partiql_hosts` and `powercloud_hosts`, against local stubs. No twin sends a request signed with the live keys some example `.cfrm` files carry.

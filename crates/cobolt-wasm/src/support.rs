@@ -541,11 +541,6 @@ pub fn is_rest_item_member(member: &str) -> bool {
 /// up by name at run time and a module does not.
 pub const D_AGENT_ITEMS: &str = "the AgentObject names the program's data item (ResponseDataItem), which the interpreter looks up by name at run time; the WebAssembly path does not yet (DESKTOP-WASM-001 M6)";
 
-/// Why an AgentObject's tools that the runtime answers itself take the Cargo path (DESKTOP-WASM-001
-/// T47c): the runner offers a model the tools the program declares (`AddTool`), and not yet the
-/// application's indexed files or Knowledge Base collections.
-pub const D_AGENT_TOOLS: &str = "the AgentObject's Knowledge Base tools (AllowKnowledgeBase, DenyKnowledgeBase) are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
-
 /// Why an AgentObject's `AllowFile` that names its file in a data item takes the Cargo path.
 pub const D_AGENT_FILE_NAME: &str = "the AgentObject's AllowFile names its file in a data item, which the interpreter looks up by name at run time; the WebAssembly path takes the file's name as a literal (DESKTOP-WASM-001 M6)";
 
@@ -556,9 +551,9 @@ pub const D_AGENT_FILE_ORG: &str = "the AgentObject's AllowFile names a file tha
 /// its name ([`D_AGENT_ITEMS`]).
 pub const AGENT_ITEM_MEMBERS: &[&str] = &["ResponseDataItem", "SetProperty"];
 
-/// The members of an AgentObject that offer a model a Knowledge Base collection, which the runtime
-/// searches itself ([`D_AGENT_TOOLS`]).
-pub const AGENT_TOOL_MEMBERS: &[&str] = &["AllowKnowledgeBase", "DenyKnowledgeBase"];
+/// The members of an AgentObject that hand a model a Knowledge Base collection, which the runner
+/// searches itself with the KnowledgeBase's settings (T47c, ABI A52): the module requires `agent.kb`.
+pub const AGENT_KB_MEMBERS: &[&str] = &["AllowKnowledgeBase", "DenyKnowledgeBase"];
 
 /// The members of an AgentObject that offer a model an indexed file, which the runner searches itself
 /// (T47c, ABI A51): the module requires `agent.files`.
@@ -569,10 +564,7 @@ pub const AGENT_FILE_MEMBERS: &[&str] = &["AllowFile", "DenyFile", "RegisterFile
 pub fn agent_member_gap(member: &str) -> Option<&'static str> {
     let m = member.trim();
     let bare = ["GET-", "SET-"].iter().find_map(|p| m.get(..4).filter(|h| h.eq_ignore_ascii_case(p)).map(|_| &m[4..])).unwrap_or(m);
-    if AGENT_ITEM_MEMBERS.iter().any(|s| s.eq_ignore_ascii_case(bare)) {
-        return Some(D_AGENT_ITEMS);
-    }
-    AGENT_TOOL_MEMBERS.iter().any(|s| s.eq_ignore_ascii_case(m)).then_some(D_AGENT_TOOLS)
+    AGENT_ITEM_MEMBERS.iter().any(|s| s.eq_ignore_ascii_case(bare)).then_some(D_AGENT_ITEMS)
 }
 
 /// Why the desktop control `c` takes the Cargo path for what its design holds, beyond its type

@@ -78,6 +78,7 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::KB,
     cap::AGENT,
     cap::AGENT_FILES,
+    cap::AGENT_KB,
 ];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row

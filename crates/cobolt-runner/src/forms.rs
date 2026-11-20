@@ -640,11 +640,13 @@ impl Thread {
                 }
                 Some(ToProgram::Agent(n)) => {
                     let (inst, ctl) = (n.inst, n.ctl.clone());
-                    // The control's properties as they are when the report comes (`Verbose`, `PartialReply`).
+                    // The control's properties as they are when the report comes (`Verbose`, `PartialReply`),
+                    // and the form's KnowledgeBases' (a collection the model searches next).
                     let fx = {
                         let host = d.host();
                         let prop = |p: &str| host.control_property(inst, &ctl, p).unwrap_or_default();
-                        agent.delivered(n, &prop)
+                        let kb = |k: &str, p: &str| host.knowledge_base_property(inst, k, p);
+                        agent.delivered(n, &prop, &kb)
                     };
                     if let Some(fx) = fx {
                         d.host().agent_delivered(inst, &ctl, fx);

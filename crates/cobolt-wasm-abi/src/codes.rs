@@ -179,6 +179,9 @@ pub mod cap {
     /// The AgentObject's indexed-file tools, which the runner answers itself: `AllowFile`, `DenyFile`,
     /// `RegisterFile` and `UnregisterFile` (A51).
     pub const AGENT_FILES: &str = "agent.files";
+    /// The AgentObject's Knowledge Base tools, which the runner answers itself with the form's
+    /// KnowledgeBase: `AllowKnowledgeBase` and `DenyKnowledgeBase` (A52).
+    pub const AGENT_KB: &str = "agent.kb";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
@@ -200,6 +203,7 @@ pub mod cap {
         KB,
         AGENT,
         AGENT_FILES,
+        AGENT_KB,
     ];
 }
 

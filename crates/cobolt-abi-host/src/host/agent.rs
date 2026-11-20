@@ -29,6 +29,17 @@ pub struct AgentControl<'a> {
     pub name: &'a str,
     /// One of its properties, as the program would read it.
     pub prop: &'a dyn Fn(&str) -> String,
+    /// A property of the form's KnowledgeBase named by the first argument, as the program would read
+    /// it (`AllowKnowledgeBase`, and the search a model asks for): `None` when the form has no
+    /// KnowledgeBase of that name.
+    pub knowledge_base: &'a dyn Fn(&str, &str) -> Option<String>,
+}
+
+/// A property of the KnowledgeBase named `ctl` in `tree`: `None` when it has no KnowledgeBase of that
+/// name.
+fn knowledge_base_prop(tree: &FormTree, ctl: &str, prop: &str) -> Option<String> {
+    let idx = tree.by_name(ctl)?;
+    (tree.ctl(idx).kind.type_name() == "KnowledgeBase").then(|| tree.get(idx, prop))
 }
 
 /// What a method call, a report or a time-out does: the lines for the program's `DISPLAY` output
@@ -80,7 +91,8 @@ impl Host {
             return Some(Ok(None));
         }
         let prop = |p: &str| tree.get(idx, p);
-        let fx = port.call(inst, &AgentControl { name: &ctl, prop: &prop }, &m, args)?;
+        let kb = |k: &str, p: &str| knowledge_base_prop(tree, k, p);
+        let fx = port.call(inst, &AgentControl { name: &ctl, prop: &prop, knowledge_base: &kb }, &m, args)?;
         Some(Ok(self.agent_apply(inst, idx, fx)))
     }
 
@@ -112,6 +124,13 @@ impl Host {
     pub fn agent_delivered(&mut self, inst: u32, ctl: &str, fx: AgentEffects) {
         let Some(idx) = self.trees.get(&inst).and_then(|t| t.by_name(ctl)) else { return };
         self.agent_apply(inst, idx, fx);
+    }
+
+    /// A property of the KnowledgeBase named `ctl` in instance `inst`, as the program would read it:
+    /// `None` when the instance has no KnowledgeBase of that name. A report of an AgentObject's
+    /// request reads its collections' settings through it.
+    pub fn knowledge_base_property(&self, inst: u32, ctl: &str, prop: &str) -> Option<String> {
+        knowledge_base_prop(self.trees.get(&inst)?, ctl, prop)
     }
 
     /// The `onToolCall` queued for control `ctl` of instance `inst` left the queue: its handler, when
@@ -146,7 +165,8 @@ impl Host {
         let Some(port) = self.agent.as_mut() else { return };
         let ctl = tree.ctl(idx).name.clone();
         let prop = |p: &str| tree.get(idx, p);
-        let fx = port.tool_returned(inst, &AgentControl { name: &ctl, prop: &prop });
+        let kb = |k: &str, p: &str| knowledge_base_prop(tree, k, p);
+        let fx = port.tool_returned(inst, &AgentControl { name: &ctl, prop: &prop, knowledge_base: &kb });
         self.agent_apply(inst, idx, fx);
     }
 }

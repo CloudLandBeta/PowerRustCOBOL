@@ -2,6 +2,38 @@
 
 
 
+## 2.0.623 — 2026-11-19
+
+**Feature: an AgentObject's Knowledge Base tools run in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T47c, second part).** A desktop form whose AgentObject lets the model search the form's KnowledgeBase collections no longer sends its program down the Cargo path. The built program offers and answers those tools as Run Form does:
+- `AllowKnowledgeBase( kb [collection] )` hands that agent alone a tool `kb_<control>_<collection>`, for the collection named, or the one the KnowledgeBase's `Collection` names when none is written. It answers `1`, or `0` when the text names no KnowledgeBase of the form, or the collection's name is not one a collection may have. The KnowledgeBase may be named by a literal or by a data item's value.
+- `DenyKnowledgeBase( kb [collection] )` takes that collection, or every collection of `kb` when none is written, from that agent.
+- The model's call is answered by the program itself, with the KnowledgeBase's settings as they are at that moment: at once for a lexical collection, and on a thread of its own when the query needs the embedding server. The conversation then goes on with the result, as under the interpreter.
+
+With this, every member of the AgentObject that the runtime answers itself runs on the WebAssembly path. Two uses still take the Cargo path, as at 2.0.622: an `AllowFile` that names its file in a data item, and one that names a file that is not INDEXED.
+
+- **One implementation of the rules:** what the interpreter did for the two members moved, unchanged, into `kb_door`, which both hosts call: `AgentKbTool`, `allow_for_agent`, `deny_for_agent`, `agent_tool_specs`, `agent_tool_is` and `agent_search`. A search that needs the embedding server comes back as a new report of the agent's request, `agent_door::Report::ToolResult`, which goes where the interpreter's worker result already went (`tool_worker_delivered`).
+- **The ABI (A52):** a new capability, `agent.kb`, which a desktop module requires when its AgentObject uses either member; no new command or import, and no hidden argument: the runner finds the KnowledgeBase in the form by the name the program sends. It keeps one list per form instance and lets it go when the form closes.
+- **The Build's documentation** (the subset document and the System KB, rebuilt) names the Knowledge Base tools among what the WebAssembly path serves.
+- **Where:**
+  - `cobolt-runtime`: `kb_door.rs`, `agent_door.rs`, `interpreter.rs`, `interpreter/kb.rs`, `interpreter/agent_loop.rs`.
+  - `cobolt-abi-host`: `host/agent.rs` (the form's KnowledgeBases' properties for the runner's port).
+  - `cobolt-runner`: `agent.rs`, `forms.rs`, `lib.rs`.
+  - `cobolt-wasm-abi`: `codes.rs` (the capability). `cobolt-wasm`: `support.rs`, `lower_form.rs`; `tests/subset_table.rs`, `tests/native_desktop_refusals.rs`.
+  - `cobolt-compiler`: `lib.rs` (the Build's text). `assets/knowledge/chunked.data` is rebuilt.
+  - `cobolt-cli`: `tests/runner_agent_kb_form.rs` (new).
+  - `specs/WASM-ABI-v1.md` (A52, the capability list); `tasks.md` (T47 notes); `specs/WASM-PROGRESS.md`.
+- **Measured** (macOS arm64):
+  - **The runner twin `the_agentobject_knowledge_base_tools_agree_on_both_engines`:** 14 of 14 checks, against a local stub that serves both the model and the embedding server. One form with two KnowledgeBases (one lexical, one with its embeddings from the stub), 2 AgentObjects, 5 buttons and 12 event handlers. Three dumps are equal; three pictures (684,000 pixels) with 0 differing; the same 7 requests on the stub from both engines, 2 of them to the embedding server. In real time: the interpreter 28.1 s, the runner 26.0 s.
+  - **The interpreter, unchanged:** `test_agent_runtime` 9, `test_agent_tool_calling` 12, `test_knowledge_base` 7, `test_registered_files` 8 (1 ignored), `test_file_memory_limit` 1, `test_mcp_tool_parity` 3, `test_nonvisual_property_readers` 5, `test_async_rest` 5, `test_snackbar_methods` 9; the library's tests of the Knowledge Base, agents, asynchronous operations and the MCP tools, 37.
+  - **The generator:** `native_desktop_refusals` 39 of 39 checks, 57 programs compiled (both Knowledge Base members compile and require `agent.kb`, by a literal, with no collection and by a data item; a form using neither requires `agent` alone), and 13 of 13; `subset_table` 9 of 9: 71 control types = 68 served + 3 on the Cargo path, 29 of 29 fixed points, 136 entries classified with 0 faults.
+  - **Regressions, all green:**
+    - the whole `cobolt-runner` suite: 20 passed, 0 failed, 2 ignored, in 12 binaries (3,838 s);
+    - `cobolt-wasm`: 146 passed; `cobolt-abi-host`: 281; `cobolt-wasm-abi`: 25;
+    - the twins of the AgentObject's indexed-file tools (14 of 14), the AgentObject (24 of 24), the KnowledgeBase (26 of 26), the WebSearch (34 of 34) and the RestClient (35 of 35);
+    - `cobolt-compiler --lib`: 262 passed, 1 ignored (2,983 s);
+    - the System KB: 4,425 records from 8 documents, 15,695,872 bytes; `prebuilt_chunked_kb_matches_the_published_documentation` passes.
+  - **The release `prc-runner`:** 79,992,080 bytes, 79,632 more than at 2.0.622 (79,912,448).
+
 ## 2.0.622 — 2026-11-19
 
 **Feature: an AgentObject's indexed-file tools run in a desktop program built on the WebAssembly path (DESKTOP-WASM-001 T47c, second part).** A desktop form whose AgentObject lets the model search the application's indexed files no longer sends its program down the Cargo path. The built program offers and answers those tools as Run Form does:

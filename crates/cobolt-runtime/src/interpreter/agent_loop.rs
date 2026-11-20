@@ -145,6 +145,7 @@ impl AgentHost for AgentSite<'_> {
                     Report::Alive => AsyncOutcome::AgentAlive,
                     Report::Partial(text) => AsyncOutcome::AgentPartial { text },
                     Report::Reply { status, body } => AsyncOutcome::AgentReply { status, body },
+                    Report::ToolResult { call_id, text } => AsyncOutcome::KbToolResult { call_id, text },
                 };
                 let _ = tx.send(AsyncOpResult { ctrl_id: ctrl_id.clone(), generation, outcome });
             });

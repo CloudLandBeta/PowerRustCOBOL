@@ -20,6 +20,9 @@
 //!
 //! The methods and the operations need the Knowledge Base (runtime feature `kb`); what a report
 //! raises, and the results' shape, are compiled in every build, as the interpreter's drain is.
+//!
+//! The collections a program hands its AgentObjects as tools (`AllowKnowledgeBase`, spec 068 R32)
+//! are kept and searched here too, for the same two hosts ([`AgentKbTool`], [`agent_search`]).
 
 #[cfg(feature = "kb")]
 use std::sync::atomic::AtomicBool;
@@ -297,4 +300,208 @@ pub fn results_of(rows: &[serde_json::Value]) -> Vec<KbHit> {
             score: r.get("score").and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32,
         })
         .collect()
+}
+
+// ── The collections an AgentObject may search (spec 068 R32) ───────────────────────────────────
+//
+// `AllowKnowledgeBase(kb [, collection])` hands a collection to ONE agent as a tool, which the
+// model calls with a query; the search runs with the KnowledgeBase control's settings as they are
+// when the model calls it. A host keeps the list (one per program) and reads its KnowledgeBase
+// controls through a getter that answers only for a KnowledgeBase.
+
+/// A property of the program's KnowledgeBase control named by the first argument: `None` when no
+/// KnowledgeBase has that name.
+pub type KbProp<'a> = &'a dyn Fn(&str, &str) -> Option<String>;
+
+/// A collection handed to an agent as a tool (spec 068 R32).
+#[derive(Debug, Clone)]
+pub struct AgentKbTool {
+    /// The tool name the model sees: `kb_<control>_<collection>`.
+    pub name: String,
+    /// The KnowledgeBase control whose settings the search uses.
+    pub kb: String,
+    pub collection: String,
+    /// The AgentObject it was granted to, upper-cased. A tool is THAT
+    /// agent's: granting one to an agent, or taking one from another, never
+    /// touches the others' (operator, 2026-09-27 — PowerChat's election
+    /// denied the collection to agents 2 and 3 after granting it to the tool
+    /// worker, and the shared list left no agent able to search).
+    pub agent: String,
+}
+
+/// How a model's search of a collection is answered.
+pub enum ToolSearch {
+    /// At once: lexical and built-in searches take milliseconds, and are answered as the
+    /// indexed-file tools are.
+    Now(String),
+    /// On a worker: the query needs the embedding server. The host runs it on a thread of its own
+    /// and hands the text to the agent's tool loop when it is done
+    /// (`agent_door::tool_worker_delivered`).
+    Worker(Box<dyn FnOnce() -> String + Send>),
+}
+
+fn slug(s: &str) -> String {
+    let out: String = s
+        .trim()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .collect();
+    out.trim_matches('_').to_string()
+}
+
+/// A search's hits as the model reads them: numbered, each naming its
+/// document and section, so it can cite them (R33).
+pub(crate) fn tool_text(collection: &str, hits: &[KbHit], mode: &str) -> String {
+    if hits.is_empty() {
+        return format!("no passage in the \"{collection}\" collection matched");
+    }
+    let mut out = format!("{} passage(s) from the \"{collection}\" collection ({mode} search):\n", hits.len());
+    for (i, h) in hits.iter().enumerate() {
+        out.push_str(&format!(
+            "\n[{}] document: {} § {} (score {:.2})\n{}\n",
+            i + 1,
+            h.document,
+            h.heading,
+            h.score,
+            h.passage.trim()
+        ));
+    }
+    out
+}
+
+/// Is `name` one of the collections handed to `agent`?
+pub fn agent_tool_is(tools: &[AgentKbTool], agent: &str, name: &str) -> bool {
+    let agent = agent.trim().to_ascii_uppercase();
+    tools.iter().any(|t| t.agent == agent && t.name.eq_ignore_ascii_case(name))
+}
+
+/// A KnowledgeBase control's `MaximumResults`, as a tool description states it. Without `kb` no
+/// tool is ever handed over, so there is no description to write.
+#[cfg(feature = "kb")]
+fn default_max_results(kb: KbProp<'_>, control: &str) -> usize {
+    config(&|p: &str| kb(control, p).unwrap_or_default()).max_results
+}
+
+#[cfg(not(feature = "kb"))]
+fn default_max_results(_kb: KbProp<'_>, _control: &str) -> usize {
+    0
+}
+
+/// The collections handed to `agent`, as the model is offered them.
+pub fn agent_tool_specs(tools: &[AgentKbTool], agent: &str, kb: KbProp<'_>) -> Vec<crate::agent_tools::ToolSpec> {
+    let agent = agent.trim().to_ascii_uppercase();
+    tools
+        .iter()
+        .filter(|t| t.agent == agent)
+        .map(|t| {
+            // The default the call really gets is the control's
+            // `MaximumResults`; the description used to say 5 whatever it
+            // was set to.
+            let default = default_max_results(kb, &t.kb);
+            crate::agent_tools::ToolSpec {
+                name: t.name.clone(),
+                description: format!(
+                    "Search the \"{}\" document collection. Returns the passages that best \
+                     match the query, each naming the document and section it comes from.",
+                    t.collection
+                ),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "What to look for, in plain words"},
+                        "max_results": {"type": "integer", "description": format!("At most this many passages (default {default})")}
+                    },
+                    "required": ["query"]
+                }),
+            }
+        })
+        .collect()
+}
+
+/// `AGT::AllowKnowledgeBase(kb [, collection])` — offer the collection to
+/// the model as a tool. `true`, or `false` when `kb` is not a KnowledgeBase or
+/// names no collection.
+#[cfg(feature = "kb")]
+pub fn allow_for_agent(tools: &mut Vec<AgentKbTool>, agent: &str, kb_name: &str, collection: &str, kb: KbProp<'_>) -> bool {
+    let agent = agent.trim().to_ascii_uppercase();
+    let kb_name = kb_name.trim();
+    let Some(own) = kb(kb_name, "Collection") else {
+        return false;
+    };
+    let collection = if collection.trim().is_empty() { own.trim().to_string() } else { collection.trim().to_string() };
+    if cobolt_kb::store::validate_name(&collection).is_err() {
+        return false;
+    }
+    let name = format!("kb_{}_{}", slug(kb_name), slug(&collection));
+    tools.retain(|t| !(t.agent == agent && t.name.eq_ignore_ascii_case(&name)));
+    tools.push(AgentKbTool { name, kb: kb_name.to_string(), collection, agent });
+    true
+}
+
+/// Without the Knowledge Base no collection can be handed over.
+#[cfg(not(feature = "kb"))]
+pub fn allow_for_agent(_tools: &mut Vec<AgentKbTool>, _agent: &str, _kb_name: &str, _collection: &str, _kb: KbProp<'_>) -> bool {
+    false
+}
+
+/// `AGT::DenyKnowledgeBase(kb [, collection])` — take the collection (every collection of `kb`,
+/// when none is named) from `agent`. The others' are untouched.
+pub fn deny_for_agent(tools: &mut Vec<AgentKbTool>, agent: &str, kb_name: &str, collection: &str) {
+    let agent = agent.trim().to_ascii_uppercase();
+    let kb_name = kb_name.trim();
+    let collection = collection.trim();
+    tools.retain(|t| {
+        !(t.agent == agent
+            && t.kb.eq_ignore_ascii_case(kb_name)
+            && (collection.is_empty() || t.collection.eq_ignore_ascii_case(collection)))
+    });
+}
+
+/// A model's search of a collection handed to `agent`, with its KnowledgeBase's settings as they are
+/// now. `None` when `call` names none of them.
+#[cfg(feature = "kb")]
+pub fn agent_search(tools: &[AgentKbTool], agent: &str, call: &crate::agent_tools::ToolCall, kb: KbProp<'_>) -> Option<ToolSearch> {
+    use crate::kb_runtime::EmbedderChoice;
+    let owner = agent.trim().to_ascii_uppercase();
+    let tool = tools.iter().find(|t| t.agent == owner && t.name.eq_ignore_ascii_case(&call.name))?.clone();
+    let args = call.arguments.clone().unwrap_or_default();
+    let query = args.get("query").and_then(|q| q.as_str()).unwrap_or("").to_string();
+    if query.trim().is_empty() {
+        return Some(ToolSearch::Now("error: the search needs a \"query\"".into()));
+    }
+    let prop = |p: &str| kb(&tool.kb, p).unwrap_or_default();
+    let mut cfg = config(&prop);
+    let endpoint = cfg.embedder == EmbedderChoice::Endpoint;
+    cfg.collection = tool.collection.clone();
+    let max = args
+        .get("max_results")
+        .and_then(|m| m.as_u64())
+        .map(|m| m as usize)
+        .filter(|m| *m > 0)
+        .unwrap_or(cfg.max_results)
+        .min(20);
+    let collection = tool.collection.clone();
+    let run = move || -> String {
+        let (tx, rx) = std::sync::mpsc::channel();
+        kr::run(cfg, KbOp::Search { query, max }, Arc::new(AtomicBool::new(false)), |o| {
+            let _ = tx.send(o);
+        });
+        match rx.try_iter().last() {
+            Some(AsyncOutcome::KbSearchDone { hits, mode, .. }) => tool_text(&collection, &hits, &mode),
+            Some(AsyncOutcome::KbError { message }) | Some(AsyncOutcome::KbBusy { message }) => {
+                format!("error: {message}")
+            }
+            _ => "error: the search did not run".into(),
+        }
+    };
+    if !endpoint {
+        return Some(ToolSearch::Now(run()));
+    }
+    Some(ToolSearch::Worker(Box::new(run)))
+}
+
+/// Without the Knowledge Base no collection is ever handed over; a call naming one is told why.
+#[cfg(not(feature = "kb"))]
+pub fn agent_search(tools: &[AgentKbTool], agent: &str, call: &crate::agent_tools::ToolCall, _kb: KbProp<'_>) -> Option<ToolSearch> {
+    agent_tool_is(tools, agent, &call.name).then(|| ToolSearch::Now("error: the Knowledge Base is not linked into this program".into()))
 }

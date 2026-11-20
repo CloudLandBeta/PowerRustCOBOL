@@ -16,10 +16,12 @@
 //! ([`Agents::polling`], [`Agents::sweep`]) to say when it ran out of time, with the interpreter's
 //! own rule (`PendingOp::expired`).
 //!
-//! The indexed files the program lets its agents search (`AllowFile`, `RegisterFile`, ABI A51) are
-//! offered and searched as the interpreter offers and searches them (`cobolt_runtime::mcp_tool`). A
-//! program that lets them search a Knowledge Base collection still takes the Cargo path (the Build
-//! refuses the method).
+//! The tools the runtime answers itself are offered and answered as the interpreter offers and
+//! answers them: the indexed files the program lets its agents search (`AllowFile`, `RegisterFile`,
+//! ABI A51; `cobolt_runtime::mcp_tool`) and the Knowledge Base collections it hands them
+//! (`AllowKnowledgeBase`, ABI A52; `cobolt_runtime::kb_door`). A search that needs the embedding
+//! server runs on a thread of its own, and its text comes back to the program thread as a report of
+//! the agent's request (`Report::ToolResult`).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -31,6 +33,7 @@ use cobolt_abi_host::host::{AgentControl, AgentEffects, AgentPort};
 use cobolt_runtime::agent_door::{self, AgentHost, Conversation, DeclaredTool, Job, Method, Report, Seen};
 use cobolt_runtime::agent_tools::{ToolCall, ToolSpec};
 use cobolt_runtime::async_op::PendingOp;
+use cobolt_runtime::kb_door::{self, AgentKbTool, ToolSearch};
 use cobolt_runtime::mcp_tool::{self, FileAccess, IndexedToolSet};
 use cobolt_runtime::HttpClient;
 use cobolt_wasm_abi::files::FileDecl;
@@ -77,6 +80,9 @@ struct State {
     /// Each instance's indexed files its agents may search (`AllowFile`, `RegisterFile`): the
     /// interpreter keeps one set per program, which every AgentObject of the form offers.
     files: HashMap<u32, IndexedToolSet>,
+    /// Each instance's Knowledge Base collections handed to its agents (`AllowKnowledgeBase`): the
+    /// interpreter keeps one list per program, each collection its agent's own.
+    kbs: HashMap<u32, Vec<AgentKbTool>>,
 }
 
 fn key(inst: u32, ctl: &str) -> (u32, String) {
@@ -103,7 +109,11 @@ struct Site<'a> {
     results: &'a mut HashMap<String, String>,
     /// The instance's searchable files.
     files: &'a IndexedToolSet,
+    /// The instance's collections handed to agents.
+    kbs: &'a [AgentKbTool],
     prop: &'a dyn Fn(&str) -> String,
+    /// A property of the form's KnowledgeBase of that name, as the search reads its settings.
+    kb: &'a dyn Fn(&str, &str) -> Option<String>,
     /// The HTTP client a request is sent with.
     client: &'a dyn Fn() -> HttpClient,
     send: &'a Arc<dyn Fn(AgentNews) + Send + Sync>,
@@ -140,19 +150,41 @@ impl AgentHost for Site<'_> {
     fn set_item(&mut self, _item: &str, _text: &str) {}
 
     fn runtime_tools(&self) -> Vec<ToolSpec> {
-        mcp_tool::agent_tool_specs(self.files)
+        let mut tools = mcp_tool::agent_tool_specs(self.files);
+        tools.extend(kb_door::agent_tool_specs(self.kbs, &self.agent.name, self.kb));
+        tools
     }
 
     fn declared_tools(&self) -> Vec<DeclaredTool> {
         self.agent.tools.clone()
     }
 
-    fn tool_kind(&self, _name: &str) -> &'static str {
-        "IndexedFile"
+    fn tool_kind(&self, name: &str) -> &'static str {
+        if kb_door::agent_tool_is(self.kbs, &self.agent.name, name) {
+            "KnowledgeBase"
+        } else {
+            "IndexedFile"
+        }
     }
 
-    /// A call to one of the instance's searchable files.
-    fn run_tool(&mut self, call: &ToolCall, _generation: u64) -> Option<String> {
+    /// A call to one of the instance's searchable files, or to a collection handed to this agent.
+    fn run_tool(&mut self, call: &ToolCall, generation: u64) -> Option<String> {
+        // Spec 068 — a KnowledgeBase collection: answered here, or on a thread of its own when the
+        // query needs the embedding server, whose text comes back as a report under `generation`
+        // (the loop's own).
+        match kb_door::agent_search(self.kbs, &self.agent.name, call, self.kb) {
+            Some(ToolSearch::Now(text)) => return Some(text),
+            Some(ToolSearch::Worker(run)) => {
+                let send = Arc::clone(self.send);
+                let (inst, ctl, call_id) = (self.inst, self.agent.name.clone(), call.id.clone());
+                std::thread::spawn(move || {
+                    let text = run();
+                    send(AgentNews { inst, ctl, generation, report: Report::ToolResult { call_id, text } });
+                });
+                return None;
+            }
+            None => {}
+        }
         // A consultable indexed file (spec 065), read-only, answered here as the interpreter does.
         Some(mcp_tool::agent_tool_answer(self.files, call))
     }
@@ -201,15 +233,17 @@ impl Agents {
         Agents { state: Rc::default(), http, decls, send: Arc::new(send) }
     }
 
-    /// Run the door's rules `f` for the agent `ctl` of instance `inst`, whose properties `prop` reads,
-    /// sending with the client `client` gives: what they did, as the host's effects. `None` when the
-    /// agent is unknown and `create` is false.
+    /// Run the door's rules `f` for the agent `ctl` of instance `inst`, whose properties `prop` reads
+    /// (and the form's KnowledgeBases' `kb`), sending with the client `client` gives: what they did,
+    /// as the host's effects. `None` when the agent is unknown and `create` is false.
+    #[allow(clippy::too_many_arguments)]
     fn with<R>(
         &self,
         inst: u32,
         ctl: &str,
         create: bool,
         prop: &dyn Fn(&str) -> String,
+        kb: &dyn Fn(&str, &str) -> Option<String>,
         client: &dyn Fn() -> HttpClient,
         f: impl FnOnce(&mut Site<'_>, &mut Option<Conversation>) -> R,
     ) -> Option<(R, AgentEffects)> {
@@ -222,8 +256,9 @@ impl Agents {
         let agent = st.agents.get_mut(&k)?;
         let results = st.results.entry(inst).or_default();
         let files = st.files.entry(inst).or_default();
+        let kbs = st.kbs.entry(inst).or_default();
         let mut conv = agent.conv.take();
-        let mut site = Site { inst, agent, results, files, prop, client, send: &self.send, fx: AgentEffects::default() };
+        let mut site = Site { inst, agent, results, files, kbs, prop, kb, client, send: &self.send, fx: AgentEffects::default() };
         let r = f(&mut site, &mut conv);
         let fx = std::mem::take(&mut site.fx);
         drop(site);
@@ -240,8 +275,8 @@ impl Agents {
 
     /// A report of a request of agent `ctl` of instance `inst`: what it does, or `None` when the
     /// request is no longer wanted (cancelled, timed out, superseded, or its form closed). `prop` reads
-    /// the control's properties as they are now.
-    pub(crate) fn delivered(&self, n: AgentNews, prop: &dyn Fn(&str) -> String) -> Option<AgentEffects> {
+    /// the control's properties as they are now, and `kb` the form's KnowledgeBases'.
+    pub(crate) fn delivered(&self, n: AgentNews, prop: &dyn Fn(&str) -> String, kb: &dyn Fn(&str, &str) -> Option<String>) -> Option<AgentEffects> {
         {
             let mut st = self.state.borrow_mut();
             let agent = st.agents.get_mut(&key(n.inst, &n.ctl))?;
@@ -254,7 +289,7 @@ impl Agents {
             }
         }
         let client = self.client_of(n.inst);
-        let ((), fx) = self.with(n.inst, &n.ctl, false, prop, &client, |h, c| agent_door::reported(h, c, n.report))?;
+        let ((), fx) = self.with(n.inst, &n.ctl, false, prop, kb, &client, |h, c| agent_door::reported(h, c, n.report))?;
         Some(fx)
     }
 
@@ -291,7 +326,7 @@ impl Agents {
 
 impl AgentPort for Agents {
     fn call(&mut self, inst: u32, c: &AgentControl<'_>, method: &str, args: &[&str]) -> Option<AgentEffects> {
-        if let Some(fx) = self.file_tool(inst, method, args) {
+        if let Some(fx) = self.own_tool(inst, c, method, args) {
             return Some(fx);
         }
         let texts: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
@@ -305,7 +340,7 @@ impl AgentPort for Agents {
                 // Sent from inside the call: the client of the window the call acts on, as the HTTP
                 // built-ins use (a form still opening has its client before its instance is known).
                 let client = || self.http.borrow_mut().client().clone();
-                let ((), mut fx) = self.with(inst, c.name, true, c.prop, &client, |h, conv| {
+                let ((), mut fx) = self.with(inst, c.name, true, c.prop, c.knowledge_base, &client, |h, conv| {
                     // `Prompt` holds the question, written before the call is made.
                     h.set("Prompt", prompt.clone());
                     agent_door::ask(h, conv, &prompt)
@@ -334,7 +369,7 @@ impl AgentPort for Agents {
 
     fn tool_returned(&mut self, inst: u32, c: &AgentControl<'_>) -> AgentEffects {
         let client = self.client_of(inst);
-        self.with(inst, c.name, false, c.prop, &client, |h, conv| {
+        self.with(inst, c.name, false, c.prop, c.knowledge_base, &client, |h, conv| {
             if let Some(cv) = conv.as_mut() {
                 cv.dispatched();
             }
@@ -356,24 +391,37 @@ impl AgentPort for Agents {
         st.agents.retain(|(i, _), _| *i != inst);
         st.results.remove(&inst);
         st.files.remove(&inst);
+        st.kbs.remove(&inst);
     }
 }
 
 impl Agents {
-    /// The file tools of an AgentObject (spec 072, spec 075), which the program's tool set answers:
-    /// `AllowFile`, `DenyFile`, `RegisterFile` and `UnregisterFile`, decided as the interpreter
-    /// decides them (`cobolt_runtime::mcp_tool`, `cobolt_runtime::registered_file`). `None` for any
-    /// other method.
+    /// The tools of an AgentObject that the runtime answers itself, decided as the interpreter decides
+    /// them: the file tools (spec 072, spec 075) `AllowFile`, `DenyFile`, `RegisterFile` and
+    /// `UnregisterFile` (`cobolt_runtime::mcp_tool`, `cobolt_runtime::registered_file`), and the
+    /// collections (spec 068) `AllowKnowledgeBase` and `DenyKnowledgeBase`
+    /// (`cobolt_runtime::kb_door`), which name the form's KnowledgeBase `c` reads. `None` for any other
+    /// method.
     ///
     /// `AllowFile` reaches the runner with two more arguments than the program wrote (ABI A51): its
     /// file's number in the module's `prfiles` section and the path its `ASSIGN` names now, sent with
     /// every character. Without them the program named no file of its own, and the answer is `0`.
-    fn file_tool(&self, inst: u32, method: &str, args: &[&str]) -> Option<AgentEffects> {
+    fn own_tool(&self, inst: u32, c: &AgentControl<'_>, method: &str, args: &[&str]) -> Option<AgentEffects> {
         let arg = |i: usize| args.get(i).copied().unwrap_or("");
         let answer = |ok: bool| Some(if ok { "1" } else { "0" }.to_owned());
         let mut st = self.state.borrow_mut();
+        let st = &mut *st;
         let files = st.files.entry(inst).or_default();
+        let kbs = st.kbs.entry(inst).or_default();
         match method {
+            "ALLOWKNOWLEDGEBASE" => {
+                let ok = kb_door::allow_for_agent(kbs, c.name, arg(0), arg(1), c.knowledge_base);
+                Some(AgentEffects { answer: answer(ok), ..AgentEffects::default() })
+            }
+            "DENYKNOWLEDGEBASE" => {
+                kb_door::deny_for_agent(kbs, c.name, arg(0), arg(1));
+                Some(AgentEffects::default())
+            }
             "ALLOWFILE" => {
                 let access = arg(2).trim().parse::<usize>().ok().and_then(|id| self.allowed_file(id, arg(3)));
                 let ok = access.is_some_and(|access| mcp_tool::allow_file(files, arg(0), arg(1), access));

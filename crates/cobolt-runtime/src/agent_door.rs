@@ -979,6 +979,10 @@ pub enum Report {
     /// The finished reply, raw: the status and the body (status 0: no HTTP response, the body says
     /// why).
     Reply { status: u16, body: String },
+    /// A runtime tool's worker (a Knowledge Base search that needs the embedding server) finished the
+    /// call `call_id` of the agent's tool loop with `text` ([`tool_worker_delivered`]). Sent by a host
+    /// that runs the search on a thread of its own, not by [`Job::run`].
+    ToolResult { call_id: String, text: String },
 }
 
 impl Report {
@@ -1061,6 +1065,7 @@ pub fn reported(h: &mut dyn AgentHost, conv: &mut Option<Conversation>, report: 
         Report::Alive => alive(h, conv),
         Report::Partial(text) => partial(h, conv, text),
         Report::Reply { status, body } => delivered(h, conv, status, &body),
+        Report::ToolResult { call_id, text } => tool_worker_delivered(h, conv, &call_id, text),
     }
 }
 

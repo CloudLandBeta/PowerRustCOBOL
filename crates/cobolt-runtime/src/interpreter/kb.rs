@@ -104,10 +104,6 @@ impl Interpreter {
 
 #[cfg(feature = "kb")]
 impl Interpreter {
-    fn kb_config(&self, obj: &str) -> crate::kb_runtime::KbConfig {
-        kb_door::config(&|p: &str| self.obj_get(obj, p))
-    }
-
     fn kb_state(&mut self, obj: &str) -> &mut KbControlState {
         self.kb_states.entry(obj.trim().to_ascii_uppercase()).or_default()
     }
@@ -199,194 +195,46 @@ impl Interpreter {
     }
 }
 
-/// A collection handed to agents as a tool (spec 068 R32).
-#[derive(Debug, Clone)]
-pub(crate) struct KbTool {
-    /// The tool name the model sees: `kb_<control>_<collection>`.
-    pub name: String,
-    /// The KnowledgeBase control whose settings the search uses.
-    pub kb: String,
-    pub collection: String,
-    /// The AgentObject it was granted to, upper-cased. A tool is THAT
-    /// agent's: granting one to an agent, or taking one from another, never
-    /// touches the others' (operator, 2026-09-27 — PowerChat's election
-    /// denied the collection to agents 2 and 3 after granting it to the tool
-    /// worker, and the shared list left no agent able to search).
-    pub agent: String,
-}
-
-fn slug(s: &str) -> String {
-    let out: String = s
-        .trim()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
-        .collect();
-    out.trim_matches('_').to_string()
-}
-
-/// A search's hits as the model reads them: numbered, each naming its
-/// document and section, so it can cite them (R33).
-pub(crate) fn tool_text(collection: &str, hits: &[KbHit], mode: &str) -> String {
-    if hits.is_empty() {
-        return format!("no passage in the \"{collection}\" collection matched");
-    }
-    let mut out = format!("{} passage(s) from the \"{collection}\" collection ({mode} search):\n", hits.len());
-    for (i, h) in hits.iter().enumerate() {
-        out.push_str(&format!(
-            "\n[{}] document: {} § {} (score {:.2})\n{}\n",
-            i + 1,
-            h.document,
-            h.heading,
-            h.score,
-            h.passage.trim()
-        ));
-    }
-    out
-}
-
+/// The interpreter's side of the collections handed to agents (spec 068 R32): the rules are
+/// `kb_door`'s, shared with the desktop runner; the interpreter reads its KnowledgeBase controls and
+/// runs a search that needs the embedding server on its async channel.
 impl Interpreter {
+    /// A property of the KnowledgeBase named `ctl`, `None` when no KnowledgeBase has that name.
+    fn kb_peer(&self, ctl: &str, prop: &str) -> Option<String> {
+        self.is_knowledge_base(ctl).then(|| self.obj_get(ctl.trim(), prop))
+    }
+
     pub(crate) fn kb_tool_is(&self, agent: &str, name: &str) -> bool {
-        let agent = agent.trim().to_ascii_uppercase();
-        self.kb_tools
-            .iter()
-            .any(|t| t.agent == agent && t.name.eq_ignore_ascii_case(name))
-    }
-
-    /// A KnowledgeBase control's `MaximumResults`, as a tool description
-    /// states it.
-    ///
-    /// This impl block is compiled WITHOUT the `kb` feature too, and
-    /// `kb_config` exists only with it: calling it straight from
-    /// [`Self::kb_tool_specs`] (1.70.346) made `cobolt-runtime` fail to build
-    /// for every compiled application that does not link the Knowledge Base.
-    #[cfg(feature = "kb")]
-    fn kb_default_max_results(&self, kb: &str) -> usize {
-        self.kb_config(kb).max_results
-    }
-
-    /// Without `kb` no tool is ever registered (`AllowKnowledgeBase` lives in
-    /// the gated block), so there is no description to write.
-    #[cfg(not(feature = "kb"))]
-    fn kb_default_max_results(&self, _kb: &str) -> usize {
-        0
+        kb_door::agent_tool_is(&self.kb_tools, agent, name)
     }
 
     pub(crate) fn kb_tool_specs(&self, agent: &str) -> Vec<crate::agent_tools::ToolSpec> {
-        let agent = agent.trim().to_ascii_uppercase();
-        self.kb_tools
-            .iter()
-            .filter(|t| t.agent == agent)
-            .map(|t| {
-                // The default the call really gets is the control's
-                // `MaximumResults`; the description used to say 5 whatever it
-                // was set to.
-                let default = self.kb_default_max_results(&t.kb);
-                crate::agent_tools::ToolSpec {
-                name: t.name.clone(),
-                description: format!(
-                    "Search the \"{}\" document collection. Returns the passages that best \
-                     match the query, each naming the document and section it comes from.",
-                    t.collection
-                ),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "What to look for, in plain words"},
-                        "max_results": {"type": "integer", "description": format!("At most this many passages (default {default})")}
-                    },
-                    "required": ["query"]
-                }),
-            }})
-            .collect()
+        kb_door::agent_tool_specs(&self.kb_tools, agent, &|c: &str, p: &str| self.kb_peer(c, p))
     }
-}
 
-#[cfg(feature = "kb")]
-impl Interpreter {
     /// `AGT::AllowKnowledgeBase(kb [, collection])` — offer the collection to
     /// the model as a tool. `"1"`, or `"0"` when `kb` is not a KnowledgeBase or
     /// names no collection.
     pub(crate) fn agent_allow_kb(&mut self, agent: &str, kb: &str, collection: &str) -> String {
-        let agent = agent.trim().to_ascii_uppercase();
-        let kb = kb.trim();
-        if !self.is_knowledge_base(kb) {
-            return "0".into();
-        }
-        let collection = if collection.trim().is_empty() {
-            self.obj_get(kb, "Collection").trim().to_string()
-        } else {
-            collection.trim().to_string()
-        };
-        if cobolt_kb::store::validate_name(&collection).is_err() {
-            return "0".into();
-        }
-        let name = format!("kb_{}_{}", slug(kb), slug(&collection));
-        self.kb_tools
-            .retain(|t| !(t.agent == agent && t.name.eq_ignore_ascii_case(&name)));
-        self.kb_tools.push(KbTool {
-            name,
-            kb: kb.to_string(),
-            collection,
-            agent,
-        });
-        "1".into()
+        let mut tools = std::mem::take(&mut self.kb_tools);
+        let ok = kb_door::allow_for_agent(&mut tools, agent, kb, collection, &|c: &str, p: &str| self.kb_peer(c, p));
+        self.kb_tools = tools;
+        if ok { "1" } else { "0" }.into()
     }
 
     pub(crate) fn agent_deny_kb(&mut self, agent: &str, kb: &str, collection: &str) {
-        let agent = agent.trim().to_ascii_uppercase();
-        let kb = kb.trim();
-        let collection = collection.trim();
-        self.kb_tools.retain(|t| {
-            !(t.agent == agent
-                && t.kb.eq_ignore_ascii_case(kb)
-                && (collection.is_empty() || t.collection.eq_ignore_ascii_case(collection)))
-        });
+        kb_door::deny_for_agent(&mut self.kb_tools, agent, kb, collection);
     }
 
     /// Run a model's search of a collection. `Some(text)` when answered here;
     /// `None` when it went to a worker (the query needs the embedding server)
     /// and a `KbToolResult` will follow for `agent`.
     pub(crate) fn kb_tool_search(&mut self, agent: &str, call: &crate::agent_tools::ToolCall, generation: u64) -> Option<String> {
-        use crate::kb_runtime::{self as kr, EmbedderChoice, KbOp};
-        let owner = agent.trim().to_ascii_uppercase();
-        let tool = self
-            .kb_tools
-            .iter()
-            .find(|t| t.agent == owner && t.name.eq_ignore_ascii_case(&call.name))?
-            .clone();
-        let args = call.arguments.clone().unwrap_or_default();
-        let query = args.get("query").and_then(|q| q.as_str()).unwrap_or("").to_string();
-        if query.trim().is_empty() {
-            return Some("error: the search needs a \"query\"".into());
-        }
-        let mut cfg = self.kb_config(&tool.kb);
-        cfg.collection = tool.collection.clone();
-        let max = args
-            .get("max_results")
-            .and_then(|m| m.as_u64())
-            .map(|m| m as usize)
-            .filter(|m| *m > 0)
-            .unwrap_or(cfg.max_results)
-            .min(20);
-        let collection = tool.collection.clone();
-        let run = move || -> String {
-            let (tx, rx) = std::sync::mpsc::channel();
-            kr::run(cfg, KbOp::Search { query, max }, Arc::new(AtomicBool::new(false)), |o| {
-                let _ = tx.send(o);
-            });
-            match rx.try_iter().last() {
-                Some(AsyncOutcome::KbSearchDone { hits, mode, .. }) => tool_text(&collection, &hits, &mode),
-                Some(AsyncOutcome::KbError { message }) | Some(AsyncOutcome::KbBusy { message }) => {
-                    format!("error: {message}")
-                }
-                _ => "error: the search did not run".into(),
-            }
+        let search = kb_door::agent_search(&self.kb_tools, agent, call, &|c: &str, p: &str| self.kb_peer(c, p))?;
+        let run = match search {
+            kb_door::ToolSearch::Now(text) => return Some(text),
+            kb_door::ToolSearch::Worker(run) => run,
         };
-        if self.kb_config(&tool.kb).embedder != EmbedderChoice::Endpoint {
-            // Lexical and built-in searches take milliseconds: answered here,
-            // as the indexed-file tools are.
-            return Some(run());
-        }
         // `generation` is the loop's own: the reply that carried this call has
         // already been drained, so `async_pending` no longer holds the Ask.
         let tx = self.async_result_tx.clone();
@@ -401,16 +249,5 @@ impl Interpreter {
             });
         });
         None
-    }
-}
-
-#[cfg(not(feature = "kb"))]
-impl Interpreter {
-    pub(crate) fn agent_allow_kb(&mut self, _agent: &str, _kb: &str, _collection: &str) -> String {
-        "0".into()
-    }
-    pub(crate) fn agent_deny_kb(&mut self, _agent: &str, _kb: &str, _collection: &str) {}
-    pub(crate) fn kb_tool_search(&mut self, _agent: &str, _call: &crate::agent_tools::ToolCall, _generation: u64) -> Option<String> {
-        Some("error: the Knowledge Base is not linked into this program".into())
     }
 }

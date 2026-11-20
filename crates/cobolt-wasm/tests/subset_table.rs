@@ -299,8 +299,8 @@ fn every_control_has_a_desktop_class() {
         ("WebSearch served (T47a)", desktop_control_gap(&ControlType::WebSearch).is_none()),
         // T47b: the KnowledgeBase is served; its built-in semantic model is the Build's to judge.
         ("KnowledgeBase served (T47b)", desktop_control_gap(&ControlType::KnowledgeBase).is_none()),
-        // T47c: the AgentObject is served; one that names a data item, or a member offering a tool the runtime
-        // answers itself, is not. The sign-in control is still refused.
+        // T47c: the AgentObject is served, its file and Knowledge Base tools too; one that names a data item is
+        // not. The sign-in control is still refused.
         ("AgentObject served (T47c)", desktop_control_gap(&ControlType::AgentObject).is_none()),
         ("Authentication still refused (M6)", desktop_control_gap(&ControlType::Authentication).is_some_and(|w| w.contains("M6"))),
         ("an AgentObject with ResponseDataItem set is refused (M6); one naming none is served", {
@@ -309,13 +309,11 @@ fn every_control_has_a_desktop_class() {
             c.set_prop("ResponseDataItem", cobolt_forms::PropValue::String("WS-REPLY".into()));
             none && cobolt_wasm::support::desktop_design_gap(&c).is_some_and(|w| w.contains("ResponseDataItem") && w.contains("M6"))
         }),
-        ("the AgentObject members refused: SET-ResponseDataItem, SetProperty, AllowKnowledgeBase, denyknowledgebase; not Ask, AddTool, SetToolResult, GET-LastReply or the file tools", {
-            use cobolt_wasm::support::{agent_member_gap as m, D_AGENT_ITEMS, D_AGENT_TOOLS};
+        ("the AgentObject members refused: SET-ResponseDataItem, SetProperty; not Ask, AddTool, SetToolResult, GET-LastReply, the file tools or the Knowledge Base tools", {
+            use cobolt_wasm::support::{agent_member_gap as m, D_AGENT_ITEMS};
             m("SET-ResponseDataItem") == Some(D_AGENT_ITEMS)
                 && m("SetProperty") == Some(D_AGENT_ITEMS)
-                && m("AllowKnowledgeBase") == Some(D_AGENT_TOOLS)
-                && m("denyknowledgebase") == Some(D_AGENT_TOOLS)
-                && ["Ask", "AddTool", "AddToolParameter", "SetToolResult", "GET-LastReply", "Cancel", "AllowFile", "DenyFile", "registerfile", "UnregisterFile"]
+                && ["Ask", "AddTool", "AddToolParameter", "SetToolResult", "GET-LastReply", "Cancel", "AllowFile", "DenyFile", "registerfile", "UnregisterFile", "AllowKnowledgeBase", "denyknowledgebase"]
                     .iter()
                     .all(|x| m(x).is_none())
         }),

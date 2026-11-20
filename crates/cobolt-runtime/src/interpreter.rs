@@ -1635,7 +1635,7 @@ pub struct Interpreter {
     aws_rows: HashMap<String, Vec<serde_json::Value>>,
     /// Spec 068 — collections handed to agents as tools (every agent sees
     /// them, as with `AllowFile`).
-    kb_tools: Vec<kb::KbTool>,
+    kb_tools: Vec<crate::kb_door::AgentKbTool>,
     /// Completed async operations awaiting dispatch to COBOL as
     /// `(control-id, event-id)`, one presented per `COBOL-WAIT-EVENT` return.
     /// The form's control ids as the FORM spells them, keyed by their

@@ -392,8 +392,11 @@ impl Lower<'_, '_> {
         Ok(())
     }
 
-    /// An AgentObject's file tools in a desktop module (DESKTOP-WASM-001 T47c, ABI A51): the module
-    /// requires `agent.files`, and `AllowFile( fd-name [cidx-path] )` sends two more arguments than
+    /// An AgentObject's tools that the runner answers itself, in a desktop module (DESKTOP-WASM-001
+    /// T47c). `AllowKnowledgeBase` and `DenyKnowledgeBase` (ABI A52) make the module require
+    /// `agent.kb`; they name the KnowledgeBase as the program wrote it, which the runner finds in the
+    /// form as the interpreter does. The file tools (ABI A51) make it require `agent.files`, and
+    /// `AllowFile( fd-name [cidx-path] )` sends two more arguments than
     /// the program wrote, for the runner to lay the file out as the interpreter does from the program's
     /// own `FD`: the file's number in `prfiles`, and the path its `ASSIGN` names now (a data item's
     /// value, sent with every character, or the literal). The argument `cidx-path` is always sent, empty
@@ -410,6 +413,10 @@ impl Lower<'_, '_> {
         }
         let seg = &segs[0];
         let member = seg.name.trim().to_ascii_uppercase();
+        if crate::support::AGENT_KB_MEMBERS.iter().any(|m| m.eq_ignore_ascii_case(&member)) {
+            self.names.file_caps.insert(cobolt_wasm_abi::codes::cap::AGENT_KB);
+            return Ok(None);
+        }
         if !crate::support::AGENT_FILE_MEMBERS.iter().any(|m| m.eq_ignore_ascii_case(&member)) {
             return Ok(None);
         }

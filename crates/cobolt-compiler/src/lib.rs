@@ -8222,14 +8222,15 @@ fn browser_subset_doc() -> String {
          raises `onToolCall`, its handler answers with `SetToolResult`, and the conversation goes on once the handler has \
          returned. `Cancel` lets an `Ask` go and raises `onCancelled`. The indexed files the program offers ({}) are \
          searched by the runner as by the interpreter: what a file means comes from its `.cidx`, how its records are laid \
-         out from the program's own `FD`. An AgentObject whose `ResponseDataItem` is set, or a program that uses one of its \
-         members {}, takes the Cargo path: {}. So does a program that uses {}: {}; and one whose `AllowFile` names its file \
-         in a data item ({}), or names a file that is not INDEXED ({}).\n",
+         out from the program's own `FD`. The Knowledge Base collections the program hands an agent ({}) are searched with \
+         the KnowledgeBase's settings as the interpreter searches them, on a thread of their own when the query needs the \
+         embedding server. An AgentObject whose `ResponseDataItem` is set, or a program that uses one of its members {}, \
+         takes the Cargo path: {}. So does a program whose `AllowFile` names its file in a data item ({}), or names a file \
+         that is not INDEXED ({}).\n",
         names(cobolt_wasm::support::AGENT_FILE_MEMBERS),
+        names(cobolt_wasm::support::AGENT_KB_MEMBERS),
         names(cobolt_wasm::support::AGENT_ITEM_MEMBERS),
         cobolt_wasm::support::D_AGENT_ITEMS,
-        names(cobolt_wasm::support::AGENT_TOOL_MEMBERS),
-        cobolt_wasm::support::D_AGENT_TOOLS,
         cobolt_wasm::support::D_AGENT_FILE_NAME,
         cobolt_wasm::support::D_AGENT_FILE_ORG
     ));
