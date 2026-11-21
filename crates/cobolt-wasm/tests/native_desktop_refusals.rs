@@ -728,7 +728,8 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
         ("    STRING WS-N DELIMITED BY SIZE INTO WS-X\n", "STRING", "STRING"),
         ("    MOVE 5 TO WS-N\n", "MOVE 5", "a number moved into it"),
         ("    MOVE WS-N TO WS-9\n", "TO WS-9", "it moved into a number"),
-        ("    MOVE FUNCTION UPPER-CASE(WS-N) TO WS-X\n", "UPPER-CASE", "a function's argument"),
+        ("    MOVE FUNCTION ABS(WS-N) TO WS-9\n", "ABS", "a function that reads a number"),
+        ("    MOVE FUNCTION UPPER-CASE(WS-N(1:2)) TO WS-X\n", "UPPER-CASE", "a reference-modified function argument"),
         ("    IF WS-N = ZERO DISPLAY \"z\" END-IF\n", "ZERO", "a comparison with ZERO"),
     ];
     for (stmt, needle, what) in uses {
@@ -740,6 +741,28 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
             e.subject == "WS-N" && e.line == line && e.program == "T16G" && e.message.contains("Cargo path") && e.message.contains("M6"),
         );
     }
+    // A function that reads its argument's text takes national and UTF-8 data (T50a1); a browser
+    // module refuses the national functions, as it always has.
+    let served = [
+        ("    MOVE FUNCTION UPPER-CASE(WS-N) TO WS-X\n", "UPPER-CASE"),
+        ("    MOVE FUNCTION ULENGTH(WS-N) TO WS-9\n", "ULENGTH"),
+        ("    MOVE FUNCTION UPOS(WS-N, 2) TO WS-9\n", "UPOS"),
+        ("    MOVE FUNCTION USUBSTR(WS-N, 1, 2) TO WS-X\n", "USUBSTR"),
+        ("    MOVE FUNCTION DISPLAY-OF(WS-N, 1252) TO WS-X\n", "DISPLAY-OF"),
+        ("    MOVE FUNCTION NATIONAL-OF(WS-X, \"ISO-8859-1\") TO WS-N\n", "NATIONAL-OF"),
+        ("    MOVE FUNCTION TRIM(WS-N) TO WS-X\n    MOVE FUNCTION REVERSE(WS-N) TO WS-X\n    MOVE FUNCTION NUMVAL(WS-N) TO WS-9\n", "TRIM, REVERSE and NUMVAL"),
+    ];
+    for (stmt, what) in served {
+        let src = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n{ws}PROCEDURE DIVISION.\n{stmt}    STOP RUN.\n");
+        check(format!("{what} of WS-N compiles into a desktop module (T50a1)"), compile_program(&common::parse(&src), &native()).is_ok());
+    }
+    let browser_fn = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n01 WS-9 PIC 9(4).\nPROCEDURE DIVISION.\n    MOVE FUNCTION ULENGTH(WS-X) TO WS-9\n    STOP RUN.\n");
+    check(
+        "a browser module refuses ULENGTH, as it always has".into(),
+        compile_program(&common::parse(&browser_fn), &Options::default()).is_err_and(|e| e.message.contains("ULENGTH")),
+    );
+    let desktop_fn = compile_program(&common::parse(&browser_fn), &native());
+    check("the same program compiles into a desktop module".into(), desktop_fn.is_ok());
     // A PROGRAM COLLATING SEQUENCE would weigh national data: refused at the item's declaration.
     let collating = format!(
         "{HEAD}ENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\nOBJECT-COMPUTER. X PROGRAM COLLATING SEQUENCE IS ALPHA.\nSPECIAL-NAMES. ALPHABET ALPHA IS STANDARD-1.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-N PIC N(6).\nPROCEDURE DIVISION.\n    DISPLAY WS-N\n    STOP RUN.\n"
@@ -756,11 +779,11 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
         compile_program(&common::parse(&page), &Options::default()).is_ok(),
     );
     let took = t.elapsed().as_secs_f64() * 1000.0;
-    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44) ==");
+    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44, T50a1) ==");
     println!(
-        "programs compiled: {} ({} desktop modules accepted, {} refused, 1 browser module) in {took:.1} ms",
-        kept.len() + uses.len() + 2,
-        kept.len(),
+        "programs compiled: {} ({} desktop modules accepted, {} refused, 2 browser modules) in {took:.1} ms",
+        kept.len() + served.len() + uses.len() + 4,
+        kept.len() + served.len() + 1,
         uses.len() + 1
     );
     let passed = checks.iter().filter(|(_, ok)| *ok).count();

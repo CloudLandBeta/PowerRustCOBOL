@@ -34,7 +34,7 @@ impl Lower<'_, '_> {
 
     /// Is `e` an alphanumeric argument (a string literal, a character item, a
     /// character-valued function)?
-    fn expr_is_chars(&mut self, e: &Expr) -> bool {
+    pub(crate) fn expr_is_chars(&mut self, e: &Expr) -> bool {
         match e {
             Expr::Literal(Literal::String(_), _) => true,
             Expr::Identifier(..) | Expr::Qualified { .. } => match self.resolve_item(e) {
@@ -59,12 +59,30 @@ impl Lower<'_, '_> {
 
     /// The runtime number of function `up` for these (flattened) arguments.
     fn function_id(&mut self, up: &str, flat: &[Expr]) -> Option<u32> {
-        use cobolt_wasm_rt::func::{id, NAMES};
+        use cobolt_wasm_rt::func::{id, DESKTOP_ONLY, NAMES};
         let char_args = flat.iter().any(|a| self.expr_is_chars(a));
         match up {
             "MAX" if char_args => Some(id::MAX_CHARS),
             "MIN" if char_args => Some(id::MIN_CHARS),
-            _ => NAMES.iter().find(|(n, _)| *n == up).map(|(_, i)| *i),
+            // The national and UTF-8 functions are a desktop module's; a browser module refuses them.
+            _ => NAMES.iter().find(|(n, _)| *n == up).map(|(_, i)| *i).filter(|i| self.native || !DESKTOP_ONLY.contains(i)),
+        }
+    }
+
+    /// Whether function `fid` reads argument `pos` as text, so that a national or UTF-8 item or
+    /// literal there is read as its characters (T50a1; the interpreter's `as_display_string`, or its
+    /// `char_arg` for the class-aware functions). The other functions read a number or a plain byte
+    /// image, which such an item is neither.
+    fn admits_text_arg(fid: u32, pos: usize) -> bool {
+        use cobolt_wasm_rt::func::id::*;
+        match fid {
+            UPPER_CASE | LOWER_CASE | REVERSE | TRIM | CONCATENATE | MAX_CHARS | MIN_CHARS | NUMVAL | NUMVAL_C | NUMVAL_F
+            | TEST_NUMVAL | STORED_CHAR_LENGTH | ORD => true,
+            // The text, and for the code-page functions the code page's name.
+            NATIONAL_OF | DISPLAY_OF => pos <= 1,
+            // The text; the other arguments are numbers.
+            ULENGTH | UPOS | UWIDTH | UVALID | USUPPLEMENTARY | USUBSTR => pos == 0,
+            _ => false,
         }
     }
 
@@ -158,8 +176,13 @@ impl Lower<'_, '_> {
             self.uses_random = true;
         }
         let mut words: Vec<u32> = vec![fid, flat.len() as u32, u32::from(self.prog.decimal_comma), self.prog.currency as u32];
-        for a in &flat {
-            words.push(self.operand_or_temp(a)?);
+        for (pos, a) in flat.iter().enumerate() {
+            // A desktop module's national or UTF-8 item or literal, where the function reads text (T50a1).
+            let text = if self.native && Self::admits_text_arg(fid, pos) && crate::lower::is_direct_ref(a) { self.text_operand(a)? } else { None };
+            words.push(match text {
+                Some(o) => o,
+                None => self.operand_or_temp(a)?,
+            });
         }
         let rec = self.pool.spec(&words);
         let live = match live {

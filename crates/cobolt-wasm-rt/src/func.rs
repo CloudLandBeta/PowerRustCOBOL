@@ -29,8 +29,11 @@
 //! ```
 
 use crate::cmp;
+use crate::fd::{F_CLASSED, F_NATIONAL_LIT};
 use crate::host;
 use crate::mem;
+use crate::nat::{self, Class};
+use crate::natfn::{self, CodePage};
 use crate::opd::*;
 use crate::state::{err, push, st, CTEMP_SIZE, NCTEMP, WS_CTEMP};
 use crate::val::Val;
@@ -82,6 +85,12 @@ pub mod id {
     pub const INTEGER_OF_DAY: u32 = 42;
     pub const DAY_OF_INTEGER: u32 = 43;
     pub const YEAR_TO_YYYY: u32 = 44;
+    // The national and UTF-8 functions a desktop module serves (DESKTOP-WASM-001 T50a1).
+    pub const ULENGTH: u32 = 45;
+    pub const UPOS: u32 = 46;
+    pub const UWIDTH: u32 = 47;
+    pub const UVALID: u32 = 48;
+    pub const USUPPLEMENTARY: u32 = 49;
     // Character-valued from here.
     pub const UPPER_CASE: u32 = 64;
     pub const LOWER_CASE: u32 = 65;
@@ -93,6 +102,9 @@ pub mod id {
     /// `MAX` / `MIN` over alphanumeric arguments answer with the argument.
     pub const MAX_CHARS: u32 = 71;
     pub const MIN_CHARS: u32 = 72;
+    pub const USUBSTR: u32 = 73;
+    pub const NATIONAL_OF: u32 = 74;
+    pub const DISPLAY_OF: u32 = 75;
 }
 
 /// Name, number. `MAX` and `MIN` have a character form the generator picks
@@ -152,6 +164,27 @@ pub const NAMES: &[(&str, u32)] = &[
     ("TRIM", id::TRIM),
     ("CONCATENATE", id::CONCATENATE),
     ("CURRENT-DATE", id::CURRENT_DATE),
+    ("ULENGTH", id::ULENGTH),
+    ("UPOS", id::UPOS),
+    ("UWIDTH", id::UWIDTH),
+    ("UVALID", id::UVALID),
+    ("USUPPLEMENTARY", id::USUPPLEMENTARY),
+    ("USUBSTR", id::USUBSTR),
+    ("NATIONAL-OF", id::NATIONAL_OF),
+    ("DISPLAY-OF", id::DISPLAY_OF),
+];
+
+/// The functions only a desktop module serves: the national and UTF-8 functions (T50a1). A browser
+/// module refuses them, as it always has.
+pub const DESKTOP_ONLY: &[u32] = &[
+    id::ULENGTH,
+    id::UPOS,
+    id::UWIDTH,
+    id::UVALID,
+    id::USUPPLEMENTARY,
+    id::USUBSTR,
+    id::NATIONAL_OF,
+    id::DISPLAY_OF,
 ];
 
 /// Most arguments one call takes (an `ALL` over a table counts each element).
@@ -208,7 +241,7 @@ impl Call {
             T_ITEM => {
                 let l = locate(self.base, &o);
                 if !l.fd.is_numeric() {
-                    return (l.addr, l.len);
+                    return self.item_text(&l);
                 }
                 Some(value(self.base, &o))
             }
@@ -250,7 +283,7 @@ impl Call {
                     mem::bytes_mut(at, n as u32).copy_from_slice(&buf[..n]);
                     (at, n as u32)
                 } else {
-                    (l.addr, l.len)
+                    self.item_text(&l)
                 }
             }
             _ => {
@@ -263,6 +296,133 @@ impl Call {
                 (at, n as u32)
             }
         }
+    }
+}
+
+impl Call {
+    /// The characters an item holds, as every function but the class-aware ones reads them (the
+    /// interpreter's `as_display_string`): an item of a class (national or UTF-8) as its text in UTF-8,
+    /// fitted and padded to its positions, written to the scratch area; any other item in place.
+    fn item_text(&self, l: &Loc) -> (u32, u32) {
+        if Class::of(&l.fd).is_none() {
+            return (l.addr, l.len);
+        }
+        let mut w = Scratch::new();
+        for c in nat::text_of(l).chars() {
+            w.put_char(c);
+        }
+        w.done()
+    }
+
+    /// An argument of a class-aware function (the interpreter's `char_arg`): its bytes, and whether
+    /// it is national (UTF-16 big-endian) or not (UTF-8, or whatever bytes an alphanumeric item
+    /// holds). A national item gives the image of its text; a UTF-8 item its text; `N"…"` its
+    /// characters in UTF-16; `U"…"` its characters in UTF-8.
+    fn char_arg(&self, i: usize) -> (u32, u32, bool) {
+        let o = self.opd(i);
+        match o.tag {
+            T_LIT_ALNUM if o.fd.flags & F_CLASSED != 0 => {
+                let l = locate(self.base, &o);
+                if o.fd.flags & F_NATIONAL_LIT == 0 {
+                    return (l.addr, l.len, false);
+                }
+                let mut w = Scratch::new();
+                for c in nat::argument_chars(mem::bytes(l.addr, l.len), false) {
+                    w.put_utf16(c);
+                }
+                let (at, n) = w.done();
+                (at, n, true)
+            }
+            T_ITEM => {
+                let l = locate(self.base, &o);
+                match Class::of(&l.fd) {
+                    // The image of the text it holds: the interpreter reads the item as text and
+                    // writes it out again, so a unit that is not a character reads as U+FFFD.
+                    Some(Class::National { .. }) => {
+                        let mut w = Scratch::new();
+                        for c in nat::text_of(&l).chars() {
+                            w.put_utf16(c);
+                        }
+                        let (at, n) = w.done();
+                        (at, n, true)
+                    }
+                    Some(_) => {
+                        let (at, n) = self.item_text(&l);
+                        (at, n, false)
+                    }
+                    None => {
+                        let mut buf = [0u8; 40];
+                        let (at, n) = self.bytes(i, &mut buf);
+                        (at, n, false)
+                    }
+                }
+            }
+            _ => {
+                let mut buf = [0u8; 40];
+                let (at, n) = self.bytes(i, &mut buf);
+                (at, n, false)
+            }
+        }
+    }
+
+    /// The code page argument `i` names (`NATIONAL-OF`, `DISPLAY-OF`): UTF-8 when there is none. A
+    /// name held in a data item is read here; one the program names but nothing converts ends the run
+    /// in the interpreter's words.
+    fn code_page(&self, i: usize) -> CodePage {
+        if i >= self.argc {
+            return CodePage::Utf8;
+        }
+        let mut buf = [0u8; 64];
+        let (at, n) = self.text(i, &mut buf);
+        let name = natfn::trim_ascii(mem::bytes(at, n));
+        match CodePage::parse(name) {
+            Some(cp) => cp,
+            None => crate::fail_text(
+                err::UNKNOWN_CODE_PAGE,
+                &[
+                    crate::Part::T(b"'"),
+                    crate::Part::T(name),
+                    crate::Part::T(b"' is not a code page RustCOBOL converts; use UTF-8 (1208), WINDOWS-1252 (1252), ISO-8859-1 (819)"),
+                ],
+            ),
+        }
+    }
+
+    /// Whether argument `i` is national or UTF-8 data: an item of a class, or an `N"…"`/`U"…"`.
+    fn is_classed(&self, i: usize) -> bool {
+        nat::is_classed(&self.opd(i))
+    }
+}
+
+/// The scratch area, written to one piece at a time: the text a function reads an argument as.
+struct Scratch {
+    at: u32,
+    n: u32,
+}
+
+impl Scratch {
+    fn new() -> Scratch {
+        Scratch { at: crate::mv::scratch().0, n: 0 }
+    }
+    fn put(&mut self, b: &[u8]) {
+        if self.n + b.len() as u32 > crate::state::SCRATCH_SIZE {
+            crate::fail(err::SCRATCH_OVERFLOW);
+        }
+        mem::bytes_mut(self.at + self.n, b.len() as u32).copy_from_slice(b);
+        self.n += b.len() as u32;
+    }
+    fn put_char(&mut self, c: char) {
+        let mut b = [0u8; 4];
+        self.put(c.encode_utf8(&mut b).as_bytes());
+    }
+    fn put_utf16(&mut self, c: char) {
+        let mut units = [0u16; 2];
+        for u in c.encode_utf16(&mut units) {
+            self.put(&u.to_be_bytes());
+        }
+    }
+    fn done(&self) -> (u32, u32) {
+        (self.at, self.n)
     }
 }
 
@@ -485,6 +645,21 @@ fn num(c: &Call, fid: u32) -> Val {
             let (at, len) = c.bytes(0, &mut buf);
             let b = if len > 0 { mem::rd_u8(at) } else { 0 };
             Val::int(b as i64 + 1)
+        }
+        ULENGTH | UVALID | USUPPLEMENTARY | UPOS | UWIDTH => {
+            // The position first: reading it must not disturb the text the argument left in the
+            // scratch area.
+            let n = if matches!(fid, UPOS | UWIDTH) { c.int(1) } else { 0 };
+            let (at, len, national) = c.char_arg(0);
+            let b = mem::bytes(at, len);
+            let r = match fid {
+                ULENGTH => natfn::ulength(b, national),
+                UVALID => natfn::uvalid(b, national),
+                USUPPLEMENTARY => natfn::usupplementary(b, national),
+                UPOS => natfn::upos(b, national, n),
+                _ => natfn::uwidth(b, national, n),
+            };
+            Val::int(r as i64)
         }
         RANDOM => {
             if c.argc > 0 {
@@ -763,6 +938,22 @@ fn next_random() -> f64 {
 
 // ── character functions ───────────────────────────────────────────────────
 
+/// Reverse well-formed UTF-8 text by character, in place: every byte, then each character's bytes
+/// back into order.
+fn reverse_chars(buf: &mut [u8]) {
+    buf.reverse();
+    let mut i = 0;
+    while i < buf.len() {
+        let mut j = i;
+        while j < buf.len() && buf[j] & 0xC0 == 0x80 {
+            j += 1;
+        }
+        let end = (j + 1).min(buf.len());
+        buf[i..end].reverse();
+        i = end;
+    }
+}
+
 /// `rt_func_chars`: evaluate a character function into character temporary `k`.
 pub fn eval_chars(base: u32, rec: u32, k: u32) {
     let c = Call::read(base, rec);
@@ -773,20 +964,50 @@ pub fn eval_chars(base: u32, rec: u32, k: u32) {
     let at = st().ws + WS_CTEMP + k * CTEMP_SIZE;
     let out = |n: usize| -> &'static mut [u8] { mem::bytes_mut(at, n as u32) };
     let mut len = 0usize;
-    let mut put = |bytes: &[u8], len: &mut usize| {
+    let put = |bytes: &[u8], len: &mut usize| {
         if *len + bytes.len() > CTEMP_SIZE as usize {
             crate::fail(err::SCRATCH_OVERFLOW);
         }
         out(*len + bytes.len())[*len..].copy_from_slice(bytes);
         *len += bytes.len();
     };
+    let put_char = |ch: char, len: &mut usize| {
+        let mut b = [0u8; 4];
+        put(ch.encode_utf8(&mut b).as_bytes(), len);
+    };
     use id::*;
     match fid {
         UPPER_CASE | LOWER_CASE | REVERSE | TRIM => {
             let mut buf = [0u8; 40];
+            // National and UTF-8 data change case by Unicode's rules and reverse by character; any
+            // other keeps the ASCII rule and goes byte for byte (the interpreter's `is_classed_arg`).
+            let classed = fid != TRIM && c.is_classed(0);
             let (a, l) = c.bytes(0, &mut buf);
             let src = mem::bytes(a, l);
             match fid {
+                UPPER_CASE if classed => {
+                    for ch in nat::argument_chars(src, false) {
+                        for u in ch.to_uppercase() {
+                            put_char(u, &mut len);
+                        }
+                    }
+                }
+                LOWER_CASE if classed => {
+                    let mut it = nat::argument_chars(src, false);
+                    let mut prev = false;
+                    while let Some(ch) = it.next() {
+                        for u in natfn::lower_next(ch, prev, &it) {
+                            put_char(u, &mut len);
+                        }
+                        prev = natfn::track_cased(prev, ch);
+                    }
+                }
+                REVERSE if classed => {
+                    for ch in nat::argument_chars(src, false) {
+                        put_char(ch, &mut len);
+                    }
+                    reverse_chars(out(len));
+                }
                 UPPER_CASE => {
                     if src.len() > CTEMP_SIZE as usize {
                         crate::fail(err::SCRATCH_OVERFLOW);
@@ -821,6 +1042,52 @@ pub fn eval_chars(base: u32, rec: u32, k: u32) {
                     let t = trim(src);
                     put(t, &mut len);
                 }
+            }
+        }
+        USUBSTR => {
+            // The integers first: they must not disturb the text the argument left in scratch.
+            let (start, count) = (c.int(1), c.int(2));
+            let (at, l, national) = c.char_arg(0);
+            if start >= 1 && count >= 1 {
+                let mut k = 0i64;
+                natfn::walk(mem::bytes(at, l), national, &mut |_, _, ch| {
+                    k += 1;
+                    if k < start {
+                        return true;
+                    }
+                    if k - start >= count {
+                        return false;
+                    }
+                    put_char(ch, &mut len);
+                    true
+                });
+            }
+        }
+        NATIONAL_OF => {
+            // The code page is read even when the argument is national, which ignores it.
+            let cp = c.code_page(1);
+            let classed = c.is_classed(0);
+            let mut buf = [0u8; 40];
+            let (a, l) = c.bytes(0, &mut buf);
+            let src = mem::bytes(a, l);
+            if classed || cp == CodePage::Utf8 {
+                for ch in nat::argument_chars(src, false) {
+                    put_char(ch, &mut len);
+                }
+            } else {
+                for &b in src {
+                    put_char(cp.decode_byte(b), &mut len);
+                }
+            }
+        }
+        DISPLAY_OF => {
+            let cp = c.code_page(1);
+            let mut buf = [0u8; 40];
+            let (a, l) = c.bytes(0, &mut buf);
+            for ch in nat::argument_chars(mem::bytes(a, l), false) {
+                let mut o = [0u8; 4];
+                let n = cp.encode_char(ch, &mut o);
+                put(&o[..n], &mut len);
             }
         }
         CHAR => {

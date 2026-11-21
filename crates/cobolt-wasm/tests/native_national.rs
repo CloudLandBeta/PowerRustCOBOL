@@ -153,6 +153,70 @@ const CASES: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// The functions a desktop module serves over national and UTF-8 data (DESKTOP-WASM-001 T50a1):
+/// the interpreter's own national tests and the COBOL test programs `nat_functions.cbl` and
+/// `utf8_basics.cbl`, case by case.
+const FUNCTION_CASES: &[(&str, &str, &str)] = &[
+    (
+        "NATIONAL-OF and DISPLAY-OF: UTF-8, Windows-1252 and ISO-8859-1 by name and by CCSID",
+        "   05 WS-X PIC X(10).\n   05 WS-X1 PIC X(1).\n   05 WS-N PIC N(10).\n   05 WS-CP PIC X(12) VALUE \"WINDOWS-1252\".\n   05 WS-L PIC 9(4).\n",
+        "    MOVE FUNCTION DISPLAY-OF(FUNCTION NATIONAL-OF(\"Ação\")) TO WS-X\n    DISPLAY \"[\" WS-X \"]\"\n\
+         \x20   MOVE FUNCTION DISPLAY-OF(N\"Ação\", 1252) TO WS-X\n    MOVE FUNCTION BYTE-LENGTH(FUNCTION DISPLAY-OF(N\"Ação\", 1252)) TO WS-L\n\
+         \x20   MOVE FUNCTION NATIONAL-OF(WS-X, WS-CP) TO WS-N\n    DISPLAY WS-L \"[\" WS-N \"]\"\n\
+         \x20   MOVE FUNCTION DISPLAY-OF(N\"ç\", 819) TO WS-X1\n    MOVE FUNCTION NATIONAL-OF(WS-X1, \"ISO-8859-1\") TO WS-N\n    DISPLAY \"[\" WS-N \"]\"\n\
+         \x20   MOVE FUNCTION DISPLAY-OF(N\"€\", 819) TO WS-X1\n    IF WS-X1 = X\"7F\" DISPLAY \"SUB\" ELSE DISPLAY \"NOSUB\" END-IF\n\
+         \x20   MOVE FUNCTION DISPLAY-OF(N\"€\", \"CP1252\") TO WS-X1\n    IF WS-X1 = X\"80\" DISPLAY \"EURO\" ELSE DISPLAY \"NOEURO\" END-IF\n\
+         \x20   MOVE FUNCTION NATIONAL-OF(WS-X1, 1252) TO WS-N\n    DISPLAY \"[\" WS-N \"]\"\n",
+    ),
+    (
+        "a code page held in a number, and one Windows-1252 leaves undefined",
+        "   05 WS-CPN PIC 9(4) VALUE 1252.\n   05 WS-X PIC X(4).\n   05 WS-N PIC N(4).\n   05 WS-U PIC U(4).\n",
+        "    MOVE FUNCTION DISPLAY-OF(N\"é€\", WS-CPN) TO WS-X\n    MOVE FUNCTION NATIONAL-OF(WS-X, WS-CPN) TO WS-N\n    DISPLAY \"[\" WS-N \"]\"\n\
+         \x20   MOVE X\"E981\" TO WS-X\n    MOVE FUNCTION NATIONAL-OF(WS-X, 1252) TO WS-U\n    DISPLAY \"[\" WS-U \"]\"\n\
+         \x20   MOVE FUNCTION NATIONAL-OF(WS-X, 819) TO WS-U\n    DISPLAY \"[\" WS-U \"]\"\n",
+    ),
+    (
+        "UPPER-CASE and LOWER-CASE are Unicode for national and UTF-8 data, ASCII for any other",
+        "   05 WS-N PIC N(10).\n   05 WS-U PIC U(10).\n   05 WS-A PIC X(10) VALUE \"aBc ção\".\n   05 WS-X PIC X(10).\n",
+        "    MOVE FUNCTION UPPER-CASE(N\"ação\") TO WS-N\n    DISPLAY \"[\" WS-N \"]\"\n    MOVE FUNCTION LOWER-CASE(N\"ÉLAN\") TO WS-N\n    DISPLAY \"[\" WS-N \"]\"\n\
+         \x20   MOVE FUNCTION UPPER-CASE(WS-N) TO WS-U\n    DISPLAY \"[\" WS-U \"]\"\n    MOVE FUNCTION LOWER-CASE(U\"ΟΔΥΣΣΕΥΣ ΑΣ\") TO WS-U\n    DISPLAY \"[\" WS-U \"]\"\n\
+         \x20   MOVE FUNCTION UPPER-CASE(\"straße\") TO WS-X\n    DISPLAY \"[\" WS-X \"]\"\n    MOVE FUNCTION UPPER-CASE(WS-A) TO WS-X\n    DISPLAY \"[\" WS-X \"]\"\n\
+         \x20   MOVE FUNCTION UPPER-CASE(U\"straße\") TO WS-U\n    DISPLAY \"[\" WS-U \"]\"\n",
+    ),
+    (
+        "the U-functions over alphanumeric text: characters, bytes, widths, validity",
+        "   05 WS-T PIC X(10) VALUE \"Aç€😀\".\n   05 WS-S PIC X(10).\n   05 WS-L PIC 9(4).\n   05 H1.\n      10 H1-N PIC N(1) VALUE N\"é\".\n   05 H1-R REDEFINES H1 PIC X(2).\n",
+        "    MOVE FUNCTION ULENGTH(FUNCTION TRIM(WS-T)) TO WS-L\n    DISPLAY \"ULENGTH \" WS-L\n    MOVE FUNCTION UPOS(WS-T, 3) TO WS-L\n    DISPLAY \"UPOS \" WS-L\n\
+         \x20   MOVE FUNCTION UPOS(WS-T, 9) TO WS-L\n    DISPLAY \"UPOS-OUT \" WS-L\n    MOVE FUNCTION USUBSTR(WS-T, 2, 2) TO WS-S\n    DISPLAY \"USUBSTR [\" WS-S \"]\"\n\
+         \x20   MOVE FUNCTION UWIDTH(WS-T, 4) TO WS-L\n    DISPLAY \"UWIDTH \" WS-L\n    MOVE FUNCTION USUPPLEMENTARY(WS-T) TO WS-L\n    DISPLAY \"USUPP \" WS-L\n\
+         \x20   MOVE FUNCTION UVALID(WS-T) TO WS-L\n    DISPLAY \"UVALID \" WS-L\n    MOVE FUNCTION UVALID(H1-R) TO WS-L\n    DISPLAY \"UVALID-BAD \" WS-L\n\
+         \x20   MOVE FUNCTION USUBSTR(WS-T, 3, 9) TO WS-S\n    DISPLAY \"USUBSTR-TAIL [\" WS-S \"]\"\n    MOVE FUNCTION USUBSTR(WS-T, 0, 2) TO WS-S\n    DISPLAY \"USUBSTR-ZERO [\" WS-S \"]\"\n",
+    ),
+    (
+        "the U-functions over UTF-8 and national items and literals: UTF-8 bytes, UTF-16 bytes",
+        "   05 WS-U PIC U(5) VALUE U\"Ação!\".\n   05 WS-N PIC N(5) VALUE N\"a😀bc\".\n   05 WS-B PIC U BYTE-LENGTH 6 VALUE U\"Aç\".\n   05 WS-S PIC X(12).\n   05 WS-L PIC 9(4).\n\
+         \x20  05 H2.\n      10 H2-N PIC N(2) VALUE N\"ab\".\n   05 H2-R REDEFINES H2 PIC X(4).\n",
+        "    MOVE FUNCTION ULENGTH(WS-U) TO WS-L\n    DISPLAY \"U ULENGTH \" WS-L\n    MOVE FUNCTION UPOS(WS-U, 4) TO WS-L\n    DISPLAY \"U UPOS \" WS-L\n\
+         \x20   MOVE FUNCTION ULENGTH(WS-N) TO WS-L\n    DISPLAY \"N ULENGTH \" WS-L\n    MOVE FUNCTION UPOS(WS-N, 3) TO WS-L\n    DISPLAY \"N UPOS \" WS-L\n\
+         \x20   MOVE FUNCTION UWIDTH(WS-N, 2) TO WS-L\n    DISPLAY \"N UWIDTH \" WS-L\n    MOVE FUNCTION USUPPLEMENTARY(WS-N) TO WS-L\n    DISPLAY \"N USUPP \" WS-L\n\
+         \x20   MOVE FUNCTION UVALID(WS-N) TO WS-L\n    DISPLAY \"N UVALID \" WS-L\n    MOVE FUNCTION USUBSTR(WS-N, 2, 2) TO WS-S\n    DISPLAY \"N USUBSTR [\" WS-S \"]\"\n\
+         \x20   MOVE FUNCTION ULENGTH(WS-B) TO WS-L\n    DISPLAY \"B ULENGTH \" WS-L\n    MOVE FUNCTION UPOS(N\"abc\", 2) TO WS-L\n    DISPLAY \"N-LIT UPOS \" WS-L\n\
+         \x20   MOVE FUNCTION UPOS(U\"abc\", 2) TO WS-L\n    DISPLAY \"U-LIT UPOS \" WS-L\n    MOVE FUNCTION ULENGTH(N\"Ação😀\") TO WS-L\n    DISPLAY \"N-LIT ULENGTH \" WS-L\n\
+         \x20   MOVE FUNCTION USUPPLEMENTARY(N\"ab😀\") TO WS-L\n    DISPLAY \"N-LIT USUPP \" WS-L\n    MOVE FUNCTION USUPPLEMENTARY(U\"ab😀\") TO WS-L\n    DISPLAY \"U-LIT USUPP \" WS-L\n\
+         \x20   MOVE X\"D800\" TO H2-R\n    MOVE FUNCTION UVALID(H2-N) TO WS-L\n    DISPLAY \"N UVALID-BAD \" WS-L\n",
+    ),
+    (
+        "every other function reads a national argument's text",
+        "   05 WS-N PIC N(8) VALUE N\"Ação  \".\n   05 WS-V PIC N(6) VALUE N\"  12.5\".\n   05 WS-U PIC U(4) VALUE U\"日本\".\n   05 WS-X PIC X(24).\n   05 WS-L PIC 9(4).\n   05 WS-D PIC 9(3)V9.\n",
+        "    MOVE FUNCTION TRIM(WS-N) TO WS-X\n    DISPLAY \"[\" WS-X \"]\"\n    MOVE FUNCTION REVERSE(WS-N) TO WS-X\n    DISPLAY \"[\" WS-X \"]\"\n\
+         \x20   MOVE FUNCTION CONCATENATE(WS-N, \"|\", WS-U) TO WS-X\n    DISPLAY \"[\" WS-X \"]\"\n    MOVE FUNCTION STORED-CHAR-LENGTH(WS-N) TO WS-L\n    DISPLAY \"STORED \" WS-L\n\
+         \x20   COMPUTE WS-D = FUNCTION NUMVAL(WS-V)\n    DISPLAY \"NUMVAL \" WS-D\n    MOVE FUNCTION ORD(WS-N) TO WS-L\n    DISPLAY \"ORD \" WS-L\n\
+         \x20   MOVE FUNCTION REVERSE(U\"Aç日\") TO WS-X\n    DISPLAY \"[\" WS-X \"]\"\n    MOVE FUNCTION UPPER-CASE(WS-N) TO WS-X\n    DISPLAY \"[\" WS-X \"]\"\n\
+         \x20   IF WS-N = FUNCTION UPPER-CASE(WS-N) DISPLAY \"SAME\" ELSE DISPLAY \"DIFF\" END-IF\n\
+         \x20   IF FUNCTION LOWER-CASE(N\"AÇÃO\") = WS-N DISPLAY \"EQ\" ELSE DISPLAY \"NE\" END-IF\n",
+    ),
+];
+
 /// A nested program's national item keeps its class (every form handler is a nested program).
 const NESTED: &str = "IDENTIFICATION DIVISION.\nPROGRAM-ID. OUTER.\nPROCEDURE DIVISION.\nMAIN-PARA.\n    CALL \"INNER\"\n    CALL \"INNER\"\n    STOP RUN.\n\
 IDENTIFICATION DIVISION.\nPROGRAM-ID. INNER.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-N PIC N(4).\n01 WS-L PIC 9(3).\n\
@@ -164,7 +228,7 @@ fn national_and_utf8_data_compute_as_the_interpreter_computes_them() {
     let (mut t_compile, mut t_module, mut t_interp) = (Duration::ZERO, Duration::ZERO, Duration::ZERO);
     let (mut lines, mut bytes, mut runs) = (0usize, 0usize, 0usize);
     let mut results: Vec<(String, Result<(), String>)> = Vec::new();
-    for (name, items, procedure) in CASES {
+    for (name, items, procedure) in CASES.iter().chain(FUNCTION_CASES) {
         let src = program(items, procedure);
         let t = Instant::now();
         let (want_lines, want_image) = interpreter(&src);
@@ -239,7 +303,7 @@ fn national_and_utf8_data_compute_as_the_interpreter_computes_them() {
 
     let passed = results.iter().filter(|(_, r)| r.is_ok()).count();
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
-    println!("== native_national: national and UTF-8 data, module against interpreter (DESKTOP-WASM-001 T44) ==");
+    println!("== native_national: national and UTF-8 data, module against interpreter (DESKTOP-WASM-001 T44, T50a1) ==");
     println!("cases: {} (each in both memory layouts: {runs} module runs)", results.len());
     for (name, r) in &results {
         match r {
@@ -259,4 +323,32 @@ fn national_and_utf8_data_compute_as_the_interpreter_computes_them() {
     println!("result: {passed} of {} cases identical", results.len());
     let failed: Vec<&String> = results.iter().filter(|(_, r)| r.is_err()).map(|(n, _)| n).collect();
     assert!(failed.is_empty(), "failed: {failed:?}");
+}
+
+/// A code page a data item names and nothing converts ends the run, in the interpreter's words
+/// (DESKTOP-WASM-001 T50a1): what ran before it has shown, what follows has not.
+#[test]
+fn an_unknown_code_page_in_a_data_item_ends_the_run_in_the_interpreters_words() {
+    let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. T50A.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-CP PIC X(8) VALUE \"ebcdic\".\n\
+               01 WS-X PIC X(4) VALUE \"abcd\".\n01 WS-N PIC N(4).\nPROCEDURE DIVISION.\nMAIN-PARA.\n    DISPLAY \"before\"\n\
+               \x20   MOVE FUNCTION NATIONAL-OF(WS-X, WS-CP) TO WS-N\n    DISPLAY \"after\"\n    STOP RUN.\n";
+    let want = "'ebcdic' is not a code page RustCOBOL converts; use UTF-8 (1208), WINDOWS-1252 (1252), ISO-8859-1 (819)";
+    let prog = common::parse(src);
+    let (_event_tx, event_rx) = std::sync::mpsc::channel();
+    let (state_tx, _state_rx) = std::sync::mpsc::channel();
+    let (display_tx, display_rx) = std::sync::mpsc::channel();
+    let mut interp = cobolt_runtime::interpreter::Interpreter::new_with_channels(prog, event_rx, state_tx, display_tx);
+    let failure = interp.run().expect_err("the interpreter ends the run").to_string();
+    let shown: Vec<String> = display_rx.try_iter().map(|s: String| s.trim_end_matches(['\n', '\r']).to_owned()).collect();
+    assert!(failure.contains(want), "the interpreter said: {failure}");
+    assert_eq!(shown, ["before"]);
+    let mut checks = 0;
+    for multi in [true, false] {
+        let c = compile_program(&common::parse(src), &native(multi)).expect("the module compiles");
+        let o = run_native(&c.wasm, NativeInput::default()).expect("the host runs it");
+        assert_eq!(common::wasm_lines(&o), ["before"], "multi={multi}: what ran before the error shows, what follows does not");
+        assert!(o.error_texts.iter().any(|m| m.contains(want)), "multi={multi}: the module said {:?}", o.error_texts);
+        checks += 2;
+    }
+    println!("== native_national: an unknown code page in a data item (T50a1) ==\nmessage: {want}\nresult: {checks} of 4 checks identical to the interpreter");
 }

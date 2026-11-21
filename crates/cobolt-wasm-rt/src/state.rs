@@ -134,6 +134,9 @@ pub mod err {
     /// A `THROW` that no `TRY` takes (DESKTOP-WASM-001 T45). The error carries its own text, the
     /// interpreter's words: "unhandled exception: " and the message.
     pub const UNHANDLED_EXCEPTION: u32 = 112;
+    /// A code page held in a data item that `NATIONAL-OF` or `DISPLAY-OF` does not convert
+    /// (DESKTOP-WASM-001 T50a1). The error carries its own text, the interpreter's words.
+    pub const UNKNOWN_CODE_PAGE: u32 = 113;
 }
 
 pub struct State {

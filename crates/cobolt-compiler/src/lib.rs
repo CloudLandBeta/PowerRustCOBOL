@@ -7591,7 +7591,11 @@ The Build takes the Cargo path, and says why, when:
   `MERGE`, `EXEC SQL` and HTTP, `TRY`, `CATCH`, `FINALLY` and `THROW`, pointers
   in the main program (`USAGE POINTER`, `SET … TO ADDRESS OF`, `SET ADDRESS OF`),
   and national and UTF-8 data that is moved, displayed, compared, initialised,
-  measured (`LENGTH`, `BYTE-LENGTH`) or given a `VALUE`. A program takes the Cargo
+  measured (`LENGTH`, `BYTE-LENGTH`), given a `VALUE` or read by a function
+  (`NATIONAL-OF`, `DISPLAY-OF`, `UPPER-CASE` and `LOWER-CASE` by Unicode's rules,
+  `ULENGTH`, `UPOS`, `UWIDTH`, `UVALID`, `USUPPLEMENTARY`, `USUBSTR`, and every
+  function that reads the text of its argument, such as `TRIM`, `REVERSE`,
+  `CONCATENATE`, `NUMVAL` and `STORED-CHAR-LENGTH`). A program takes the Cargo
   path when it uses a pointer in a called program, an SQL descriptor area
   (`DESCRIBE`, `USING` or `INTO DESCRIPTOR`), or national or UTF-8 data in any
   other way (the Build names the item and the line). The column *On the Desktop*

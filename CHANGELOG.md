@@ -2,6 +2,32 @@
 
 
 
+## 2.0.633 — 2026-11-21
+
+**Feature: the functions over national and UTF-8 data run in a desktop WebAssembly module (DESKTOP-WASM-001 T50a1, the first of T50a's five pieces).** A desktop program that passes a `PIC N` or `PIC U` item, or an `N"…"` literal, to a function no longer takes the Cargo path. The built program converts, cases, counts and measures that text by the interpreter's own rules.
+
+- **What a desktop module now computes:**
+  - `NATIONAL-OF` and `DISPLAY-OF`: UTF-8, Windows-1252 and ISO-8859-1, named, given by CCSID (1208, 1252, 819) or held in a data item. A character the code page cannot hold becomes the substitution character as the interpreter writes it. Any other code page ends the run with the interpreter's message (`'EBCDIC' is not a code page RustCOBOL converts; use UTF-8 (1208), WINDOWS-1252 (1252), ISO-8859-1 (819)`).
+  - `UPPER-CASE` and `LOWER-CASE` by Unicode's rules for national and UTF-8 data, including the final sigma, and by ASCII for any other item; `REVERSE` by character.
+  - `ULENGTH`, `UPOS`, `UWIDTH`, `UVALID`, `USUPPLEMENTARY` and `USUBSTR` over alphanumeric text (read as UTF-8), over UTF-8 items and over national items and literals.
+  - Every function that reads the text of its argument, over a national or UTF-8 item: `TRIM`, `CONCATENATE`, `MAX`/`MIN` of text, `NUMVAL`, `NUMVAL-C`, `NUMVAL-F`, `TEST-NUMVAL`, `STORED-CHAR-LENGTH`, `ORD`.
+- **Still refused, on the Cargo path** (T50a2 to T50a5): a reference-modified national argument (`UPPER-CASE(WS-N(1:2))`) and a national item as the argument of a function that reads a number (`ABS(WS-N)`); every other use of such data that was refused before.
+- **A browser module is unchanged:** it still refuses these functions, as it always has.
+- **AC16, on purpose:** the runtime blob (`rt.wasm`) grew from 269,921 to 288,161 bytes (+18,240) and every generated module links it, so the player's eight recorded fixtures grew by 2,304 bytes each and the PowerAnalyticsWeb pin moved on all three artefacts. The fixtures and the pin were re-recorded; the pin matched before this change. The fixtures use none of the new functions and grew all the same.
+- **Known approximation:** `LOWER-CASE` writes a capital sigma as a final sigma by Unicode's rule, with the "case-ignorable" test a small fixed set (apostrophes, full stops, the colon, accents, the combining marks U+0300 to U+036F) instead of the whole Unicode table that Rust's `str::to_lowercase` holds. The twin's Greek case agrees with the interpreter; a sigma beside a character outside that set may lower differently. Closing it needs the full table in the runtime blob.
+- **Where:**
+  - `cobolt-wasm-rt`: `natfn.rs` (new: code pages, the U-functions, Unicode lower case), `func.rs` (nine new functions and the argument reading), `fd.rs` (`F_NATIONAL_LIT`), `nat.rs`, `state.rs` (error 113), `lib.rs`.
+  - `cobolt-wasm`: `pool.rs`, `lower.rs`, `lower_more.rs` (`admits_text_arg`), `assets/rt.wasm`, `assets/rt.sources.hash`, `tests/native_national.rs`, `tests/native_desktop_refusals.rs`.
+  - `cobolt-runner`: `tests/national_functions.rs` (new). `cobolt-compiler`: `lib.rs` (the System KB paragraph on national data), and `assets/knowledge/chunked.data` rebuilt.
+  - The player's recorded fixtures and `cobolt-web-tests`' pin re-recorded; `tasks.md` (T50a split into five, T50a1 noted).
+- **Measured** (macOS arm64):
+  - module against interpreter, `native_national`: 22 cases, each in both memory layouts (44 module runs), 196 DISPLAY lines and 1,494 bytes of item images identical; 6 of the 22 are new. Interpreter 11.8 ms, generation 516.7 ms (85 modules/s), module runs 4,387.3 ms. The unknown-code-page twin: error text identical, 4 of 4 checks;
+  - the runner twin `the_functions_over_national_and_utf8_data_match_the_interpreter` (`cobolt-runner` `national_functions`, new): `nat_functions.cbl` (50,000 round trips), `utf8_basics.cbl` (100,000 passes) and the four interpreter tests of AC4, AC12, AC14 and the Unicode case rule, packaged into a copy of `prc-runner` and run under `rcrun run`. 3 of 3 programs print identical lines, 22 of 22 checks;
+  - `native_desktop_refusals` 23 of 23 checks (12 programs served, 9 refused, 2 browser); the whole `cobolt-wasm` suite 149 of 149 in 40 test binaries; the runtime blob's own tests 39 of 39;
+  - the whole `cobolt-runner` suite 23 passed (the 2 live MySQL tests ignored); the runner twins `runner_shell_hosts` 18 of 18, `runner_viewer_form` 1 of 1, `runner_one_form` 1 of 1, `runner_surfaces` 1 of 1, `runner_motion_form` 1 of 1;
+  - `cobolt-abi-host` 288 of 288, `cobolt-form-host` 193 of 193, `desktop_wasm_build` 1 of 1, the player's `freshness` 6 of 6, `desktop_wasm_unchanged` green after the re-record, `prebuilt_chunked_kb_matches_the_published_documentation` green.
+- **Not measured:** the speed of a module that calls these functions in a loop against the interpreter, beyond the 50,000 and 100,000 passes the two test programs run.
+
 ## 2.0.632 — 2026-11-21
 
 **Feature: the Viewer and the window methods run in a desktop WebAssembly module, which closes the Viewer, window-method and canvas task (DESKTOP-WASM-001 T50).** A desktop form with a Viewer no longer takes the Cargo path. The built program loads its documents, writes its conversation, finds in it, saves, prints and shares it by the interpreter's own rules. A form's window methods behave as under Run Form.

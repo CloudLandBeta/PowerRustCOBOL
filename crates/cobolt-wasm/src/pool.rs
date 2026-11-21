@@ -7,7 +7,7 @@
 //! The constant area: literals and operand records, in the layout
 //! `cobolt-wasm-rt` reads (its `fd` and `opd` modules are the definition).
 
-use cobolt_wasm_rt::fd::{Fd, F_CLASSED};
+use cobolt_wasm_rt::fd::{Fd, F_CLASSED, F_NATIONAL_LIT};
 use cobolt_wasm_rt::opd::*;
 use std::collections::HashMap;
 
@@ -124,8 +124,14 @@ impl Pool {
     /// An `N"…"` or `U"…"` literal of a desktop module (DESKTOP-WASM-001 T44): its text in UTF-8,
     /// flagged as national for the routines ([`F_CLASSED`]).
     pub fn opd_lit_class(&mut self, bytes: &[u8]) -> u32 {
+        self.opd_lit_class_of(bytes, false)
+    }
+
+    /// As [`Self::opd_lit_class`], for an `N"…"` literal when `national` (T50a1): the class-aware
+    /// functions read its characters as UTF-16, not UTF-8 ([`F_NATIONAL_LIT`]).
+    pub fn opd_lit_class_of(&mut self, bytes: &[u8], national: bool) -> u32 {
         let data = if bytes.is_empty() { self.intern(&[0]) } else { self.intern(bytes) };
-        let fd = Fd { flags: F_CLASSED, ..Fd::alnum(bytes.len() as u32) };
+        let fd = Fd { flags: F_CLASSED | if national { F_NATIONAL_LIT } else { 0 }, ..Fd::alnum(bytes.len() as u32) };
         let r = Self::header(T_LIT_ALNUM, 0, 0, 0, &fd, data, bytes.len() as u32);
         self.intern(&r)
     }

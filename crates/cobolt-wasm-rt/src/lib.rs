@@ -60,6 +60,7 @@ pub mod json;
 pub mod mem;
 pub mod mv;
 pub mod nat;
+pub mod natfn;
 pub mod nfile;
 pub mod opd;
 pub mod ptr;

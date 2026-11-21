@@ -424,9 +424,9 @@ pub struct Lower<'a, 'b> {
 }
 
 /// Why a desktop module refuses a use of national or UTF-8 data. The module computes such data
-/// where it is moved, displayed, compared, initialised, measured or given a VALUE (T44); any other
-/// use (reference modification, INSPECT, STRING, a function's argument, arithmetic, a CALL, a
-/// control's property …) takes the Cargo path.
+/// where it is moved, displayed, compared, initialised, measured or given a VALUE (T44) or read by
+/// a function that reads text (T50a1); any other use (reference modification, INSPECT, STRING,
+/// arithmetic, a CALL, a control's property …) takes the Cargo path.
 pub(crate) const D_TEXT_USE: &str =
     "this use of national or UTF-8 data is not computed in a WebAssembly module yet, so the Build takes the Cargo path (DESKTOP-WASM-001 M6)";
 
@@ -1741,7 +1741,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                     self.pool.opd_all(&bytes)
                 }
             },
-            Literal::National(s) | Literal::Utf8(s) if text => self.pool.opd_lit_class(s.as_bytes()),
+            Literal::National(s) | Literal::Utf8(s) if text => self.pool.opd_lit_class_of(s.as_bytes(), matches!(lit, Literal::National(_))),
             Literal::National(_) | Literal::Utf8(_) => return self.text_lit_refused(line),
         }))
     }
@@ -1793,6 +1793,8 @@ impl<'a, 'b> Lower<'a, 'b> {
                 },
                 _ => Side::Other,
             },
+            // A character-valued function answers its characters, as an alphanumeric item does (T50a1).
+            Expr::FunctionCall { .. } if self.expr_is_chars(e) => Side::AlnumItem,
             _ if is_direct_ref(e) => {
                 let Some(i) = self.lookup_direct(e) else { return Side::Other };
                 let it = &self.layout.items[i];

@@ -74,6 +74,10 @@ pub const F_ALPHABETIC: u8 = 32;
 /// An `N"…"` or `U"…"` literal of a desktop module: its text in UTF-8, a national sender for
 /// [`crate::nat`].
 pub const F_CLASSED: u8 = 64;
+/// With [`F_CLASSED`]: the literal is `N"…"`, not `U"…"` (DESKTOP-WASM-001 T50a1). The class-aware
+/// functions (`ULENGTH`, `UPOS`, …) read a national argument as UTF-16 big-endian and a UTF-8 one
+/// as UTF-8, so they must know which the literal is.
+pub const F_NATIONAL_LIT: u8 = 128;
 
 /// A parsed field descriptor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

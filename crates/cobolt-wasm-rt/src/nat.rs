@@ -132,6 +132,7 @@ pub enum Chars<'a> {
     Repeat { unit: &'a [u8], left: u32, cur: Lossy<'a> },
 }
 
+#[derive(Clone)]
 pub enum Decode<'a> {
     Utf8(Lossy<'a>),
     Utf16(Utf16Be<'a>),
@@ -194,6 +195,7 @@ impl Iterator for Chars<'_> {
 }
 
 /// The characters of UTF-8 bytes, each ill-formed sequence one U+FFFD (`from_utf8_lossy`).
+#[derive(Clone)]
 pub struct Lossy<'a> {
     chunks: core::str::Utf8Chunks<'a>,
     valid: core::str::Chars<'a>,
@@ -226,6 +228,7 @@ impl Iterator for Lossy<'_> {
 
 /// The characters of UTF-16 big-endian bytes: an unpaired surrogate, and an odd last byte, read as
 /// U+FFFD (the interpreter's `from_utf16be`).
+#[derive(Clone)]
 pub struct Utf16Be<'a> {
     b: &'a [u8],
     at: usize,
@@ -423,6 +426,17 @@ fn fit_into(class: Class, text: Text, justified: bool, d: &Loc, snd: &Sender) {
         }
     }
     write(class, text, justified, mem::bytes_mut(d.addr, d.len));
+}
+
+/// The characters of a function argument's bytes (T50a1): UTF-16 big-endian for a national
+/// argument (the interpreter's `from_utf16be`), UTF-8 for any other (`from_utf8_lossy`), neither
+/// fitted to a class: an argument is as long as it is.
+pub fn argument_chars(bytes: &[u8], national: bool) -> Decode<'_> {
+    if national {
+        Decode::Utf16(Utf16Be { b: bytes, at: 0, pending: None })
+    } else {
+        Decode::Utf8(Lossy::new(bytes))
+    }
 }
 
 /// Whether `o` is national or UTF-8: an item of a class, or an `N"…"`/`U"…"` literal.
