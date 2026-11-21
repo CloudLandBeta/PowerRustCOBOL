@@ -453,6 +453,22 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     check(format!("a desktop form with a Viewer compiles, requiring {:?}", pcaps(&desk)), desk.is_ok() && pcaps(&desk).iter().any(|c| c == "viewer"));
     let page = form_of(&wrote, &viewer, &Options::default());
     check(format!("the same form for a browser requires {:?}", pcaps(&page)), page.is_ok() && pcaps(&page).is_empty());
+    // A call to a backend (T51): the runner has no connection to one, so a desktop module that made
+    // the call would be refused when it starts. The generator refuses it at its line, naming it, and
+    // the Build takes the Cargo path; the same handler for a browser compiles and imports `pr.remote`.
+    let remote = handler("    CALL \"GET-X\" WITH WEBSOCKET LINKAGE USING WS-PATH\n");
+    let e = form_of(&remote, &button, &native()).err().unwrap_or_else(|| GenError::new(0, "compiled"));
+    check(
+        format!("CALL … WITH WEBSOCKET LINKAGE in a desktop form's handler: refused at line {} as {:?}, with the remote family's reason", e.line, e.subject),
+        e.subject == "CALL … WITH WEBSOCKET LINKAGE" && e.line == line_of(&remote, "WEBSOCKET LINKAGE") && e.message.contains("remote calls") && e.message.contains("WebAssembly path"),
+    );
+    let page_call = form_of(&remote, &button, &Options::default());
+    let imports_remote = page_call
+        .as_ref()
+        .ok()
+        .and_then(|c| cobolt_wasm_abi::scan::scan_module(&c.wasm).ok())
+        .is_some_and(|scan| scan.imports.iter().any(|i| i.module == "pr" && i.name == "remote"));
+    check("the same call in a browser module compiles and imports pr.remote".into(), page_call.is_ok() && imports_remote);
     let mut short_calls = 0;
     for name in ["ANIMATIONSEQUENCE", "LAYOUT"] {
         let src = handler(&format!("    COBOL::\"{name}\" ( \"Clear\" )\n"));

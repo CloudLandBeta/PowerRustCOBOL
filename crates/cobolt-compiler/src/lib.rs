@@ -7616,10 +7616,33 @@ The Build takes the Cargo path, and says why, when:
   program takes the Cargo path when it uses a pointer in a called program, a
   descriptor area in a program that also takes the address of a group (a data
   pointer could point at it), or national or UTF-8 data in any other way (the
-  Build names the item and the line). The column *On the Desktop*
+  Build names the item and the line). Besides `EXEC RUST`, the entries of the
+  tables that stay on the Cargo path are the ones that need a host the runner does
+  not have: a call to a Backend (`CALL … WITH WEBSOCKET LINKAGE`, the
+  `COBOL::"WS-…"` verbs and `COBOL::"AUTH-OP"`), the Data Binding verbs
+  (`COBOL::"BINDING-…"`), and the phone's secure store (`COBOL::"SECURELOAD"`,
+  `"SECURESTORE"`, `"SECUREDELETE"`); a write to the `Mode` of a program-level
+  `COBOL::SqlDatabase` (an asynchronous statement) takes it too. The generator
+  also refuses, at the line, a few language constructs it does not compile yet:
+  user-defined functions (`FUNCTION-ID` units, `FUNCTION NAME(args)` in an
+  expression), the collections of spec 109 (`PERFORM VARYING … THROUGH`, `Map`,
+  `Filter`, `Join` and the other list methods, the lambda `ITEM => …`), formatting
+  (`FORMAT IS … LOCALE IS …`, `F"…"` strings, `Format()`), control collections
+  (`Descendants()`, `ME::Controls(…)`, `SetProperties`), an object's property
+  written through `::` as a receiving field (`MOVE 17 TO PERSON::Age`), a value
+  method's answer subscripted, `SET condition-name TO FALSE`, and a report printed
+  into a Viewer (a file assigned to `VIEWER`, or of the Markdown or HTML
+  organisation); and a program with no form takes it for a built-in the runner
+  serves to a form's handlers only (sound, animation sequences, layouts, the model
+  list, `MCP-SEARCH`, the form and control verbs). The column *On the Desktop*
   of "What runs in a browser module" below lists every statement and built-in;
-- a form holds a control the runner does not serve yet (the sign-in control, the
-  Viewer), or a control bound to data (Data Binding): the Build
+- a form holds a control the runner does not serve yet (the sign-in control), a
+  control bound to data (Data Binding), a control whose design names a program
+  data item (a SqlDatabase's `ConnectionDataItem` or `ResultSetDataItem`, the
+  `RequestDataItem`, `ResponseDataItem` or `StatusDataItem` of a RestClient or
+  WebSearch, an AgentObject's `ResponseDataItem`, an IndexedFile's
+  `StatusDataItem` or `CurrentRecordDataItem` once a PartiQL statement runs on it) or a
+  chart that names its table's fields (`LabelField`, `ValueFields`): the Build
   names the form, its file, the control and its type. "Controls on the Desktop"
   below lists them;
 - a form holds a KnowledgeBase and the project sets `[rag] embedder = "builtin"`:

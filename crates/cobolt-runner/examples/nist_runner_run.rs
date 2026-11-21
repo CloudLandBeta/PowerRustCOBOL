@@ -284,11 +284,18 @@ fn compare(args: &[String]) -> Result<(), String> {
                 .current_dir(&a),
         )?;
         let exe = package(&runner, &module, p, &scratch.join(format!("{i}-exe")))?;
+        // Each program gets a machine-code cache of its own, removed with the rest of its files
+        // below: a program's module is never run twice, and the whole corpus kept at once was 12 GB.
+        let cache = scratch.join(format!("{i}-cache"));
         let native = spawn(
             Command::new(&exe)
-                .env("PRC_RUNNER_CACHE", cache_dir())
+                .env("PRC_RUNNER_CACHE", &cache)
                 .current_dir(&b),
         )?;
+        // Both runs are over and their output is kept: nothing of this program is needed again.
+        for d in [&a, &b, &scratch.join(format!("{i}-exe")), &cache] {
+            let _ = std::fs::remove_dir_all(d);
+        }
         ms_interp += interp.ms;
         ms_runner += native.ms;
         let same = interp.stdout == native.stdout

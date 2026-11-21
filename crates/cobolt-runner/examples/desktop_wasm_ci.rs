@@ -20,9 +20,10 @@
 //!   Each form fixture of `cobolt-bench pixel-parity` (T35) is built the same way. Its program
 //!   then runs its scripts headless with the same pins, and must take every picture and meet the
 //!   fixture's expected reads. `--modules-out` keeps each program's module, for `cross`.
-//! - `reference`: each reference project, copied under `--work`, is built by `rcrun build`. One
-//!   that takes the WebAssembly path must build. One still on the Cargo path is listed with its
-//!   reason, which is what AC1 asks until every reference project takes the WebAssembly path.
+//! - `reference`: each reference project, copied under `--work`, is built by `rcrun build`, and
+//!   must take the WebAssembly path with no Rust toolchain on the machine (AC1; every reference
+//!   project has taken it since the M6 close, DESKTOP-WASM-001 T51). One that takes the Cargo path
+//!   fails the check, listed with its reason.
 //! - `cross`: every platform's modules (`<dir>/<platform>/<name>.wasm`) run on this runner and
 //!   must do what their fixture says, as they did on their own platform (AC3). A form fixture's
 //!   modules must also draw the same pictures and give the same reads and dumps here, whichever
@@ -413,7 +414,7 @@ fn reference(args: &[String]) -> Result<bool, String> {
             rows.push(format!("  ok   {name}: the WebAssembly path, built in {:.0} ms", built.ms));
         } else if let Some(reason) = &built.reason {
             cargo += 1;
-            rows.push(format!("  --   {name}: still on the Cargo path, because {reason}"));
+            rows.push(format!("  FAIL {name}: took the Cargo path, because {reason}"));
         } else {
             failed += 1;
             rows.push(format!("  FAIL {name}: the Build failed with no Cargo reason ({:.0} ms)\n{}", built.ms, built.text));
@@ -425,11 +426,11 @@ fn reference(args: &[String]) -> Result<bool, String> {
         println!("{r}");
     }
     println!(
-        "reference projects {}: WebAssembly path {wasm}, still on the Cargo path {cargo} (listed with the reason), failed {failed}; AC1 is met when all {} take the WebAssembly path",
+        "reference projects {}: WebAssembly path {wasm}, Cargo path {cargo} (listed with the reason), failed {failed}; AC1 {}",
         projects.len(),
-        projects.len()
+        if wasm == projects.len() { "is met: all of them take the WebAssembly path with no Rust toolchain" } else { "is NOT met" }
     );
-    Ok(failed == 0)
+    Ok(failed == 0 && cargo == 0)
 }
 
 fn cross(args: &[String]) -> Result<bool, String> {

@@ -61,7 +61,8 @@
 //! fixtures (`form_fixtures`), each laid out twice. The first copy is built by default with
 //! `wasm_only`: the Build either takes the WebAssembly path or stops before anything is compiled for
 //! Cargo, naming why. A project that would take the Cargo path has not moved; its reason is
-//! printed and nothing more is done with it. A project that takes the WebAssembly path is built
+//! printed, nothing more is done with it, and the run fails (since the M6 close, T51, every
+//! reference project and fixture moves). A project that takes the WebAssembly path is built
 //! again on the Cargo path, from the second copy. Then every script runs once under each program,
 //! at the three sizes, from the same data and under the same pins. Every pair of frames must be
 //! equal in every pixel, and every read and dump equal. The Cargo-built frames of a reference
@@ -1132,6 +1133,12 @@ fn run_pairs(args: &Args) -> Result<(), String> {
             println!("  {}: {d}", r.name);
             problems += 1;
         }
+    }
+    // Since the M6 close (DESKTOP-WASM-001 T51) every reference project and every fixture takes the
+    // WebAssembly path, so one that falls back to Cargo is a regression, not a project to wait for.
+    if !fell_back.is_empty() {
+        println!("  {} project(s) took the Cargo path, which the M6 close does not allow (AC1)", fell_back.len());
+        problems += fell_back.len();
     }
     let compared: Vec<&PairResult> = results.iter().filter(|r| r.path.is_ok()).collect();
     let moved = results.iter().filter(|r| r.moved()).count();

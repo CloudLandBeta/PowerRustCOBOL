@@ -16,8 +16,11 @@
 //!   and the peak;
 //! - a program with an `EXEC RUST` block takes the Cargo path and, with no Rust, stops: the answer
 //!   says Rust is needed and why, with the block's file and line;
-//! - a program whose Common Code reads a disk file (which the WebAssembly path does not take yet)
-//!   does the same, naming the construct, its file and its line.
+//! - a program whose Common Code calls a Backend (`CALL … WITH WEBSOCKET LINKAGE`, which the
+//!   desktop runner has no connection for, so the WebAssembly path does not take it) does the
+//!   same, naming the construct, its file and its line. (Until the M6 close this fixture read a
+//!   disk file; the WebAssembly path has served disk files since M3, so the fixture moved to a
+//!   construct that stays on the Cargo path.)
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -71,29 +74,22 @@ const EXEC_RUST: &str = "\
            STOP RUN.
 ";
 
-const CALLS_FILES: &str = "\
+const CALLS_REMOTE: &str = "\
        IDENTIFICATION DIVISION.
        PROGRAM-ID. T19CALLER.
        PROCEDURE DIVISION.
-           CALL \"T19FILES\"
+           CALL \"T19REMOTE\"
            STOP RUN.
 ";
 
-const FILES: &str = "\
+const REMOTE: &str = "\
        IDENTIFICATION DIVISION.
-       PROGRAM-ID. T19FILES.
-       ENVIRONMENT DIVISION.
-       INPUT-OUTPUT SECTION.
-       FILE-CONTROL.
-           SELECT LOG-FILE ASSIGN TO \"t19.log\"
-               ORGANIZATION IS LINE SEQUENTIAL.
+       PROGRAM-ID. T19REMOTE.
        DATA DIVISION.
-       FILE SECTION.
-       FD LOG-FILE.
-       01 LOG-REC    PIC X(40).
+       WORKING-STORAGE SECTION.
+       01 WS-PATH    PIC X(20) VALUE \"/total\".
        PROCEDURE DIVISION.
-           OPEN OUTPUT LOG-FILE
-           CLOSE LOG-FILE
+           CALL \"GET-TOTAL\" WITH WEBSOCKET LINKAGE USING WS-PATH
            GOBACK.
 ";
 
@@ -210,16 +206,19 @@ fn the_build_tool_names_the_path_the_reason_the_phases_and_the_peak() {
     );
     check("exec rust: the message says what is missing", exec["errors"].as_str().is_some_and(|e| e.contains("Rust toolchain is required")));
 
-    // ── 3. A disk file in Common Code, no Rust: the construct, its file and its line ──
-    let files = project(&root, "prct19files", "src/main.cbl", &[("src/main.cbl", CALLS_FILES), ("src/files.cbl", FILES)]);
-    let (refused, _) = build(&files);
+    // ── 3. A call to a Backend in Common Code, no Rust: the construct, its file and its line ──
+    let remote = project(&root, "prct19remote", "src/main.cbl", &[("src/main.cbl", CALLS_REMOTE), ("src/remote.cbl", REMOTE)]);
+    let (refused, _) = build(&remote);
     check("refused: failed, needs_rust", refused["status"] == "failed" && refused["needs_rust"] == true);
     let reason = &refused["reason"];
     check(
-        "refused: reason refused, in src/files.cbl, with a line",
-        reason["kind"] == "refused" && reason["file"] == "src/files.cbl" && reason["line"].as_u64().is_some_and(|l| l > 0),
+        "refused: reason refused, in src/remote.cbl, at the CALL's line",
+        reason["kind"] == "refused" && reason["file"] == "src/remote.cbl" && reason["line"].as_u64() == Some(line_of(REMOTE, "WITH WEBSOCKET")),
     );
-    check("refused: names the construct and why", reason["construct"].as_str().is_some_and(|c| !c.is_empty()) && reason["why"].as_str().is_some_and(|w| !w.is_empty()));
+    check(
+        "refused: names the construct and why",
+        reason["construct"].as_str().is_some_and(|c| c.contains("WEBSOCKET")) && reason["why"].as_str().is_some_and(|w| w.contains("remote calls")),
+    );
 
     let failures: Vec<&(String, bool)> = checks.iter().filter(|(_, ok)| !ok).collect();
     println!("== the build tool on real Builds (DESKTOP-WASM-001 T19: R13, R18, R25) ==");
@@ -231,7 +230,7 @@ fn the_build_tool_names_the_path_the_reason_the_phases_and_the_peak() {
         wasm["peak_bytes"]
     );
     println!("EXEC RUST: {}", exec["reason"]["text"].as_str().unwrap_or("?"));
-    println!("disk file: {}", reason["text"].as_str().unwrap_or("?"));
+    println!("backend call: {}", reason["text"].as_str().unwrap_or("?"));
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "ok  " } else { "FAIL" });
     }

@@ -211,12 +211,37 @@ fn every_statement_and_builtin_has_a_native_class() {
         .filter(|(n, c)| matches!(c, Native::Cargo(why) if *n != "EXEC RUST" && !why.contains("(DESKTOP-WASM-001 M")))
         .map(|(n, _)| n)
         .collect();
+    // The M6 close (T51): `EXEC RUST` and these families are every entry the native column still
+    // sends to the Cargo path. Each family needs a host the desktop runner does not have: a
+    // connection to a backend and the identity that goes with it (`pr.remote`: `CALL … WITH
+    // WEBSOCKET LINKAGE`, the `WS-*` verbs and `AUTH-OP`), the Data Binding engine (`BINDING-*`),
+    // and the phone's secure store, where a desktop program stops (`SECURE*`). The list is exact: a
+    // new entry on the Cargo path, or one of these that moves to the module, fails here until the
+    // list says so.
+    let residual_at_t51: std::collections::BTreeSet<&str> = [
+        "AUTH-OP", "CALL … WITH WEBSOCKET LINKAGE", "BINDING-LOAD", "BINDING-MARK-CLEAN", "BINDING-POPULATE", "BINDING-SET-PENDING", "BINDING-SET-READ-ONLY", "BINDING-UPDATE",
+        "SECUREDELETE", "SECURELOAD", "SECURESTORE", "WS-CANCELLED", "WS-CLAIM", "WS-DOWNLOAD", "WS-EMIT", "WS-FAIL", "WS-FILE-PATH",
+        "WS-FILE-PUBLISH", "WS-LAST-ERROR", "WS-PAUSE", "WS-PROGRESS", "WS-SHOW-PROGRESS", "WS-STREAM-ITEM", "WS-SUBSCRIBE", "WS-UNSUBSCRIBE",
+        "WS-UPLOAD", "WS-VERSION", "WS-WARNING",
+    ]
+    .into_iter()
+    .collect();
+    let on_cargo: std::collections::BTreeSet<&str> = STATEMENT_TABLE
+        .iter()
+        .map(|(n, _, c)| (*n, *c))
+        .chain(BUILTIN_TABLE.iter().map(|b| (b.name, b.native)))
+        .filter(|(n, c)| matches!(c, Native::Cargo(_)) && *n != "EXEC RUST")
+        .map(|(n, _)| n)
+        .collect();
+    let unlisted: Vec<&&str> = on_cargo.difference(&residual_at_t51).collect();
+    let moved: Vec<&&str> = residual_at_t51.difference(&on_cargo).collect();
     eprintln!(
         "native column (DESKTOP-WASM-001 T10, AC10)\n  \
          entries: {} statements + {} built-ins = {checked}\n  \
          classes: {module} in the module, {host} through the runner ({caps:?}), {form} in a form's program, {cargo} on the Cargo path\n  \
          fixed points: {fixed_ok} of {} (EXEC RUST, ACCEPT, STOP, GOBACK, MOVE, READ; INVOKE, SET-PROPERTY in a form)\n  \
          faults: {}; Cargo reasons with no milestone: {}\n  \
+         Cargo entries other than EXEC RUST: {} of the {} the M6 close lists (new: {}, moved to the module: {})\n  \
          time: {:.3} ms\n  \
          result: {}",
         STATEMENT_TABLE.len(),
@@ -224,9 +249,15 @@ fn every_statement_and_builtin_has_a_native_class() {
         fixed.len(),
         faults.len(),
         undated.len(),
+        on_cargo.len(),
+        residual_at_t51.len(),
+        unlisted.len(),
+        moved.len(),
         t.elapsed().as_secs_f64() * 1e3,
-        if faults.is_empty() && undated.is_empty() && fixed_ok == fixed.len() { "PASS" } else { "FAIL" }
+        if faults.is_empty() && undated.is_empty() && unlisted.is_empty() && moved.is_empty() && fixed_ok == fixed.len() { "PASS" } else { "FAIL" }
     );
+    assert!(unlisted.is_empty(), "entries on the Cargo path the M6 close does not list: {unlisted:?}");
+    assert!(moved.is_empty(), "entries the M6 close lists that the native column no longer sends to Cargo: {moved:?}");
     assert!(faults.is_empty(), "{faults:#?}");
     assert!(undated.is_empty(), "Cargo reasons that name no milestone: {undated:?}");
     assert_eq!(fixed_ok, fixed.len(), "{fixed:?}");

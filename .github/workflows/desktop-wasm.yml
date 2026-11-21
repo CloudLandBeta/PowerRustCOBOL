@@ -8,8 +8,9 @@
 #   ~/.cargo, no ~/.rustup). rcrun then builds the module corpus's console fixtures, the projects
 #   that take the WebAssembly path at M1, and runs each one's check script. The form fixture of
 #   `cobolt-bench pixel-parity` is built the same way and run headless on its script (T35). It also
-#   builds the five reference projects and lists those still on the Cargo path, with the reason
-#   (AC1 is met once all five take the WebAssembly path).
+#   builds the five reference projects, each of which must take the WebAssembly path with no Rust
+#   toolchain on the machine (AC1; a project that takes the Cargo path fails the job, with the
+#   reason).
 #   Deviation, recorded in tasks.md: it uses the tools this run built, laid out as the package lays
 #   them out, rather than installing a package made by build-all-platforms.yml (a separate
 #   workflow, whose artifacts this one cannot rely on).

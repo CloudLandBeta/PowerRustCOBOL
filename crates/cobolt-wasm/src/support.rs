@@ -183,6 +183,8 @@ pub fn stmt_name(s: &Stmt) -> &'static str {
         Stmt::Merge { .. } => "MERGE",
         Stmt::Release { .. } => "RELEASE",
         Stmt::Return { .. } => "RETURN",
+        // The phrase sends a request to a backend, which the desktop runner has no connection to (T51).
+        Stmt::Call { convention: cobolt_ast::stmt::CallConvention::WebSocket, .. } => "CALL … WITH WEBSOCKET LINKAGE",
         Stmt::Call { .. } => "CALL",
         Stmt::Invoke { .. } => "INVOKE",
         Stmt::InvokeExpr { .. } => "member call",
@@ -389,6 +391,7 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("ADD CORRESPONDING", Support::Module, Native::Module),
     ("ALTER", Support::Module, Native::Module),
     ("CALL", Support::Module, Native::Module),
+    ("CALL … WITH WEBSOCKET LINKAGE", Support::Module, cargo(D_REMOTE)),
     ("CANCEL", Support::Module, Native::Module),
     ("CLOSE", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("COMMIT", Support::BackendOnly(BACKEND_FILES), Native::Files),

@@ -236,9 +236,12 @@ which is what continuous-integration pipelines use.
 
 
 
-The IDE designs forms and *runs* programs on its own. **Build** is the
-exception: it compiles your project into a native application through the
-**Rust toolchain** (§18), and so does any Run of a program containing an
+The IDE designs forms and *runs* programs on its own. **Build** makes your
+project into a native application, and for most programs it needs no Rust at all:
+it takes the WebAssembly path (§18). It needs the **Rust toolchain** when the
+program asks for the other one — the Cargo path: an `EXEC RUST` block, the
+project's own crates, a **Debug** build, or something the runner does not run yet
+(the Build names it) — and so does any Run of a program containing an
 `EXEC RUST` block. So on its first run PowerRustCOBOL looks for Rust — and when
 it finds a usable one, says nothing at all.
 
@@ -251,11 +254,12 @@ not whatever release is newest that day. Decline
 and you are asked once more, because declining has a price worth stating:
 
 
-| Without Rust you lose                                 | You keep                               |
-| ----------------------------------------------------- | -------------------------------------- |
-| **Build** — no native executable, nothing to package | The Form Designer                      |
-| Running any program that contains an `EXEC RUST` block | The code editor and the COBOL tooling  |
-|                                                       | **Run** (interpreted) and the debugger |
+| Without Rust you lose                                                         | You keep                                          |
+| ----------------------------------------------------------------------------- | ------------------------------------------------- |
+| **Build** of a program that needs the Cargo path, and the **Debug** build     | The Form Designer                                 |
+| Running any program that contains an `EXEC RUST` block                        | The code editor and the COBOL tooling             |
+|                                                                               | **Run** (interpreted) and the debugger            |
+|                                                                               | **Build** on the WebAssembly path, which is the default |
 
 Declining a second time settles it and the question is not asked again. Install
 Rust later from [rustup.rs](https://rustup.rs) and **Build** simply starts
@@ -16768,6 +16772,8 @@ today does not have, so they stop with "manifest not found": name the file.
 | `build`        | `--full`, `--clean`                | Discard every cached artefact and rebuild from scratch                                                                                                                                                                          |
 | `build`        | `--debug`                          | Build the unoptimised binary the debugger attaches to, installed as `bin/<name>-debug` and never copied to the destination folder. Without it the binary is optimised — see **Build and Debug: which binary you get**         |
 | `build`        | `--quiet`, `-q`                    | Report only the outcome, not the progress                                                                                                                                                                                       |
+| `build`        | `--cargo`                          | Take the Cargo path instead of the WebAssembly path (needs the Rust toolchain) — see **Two ways a Build makes your program**                                                                                                    |
+| `build`        | `--no-machine-code`                | WebAssembly path: leave the machine code out of the file; the program makes it the first time it starts                                                                                                                         |
 | `package`      | `--output <path.zip>`              | Override the output archive path                                                                                                                                                                                                |
 | `mcp`          | `--project <file\|folder>`         | The project the coding-agent tools act on — its project file, or the folder holding it. Without it, the project in Claude Code's folder (`CLAUDE_PROJECT_DIR`, else the current folder), searched upward. See **Working with a coding agent** |
 
@@ -16798,6 +16804,7 @@ today does not have, so they stop with "manifest not found": name the file.
 | `COBOL_INDEXED_LOG_FORMAT` | `text` (default) or `json`                                                                                    |
 | `COBOL_SWITCHES`           | `SPECIAL-NAMES` external switches, `NAME=ON|OFF`, comma separated — the same as repeating `--switch NAME=ON` |
 | `COBOLT_AUDIO`             | `null` plays the `AUDIO-…` built-ins on a clock instead of a sound card (§11, *Playing sound*); no flag      |
+| `PRC_RUNNER`               | The full path of the `prc-runner` a Build on the WebAssembly path copies, instead of the one installed beside `rcrun` |
 
 A flag always wins over its environment variable.
 
@@ -16886,14 +16893,20 @@ years — use `--source-format=fixed-relaxed`.
 ## 18. Building a distributable binary
 
 `rcrun build` (or the IDE **Build** button) produces a **single self-contained
-native executable** in `bin/`. The application's parsed program and its forms are
+native executable** in `bin/`. The application's program and its forms are
 embedded inside the binary; no `.cbl` source is shipped, and the end user does
 **not** install PowerRustCOBOL.
+
+How your program gets into that executable depends on the **path** the Build
+takes. Unless something in your project needs the other one, the Build takes the
+**WebAssembly path**, which needs no Rust toolchain at all; *Two ways a Build
+makes your program*, below, says what decides it and how to see which one you
+got.
 
 ```mermaid
 flowchart LR
     SRC["src/*.cbl + forms/*.cfrm"] --> COMPILE["rcrun build"]
-    COMPILE --> EMBED["parse · analyse · embed (compressed)"]
+    COMPILE --> EMBED["compile · embed (compressed)"]
     EMBED --> EXE["bin/yourapp  (native executable)"]
     EXE --> DIST["dist/yourapp  (the hand-over folder)"]
     ASSETS["assets/ + data/"] -. "copied alongside" .-> DIST
@@ -16914,15 +16927,18 @@ flowchart LR
   rebuild never overwrites what your users have added.
 - Required licence/notice files are placed alongside the binary automatically.
 
-> ⚠️ **Caveat.** The *end user* of your application installs nothing, but the
-> machine that **builds** it needs two things: the Rust toolchain, and the
-> platform's own sources. Building is a real compile, not an export. A
-> PowerRustCOBOL installation that ships the platform SDK beside its executable
-> satisfies this on its own; if yours does not, Build stops and names every
-> folder it searched. Point it at a copy under **Settings ▸ Platform SDK Location**,
-> or see *Installing the IDE elsewhere* in `BUILDING-en.md`.
+> ⚠️ **Caveat — on the Cargo path only.** The *end user* of your application
+> installs nothing, but when the Build takes the **Cargo path** the machine that
+> **builds** it needs two things: the Rust toolchain, and the platform's own
+> sources. That path is a real compile, not an export. A PowerRustCOBOL
+> installation that ships the platform SDK beside its executable satisfies this
+> on its own; if yours does not, Build stops and names every folder it searched.
+> Point it at a copy under **Settings ▸ Platform SDK Location**, or see
+> *Installing the IDE elsewhere* in `BUILDING-en.md`. On the **WebAssembly path**
+> the build machine needs neither: PowerRustCOBOL and its runner are enough.
 
-> **Note — what a build links, and what that costs.** The SQL bridge
+> **Note — what a Cargo-path build links, and what that costs** (the
+> WebAssembly path links nothing: the runner already holds all of it). The SQL bridge
 > (`COBOL::"OPEN-DB"` and its companions) brings SQLite with it, and SQLite is C:
 > linking it means the build machine also needs a **C compiler** — `link.exe`
 > from the Visual Studio Build Tools on Windows, `cc` from `build-essential` or
@@ -16959,10 +16975,150 @@ flowchart LR
 > the system TLS development package. It is the **console** programs that build
 > with nothing but Rust.
 
+### Two ways a Build makes your program
+
+A Desktop project's Build has two ways of turning your COBOL into the executable,
+and it chooses for you.
+
+- **The WebAssembly path — the default.** The Build compiles your program to a
+  compact, portable *module* (the kind of module a Web application runs in a
+  browser), puts it inside a copy of the **PowerRustCOBOL runner** — `prc-runner`,
+  installed beside the IDE and `rcrun` — together with the program's machine code,
+  and writes the result as `bin/<name>`. Nothing is compiled by Rust or by a C
+  compiler, so a machine that has nothing but PowerRustCOBOL installed can build.
+  The executable still starts at once and the end user still installs nothing.
+- **The Cargo path.** The Build turns your program into a Rust project and
+  compiles it with Cargo, as every Build did before the WebAssembly path existed.
+  The machine that builds needs the Rust toolchain (and, for some programs, a C
+  compiler — see the note above); the executable it makes does not.
+
+```mermaid
+flowchart TD
+    BUILD["Build: the IDE button or rcrun build"] --> Q1{"Debug button, --cargo,<br/>Build path = Cargo,<br/>External Crates or EXEC RUST?"}
+    Q1 -- yes --> CARGO["Cargo path<br/>needs the Rust toolchain"]
+    Q1 -- no --> Q2{"Does everything the program<br/>uses run on the runner?"}
+    Q2 -- no --> CARGO
+    Q2 -- yes --> WASM["WebAssembly path<br/>runner + module + machine code"]
+    WASM --> OUT["bin/yourapp"]
+    CARGO --> OUT
+```
+
+**Which path did my Build take?** The Build says so. The IDE's Output shows
+`Path: WebAssembly (no Rust toolchain used)` or `Path: Cargo, because …` followed
+by the reason, and then the time of each phase; `rcrun build` prints
+`Path   : WebAssembly` or `Path   : Cargo, because …`. Read the reason before
+anything else when a Build is slower or needs more of the machine than you expect.
+
+📷 Screenshot needed — `build-path-report.png`. The IDE's Output panel after a
+Build of an example project, showing the line `Path: WebAssembly (no Rust
+toolchain used)` and the line of phase times under it.
+
+**The same program behaves the same on either path.** The WebAssembly path is held
+to the interpreter that runs your program under **Run** and **Run Form**: the same
+output, byte for byte, and the same exit code. The forms are drawn the same way
+too — each form of the example projects (22 forms in five projects, and a sixth
+project made to hold one of every control) was run through the same scripted
+steps under a program built each way, and a picture of the form was compared
+after every step at three window sizes: 426 pairs of pictures, with no difference
+in a single pixel.
+
+#### When the Build takes the Cargo path
+
+| The Build says | What it means | What you can do |
+|---|---|---|
+| `it is a Debug Build, which the debugger attaches to` | The **Debug** button always builds for the debugger. | Nothing: this is by design. **Build** is the button that makes the program you hand over. |
+| `the project chooses the Cargo path` | **Project Settings ▸ Desktop application ▸ Build path** is *Cargo (needs Rust)*, or you ran `rcrun build --cargo`. | Choose *WebAssembly (no Rust needed)* again, or leave off `--cargo`. |
+| `the project uses its own Rust crates` | The project registers **External Crates**. | Only Cargo links them; remove the crates if you want the WebAssembly path. |
+| `<file> line <n> holds an EXEC RUST block` | `EXEC RUST` is Rust compiled into the program. | Move the Rust into a Backend program, or accept the Cargo path. |
+| `<file> line <n> uses <construct>, which the WebAssembly path does not build yet (…)` | The program uses something the runner does not run yet. The reason in brackets says what. | See *What the WebAssembly path does not run yet* below. |
+| `the form <name> (<file>) holds the control <id> (<type>), which the WebAssembly path does not build yet (…)` | A form holds a control the runner does not serve, or a control bound to data. | The same list. |
+| `the PowerRustCOBOL runner (prc-runner) is not installed beside the IDE` | The runner is missing, which only happens in an unusual installation. | Install PowerRustCOBOL again, or set the environment variable `PRC_RUNNER` to the full path of a `prc-runner`. |
+
+Two project settings, written to the project file only when they differ from the
+default (so a default project's file does not change):
+
+- **Build path** (`build_path = "cargo"` under `[desktop]`): *WebAssembly (no Rust
+  needed)*, the default, lets the Build take the WebAssembly path whenever the
+  program allows it and the Cargo path when the program needs Rust; *Cargo (needs
+  Rust)* makes every Build take the Cargo path.
+- **Include the machine code** (`machine_code = false` under `[desktop]` turns it
+  off; `rcrun build --no-machine-code` does the same for one Build). It is on by
+  default: the file carries the program's machine code and starts at once. Without
+  it the file is smaller, and the program makes its machine code the first time it
+  starts and keeps it in a cache for the next starts.
+
+📷 Screenshot needed — `build-path-settings.png`. Project Settings, section
+*Desktop application*, showing the two settings **Build path** and **Include the
+machine code**.
+
+> **Note — a machine with no Rust toolchain.** A program the WebAssembly path
+> takes builds as usual. One that must take the Cargo path stops *before anything
+> is compiled*, with "this program is built with Cargo because …, and the Rust
+> toolchain is required to build it that way", and leaves `bin/` as it was. The
+> IDE then offers to install Rust; `rcrun build` prints the command that does.
+
+#### What the WebAssembly path runs
+
+The runner runs what a Desktop program does under **Run Form**, apart from the
+list in the next section. It runs:
+
+- console programs and form programs: every control the runner draws, including
+  the DataGrid, the canvases and graphics objects, **Maps**, the **Viewer**, the
+  AWS controls, **AgentObject**, **KnowledgeBase**, **WebSearch**, **RestClient**,
+  **SqlDatabase**, **IndexedFile** and **FileDropZone**; opening forms, the shell
+  and its SideMenu, timers, file dialogs, sound, animations and layouts;
+- files of every organisation, `SORT` and `MERGE`;
+- `EXEC SQL` on SQLite, PostgreSQL and MySQL, including dynamic SQL and the SQL
+  descriptor area (`INCLUDE SQLDA`: `DESCRIBE … INTO`, `FETCH … USING DESCRIPTOR`,
+  `OPEN` and `EXECUTE … USING DESCRIPTOR`), and the HTTP built-ins;
+- `TRY`, `CATCH`, `FINALLY` and `THROW`;
+- pointers in the main program: `USAGE POINTER`, `SET … TO ADDRESS OF`,
+  `SET ADDRESS OF`, and a pointer that is an element of a table, such as
+  `SQLDA-DATA (1)`;
+- national (`PIC N`) and UTF-8 (`PIC U`) data in every use the interpreter has:
+  moved, compared, displayed, accepted, measured, used by the character
+  functions, `INSPECT`, `STRING` and `UNSTRING`, passed to a called program,
+  shown in a control, used as an SQL host variable or a `SORT` key, held in a
+  `LINE SEQUENTIAL` record, and kept in a program with a `PROGRAM COLLATING
+  SEQUENCE` (which orders alphanumeric data only).
+
+#### What the WebAssembly path does not run yet
+
+These still take the Cargo path, and the Build names the one it met:
+
+| You wrote | Why the runner does not run it yet |
+|---|---|
+| `CALL … WITH WEBSOCKET LINKAGE`, and the verbs `COBOL::"WS-SUBSCRIBE"`, `"WS-UPLOAD"`, `"WS-DOWNLOAD"` and the other `WS-…` verbs, and `COBOL::"AUTH-OP"` | The runner has no connection to a Backend yet. |
+| A control bound to data (an indexed file, a SQL query, a REST endpoint, a COBOL table, an agent's output or a PartiQL query), and `COBOL::"BINDING-LOAD"` and the other `BINDING-…` verbs | The runner does not carry the Data Binding engine yet. |
+| The sign-in (**Authentication**) control | It is a service control the runner does not serve yet. |
+| `COBOL::"SECURELOAD"`, `"SECURESTORE"`, `"SECUREDELETE"` | They are the phone's secure store; a desktop program stops at them with a run-time error unless the call names `ON EXCEPTION`. |
+| A control whose design names one of your data items (**SqlDatabase** `ConnectionDataItem`, `ResultSetDataItem`; **RestClient** and **WebSearch** `RequestDataItem`, `ResponseDataItem`, `StatusDataItem`; **AgentObject** `ResponseDataItem`; **IndexedFile** `StatusDataItem`, `CurrentRecordDataItem` when a PartiQL statement runs on it) | The interpreter finds that item by its name while the program runs; a module cannot. |
+| `COBOL::SqlDatabase` with its `Mode` set to asynchronous | The answer would arrive between events with no handler to hear it. |
+| A report printed into a **Viewer**: a file assigned to `VIEWER`, or a report file of the *Markdown* or *HTML* organisation | Not on the runner yet. |
+| A few language extensions the generator does not compile yet: user-defined functions (`FUNCTION-ID` units, and `FUNCTION NAME(args)` in an expression); the list methods of collections (`Map`, `Filter`, `Join` and the others, and the lambda `ITEM => …`) and `PERFORM VARYING … THROUGH`; formatting (`FORMAT IS … LOCALE IS …`, `F"…"` strings, `Format()`); control collections (`Descendants()`, `ME::Controls(…)`, `SetProperties`); an object's property written as a receiving field (`MOVE 17 TO PERSON::Age`) and a value method's answer subscripted; `SET condition-name TO FALSE` | They all run under **Run** and **Run Form**. The generator has no list values, formatter, function table or property write for them yet; the Build names the one it met, with its line. |
+| A program with no form that uses a sound, animation-sequence, layout, model-list or `MCP-SEARCH` verb, or a form or control verb | The runner serves those to a form's handlers only. |
+| A **KnowledgeBase** in a project with `[rag] embedder = "builtin"` | The built-in semantic model is large; only a Cargo-path program links it. |
+| A pointer in a called program; `ADDRESS OF` a group in a program that also uses an SQL descriptor `FETCH` or `OPEN`; a `LINE SEQUENTIAL` file with several record descriptions, one of them holding a national or UTF-8 field | The interpreter's behaviour there cannot be copied by one rule. |
+
+> ⚠️ **Caveat — the SQL descriptor area holds fewer entries.** A statement that
+> works on an `SQLDA` carries as many entries as `SQLDA-COUNT` names (for
+> `DESCRIBE`, `SQLDA-CAPACITY`), and a statement's work area is 32 KB, so about
+> 28 entries that hold their value as text in `SQLDA-VALUE`. An entry whose
+> `SQLDA-DATA` pointer is set costs far less. A descriptor that needs more ends
+> the run with an error that names the statement; the Cargo path has no such limit.
+
+> **Note — measured.** The five example projects that have no `EXEC RUST` and no
+> External Crates (PowerCallOfDuty, PowerCloud, PowerCobolCraft, PowerGraphics and
+> PowerSpatial) all build on the WebAssembly path, with the Rust toolchain
+> removed from the machine: the slowest of five Builds of each took between 0.4
+> and 0.8 seconds, with an empty build folder, on a laptop with 11 cores. A
+> project of 90 forms and 66 550 lines of COBOL, built the same way, took 68
+> seconds.
+
 ### Build and Debug: which binary you get
 
-The button you press decides how your application is compiled. A project has no
-setting for it.
+The button you press decides how your application is compiled, and with how much
+optimisation. A project has no setting for the optimisation.
 
 | You press | You get | Where it is installed |
 |---|---|---|
