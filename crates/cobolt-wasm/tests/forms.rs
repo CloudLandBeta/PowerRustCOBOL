@@ -104,6 +104,11 @@ impl Project {
     fn compile(&self, multi: bool) -> Compiled {
         self.try_compile(multi).unwrap_or_else(|e| panic!("compile_project failed: {e}"))
     }
+    /// As [`Self::try_compile`], for a desktop module.
+    fn try_compile_native(&self, multi: bool) -> Result<Compiled, cobolt_wasm::GenError> {
+        let specs = self.form_specs();
+        compile_project(&specs, &Options { multi_memory: multi, name: "demo".into(), native: true, ..Options::default() })
+    }
 }
 
 fn manifest_of(c: &Compiled) -> Manifest {
@@ -1126,4 +1131,47 @@ fn a_web_module_refuses_the_phone_shells_verbs_and_is_otherwise_unchanged() {
         assert_eq!(web.wasm, mobile.wasm, "multi={multi}: the same module");
     }
     eprintln!("web refusal: 3 verbs refused at their line; the calculator is byte-identical as Web and Mobile (2 variants)");
+}
+
+/// DESKTOP-WASM-001 T50a3b: a national or UTF-8 item crosses to a control's property as its
+/// characters in UTF-8, trimmed, and a property read lands in such an item fitted to its size.
+#[test]
+fn national_and_utf8_text_cross_to_a_control_property_as_utf8() {
+    let main = form_source(
+        "MAIN-FORM",
+        "01 WS-N PIC N(8) VALUE N\"Ação\" GLOBAL.\n01 WS-U PIC U(8) VALUE U\"日本\" GLOBAL.\n01 WS-IN PIC N(6) GLOBAL.\n01 WS-X PIC X(8) GLOBAL.\n",
+        &[(
+            "BTN-OK",
+            "onClick",
+            "    MOVE WS-N TO LBL-OUT::Caption\n    MOVE WS-U TO LBL-OUT::Text\n    MOVE LBL-OUT::Caption TO WS-IN\n\
+             \x20   DISPLAY \"[\" WS-IN \"]\"\n    MOVE N\"é\" TO LBL-OUT::Tip\n    MOVE LBL-OUT::Text TO WS-N\n    DISPLAY \"[\" WS-N \"]\"\n\
+             \x20   MOVE \"café\" TO WS-X\n    MOVE LBL-OUT::Caption TO WS-X\n    DISPLAY \"[\" WS-X \"]\"\n",
+        )],
+    );
+    let p = Project::new().form("MAIN-FORM", true, 1, &[("BTN-OK", "Button"), ("LBL-OUT", "Label")], &main);
+    let started = std::time::Instant::now();
+    let mut checked = 0;
+    for multi in [true, false] {
+        let c = p.try_compile_native(multi).unwrap_or_else(|e| panic!("multi={multi}: {e}"));
+        let m = manifest_of(&c);
+        let click = m.event_index("onClick").unwrap() as i32;
+        let (caption, text, tip) = (name_id(&m, "Caption"), name_id(&m, "Text"), name_id(&m, "Tip"));
+        let mut host = FormHost::new(&c.wasm).unwrap();
+        let (inst, status) = host.open_form(0, -1);
+        assert_eq!((inst, status), (0, 0), "multi={multi}: {:?}", host.outcome());
+        assert_eq!(host.event(inst, 3, click, &[]), 0, "{:?}", host.outcome());
+        let o = host.outcome();
+        assert!(o.trapped.is_none() && o.errors.is_empty(), "multi={multi}: {o:?}");
+        assert_eq!(
+            o.sets,
+            vec![(0, 4, vec![caption], "Ação".to_string()), (0, 4, vec![text], "日本".to_string()), (0, 4, vec![tip], "é".to_string())],
+            "multi={multi}"
+        );
+        assert_eq!(common::wasm_lines(&o), vec!["[Ação  ]", "[日本      ]", "[Ação  ]"], "multi={multi}");
+        checked += 4;
+    }
+    println!(
+        "national text and a control property (T50a3b): {checked} checks in both memory layouts (3 property writes as UTF-8, 3 reads into N and X items), {:.1} ms",
+        started.elapsed().as_secs_f64() * 1000.0
+    );
 }

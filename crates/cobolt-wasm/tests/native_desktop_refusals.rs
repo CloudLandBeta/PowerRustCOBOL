@@ -767,6 +767,45 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
         let src = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n{ws}PROCEDURE DIVISION.\n{stmt}    STOP RUN.\n");
         check(format!("{what} of WS-N compiles into a desktop module (T50a1, T50a2)"), compile_program(&common::parse(&src), &native()).is_ok());
     }
+    // T50a3b: national and UTF-8 items as CALL parameters, SQL host variables; what stays refused.
+    let call = |ws: &str, lk: &str, stmt: &str| {
+        format!(
+            "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n{ws}PROCEDURE DIVISION.\n{stmt}    STOP RUN.\n\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. INNER.\nDATA DIVISION.\nLINKAGE SECTION.\n{lk}PROCEDURE DIVISION USING LK-A.\n    EXIT PROGRAM.\nEND PROGRAM INNER.\nEND PROGRAM T16G.\n"
+        )
+    };
+    let call_served = [
+        ("01 WS-N PIC N(6).\n", "01 LK-A PIC N(6).\n", "    CALL \"INNER\" USING WS-N\n", "a national item BY REFERENCE to a parameter declared alike"),
+        ("01 WS-N PIC N(6).\n", "01 LK-A PIC N(6).\n", "    CALL \"INNER\" USING BY CONTENT WS-N\n", "a national item BY CONTENT"),
+        ("01 WS-U PIC U(6).\n", "01 LK-A PIC U(6).\n", "    CALL \"INNER\" USING BY VALUE WS-U\n", "a UTF-8 item BY VALUE"),
+        ("01 WS-U PIC U(6).\n", "01 LK-A PIC U(6).\n", "    CALL \"INNER\" USING BY CONTENT U\"abc\"\n", "an ASCII UTF-8 literal BY CONTENT"),
+    ];
+    for (ws, lk, stmt, what) in call_served {
+        check(format!("{what}: compiles into a desktop module (T50a3b)"), compile_program(&common::parse(&call(ws, lk, stmt)), &native()).is_ok());
+    }
+    let call_refused = [
+        ("01 WS-N PIC N(4).\n", "01 LK-A PIC N(6).\n", "    CALL \"INNER\" USING WS-N\n", "WS-N", "a national item BY REFERENCE to a parameter of another size"),
+        ("01 WS-X PIC X(4).\n", "01 LK-A PIC N(6).\n", "    CALL \"INNER\" USING BY CONTENT WS-X\n", "WS-X", "an alphanumeric item BY CONTENT to a national parameter (the interpreter aliases it with its own class)"),
+        ("01 WS-N PIC N(6).\n", "01 LK-A PIC U(6).\n", "    CALL \"INNER\" USING BY CONTENT U\"é\"\n", "", "a non-ASCII UTF-8 literal BY CONTENT (the interpreter pads it by bytes)"),
+        ("01 WS-G.\n   05 WS-GN PIC N(2).\n", "01 LK-A.\n   05 LK-AN PIC N(2).\n", "    CALL \"INNER\" USING WS-G\n", "LK-A", "a group holding a national item"),
+    ];
+    for (ws, lk, stmt, item, what) in call_refused {
+        let src = call(ws, lk, stmt);
+        let line = line_of(&src, "CALL \"INNER\"");
+        let r = compile_program(&common::parse(&src), &native());
+        check(
+            format!("{what}: refused at line {line}, the Cargo path"),
+            r.as_ref().is_err_and(|e| e.line == line && (item.is_empty() || e.subject == item) && e.message.contains("Cargo path")),
+        );
+    }
+    let sql = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-N PIC N(6).\n01 WS-U PIC U(6).\n01 SQLSTATE PIC X(5).\n01 SQLCODE PIC S9(9) COMP-5.\nPROCEDURE DIVISION.\n    EXEC SQL CONNECT TO ':memory:' AS A END-EXEC\n    EXEC SQL INSERT INTO T VALUES (:WS-N, :WS-U) END-EXEC\n    EXEC SQL SELECT N, U INTO :WS-N, :WS-U FROM T END-EXEC\n    STOP RUN.\n");
+    let module = compile_program(&common::parse(&sql), &native());
+    check(
+        "a national and a UTF-8 SQL host variable, read and written: compiles, requiring [\"sql\"] (T50a3b)".into(),
+        module.as_ref().is_ok_and(|m| {
+            cobolt_wasm_abi::scan::scan_module(&m.wasm).ok().and_then(|s| s.embedded_manifest().ok()).is_some_and(|mf| mf.capabilities.iter().any(|c| c == "sql"))
+        }),
+    );
     let browser_fn = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n01 WS-9 PIC 9(4).\nPROCEDURE DIVISION.\n    MOVE FUNCTION ULENGTH(WS-X) TO WS-9\n    STOP RUN.\n");
     check(
         "a browser module refuses ULENGTH, as it always has".into(),
@@ -790,12 +829,12 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
         compile_program(&common::parse(&page), &Options::default()).is_ok(),
     );
     let took = t.elapsed().as_secs_f64() * 1000.0;
-    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44, T50a1, T50a2, T50a3a) ==");
+    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44, T50a1, T50a2, T50a3a, T50a3b) ==");
     println!(
         "programs compiled: {} ({} desktop modules accepted, {} refused, 2 browser modules) in {took:.1} ms",
-        kept.len() + served.len() + uses.len() + 4,
-        kept.len() + served.len() + 1,
-        uses.len() + 1
+        kept.len() + served.len() + uses.len() + call_served.len() + call_refused.len() + 5,
+        kept.len() + served.len() + call_served.len() + 2,
+        uses.len() + call_refused.len() + 1
     );
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {

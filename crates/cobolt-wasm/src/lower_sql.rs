@@ -172,6 +172,9 @@ impl Lower<'_, '_> {
         let mut words = vec![stmt, cells.len() as u32];
         for (idx, subs) in &cells {
             let indices: Vec<Expr> = subs.iter().map(|s| Expr::Literal(Literal::Integer(*s), cobolt_lexer::Span::new(0, 0, line, 0))).collect();
+            // A national or UTF-8 cell crosses as the bytes of its own image: the runner's
+            // interpreter reads them back as that item's text.
+            self.text_ok = self.native && cobolt_wasm_rt::nat::Class::of(&self.layout.items[*idx].fd).is_some();
             words.push(self.item_operand(*idx, &indices, None, line)?);
         }
         let spec = self.pool.spec(&words);

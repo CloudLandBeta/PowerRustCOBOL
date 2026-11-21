@@ -993,6 +993,8 @@ impl Lower<'_, '_> {
                         ),
                     );
                 }
+                // A national or UTF-8 key is compared by character, as `IF` compares it (T50a3b).
+                self.text_ok = self.native && cobolt_wasm_rt::nat::Class::of(&it.fd).is_some();
                 let a = self.item_operand(i, &[], None, line)?;
                 let fd = self.pool.fd_with_spec(
                     &it.fd,

@@ -390,6 +390,14 @@ impl Lower<'_, '_> {
         self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {}", crate::support::D_FORMS))
     }
 
+    /// Whether `e` is a property or method of a control (not the SQL object): what the host holds as text.
+    pub(crate) fn is_control_member(&mut self, e: &Expr) -> bool {
+        match Self::chain(e) {
+            Some((root, segs)) => self.chain_receiver(root, segs.first().map(|s| s.name)).is_some(),
+            None => false,
+        }
+    }
+
     /// Does `e` start a chain that reaches the host: a control, the form, the application object, or
     /// in a desktop module `COBOL::SqlDatabase`, which the runner serves (T41d)?
     pub(crate) fn is_host_member(&mut self, e: &Expr) -> bool {
@@ -579,7 +587,12 @@ impl Lower<'_, '_> {
         for s in segs {
             let mut v = Vec::with_capacity(s.args.len());
             for a in s.args {
-                v.push(self.operand_or_temp(a)?);
+                // A national or UTF-8 item is an argument as its characters (T50a3b).
+                let o = match if self.native { self.text_operand(a)? } else { None } {
+                    Some(o) => o,
+                    None => self.operand_or_temp(a)?,
+                };
+                v.push(o);
             }
             arg_opds.push(v);
         }

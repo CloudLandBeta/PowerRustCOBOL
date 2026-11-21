@@ -560,6 +560,11 @@ fn put(env: &CobolEnvironment, key: &str, out: &mut Vec<u8>) {
         out.extend_from_slice(&(b.len() as u32).to_le_bytes());
         out.extend_from_slice(b);
     };
+    // A national or UTF-8 item crosses as its own image (UTF-16BE, or UTF-8 padded to four bytes a
+    // position), which is what the module holds and what `set_verbatim_bytes` reads back.
+    if env.char_class(key).is_some() {
+        return bytes(out, &env.storage_image(key));
+    }
     match env.get(key) {
         Some(CobolValue::Numeric(n)) => {
             out.push(wire::DEC);

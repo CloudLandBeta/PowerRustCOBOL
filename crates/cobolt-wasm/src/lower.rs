@@ -435,6 +435,30 @@ pub(crate) const D_TEXT_USE: &str =
 const D_TEXT_COLLATING: &str =
     "national or UTF-8 data in a program with a PROGRAM COLLATING SEQUENCE take the Cargo path (DESKTOP-WASM-001 M6)";
 
+impl Side {
+    /// Whether a `MOVE` of this into a national or UTF-8 item is computed in a module (T44, T50a3a).
+    pub(crate) fn moves_into_classed(self) -> bool {
+        matches!(
+            self,
+            Side::Classed
+                | Side::ClassedAll
+                | Side::AlnumItem
+                | Side::AlnumLit
+                | Side::AlnumAll
+                | Side::Group
+                | Side::Edited
+                | Side::Space
+                | Side::Zero
+                | Side::OtherFig
+                | Side::NumItem
+                | Side::IntLit
+                | Side::NumLit
+                | Side::Computed
+                | Side::Host
+        )
+    }
+}
+
 /// What an operand is, as far as national and UTF-8 data are concerned (DESKTOP-WASM-001 T44):
 /// the generator admits a desktop module's national or UTF-8 item only beside these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -468,6 +492,8 @@ pub(crate) enum Side {
     NumLit,
     /// A computed number: an arithmetic expression, a function that answers a number.
     Computed,
+    /// A control's property or the answer of its method, which the host holds as text (T50a3b).
+    Host,
     /// Anything else: a number, a control's member, an expression, a function, a reference
     /// modification, `NULL`.
     Other,
@@ -1804,6 +1830,8 @@ impl<'a, 'b> Lower<'a, 'b> {
                 Literal::Integer(_) | Literal::IntegerDigits(..) | Literal::Decimal(..) | Literal::Float(_) => Side::NumLit,
                 _ => Side::Other,
             },
+            // A control's property: its text, as the host holds it (T50a3b).
+            Expr::Member { .. } if self.is_control_member(e) => Side::Host,
             // A character-valued function answers its characters, as an alphanumeric item does (T50a1).
             Expr::FunctionCall { .. } if self.expr_is_chars(e) => Side::AlnumItem,
             // A number computed by an expression or a function (T50a3a).
@@ -1889,24 +1917,8 @@ impl<'a, 'b> Lower<'a, 'b> {
         for (t, rcv) in to.iter().zip(sides) {
             let ok = match (classed_snd, rcv == Side::Classed) {
                 (false, false) => true,
-                (_, true) => matches!(
-                    snd,
-                    Side::Classed
-                        | Side::ClassedAll
-                        | Side::AlnumItem
-                        | Side::AlnumLit
-                        | Side::AlnumAll
-                        | Side::Group
-                        | Side::Edited
-                        | Side::Space
-                        | Side::Zero
-                        | Side::OtherFig
-                        | Side::NumItem
-                        | Side::IntLit
-                        | Side::NumLit
-                        | Side::Computed
-                ),
-                (true, false) => snd == Side::Classed && matches!(rcv, Side::AlnumItem | Side::Group | Side::NumItem),
+                (_, true) => snd.moves_into_classed(),
+                (true, false) => snd == Side::Classed && matches!(rcv, Side::AlnumItem | Side::Group | Side::NumItem | Side::Host),
             };
             if !ok {
                 return self.text_refused(line, &[from, t]);
@@ -2818,7 +2830,13 @@ impl<'a, 'b> Lower<'a, 'b> {
                 // `member_set` names the layer a mistyped root most likely was.
                 return self.member_set(&bad.clone(), 0, line);
             }
-            let src = self.operand_or_temp(from)?;
+            if self.native {
+                self.check_text_move(from, to, line)?;
+            }
+            let src = match if self.native { self.text_operand(from)? } else { None } {
+                Some(o) => o,
+                None => self.operand_or_temp(from)?,
+            };
             for t in to {
                 self.move_operand_to(src, t, line)?;
             }

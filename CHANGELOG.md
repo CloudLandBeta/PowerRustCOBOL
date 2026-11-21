@@ -2,6 +2,35 @@
 
 
 
+## 2.0.637 — 2026-11-21
+
+**Feature: national and UTF-8 data cross a `CALL`, a control's property, an SQL host variable and a `SORT` key in a desktop WebAssembly module (DESKTOP-WASM-001 T50a3b, the second half of T50a's third piece).** A desktop program that passes a `PIC N` or `PIC U` item to a called program, shows one in a control or reads one back from it, uses one as an `EXEC SQL` host variable or sorts on one as a key no longer takes the Cargo path for that: the module computes it, and prints what the interpreter prints. *(Version 2.0.636 is the Build-path fix on `main`; this line takes 2.0.637 so the two never share a number.)*
+
+- **What a desktop module now computes:**
+  - **A `CALL` parameter:** one elementary national or UTF-8 item passed `BY REFERENCE` or `BY CONTENT` to a parameter described the same way (class, size, `JUSTIFIED`), or `BY VALUE`, or a literal or an alphanumeric or numeric value moved into the parameter as a `MOVE` would. The interpreter makes the callee's item an alias of the caller's, with the caller's class and size; the module shares the bytes, so the two agree exactly when the descriptions agree, which the generator checks.
+  - **A control's property:** a national or UTF-8 item written to a property (the text a control shows, a path, a method's argument), read back into an item of any class, in both memory layouts. The runtime hands the host the item's text as UTF-8, with its trailing spaces cut, as the interpreter's property set does.
+  - **An SQL host variable:** such an item is a cell of an `EXEC SQL` statement, read (`INSERT … VALUES (:NAT, :UTF)`) and written (`SELECT … INTO`, with an indicator, a statement's literal or a number), and a host structure holding one. The cell crosses as the bytes of the item's own image (UTF-16BE, or UTF-8 padded to four bytes a position), which the runner's interpreter reads back as the item's text.
+  - **A `SORT` key:** a national or UTF-8 key, ascending and descending, with a second key, compared by code point as the interpreter compares it.
+- **Decisions, on the merits:**
+  - A `CALL` argument that the interpreter would alias with another class or size (a different `PIC N` size, a `JUSTIFIED` mismatch, an alphanumeric item passed `BY CONTENT` to a national parameter) is **not** mirrored; it stays on the Cargo path, naming the item and the line.
+  - The interpreter pads a UTF-8 literal passed by content by its **bytes**, not its characters (`U"é"` into a `PIC U(6)` leaves four spaces where COBOL leaves five). The module does not copy that: such a literal stays refused, and an ASCII one is served. Queued as an interpreter fix with the others below.
+  - The runner's `put` returned a national item's UTF-8 text where the module expects its UTF-16BE image; it now sends the item's own image for any national or UTF-8 cell. The module and the Cargo path differed only here.
+  - **A JSON group stays refused.** The JSON bridge is the call to a backend over `pr.remote`, which the desktop runner does not provide yet, so a module that makes it takes the Cargo path whatever it holds; opening the bridge to national fields while its channel is closed would be dead code. It is lifted with the channel.
+  - Found while twinning, **queued as separate fixes** (interpreter, `fixes-2x-<slug>` from `main`, never in this commit): a text longer than the item selected into a `PIC N` or `PIC U` host variable is cut by UTF-8 **bytes**, which can leave half a character (`Ün` plus half of `ï` into a `PIC N(4)`), and `01004` is not raised when it fits the byte count; `SET cond (sub) TO TRUE` writes nothing; `"1e3"` is read as 1000; reference modification of a national item counts UTF-8 bytes.
+- **Still refused, on the Cargo path** (T50a4, T50a5): a `PROGRAM COLLATING SEQUENCE` over such data, a `LINE SEQUENTIAL` record that holds one, an SQL descriptor area, a parameter that is a group holding one or a table, and every use not listed in T44 and T50a1 to T50a3.
+- **A browser module is unchanged.**
+- **AC16, on purpose:** the runtime blob (`rt.wasm`) grew from 307,525 to 307,744 bytes (+219) and every generated module links it, so the player's recorded fixtures and the PowerAnalyticsWeb pin were re-recorded.
+- **Where:**
+  - `cobolt-wasm-rt`: `sql.rs` (a national or UTF-8 cell is its image; `put_image` pads by class), `cmd.rs` (`raw_text_of` reads such an item as UTF-8).
+  - `cobolt-wasm`: `lower_call.rs` (`bind_args`, `text_param`, `check_text_arg`, `arg_operand`), `lower_sql.rs` (cell operands admit a classed item), `lower_idx.rs` (`SORT` keys), `lower_form.rs` (`is_control_member`, `path_args`), `lower.rs` (`Side::Host`, `moves_into_classed`), `assets/rt.wasm`, `assets/rt.sources.hash`.
+  - `cobolt-runner`: `src/sql.rs` (`put` sends the image of a classed item), `tests/esql.rs` (11 programs). `tests/cobol/esql/ac12_national.cbl` (new). `cobolt-compiler`: `lib.rs` (the System KB paragraph), `assets/knowledge/chunked.data` rebuilt.
+- **Measured** (macOS arm64):
+  - module against interpreter, `native_national`: 45 cases (2 new: `CALL` parameters, `SORT` keys), each in both memory layouts (90 module runs), 572 DISPLAY lines and 4,540 bytes of item images identical;
+  - control properties, `forms`: 8 checks in both memory layouts (3 property writes as UTF-8, 3 reads into `N` and `X` items);
+  - the runner twin `embedded_sql_matches_the_interpreter` (`esql`): 11 of 11 programs print the same lines packaged and under `rcrun run`, 67 of 67 checks, the new `ac12_national.cbl` among them (round trips of one-, two- and four-byte characters, a text cut to a shorter item, `NULL` through an indicator, a literal and numbers into both classes);
+  - NIST NC on generated modules: 95 of 95 execute with 0 failures, 4,612 PASS, 5 DELETED (as before);
+  - `native_desktop_refusals`: 43 of 43 checks (9 new: what `CALL` serves and refuses, an SQL host variable).
+
 ## 2.0.635 — 2026-11-21
 
 **Feature: a number meets national and UTF-8 text in a desktop WebAssembly module, and `ACCEPT` fills such an item (DESKTOP-WASM-001 T50a3a, the first half of T50a's third piece).** A desktop program that moves a number into a `PIC N` or `PIC U` item, moves such an item into a number, compares one with a number, tests its class, names it with a condition-name or accepts a line, a variable or an argument into it no longer takes the Cargo path.

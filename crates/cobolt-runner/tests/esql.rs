@@ -21,8 +21,9 @@ use cobolt_program_package::Kind;
 
 /// The suite's programs the WebAssembly path runs: host variables and structures, NULL and
 /// truncation, round trips of every kind of item, the status items with and without an SQLCA,
-/// WHENEVER, cursors (positioned updates, batches), units of work, and a named connection.
-const PROGRAMS: [&str; 10] = [
+/// WHENEVER, cursors (positioned updates, batches), units of work, a named connection, and national
+/// and UTF-8 host variables.
+const PROGRAMS: [&str; 11] = [
     "ac2_host_structure.cbl",
     "ac3_null_truncation.cbl",
     "ac4_round_trips.cbl",
@@ -33,6 +34,7 @@ const PROGRAMS: [&str; 10] = [
     "ac7b_cursor_batches.cbl",
     "ac8_units_of_work.cbl",
     "ac9_named_connection.cbl",
+    "ac12_national.cbl",
 ];
 
 /// A program that `DESCRIBE`s into a descriptor area, which takes the Cargo path.
@@ -229,6 +231,7 @@ fn embedded_sql_matches_the_interpreter() {
     println!("  forms:    host variables and structures, indicators and NULL, truncation (01004), every item kind round-tripped,");
     println!("            SQLSTATE/SQLCODE/SQLMSG and the SQLCA fields, WHENEVER, cursors with positioned UPDATE/DELETE and");
     println!("            batches, COMMIT/ROLLBACK and the run unit's end, CONNECT TO a named connection (sql-connections.toml)");
+    println!("            national and UTF-8 host variables (INSERT, SELECT INTO, NULL, a cut text) crossing as their own images");
     for r in &rows {
         println!("{r}");
     }

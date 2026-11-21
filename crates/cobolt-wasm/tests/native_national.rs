@@ -230,6 +230,69 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. INNER.\nDATA DIVISION.\nWORKING-STORAGE SE
 PROCEDURE DIVISION.\nINNER-PARA.\n    MOVE \"Coração\" TO WS-N\n    MOVE FUNCTION BYTE-LENGTH(WS-N) TO WS-L\n    DISPLAY \"[\" WS-N \"] \" WS-L\n\
     EXIT PROGRAM.\nEND PROGRAM INNER.\nEND PROGRAM OUTER.\n";
 
+/// T50a3b: a national and a UTF-8 item passed to called programs (lines only: the items are not under `G`).
+const CALL_PARAMS: &str = "IDENTIFICATION DIVISION.\nPROGRAM-ID. OUTER.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+01 WS-N PIC N(6) VALUE N\"Ação\".\n01 WS-U PIC U(6) VALUE U\"日本語\".\n01 WS-T PIC N(4) OCCURS 2.\n01 WS-J PIC N(6) JUSTIFIED RIGHT VALUE N\"ab\".\n01 WS-9 PIC 9(3) VALUE 42.\n\
+PROCEDURE DIVISION.\nMAIN-PARA.\n    CALL \"INNER\" USING WS-N WS-U\n    DISPLAY \"[\" WS-N \"][\" WS-U \"]\"\n\
+\x20   CALL \"INNER\" USING BY CONTENT WS-N BY CONTENT WS-U\n    DISPLAY \"[\" WS-N \"][\" WS-U \"]\"\n\
+\x20   CALL \"INNER\" USING BY CONTENT N\"lit\" BY CONTENT U\"e\"\n    CALL \"INNER\" USING BY VALUE WS-N BY VALUE WS-U\n\
+\x20   DISPLAY \"[\" WS-N \"][\" WS-U \"]\"\n    MOVE N\"a\" TO WS-T(1)\n    CALL \"ONE\" USING WS-T(1)\n    CALL \"ONE\" USING WS-T(2)\n\
+\x20   DISPLAY \"[\" WS-T(1) \"][\" WS-T(2) \"]\"\n    CALL \"ONE\" USING BY CONTENT \"x\"\n\
+\x20   CALL \"ONE\" USING BY CONTENT 7\n    DISPLAY \"[\" WS-T(1) \"]\"\n    CALL \"ONE\" USING BY CONTENT N\"\"\n    STOP RUN.\n\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. INNER.\nDATA DIVISION.\nLINKAGE SECTION.\n01 LK-N PIC N(6).\n01 LK-U PIC U(6).\n\
+PROCEDURE DIVISION USING LK-N LK-U.\nINNER-PARA.\n    DISPLAY \"in [\" LK-N \"][\" LK-U \"]\"\n    MOVE N\"ZZ\" TO LK-N\n    MOVE U\"qq\" TO LK-U\n    EXIT PROGRAM.\n\
+END PROGRAM INNER.\n\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. ONE.\nDATA DIVISION.\nLINKAGE SECTION.\n01 LK-T PIC N(4).\n\
+PROCEDURE DIVISION USING LK-T.\nONE-PARA.\n    DISPLAY \"one [\" LK-T \"]\"\n    MOVE N\"abcdef\" TO LK-T\n    EXIT PROGRAM.\nEND PROGRAM ONE.\nEND PROGRAM OUTER.\n";
+
+/// T50a3b: a national key in a SORT, ascending and descending, with a second key (lines only).
+const SORT_KEYS: &str = r#"IDENTIFICATION DIVISION.
+PROGRAM-ID. T50B.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT SF ASSIGN TO "sortwork".
+DATA DIVISION.
+FILE SECTION.
+SD SF.
+01 SF-REC.
+   05 SF-KEY PIC N(5).
+   05 SF-NUM PIC 9(2).
+WORKING-STORAGE SECTION.
+01 WS-I PIC 9(2).
+01 WS-EOF PIC 9 VALUE 0.
+01 WS-S PIC N(5).
+PROCEDURE DIVISION.
+MAIN-PARA.
+    SORT SF ON ASCENDING KEY SF-KEY INPUT PROCEDURE IS LOAD-IT OUTPUT PROCEDURE IS SHOW-IT
+    DISPLAY "---"
+    SORT SF ON DESCENDING KEY SF-KEY ASCENDING KEY SF-NUM INPUT PROCEDURE IS LOAD-IT OUTPUT PROCEDURE IS SHOW-IT
+    STOP RUN.
+LOAD-IT.
+    PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 7
+        EVALUATE WS-I
+            WHEN 1 MOVE N"pão" TO SF-KEY
+            WHEN 2 MOVE N"Zebra" TO SF-KEY
+            WHEN 3 MOVE N"abc" TO SF-KEY
+            WHEN 4 MOVE N"ção" TO SF-KEY
+            WHEN 5 MOVE N"Éclat" TO SF-KEY
+            WHEN 6 MOVE N"abc" TO SF-KEY
+            WHEN 7 MOVE N"a" TO SF-KEY
+        END-EVALUATE
+        MOVE WS-I TO SF-NUM
+        RELEASE SF-REC
+    END-PERFORM.
+SHOW-IT.
+    MOVE 0 TO WS-EOF
+    PERFORM UNTIL WS-EOF = 1
+        RETURN SF AT END MOVE 1 TO WS-EOF
+            NOT AT END
+                MOVE SF-KEY TO WS-S
+                DISPLAY "[" WS-S "] " SF-NUM
+        END-RETURN
+    END-PERFORM.
+"#;
+
 /// T50a2: INSPECT, STRING and UNSTRING by character (name, the items of `G`, the procedure).
 const VERB_CASES: &[(&str, &str, &str)] = &[
     (
@@ -811,35 +874,41 @@ fn national_and_utf8_data_compute_as_the_interpreter_computes_them() {
         }
         results.push((name.to_string(), outcome));
     }
-    // The nested program: lines only (its items are not under G).
-    let t = Instant::now();
-    let (want, _) = interpreter(NESTED);
-    t_interp += t.elapsed();
-    let mut nested = Ok(());
-    for multi in [true, false] {
+    // The nested programs: lines only (their items are not under G).
+    for (name, src) in [
+        ("a nested program's national item keeps its class", NESTED),
+        ("a national and a UTF-8 item passed by reference, by content and by value; a table element; a literal; a number", CALL_PARAMS),
+        ("a SORT on a national key: ascending, descending, a second key, accents and capitals", SORT_KEYS),
+    ] {
         let t = Instant::now();
-        let c = compile_program(&common::parse(NESTED), &native(multi));
-        t_compile += t.elapsed();
-        match c {
-            Ok(c) => {
-                let t = Instant::now();
-                let o = run_native(&c.wasm, NativeInput::default()).expect("the host runs it");
-                t_module += t.elapsed();
-                runs += 1;
-                let got = common::wasm_lines(&o);
-                if got != want {
-                    nested = Err(format!("multi={multi}: DISPLAY differs\n  module      {got:?}\n  interpreter {want:?}"));
+        let (want, _) = interpreter(src);
+        t_interp += t.elapsed();
+        let mut outcome = Ok(());
+        for multi in [true, false] {
+            let t = Instant::now();
+            let c = compile_program(&common::parse(src), &native(multi));
+            t_compile += t.elapsed();
+            match c {
+                Ok(c) => {
+                    let t = Instant::now();
+                    let o = run_native(&c.wasm, NativeInput::default()).expect("the host runs it");
+                    t_module += t.elapsed();
+                    runs += 1;
+                    let got = common::wasm_lines(&o);
+                    if got != want {
+                        outcome = Err(format!("multi={multi}: DISPLAY differs\n  module      {got:?}\n  interpreter {want:?}"));
+                        break;
+                    }
+                    lines += got.len();
+                }
+                Err(e) => {
+                    outcome = Err(format!("multi={multi}: not compiled: {e}"));
                     break;
                 }
-                lines += got.len();
-            }
-            Err(e) => {
-                nested = Err(format!("multi={multi}: not compiled: {e}"));
-                break;
             }
         }
+        results.push((name.into(), outcome));
     }
-    results.push(("a nested program's national item keeps its class".into(), nested));
 
     let passed = results.iter().filter(|(_, r)| r.is_ok()).count();
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;

@@ -134,12 +134,59 @@ impl Lower<'_, '_> {
         Ok(())
     }
 
+    /// Whether a national or UTF-8 parameter is one elementary item (not a group, not a table).
+    fn text_param(&self, item: usize) -> bool {
+        let it = &self.layout.items[item];
+        !it.is_group && it.occurs.is_none() && cobolt_wasm_rt::nat::Class::of(&it.fd).is_some()
+    }
+
+    /// The argument a national or UTF-8 parameter takes in a module (T50a3b). The interpreter makes
+    /// the callee's item an alias of the caller's, with the caller's class and size, and a module
+    /// shares the bytes: so an item passed by reference or by content must be declared as the
+    /// parameter is. A literal, a computed value or a `BY VALUE` item is moved into a copy, as a
+    /// `MOVE` into the parameter would.
+    fn check_text_arg(&mut self, param: usize, e: &Expr, by_value: bool, line: u32) -> GenResult<()> {
+        use cobolt_wasm_rt::fd::F_JUSTIFIED;
+        let side = self.text_side(e);
+        // The interpreter pads a UTF-8 literal passed by content by bytes, not characters
+        // (`U"é"` into `PIC U(6)` leaves four spaces, not five): not mirrored, so it stays refused.
+        if matches!(e, Expr::Literal(Literal::Utf8(s), _) if !s.is_ascii()) {
+            return self.text_refused(line, &[e]);
+        }
+        if !by_value && Self::is_item_ref(e) {
+            let pfd = self.layout.items[param].fd;
+            let same = side == crate::lower::Side::Classed
+                && self.lookup_direct(e).is_some_and(|i| {
+                    let a = self.layout.items[i].fd;
+                    a.kind == pfd.kind && a.aux == pfd.aux && a.len == pfd.len && (a.flags & F_JUSTIFIED) == (pfd.flags & F_JUSTIFIED)
+                });
+            return if same { Ok(()) } else { self.text_refused(line, &[e]) };
+        }
+        if side.moves_into_classed() {
+            Ok(())
+        } else {
+            self.text_refused(line, &[e])
+        }
+    }
+
+    /// The operand of an argument; a national or UTF-8 one is admitted when the parameter is one.
+    fn arg_operand(&mut self, e: &Expr, classed: bool) -> GenResult<u32> {
+        if classed {
+            if let Some(o) = self.text_operand(e)? {
+                return Ok(o);
+            }
+        }
+        self.operand_or_temp(e)
+    }
+
     /// Point each of the callee's LINKAGE slots at its argument.
     fn bind_args(&mut self, c: usize, using: &[CallArg], line: u32) -> GenResult<()> {
         let params = self.units[c].params.clone();
         for (i, p) in params.iter().enumerate() {
-            // A national or UTF-8 parameter (T44): passing one is not computed in the module.
-            if self.native && self.holds_text_class(p.item) {
+            // A national or UTF-8 parameter (T44, T50a3b): an elementary one is computed in the module,
+            // given an argument that agrees (below); a group that holds one is not.
+            let p_classed = self.native && self.holds_text_class(p.item);
+            if p_classed && !self.text_param(p.item) {
                 let name = self.layout.items[p.item].name.clone().unwrap_or_else(|| "FILLER".into());
                 return self.err_kind(line, crate::error::ErrorKind::Other, name.clone(), format!("{name}: {}", crate::lower::D_TEXT_USE));
             }
@@ -161,12 +208,15 @@ impl Lower<'_, '_> {
                 CallArg::ByReference(e) => (e, true),
                 CallArg::ByContent(e) | CallArg::ByValue(e) => (e, false),
             };
+            if p_classed {
+                self.check_text_arg(p.item, expr, matches!(arg, CallArg::ByValue(_)), line)?;
+            }
             if let CallArg::ByValue(e) = arg {
                 // BY VALUE: the argument's value, moved into a copy that has the
                 // parameter's own description — its USAGE, its PICTURE
                 // (WASM-PARITY #9). BY CONTENT shares the argument's bytes, as
                 // COBOL-85 defines it for descriptions that agree.
-                let src = self.operand_or_temp(e)?;
+                let src = self.arg_operand(e, p_classed)?;
                 let tmp = self.layout.alloc_hidden(p.size.max(1));
                 let pitem = self.layout.items[p.item].clone();
                 let pfd = self.pool.fd_with_spec(&pitem.fd, pitem.pic_template.as_deref(), self.prog.decimal_comma, self.prog.currency);
@@ -183,7 +233,7 @@ impl Lower<'_, '_> {
                 continue;
             }
             if by_ref && Self::is_item_ref(expr) {
-                let o = self.operand_or_temp(expr)?;
+                let o = self.arg_operand(expr, p_classed)?;
                 self.base();
                 self.i32c(p.slot as i32);
                 self.i32c(o as i32);
@@ -191,7 +241,7 @@ impl Lower<'_, '_> {
                 continue;
             }
             // BY CONTENT, BY VALUE, or a literal / computed value: a copy.
-            let src = self.operand_or_temp(expr)?;
+            let src = self.arg_operand(expr, p_classed)?;
             let arg_size = if Self::is_item_ref(expr) {
                 match self.resolve_item_of(expr) {
                     Some(i) => self.layout.items[i].size,

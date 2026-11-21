@@ -122,6 +122,10 @@ fn raw_text_of(base: u32, o: &Opd, num: &mut [u8; 64]) -> (u32, u32) {
             let l = locate(base, o);
             if l.fd.is_numeric() {
                 number_text(&crate::codec::load_value(&l), num)
+            } else if crate::nat::Class::of(&l.fd).is_some() {
+                // A national or UTF-8 item crosses as its characters in UTF-8 (T50a3b).
+                let n = crate::nat::utf8_text(&l).len() as u32;
+                trimmed(crate::mv::scratch().0, n)
             } else {
                 trimmed(l.addr, l.len)
             }

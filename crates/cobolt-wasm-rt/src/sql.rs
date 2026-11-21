@@ -25,7 +25,7 @@
 //! statement the scratch area cannot hold down the Cargo path.
 
 use crate::codec;
-use crate::fd::{K_ALNUM, K_ALNUM_EDITED, K_FLOAT32, K_FLOAT64, K_NUM_EDITED};
+use crate::fd::{K_ALNUM, K_ALNUM_EDITED, K_FLOAT32, K_FLOAT64, K_NATIONAL16, K_NUM_EDITED, K_UTF8};
 use crate::host;
 use crate::mem;
 use crate::opd::{locate, parse, Loc};
@@ -92,8 +92,34 @@ fn put_digits(loc: &Loc, n: &CobolNumeric) {
 }
 
 /// Whether an item's value is its bytes, as the interpreter holds an alphanumeric or edited item.
+/// A national or UTF-8 item is one too: its bytes are its own image (UTF-16BE, or UTF-8 padded to
+/// four bytes a position), which the runner's interpreter reads back as that item's text.
 fn is_text(kind: u8) -> bool {
-    matches!(kind, K_ALNUM | K_ALNUM_EDITED | K_NUM_EDITED)
+    matches!(kind, K_ALNUM | K_ALNUM_EDITED | K_NUM_EDITED | K_NATIONAL16 | K_UTF8)
+}
+
+/// The item's bytes `at..at+n`, cut to its length and padded with its own space: a national item's
+/// pads in whole UTF-16 code units (X'0020'), any other's with X'20'.
+fn put_image(loc: &Loc, at: u32, n: u32) {
+    let mut keep = n.min(loc.len);
+    let national = loc.fd.kind == K_NATIONAL16;
+    if national {
+        keep &= !1;
+    }
+    mem::copy(at, loc.addr, keep);
+    let mut p = keep;
+    if national {
+        while p + 2 <= loc.len {
+            mem::wr_u8(loc.addr + p, 0);
+            mem::wr_u8(loc.addr + p + 1, b' ');
+            p += 2;
+        }
+        if p < loc.len {
+            mem::fill(loc.addr + p, loc.len - p, 0);
+        }
+    } else {
+        mem::fill(loc.addr + p, loc.len - p, b' ');
+    }
 }
 
 /// Write one cell's value at `at`; returns the bytes written.
@@ -149,9 +175,7 @@ fn take_cell(loc: &Loc, at: u32) -> u32 {
             let bytes = mem::bytes(at + 5, n);
             if is_text(loc.fd.kind) {
                 // The item's bytes, padded with spaces or cut to its length.
-                let keep = n.min(loc.len);
-                mem::copy(at + 5, loc.addr, keep);
-                mem::fill(loc.addr + keep, loc.len - keep, b' ');
+                put_image(loc, at + 5, n);
             } else {
                 let v = codec::parse_text(bytes).map(Val::Dec).unwrap_or(Val::ZERO);
                 codec::store_value(loc, v, false, false);
