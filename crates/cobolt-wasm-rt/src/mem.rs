@@ -64,6 +64,20 @@ pub fn bytes_mut(addr: u32, len: u32) -> &'static mut [u8] {
     unsafe { core::slice::from_raw_parts_mut(ptr(addr), len as usize) }
 }
 
+/// A writable view of `n` words at `addr`, which must lie on a word boundary (the `INSPECT` and
+/// `UNSTRING` routines keep a text's code points there).
+#[inline]
+pub fn words_mut(addr: u32, n: u32) -> &'static mut [u32] {
+    if n == 0 {
+        return &mut [];
+    }
+    debug_assert!(addr % 4 == 0, "a word view at {addr}");
+    #[cfg(not(target_arch = "wasm32"))]
+    assert!(addr as usize + 4 * n as usize <= MEM_LEN.with(|l| l.get()), "range {addr}+{n} words outside the test memory");
+    // SAFETY: as for `bytes_mut`; the caller keeps `addr` aligned.
+    unsafe { core::slice::from_raw_parts_mut(ptr(addr) as *mut u32, n as usize) }
+}
+
 /// `memmove`: copy `len` bytes from `src` to `dst`, ranges may overlap.
 #[inline]
 pub fn copy(src: u32, dst: u32, len: u32) {

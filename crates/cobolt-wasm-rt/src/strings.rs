@@ -29,6 +29,7 @@ use crate::codec;
 use crate::fd::*;
 use crate::mem;
 use crate::mv::{self, digit_chars};
+use crate::nat::{Class, Text};
 use crate::opd::*;
 use crate::state::{err, st, SCRATCH_SIZE, WS_SCRATCH};
 use crate::val::Val;
@@ -59,6 +60,25 @@ impl Scratch {
         mem::bytes_mut(at, bytes.len() as u32).copy_from_slice(bytes);
         (at, bytes.len() as u32)
     }
+    /// `n` code points, on a word boundary (T50a2).
+    fn units(&mut self, n: usize) -> &'static mut [u32] {
+        let pad = (4 - (self.base + self.used) % 4) % 4;
+        self.alloc(pad);
+        let at = self.alloc((n * 4).max(4) as u32);
+        mem::words_mut(at, n as u32)
+    }
+    /// The characters of `t` as UTF-8 (T50a2): a national or UTF-8 item's text, as the interpreter's
+    /// slot holds it.
+    fn put_text(&mut self, t: Text) -> (u32, u32) {
+        let n: u32 = t.chars().map(|c| c.len_utf8() as u32).sum();
+        let at = self.alloc(n.max(1));
+        let out = mem::bytes_mut(at, n);
+        let mut i = 0usize;
+        for c in t.chars() {
+            i += c.encode_utf8(&mut out[i..]).len();
+        }
+        (at, n)
+    }
 }
 
 /// The characters an operand contributes to `STRING`, `INSPECT` patterns and
@@ -79,6 +99,10 @@ fn chars_of(base: u32, o: &Opd, sc: &mut Scratch) -> (u32, u32) {
         }
         _ => {
             let loc = locate(base, o);
+            // A national or UTF-8 item gives its text, fitted and padded, in UTF-8 (T50a2).
+            if let Some(class) = Class::of(&loc.fd) {
+                return sc.put_text(Text::Item(class, mem::bytes(loc.addr, loc.len)));
+            }
             if loc.fd.is_numeric() && !matches!(loc.fd.kind, K_NUM_DISPLAY) {
                 let v = codec::load_value(&loc);
                 let mut buf = [0u8; 40];
@@ -91,7 +115,7 @@ fn chars_of(base: u32, o: &Opd, sc: &mut Scratch) -> (u32, u32) {
     }
 }
 
-fn find(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+fn find<U: PartialEq>(hay: &[U], needle: &[U], from: usize) -> Option<usize> {
     if needle.is_empty() || from > hay.len() || needle.len() > hay.len() - from {
         return None;
     }
@@ -109,11 +133,111 @@ fn rd(addr: u32) -> u32 {
     mem::rd_u32(addr)
 }
 
+/// What `INSPECT` and `UNSTRING` scan: the bytes of an alphanumeric item, or the code points of a
+/// national or UTF-8 item's text (T50a2: the interpreter's `inspect_units`). One algorithm serves
+/// both, so the byte rules stay exactly what they were.
+trait Unit: Copy + PartialEq + 'static {
+    const SPACE: Self;
+    /// The units of operand `o`'s characters.
+    fn of_operand(base: u32, o: &Opd, sc: &mut Scratch) -> &'static [Self];
+    /// A buffer of `n` units in the scratch area.
+    fn buffer(sc: &mut Scratch, n: usize) -> &'static mut [Self];
+    /// The UTF-8 text of `units`, for a receiver that stores text.
+    fn text(units: &[Self], sc: &mut Scratch) -> (u32, u32);
+    /// What a numeric receiver of an `UNSTRING` takes the field as.
+    fn number(field: &[Self]) -> i128;
+}
+
+impl Unit for u8 {
+    const SPACE: u8 = b' ';
+    fn of_operand(base: u32, o: &Opd, sc: &mut Scratch) -> &'static [u8] {
+        let (a, l) = chars_of(base, o, sc);
+        mem::bytes(a, l)
+    }
+    fn buffer(sc: &mut Scratch, n: usize) -> &'static mut [u8] {
+        let at = sc.alloc(n.max(1) as u32);
+        mem::bytes_mut(at, n as u32)
+    }
+    fn text(units: &[u8], sc: &mut Scratch) -> (u32, u32) {
+        sc.put(units)
+    }
+    fn number(field: &[u8]) -> i128 {
+        // The digits after leading spaces, up to the first character that is not one.
+        let mut m: i128 = 0;
+        for &c in field.iter().skip_while(|c| **c == b' ') {
+            if c.is_ascii_digit() {
+                m = m.saturating_mul(10).saturating_add((c - b'0') as i128);
+            } else {
+                break;
+            }
+        }
+        m
+    }
+}
+
+impl Unit for u32 {
+    const SPACE: u32 = 0x20;
+    fn of_operand(base: u32, o: &Opd, sc: &mut Scratch) -> &'static [u32] {
+        let (a, l) = chars_of(base, o, sc);
+        decode(mem::bytes(a, l), sc)
+    }
+    fn buffer(sc: &mut Scratch, n: usize) -> &'static mut [u32] {
+        sc.units(n)
+    }
+    fn text(units: &[u32], sc: &mut Scratch) -> (u32, u32) {
+        sc.put_text(Text::Units(units))
+    }
+    fn number(field: &[u32]) -> i128 {
+        // The interpreter's `field.trim().parse::<i128>().unwrap_or(0)`: a whole number, a sign allowed.
+        let blank = |u: u32| char::from_u32(u).is_some_and(char::is_whitespace);
+        let (mut a, mut b) = (0, field.len());
+        while a < b && blank(field[a]) {
+            a += 1;
+        }
+        while b > a && blank(field[b - 1]) {
+            b -= 1;
+        }
+        let t = &field[a..b];
+        let (neg, digits) = match t.first() {
+            Some(0x2D) => (true, &t[1..]),
+            Some(0x2B) => (false, &t[1..]),
+            _ => (false, t),
+        };
+        if digits.is_empty() {
+            return 0;
+        }
+        let mut m: i128 = 0;
+        for &d in digits {
+            if !(0x30..=0x39).contains(&d) {
+                return 0;
+            }
+            m = match m.checked_mul(10).and_then(|v| v.checked_add((d - 0x30) as i128)) {
+                Some(v) => v,
+                None => return 0,
+            };
+        }
+        if neg {
+            -m
+        } else {
+            m
+        }
+    }
+}
+
+/// The code points of UTF-8 `bytes`, an ill-formed sequence one U+FFFD (`from_utf8_lossy`).
+fn decode(bytes: &[u8], sc: &mut Scratch) -> &'static [u32] {
+    let n = crate::nat::Lossy::new(bytes).count();
+    let u = sc.units(n);
+    for (slot, c) in u.iter_mut().zip(crate::nat::Lossy::new(bytes)) {
+        *slot = c as u32;
+    }
+    u
+}
+
 /// The `[lo, hi)` window of `BEFORE`/`AFTER INITIAL` over `s`.
-fn window(base: u32, s: &[u8], before: u32, after: u32, sc: &mut Scratch) -> (usize, usize) {
+fn window<U: Unit>(base: u32, s: &[U], before: u32, after: u32, sc: &mut Scratch) -> (usize, usize) {
     let lo = if after != 0 {
-        let (a, l) = chars_of(base, &parse(after), sc);
-        let d = mem::bytes(a, l);
+        let d = U::of_operand(base, &parse(after), sc);
         match find(s, d, 0) {
             Some(p) => p + d.len(),
             None => s.len(),
@@ -122,8 +246,7 @@ fn window(base: u32, s: &[u8], before: u32, after: u32, sc: &mut Scratch) -> (us
         0
     };
     let hi = if before != 0 {
-        let (a, l) = chars_of(base, &parse(before), sc);
-        let d = mem::bytes(a, l);
+        let d = U::of_operand(base, &parse(before), sc);
         match find(s, d, lo.min(s.len())) {
             Some(p) => p,
             None => s.len(),
@@ -135,7 +258,7 @@ fn window(base: u32, s: &[u8], before: u32, after: u32, sc: &mut Scratch) -> (us
 }
 
 /// The length of the run of `pat` that ends the window (`TRAILING`).
-fn trailing_run(window: &[u8], pat: &[u8]) -> usize {
+fn trailing_run<U: PartialEq>(window: &[U], pat: &[U]) -> usize {
     let mut n = 0;
     let mut end = window.len();
     while !pat.is_empty() && end >= pat.len() && &window[end - pat.len()..end] == pat {
@@ -146,11 +269,11 @@ fn trailing_run(window: &[u8], pat: &[u8]) -> usize {
 }
 
 #[derive(Clone, Copy)]
-struct Op {
+struct Op<U: Unit> {
     kind: u32,
     counter: u32,
-    pat: (u32, u32),
-    by: (u32, u32),
+    pat: &'static [U],
+    by: &'static [U],
     lo: usize,
     hi: usize,
     leading_next: usize,
@@ -170,19 +293,8 @@ const REPL_TRAILING: u32 = 7;
 const REPL_FIRST: u32 = 8;
 const CONVERT: u32 = 9;
 
-fn blank_op() -> Op {
-    Op {
-        kind: 0,
-        counter: 0,
-        pat: (0, 0),
-        by: (0, 0),
-        lo: 0,
-        hi: 0,
-        leading_next: 0,
-        leading_live: true,
-        trail_start: 0,
-        spent: false,
-    }
+fn blank_op<U: Unit>() -> Op<U> {
+    Op { kind: 0, counter: 0, pat: &[], by: &[], lo: 0, hi: 0, leading_next: 0, leading_live: true, trail_start: 0, spent: false }
 }
 
 /// `INSPECT target <spec>`.
@@ -202,7 +314,15 @@ pub fn inspect(base: u32, target: u32, spec: u32) {
     } else {
         None
     };
-    inspect_chars(base, &t, spec);
+    let mut sc = Scratch::new();
+    let core = inspect_core::<u8>(base, mem::bytes_mut(t.addr, t.len), spec, &mut sc, t.len as usize, false);
+    // Back into the item: left-justified, space-padded.
+    if let Some(out) = core.replaced {
+        mem::bytes_mut(t.addr, out.len() as u32).copy_from_slice(out);
+        if (out.len() as u32) < t.len {
+            mem::fill(t.addr + out.len() as u32, t.len - out.len() as u32, b' ');
+        }
+    }
     if let Some((at, true)) = embedded {
         let b = mem::rd_u8(at);
         if b.is_ascii_digit() {
@@ -211,36 +331,85 @@ pub fn inspect(base: u32, target: u32, spec: u32) {
     }
 }
 
-fn inspect_chars(base: u32, t: &Loc, spec: u32) {
-    let t = *t;
+/// `INSPECT` of a national or UTF-8 item, by character (T50a2): the interpreter inspects its text,
+/// so positions, `CHARACTERS` and `BEFORE`/`AFTER` count characters, and the result is stored
+/// through the item's class. `rm_start` (0: none) and `rm_len` (0: to the end) are a reference
+/// modification of the target, in characters.
+pub fn inspect_text(base: u32, target: u32, spec: u32, rm_start: u32, rm_len: u32) {
+    let t = locate(base, &parse(target));
+    let Some(class) = Class::of(&t.fd) else { crate::fail(err::BAD_OPERAND) };
+    let mut sc = Scratch::new();
+    let text = Text::Item(class, mem::bytes(t.addr, t.len));
+    let n = text.chars().count();
+    let units = sc.units(n);
+    for (slot, c) in units.iter_mut().zip(text.chars()) {
+        *slot = c as u32;
+    }
+    // The interpreter's reference modification here: `start` from 1, a missing `length` the rest.
+    let (begin, end) = if rm_start != 0 {
+        let first = crate::deskio::whole_number_or(base, rm_start, 1).max(1) as usize;
+        let begin = (first - 1).min(n);
+        let len = if rm_len != 0 { crate::deskio::whole_number_or(base, rm_len, 0).max(0) as usize } else { n - begin };
+        (begin, (begin + len).min(n))
+    } else {
+        (0, n)
+    };
+    let justified = t.fd.justified();
+    // A left-justified result keeps its first `positions` characters, so no more are built; a
+    // right-justified one keeps its last, so all of them are.
+    let out_cap = if justified { (SCRATCH_SIZE as usize).saturating_sub(sc.used as usize + 16) / 4 } else { class.positions() as usize };
+    let core = inspect_core::<u32>(base, &mut units[begin..end], spec, &mut sc, out_cap, justified);
+    let store = |text: Text| crate::nat::write(class, text, justified, mem::bytes_mut(t.addr, t.len));
+    match core.replaced {
+        Some(out) if begin == 0 && end == n => store(Text::Units(out)),
+        Some(out) => {
+            let all = sc.units(begin + out.len() + (n - end));
+            all[..begin].copy_from_slice(&units[..begin]);
+            all[begin..begin + out.len()].copy_from_slice(out);
+            all[begin + out.len()..].copy_from_slice(&units[end..]);
+            store(Text::Units(all));
+        }
+        None if core.converted => store(Text::Units(units)),
+        None => {}
+    }
+}
+
+/// What an `INSPECT` did: the text a `REPLACING` made (`None` when there was none), and whether a
+/// `CONVERTING` changed the operand in place.
+struct Core<U: Unit> {
+    replaced: Option<&'static [U]>,
+    converted: bool,
+}
+
+/// The scan of an `INSPECT` over `buf`: `TALLYING` stores its counters, `REPLACING` builds its result
+/// in a buffer of `out_cap` units (`strict`: more than that is an error, not a cut) and `CONVERTING`
+/// changes `buf`.
+fn inspect_core<U: Unit>(base: u32, buf: &mut [U], spec: u32, sc: &mut Scratch, out_cap: usize, strict: bool) -> Core<U> {
     let n = rd(spec) as usize;
     if n > MAX_OPS {
         crate::fail(err::BAD_OPERAND);
     }
-    let mut sc = Scratch::new();
-    let s = mem::bytes(t.addr, t.len);
-    let mut ops = [blank_op(); MAX_OPS];
+    let s: &[U] = &*buf;
+    let mut ops = [blank_op::<U>(); MAX_OPS];
     for (k, op) in ops.iter_mut().enumerate().take(n) {
         let r = spec + 4 + (k as u32) * 24;
         op.kind = rd(r);
         op.counter = rd(r + 4);
         let pat = rd(r + 8);
         let by = rd(r + 12);
-        let (lo, hi) = window(base, s, rd(r + 16), rd(r + 20), &mut sc);
+        let (lo, hi) = window(base, s, rd(r + 16), rd(r + 20), sc);
         op.lo = lo;
         op.hi = hi;
         op.leading_next = lo;
         if pat != 0 {
-            op.pat = chars_of(base, &parse(pat), &mut sc);
+            op.pat = U::of_operand(base, &parse(pat), sc);
         }
         if by != 0 {
-            op.by = chars_of(base, &parse(by), &mut sc);
+            op.by = U::of_operand(base, &parse(by), sc);
         }
         op.trail_start = hi;
-        if matches!(op.kind, TALLY_TRAILING | REPL_TRAILING) && op.pat.1 > 0 {
-            let w = &s[lo..hi];
-            let p = mem::bytes(op.pat.0, op.pat.1);
-            op.trail_start = hi - trailing_run(w, p) * p.len();
+        if matches!(op.kind, TALLY_TRAILING | REPL_TRAILING) && !op.pat.is_empty() {
+            op.trail_start = hi - trailing_run(&s[lo..hi], op.pat) * op.pat.len();
         }
     }
     // ── TALLYING: one shared scan ──────────────────────────────────────
@@ -259,7 +428,7 @@ fn inspect_chars(base: u32, t: &Loc, spec: u32) {
                 if op.kind > TALLY_TRAILING || p < op.lo || p >= op.hi {
                     continue;
                 }
-                let pat = mem::bytes(op.pat.0, op.pat.1);
+                let pat = op.pat;
                 let fits = !pat.is_empty() && p + pat.len() <= op.hi && &s[p..p + pat.len()] == pat;
                 taken = match op.kind {
                     TALLY_CHARS => 1,
@@ -283,14 +452,8 @@ fn inspect_chars(base: u32, t: &Loc, spec: u32) {
                 }
             }
         }
-        for (k, op) in ops.iter().enumerate().take(n) {
-            if op.kind <= TALLY_TRAILING {
-                // The counter accumulates onto its value; operands sharing one
-                // counter were tallied separately above and are summed here.
-                let _ = k;
-            }
-        }
-        // Sum per counter operand and store once each.
+        // Sum per counter operand and store once each: operands sharing one counter were tallied
+        // separately above. The counter accumulates onto its value.
         let mut done = [0u32; MAX_OPS];
         for k in 0..n {
             if ops[k].kind > TALLY_TRAILING || done.contains(&ops[k].counter) {
@@ -325,10 +488,19 @@ fn inspect_chars(base: u32, t: &Loc, spec: u32) {
             have_repl = true;
         }
     }
+    let mut replaced = None;
     if have_repl {
-        let out_at = sc.alloc(t.len.max(1));
-        let mut o = 0usize; // bytes written to `out`
-        let cap = t.len as usize;
+        let out = U::buffer(sc, out_cap);
+        let mut o = 0usize; // units written to `out`
+        let cap = out.len();
+        let mut put = |u: U, o: &mut usize| {
+            if *o < cap {
+                out[*o] = u;
+                *o += 1;
+            } else if strict {
+                crate::fail(err::SCRATCH_OVERFLOW);
+            }
+        };
         let mut p = 0usize;
         while p < s.len() {
             let mut taken = 0usize;
@@ -336,7 +508,7 @@ fn inspect_chars(base: u32, t: &Loc, spec: u32) {
                 if !(REPL_CHARS..=REPL_FIRST).contains(&op.kind) || p < op.lo || p >= op.hi || op.spent {
                     continue;
                 }
-                let pat = mem::bytes(op.pat.0, op.pat.1);
+                let pat = op.pat;
                 let fits = !pat.is_empty() && p + pat.len() <= op.hi && &s[p..p + pat.len()] == pat;
                 taken = match op.kind {
                     REPL_CHARS => 1,
@@ -353,24 +525,19 @@ fn inspect_chars(base: u32, t: &Loc, spec: u32) {
                     _ => 0,
                 };
                 if taken > 0 {
-                    let by = mem::bytes(op.by.0, op.by.1);
-                    let emit: &[u8] = if op.kind == REPL_CHARS { &by[..by.len().min(1)] } else { by };
-                    let emit_one = [b' '];
-                    let emit = if op.kind == REPL_CHARS && emit.is_empty() { &emit_one[..] } else { emit };
-                    for &b in emit {
-                        if o < cap {
-                            mem::wr_u8(out_at + o as u32, b);
-                            o += 1;
+                    if op.kind == REPL_CHARS {
+                        // `BY` for CHARACTERS is a single character, written over each position in turn.
+                        put(op.by.first().copied().unwrap_or(U::SPACE), &mut o);
+                    } else {
+                        for &u in op.by {
+                            put(u, &mut o);
                         }
                     }
                     break;
                 }
             }
             if taken == 0 {
-                if o < cap {
-                    mem::wr_u8(out_at + o as u32, s[p]);
-                    o += 1;
-                }
+                put(s[p], &mut o);
                 p += 1;
             } else {
                 p += taken;
@@ -381,22 +548,18 @@ fn inspect_chars(base: u32, t: &Loc, spec: u32) {
                 }
             }
         }
-        // Back into the item: left-justified, space-padded.
-        mem::copy(out_at, t.addr, o as u32);
-        if (o as u32) < t.len {
-            mem::fill(t.addr + o as u32, t.len - o as u32, b' ');
-        }
+        replaced = Some(&out[..o]);
     }
     // ── CONVERTING ─────────────────────────────────────────────────────
+    let mut converted = false;
     for k in 0..n {
         if ops[k].kind != CONVERT {
             continue;
         }
-        let from = mem::bytes(ops[k].pat.0, ops[k].pat.1);
-        let to = mem::bytes(ops[k].by.0, ops[k].by.1);
-        let buf = mem::bytes_mut(t.addr, t.len);
-        // The interpreter converts character by character in pair order:
-        // each `from` char is replaced by its `to` char over the whole window.
+        converted = true;
+        // The interpreter converts character by character in pair order: each `from` character is
+        // replaced by its `to` character over the whole window.
+        let (from, to) = (ops[k].pat, ops[k].by);
         let (lo, hi) = (ops[k].lo, ops[k].hi);
         for (fc, tc) in from.iter().zip(to.iter()) {
             for b in buf[lo..hi].iter_mut() {
@@ -406,6 +569,7 @@ fn inspect_chars(base: u32, t: &Loc, spec: u32) {
             }
         }
     }
+    Core { replaced, converted }
 }
 
 /// `STRING … INTO …`; returns 1 on overflow.
@@ -470,11 +634,125 @@ pub fn string(base: u32, spec: u32) -> u32 {
     overflow as u32
 }
 
+/// `STRING … INTO <national or UTF-8 item>` (T50a2): the interpreter assembles the senders' bytes,
+/// then fills the receiver by character, so the `POINTER`, the size and the overflow test count
+/// characters. Returns 1 on overflow.
+pub fn string_text(base: u32, spec: u32) -> u32 {
+    let n = rd(spec) as usize;
+    let into = locate(base, &parse(rd(spec + 4)));
+    let Some(class) = Class::of(&into.fd) else { crate::fail(err::BAD_OPERAND) };
+    let ptr_opd = rd(spec + 8);
+    let cap = class.positions() as usize;
+    let mut sc = Scratch::new();
+    // The characters past the receiver's size are never stored, and a character is at most four
+    // bytes, so the assembled bytes are kept up to that many: the rest only add to the overflow.
+    // A right-justified receiver keeps the last characters of what is built, so it needs them all.
+    let justified = into.fd.justified();
+    let limit = if justified { (SCRATCH_SIZE as usize - 8 * cap - 64) / 2 } else { 4 * (cap + 1) };
+    let res_at = sc.alloc(limit as u32);
+    let mut res_len = 0usize;
+    for k in 0..n {
+        let r = spec + 12 + (k as u32) * 8;
+        let so = parse(rd(r));
+        let dopd = rd(r + 4);
+        let (sa, sl) = chars_of(base, &so, &mut sc);
+        let src = mem::bytes(sa, sl);
+        let take = if dopd == 0 {
+            // No `DELIMITED BY`: an alphanumeric item (a national or UTF-8 one is) drops its trailing
+            // spaces; any other sender is moved whole.
+            if so.tag == T_ITEM && (so.fd.kind == K_ALNUM || Class::of(&so.fd).is_some()) {
+                trim_trailing_spaces(src).len()
+            } else {
+                src.len()
+            }
+        } else {
+            let (da, dl) = chars_of(base, &parse(dopd), &mut sc);
+            let delim = mem::bytes(da, dl);
+            // SIZE and SPACE(S) are named delimiters, so they are recognised by their spelling.
+            let named = core::str::from_utf8(delim).map(str::trim).unwrap_or("");
+            if named.eq_ignore_ascii_case("SIZE") {
+                src.len()
+            } else if named.eq_ignore_ascii_case("SPACE") || named.eq_ignore_ascii_case("SPACES") {
+                trim_trailing_spaces(src).len()
+            } else {
+                find(src, delim, 0).unwrap_or(src.len())
+            }
+        };
+        let room = limit - res_len;
+        let put = take.min(room);
+        if put < take && justified {
+            crate::fail(err::SCRATCH_OVERFLOW);
+        }
+        mem::bytes_mut(res_at + res_len as u32, put as u32).copy_from_slice(&src[..put]);
+        res_len += put;
+    }
+    let result = mem::bytes(res_at, res_len as u32);
+    let text_len = crate::nat::Lossy::new(result).count();
+    let ptr_loc = if ptr_opd != 0 { Some(locate(base, &parse(ptr_opd))) } else { None };
+    let mut overflow;
+    let mut placed = 0usize;
+    let mut start = 1usize;
+    // The receiver's characters as they are, then the senders' over them from the pointer.
+    let dest = sc.units(cap);
+    let dest_text = Text::Item(class, mem::bytes(into.addr, into.len));
+    let (mut have, mut cur) = (0usize, dest_text.chars());
+    while have < cap {
+        match cur.next() {
+            Some(c) => dest[have] = c as u32,
+            None => break,
+        }
+        have += 1;
+    }
+    for slot in dest.iter_mut().take(cap).skip(have) {
+        *slot = 0x20;
+    }
+    let out_units: &[u32] = if let Some(pl) = &ptr_loc {
+        start = (load_int(pl) as i64).max(1) as usize;
+        let mut idx = start - 1;
+        overflow = start - 1 >= cap && text_len > 0;
+        for c in crate::nat::Lossy::new(result) {
+            if idx >= cap {
+                overflow = true;
+                break;
+            }
+            dest[idx] = c as u32;
+            idx += 1;
+            placed += 1;
+        }
+        dest
+    } else {
+        overflow = text_len > cap;
+        let text = sc.units(if justified { text_len } else { text_len.min(cap) });
+        for (slot, c) in text.iter_mut().zip(crate::nat::Lossy::new(result)) {
+            *slot = c as u32;
+        }
+        text
+    };
+    crate::nat::write(class, Text::Units(out_units), justified, mem::bytes_mut(into.addr, into.len));
+    if let Some(pl) = &ptr_loc {
+        codec::store_value(pl, Val::int((start + placed) as i64), false, false);
+    }
+    overflow as u32
+}
+
+/// An item's integer value, as the interpreter's `get_i64` reads it (the whole part).
+fn load_int(l: &Loc) -> i64 {
+    match codec::load_value(l) {
+        Val::Dec(d) => (d.mantissa / cobolt_decimal::pow10(d.decimals as u32).unwrap_or(1)) as i64,
+        Val::F(f) => f as i64,
+    }
+}
+
+/// `s` with its trailing spaces removed.
+fn trim_trailing_spaces(s: &[u8]) -> &[u8] {
+    let end = s.iter().rposition(|&b| b != b' ').map_or(0, |i| i + 1);
+    &s[..end]
+}
+
 /// The next delimiter at or after `from`: `(offset, run length, one length)`.
-fn find_delimiter(src: &[u8], from: usize, delims: &[(u32, u32)], all: bool) -> Option<(usize, usize, usize)> {
+fn find_delimiter<U: Unit>(src: &[U], from: usize, delims: &[&[U]], all: bool) -> Option<(usize, usize, usize)> {
     let mut best: Option<(usize, usize, usize)> = None;
-    for &(da, dl) in delims {
-        let d = mem::bytes(da, dl);
+    for &d in delims {
         let mut i = from;
         while i + d.len() <= src.len() {
             if &src[i..i + d.len()] == d {
@@ -495,33 +773,51 @@ fn find_delimiter(src: &[u8], from: usize, delims: &[(u32, u32)], all: bool) -> 
     best
 }
 
-/// `UNSTRING … ` ; returns 1 on overflow.
+/// `UNSTRING … ` of an alphanumeric source; returns 1 on overflow.
 pub fn unstring(base: u32, spec: u32) -> u32 {
-    let all = rd(spec) & 1 != 0;
     let from = locate(base, &parse(rd(spec + 4)));
+    let mut sc = Scratch::new();
+    unstring_core::<u8>(base, spec, mem::bytes(from.addr, from.len), &mut sc)
+}
+
+/// `UNSTRING … ` of a national or UTF-8 source (T50a2): the interpreter splits its text by
+/// character, so the `POINTER`, `COUNT IN` and every position count characters. Returns 1 on overflow.
+pub fn unstring_text(base: u32, spec: u32) -> u32 {
+    let from = locate(base, &parse(rd(spec + 4)));
+    let mut sc = Scratch::new();
+    let text = match Class::of(&from.fd) {
+        Some(class) => Text::Item(class, mem::bytes(from.addr, from.len)),
+        // An `N"…"`/`U"…"` literal is its text.
+        None => Text::Utf8(mem::bytes(from.addr, from.len)),
+    };
+    let n = text.chars().count();
+    let units = sc.units(n);
+    for (slot, c) in units.iter_mut().zip(text.chars()) {
+        *slot = c as u32;
+    }
+    unstring_core::<u32>(base, spec, units, &mut sc)
+}
+
+fn unstring_core<U: Unit>(base: u32, spec: u32, src: &[U], sc: &mut Scratch) -> u32 {
+    let all = rd(spec) & 1 != 0;
     let ptr_opd = rd(spec + 8);
     let tally_opd = rd(spec + 12);
     let nd = rd(spec + 16) as usize;
-    let mut sc = Scratch::new();
-    let mut delims = [(0u32, 0u32); 16];
+    let mut delims: [&[U]; 16] = [&[]; 16];
     let mut ndel = 0;
     for k in 0..nd.min(16) {
-        let (a, l) = chars_of(base, &parse(rd(spec + 20 + (k as u32) * 4)), &mut sc);
-        if l > 0 {
-            delims[ndel] = (a, l);
+        let d = U::of_operand(base, &parse(rd(spec + 20 + (k as u32) * 4)), sc);
+        if !d.is_empty() {
+            delims[ndel] = d;
             ndel += 1;
         }
     }
     let delims = &delims[..ndel];
     let nt_at = spec + 20 + (nd as u32) * 4;
     let nt = rd(nt_at) as usize;
-    let src = mem::bytes(from.addr, from.len);
     let ptr_loc = if ptr_opd != 0 { Some(locate(base, &parse(ptr_opd))) } else { None };
     let cursor: i64 = match &ptr_loc {
-        Some(pl) => match codec::load_value(pl) {
-            Val::Dec(d) => (d.mantissa / cobolt_decimal::pow10(d.decimals as u32).unwrap_or(1)) as i64,
-            Val::F(f) => f as i64,
-        },
+        Some(pl) => load_int(pl),
         None => 1,
     };
     if cursor < 1 || cursor as usize > src.len() {
@@ -536,7 +832,13 @@ pub fn unstring(base: u32, spec: u32) -> u32 {
         let r = nt_at + 4 + (k as u32) * 12;
         let recv = locate(base, &parse(rd(r)));
         let (field_end, delim_len, unit_len) = if delims.is_empty() {
-            let width = (recv.len as usize).max(1);
+            // No `DELIMITED BY`: the source is split by the receivers' own sizes. A national or
+            // UTF-8 source counts characters against a national or UTF-8 receiver's positions.
+            let width = match Class::of(&recv.fd) {
+                Some(class) if core::mem::size_of::<U>() == 4 => class.positions() as usize,
+                _ => recv.len as usize,
+            }
+            .max(1);
             ((pos + width).min(src.len()), 0, 0)
         } else {
             match find_delimiter(src, pos, delims, all) {
@@ -544,28 +846,10 @@ pub fn unstring(base: u32, spec: u32) -> u32 {
                 None => (src.len(), 0, 0),
             }
         };
-        let field = &src[pos..field_end];
-        // The receiver takes the field under MOVE rules.
-        if recv.fd.is_numeric() {
-            let mut m: i128 = 0;
-            let mut seen = false;
-            for &c in field.iter().skip_while(|c| **c == b' ') {
-                if c.is_ascii_digit() {
-                    m = m.saturating_mul(10).saturating_add((c - b'0') as i128);
-                    seen = true;
-                } else {
-                    break;
-                }
-            }
-            let _ = seen;
-            codec::store_value(&recv, Val::Dec(CobolNumeric::new(m, 0)), false, false);
-        } else {
-            mv::put_bytes(&recv, field, recv.fd.justified());
-        }
+        store_field(&recv, &src[pos..field_end], sc);
         let din = rd(r + 4);
         if din != 0 {
-            let dl = locate(base, &parse(din));
-            mv::put_bytes(&dl, &src[field_end..field_end + unit_len], false);
+            store_field(&locate(base, &parse(din)), &src[field_end..field_end + unit_len], sc);
         }
         let cnt = rd(r + 8);
         if cnt != 0 {
@@ -580,13 +864,23 @@ pub fn unstring(base: u32, spec: u32) -> u32 {
     }
     if tally_opd != 0 {
         let tl = locate(base, &parse(tally_opd));
-        let prior = match codec::load_value(&tl) {
-            Val::Dec(d) => (d.mantissa / cobolt_decimal::pow10(d.decimals as u32).unwrap_or(1)) as i64,
-            Val::F(f) => f as i64,
-        };
-        codec::store_value(&tl, Val::int(prior + filled as i64), false, false);
+        codec::store_value(&tl, Val::int(load_int(&tl) + filled as i64), false, false);
     }
     (pos < src.len()) as u32
+}
+
+/// What a field of an `UNSTRING` becomes in its receiver: under `MOVE` rules, a number converts, a
+/// national or UTF-8 item takes the characters through its class, any other is padded or cut.
+fn store_field<U: Unit>(recv: &Loc, field: &[U], sc: &mut Scratch) {
+    if recv.fd.is_numeric() {
+        codec::store_value(recv, Val::Dec(CobolNumeric::new(U::number(field), 0)), false, false);
+    } else if let Some(class) = Class::of(&recv.fd) {
+        let (a, l) = U::text(field, sc);
+        crate::nat::write(class, Text::Utf8(mem::bytes(a, l)), recv.fd.justified(), mem::bytes_mut(recv.addr, recv.len));
+    } else {
+        let (a, l) = U::text(field, sc);
+        mv::put_bytes(recv, mem::bytes(a, l), recv.fd.justified());
+    }
 }
 
 /// `INITIALIZE`: the leaves are listed in a spec of 11-word entries

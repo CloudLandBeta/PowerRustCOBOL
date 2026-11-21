@@ -461,16 +461,35 @@ pub extern "C" fn rt_inspect(base: u32, target: u32, spec: u32) {
     strings::inspect(base, target, spec);
 }
 
+/// `INSPECT` of a national or UTF-8 item, by character (T50a2); `rm_start` and `rm_len` are the
+/// operands of a reference modification of the target (0: none).
+#[no_mangle]
+pub extern "C" fn rt_inspect_text(base: u32, target: u32, spec: u32, rm_start: u32, rm_len: u32) {
+    strings::inspect_text(base, target, spec, rm_start, rm_len);
+}
+
 /// `STRING … INTO …`: 1 when it overflowed.
 #[no_mangle]
 pub extern "C" fn rt_string(base: u32, spec: u32) -> u32 {
     strings::string(base, spec)
 }
 
+/// `STRING … INTO <national or UTF-8 item>`, by character (T50a2): 1 when it overflowed.
+#[no_mangle]
+pub extern "C" fn rt_string_text(base: u32, spec: u32) -> u32 {
+    strings::string_text(base, spec)
+}
+
 /// `UNSTRING …`: 1 when it overflowed.
 #[no_mangle]
 pub extern "C" fn rt_unstring(base: u32, spec: u32) -> u32 {
     strings::unstring(base, spec)
+}
+
+/// `UNSTRING` of a national or UTF-8 source, by character (T50a2): 1 when it overflowed.
+#[no_mangle]
+pub extern "C" fn rt_unstring_text(base: u32, spec: u32) -> u32 {
+    strings::unstring_text(base, spec)
 }
 
 /// Pop the top register into temporary `k`.

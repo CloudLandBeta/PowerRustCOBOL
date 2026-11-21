@@ -86,7 +86,7 @@ pub(crate) fn whole_number(base: u32, raw: u32) -> i64 {
 
 /// [`whole_number`], with `none` for a text that is no whole number: the interpreter's
 /// `as_i64().unwrap_or(none)`.
-fn whole_number_or(base: u32, raw: u32, none: i64) -> i64 {
+pub(crate) fn whole_number_or(base: u32, raw: u32, none: i64) -> i64 {
     let o = parse(raw);
     let numeric = match o.tag {
         T_LIT_NUM | T_TEMP => Some(value(base, &o)),

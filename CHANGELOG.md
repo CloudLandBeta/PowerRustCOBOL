@@ -2,6 +2,33 @@
 
 
 
+## 2.0.634 — 2026-11-21
+
+**Feature: `INSPECT`, `STRING` and `UNSTRING` over national and UTF-8 data run in a desktop WebAssembly module (DESKTOP-WASM-001 T50a2, the second of T50a's five pieces).** A desktop program that inspects, strings into or unstrings a `PIC N` or `PIC U` item no longer takes the Cargo path. The built program counts characters where the interpreter does: the `TALLYING` count, the `POINTER`, `COUNT IN`, the overflow test and every `BEFORE`/`AFTER` region.
+
+- **What a desktop module now computes:**
+  - `INSPECT` of a national or UTF-8 item (also a reference-modified one, counted in characters): `TALLYING` and `REPLACING` `CHARACTERS`, `ALL`, `LEADING`, `FIRST` and `TRAILING`, `CONVERTING`, `BEFORE INITIAL` and `AFTER INITIAL`, with national, UTF-8, alphanumeric or `SPACE` patterns; an alphanumeric target with a national or UTF-8 pattern.
+  - `STRING … INTO` a national or UTF-8 item, from national, UTF-8 or alphanumeric senders, with `DELIMITED BY SIZE`, `SPACE` or a text, `WITH POINTER` (in characters) and `ON OVERFLOW`; a national or UTF-8 sender into an alphanumeric item.
+  - `UNSTRING` of a national, UTF-8 or alphanumeric source into national, UTF-8, alphanumeric and numeric receivers: `DELIMITED BY` (also `ALL`, and several `OR`), `COUNT IN`, `DELIMITER IN`, `WITH POINTER`, `TALLYING IN`, `ON OVERFLOW`, and the split by receiver sizes when no delimiter is named.
+  - A supplementary character (`😀`) is one character; `JUSTIFIED RIGHT` receivers, table elements and `HIGH-VALUE`/`ZERO` senders agree with the interpreter.
+- **One rule for bytes and characters:** the `INSPECT` and `UNSTRING` algorithms of the runtime blob were made generic over the unit they walk (a byte, a code point), so alphanumeric data and national data are scanned by one copy of each rule. The NIST NC suite, which exercises the byte path, still runs 95 of 95 programs with 0 failures (4,612 PASS, 5 DELETED) in a generated module.
+- **Still refused, on the Cargo path** (T50a3 to T50a5): a reference-modified national sender or source (`STRING WS-N(1:2) …`), a group that holds a national item named in one of these verbs, `ALL N"…"` as a pattern or delimiter, and every other use of national data not listed in T44, T50a1 and here.
+- **A browser module is unchanged:** it still refuses these uses, as it always has.
+- **Limit:** the characters of one statement are held in the runtime's 32 KiB scratch area, so an item of more than about 2,000 positions in these verbs ends the run with the scratch-overflow error (1105) where the interpreter has no such limit.
+- **AC16, on purpose:** the runtime blob (`rt.wasm`) grew from 288,161 to 303,251 bytes (+15,090) and every generated module links it, so the player's eight recorded fixtures grew by 429 bytes each and the PowerAnalyticsWeb pin moved on all three artefacts. The fixtures and the pin were re-recorded; the pin matched before T50a1.
+- **Found, not changed:** the interpreter's reference modification of a national or UTF-8 item counts the UTF-8 bytes of its text, not characters (`WS-N(2:3)` of an item holding `ação` cuts bytes). The module counts characters for the one place it admits a reference-modified national item, an `INSPECT` target, and refuses the rest, so no Build depends on the byte count. The interpreter's rule is queued as a separate fix.
+- **Where:**
+  - `cobolt-wasm-rt`: `strings.rs` (the generic `INSPECT` and `UNSTRING`, `STRING` by character, the national text view of an operand), `nat.rs` (`Text::Units`), `mem.rs` (`words_mut`), `deskio.rs`, `lib.rs` (`rt_inspect_text`, `rt_string_text`, `rt_unstring_text`).
+  - `cobolt-wasm`: `lower_more.rs` (`verb_operand`, `verb_receiver`, `check_verb_operand`, the three verbs), `lower.rs`, `assets/rt.wasm`, `assets/rt.sources.hash`, `tests/native_national.rs`, `tests/native_desktop_refusals.rs`.
+  - `cobolt-runner`: `tests/national_verbs.rs` (new). `cobolt-compiler`: `lib.rs` (the System KB paragraph on national data), and `assets/knowledge/chunked.data` rebuilt.
+  - The player's recorded fixtures and `cobolt-web-tests`' pin re-recorded; `tasks.md` (T50a2 noted).
+- **Measured** (macOS arm64):
+  - module against interpreter, `native_national`: 34 cases (12 new, all of them the verbs), each in both memory layouts, identical;
+  - the runner twin `the_verbs_over_national_and_utf8_data_match_the_interpreter` (`cobolt-runner` `national_verbs`, new): `nat_basics.cbl` (18 cases, 100,000 passes of `MOVE` and `INSPECT`), the two interpreter tests AC7 and a program of edge cases (a pointer past the end, a supplementary character, `JUSTIFIED RIGHT`, `CONVERTING`, `ALL` as a delimiter, a UTF-8 item) packaged into a copy of `prc-runner` and run under `rcrun run`: 3 of 3 programs print identical lines, 12 of 12 checks. `nat_basics.cbl` runs in 2.8 s packaged against 5.0 s under `rcrun run`, 2 s of the first being the runner's start;
+  - NIST NC on generated modules: 95 of 95 execute with 0 failures, 4,612 PASS, 5 DELETED (as before);
+  - `native_desktop_refusals` 27 of 27 checks (15 programs served, 10 refused, 2 browser);
+  - the suites around it, each `test result:` line read: `cobolt-wasm` 149 of 149 in 40 test binaries, `cobolt-wasm-rt` 39, `cobolt-abi-host` 288, `cobolt-form-host` 193, `cobolt-runner` 13 test binaries with 0 failures, `cobolt-compiler` `desktop_wasm_build` 1 of 1, the player's freshness 6 of 6, the PowerAnalyticsWeb pin 1 of 1 after the re-record, the System KB check 1 of 1, and the five `cobolt-cli` runner twins (`runner_shell_hosts` 18, `runner_viewer_form`, `runner_one_form`, `runner_surfaces`, `runner_motion_form` 1 each).
+
 ## 2.0.633 — 2026-11-21
 
 **Feature: the functions over national and UTF-8 data run in a desktop WebAssembly module (DESKTOP-WASM-001 T50a1, the first of T50a's five pieces).** A desktop program that passes a `PIC N` or `PIC U` item, or an `N"…"` literal, to a function no longer takes the Cargo path. The built program converts, cases, counts and measures that text by the interpreter's own rules.

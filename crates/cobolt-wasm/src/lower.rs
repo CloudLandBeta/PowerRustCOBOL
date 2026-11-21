@@ -424,9 +424,9 @@ pub struct Lower<'a, 'b> {
 }
 
 /// Why a desktop module refuses a use of national or UTF-8 data. The module computes such data
-/// where it is moved, displayed, compared, initialised, measured or given a VALUE (T44) or read by
-/// a function that reads text (T50a1); any other use (reference modification, INSPECT, STRING,
-/// arithmetic, a CALL, a control's property …) takes the Cargo path.
+/// where it is moved, displayed, compared, initialised, measured or given a VALUE (T44), read by a
+/// function that reads text (T50a1), or inspected, strung or unstrung by character (T50a2); any
+/// other use (arithmetic, a CALL, a control's property …) takes the Cargo path.
 pub(crate) const D_TEXT_USE: &str =
     "this use of national or UTF-8 data is not computed in a WebAssembly module yet, so the Build takes the Cargo path (DESKTOP-WASM-001 M6)";
 
@@ -1819,7 +1819,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     /// The item a direct reference names, looked up without the side effects of
     /// [`Self::resolve_item`] (an implicit item, a register): `None` when it names none.
-    fn lookup_direct(&self, e: &Expr) -> Option<usize> {
+    pub(crate) fn lookup_direct(&self, e: &Expr) -> Option<usize> {
         let base = match e {
             Expr::Subscript { base, .. } => base.as_ref(),
             other => other,
@@ -1852,7 +1852,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Self::text_subject(&[e])
     }
 
-    fn text_refused<T>(&self, line: u32, es: &[&Expr]) -> GenResult<T> {
+    pub(crate) fn text_refused<T>(&self, line: u32, es: &[&Expr]) -> GenResult<T> {
         let name = Self::text_subject(es);
         self.err_kind(line, crate::error::ErrorKind::Other, name.clone(), format!("{name}: {D_TEXT_USE}"))
     }

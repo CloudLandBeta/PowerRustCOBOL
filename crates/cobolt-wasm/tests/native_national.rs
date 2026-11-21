@@ -223,12 +223,262 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. INNER.\nDATA DIVISION.\nWORKING-STORAGE SE
 PROCEDURE DIVISION.\nINNER-PARA.\n    MOVE \"Coração\" TO WS-N\n    MOVE FUNCTION BYTE-LENGTH(WS-N) TO WS-L\n    DISPLAY \"[\" WS-N \"] \" WS-L\n\
     EXIT PROGRAM.\nEND PROGRAM INNER.\nEND PROGRAM OUTER.\n";
 
+/// T50a2: INSPECT, STRING and UNSTRING by character (name, the items of `G`, the procedure).
+const VERB_CASES: &[(&str, &str, &str)] = &[
+    (
+        "STRING into a national item by character: POINTER, SIZE, SPACE, a national delimiter",
+        r#"   05 WS-A PIC N(4) VALUE N"Ação".
+   05 WS-B PIC N(4) VALUE N"Pão".
+   05 WS-R PIC N(10).
+   05 WS-P PIC 9(3).
+   05 WS-D PIC N(2) VALUE N"ão".
+"#,
+        r#"    MOVE 1 TO WS-P
+    STRING WS-A DELIMITED BY SIZE N"-" DELIMITED BY SIZE WS-B DELIMITED BY SPACE INTO WS-R WITH POINTER WS-P
+    DISPLAY "[" WS-R "] " WS-P
+    STRING WS-A DELIMITED BY WS-D INTO WS-R
+    DISPLAY "[" WS-R "]"
+    MOVE ALL N"*" TO WS-R
+    STRING WS-B DELIMITED BY SIZE INTO WS-R
+    DISPLAY "[" WS-R "]"
+"#,
+    ),
+    (
+        "STRING overflow, a pointer past the end, a supplementary character, JUSTIFIED RIGHT",
+        r#"   05 WS-A PIC N(4) VALUE N"Ação".
+   05 WS-B PIC N(4) VALUE N"Pão".
+   05 WS-O PIC N(6).
+   05 WS-S PIC N(4).
+   05 WS-J PIC N(5) JUSTIFIED RIGHT.
+   05 WS-P PIC 9(3).
+"#,
+        r#"    STRING WS-A WS-B DELIMITED BY SIZE INTO WS-O
+        ON OVERFLOW DISPLAY "overflow"
+        NOT ON OVERFLOW DISPLAY "fits"
+    END-STRING
+    DISPLAY "[" WS-O "]"
+    MOVE 7 TO WS-P
+    STRING WS-A DELIMITED BY SIZE INTO WS-O WITH POINTER WS-P
+        ON OVERFLOW DISPLAY "overflow"
+        NOT ON OVERFLOW DISPLAY "fits"
+    END-STRING
+    DISPLAY "[" WS-O "] " WS-P
+    MOVE 3 TO WS-P
+    STRING N"xy" DELIMITED BY SIZE INTO WS-O WITH POINTER WS-P
+    DISPLAY "[" WS-O "] " WS-P
+    STRING N"ab😀cd" DELIMITED BY SIZE INTO WS-S
+        ON OVERFLOW DISPLAY "overflow"
+    END-STRING
+    DISPLAY "[" WS-S "]"
+    STRING N"Ação" DELIMITED BY SIZE INTO WS-J
+    DISPLAY "[" WS-J "]"
+"#,
+    ),
+    (
+        "STRING national and UTF-8 senders into an alphanumeric item, and an alphanumeric one into a UTF-8 item",
+        r#"   05 WS-A PIC N(4) VALUE N"Ação".
+   05 WS-U PIC U(5) VALUE U"naïve".
+   05 WS-X PIC X(16).
+   05 WS-V PIC U(10).
+   05 WS-P PIC 9(3).
+"#,
+        r#"    MOVE SPACES TO WS-X
+    MOVE 1 TO WS-P
+    STRING WS-A DELIMITED BY SIZE "!" DELIMITED BY SIZE WS-U DELIMITED BY SIZE INTO WS-X WITH POINTER WS-P
+    DISPLAY "[" WS-X "] " WS-P
+    STRING "ação" DELIMITED BY SIZE " " DELIMITED BY SIZE WS-A DELIMITED BY SPACE INTO WS-V
+    DISPLAY "[" WS-V "]"
+"#,
+    ),
+    (
+        "UNSTRING a national item by character: COUNT IN, TALLYING, POINTER, DELIMITER IN",
+        r#"   05 WS-S PIC N(13) VALUE N"maçã,pêra,uva".
+   05 WS-1 PIC N(5).
+   05 WS-2 PIC N(5).
+   05 WS-3 PIC N(5).
+   05 WS-DL PIC N(2).
+   05 WS-C1 PIC 9(3).
+   05 WS-C2 PIC 9(3).
+   05 WS-T PIC 9(3) VALUE 0.
+   05 WS-P PIC 9(3) VALUE 1.
+"#,
+        r#"    UNSTRING WS-S DELIMITED BY N"," INTO WS-1 COUNT IN WS-C1 WS-2 COUNT IN WS-C2 WS-3 TALLYING IN WS-T
+    DISPLAY "[" WS-1 "][" WS-2 "][" WS-3 "] " WS-C1 " " WS-C2 " " WS-T
+    MOVE 6 TO WS-P
+    UNSTRING WS-S DELIMITED BY N"," INTO WS-1 DELIMITER IN WS-DL COUNT IN WS-C1 WS-2 WITH POINTER WS-P
+    DISPLAY "[" WS-1 "][" WS-2 "][" WS-DL "] " WS-C1 " " WS-P
+"#,
+    ),
+    (
+        "UNSTRING: ALL, several delimiters, no DELIMITED BY (split by the receivers' widths), overflow",
+        r#"   05 WS-Q PIC N(14) VALUE N"a;;bç;c;;;d   ".
+   05 WS-S PIC N(13) VALUE N"maçã,pêra,uva".
+   05 WS-1 PIC N(5).
+   05 WS-2 PIC N(5).
+   05 WS-3 PIC N(5).
+   05 WS-DL PIC N(3).
+   05 WS-C1 PIC 9(3).
+"#,
+        r#"    UNSTRING WS-Q DELIMITED BY ALL N";" INTO WS-1 DELIMITER IN WS-DL COUNT IN WS-C1 WS-2 WS-3
+    DISPLAY "[" WS-1 "][" WS-2 "][" WS-3 "][" WS-DL "] " WS-C1
+    UNSTRING WS-Q DELIMITED BY N"ç" OR N";" INTO WS-1 WS-2 WS-3
+    DISPLAY "[" WS-1 "][" WS-2 "][" WS-3 "]"
+    UNSTRING WS-S INTO WS-1 WS-2 WS-3
+    DISPLAY "[" WS-1 "][" WS-2 "][" WS-3 "]"
+    UNSTRING WS-S DELIMITED BY N"," INTO WS-1 WS-2
+        ON OVERFLOW DISPLAY "overflow"
+        NOT ON OVERFLOW DISPLAY "fits"
+    END-UNSTRING
+    DISPLAY "[" WS-1 "][" WS-2 "]"
+"#,
+    ),
+    (
+        "UNSTRING: a UTF-8 item and a literal as the source, numeric, alphanumeric and national receivers",
+        r#"   05 WS-US PIC U(13) VALUE U"maçã,pêra,uva".
+   05 WS-AS PIC X(20) VALUE "maçã,pêra,uva".
+   05 WS-1 PIC N(5).
+   05 WS-2 PIC N(5).
+   05 WS-3 PIC N(5).
+   05 WS-X4 PIC X(4).
+   05 WS-X5 PIC X(5).
+   05 WS-N1 PIC 9(5).
+   05 WS-N2 PIC 9(5).
+   05 WS-N3 PIC 9(5).
+"#,
+        r#"    UNSTRING WS-US DELIMITED BY U"," INTO WS-1 WS-2 WS-3
+    DISPLAY "[" WS-1 "][" WS-2 "][" WS-3 "]"
+    UNSTRING WS-AS DELIMITED BY "," INTO WS-1 WS-2 WS-3
+    DISPLAY "[" WS-1 "][" WS-2 "][" WS-3 "]"
+    UNSTRING N"12,007,x4" DELIMITED BY N"," INTO WS-N1 WS-N2 WS-N3
+    DISPLAY WS-N1 " " WS-N2 " " WS-N3
+    UNSTRING WS-US DELIMITED BY N"," INTO WS-X4 WS-X5
+    DISPLAY "[" WS-X4 "][" WS-X5 "]"
+"#,
+    ),
+    (
+        "INSPECT a national item counts and replaces characters",
+        r#"   05 WS-N PIC N(12) VALUE N"ação, coração".
+   05 WS-C PIC 9(3) VALUE 0.
+   05 WS-D PIC 9(3) VALUE 0.
+   05 WS-E PIC 9(3) VALUE 0.
+"#,
+        r#"    INSPECT WS-N TALLYING WS-C FOR ALL N"ç"
+    INSPECT WS-N TALLYING WS-D FOR CHARACTERS BEFORE INITIAL N","
+    INSPECT WS-N TALLYING WS-E FOR CHARACTERS
+    DISPLAY WS-C " " WS-D " " WS-E
+    INSPECT WS-N REPLACING CHARACTERS BY N"*" AFTER INITIAL N", "
+    DISPLAY "[" WS-N "]"
+"#,
+    ),
+    (
+        "INSPECT: LEADING, TRAILING, FIRST, ALL, BEFORE and AFTER, and TALLYING with REPLACING",
+        r#"   05 WS-W PIC N(16) VALUE N"  aaçãaa  bbb  ".
+   05 WS-P PIC N(1) VALUE N"ç".
+   05 WS-C PIC 9(3) VALUE 0.
+   05 WS-D PIC 9(3) VALUE 0.
+   05 WS-E PIC 9(3) VALUE 0.
+"#,
+        r#"    INSPECT WS-W TALLYING WS-C FOR LEADING N" " WS-D FOR TRAILING N" " WS-E FOR ALL N"a" BEFORE INITIAL WS-P
+    DISPLAY WS-C " " WS-D " " WS-E
+    INSPECT WS-W REPLACING FIRST N"a" BY N"A" AFTER INITIAL WS-P
+    DISPLAY "[" WS-W "]"
+    INSPECT WS-W REPLACING LEADING N" " BY N"_" TRAILING N" " BY N"-"
+    DISPLAY "[" WS-W "]"
+    INSPECT WS-W TALLYING WS-C FOR ALL N"b" REPLACING ALL N"b" BY N"B"
+    DISPLAY "[" WS-W "] " WS-C
+"#,
+    ),
+    (
+        "INSPECT: CONVERTING, a replacement longer than the item, a supplementary character, CHARACTERS",
+        r#"   05 WS-W PIC N(16) VALUE N"abç abç abç".
+   05 WS-V PIC N(7) VALUE N"a😀b😀c".
+   05 WS-C PIC 9(3) VALUE 0.
+"#,
+        r#"    INSPECT WS-W CONVERTING N"abç" TO N"ABC"
+    DISPLAY "[" WS-W "]"
+    INSPECT WS-W CONVERTING N"ABC" TO N"xyz" AFTER INITIAL N" "
+    DISPLAY "[" WS-W "]"
+    INSPECT WS-W REPLACING ALL N"y" BY N"ÿÿÿÿ"
+    DISPLAY "[" WS-W "]"
+    INSPECT WS-V TALLYING WS-C FOR CHARACTERS
+    DISPLAY WS-C
+    INSPECT WS-V REPLACING ALL N"b" BY N"B"
+    DISPLAY "[" WS-V "]"
+"#,
+    ),
+    (
+        "INSPECT: a reference-modified national target, a JUSTIFIED RIGHT one, a UTF-8 one, an alphanumeric one with national patterns",
+        r#"   05 WS-N PIC N(12) VALUE N"ação, coração".
+   05 WS-JR PIC N(6) JUSTIFIED RIGHT VALUE N"abc".
+   05 WS-U PIC U(8) VALUE U"naïve ñu".
+   05 WS-X PIC X(20) VALUE "ação, coração".
+   05 WS-C PIC 9(3) VALUE 0.
+   05 WS-D PIC 9(3) VALUE 0.
+"#,
+        r#"    INSPECT WS-N(2:4) TALLYING WS-C FOR ALL N"ç" CHARACTERS
+    DISPLAY WS-C
+    INSPECT WS-N(7:) REPLACING ALL N"ç" BY N"c"
+    DISPLAY "[" WS-N "]"
+    INSPECT WS-JR REPLACING ALL N"b" BY N"BB"
+    DISPLAY "[" WS-JR "]"
+    INSPECT WS-U REPLACING ALL U"ñ" BY U"n"
+    DISPLAY "[" WS-U "]"
+    INSPECT WS-X TALLYING WS-D FOR ALL N"ç"
+    DISPLAY WS-D
+    INSPECT WS-X REPLACING ALL N"ç" BY "c"
+    DISPLAY "[" WS-X "]"
+"#,
+    ),
+    (
+        "STRING and UNSTRING over a table of national items, a numeric sender, a figurative sender, no DELIMITED BY",
+        r#"   05 T.
+      10 T-N PIC N(6) OCCURS 3 TIMES INDEXED BY TX.
+   05 WS-X PIC X(6) VALUE "ab".
+   05 WS-A PIC N(3) VALUE N"çã".
+   05 WS-NUM PIC 9(3) VALUE 42.
+   05 WS-R PIC N(12).
+   05 WS-P PIC 9(3).
+"#,
+        r#"    MOVE N"a,b,c" TO T-N(2)
+    UNSTRING T-N(2) DELIMITED BY "," INTO T-N(1) T-N(3)
+    DISPLAY "[" T-N(1) "][" T-N(2) "][" T-N(3) "]"
+    STRING T-N(1) DELIMITED BY SPACE WS-NUM DELIMITED BY SIZE INTO WS-R
+    DISPLAY "[" WS-R "]"
+    MOVE 1 TO WS-P
+    STRING WS-X WS-A DELIMITED BY SIZE INTO WS-R WITH POINTER WS-P
+    DISPLAY "[" WS-R "] " WS-P
+    STRING ZERO DELIMITED BY SIZE SPACE DELIMITED BY SIZE HIGH-VALUE DELIMITED BY SIZE INTO WS-R
+    DISPLAY "[" WS-R "]"
+    STRING WS-X WS-A INTO WS-R
+    DISPLAY "[" WS-R "]"
+"#,
+    ),
+    (
+        "INSPECT a table element, a pattern held in a UTF-8 item, TALLYING two counters, and an unchanged item",
+        r#"   05 T.
+      10 T-N PIC N(6) OCCURS 2 TIMES.
+   05 WS-PU PIC U(2) VALUE U"ãç".
+   05 WS-C PIC 9(3) VALUE 5.
+   05 WS-D PIC 9(3) VALUE 0.
+"#,
+        r#"    MOVE N"ãçãçãç" TO T-N(1)
+    MOVE N"abc" TO T-N(2)
+    INSPECT T-N(1) TALLYING WS-C FOR ALL WS-PU WS-D FOR ALL N"ã"
+    DISPLAY WS-C " " WS-D
+    INSPECT T-N(2) TALLYING WS-C FOR ALL N"z"
+    DISPLAY "[" T-N(2) "] " WS-C
+    INSPECT T-N(1) REPLACING ALL WS-PU BY N"xy"
+    DISPLAY "[" T-N(1) "]"
+"#,
+    ),
+];
+
 #[test]
 fn national_and_utf8_data_compute_as_the_interpreter_computes_them() {
     let (mut t_compile, mut t_module, mut t_interp) = (Duration::ZERO, Duration::ZERO, Duration::ZERO);
     let (mut lines, mut bytes, mut runs) = (0usize, 0usize, 0usize);
     let mut results: Vec<(String, Result<(), String>)> = Vec::new();
-    for (name, items, procedure) in CASES.iter().chain(FUNCTION_CASES) {
+    for (name, items, procedure) in CASES.iter().chain(FUNCTION_CASES).chain(VERB_CASES) {
         let src = program(items, procedure);
         let t = Instant::now();
         let (want_lines, want_image) = interpreter(&src);
@@ -303,7 +553,7 @@ fn national_and_utf8_data_compute_as_the_interpreter_computes_them() {
 
     let passed = results.iter().filter(|(_, r)| r.is_ok()).count();
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
-    println!("== native_national: national and UTF-8 data, module against interpreter (DESKTOP-WASM-001 T44, T50a1) ==");
+    println!("== native_national: national and UTF-8 data, module against interpreter (DESKTOP-WASM-001 T44, T50a1, T50a2) ==");
     println!("cases: {} (each in both memory layouts: {runs} module runs)", results.len());
     for (name, r) in &results {
         match r {

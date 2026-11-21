@@ -283,18 +283,88 @@ impl Lower<'_, '_> {
 
     fn region(&mut self, r: &InspectRegion) -> GenResult<(u32, u32)> {
         let before = match &r.before {
-            Some(e) => self.operand_or_temp(e)?,
+            Some(e) => self.verb_operand(e)?,
             None => 0,
         };
         let after = match &r.after {
-            Some(e) => self.operand_or_temp(e)?,
+            Some(e) => self.verb_operand(e)?,
             None => 0,
         };
         Ok((before, after))
     }
 
+    /// An operand of `INSPECT`, `STRING` or `UNSTRING`, which in a desktop module may be national or
+    /// UTF-8 data (T50a2): the routine reads its text, as the interpreter's slot holds it. Other
+    /// operands are lowered as they always were.
+    fn verb_operand(&mut self, e: &Expr) -> GenResult<u32> {
+        if self.native {
+            self.check_verb_operand(e)?;
+            if crate::lower::is_direct_ref(e) {
+                if let Some(o) = self.text_operand(e)? {
+                    return Ok(o);
+                }
+            }
+        }
+        self.operand_or_temp(e)
+    }
+
+    /// As [`Self::verb_operand`], for a receiver.
+    fn verb_receiver(&mut self, e: &Expr) -> GenResult<u32> {
+        if self.native {
+            self.check_verb_operand(e)?;
+            if crate::lower::is_direct_ref(e) {
+                return self.text_receiver(e);
+            }
+        }
+        self.receiver(e)
+    }
+
+    /// What the verbs do not compute: `ALL N"…"`, and a group that holds national or UTF-8 items
+    /// (the interpreter reads the group's text where the module has its image).
+    fn check_verb_operand(&mut self, e: &Expr) -> GenResult<()> {
+        let line = e.span().line;
+        let base = match e {
+            Expr::RefMod { base, .. } => base.as_ref(),
+            other => other,
+        };
+        match self.text_side(base) {
+            crate::lower::Side::ClassedAll => self.text_refused(line, &[e]),
+            crate::lower::Side::Group => match self.lookup_direct(base) {
+                Some(i) if self.group_holds_classed(i) => self.text_refused(line, &[e]),
+                _ => Ok(()),
+            },
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether item `i` is, or holds, a national or UTF-8 item.
+    fn group_holds_classed(&self, i: usize) -> bool {
+        let it = &self.layout.items[i];
+        cobolt_wasm_rt::nat::Class::of(&it.fd).is_some() || it.children.iter().any(|&c| self.group_holds_classed(c))
+    }
+
     pub(crate) fn inspect_(&mut self, target: &Expr, spec: &InspectSpec, line: u32) -> GenResult<()> {
-        let t = self.receiver(target)?;
+        // A national or UTF-8 target is inspected by character, with its own reference modification
+        // (the interpreter's, in characters); any other target by byte.
+        let (base_expr, refmod): (&Expr, Option<(&Expr, Option<&Expr>)>) = match target {
+            Expr::RefMod { base, start, length, .. } => (base.as_ref(), Some((start.as_ref(), length.as_deref()))),
+            other => (other, None),
+        };
+        let chars = self.native && self.text_side(base_expr) == crate::lower::Side::Classed && !matches!(base_expr, Expr::Literal(..));
+        let (t, rm) = if chars {
+            let t = self.verb_receiver(base_expr)?;
+            let start = match refmod {
+                Some((s, _)) => self.operand_or_temp(s)?,
+                None => 0,
+            };
+            let len = match refmod {
+                Some((_, Some(l))) => self.operand_or_temp(l)?,
+                _ => 0,
+            };
+            (t, (start, len))
+        } else {
+            (self.verb_receiver(target)?, (0, 0))
+        };
         // (kind, counter, pattern, by, before, after)
         let mut ops: Vec<[u32; 6]> = Vec::new();
         let mut tallies = |me: &mut Self, ts: &[TallySpec], ops: &mut Vec<[u32; 6]>| -> GenResult<()> {
@@ -304,9 +374,9 @@ impl Lower<'_, '_> {
                     let (before, after) = me.region(region)?;
                     let (k, pat) = match kind {
                         TallyFor::Characters => (0, 0),
-                        TallyFor::All(e) => (1, me.operand_or_temp(e)?),
-                        TallyFor::Leading(e) => (2, me.operand_or_temp(e)?),
-                        TallyFor::Trailing(e) => (3, me.operand_or_temp(e)?),
+                        TallyFor::All(e) => (1, me.verb_operand(e)?),
+                        TallyFor::Leading(e) => (2, me.verb_operand(e)?),
+                        TallyFor::Trailing(e) => (3, me.verb_operand(e)?),
                     };
                     ops.push([k, counter, pat, 0, before, after]);
                 }
@@ -316,13 +386,13 @@ impl Lower<'_, '_> {
         let replaces = |me: &mut Self, rs: &[ReplaceSpec], ops: &mut Vec<[u32; 6]>| -> GenResult<()> {
             for r in rs {
                 let (before, after) = me.region(&r.region)?;
-                let by = me.operand_or_temp(&r.by)?;
+                let by = me.verb_operand(&r.by)?;
                 let (k, pat) = match &r.what {
                     ReplaceWhat::Characters => (4, 0),
-                    ReplaceWhat::All(e) => (5, me.operand_or_temp(e)?),
-                    ReplaceWhat::Leading(e) => (6, me.operand_or_temp(e)?),
-                    ReplaceWhat::Trailing(e) => (7, me.operand_or_temp(e)?),
-                    ReplaceWhat::First(e) => (8, me.operand_or_temp(e)?),
+                    ReplaceWhat::All(e) => (5, me.verb_operand(e)?),
+                    ReplaceWhat::Leading(e) => (6, me.verb_operand(e)?),
+                    ReplaceWhat::Trailing(e) => (7, me.verb_operand(e)?),
+                    ReplaceWhat::First(e) => (8, me.verb_operand(e)?),
                 };
                 ops.push([k, 0, pat, by, before, after]);
             }
@@ -336,12 +406,12 @@ impl Lower<'_, '_> {
                 replaces(self, rs, &mut ops)?;
             }
             InspectSpec::Converting { from, to } => {
-                let (f, t2) = (self.operand_or_temp(from)?, self.operand_or_temp(to)?);
+                let (f, t2) = (self.verb_operand(from)?, self.verb_operand(to)?);
                 ops.push([9, 0, f, t2, 0, 0]);
             }
             InspectSpec::ConvertingIn { from, to, region } => {
                 let (before, after) = self.region(region)?;
-                let (f, t2) = (self.operand_or_temp(from)?, self.operand_or_temp(to)?);
+                let (f, t2) = (self.verb_operand(from)?, self.verb_operand(to)?);
                 ops.push([9, 0, f, t2, before, after]);
             }
         }
@@ -356,7 +426,13 @@ impl Lower<'_, '_> {
         self.base();
         self.i32c(t as i32);
         self.i32c(spec_addr as i32);
-        self.call_rt("rt_inspect");
+        if chars {
+            self.i32c(rm.0 as i32);
+            self.i32c(rm.1 as i32);
+            self.call_rt("rt_inspect_text");
+        } else {
+            self.call_rt("rt_inspect");
+        }
         Ok(())
     }
 
@@ -379,8 +455,10 @@ impl Lower<'_, '_> {
             let (k, o) = self.member_receiver(into, line)?;
             (o, Some(k))
         } else {
-            (self.receiver(into)?, None)
+            (self.verb_receiver(into)?, None)
         };
+        // A national or UTF-8 receiver is filled by character (T50a2).
+        let chars = self.native && member_k.is_none() && self.text_side(into) == crate::lower::Side::Classed;
         let ptr = match pointer {
             Some(p) => self.receiver(p)?,
             None => 0,
@@ -392,7 +470,7 @@ impl Lower<'_, '_> {
         // Only the overflow flag could differ (one part fills the receiver to its last place and
         // every later source is empty), so a statement with an OVERFLOW phrase keeps the refusal,
         // as does one whose `super::` reads were asked before it (their temporaries must stay).
-        let splittable = on.is_empty() && not_on.is_empty() && self.super_reads.is_empty();
+        let splittable = on.is_empty() && not_on.is_empty() && self.super_reads.is_empty() && !chars;
         let (ctemp0, temp0) = (self.ctemp_next, self.temp_next);
         let mut part: Vec<u32> = Vec::new();
         let mut part_ptr: Option<u32> = None;
@@ -420,7 +498,7 @@ impl Lower<'_, '_> {
                             None => self.string_pointer(ptr)?,
                         };
                         part_ptr = Some(p);
-                        self.string_part(into_o, p, &part);
+                        self.string_part(into_o, p, &part, chars);
                         self.raw(I::Drop);
                         part.clear();
                         (self.ctemp_next, self.temp_next) = (ctemp0, temp0);
@@ -429,7 +507,7 @@ impl Lower<'_, '_> {
                 }
             }
         }
-        self.string_part(into_o, part_ptr.unwrap_or(ptr), &part);
+        self.string_part(into_o, part_ptr.unwrap_or(ptr), &part, chars);
         if let Some(k) = member_k {
             // The overflow flag stays on the stack below the write-back.
             self.i32c(k as i32);
@@ -441,22 +519,22 @@ impl Lower<'_, '_> {
 
     /// One source of a STRING and its delimiter.
     fn string_source(&mut self, src: &Expr, delim: Option<&Expr>) -> GenResult<(u32, u32)> {
-        let s = self.operand_or_temp(src)?;
+        let s = self.verb_operand(src)?;
         let d = match delim {
-            Some(d) => self.operand_or_temp(d)?,
+            Some(d) => self.verb_operand(d)?,
             None => 0,
         };
         Ok((s, d))
     }
 
     /// `rt_string` of the sources in `pairs` (source, delimiter); it leaves the overflow flag.
-    fn string_part(&mut self, into_o: u32, ptr: u32, pairs: &[u32]) {
+    fn string_part(&mut self, into_o: u32, ptr: u32, pairs: &[u32], chars: bool) {
         let mut words = vec![(pairs.len() / 2) as u32, into_o, ptr];
         words.extend_from_slice(pairs);
         let spec = self.pool.spec(&words);
         self.base();
         self.i32c(spec as i32);
-        self.call_rt("rt_string");
+        self.call_rt(if chars { "rt_string_text" } else { "rt_string" });
     }
 
     /// The pointer of a STRING lowered in parts: the statement's own, or the register, set to 1.
@@ -493,7 +571,9 @@ impl Lower<'_, '_> {
         on: &[Stmt],
         not_on: &[Stmt],
     ) -> GenResult<()> {
-        let src = self.operand_or_temp(from)?;
+        // A national or UTF-8 source is split by character (T50a2); any other by byte.
+        let chars = self.native && self.text_side(from) == crate::lower::Side::Classed;
+        let src = self.verb_operand(from)?;
         let ptr = match pointer {
             Some(p) => self.receiver(p)?,
             None => 0,
@@ -504,13 +584,13 @@ impl Lower<'_, '_> {
         };
         let mut words = vec![all as u32, src, ptr, tally, delimited_by.len() as u32];
         for d in delimited_by {
-            words.push(self.operand_or_temp(d)?);
+            words.push(self.verb_operand(d)?);
         }
         words.push(into.len() as u32);
         for t in into {
-            words.push(self.receiver(&t.target)?);
+            words.push(self.verb_receiver(&t.target)?);
             words.push(match &t.delimiter {
-                Some(d) => self.receiver(d)?,
+                Some(d) => self.verb_receiver(d)?,
                 None => 0,
             });
             words.push(match &t.count {
@@ -521,7 +601,7 @@ impl Lower<'_, '_> {
         let spec = self.pool.spec(&words);
         self.base();
         self.i32c(spec as i32);
-        self.call_rt("rt_unstring");
+        self.call_rt(if chars { "rt_unstring_text" } else { "rt_unstring" });
         self.overflow_tail(on, not_on)
     }
 

@@ -103,6 +103,8 @@ pub enum Text<'a> {
     Fill(char, u32),
     /// UTF-8 text `n` times over (`ALL literal`).
     Repeat(&'a [u8], u32),
+    /// Code points, one per `u32` (what `INSPECT` and `UNSTRING` scan by character, T50a2).
+    Units(&'a [u32]),
 }
 
 impl<'a> Text<'a> {
@@ -120,6 +122,7 @@ impl<'a> Text<'a> {
             },
             Text::Fill(c, n) => Chars::Fill(c, n),
             Text::Repeat(unit, n) => Chars::Repeat { unit, left: n, cur: Lossy::new(unit) },
+            Text::Units(u) => Chars::Units(u.iter()),
         }
     }
 }
@@ -130,6 +133,7 @@ pub enum Chars<'a> {
     Item { inner: Decode<'a>, class: Class, used: u32, cut: bool },
     Fill(char, u32),
     Repeat { unit: &'a [u8], left: u32, cur: Lossy<'a> },
+    Units(core::slice::Iter<'a, u32>),
 }
 
 #[derive(Clone)]
@@ -180,6 +184,7 @@ impl Iterator for Chars<'_> {
                 *n -= 1;
                 Some(*c)
             }
+            Chars::Units(it) => it.next().map(|&u| char::from_u32(u).unwrap_or('\u{FFFD}')),
             Chars::Repeat { unit, left, cur } => loop {
                 if *left == 0 {
                     return None;
@@ -203,7 +208,7 @@ pub struct Lossy<'a> {
 }
 
 impl<'a> Lossy<'a> {
-    fn new(b: &'a [u8]) -> Lossy<'a> {
+    pub fn new(b: &'a [u8]) -> Lossy<'a> {
         Lossy { chunks: b.utf8_chunks(), valid: "".chars(), bad: false }
     }
 }

@@ -721,24 +721,25 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
         check(format!("{what}: MOVE, DISPLAY, IF, INITIALIZE and LENGTH of {n} compile into a desktop module"), r.is_ok());
     }
     // Any other use takes the Cargo path, naming the item and the statement's line.
-    let ws = "01 WS-N PIC N(6).\n01 WS-9 PIC 9(4).\n01 WS-C PIC 9(4).\n";
+    let ws = "01 WS-N PIC N(6).\n01 WS-9 PIC 9(4).\n01 WS-C PIC 9(4).\n01 WS-G.\n   05 WS-GN PIC N(2).\n";
     let uses = [
-        ("    DISPLAY WS-N(1:2)\n", "WS-N(1:2)", "a reference modification"),
-        ("    INSPECT WS-N TALLYING WS-C FOR ALL \"a\"\n", "INSPECT", "INSPECT"),
-        ("    STRING WS-N DELIMITED BY SIZE INTO WS-X\n", "STRING", "STRING"),
-        ("    MOVE 5 TO WS-N\n", "MOVE 5", "a number moved into it"),
-        ("    MOVE WS-N TO WS-9\n", "TO WS-9", "it moved into a number"),
-        ("    MOVE FUNCTION ABS(WS-N) TO WS-9\n", "ABS", "a function that reads a number"),
-        ("    MOVE FUNCTION UPPER-CASE(WS-N(1:2)) TO WS-X\n", "UPPER-CASE", "a reference-modified function argument"),
-        ("    IF WS-N = ZERO DISPLAY \"z\" END-IF\n", "ZERO", "a comparison with ZERO"),
+        ("    DISPLAY WS-N(1:2)\n", "WS-N(1:2)", "a reference modification", "WS-N"),
+        ("    STRING WS-N(1:2) DELIMITED BY SIZE INTO WS-X\n", "STRING", "a reference-modified STRING sender", "WS-N"),
+        ("    UNSTRING WS-N(2:3) DELIMITED BY \"a\" INTO WS-X\n", "UNSTRING", "a reference-modified UNSTRING source", "WS-N"),
+        ("    INSPECT WS-G TALLYING WS-C FOR ALL \"a\"\n", "INSPECT", "INSPECT over a group that holds a national item", "WS-G"),
+        ("    MOVE 5 TO WS-N\n", "MOVE 5", "a number moved into it", "WS-N"),
+        ("    MOVE WS-N TO WS-9\n", "TO WS-9", "it moved into a number", "WS-N"),
+        ("    MOVE FUNCTION ABS(WS-N) TO WS-9\n", "ABS", "a function that reads a number", "WS-N"),
+        ("    MOVE FUNCTION UPPER-CASE(WS-N(1:2)) TO WS-X\n", "UPPER-CASE", "a reference-modified function argument", "WS-N"),
+        ("    IF WS-N = ZERO DISPLAY \"z\" END-IF\n", "ZERO", "a comparison with ZERO", "WS-N"),
     ];
-    for (stmt, needle, what) in uses {
+    for (stmt, needle, what, item) in uses {
         let src = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n{ws}PROCEDURE DIVISION.\n{stmt}    STOP RUN.\n");
         let line = line_of(&src, needle);
         let e = refusal(&src);
         check(
-            format!("{what}: \"WS-N\" refused at line {line}, unit T16G, the Cargo path, M6"),
-            e.subject == "WS-N" && e.line == line && e.program == "T16G" && e.message.contains("Cargo path") && e.message.contains("M6"),
+            format!("{what}: \"{item}\" refused at line {line}, unit T16G, the Cargo path, M6"),
+            e.subject == item && e.line == line && e.program == "T16G" && e.message.contains("Cargo path") && e.message.contains("M6"),
         );
     }
     // A function that reads its argument's text takes national and UTF-8 data (T50a1); a browser
@@ -751,10 +752,13 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
         ("    MOVE FUNCTION DISPLAY-OF(WS-N, 1252) TO WS-X\n", "DISPLAY-OF"),
         ("    MOVE FUNCTION NATIONAL-OF(WS-X, \"ISO-8859-1\") TO WS-N\n", "NATIONAL-OF"),
         ("    MOVE FUNCTION TRIM(WS-N) TO WS-X\n    MOVE FUNCTION REVERSE(WS-N) TO WS-X\n    MOVE FUNCTION NUMVAL(WS-N) TO WS-9\n", "TRIM, REVERSE and NUMVAL"),
+        ("    STRING WS-X DELIMITED BY SIZE WS-N DELIMITED BY SPACE INTO WS-N WITH POINTER WS-9\n", "STRING by character"),
+        ("    UNSTRING WS-N DELIMITED BY ALL SPACE INTO WS-X WS-N COUNT IN WS-9 TALLYING IN WS-C\n", "UNSTRING by character"),
+        ("    INSPECT WS-N(2:3) TALLYING WS-C FOR ALL \"a\" REPLACING FIRST \"b\" BY \"c\"\n    INSPECT WS-N CONVERTING \"ab\" TO \"AB\"\n", "INSPECT by character"),
     ];
     for (stmt, what) in served {
         let src = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n{ws}PROCEDURE DIVISION.\n{stmt}    STOP RUN.\n");
-        check(format!("{what} of WS-N compiles into a desktop module (T50a1)"), compile_program(&common::parse(&src), &native()).is_ok());
+        check(format!("{what} of WS-N compiles into a desktop module (T50a1, T50a2)"), compile_program(&common::parse(&src), &native()).is_ok());
     }
     let browser_fn = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n01 WS-9 PIC 9(4).\nPROCEDURE DIVISION.\n    MOVE FUNCTION ULENGTH(WS-X) TO WS-9\n    STOP RUN.\n");
     check(
@@ -779,7 +783,7 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
         compile_program(&common::parse(&page), &Options::default()).is_ok(),
     );
     let took = t.elapsed().as_secs_f64() * 1000.0;
-    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44, T50a1) ==");
+    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44, T50a1, T50a2) ==");
     println!(
         "programs compiled: {} ({} desktop modules accepted, {} refused, 2 browser modules) in {took:.1} ms",
         kept.len() + served.len() + uses.len() + 4,
