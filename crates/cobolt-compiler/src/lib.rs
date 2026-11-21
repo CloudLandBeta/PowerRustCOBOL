@@ -14361,6 +14361,7 @@ function_prefix = "sales-"
         panel.children.push(ctl("TXT-NAME", T::TextBox));
         // Served since T39c: the IndexedFile control, whose paragraphs use the file verbs.
         let served = form("MAIN", vec![ctl("BTN-GO", T::Button), ctl("LBL-HELLO", T::Label), panel.clone(), ctl("GRD-ROWS", T::DataGrid), ctl("IXF-ORDERS", T::IndexedFile)]);
+        // Served since T50: the Viewer, whose documents, conversation and verbs the runner carries out.
         let mut nested = panel.clone();
         nested.children.push(ctl("VWR-NOTES", T::Viewer));
         let with_viewer = form("MAIN", vec![ctl("BTN-GO", T::Button), nested]);
@@ -14424,18 +14425,18 @@ function_prefix = "sales-"
             matches!(r, Some(CargoReason::DesktopControl { form, file: fl, control, control_type, reason })
                 if form == f && fl == file && control == c && control_type == ty && reason.contains(milestone))
         };
-        let text = nested_viewer.as_ref().map(|r| r.to_string()).unwrap_or_default();
+        let text = service.as_ref().map(|r| r.to_string()).unwrap_or_default();
         let checks = [
             ("Button, Label, Panel + TextBox, DataGrid: none", none.is_none()),
-            ("a Viewer inside a Panel: MAIN, forms/main.cfrm, VWR-NOTES, Viewer, M6", is(&nested_viewer, "MAIN", "forms/main.cfrm", "VWR-NOTES", "Viewer", "(DESKTOP-WASM-001 M6)")),
-            ("the message names the file, the form and the control", text.contains("forms/main.cfrm") && text.contains("MAIN") && text.contains("VWR-NOTES (Viewer)")),
+            ("a Viewer inside a Panel: none (T50)", nested_viewer.is_none()),
             ("a Maps inside a Panel: none (T48)", map.is_none()),
-            ("a Viewer on the second form: ORDERS, forms/orders.cfrm, VWR-DOC, M6", is(&viewer, "ORDERS", "forms/orders.cfrm", "VWR-DOC", "Viewer", "(DESKTOP-WASM-001 M6)")),
+            ("a Viewer on the second form: none (T50)", viewer.is_none()),
             ("a Canvas2D and a Canvas3D: none (T50)", canvas.is_none()),
             ("an AwsS3 and an AwsLambda: none (T48)", aws.is_none()),
             ("a WebSearch: none (T47a)", web.is_none()),
             ("a WebSearch that names a data item: FINDINTO, forms/findinto.cfrm, WEB-2, the data items", is(&web_named, "FINDINTO", "forms/findinto.cfrm", "WEB-2", "WebSearch", "names the program's data items")),
             ("a KnowledgeBase and an AgentObject pass, the sign-in control beside them: ASK, forms/ask.cfrm, AUTH-1, M6", is(&service, "ASK", "forms/ask.cfrm", "AUTH-1", "Authentication", "M6)")),
+            ("the message names the file, the form and the control", text.contains("forms/ask.cfrm") && text.contains("ASK") && text.contains("AUTH-1 (Authentication)")),
             ("an AgentObject that names a data item: ASKINTO, forms/askinto.cfrm, AGT-2, the data item", is(&agent_into, "ASKINTO", "forms/askinto.cfrm", "AGT-2", "AgentObject", "names the program's data item (ResponseDataItem)")),
             ("a KnowledgeBase inside a Panel: none (T47b)", kb.is_none()),
             ("[rag] embedder = builtin: DOCS, forms/docs.cfrm, KB-DOCS, the semantic model", is(&semantic, "DOCS", "forms/docs.cfrm", "KB-DOCS", "KnowledgeBase", "built-in semantic model")),
@@ -14444,7 +14445,7 @@ function_prefix = "sales-"
         ];
         println!("== desktop_controls_the_runner_lacks_are_named (DESKTOP-WASM-001 T33, T47a, T47b, T47c, T48, T50, R13) ==");
         println!("forms: 12 designs, 29 controls (6 nested), 1 binding; 15 checks of the forms in {:.3} ms", took.as_secs_f64() * 1000.0);
-        println!("  a Viewer inside a Panel: {text}");
+        println!("  the sign-in control: {text}");
         let passed = checks.iter().filter(|(_, ok)| *ok).count();
         for (what, ok) in &checks {
             println!("  {} {what}", if *ok { "pass" } else { "FAIL" });

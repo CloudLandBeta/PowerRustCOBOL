@@ -24,6 +24,8 @@
 //! 7. T49's, `sounds`: each sound verb, with what `AUDIO-STATE` reads after it, on the null output.
 //! 8. T50's, `graphics`: a canvas drawn and read back, an image drawn onto it, a physics world, a chart, refused
 //!    calls, and `onFrame` with AutoPresent on and off.
+//! 9. T50's, `window methods`: `SetFullScreen` and `FormState` through a handle in a form with its own
+//!    window, and the methods a form embedded in the ContentPane refuses.
 //!
 //! Each runs the same script headless twice, under the same pinned clock and seed: under
 //! `rcrun run-form` (the interpreter), and in the program `rcrun build` makes on the WebAssembly
@@ -1834,6 +1836,122 @@ fn canvases_and_graphics_objects_draw_and_answer_alike() {
     tally.finish(
         "canvases_and_graphics_objects_draw_and_answer_alike",
         "a Canvas2D drawn (rectangles, text, Present) and read back (GetPixel, MeasureText); an ImageBuffer made and drawn onto it by handle; a Physics2D world stepped and read; a Plot series, drawn onto the canvas by its handle between the canvas's Clear and Present; drawing before and after a gradient whose colour stops go to the host as a call; a refused drawing call and a refused read-back (LastError); two canvases drawing in onFrame at TargetFps 10, AutoPresent on and off",
+        &root,
+        build_ms,
+    );
+}
+
+// ── 9. window methods (T50) ──────────────────────────────────────────────────────────────────────
+
+/// A form's window methods reach the window supervisor from a built program as from the interpreter:
+/// `SetFullScreen` on and off, then the handler goes on; `GetFormState()`, asked through the handle a
+/// second open of the main form answers (the main form is one window, spec 037 R10), is `Ready`,
+/// `Waiting` once the program writes it, and `Ready` again (037 R16, R23). The property read
+/// `WS-SELF::FormState` is left out: the interpreter refuses it as a data item's member.
+#[test]
+fn full_screen_and_form_state_are_the_supervisors_alike() {
+    let root = root("window-methods");
+    let mut main = Form::new("MAIN-FORM", "Window", 640, 400);
+    main.main_form = true;
+    main.user_ws_source = "       01 WS-SELF         USAGE OBJECT GLOBAL.\n".to_owned();
+    control(&mut main, "LBL-FULL", ControlType::Label, (20, 20, 400, 24), Some("-"));
+    control(&mut main, "LBL-ASKED", ControlType::Label, (20, 56, 400, 24), Some("-"));
+    button(&mut main, "BTN-FULL", (20, 140), &["INVOKE ME::SetFullScreen( 1 )", "INVOKE ME::SetFullScreen( 0 )", "MOVE \"went on\" TO LBL-FULL::Caption"]);
+    button(&mut main, "BTN-SELF", (20, 180), &["INVOKE ME::OpenFormAsync( \"MAIN-FORM\" ) RETURNING WS-SELF"]);
+    button(&mut main, "BTN-WAIT", (20, 220), &["MOVE \"Waiting\" TO me::FormState"]);
+    button(&mut main, "BTN-READY", (20, 260), &["MOVE \"Ready\" TO me::FormState"]);
+    button(&mut main, "BTN-READ", (20, 300), &["INVOKE WS-SELF::GetFormState() RETURNING LBL-ASKED::Caption"]);
+    let manifest = project(&root, "WindowMethods", &[("main-form", main)], &[]);
+    let read_state = |steps: &mut Vec<Value>| {
+        steps.extend([click("BTN-READ"), wait(300), read("LBL-ASKED", "Caption")]);
+    };
+    let mut steps = vec![wait(600), click("BTN-FULL"), wait(300), read("LBL-FULL", "Caption"), click("BTN-SELF"), wait(600)];
+    read_state(&mut steps);
+    steps.extend([click("BTN-WAIT"), wait(400)]);
+    read_state(&mut steps);
+    steps.extend([dump(), shot("waiting"), click("BTN-READY"), wait(400)]);
+    read_state(&mut steps);
+    steps.extend([dump(), shot("ready")]);
+    let steps = script(&root, "steps", steps);
+    let (exe, build_ms) = build(&root, &manifest);
+    let home = root.join("home");
+    let a = interpreter(&root, "main-form", &steps, &home);
+    let b = runner(&root, &exe, &steps, &home);
+    let mut tally = Tally::default();
+    tally.compare("window-methods", &a, &b, &["waiting", "ready"]);
+    tally.check(
+        "the runner's program: the handler went on after SetFullScreen; GetFormState() through the handle Ready, Waiting, Ready",
+        readings(&b.report) == ["went on", "Ready", "Waiting", "Ready"],
+    );
+    tally.finish(
+        "full_screen_and_form_state_are_the_supervisors_alike",
+        "one form: ME::SetFullScreen( 1 ) and ( 0 ); OpenFormAsync of the running main form RETURNING its handle; GetFormState() asked through it before any write, after MOVE \"Waiting\" TO me::FormState and after MOVE \"Ready\"",
+        &root,
+        build_ms,
+    );
+}
+
+/// A form embedded in the shell's ContentPane has no window of its own (spec 051): `SetFullScreen`
+/// and `SetTitleVisible` are its unhandled exception, in the interpreter's words, and the handler
+/// stops there; `SetBreadcrumbDetail` is the embedded form's own, and the breadcrumb shows it.
+#[test]
+fn an_embedded_form_refuses_the_window_methods_alike() {
+    let tag = "embedded-window";
+    let root = root(tag);
+    let mut f = Form::new("EMB-FORM", "Embedded", 640, 480);
+    f.form_format = FormFormat::Both;
+    control(&mut f, "LBL-CAUGHT", ControlType::Label, (20, 20, 600, 24), Some("-"));
+    control(&mut f, "LBL-AFTER", ControlType::Label, (20, 56, 400, 24), Some("-"));
+    bind(&mut f, "EMB-FORM", "onUnhandledException", &["MOVE me::LastException TO LBL-CAUGHT::Caption"]);
+    button(&mut f, "BTN-FULL", (20, 100), &["INVOKE ME::SetFullScreen( 1 )", "MOVE \"went on\" TO LBL-AFTER::Caption"]);
+    button(&mut f, "BTN-CRUMB", (20, 140), &["INVOKE ME::SetBreadcrumbDetail( \"Details\" )", "MOVE \"crumb\" TO LBL-AFTER::Caption"]);
+    button(&mut f, "BTN-TITLE", (20, 180), &["INVOKE ME::SetTitleVisible( 0 )", "MOVE \"went on again\" TO LBL-AFTER::Caption"]);
+    let (shell, menu) = borrowed_shell();
+    let manifest = project(&root, "EmbeddedWindow", &[("emb-form", f), ("aws-shell", shell)], &[]);
+    fs::copy(menu, root.join("forms/SideMenu-1.menu.yaml")).unwrap();
+    let steps = script(
+        &root,
+        "steps",
+        vec![
+            json!({"open_form": "emb-form"}),
+            wait(500),
+            click("BTN-FULL"),
+            wait(400),
+            read("LBL-CAUGHT", "Caption"),
+            read("LBL-AFTER", "Caption"),
+            dump(),
+            shot("full"),
+            click("BTN-CRUMB"),
+            wait(400),
+            read("LBL-AFTER", "Caption"),
+            dump(),
+            shot("crumb"),
+            click("BTN-TITLE"),
+            wait(400),
+            read("LBL-CAUGHT", "Caption"),
+            read("LBL-AFTER", "Caption"),
+            dump(),
+            shot("title"),
+        ],
+    );
+    let (exe, build_ms) = build(&root, &manifest);
+    let home = root.join("home");
+    let a = interpreter(&root, "aws-shell", &steps, &home);
+    let b = runner(&root, &exe, &steps, &home);
+    let mut tally = Tally::default();
+    tally.compare(tag, &a, &b, &["full", "crumb", "title"]);
+    let got = readings(&b.report);
+    // The handle is the supervisor's for the form in the pane, the same under both engines.
+    let handle = got.first().and_then(|r| r.strip_prefix("the form under ")).and_then(|r| r.split(' ').next()).unwrap_or("?").to_owned();
+    tally.lines.push(format!("    the embedded form's handle: {handle}"));
+    let words = |m: &str| cobolt_forms::exceptions::window_method_needs_a_window(&handle, m);
+    tally.check(
+        "the runner's program: SetFullScreen refused and the handler stopped; SetBreadcrumbDetail kept; SetTitleVisible refused and the handler stopped",
+        got == [words("SETFULLSCREEN"), "-".into(), "crumb".into(), words("SETTITLEVISIBLE"), "crumb".into()],
+    );
+    tally.finish(
+        "an_embedded_form_refuses_the_window_methods_alike",
+        "a form in the shell's ContentPane: ME::SetFullScreen( 1 ) and ME::SetTitleVisible( 0 ) refused (onUnhandledException reads LastException), ME::SetBreadcrumbDetail( \"Details\" ) kept",
         &root,
         build_ms,
     );

@@ -5517,6 +5517,7 @@ impl FormHost {
                 pending: Arc::clone(&pending),
                 finished: Arc::clone(&finished),
                 super_handle,
+                embedded: self.supervisor.is_embedded(handle),
                 seed,
                 designed_menus,
                 debug: debug_wiring,

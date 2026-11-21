@@ -200,6 +200,7 @@ pub(crate) fn run(
         pending: Arc::clone(&pending),
         finished: Arc::clone(&finished),
         super_handle: None,
+        embedded: false,
         seed: Vec::new(),
         // The main form's SideMenus' designed rows, from the menus registered above, as the form
         // host hands every other form's (spec 066).

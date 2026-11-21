@@ -2,6 +2,42 @@
 
 
 
+## 2.0.632 — 2026-11-21
+
+**Feature: the Viewer and the window methods run in a desktop WebAssembly module, which closes the Viewer, window-method and canvas task (DESKTOP-WASM-001 T50).** A desktop form with a Viewer no longer takes the Cargo path. The built program loads its documents, writes its conversation, finds in it, saves, prints and shares it by the interpreter's own rules. A form's window methods behave as under Run Form.
+
+- **The Viewer** (ABI A58, capability `viewer`, no new import):
+  - its methods, a program's `SetProperty` on it, a write to one of its members and what the window sends back (the toolbar's Save As, print and share, the find bar) go to the runner, which applies the interpreter's rules. A source written starts a load (`Progress`, then `onLoaded` or `onError`), and a load that fails puts back the document still on screen;
+  - `LoadBytes` and the conversation's methods (`AppendMarkdown`, `AppendHtml`, `AppendRaw`, `AppendToMessage`, `ReplaceMessage`) send their text as written, spaces kept, as the interpreter passes it. The generator used to trim it, and the twin caught a lost space before an emphasis;
+  - when the runner writes a property while the program's own write of it has not reached the window yet, the window still shows the program's value in its turn, and the program reads the runner's;
+  - the runner links the runtime's `pdf` and `office` features, so it opens the documents Run Form opens.
+- **The window methods:**
+  - `SetFullScreen` goes to the window supervisor, as `SetWindowState`, `Focus`, `SetFocus`, `SetTitleVisible` and the breadcrumb's methods already did; the built program used to drop it;
+  - `GetFormState` and `FormState` answer `Ready`, or `Waiting` while the program has written `Waiting` to the form's `FormState`, as the supervisor answers; they used to answer `Normal`;
+  - a form embedded in the ContentPane refuses `SetFullScreen`, `SetTitleVisible`, `SetWindowState`, `Focus` and `SetFocus` in the interpreter's words, and the handler stops there, as under Run Form. Its breadcrumb methods still work.
+  - A browser module is unchanged.
+- **One implementation of each rule:** the interpreter's Viewer rules moved, unchanged in behaviour, into `cobolt_runtime::viewer_door`, which the interpreter and the runner both call. The embedded refusal's words and its list of methods are `cobolt_forms::exceptions::window_method_needs_a_window` and `WINDOW_ONLY_METHODS`, which the interpreter's supervisor uses too.
+- **Where:**
+  - `cobolt-runtime`: `viewer_door.rs` (new), `interpreter.rs`, `lib.rs`, `form_host.rs` (`is_embedded`).
+  - `cobolt-abi-host`: `host/viewer.rs` and `host/viewer_tests.rs` (new), `host/window_tests.rs` (new), `host.rs`, `methods.rs`, `tree.rs` (`put_quiet`).
+  - `cobolt-runner`: `viewer.rs` (new), `forms.rs`, `app.rs`, `lib.rs`, `Cargo.toml`.
+  - `cobolt-form-host`: `engine.rs` (`ProgramRun::embedded`), `host.rs`. `cobolt-forms`: `exceptions.rs`.
+  - `cobolt-wasm-abi`: `codes.rs`. `cobolt-wasm`: `support.rs`, `lower.rs`, `lower_form.rs`, `module.rs`, `tests/native_desktop_refusals.rs`, `tests/subset_table.rs`.
+  - `cobolt-compiler`: `lib.rs` (its test), `tests/desktop_wasm_build.rs` (its example of a control the runner lacks is now the sign-in control). `cobolt-cli`: `tests/runner_viewer_form.rs` (new), `tests/runner_shell_hosts.rs`.
+  - `specs/WASM-ABI-v1.md` (A58); the web player rebuilt; the System KB rebuilt; `tasks.md` (T50 done); `specs/WASM-PROGRESS.md`.
+- **Found, and queued as fixes** (not changed here):
+  - Run Form refuses `H::FormState`, the property read through a windowHandler, as a data item's member. `INVOKE H::GetFormState()` works there. The built program answers both.
+  - Run Form's supervisor follows only the main window's `FormState`, so `GetFormState()` through a child window's handle answers `Ready` even while that form is `Waiting`. The built program answers from the form's own `FormState`.
+  - Markdown documents do not open on either engine ("Markdown rendering is not yet available").
+- **Measured** (macOS arm64):
+  - the runner twin `the_viewer_agrees_on_both_engines` (`cobolt-cli` `runner_viewer_form`, new): three Viewers, with a streamed conversation, a document loaded, zoomed and failing to load, the find bar, bytes saved, a PDF saved, a print with nothing to print, and Save As answered and cancelled. Dumps equal, 8 pictures with 0 of 3,222,400 pixels differing, every dialog answer taken, 33 of 33 checks;
+  - the runner twins `full_screen_and_form_state_are_the_supervisors_alike` (2 pictures, 0 of 512,000 pixels differing, 7 of 7) and `an_embedded_form_refuses_the_window_methods_alike` (3 pictures, 0 of 1,620,000 differing, 9 of 9). The file's 18 twins pass 173 of 173 checks, 42 pictures with 0 of 15,458,320 pixels differing;
+  - the ABI host's three new tests (18 of 18, 3 of 3, 20 of 20) and the crate 288 of 288; `native_desktop_refusals` 59 of 59 and 13 of 13; `cobolt-wasm` 148 of 148; `desktop_wasm_build` 39 of 39;
+  - the interpreter's tests named `viewer` 25 of 25 and `form_host` 14 of 14; `cobolt-form-host` 193 of 193; `cobolt-forms --features render` 1,882 passed (2 ignored);
+  - the whole `cobolt-runner` suite 22 passed (the 2 live MySQL tests ignored), 757 s; the runner twins `runner_one_form` 15 of 15, `runner_surfaces` 6 of 6, `runner_motion_form` 24 of 24;
+  - `desktop_wasm_unchanged` 3 of 3 artefacts match the pin; the player's `freshness` 6 of 6; `prebuilt_chunked_kb_matches_the_published_documentation` green.
+- **Not measured:** a full-screen window. The headless form host has no window to make full screen, so the twin checks that the handler goes on and that the pictures agree.
+
 ## 2.0.631 — 2026-11-21
 
 **Feature: animation sequences and layout scripts run in a desktop WebAssembly module, which closes the sound, animation sequence and layout task (DESKTOP-WASM-001 T49).** A desktop form whose handlers call `COBOL::"ANIMATIONSEQUENCE"` or `COBOL::"LAYOUT"` no longer takes the Cargo path. The built program keeps each form's sequences and fires their entries by the interpreter's own rules, and installs a container's layout script as the interpreter does.

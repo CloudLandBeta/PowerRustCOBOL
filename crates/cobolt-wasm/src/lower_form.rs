@@ -407,9 +407,23 @@ impl Lower<'_, '_> {
     /// path and add each segment with its arguments.
     fn build_path(&mut self, ctrl: u32, segs: &[Seg<'_>]) -> GenResult<()> {
         let mut arg_opds = self.path_args(segs)?;
-        let whole = if self.partiql_args(ctrl, segs, &mut arg_opds)? { Whole::All } else { self.agent_file_args(ctrl, segs, &mut arg_opds)?.into() };
+        let whole = if self.partiql_args(ctrl, segs, &mut arg_opds)? || self.viewer_text_args(ctrl, segs) {
+            Whole::All
+        } else {
+            self.agent_file_args(ctrl, segs, &mut arg_opds)?.into()
+        };
         self.emit_path_keeping(ctrl, segs, arg_opds, whole);
         Ok(())
+    }
+
+    /// A Viewer's member whose text is its content, in a desktop module (DESKTOP-WASM-001 T50): its
+    /// arguments go with every character, as the interpreter hands them to the Viewer's rules, which
+    /// trim the ones that are not content ([`crate::support::VIEWER_TEXT_MEMBERS`]).
+    fn viewer_text_args(&self, ctrl: u32, segs: &[Seg<'_>]) -> bool {
+        self.native
+            && segs.len() == 1
+            && self.form.as_ref().is_some_and(|f| f.viewers.contains(&ctrl))
+            && crate::support::VIEWER_TEXT_MEMBERS.iter().any(|m| m.eq_ignore_ascii_case(segs[0].name.trim()))
     }
 
     /// The PartiQL methods of an IndexedFile in a desktop module (DESKTOP-WASM-001 T48, ABI A55)

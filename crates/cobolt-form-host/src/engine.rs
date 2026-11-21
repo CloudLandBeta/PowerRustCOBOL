@@ -57,6 +57,8 @@ pub struct ProgramRun {
     pub finished: Arc<AtomicBool>,
     /// The handle of the form that opened this one, which `super::` names (049 R28).
     pub super_handle: Option<String>,
+    /// The form is embedded in a ContentPane: it has no window of its own (spec 051).
+    pub embedded: bool,
     /// The form's objects, seeded before the program starts: `(control, kind, properties)`.
     pub seed: Vec<(String, String, Vec<(String, String)>)>,
     /// The SideMenus' designed rows, which the program may not edit (spec 066).
@@ -116,6 +118,7 @@ impl InterpreterEngine {
                 pending,
                 finished,
                 super_handle,
+                embedded: _,
                 seed,
                 designed_menus,
                 debug,

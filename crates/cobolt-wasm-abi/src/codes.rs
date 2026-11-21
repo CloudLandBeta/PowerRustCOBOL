@@ -230,6 +230,9 @@ pub mod cap {
     /// `COBOL::"LAYOUT" ( action container [script] )`: a container's layout script installed as breakpoint
     /// overrides, which the runner reads by the interpreter's own rules and hands to the form host (A57).
     pub const LAYOUTS: &str = "layouts";
+    /// The desktop's Viewer: its documents loaded, its conversation written, found in, saved, printed
+    /// and shared, and the window's answers carried out, by the interpreter's own rules (A58).
+    pub const VIEWER: &str = "viewer";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
@@ -258,6 +261,7 @@ pub mod cap {
         PARTIQL_FILES,
         SEQUENCES,
         LAYOUTS,
+        VIEWER,
     ];
 }
 

@@ -463,6 +463,8 @@ impl Thread {
         // control and the program's verbs share a file as under the interpreter.
         let store_files = std::rc::Rc::new(std::cell::RefCell::new(crate::files::Files::new(files)));
         host.partiql = Some(Box::new(crate::partiql::Port::new(store_files.clone())));
+        // The Viewers (T50): their documents, conversations, saves and hand-offs, by the interpreter's own rules.
+        host.viewer = Some(Box::new(crate::viewer::Viewers::default()));
         // The canvases and the graphics objects (T50).
         let graphics = crate::gfx::install(&mut host);
         // A form the Build has no program for is designed but not in the manifest: it cannot open.
@@ -556,7 +558,7 @@ impl Thread {
             };
             match msg {
                 Some(ToProgram::Open { form, run }) => {
-                    let ProgramRun { handle, form_object, events, state, display, input, pending, finished, requests, super_handle, designed_menus, .. } = *run;
+                    let ProgramRun { handle, form_object, events, state, display, input, pending, finished, requests, super_handle, embedded, designed_menus, .. } = *run;
                     let Some(entry) = d.host().manifest.form_by_name(&form).map(|e| e.id as usize) else {
                         let _ = display.send(format!("Runtime error: the form {form} has no program in this application"));
                         finished.store(true, Ordering::Relaxed);
@@ -590,6 +592,9 @@ impl Thread {
                     if let Some(at) = adopting.iter().position(|(f, _)| *f == entry) {
                         let (_, handle) = adopting.remove(at).expect("a position in the queue");
                         if d.host().open_held(&handle) {
+                            // The instance about to open is in this window: its `onLoad` runs inside the
+                            // open, so the host is told before the open is carried out (T50).
+                            d.host().name_window(entry, &links[id].handle, embedded);
                             opening.push_back(id);
                         } else {
                             // Nothing waits for it any more: the window goes too.
@@ -600,6 +605,7 @@ impl Thread {
                         }
                     } else {
                         opening.push_back(id);
+                        d.host().name_window(entry, &links[id].handle, embedded);
                         // The first instance of the main form is the run's root, as the page opens it.
                         let main = d.host().manifest.main_form().id as usize;
                         if entry == main && !root_opened {
@@ -723,9 +729,14 @@ fn take(d: &mut Driver, l: &Link, ev: FormEvent) -> Option<(u32, usize)> {
     l.taken();
     let inst = l.inst?;
     let edits: Vec<StateUpdate> = l.input.try_iter().collect();
+    // A Viewer's toolbar asks and the operating system's answers (T50), carried out once every write is in.
+    let mut viewer_inputs = Vec::new();
     for u in edits {
         if let Some(ctl) = control_index(d.host(), inst, &l.object, &u.ctrl_id) {
             d.host().ui_set(inst, ctl, &u.prop, &u.value);
+            if let Some(rank) = cobolt_runtime::viewer_door::input_rank(&u.prop) {
+                viewer_inputs.push((rank, ctl, u.prop, u.value));
+            }
         } else {
             // A control the form does not hold (a FileDropZone's review list that is not there): kept,
             // as the interpreter keeps it (T39c).
@@ -733,6 +744,11 @@ fn take(d: &mut Driver, l: &Link, ev: FormEvent) -> Option<(u32, usize)> {
         }
     }
     let _ = d.host().take_changes();
+    // In the interpreter's order: the Save As asks, its answers, the Print and Share asks, their answers.
+    viewer_inputs.sort_by_key(|(rank, ..)| *rank);
+    for (_, ctl, prop, value) in viewer_inputs {
+        d.host().viewer_input(inst, ctl, &prop, &value);
+    }
     if ev.event_id == FormSupervisor::INPUT_WAKE_EVENT {
         return None;
     }
@@ -1082,4 +1098,4 @@ fn sequence_clock() -> u64 {
 
 /// The window methods the ABI host keeps as commands of the form (`me::`), sent to the supervisor
 /// as the interpreter sends them.
-const WINDOW_METHODS: &[&str] = &["setwindowstate", "focus", "setfocus", "settitlevisible", "setbreadcrumbdetail", "clearbreadcrumbdetail"];
+const WINDOW_METHODS: &[&str] = &["setwindowstate", "setfullscreen", "focus", "setfocus", "settitlevisible", "setbreadcrumbdetail", "clearbreadcrumbdetail"];

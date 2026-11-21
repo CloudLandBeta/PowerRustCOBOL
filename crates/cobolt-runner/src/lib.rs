@@ -44,6 +44,7 @@ pub mod messages;
 pub mod pins;
 mod partiql;
 mod sql;
+mod viewer;
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -88,6 +89,7 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::PARTIQL_FILES,
     cap::SEQUENCES,
     cap::LAYOUTS,
+    cap::VIEWER,
 ];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row

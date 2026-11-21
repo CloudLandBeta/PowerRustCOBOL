@@ -445,6 +445,14 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     check(format!("COBOL::\"ANIMATIONSEQUENCE\" in a form's handler compiles, requiring {:?}", pcaps(&seq)), seq.is_ok() && pcaps(&seq).iter().any(|c| c == "sequences"));
     let lay = form_of(&handler("    COBOL::\"LAYOUT\" ( \"Apply\" \"BTN-1\" \"GAP 6\" )\n"), &button, &native());
     check(format!("COBOL::\"LAYOUT\" in a form's handler compiles, requiring {:?}", pcaps(&lay)), lay.is_ok() && pcaps(&lay).iter().any(|c| c == "layouts"));
+    // A Viewer (T50, A58): its documents, conversation and verbs are the runner's, so a desktop module
+    // with one requires `viewer`; the same form for a browser requires nothing.
+    let viewer = [("BTN-1", "Button"), ("VWR-1", "Viewer")];
+    let wrote = handler("    MOVE \"notes.txt\" TO VWR-1::Source\n");
+    let desk = form_of(&wrote, &viewer, &native());
+    check(format!("a desktop form with a Viewer compiles, requiring {:?}", pcaps(&desk)), desk.is_ok() && pcaps(&desk).iter().any(|c| c == "viewer"));
+    let page = form_of(&wrote, &viewer, &Options::default());
+    check(format!("the same form for a browser requires {:?}", pcaps(&page)), page.is_ok() && pcaps(&page).is_empty());
     let mut short_calls = 0;
     for name in ["ANIMATIONSEQUENCE", "LAYOUT"] {
         let src = handler(&format!("    COBOL::\"{name}\" ( \"Clear\" )\n"));

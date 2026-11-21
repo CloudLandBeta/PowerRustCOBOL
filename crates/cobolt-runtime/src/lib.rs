@@ -127,6 +127,9 @@ pub mod providers;
 /// The application's key store, behind a seam (spec 076).
 pub mod key_store;
 pub mod viewer_report;
+/// The Viewer's own rules (spec 058), for the interpreter and the desktop runner alike
+/// (DESKTOP-WASM-001 T50).
+pub mod viewer_door;
 pub mod ors_bridge;
 /// The numeric-edited PICTURE engine, which now lives in `cobolt-forms` so a
 /// TextBox with a `Picture` edits its display exactly as the interpreter does.

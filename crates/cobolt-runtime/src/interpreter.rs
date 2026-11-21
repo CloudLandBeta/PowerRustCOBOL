@@ -1370,11 +1370,35 @@ enum WaitOutcome {
 /// whether the user went through with it, which is why their events arrive
 /// through [`Interpreter::report_viewer_os_outcome`] instead of being raised
 /// from a flag here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ViewerOsAction {
-    Print,
-    Share,
-    Save,
+pub use crate::viewer_door::ViewerOsAction;
+
+/// A Viewer as `viewer_door`'s rules see it under the interpreter: the object
+/// registry, its write hooks and the control's event queue.
+struct ViewerOn<'a> {
+    interp: &'a mut Interpreter,
+    obj: &'a str,
+}
+
+impl crate::viewer_door::ViewerSide for ViewerOn<'_> {
+    fn name(&self) -> &str {
+        self.obj
+    }
+    fn get(&self, prop: &str) -> String {
+        self.interp.obj_get(self.obj, prop)
+    }
+    fn get_opt(&self, prop: &str) -> Option<String> {
+        self.interp.objects.get_property(self.obj, prop).map(|v| v.to_string())
+    }
+    fn set(&mut self, prop: &str, value: String) {
+        self.interp.obj_set(self.obj, prop, value);
+    }
+    fn put_quiet(&mut self, prop: &str, value: String) {
+        let key = self.interp.canonical_prop_name(self.obj, prop);
+        self.interp.objects.set_property(self.obj, &key, value);
+    }
+    fn event(&mut self, name: &str) {
+        self.interp.queue_control_event(self.obj, name);
+    }
 }
 
 pub struct Interpreter {
@@ -1649,15 +1673,19 @@ pub struct Interpreter {
     /// WASM-006 D2 — the Hyperlink clicks whose handlers are running: `(control, stage)`. Advanced at the
     /// next `COBOL-WAIT-EVENT`, when the handler of the step before has returned.
     link_steps: Vec<(String, LinkStage)>,
-    /// Spec 058 §8 — the conversation a Streamed-layout Viewer is showing,
-    /// per control.
+    /// Spec 058 — what each Viewer keeps that is not a property: the bytes a
+    /// `LoadBytes` call supplied, the conversation a Streamed-layout Viewer is
+    /// showing and its history (`viewer_door::ViewerState`, shared with the
+    /// desktop runner, DESKTOP-WASM-001 T50).
     ///
-    /// Held here rather than in a property because a conversation is a
-    /// *structure*, not a string: §8.2 item 5 forbids rebuilding it on
-    /// every append, and only a real model can append incrementally. What
-    /// the engine is told is the assembled stream (`_ConversationHtml`),
-    /// republished whenever it changes.
-    viewer_conversations: std::collections::HashMap<String, cobolt_forms::viewer::Conversation>,
+    /// A conversation is a *structure*, not a string: §8.2 item 5 forbids
+    /// rebuilding it on every append, and only a real model can append
+    /// incrementally. What the engine is told is the assembled stream
+    /// (`_ConversationHtml`), republished whenever it changes. The bytes stay
+    /// beside the object rather than in a property: a control property is a
+    /// `String`, and R18's byte-identical Save As cannot survive a round trip
+    /// through one for anything that is not text.
+    viewer_states: std::collections::HashMap<String, crate::viewer_door::ViewerState>,
     /// Spec 058 — re-entrancy guard for a Viewer's `Source` load.
     ///
     /// Writing `Source` starts a load AND mirrors onto `View1Source`, which
@@ -1667,15 +1695,6 @@ pub struct Interpreter {
     /// makes the hook run once per write, which is what a developer counting
     /// their own error handler's calls expects.
     viewer_loading: bool,
-    /// Spec 058 §8.8 — each Streamed Viewer's conversation history: ids and
-    /// titles, **never** content.
-    viewer_history: std::collections::HashMap<String, cobolt_forms::viewer::ConversationHistory>,
-    /// Spec 058 R1 — bytes a `LoadBytes` call supplied, per Viewer control.
-    ///
-    /// Beside the object rather than in a property: a control property is a
-    /// `String`, and R18's byte-identical Save As cannot survive a round
-    /// trip through one for anything that is not text.
-    viewer_bytes: std::collections::HashMap<String, Vec<u8>>,
 
     // ── Debugger channels (Phase 7) ───────────────────────────────────────────
     /// Receives `DebugCmd` from the IDE debugger panel (Continue, StepOver, Pause).
@@ -2107,9 +2126,7 @@ impl Interpreter {
             control_ids: std::collections::HashMap::new(),
             async_dispatch_queue: std::collections::VecDeque::new(),
             link_steps: Vec::new(),
-            viewer_bytes: std::collections::HashMap::new(),
-            viewer_conversations: std::collections::HashMap::new(),
-            viewer_history: std::collections::HashMap::new(),
+            viewer_states: std::collections::HashMap::new(),
             viewer_loading: false,
             debug_cmd_rx: None,
             debug_event_tx: None,
@@ -2898,6 +2915,9 @@ impl Interpreter {
 
     /// Spec 058 R18.1 — the Viewer's Save As, in three pseudo-properties.
     ///
+    /// (The requests themselves, `_SaveAsRequest`, `_PrintRequest` and
+    /// `_ShareRequest`, are written by `viewer_door`.)
+    ///
     /// The runtime holds the document and so owns both the SAVING and the
     /// suggested name; the host owns the dialog and nothing else. Neither
     /// crate can call the other, so they speak through the state channel that
@@ -2909,12 +2929,8 @@ impl Interpreter {
     ///   the suggested filename.
     /// * `_SaveAsAnswer` — the host's reply: a path, or EMPTY for a dialog the
     ///   operator dismissed, which is `onSaveCancelled` and not an error.
-    const VIEWER_SAVE_AS_ASK: &'static str = "_SaveAsAsk";
-    const VIEWER_SAVE_AS_REQUEST: &'static str = "_SaveAsRequest";
-    const VIEWER_SAVE_AS_ANSWER: &'static str = "_SaveAsAnswer";
-    /// Set while the Save As panel is open for `SaveAsPdf()`, so its answer
-    /// writes a PDF rather than the document's own bytes.
-    const VIEWER_SAVE_AS_PDF: &'static str = "_SaveAsPdf";
+    const VIEWER_SAVE_AS_ASK: &'static str = crate::viewer_door::SAVE_AS_ASK;
+    const VIEWER_SAVE_AS_ANSWER: &'static str = crate::viewer_door::SAVE_AS_ANSWER;
 
     /// Spec 058 R19/R20 — Print and Share, in the same three pseudo-properties
     /// each, and for the same reason: only the runtime holds the document, and
@@ -2923,12 +2939,10 @@ impl Interpreter {
     /// The REQUEST carries a path, because that is what a platform takes. A
     /// document opened from a `Source` already has one; a `LoadBytes` document
     /// has none, so one is written for it — the OS cannot be handed bytes.
-    const VIEWER_PRINT_ASK: &'static str = "_PrintAsk";
-    const VIEWER_PRINT_REQUEST: &'static str = "_PrintRequest";
-    const VIEWER_PRINT_ANSWER: &'static str = "_PrintAnswer";
-    const VIEWER_SHARE_ASK: &'static str = "_ShareAsk";
-    const VIEWER_SHARE_REQUEST: &'static str = "_ShareRequest";
-    const VIEWER_SHARE_ANSWER: &'static str = "_ShareAnswer";
+    const VIEWER_PRINT_ASK: &'static str = crate::viewer_door::PRINT_ASK;
+    const VIEWER_PRINT_ANSWER: &'static str = crate::viewer_door::PRINT_ANSWER;
+    const VIEWER_SHARE_ASK: &'static str = crate::viewer_door::SHARE_ASK;
+    const VIEWER_SHARE_ANSWER: &'static str = crate::viewer_door::SHARE_ANSWER;
 
     /// Drain any pending UI-driven property updates into the object registry.
     /// Called just before an event handler runs so getters see the live value.
@@ -2990,21 +3004,17 @@ impl Interpreter {
             self.run_datagrid_csv_export(&obj);
         }
         for obj in save_asks {
-            self.obj_set(&obj, Self::VIEWER_SAVE_AS_PDF, String::new());
-            let suggested = self.viewer_suggested_filename(&obj);
-            self.obj_set(&obj, Self::VIEWER_SAVE_AS_REQUEST, suggested);
+            self.with_viewer(&obj, |st, side| crate::viewer_door::save_as_ask(st, side));
         }
         for (obj, path) in save_answers {
-            self.run_viewer_save_as_answer(&obj, &path);
+            self.with_viewer(&obj, |st, side| crate::viewer_door::save_as_answer(st, side, &path));
         }
         for (obj, action) in os_asks {
-            self.ask_viewer_os(&obj, action);
+            self.with_viewer(&obj, |st, side| crate::viewer_door::ask_os(st, side, action));
         }
         for (obj, action, answer) in os_answers {
-            self.run_viewer_os_answer(&obj, action, &answer);
+            self.with_viewer(&obj, |_, side| crate::viewer_door::os_answer(side, action, &answer));
         }
-        // WASM-006 OQ1 — the system browser took the address: the application is still here, so
-        // `onNavigated` is raised. A refusal has already written `LastError`.
         for (obj, answer) in link_answers {
             if answer.trim() == "1" {
                 self.queue_control_event(&obj, "onNavigated");
@@ -3012,141 +3022,15 @@ impl Interpreter {
         }
     }
 
-    /// Ask the host to hand this document to the platform.
-    ///
-    /// The request's VALUE is a path, because a platform takes a file. A
-    /// document opened from a `Source` already has one and it is handed over
-    /// as it stands — R18's "the stored form, never a re-encode" applies here
-    /// as much as to Save As. A `LoadBytes` document has no file at all, so one
-    /// is written beside the system's temporaries under R18.1's proposed name:
-    /// the operating system cannot be handed bytes.
-    fn ask_viewer_os(&mut self, obj: &str, action: ViewerOsAction) {
-        let prop = match action {
-            ViewerOsAction::Print => Self::VIEWER_PRINT_REQUEST,
-            ViewerOsAction::Share => Self::VIEWER_SHARE_REQUEST,
-            ViewerOsAction::Save => Self::VIEWER_SAVE_AS_REQUEST,
-        };
-        let source = self.obj_get(obj, "Source");
-        let source = source.trim();
-        if !source.is_empty() {
-            let resolved = cobolt_forms::assets::resolve(source);
-            self.obj_set(obj, prop, resolved.to_string_lossy().into_owned());
-            return;
-        }
-        let Some(bytes) = self.viewer_bytes.get(obj).cloned() else {
-            self.obj_set(obj, "LastError", "no document loaded".to_string());
-            self.queue_control_event(obj, "onError");
-            return;
-        };
-        let name = self.viewer_suggested_filename(obj);
-        let path = std::env::temp_dir().join("powerrustcobol-viewer").join(name);
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        match std::fs::write(&path, &bytes) {
-            Ok(()) => self.obj_set(obj, prop, path.to_string_lossy().into_owned()),
-            Err(e) => {
-                self.obj_set(obj, "LastError", format!("could not stage the document: {e}"));
-                self.queue_control_event(obj, "onError");
-            }
-        }
-    }
-
-    /// Carry out — or abandon — the Print or Share the host just answered.
-    ///
-    /// `"1"` is a handoff the platform accepted; anything else — an empty
-    /// string, a refusal — is the Cancelled half of R32. The reason, when there
-    /// is one, has already arrived as `LastError`.
-    fn run_viewer_os_answer(&mut self, obj: &str, action: ViewerOsAction, answer: &str) {
-        let (request, answer_prop) = match action {
-            ViewerOsAction::Print => (Self::VIEWER_PRINT_REQUEST, Self::VIEWER_PRINT_ANSWER),
-            ViewerOsAction::Share => (Self::VIEWER_SHARE_REQUEST, Self::VIEWER_SHARE_ANSWER),
-            ViewerOsAction::Save => (Self::VIEWER_SAVE_AS_REQUEST, Self::VIEWER_SAVE_AS_ANSWER),
-        };
-        // Cleared either way, so the next press is a fresh request.
-        self.obj_set(obj, request, String::new());
-        self.obj_set(obj, answer_prop, String::new());
-        self.report_viewer_os_outcome(obj, action, answer.trim() == "1");
-    }
-
-    /// Carry out — or abandon — the Save As the host just answered.
-    ///
-    /// An empty path is a dismissed dialog, and a dismissed dialog is
-    /// `onSaveCancelled`, never an error: the operator did exactly what they
-    /// meant to.
-    fn run_viewer_save_as_answer(&mut self, obj: &str, path: &str) {
-        // Cleared either way, so the next Save As is a fresh request rather
-        // than a repeat of this one.
-        self.obj_set(obj, Self::VIEWER_SAVE_AS_REQUEST, String::new());
-        self.obj_set(obj, Self::VIEWER_SAVE_AS_ANSWER, String::new());
-        let as_pdf = self.obj_get(obj, Self::VIEWER_SAVE_AS_PDF).trim() == "1";
-        self.obj_set(obj, Self::VIEWER_SAVE_AS_PDF, String::new());
-        if path.trim().is_empty() {
-            self.report_viewer_os_outcome(obj, ViewerOsAction::Save, false);
-            return;
-        }
-        let written = if as_pdf {
-            self.viewer_save_as_pdf(obj, path)
-        } else {
-            self.viewer_save_as(obj, path)
-        };
-        match written {
-            Ok(()) => self.report_viewer_os_outcome(obj, ViewerOsAction::Save, true),
-            Err(e) => {
-                self.obj_set(obj, "LastError", e);
-                self.queue_control_event(obj, "onError");
-            }
-        }
-    }
-
-    /// Spec 058 R18.1 — the filename a Save As dialog opens with.
-    ///
-    /// A document loaded from a `Source` proposes its OWN name: the operator
-    /// asked to save this file, so the name they know it by is the one that
-    /// should be in the box.
-    ///
-    /// A `LoadBytes` document has no name at all, and the clarified R18.1 says
-    /// what to do instead: the **first three words of its own content**, plus
-    /// the extension its resolved `Format` implies. A proposal only — the
-    /// dialog lets the operator type whatever they like — but a proposal made
-    /// of the document beats `untitled`.
-    fn viewer_suggested_filename(&self, obj: &str) -> String {
-        let source = self.obj_get(obj, "Source");
-        let source = source.trim();
-        if !source.is_empty() {
-            if let Some(name) = source
-                .rsplit(['/', '\\'])
-                .next()
-                .map(str::trim)
-                .filter(|n| !n.is_empty())
-            {
-                return name.to_owned();
-            }
-        }
-        let ext = cobolt_forms::viewer::extension_for(
-            cobolt_forms::viewer::ViewerFormat::from_str(&self.obj_get(obj, "Format")),
-        );
-        let words: String = self
-            .viewer_bytes
-            .get(obj)
-            .map(|b| String::from_utf8_lossy(&b[..b.len().min(4096)]).into_owned())
-            .unwrap_or_default()
-            .split_whitespace()
-            .filter(|w| w.chars().any(|c| c.is_alphanumeric()))
-            .take(3)
-            .map(|w| {
-                w.chars()
-                    .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                    .collect::<String>()
-            })
-            .filter(|w| !w.is_empty())
-            .collect::<Vec<_>>()
-            .join("-");
-        if words.is_empty() {
-            format!("{obj}.{ext}")
-        } else {
-            format!("{words}.{ext}")
-        }
+    /// Run one of the Viewer's rules (`viewer_door`) on `obj`, with what the
+    /// control keeps that is not a property. The state is taken out while the
+    /// rule runs and put back after: the writes it makes reach the load hook,
+    /// which needs no state of its own.
+    fn with_viewer<R>(&mut self, obj: &str, f: impl FnOnce(&mut crate::viewer_door::ViewerState, &mut ViewerOn<'_>) -> R) -> R {
+        let mut state = self.viewer_states.remove(obj).unwrap_or_default();
+        let r = f(&mut state, &mut ViewerOn { interp: self, obj });
+        self.viewer_states.insert(obj.to_string(), state);
+        r
     }
 
     /// Carry out the export the DataGrid's CSV button asked for.
@@ -4382,7 +4266,7 @@ impl Interpreter {
                 crate::viewer_report::ReportOutcome::Bytes(bytes) => {
                     let format = cobolt_forms::viewer::detect_format(None, &bytes)
                         .unwrap_or(cobolt_forms::viewer::ViewerFormat::Text);
-                    self.viewer_bytes.insert(target.clone(), bytes);
+                    self.viewer_states.entry(target.clone()).or_default().bytes = Some(bytes);
                     self.obj_set(&target, "Format", format.as_str().to_string());
                     self.obj_set(&target, "Progress", "100".into());
                     self.obj_set(&target, "LastError", String::new());
@@ -9590,7 +9474,7 @@ impl Interpreter {
                             // unsupported would report an error for a program
                             // that did exactly what it was told.
                             .unwrap_or(cobolt_forms::viewer::ViewerFormat::Text);
-                        self.viewer_bytes.insert(target.clone(), bytes);
+                        self.viewer_states.entry(target.clone()).or_default().bytes = Some(bytes);
                         self.obj_set(&target, "Format", format.as_str().to_string());
                         self.obj_set(&target, "Progress", "100".into());
                         self.obj_set(&target, "LastError", String::new());
@@ -13979,111 +13863,11 @@ impl Interpreter {
         // decode thread is a separate concern, in the host.
         if self.is_viewer(obj) && !self.viewer_loading {
             self.viewer_loading = true;
-            // Either spelling of the source starts a load.
-            let is_source =
-                prop.eq_ignore_ascii_case("Source") || prop.eq_ignore_ascii_case("View1Source");
-            let opened = if is_source {
-                self.viewer_open_source(&obj.to_string(), &val)
-            } else {
-                true
-            };
-            // A FAILED load has already put both spellings back to the
-            // document that is still on screen (R4); mirroring the name that
-            // failed would undo exactly that.
-            if opened {
-                self.viewer_mirror_alias(&obj.to_string(), prop, &val);
-            }
+            // Either spelling of the source starts a load, and an aliased view
+            // property is mirrored to its other spelling (`viewer_door::written`,
+            // shared with the desktop runner, DESKTOP-WASM-001 T50).
+            crate::viewer_door::written(&mut ViewerOn { interp: self, obj }, prop, &val);
             self.viewer_loading = false;
-        }
-    }
-
-    /// Spec 058 plan §3/§4 — the unprefixed property names are **aliases**
-    /// onto `View1*`, the single canonical store for one view's state.
-    ///
-    /// A COBOL program may write either spelling; both must then read back
-    /// the same, or R31's "no Find capability reachable only by mouse"
-    /// becomes "reachable, but only if you guessed the right of two names".
-    fn viewer_mirror_alias(&mut self, obj: &str, prop: &str, val: &str) {
-        // A compiled `MOVE … TO VWR-1::View1Source` arrives as `VIEW1SOURCE`:
-        // the prefix is matched as a word, not as one spelling of it.
-        let prop = &match prop.get(..5) {
-            Some(p) if p.eq_ignore_ascii_case("View1") => format!("View1{}", &prop[5..]),
-            _ => prop.to_string(),
-        };
-        const ALIASED: &[&str] = &[
-            "Source",
-            "Page",
-            "Zoom",
-            "ViewMode",
-            "CardSize",
-            "ShowFilmstrip",
-            "ScrollPosition",
-            "SearchText",
-            "SearchCaseSensitive",
-            "SearchHighlightEnabled",
-            "SearchCurrentMatch",
-            "SearchMatchCount",
-            "FindOpen",
-        ];
-        let other = if let Some(rest) = prop.strip_prefix("View1") {
-            if !ALIASED.iter().any(|a| a.eq_ignore_ascii_case(rest)) {
-                return;
-            }
-            rest.to_string()
-        } else if ALIASED.iter().any(|a| a.eq_ignore_ascii_case(prop)) {
-            format!("View1{prop}")
-        } else {
-            return;
-        };
-        if self.obj_get(obj, &other) != val {
-            self.obj_set(obj, &other, val.to_string());
-        }
-
-        // The `View1*` spelling is the CANONICAL store (plan.md §3/§4), and
-        // it is the one with a seeded type — so it is the one
-        // `canonical_prop_value` normalises (a boolean written as `1` reads
-        // back `true`). The unprefixed alias has no seeded type and would
-        // otherwise keep the raw `1`, leaving the two spellings of one value
-        // disagreeing about it. Copied straight into the registry, because
-        // this is a mirror finishing its own write, not a new one.
-        let canonical = if prop.starts_with("View1") { prop.to_string() } else { other.clone() };
-        let alias = canonical.trim_start_matches("View1").to_string();
-        let settled = self.obj_get(obj, &canonical);
-        if self.obj_get(obj, &alias) != settled {
-            let key = self.canonical_prop_name(obj, &alias);
-            self.objects.set_property(obj, &key, settled);
-        }
-    }
-
-    /// Read one of a Viewer's view properties under **either** spelling.
-    ///
-    /// `seed_objects` writes the designed properties straight into the
-    /// registry, so a form that designed `View1SearchMatchCount` never went
-    /// through [`Self::viewer_mirror_alias`] and the short name is empty.
-    /// Preferring the canonical `View1*` and falling back to the alias makes
-    /// a read correct however the value arrived.
-    fn viewer_prop(&self, obj: &str, name: &str) -> String {
-        let prefixed = self.obj_get(obj, &format!("View1{name}"));
-        if prefixed.is_empty() {
-            self.obj_get(obj, name)
-        } else {
-            prefixed
-        }
-    }
-
-    /// Spec 058 R28/R31 — move Find to the next or previous match, wrapping.
-    ///
-    /// The **match count is the view's**, not the interpreter's: the engine
-    /// is what knows which text is on screen, and it publishes the total as
-    /// `SearchMatchCount`. One authority, read from a property a COBOL
-    /// program can see for itself.
-    fn viewer_step_find(&mut self, obj: &str, forward: bool) {
-        let as_index = |v: String| v.trim().parse::<i64>().unwrap_or(0).max(0) as usize;
-        let total = as_index(self.viewer_prop(obj, "SearchMatchCount"));
-        // The property counts matches from 1 (0 = none); `step_match` from 0.
-        let current = as_index(self.viewer_prop(obj, "SearchCurrentMatch")).saturating_sub(1);
-        if let Some(next) = cobolt_forms::viewer::step_match(current, total, forward) {
-            self.obj_set(obj, "View1SearchCurrentMatch", (next + 1).to_string());
         }
     }
 
@@ -14092,293 +13876,31 @@ impl Interpreter {
         self.object_class(obj).is_some_and(|c| c.eq_ignore_ascii_case("Viewer"))
     }
 
-    /// How often a load reports progress, in percent (R6).
-    ///
-    /// The indexer itself reports every whole percent; forwarding all 101 of
-    /// them would put a hundred events on the dispatch queue for one `MOVE`,
-    /// and a COBOL handler cannot use that resolution for anything. Every
-    /// tenth percent, plus a guaranteed final 100, is a progress bar a
-    /// developer can actually drive.
-    const VIEWER_PROGRESS_STEP: i64 = 10;
-
-    /// Open the document `source` names, reporting it the way R3/R4/R6 say.
-    ///
-    /// On success `Format` carries R3's resolved format, `Progress` reaches
-    /// 100 and `onLoaded` is queued. On failure `LastError` carries R4's
-    /// message, `onError` is queued, and **the previously loaded document is
-    /// left displayed** — `Source` is put back to whatever last loaded, so
-    /// every surface goes on painting the document that is actually there
-    /// rather than a name that failed.
-    /// Returns whether the document opened — `false` means R4's restore has
-    /// run and the caller must leave both spellings of `Source` alone.
-    fn viewer_open_source(&mut self, obj: &str, source: &str) -> bool {
-        use cobolt_forms::viewer::{open_document, DocumentSource};
-
-        let path = source.trim().to_string();
-        if path.is_empty() {
-            // Clearing the source is not a failed load.
-            self.obj_set(obj, "Format", String::new());
-            self.obj_set(obj, "Progress", "0".into());
-            return true;
-        }
-        let resolved = cobolt_forms::assets::resolve(&path);
-        let src = DocumentSource::Path(resolved.to_string_lossy().into_owned());
-
-        let mut ticks: Vec<i64> = Vec::new();
-        let mut last_step = -1i64;
-        let result = open_document(&src, |pct| {
-            let step = pct / Self::VIEWER_PROGRESS_STEP;
-            if step != last_step {
-                last_step = step;
-                ticks.push(pct);
-            }
-        });
-        for pct in ticks {
-            self.obj_set(obj, "Progress", pct.to_string());
-            self.queue_control_event(obj, "onLoadProgress");
-        }
-
-        match result {
-            Ok(index) => {
-                self.obj_set(obj, "Format", index.format.as_str().to_string());
-                self.obj_set(obj, "Progress", "100".into());
-                self.obj_set(obj, "LastError", String::new());
-                self.obj_set(obj, "_LoadedSource", path);
-                self.obj_set(obj, "_PageCount", index.page_count().to_string());
-                self.queue_control_event(obj, "onLoaded");
-                true
-            }
-            Err(e) => {
-                self.obj_set(obj, "LastError", e.to_message());
-                // R4: the failed name must not replace the document on
-                // screen. Written straight to the registry — `obj_set` would
-                // re-enter this hook and try to load it all over again.
-                // BOTH spellings go back: a program may have written either.
-                let previous = self.obj_get(obj, "_LoadedSource");
-                for name in ["Source", "View1Source"] {
-                    let canon = self.canonical_prop_name(obj, name);
-                    self.objects.set_property(obj, &canon, previous.clone());
-                }
-                self.queue_control_event(obj, "onError");
-                false
-            }
-        }
-    }
-
-    /// Spec 058 §8 — this control's conversation, created on first use.
+    /// Spec 058 §8 — this control's conversation, created on first use (tests).
+    #[cfg(test)]
     fn viewer_conversation(&mut self, obj: &str) -> &mut cobolt_forms::viewer::Conversation {
-        let render_as_html = self
-            .objects
-            .get_property(obj, "RenderAsHtml")
-            .map(|v| {
-                let t = v.to_string();
-                let t = t.trim();
-                !(t.is_empty() || t == "0" || t.eq_ignore_ascii_case("false"))
-            })
-            .unwrap_or(true);
-        let conv = self
-            .viewer_conversations
-            .entry(obj.to_string())
-            .or_insert_with(cobolt_forms::viewer::Conversation::new);
-        // §8.1's blanket override is a PROPERTY, so it can change between
-        // appends; the conversation reads it each time rather than
-        // remembering whatever it was when the first chunk arrived.
-        conv.set_render_as_html(render_as_html);
+        let render = crate::viewer_door::render_as_html(self.objects.get_property(obj, "RenderAsHtml").map(|v| v.to_string()).as_deref());
+        let conv = self.viewer_states.entry(obj.to_string()).or_default().conversation.get_or_insert_with(cobolt_forms::viewer::Conversation::new);
+        conv.set_render_as_html(render);
         conv
     }
 
-    /// Republish the stream WITHOUT `onContentRendered` — clearing a pane
-    /// is not content arriving, and §8.2 item 6's event is specifically
-    /// about newly appended content finishing its layout.
-    fn viewer_publish_conversation_quietly(&mut self, obj: &str) {
-        let (html, empty) = {
-            let conv = self.viewer_conversation(obj);
-            (conv.to_html(), conv.is_empty())
-        };
-        self.obj_set(obj, "_ConversationHtml", html);
-        self.obj_set(obj, "_ConversationEmpty", if empty { "1" } else { "0" }.to_string());
-    }
-
-    /// A control event carrying a value — §8.8's `onConversationSelected`
-    /// is the first Viewer event that has one.
-    fn queue_control_event_with(&mut self, obj: &str, event: &str, value: &str) {
-        self.obj_set(obj, "ConversationId", value.to_string());
-        self.queue_control_event(obj, event);
-    }
-
-    /// Publish what the engine paints, and raise §8.2 item 6's event.
-    ///
-    /// `onContentRendered` fires **after the layout pass**, not after the
-    /// data was accepted — which here is literal: `Conversation::append`
-    /// computes the new chunk's layout before returning, so this line runs
-    /// after it by construction.
-    fn viewer_publish_conversation(&mut self, obj: &str) {
-        let (html, empty) = {
-            let conv = self.viewer_conversation(obj);
-            (conv.to_html(), conv.is_empty())
-        };
-        self.obj_set(obj, "_ConversationHtml", html);
-        self.obj_set(obj, "_ConversationEmpty", if empty { "1" } else { "0" }.to_string());
-        self.queue_control_event(obj, "onContentRendered");
-    }
-
-    /// Spec 058 §8.8 — archive whatever is open, then clear the pane.
-    ///
-    /// **A no-op on an already-empty pane** (AC26): archiving nothing would
-    /// put a spurious entry in a list the developer's own UI enumerates.
-    /// The title is the conversation's own first line, trimmed — a history
-    /// list of "Conversation 1..10" tells a reader nothing.
-    fn viewer_archive_current(&mut self, obj: &str) {
-        let (has_content, title, id) = {
-            let conv = self.viewer_conversation(obj);
-            let text = conv.text();
-            let first = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string();
-            let title: String = first.chars().take(60).collect();
-            (
-                !conv.is_empty(),
-                if title.is_empty() { "Conversation".to_string() } else { title },
-                conv.current_message_id().unwrap_or("").to_string(),
-            )
-        };
-        if !has_content {
-            return;
-        }
-        let current = self.obj_get(obj, "ConversationId");
-        let entry_id = if current.trim().is_empty() {
-            if id.is_empty() { "conversation".to_string() } else { id }
-        } else {
-            current
-        };
-        let history = self.viewer_history.entry(obj.to_string()).or_default();
-        history.push(cobolt_forms::viewer::ConversationEntry { id: entry_id, title });
-        self.viewer_publish_history(obj);
-    }
-
-    /// §8.8's `HistoryList` — republished whenever it changes, so a COBOL
-    /// program reads it as an ordinary property.
-    fn viewer_publish_history(&mut self, obj: &str) {
-        let list = self
-            .viewer_history
-            .get(obj)
-            .map(|h| h.to_list())
-            .unwrap_or_default();
-        self.obj_set(obj, "HistoryList", list);
-    }
-
     /// Spec 058 R32 — the OS reported back on a Print / Share / Save As
-    /// handoff.
-    ///
-    /// These three are the only events this control cannot raise from a flag
-    /// of its own: only the OS dialog knows whether the user went through
-    /// with it. The host performs the handoff (`RenderOutput::toolbar_actions`
-    /// carries the request) and calls this with what it was told.
+    /// handoff: the Complete or Cancelled event (`viewer_door::report_os_outcome`).
     pub fn report_viewer_os_outcome(&mut self, ctrl: &str, action: ViewerOsAction, completed: bool) {
-        let event = match (action, completed) {
-            (ViewerOsAction::Print, true) => "onPrintComplete",
-            (ViewerOsAction::Print, false) => "onPrintCancelled",
-            (ViewerOsAction::Share, true) => "onShareComplete",
-            (ViewerOsAction::Share, false) => "onShareCancelled",
-            (ViewerOsAction::Save, true) => "onSaveComplete",
-            (ViewerOsAction::Save, false) => "onSaveCancelled",
-        };
-        self.queue_control_event(ctrl, event);
+        crate::viewer_door::report_os_outcome(&mut ViewerOn { interp: self, obj: ctrl }, action, completed);
     }
 
-    /// Spec 058 R18 — write the document's ORIGINAL bytes to `path`,
-    /// unmodified, and never a rendered or re-encoded one.
-    ///
-    /// A `Source`-loaded document is copied byte for byte from the file it
-    /// came from, which is what makes AC6 true by construction rather than
-    /// by a re-encoder being careful. A `LoadBytes` document writes the
-    /// bytes COBOL supplied.
-    /// The name the Save as PDF panel opens with: `conversation.pdf` for a
-    /// conversation, else the document's own proposed name as a `.pdf`.
-    fn viewer_suggested_pdf_name(&self, obj: &str) -> String {
-        if !self.obj_get(obj, "_ConversationHtml").trim().is_empty()
-            || self.obj_get(obj, "Layout").trim().eq_ignore_ascii_case("Streamed")
-        {
-            return "conversation.pdf".to_string();
-        }
-        let name = self.viewer_suggested_filename(obj);
-        let stem = name.rsplit_once('.').map(|(s, _)| s).filter(|s| !s.is_empty()).unwrap_or(&name);
-        format!("{stem}.pdf")
+    /// The host answered a Print or Share hand-off (tests; `drain_input` takes the answer in).
+    #[cfg(test)]
+    fn run_viewer_os_answer(&mut self, obj: &str, action: ViewerOsAction, answer: &str) {
+        self.with_viewer(obj, |_, side| crate::viewer_door::os_answer(side, action, answer));
     }
 
-    /// `SaveAsPdf` — the conversation a `Streamed` Viewer holds, or its
-    /// Markdown or text document, laid out as a PDF at `path`; a PDF document
-    /// is copied as it stands. Other formats say what the method takes.
-    #[cfg(feature = "pdf")]
-    fn viewer_save_as_pdf(&mut self, obj: &str, path: &str) -> Result<(), String> {
-        use cobolt_forms::viewer::ViewerFormat;
-        let dest = std::path::Path::new(path.trim());
-        if dest.as_os_str().is_empty() {
-            return Err("no destination path".to_string());
-        }
-        let title = dest
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Document")
-            .to_string();
-        // The PDF is what the Viewer paints, so the painting follows the
-        // Viewer's own settings: its bubble colours and its font size.
-        let mut viewer = cobolt_forms::Control::new(obj, cobolt_forms::ControlType::Viewer, 0, 0);
-        for key in ["UserBubbleColor", "UserBubbleTextColor", "UserBubbleBold", "AgentBubbleColor", "AgentBubbleTextColor", "FontSize"] {
-            let v = self.obj_get(obj, key);
-            if !v.trim().is_empty() {
-                viewer.set_prop(key, cobolt_forms::PropValue::String(v));
-            }
-        }
-        // A `Streamed` Viewer shows its conversation and nothing else — an
-        // empty one is "the conversation is empty", not "no document".
-        let html = self.obj_get(obj, "_ConversationHtml");
-        if !html.trim().is_empty() || self.obj_get(obj, "Layout").trim().eq_ignore_ascii_case("Streamed") {
-            return cobolt_forms::viewer_pdf::conversation_to_pdf(&viewer, &html, &title, dest);
-        }
-        let source = self.obj_get(obj, "Source");
-        let bytes: Vec<u8> = if !source.trim().is_empty() {
-            let resolved = cobolt_forms::assets::resolve(source.trim());
-            std::fs::read(&resolved).map_err(|e| format!("could not read document: {e}"))?
-        } else if let Some(b) = self.viewer_bytes.get(obj) {
-            b.clone()
-        } else {
-            return Err("no document loaded".to_string());
-        };
-        match ViewerFormat::from_str(&self.obj_get(obj, "Format")) {
-            ViewerFormat::Pdf => {
-                std::fs::write(dest, &bytes).map_err(|e| format!("could not write the PDF: {e}"))
-            }
-            ViewerFormat::Markdown | ViewerFormat::Text => {
-                let hint = (!source.trim().is_empty()).then(|| source.trim().to_string());
-                let text = cobolt_forms::viewer::markdown_text(hint.as_deref(), &bytes);
-                cobolt_forms::viewer_pdf::markdown_to_pdf(&viewer, &text, &title, dest)
-            }
-            other => Err(format!(
-                "Save as PDF takes a conversation, a Markdown or text document, or a PDF — not {}",
-                other.as_str()
-            )),
-        }
-    }
-
-    #[cfg(not(feature = "pdf"))]
-    fn viewer_save_as_pdf(&mut self, _obj: &str, _path: &str) -> Result<(), String> {
-        Err("this application was built without Save as PDF".to_string())
-    }
-
-    fn viewer_save_as(&mut self, obj: &str, path: &str) -> Result<(), String> {
-        let dest = path.trim();
-        if dest.is_empty() {
-            return Err("no destination path".to_string());
-        }
-        let source = self.obj_get(obj, "Source");
-        let bytes: Vec<u8> = if !source.trim().is_empty() {
-            let resolved = cobolt_forms::assets::resolve(source.trim());
-            std::fs::read(&resolved).map_err(|e| format!("could not read document: {e}"))?
-        } else if let Some(b) = self.viewer_bytes.get(obj) {
-            b.clone()
-        } else {
-            return Err("no document loaded".to_string());
-        };
-        std::fs::write(dest, &bytes).map_err(|e| format!("could not write document: {e}"))
+    /// The host answered a Save As (tests; `drain_input` takes the answer in).
+    #[cfg(test)]
+    fn run_viewer_save_as_answer(&mut self, obj: &str, path: &str) {
+        self.with_viewer(obj, |st, side| crate::viewer_door::save_as_answer(st, side, path));
     }
 
     /// Whether `obj` names a TOOLBAR BUTTON — an object the host seeded under a
@@ -15153,7 +14675,7 @@ impl Interpreter {
             // re-opening it here.
             if self.is_viewer(root) && !self.viewer_loading {
                 self.viewer_loading = true;
-                self.viewer_mirror_alias(root, &key, &val);
+                crate::viewer_door::mirror_alias(&mut ViewerOn { interp: self, obj: root }, &key, &val);
                 self.viewer_loading = false;
             }
         }
@@ -16036,281 +15558,24 @@ impl Interpreter {
                 none
             }
             // ── Viewer (spec 058) ──
-            "LOADBYTES" => {
-                // R1's byte-buffer load. The bytes live beside the object
-                // rather than in a property: a property is a `String`, and a
-                // PDF put through one would not come back byte for byte,
-                // which R18's Save As depends on.
-                // NOT `arg(0)`: that helper trims, and for every other
-                // method that is right — a COBOL `PIC X(80)` holding a path
-                // arrives padded with spaces. Here the argument IS the
-                // payload, so a trim would silently drop a document's
-                // leading indent or its final newline (caught by
-                // `loadbytes_resolves_a_format_and_save_as_writes_those_bytes_back`,
-                // which compares the written bytes against what it supplied).
-                //
-                // ⚠️ A COBOL item is still fixed-length: `PIC X(100)` holding
-                // 42 characters delivers 100, padded. That is the developer's
-                // to size, not something this method can guess at.
-                let data = args.first().map(|v| v.as_display_string()).unwrap_or_default();
-                let bytes = data.clone().into_bytes();
-                let format = cobolt_forms::viewer::detect_format(None, &bytes);
-                self.viewer_bytes.insert(obj.to_string(), bytes);
-                match format {
-                    Some(f) => {
-                        self.obj_set(obj, "Format", f.as_str().to_string());
-                        self.obj_set(obj, "Progress", "100".into());
-                        self.obj_set(obj, "LastError", String::new());
-                        self.queue_control_event(obj, "onLoaded");
-                    }
-                    None => {
-                        self.obj_set(
-                            obj,
-                            "LastError",
-                            cobolt_forms::viewer::ViewerLoadError::UnsupportedFormat.to_message(),
-                        );
-                        self.queue_control_event(obj, "onError");
-                    }
-                }
-                none
-            }
-            // R18: a path GIVEN is always the path written — R18.1's proposed
-            // default filename is the interactive dialog's convenience, never
-            // this method's contract (plan.md §3).
             //
-            // `SaveAs()` with NO path is the dialog's own case, and it used to
-            // be an error: "Save As requested / error: no destination path"
-            // (operator, 2026-09-20), which is a refusal where the control
-            // promises a Save As. It asks the host for a destination instead —
-            // the same way `Show()` reaches a Snackbar and `PlayAnimation`
-            // reaches an Animator: a pseudo-property crosses the state channel
-            // and the host acts on it. The suggested name is computed HERE
-            // because only the runtime holds the document.
-            "SAVEAS" => {
-                let path = arg(0);
-                if path.trim().is_empty() {
-                    self.obj_set(obj, Self::VIEWER_SAVE_AS_PDF, String::new());
-                    let suggested = self.viewer_suggested_filename(obj);
-                    self.obj_set(obj, Self::VIEWER_SAVE_AS_REQUEST, suggested);
-                } else {
-                    match self.viewer_save_as(obj, &path) {
-                        Ok(()) => self.report_viewer_os_outcome(obj, ViewerOsAction::Save, true),
-                        Err(e) => {
-                            self.obj_set(obj, "LastError", e);
-                            self.queue_control_event(obj, "onError");
-                        }
-                    }
+            // The Viewer's own rules live in `viewer_door`, which the desktop runner
+            // shares (DESKTOP-WASM-001 T50): `LoadBytes`, Save As and Save as PDF,
+            // Print and Share, §8.2's append surface, §8.8's conversations, Jump to
+            // latest and Find.
+            "LOADBYTES" | "SAVEAS" | "SAVEASPDF" | "SAVE-AS-PDF" | "PRINT" | "SHARE"
+            | "APPENDHTML" | "APPEND-HTML" | "APPENDMARKDOWN" | "APPEND-MARKDOWN" | "APPENDRAW"
+            | "APPEND-RAW" | "APPENDTOMESSAGE" | "APPEND-TO-MESSAGE" | "REPLACEMESSAGE"
+            | "REPLACE-MESSAGE" | "REMOVEMESSAGE" | "REMOVE-MESSAGE" | "NEWCONVERSATION"
+            | "NEW-CONVERSATION" | "SELECTCONVERSATION" | "SELECT-CONVERSATION"
+            | "REGISTERCONVERSATION" | "REGISTER-CONVERSATION" | "JUMPTOLATEST" | "JUMP-TO-LATEST"
+            | "FINDNEXT" | "FIND-NEXT" | "FINDPREVIOUS" | "FIND-PREVIOUS" | "FIND" | "FINDCLOSE"
+            | "FIND-CLOSE" => {
+                let texts: Vec<String> = args.iter().map(|v| v.as_display_string()).collect();
+                match self.with_viewer(obj, |st, side| crate::viewer_door::method(st, side, &m, &texts)).flatten() {
+                    Some(answer) => val(answer),
+                    None => none,
                 }
-                none
-            }
-            // The document — or, in `Streamed`, the conversation — laid out
-            // as a PDF with its formatting (operator, 2026-09-27). With no
-            // path it asks the operator, through the very Save As panel
-            // `SaveAs()` uses; a flag says which of the two the answer is for.
-            "SAVEASPDF" | "SAVE-AS-PDF" => {
-                let path = arg(0);
-                if path.trim().is_empty() {
-                    self.obj_set(obj, Self::VIEWER_SAVE_AS_PDF, "1".to_string());
-                    let suggested = self.viewer_suggested_pdf_name(obj);
-                    self.obj_set(obj, Self::VIEWER_SAVE_AS_REQUEST, suggested);
-                } else {
-                    match self.viewer_save_as_pdf(obj, &path) {
-                        Ok(()) => self.report_viewer_os_outcome(obj, ViewerOsAction::Save, true),
-                        Err(e) => {
-                            self.obj_set(obj, "LastError", e);
-                            self.queue_control_event(obj, "onError");
-                        }
-                    }
-                }
-                none
-            }
-            // R19/R20: the OS does the printing and the sharing. The request
-            // is left for the host to pick up; the Complete/Cancelled event
-            // comes back through `report_viewer_os_outcome`, because only the
-            // OS dialog knows which of the two happened.
-            "PRINT" => {
-                self.ask_viewer_os(obj, ViewerOsAction::Print);
-                none
-            }
-            "SHARE" => {
-                self.ask_viewer_os(obj, ViewerOsAction::Share);
-                none
-            }
-            // ── §8.2's append surface ──
-            //
-            // The mode is SPECIFIED per call and never inferred from the
-            // content (§8.5): a chunk sent as Raw stays raw even when it is
-            // valid markup.
-            "APPENDHTML" | "APPEND-HTML" => {
-                let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
-                // The optional second argument says who the message is from —
-                // "user" or "agent" — and draws it in that one's bubble.
-                let role = cobolt_forms::viewer::MessageRole::from_str(&arg(1));
-                // RETURNS the new message's id, so the caller can extend
-                // it with `AppendToMessage` as a streamed reply arrives —
-                // without an id the streaming half of §8.2 is unusable.
-                let new_id = self
-                    .viewer_conversation(obj)
-                    .append_as(cobolt_forms::viewer::AppendMode::Html, &content, role);
-                self.viewer_publish_conversation(obj);
-                val(new_id)
-            }
-            "APPENDMARKDOWN" | "APPEND-MARKDOWN" => {
-                let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
-                let role = cobolt_forms::viewer::MessageRole::from_str(&arg(1));
-                // RETURNS the new message's id, so the caller can extend
-                // it with `AppendToMessage` as a streamed reply arrives —
-                // without an id the streaming half of §8.2 is unusable.
-                let new_id = self
-                    .viewer_conversation(obj)
-                    .append_as(cobolt_forms::viewer::AppendMode::Markdown, &content, role);
-                self.viewer_publish_conversation(obj);
-                val(new_id)
-            }
-            "APPENDRAW" | "APPEND-RAW" => {
-                let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
-                let role = cobolt_forms::viewer::MessageRole::from_str(&arg(1));
-                // RETURNS the new message's id, so the caller can extend
-                // it with `AppendToMessage` as a streamed reply arrives —
-                // without an id the streaming half of §8.2 is unusable.
-                let new_id = self
-                    .viewer_conversation(obj)
-                    .append_as(cobolt_forms::viewer::AppendMode::Raw, &content, role);
-                self.viewer_publish_conversation(obj);
-                val(new_id)
-            }
-            // `AppendToMessage(messageId, content, mode)` — mode last, as
-            // §8.2 spells it.
-            "APPENDTOMESSAGE" | "APPEND-TO-MESSAGE" => {
-                let id = arg(0);
-                let content = args.get(1).map(|v| v.as_display_string()).unwrap_or_default();
-                let mode = cobolt_forms::viewer::AppendMode::from_str(&arg(2));
-                let extended = self.viewer_conversation(obj).append_to_message(&id, mode, &content);
-                if extended {
-                    self.viewer_publish_conversation(obj);
-                } else {
-                    // A streamed chunk for a message that never started is a
-                    // caller error worth reporting, not something to
-                    // silently mint a new message for.
-                    self.obj_set(obj, "LastError", format!("no conversation message with id {id:?}"));
-                    self.queue_control_event(obj, "onError");
-                }
-                none
-            }
-            // A message's content REPLACED, keeping its id, role and place —
-            // a status bubble that follows the work and then becomes the
-            // answer (operator, 2026-09-27). And a message taken out.
-            "REPLACEMESSAGE" | "REPLACE-MESSAGE" => {
-                let id = arg(0);
-                let content = args.get(1).map(|v| v.as_display_string()).unwrap_or_default();
-                let mode = cobolt_forms::viewer::AppendMode::from_str(&arg(2));
-                if self.viewer_conversation(obj).replace_message(&id, mode, &content) {
-                    self.viewer_publish_conversation(obj);
-                } else {
-                    self.obj_set(obj, "LastError", format!("no conversation message with id {id:?}"));
-                    self.queue_control_event(obj, "onError");
-                }
-                none
-            }
-            "REMOVEMESSAGE" | "REMOVE-MESSAGE" => {
-                let id = arg(0);
-                if self.viewer_conversation(obj).remove_message(&id) {
-                    self.viewer_publish_conversation(obj);
-                } else {
-                    self.obj_set(obj, "LastError", format!("no conversation message with id {id:?}"));
-                    self.queue_control_event(obj, "onError");
-                }
-                none
-            }
-            // ── §8.8's conversation management ──
-            //
-            // The ORDER matters and is tested: the pane is cleared FIRST,
-            // then the event is raised, so a handler bound to either event
-            // sees an empty pane and never stale content.
-            "NEWCONVERSATION" | "NEW-CONVERSATION" => {
-                let was_empty = self.viewer_conversation(obj).is_empty();
-                self.viewer_archive_current(obj);
-                if was_empty {
-                    // AC26: no history entry, and no event.
-                    none
-                } else {
-                    self.viewer_conversation(obj).clear();
-                    self.obj_set(obj, "ConversationId", String::new());
-                    self.viewer_publish_conversation_quietly(obj);
-                    self.queue_control_event(obj, "onConversationCreated");
-                    none
-                }
-            }
-            "SELECTCONVERSATION" | "SELECT-CONVERSATION" => {
-                let id = arg(0);
-                self.viewer_archive_current(obj);
-                // The selected entry leaves history and becomes current.
-                if let Some(h) = self.viewer_history.get_mut(obj) {
-                    h.take(&id);
-                }
-                self.viewer_publish_history(obj);
-                self.viewer_conversation(obj).clear();
-                self.obj_set(obj, "ConversationId", id.clone());
-                self.viewer_publish_conversation_quietly(obj);
-                // §8.8: this is the signal telling the host to start calling
-                // the append methods. The control never restores content
-                // from a cache of its own — there is no cache to restore
-                // from, by design.
-                self.queue_control_event_with(obj, "onConversationSelected", &id);
-                none
-            }
-            "REGISTERCONVERSATION" | "REGISTER-CONVERSATION" => {
-                let id = arg(0);
-                let title = arg(1);
-                let history = self.viewer_history.entry(obj.to_string()).or_default();
-                history.push(cobolt_forms::viewer::ConversationEntry {
-                    id,
-                    title: if title.trim().is_empty() { "Conversation".into() } else { title },
-                });
-                self.viewer_publish_history(obj);
-                none
-            }
-            // §8.4's "Jump to latest", COBOL-callable — R22's "no viewer
-            // capability reachable only by mouse" reaches the conversation
-            // surface too. The VIEWPORT is the engine's (it is the only
-            // side that knows how tall the content is), so this leaves a
-            // request the way Print and Share do.
-            "JUMPTOLATEST" | "JUMP-TO-LATEST" => {
-                let n = parse_i(self.obj_get(obj, "_JumpToLatest")) + 1;
-                self.obj_set(obj, "_JumpToLatest", n.to_string());
-                none
-            }
-            "FINDNEXT" | "FIND-NEXT" => {
-                self.viewer_step_find(obj, true);
-                none
-            }
-            "FINDPREVIOUS" | "FIND-PREVIOUS" => {
-                self.viewer_step_find(obj, false);
-                none
-            }
-            // R26/R31: opening and closing Find from COBOL, with the same
-            // events the toolbar button raises.
-            "FIND" => {
-                if !args.is_empty() {
-                    self.obj_set(obj, "View1SearchText", arg(0));
-                    self.obj_set(obj, "View1SearchCurrentMatch", "0".into());
-                }
-                // `canonical_prop_value` normalises a boolean to
-                // "true"/"false", so comparing against "1" here matched
-                // nothing and raised onFindOpened on EVERY call — caught by
-                // `find_and_findclose_open_the_bar_and_fire_once_each`.
-                if !truthy(&self.viewer_prop(obj, "FindOpen")) {
-                    self.obj_set(obj, "View1FindOpen", "1".into());
-                    self.queue_control_event(obj, "onFindOpened");
-                }
-                none
-            }
-            "FINDCLOSE" | "FIND-CLOSE" => {
-                if truthy(&self.viewer_prop(obj, "FindOpen")) {
-                    self.obj_set(obj, "View1FindOpen", "0".into());
-                    self.queue_control_event(obj, "onFindClosed");
-                }
-                none
             }
             // ── Timer ──
             "START" => {

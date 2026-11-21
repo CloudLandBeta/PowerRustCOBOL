@@ -406,6 +406,11 @@ impl FormSupervisor {
         }
     }
 
+    /// Is the form under `handle` embedded in a ContentPane (it has no window of its own)?
+    pub fn is_embedded(&self, handle: &str) -> bool {
+        self.handles.get(handle).is_some_and(|i| i.kind == Kind::Embedded)
+    }
+
     /// Is this handle currently live?
     pub fn is_open(&self, handle: &str) -> bool {
         self.handles.contains_key(handle)
@@ -611,16 +616,8 @@ impl FormSupervisor {
             .get(handle)
             .map(|i| i.kind == Kind::Embedded)
             .unwrap_or(false);
-        if embedded
-            && matches!(
-                m.as_str(),
-                "FOCUS" | "SETFOCUS" | "SETWINDOWSTATE" | "SETFULLSCREEN" | "SETTITLEVISIBLE"
-            )
-        {
-            let _ = reply.send(Err(format!(
-                "the form under {handle} is embedded in the ContentPane — \
-                 \u{201c}{m}\u{201d} needs a form with its own window"
-            )));
+        if embedded && cobolt_forms::exceptions::WINDOW_ONLY_METHODS.contains(&m.as_str()) {
+            let _ = reply.send(Err(cobolt_forms::exceptions::window_method_needs_a_window(handle, &m)));
             return Vec::new();
         }
         let actions = match m.as_str() {

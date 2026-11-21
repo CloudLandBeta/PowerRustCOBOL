@@ -917,6 +917,21 @@ impl FormTree {
         out
     }
 
+    /// A program's write the window is not told of, as the interpreter stores one quietly: a Viewer putting
+    /// back the source that failed to load, or settling one spelling of a property on the other's value
+    /// (DESKTOP-WASM-001 T50). The value is kept as written. A write of the same property that has not
+    /// reached the window yet still reaches it, in its place, with the value it was made with.
+    pub fn put_quiet(&mut self, ctl: usize, name: &str, value: &str) {
+        let key = name.trim().to_ascii_lowercase();
+        let pending = Change::Prop { ctl, key: key.clone() };
+        if let Some(at) = self.changes.iter().position(|c| *c == pending) {
+            let spelled = self.spelled.get(&(ctl, key.clone())).cloned().unwrap_or_else(|| key.to_ascii_uppercase());
+            let made = self.ctls[ctl].props.get(&key).cloned().unwrap_or_default();
+            self.changes[at] = Change::Command { ctl, name: ORDERED_WRITES.to_owned(), args: vec![spelled, made] };
+        }
+        self.ctls[ctl].props.insert(key, value.to_owned());
+    }
+
     /// A user's edit from the DOM: store the new value *without* raising an observer event (the
     /// DOM event the user caused is delivered by the renderer as itself) and without clearing
     /// siblings beyond what a click does.

@@ -22,6 +22,16 @@ pub const CRITICAL_EXCEPTION_PROP: &str = "_CriticalException";
 /// one whose opener has closed.
 pub const SUPER_IS_NULL: &str = "super is NULL — this form has no parent (the main form, or its opener already closed)";
 
+/// The methods that act on a form's own window. A form embedded in the ContentPane has none, so
+/// it refuses them ([`window_method_needs_a_window`]); every other method on the form works there.
+pub const WINDOW_ONLY_METHODS: [&str; 5] = ["FOCUS", "SETFOCUS", "SETWINDOWSTATE", "SETFULLSCREEN", "SETTITLEVISIBLE"];
+
+/// The refusal of one of the [`WINDOW_ONLY_METHODS`] (`method`, in capitals) on a form embedded in
+/// the ContentPane, whose handle in the window supervisor is `handle` (spec 051).
+pub fn window_method_needs_a_window(handle: &str, method: &str) -> String {
+    format!("the form under {handle} is embedded in the ContentPane \u{2014} \u{201c}{method}\u{201d} needs a form with its own window")
+}
+
 /// The failure of a call through a windowHandler (a `USAGE OBJECT` item an `OpenFormSync` /
 /// `OpenFormAsync … RETURNING` filled) whose form has closed; `name` is the item as the program wrote it.
 pub fn window_handle_is_null(name: &str) -> String {

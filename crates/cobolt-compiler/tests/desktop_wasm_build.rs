@@ -27,8 +27,8 @@
 //! - the forms' current code is compiled, not a stale generated file: the front end runs before
 //!   the toolchain is looked for (the twin of `regenerate_before_build_tests`);
 //! - (T33) a form of controls the runner draws builds on the WebAssembly path; one holding a
-//!   control the runner does not serve yet (a Viewer, inside a Panel) takes the Cargo path, naming the
-//!   form, its file and the control;
+//!   control the runner does not serve yet (the sign-in control, inside a Panel) takes the Cargo path,
+//!   naming the form, its file and the control (a Viewer until T50, which put it on the WebAssembly path);
 //! - (T34) a Build asked for the WebAssembly path alone (`wasm_only`) stops where the Cargo path
 //!   would start, with the reason and nothing compiled, and builds a served form as before.
 
@@ -487,19 +487,19 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
         r.as_ref().is_ok_and(|b| b.path == BuildPath::Wasm && b.binary_path.is_file()),
     );
     let mut panel = ctl("PNL-SIDE", cobolt_forms::ControlType::Panel);
-    panel.children.push(ctl("VWR-DOC", cobolt_forms::ControlType::Viewer));
-    let m = form_project("prct33viewer", vec![ctl("BTN-GO", cobolt_forms::ControlType::Button), panel]);
+    panel.children.push(ctl("AUTH-SIGNIN", cobolt_forms::ControlType::Authentication));
+    let m = form_project("prct33signin", vec![ctl("BTN-GO", cobolt_forms::ControlType::Button), panel]);
     let t = Instant::now();
     let r = build_project(&m, &opts(Some(&runner)));
     let viewer_ms = ms(t);
     let viewer_reason = reason_of(&r);
     let text = r.as_ref().err().map(|e| e.to_string()).unwrap_or_default();
     check(
-        "a Viewer inside a Panel → DesktopControl { MAIN, forms/main.cfrm, VWR-DOC, Viewer }",
+        "a sign-in control inside a Panel → DesktopControl { MAIN, forms/main.cfrm, AUTH-SIGNIN, Authentication }",
         matches!(&viewer_reason, Ok(CargoReason::DesktopControl { form, file, control, control_type, reason })
-            if form == "MAIN" && file == "forms/main.cfrm" && control == "VWR-DOC" && control_type == "Viewer" && reason.contains("(DESKTOP-WASM-001 M6)")),
+            if form == "MAIN" && file == "forms/main.cfrm" && control == "AUTH-SIGNIN" && control_type == "Authentication" && reason.contains("(DESKTOP-WASM-001 M6)")),
     );
-    check("the message names the file, the form, the control and Rust", text.contains("forms/main.cfrm") && text.contains("VWR-DOC") && text.contains("Rust toolchain is required"));
+    check("the message names the file, the form, the control and Rust", text.contains("forms/main.cfrm") && text.contains("AUTH-SIGNIN") && text.contains("Rust toolchain is required"));
     check("nothing compiled: no bin/", !m.parent().unwrap().join("bin").exists());
 
     // ── 8. wasm_only (T34): a Build asked for the WebAssembly path alone stops where the Cargo path
@@ -509,8 +509,8 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     let r = wasm_only(&m);
     let only_viewer_ms = ms(t);
     check(
-        "wasm_only, a Viewer in a Panel → WasmOnly { DesktopControl VWR-DOC }",
-        matches!(&r, Err(CompilerError::WasmOnly { reason: CargoReason::DesktopControl { control, .. } }) if control == "VWR-DOC"),
+        "wasm_only, a sign-in control in a Panel → WasmOnly { DesktopControl AUTH-SIGNIN }",
+        matches!(&r, Err(CompilerError::WasmOnly { reason: CargoReason::DesktopControl { control, .. } }) if control == "AUTH-SIGNIN"),
     );
     check(
         "its message says only the WebAssembly path was asked for, and names no toolchain",
@@ -549,8 +549,8 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     println!("   refused: {http_reason:?} in {http_ms:.1} ms");
     println!("4. build_path = \"cargo\": stopped in {chosen_ms:.1} ms, bin/ unchanged");
     println!("7. a form of a Button and a Label: {served_path:?} in {served_ms:.1} ms");
-    println!("   a form with a Viewer in a Panel: {viewer_reason:?} in {viewer_ms:.1} ms");
-    println!("8. wasm_only: the Viewer form stopped in {only_viewer_ms:.1} ms; the Button and Label form built in {only_served_ms:.1} ms");
+    println!("   a form with a sign-in control in a Panel: {viewer_reason:?} in {viewer_ms:.1} ms");
+    println!("8. wasm_only: the sign-in form stopped in {only_viewer_ms:.1} ms; the Button and Label form built in {only_served_ms:.1} ms");
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {
         println!("  {} {what}", if *ok { "pass" } else { "FAIL" });

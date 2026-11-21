@@ -56,7 +56,7 @@ fn is_list(c: &Ctl) -> bool {
     matches!(c.kind, Kind::Control(ControlType::ListBox | ControlType::ComboBox))
 }
 
-fn is_class(c: &Ctl, t: ControlType) -> bool {
+pub(crate) fn is_class(c: &Ctl, t: ControlType) -> bool {
     matches!(&c.kind, Kind::Control(x) if *x == t)
 }
 
@@ -220,7 +220,7 @@ pub(crate) fn chart_refresh(tree: &mut FormTree, ctl: usize) {
 }
 
 /// `Name::Prop` / `Name.Prop` → (control index, property); a bare name → (this control, name).
-fn resolve_ref(tree: &FormTree, ctl: usize, p: &str) -> (usize, String) {
+pub(crate) fn resolve_ref(tree: &FormTree, ctl: usize, p: &str) -> (usize, String) {
     for sep in ["::", "."] {
         if let Some((c, prop)) = p.split_once(sep) {
             if let Some(i) = tree.by_name(c) {

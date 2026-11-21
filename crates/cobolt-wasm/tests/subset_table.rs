@@ -234,9 +234,10 @@ fn every_statement_and_builtin_has_a_native_class() {
 }
 
 /// T33 (R13, plan §4.3): every control type of the toolbox has a Desktop class. The runner serves
-/// the controls of classes A and B (HTML and drawn) and the DataGrid; a service control, a canvas
-/// or graphics object, Maps, the Viewer and an unknown type send the Build to the Cargo path with
-/// a reason naming the milestone that moves it. So does a control bound to data, for each source.
+/// the controls of classes A, B and E (HTML, drawn, canvases and graphics objects), the DataGrid and
+/// the service controls it carries out (since T48 Maps, since T50 the Viewer); the service controls
+/// left (the sign-in control) and an unknown type send the Build to the Cargo path with a reason naming
+/// the milestone that moves it. So does a control bound to data, for each source.
 #[test]
 fn every_control_has_a_desktop_class() {
     use cobolt_forms::model::{BindingSourceDescriptor as S, ControlType};
@@ -259,7 +260,7 @@ fn every_control_has_a_desktop_class() {
         ("Timer served", desktop_control_gap(&ControlType::Timer).is_none()),
         ("DataGrid served", desktop_control_gap(&ControlType::DataGrid).is_none()),
         ("Maps served (T48)", desktop_control_gap(&ControlType::Maps).is_none()),
-        ("Viewer refused (M6)", desktop_control_gap(&ControlType::Viewer).is_some_and(|w| w.contains("M6"))),
+        ("Viewer served (T50)", desktop_control_gap(&ControlType::Viewer).is_none()),
         ("Canvas2D served (T50)", desktop_control_gap(&ControlType::Canvas2D).is_none()),
         ("Canvas3D served (T50)", desktop_control_gap(&ControlType::Canvas3D).is_none()),
         ("FileDropZone served (T39c)", desktop_control_gap(&ControlType::FileDropZone).is_none()),

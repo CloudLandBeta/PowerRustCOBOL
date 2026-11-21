@@ -297,6 +297,8 @@ pub use self::agent::{AgentControl, AgentEffects, AgentPort, ModelsPort};
 mod partiql;
 pub use self::partiql::{PartiqlControl, PartiqlEffects, PartiqlPort};
 mod scripted;
+mod viewer;
+pub use self::viewer::{ViewerAccess, ViewerPort};
 
 /// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
 /// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
@@ -641,6 +643,9 @@ pub struct Host {
     /// The desktop's IndexedFile control, whose PartiQL members the runner runs on its file store
     /// (T48, A55); `None` in a page.
     pub partiql: Option<Box<dyn PartiqlPort>>,
+    /// The desktop's Viewer, whose documents, conversation, saves and hand-offs the runner carries out by the
+    /// interpreter's own rules (T50); `None` in a page.
+    pub viewer: Option<Box<dyn ViewerPort>>,
     /// The `onToolCall` handlers handed to the program and not yet heard back from, `(inst, control)`
     /// (T47c): the port hears of each when its instance is free again.
     tool_waits: Vec<(u32, usize)>,
@@ -741,6 +746,12 @@ pub struct Host {
     pane: Option<(f64, f64)>,
     /// The instances whose program said they hold unsaved changes (`me::SetUnsavedChanges(1)`, WASM-011 R8).
     unsaved: std::collections::BTreeSet<u32>,
+    /// The windows the runner is about to open, by form, in the order it asks for them
+    /// ([`Host::name_window`]): each one's handle in the window supervisor, and whether it is embedded in
+    /// a ContentPane. The form's next instance takes the first.
+    window_names: HashMap<usize, VecDeque<(String, bool)>>,
+    /// Each desktop instance's window, as [`Host::name_window`] named it (T50).
+    windows: HashMap<u32, (String, bool)>,
     /// The page was opened for a form the application does not have: `onRouteNotFound` is raised with this name once the
     /// form the page starts with is open (WASM-011 R6).
     not_found: Option<String>,
@@ -828,6 +839,7 @@ impl Host {
             agent: None,
             models: None,
             partiql: None,
+            viewer: None,
             tool_waits: Vec::new(),
             drop_zones: None,
             sequences: BTreeMap::new(),
@@ -870,6 +882,8 @@ impl Host {
             viewport: None,
             pane: None,
             unsaved: std::collections::BTreeSet::new(),
+            window_names: HashMap::new(),
+            windows: HashMap::new(),
             not_found: None,
             started: false,
             aborted: false,
@@ -1988,6 +2002,9 @@ impl Host {
         tree.live = self.live_at_open(&tree, mode);
         tree.desktop = self.opts.desktop;
         self.trees.insert(inst, tree);
+        if let Some(window) = self.window_names.get_mut(&form).and_then(VecDeque::pop_front) {
+            self.windows.insert(inst, window);
+        }
         // The grids the backend serves (WASM-005 R13, T16), from the form's own bindings.
         for (id, grid) in crate::grid::remote_grids(&desc) {
             if let Some(ctl) = self.trees[&inst].by_name(&id) {
@@ -2006,6 +2023,7 @@ impl Host {
         }
         self.drop_streams_of(inst);
         self.unsaved.remove(&inst);
+        self.windows.remove(&inst);
         self.sequences.remove(&inst);
         if let Some(a) = self.audio.as_mut() {
             a.release(inst);
@@ -2027,6 +2045,9 @@ impl Host {
         }
         if let Some(p) = self.partiql.as_mut() {
             p.release(inst);
+        }
+        if let Some(v) = self.viewer.as_mut() {
+            v.release(inst);
         }
         self.tool_waits.retain(|(i, _)| *i != inst);
         self.work.retain(|w| {
@@ -2529,6 +2550,9 @@ impl Host {
                 if idx == 0 && seg.args.is_empty() {
                     self.note_form_write(path.inst, inst, &name, value);
                 }
+                if seg.args.is_empty() {
+                    self.viewer_member_written(inst, idx, &name);
+                }
                 Ok(())
             }
             Target::Layer { inst, layer } => {
@@ -2779,10 +2803,15 @@ impl Host {
         if let Some(r) = self.drop_zone_call(inst, idx, name) {
             return r;
         }
+        // A Viewer's documents, conversation, saves and hand-offs are the runner's, on the desktop (T50).
+        if let Some(r) = self.viewer_call(inst, idx, name, args) {
+            return r;
+        }
         let r = self.control_method(inst, idx, name, args);
         match r {
             Ok(o) => {
                 self.enqueue_requests(inst, o.events);
+                self.viewer_set_property(inst, idx, name, args);
                 Ok(o.value)
             }
             Err(MethodError::Unsupported(m)) => Err(CmdError::Unknown(m)),
@@ -3135,9 +3164,20 @@ impl Host {
         }
     }
 
+    /// A form's `FormState` as `GetFormState` answers it. On the desktop, the interpreter's supervisor
+    /// answer (spec 037 R16, R23): `Waiting` while the form's program has written `Waiting` to it, else
+    /// `Ready`. A page answers `Normal`.
+    fn form_state(&self, inst: u32) -> Option<String> {
+        if !self.opts.desktop {
+            return Some("Normal".to_owned());
+        }
+        let waiting = self.trees.get(&inst).is_some_and(|t| t.get(0, "FormState").trim().eq_ignore_ascii_case("Waiting"));
+        Some(if waiting { "Waiting" } else { "Ready" }.to_owned())
+    }
+
     fn form_get(&self, inst: u32, name: &str) -> Option<String> {
         match name.to_ascii_lowercase().as_str() {
-            "formstate" => Some("Normal".to_owned()),
+            "formstate" => self.form_state(inst),
             "instance" => Some(inst.to_string()),
             // The room the form has, as the desktop host mirrors it (`LiveSize`): whole design pixels.
             "width" | "height" => {
@@ -3345,6 +3385,15 @@ impl Host {
         true
     }
 
+    /// On the desktop (T50): the next instance of `form` opens in the window the supervisor knows as
+    /// `handle`, embedded in a ContentPane when `embedded`. Called before the open is asked for
+    /// ([`Host::start`], [`Host::open_form`], [`Host::open_held`]), as its `onLoad` runs inside it: a
+    /// method that needs a window of its own is refused on an embedded form in the interpreter's words,
+    /// which name the handle.
+    pub fn name_window(&mut self, form: usize, handle: &str, embedded: bool) {
+        self.window_names.entry(form).or_default().push_back((handle.to_owned(), embedded));
+    }
+
     /// The window asked for under `handle` will never come (its opener's window is gone): the form
     /// does not open, and a caller waiting for it goes on.
     pub fn drop_held(&mut self, handle: &str) {
@@ -3384,6 +3433,13 @@ impl Host {
     /// `Ok(None)` when `name` is not a form verb (the control methods then apply to the form).
     fn form_verb(&mut self, inst: u32, name: &str, args: &[&str]) -> Result<Option<Option<String>>, CmdError> {
         let m = name.to_ascii_uppercase();
+        // A form embedded in the ContentPane has no window of its own: the methods that act on one are
+        // refused, as the interpreter's supervisor refuses them (spec 051).
+        if let Some((handle, true)) = self.windows.get(&inst) {
+            if cobolt_forms::exceptions::WINDOW_ONLY_METHODS.contains(&m.trim()) {
+                return Err(CmdError::Refused(cobolt_forms::exceptions::window_method_needs_a_window(handle, m.trim())));
+            }
+        }
         match m.as_str() {
             "OPENFORMSYNC" | "OPENFORMASYNC" => {
                 let sync = m == "OPENFORMSYNC";
@@ -3474,17 +3530,19 @@ impl Host {
                 }
                 Ok(Some(None))
             }
-            "SETFULLSCREEN" => {
+            // On the desktop the form's own window goes full screen: the supervisor's, as the other window
+            // methods (T50). A page asks the browser.
+            "SETFULLSCREEN" if !self.opts.desktop => {
                 self.effects.push(Effect::Fullscreen(crate::value::truthy(args.first().copied().unwrap_or("1"))));
                 Ok(Some(None))
             }
-            "SETFOCUS" | "FOCUS" | "SETTITLEVISIBLE" | "SETWINDOWSTATE" | "SETBREADCRUMBDETAIL" | "CLEARBREADCRUMBDETAIL" => {
+            "SETFOCUS" | "FOCUS" | "SETTITLEVISIBLE" | "SETWINDOWSTATE" | "SETFULLSCREEN" | "SETBREADCRUMBDETAIL" | "CLEARBREADCRUMBDETAIL" => {
                 if let Some(tree) = self.trees.get_mut(&inst) {
                     tree.command(0, &m.to_ascii_lowercase(), args.iter().map(|s| (*s).to_owned()).collect());
                 }
                 Ok(Some(None))
             }
-            "GETFORMSTATE" => Ok(Some(Some("Normal".into()))),
+            "GETFORMSTATE" => Ok(Some(self.form_state(inst))),
             // The form holds changes the user has not saved (WASM-011 R8): leaving it by Back, a menu or closing the tab
             // asks the user first. `1` marks it, `0` clears the mark; the mark goes with the instance.
             "SETUNSAVEDCHANGES" => {
@@ -4265,6 +4323,10 @@ mod agent_tests;
 mod partiql_tests;
 #[cfg(test)]
 mod scripted_tests;
+#[cfg(test)]
+mod viewer_tests;
+#[cfg(test)]
+mod window_tests;
 #[cfg(test)]
 mod unhandled_tests;
 #[cfg(test)]

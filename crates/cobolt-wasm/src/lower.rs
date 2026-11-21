@@ -174,6 +174,9 @@ pub struct FormCtx {
     /// Control ids of the form's AgentObjects: their members that name a data item, or offer a tool the
     /// runtime answers itself, are not on the WebAssembly path yet (DESKTOP-WASM-001 T47c).
     pub agents: std::collections::HashSet<u32>,
+    /// Control ids of the form's Viewers: in a desktop module their text-carrying members send their
+    /// arguments with every character (DESKTOP-WASM-001 T50, [`crate::support::VIEWER_TEXT_MEMBERS`]).
+    pub viewers: std::collections::HashSet<u32>,
     /// The form's name, for diagnostics.
     pub name: String,
 }
