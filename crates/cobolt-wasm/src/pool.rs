@@ -121,6 +121,15 @@ impl Pool {
         self.intern(&r)
     }
 
+    /// The digits of an integer written in the program, moved as characters: an alphanumeric literal
+    /// that a national or UTF-8 receiver keeps left-justified ([`cobolt_wasm_rt::fd::AUX_DIGITS`], T50a3a).
+    pub fn opd_lit_digits(&mut self, bytes: &[u8]) -> u32 {
+        let data = if bytes.is_empty() { self.intern(&[0]) } else { self.intern(bytes) };
+        let fd = Fd { aux: cobolt_wasm_rt::fd::AUX_DIGITS, ..Fd::alnum(bytes.len() as u32) };
+        let r = Self::header(T_LIT_ALNUM, 0, 0, 0, &fd, data, bytes.len() as u32);
+        self.intern(&r)
+    }
+
     /// An `N"…"` or `U"…"` literal of a desktop module (DESKTOP-WASM-001 T44): its text in UTF-8,
     /// flagged as national for the routines ([`F_CLASSED`]).
     pub fn opd_lit_class(&mut self, bytes: &[u8]) -> u32 {

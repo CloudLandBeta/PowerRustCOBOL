@@ -721,17 +721,18 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
         check(format!("{what}: MOVE, DISPLAY, IF, INITIALIZE and LENGTH of {n} compile into a desktop module"), r.is_ok());
     }
     // Any other use takes the Cargo path, naming the item and the statement's line.
-    let ws = "01 WS-N PIC N(6).\n01 WS-9 PIC 9(4).\n01 WS-C PIC 9(4).\n01 WS-G.\n   05 WS-GN PIC N(2).\n";
+    let ws = "01 WS-N PIC N(6).\n01 WS-9 PIC 9(4).\n01 WS-C PIC 9(4).\n01 WS-D PIC 9(3)V9.\n01 WS-K PIC N(2).\n   88 K-OK VALUE N\"ok\".\n01 WS-G.\n   05 WS-GN PIC N(2).\n";
     let uses = [
         ("    DISPLAY WS-N(1:2)\n", "WS-N(1:2)", "a reference modification", "WS-N"),
         ("    STRING WS-N(1:2) DELIMITED BY SIZE INTO WS-X\n", "STRING", "a reference-modified STRING sender", "WS-N"),
         ("    UNSTRING WS-N(2:3) DELIMITED BY \"a\" INTO WS-X\n", "UNSTRING", "a reference-modified UNSTRING source", "WS-N"),
         ("    INSPECT WS-G TALLYING WS-C FOR ALL \"a\"\n", "INSPECT", "INSPECT over a group that holds a national item", "WS-G"),
-        ("    MOVE 5 TO WS-N\n", "MOVE 5", "a number moved into it", "WS-N"),
-        ("    MOVE WS-N TO WS-9\n", "TO WS-9", "it moved into a number", "WS-N"),
         ("    MOVE FUNCTION ABS(WS-N) TO WS-9\n", "ABS", "a function that reads a number", "WS-N"),
         ("    MOVE FUNCTION UPPER-CASE(WS-N(1:2)) TO WS-X\n", "UPPER-CASE", "a reference-modified function argument", "WS-N"),
-        ("    IF WS-N = ZERO DISPLAY \"z\" END-IF\n", "ZERO", "a comparison with ZERO", "WS-N"),
+        ("    IF WS-N = WS-D DISPLAY \"d\" END-IF\n", "= WS-D", "a comparison with a decimal item", "WS-N"),
+        ("    IF WS-N = 1.5 DISPLAY \"d\" END-IF\n", "1.5", "a comparison with a decimal literal", "WS-N"),
+        ("    IF WS-N = -5 DISPLAY \"d\" END-IF\n", "-5", "a comparison with a negative literal", "WS-N"),
+        ("    ACCEPT WS-N FROM DATE\n", "DATE", "ACCEPT FROM DATE", "WS-N"),
     ];
     for (stmt, needle, what, item) in uses {
         let src = format!("{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC X(8).\n{ws}PROCEDURE DIVISION.\n{stmt}    STOP RUN.\n");
@@ -745,6 +746,12 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
     // A function that reads its argument's text takes national and UTF-8 data (T50a1); a browser
     // module refuses the national functions, as it always has.
     let served = [
+        ("    MOVE 5 TO WS-N\n    MOVE 0012 TO WS-N\n    MOVE 2.50 TO WS-N\n    MOVE WS-9 TO WS-N\n    MOVE WS-D TO WS-N\n", "a number moved into it (T50a3a)"),
+        ("    MOVE WS-N TO WS-9\n    MOVE WS-N TO WS-D\n", "it moved into a number (T50a3a)"),
+        ("    IF WS-N = ZERO DISPLAY \"z\" END-IF\n    IF WS-N > 42 DISPLAY \"g\" END-IF\n    IF WS-N = WS-9 DISPLAY \"n\" END-IF\n", "a comparison with ZERO, an integer literal and an integer item (T50a3a)"),
+        ("    IF WS-N IS NUMERIC DISPLAY \"n\" END-IF\n    IF WS-N IS NOT ALPHABETIC-LOWER DISPLAY \"l\" END-IF\n", "class tests (T50a3a)"),
+        ("    IF K-OK DISPLAY \"ok\" END-IF\n    SET K-OK TO TRUE\n", "a condition-name over it, SET TO TRUE (T50a3a)"),
+        ("    ACCEPT WS-N\n    ACCEPT WS-N FROM ENVIRONMENT \"PRC_X\"\n    ACCEPT WS-9 FROM ARGUMENT-NUMBER\n    ACCEPT WS-N FROM COMMAND-LINE\n", "ACCEPT from the console, the environment and the arguments (T50a3a)"),
         ("    MOVE FUNCTION UPPER-CASE(WS-N) TO WS-X\n", "UPPER-CASE"),
         ("    MOVE FUNCTION ULENGTH(WS-N) TO WS-9\n", "ULENGTH"),
         ("    MOVE FUNCTION UPOS(WS-N, 2) TO WS-9\n", "UPOS"),
@@ -783,7 +790,7 @@ fn national_and_utf8_data_compute_in_the_module_or_take_the_cargo_path() {
         compile_program(&common::parse(&page), &Options::default()).is_ok(),
     );
     let took = t.elapsed().as_secs_f64() * 1000.0;
-    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44, T50a1, T50a2) ==");
+    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44, T50a1, T50a2, T50a3a) ==");
     println!(
         "programs compiled: {} ({} desktop modules accepted, {} refused, 2 browser modules) in {took:.1} ms",
         kept.len() + served.len() + uses.len() + 4,

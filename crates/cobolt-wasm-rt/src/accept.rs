@@ -95,6 +95,9 @@ pub(crate) fn put(base: u32, target: u32, text: &[u8]) {
         if let Some(n) = codec::parse_text(text) {
             codec::store_value(&loc, Val::Dec(n), false, false);
         }
+    } else if let Some(class) = crate::nat::Class::of(&loc.fd) {
+        // A national or UTF-8 receiver takes the line's characters, fitted by character (T50a3a).
+        crate::nat::write(class, crate::nat::Text::Utf8(text), loc.fd.justified(), mem::bytes_mut(loc.addr, loc.len));
     } else {
         mv::put_bytes(&loc, text, loc.fd.justified());
     }
@@ -171,7 +174,7 @@ pub fn accept_native_console(base: u32, target: u32) {
     let n = unsafe { host::con_read(scratch, SCRATCH_SIZE) };
     let line: &[u8] = if n > 0 { mem::bytes(scratch, (n as u32).min(SCRATCH_SIZE)) } else { &[] };
     let loc = locate(base, &parse(target));
-    if n >= 0 || loc.fd.is_alnum_like() {
+    if n >= 0 || loc.fd.is_alnum_like() || crate::nat::Class::of(&loc.fd).is_some() {
         put(base, target, line);
     }
 }

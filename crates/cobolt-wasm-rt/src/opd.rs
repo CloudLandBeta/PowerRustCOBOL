@@ -218,7 +218,7 @@ fn locate_sized(base: u32, o: &Opd, current: bool) -> Loc {
         T_LIT_ALNUM | T_ALL => Loc {
             addr: o.off,
             len: o.len,
-            fd: Fd { kind: K_ALNUM, flags: o.fd.flags & F_CLASSED, digits: 0, scale: 0, len: o.len, aux: 0 },
+            fd: Fd { kind: K_ALNUM, flags: o.fd.flags & F_CLASSED, digits: 0, scale: 0, len: o.len, aux: o.fd.aux & crate::fd::AUX_DIGITS },
         },
         T_FIG => Loc {
             addr: o.addr + 3, // the `fig` byte itself; callers read `fig_byte`

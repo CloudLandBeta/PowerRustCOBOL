@@ -544,6 +544,10 @@ pub const CLASS_UPPER: u32 = 3;
 pub fn class_test(base: u32, o: u32, class: u32) -> bool {
     let op = parse(o);
     let loc = locate(base, &op);
+    // National or UTF-8 text is tested by character (T50a3a).
+    if crate::nat::is_classed(&op) {
+        return crate::nat::class_test(&loc, class);
+    }
     let b = mem::bytes(loc.addr, loc.len);
     let fd = &loc.fd;
     match class {

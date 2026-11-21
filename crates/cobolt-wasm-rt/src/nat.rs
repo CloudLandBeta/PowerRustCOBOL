@@ -373,16 +373,17 @@ fn fill_text(class: Class, byte: u8, zero: bool) -> Text<'static> {
 /// `VALUE` clause does not).
 fn sender_text<'a>(snd: &Sender, class: Class, value_clause: bool) -> (Text<'a>, bool) {
     match snd {
-        Sender::Bytes(l, _) => (text_of(l), true),
+        // An integer written in the program keeps its digits left-justified, `JUSTIFIED` or not.
+        Sender::Bytes(l, _) => (text_of(l), l.fd.aux != crate::fd::AUX_DIGITS),
         Sender::Fill(b, zero) => (fill_text(class, *b, *zero), value_clause),
         Sender::All(l) => {
             let unit = mem::bytes(l.addr, l.len);
             let text = if unit.is_empty() { Text::Fill(' ', class.positions().max(1)) } else { Text::Repeat(unit, class.positions().max(1)) };
             (text, value_clause)
         }
-        // A number reaches a national or UTF-8 item only through a VALUE clause, which the
-        // interpreter reads as no text at all (the generator refuses such a MOVE).
-        Sender::Num(..) => (Text::Fill(' ', 0), true),
+        // A number reaches here only through a VALUE clause, which the interpreter reads as no
+        // text at all (`store` takes any other).
+        Sender::Num(..) | Sender::Lit(..) => (Text::Fill(' ', 0), true),
     }
 }
 
@@ -401,10 +402,58 @@ fn overlaps(a: &Loc, b: &Loc) -> bool {
     a.addr < b.addr + b.len && b.addr < a.addr + a.len
 }
 
+/// The characters at `l` as UTF-8 bytes in the workspace scratch area (T50a3a): what a read of such
+/// text as a number sees. Text that does not fit ends the run with the scratch error, as the verbs do.
+pub fn utf8_text(l: &Loc) -> &'static [u8] {
+    let (s, cap) = crate::mv::scratch();
+    let out = mem::bytes_mut(s, cap);
+    let mut at = 0usize;
+    for c in text_of(l).chars() {
+        let n = c.len_utf8();
+        if at + n > out.len() {
+            crate::fail(crate::state::err::SCRATCH_OVERFLOW);
+        }
+        c.encode_utf8(&mut out[at..]);
+        at += n;
+    }
+    mem::bytes(s, at as u32)
+}
+
+/// The text of a number written in the program or computed, as `DISPLAY` shows it and the
+/// interpreter's `as_display_string` spells it: a `-`, the digits, a point where there are decimals.
+fn shown(v: &crate::val::Val, out: &mut [u8; 64]) -> usize {
+    match v {
+        crate::val::Val::Dec(d) => crate::disp::format_dec(d, out),
+        crate::val::Val::F(f) => crate::float::format_f64(*f, out),
+    }
+}
+
 /// Store `snd` in the national or UTF-8 item at `d`, fitted to its class. `value_clause`: the
 /// item's `VALUE`, which applies `JUSTIFIED RIGHT` to a figurative constant too.
 pub fn store(snd: &Sender, d: &Loc, value_clause: bool) {
     let Some(class) = Class::of(&d.fd) else { return };
+    // A number moved in (T50a3a): an item's is its digit positions, zero-padded, unsigned, no point,
+    // left-justified whatever the receiver's `JUSTIFIED`; one written in the program or computed is
+    // its own text. A `VALUE` clause reads a number as no text at all (below).
+    if !value_clause {
+        match snd {
+            Sender::Num(v, fd) => {
+                let mut digits = [0u8; 40];
+                let n = crate::mv::image_chars(v, fd, &mut digits);
+                write(class, Text::Utf8(&digits[..n]), false, mem::bytes_mut(d.addr, d.len));
+                return;
+            }
+            Sender::Lit(v, _, whole) => {
+                let mut buf = [0u8; 64];
+                let n = shown(v, &mut buf);
+                // An integer written in the program keeps the digits it was written with, left-justified
+                // like an item's; a decimal one, or a computed one, is its text and takes `JUSTIFIED`.
+                write(class, Text::Utf8(&buf[..n]), d.fd.justified() && !*whole, mem::bytes_mut(d.addr, d.len));
+                return;
+            }
+            _ => {}
+        }
+    }
     let (text, justify) = sender_text(snd, class, value_clause);
     fit_into(class, text, justify && d.fd.justified(), d, snd);
 }
@@ -441,6 +490,29 @@ pub fn argument_chars(bytes: &[u8], national: bool) -> Decode<'_> {
         Decode::Utf16(Utf16Be { b: bytes, at: 0, pending: None })
     } else {
         Decode::Utf8(Lossy::new(bytes))
+    }
+}
+
+/// `x IS NUMERIC | ALPHABETIC | ALPHABETIC-LOWER | ALPHABETIC-UPPER` of national or UTF-8 text
+/// (T50a3a), over the item's characters, padding included, as the interpreter reads its display
+/// string: NUMERIC when every character is a digit; the others admit ASCII letters and spaces only.
+pub fn class_test(l: &Loc, class: u32) -> bool {
+    use crate::cmp::{CLASS_ALPHABETIC, CLASS_LOWER, CLASS_NUMERIC};
+    let t = text_of(l);
+    match class {
+        CLASS_NUMERIC => {
+            let mut any = false;
+            for c in t.chars() {
+                if !c.is_ascii_digit() {
+                    return false;
+                }
+                any = true;
+            }
+            any
+        }
+        CLASS_ALPHABETIC => t.chars().all(|c| c.is_ascii_alphabetic() || c == ' '),
+        CLASS_LOWER => t.chars().all(|c| c.is_ascii_lowercase() || c == ' '),
+        _ => t.chars().all(|c| c.is_ascii_uppercase() || c == ' '),
     }
 }
 
@@ -499,12 +571,85 @@ fn boolean_of(t: &Text) -> (Option<bool>, bool) {
     }
 }
 
+/// What a number is beside national or UTF-8 text (T50a3a).
+enum Number<'a> {
+    /// `ZERO`: the number 0.
+    Zero,
+    /// A numeric item with no decimals: COBOL-85's pseudo-move, so its digit positions as text.
+    Pseudo(Text<'a>),
+}
+
+/// The number an operand is, when it is one the generator admits beside national or UTF-8 text.
+fn number_side<'a>(base: u32, o: &Opd, digits: &'a mut [u8; 40]) -> Option<Number<'a>> {
+    if o.tag == T_FIG && o.fig == FIG_ZERO {
+        return Some(Number::Zero);
+    }
+    if o.tag == T_ITEM {
+        let l = locate(base, o);
+        if l.fd.is_numeric() {
+            let v = crate::codec::load_value(&l);
+            let n = crate::mv::image_chars(&v, &l.fd, digits);
+            return Some(Number::Pseudo(Text::Utf8(&digits[..n])));
+        }
+    }
+    None
+}
+
+/// The interpreter's numeric relation of two reals: equal within 1e-10.
+fn f64_holds(op: u32, lf: f64, rf: f64) -> bool {
+    use crate::cmp::*;
+    match op {
+        OP_EQ => libm::fabs(lf - rf) < 1e-10,
+        OP_NE => libm::fabs(lf - rf) >= 1e-10,
+        OP_LT => lf < rf,
+        OP_LE => lf <= rf,
+        OP_GT => lf > rf,
+        _ => lf >= rf,
+    }
+}
+
+/// National or UTF-8 text against `ZERO`: a number when the text reads as one (Rust's
+/// `trim().parse::<f64>()`), compared as the interpreter's `compare_values` compares two reals;
+/// otherwise its characters against `0`. `swapped`: `ZERO` is the left operand.
+fn against_zero(base: u32, c: &Opd, op: u32, swapped: bool) -> bool {
+    let l = locate(base, c);
+    if let Ok(s) = core::str::from_utf8(utf8_text(&l)) {
+        if let Ok(x) = s.trim().parse::<f64>() {
+            let (lf, rf) = if swapped { (0.0, x) } else { (x, 0.0) };
+            return f64_holds(op, lf, rf);
+        }
+    }
+    let (text, zero) = (text_of(&l), Text::Utf8(b"0"));
+    if swapped {
+        texts(zero, text, op)
+    } else {
+        texts(text, zero, op)
+    }
+}
+
 /// `a op b` when either is national or UTF-8: by code point, the shorter side padded with spaces,
 /// as the interpreter's `compare_values` compares the two texts (UTF-8 order is code point order).
 /// `TRUE`/`FALSE` spelled out on one side of `=` or `NOT =` make it a comparison of booleans, as
-/// there.
+/// there. Against a number (T50a3a) see [`Number`].
 pub fn relation(base: u32, oa: &Opd, ob: &Opd, op: u32) -> bool {
-    let (ta, tb) = (cmp_text(base, oa), cmp_text(base, ob));
+    let mut digits = [0u8; 40];
+    if is_classed(oa) != is_classed(ob) {
+        let swapped = !is_classed(oa);
+        let (c, n) = if swapped { (ob, oa) } else { (oa, ob) };
+        match number_side(base, n, &mut digits) {
+            Some(Number::Zero) => return against_zero(base, c, op, swapped),
+            Some(Number::Pseudo(t)) => {
+                let tc = cmp_text(base, c);
+                return if swapped { texts(t, tc, op) } else { texts(tc, t, op) };
+            }
+            None => {}
+        }
+    }
+    texts(cmp_text(base, oa), cmp_text(base, ob), op)
+}
+
+/// Two texts compared as `relation` says.
+fn texts(ta: Text, tb: Text, op: u32) -> bool {
     if op == crate::cmp::OP_EQ || op == crate::cmp::OP_NE {
         let ((a, wa), (b, wb)) = (boolean_of(&ta), boolean_of(&tb));
         if wa || wb {

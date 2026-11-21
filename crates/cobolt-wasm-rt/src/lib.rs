@@ -302,6 +302,15 @@ pub extern "C" fn rt_store(base: u32, o: u32, flags: u32) -> i32 {
     arith::store(base, o, flags) as i32
 }
 
+/// Pop the top register into the national or UTF-8 item `o`, as the text a computed number is
+/// (T50a3a); 0, as [`rt_store`] answers when there was no size error.
+#[no_mangle]
+pub extern "C" fn rt_store_text(base: u32, o: u32) -> i32 {
+    let v = state::pop();
+    mv::move_to(base, &mv::Sender::Lit(v, fd::Fd::display(0, 0, 0), false), &opd::parse(o));
+    0
+}
+
 /// Truncate the top register to the scale of item `o`.
 #[no_mangle]
 pub extern "C" fn rt_trunc(base: u32, o: u32) {

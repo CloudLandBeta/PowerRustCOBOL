@@ -2,6 +2,36 @@
 
 
 
+## 2.0.635 — 2026-11-21
+
+**Feature: a number meets national and UTF-8 text in a desktop WebAssembly module, and `ACCEPT` fills such an item (DESKTOP-WASM-001 T50a3a, the first half of T50a's third piece).** A desktop program that moves a number into a `PIC N` or `PIC U` item, moves such an item into a number, compares one with a number, tests its class, names it with a condition-name or accepts a line, a variable or an argument into it no longer takes the Cargo path.
+
+- **What a desktop module now computes:**
+  - `MOVE` of a numeric item into a national or UTF-8 item: its digit positions, zero-padded, unsigned, without a point, left-justified even for `JUSTIFIED RIGHT`; of an integer literal: the digits as written (`0012`); of a decimal or computed value: its text; into a table element, several receivers at once.
+  - `MOVE` of a national or UTF-8 item into a numeric item: the number its text spells (spaces around it, a sign, a point), else the receiver is left as it was.
+  - `IF` of a national or UTF-8 item against `ZERO`, an integer literal or a numeric item with no decimals, in both orders, with `NOT`.
+  - Class tests (`NUMERIC`, `ALPHABETIC`, `ALPHABETIC-LOWER`, `ALPHABETIC-UPPER`) over such an item or literal.
+  - Condition-names (`88`) over a national or UTF-8 host: a value, several values, a range, `EVALUATE TRUE`, `SET … TO TRUE`, also under a table element (`SET T-LOW (2) TO TRUE`).
+  - `ACCEPT` into such an item from the console, from `ENVIRONMENT`, `COMMAND-LINE`, `ARGUMENT-NUMBER` and `ARGUMENT-VALUE`.
+- **Decisions, on the merits:**
+  - Arithmetic on a national item is a semantic error in the interpreter too, so there is nothing to compute; it stays refused with the other uses.
+  - A text such as `1e3` moved into a number is **not** read as 1000: the interpreter does that only because it hands the text to Rust's float parser; the module follows COBOL (no number, the receiver is left as it was). Queued, with the next point, as interpreter fixes.
+  - The interpreter ignores `SET cond (sub) TO TRUE` for a condition-name under a table element (it writes nothing). The module sets the element, as COBOL-85 says, so this one case is a module-only test and not a twin.
+- **Still refused, on the Cargo path** (T50a3b to T50a5): a number with decimals, a negative or a computed value against such an item in a comparison, `ACCEPT … FROM DATE` and `TIME` into one, arithmetic on one, a `CALL` parameter, a control's property, an SQL host variable, a `SORT` key, a JSON group, and every other use not listed in T44 and T50a1 to T50a3a.
+- **A browser module is unchanged.**
+- **AC16, on purpose:** the runtime blob (`rt.wasm`) grew from 303,251 to 307,525 bytes (+4,274) and every generated module links it, so the player's eight recorded fixtures grew and the PowerAnalyticsWeb pin moved on all three artefacts; both were re-recorded (the fixtures grew by 2,473 to 2,507 bytes each).
+- **Where:**
+  - `cobolt-wasm-rt`: `mv.rs` (`Sender::Lit`), `nat.rs` (`store`, `class_test`, number and text comparison), `cmp.rs`, `accept.rs`, `edited.rs`, `fd.rs`, `opd.rs`, `lib.rs` (`rt_store_text`).
+  - `cobolt-wasm`: `lower.rs` (`check_text_move`, `check_text_compare`, class tests, `cond_name`, `set_condition` with the host's subscripts, `accept_receiver`), `pool.rs` (`opd_lit_digits`), `assets/rt.wasm`, `assets/rt.sources.hash`, `tests/native_national.rs`, `tests/native_desktop_refusals.rs`.
+  - `cobolt-runner`: `tests/national_numbers.rs` (new). `cobolt-compiler`: `lib.rs` (the System KB paragraph), `assets/knowledge/chunked.data` rebuilt.
+- **Measured** (macOS arm64):
+  - module against interpreter, `native_national`: 43 cases (9 new), each in both memory layouts, 462 DISPLAY lines and 4,316 bytes of item images identical, plus the module-only test of the subscripted `SET`;
+  - the runner twin `the_console_and_numbers_over_national_and_utf8_data_match_the_interpreter` (`national_numbers`, new): 2 of 2 programs identical packaged and under `rcrun run`, 23 of 23 checks;
+  - NIST NC on generated modules: 95 of 95 execute with 0 failures, 4,612 PASS, 5 DELETED (as before);
+  - `native_desktop_refusals` 34 of 34 checks (21 programs served, 11 refused, 2 browser);
+  - the suites around it, each `test result:` line read: `cobolt-wasm` 150 of 150 in 40 test binaries, `cobolt-wasm-rt` 39, `cobolt-abi-host` 288, `cobolt-form-host` 193, `cobolt-runner` 16 test binaries with 25 passed and 0 failed, `cobolt-compiler` `desktop_wasm_build` 1 of 1, the player's freshness 6 of 6, the PowerAnalyticsWeb pin 1 of 1, the System KB check 1 of 1, and the five `cobolt-cli` runner twins (`runner_shell_hosts` 18, `runner_viewer_form`, `runner_one_form`, `runner_surfaces`, `runner_motion_form`, 1 each) all green.
+
+
 ## 2.0.634 — 2026-11-21
 
 **Feature: `INSPECT`, `STRING` and `UNSTRING` over national and UTF-8 data run in a desktop WebAssembly module (DESKTOP-WASM-001 T50a2, the second of T50a's five pieces).** A desktop program that inspects, strings into or unstrings a `PIC N` or `PIC U` item no longer takes the Cargo path. The built program counts characters where the interpreter does: the `TALLYING` count, the `POINTER`, `COUNT IN`, the overflow test and every `BEFORE`/`AFTER` region.

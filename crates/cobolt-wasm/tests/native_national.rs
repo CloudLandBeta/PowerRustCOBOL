@@ -24,10 +24,17 @@ const START: &[u8] = b"<<<<GROUP-START>";
 const END: &[u8] = b"<GROUP-END>>>>>>";
 
 fn program(items: &str, procedure: &str) -> String {
+    // Items after a line `01 OUT.` are kept out of `G`: the interpreter keeps a binary or packed
+    // item as its value and a module as its bytes, so their images are not comparable. Their
+    // values are compared where the case DISPLAYs them.
+    let (inside, outside) = match items.find("01 OUT.") {
+        Some(i) => items.split_at(i),
+        None => (items, ""),
+    };
     format!(
         "IDENTIFICATION DIVISION.\nPROGRAM-ID. T44N.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
-         01 MARK-A PIC X(16) VALUE \"<<<<GROUP-START>\".\n01 G.\n{items}\
-         01 MARK-B PIC X(16) VALUE \"<GROUP-END>>>>>>\".\nPROCEDURE DIVISION.\nMAIN-PARA.\n{procedure}    STOP RUN.\n"
+         01 MARK-A PIC X(16) VALUE \"<<<<GROUP-START>\".\n01 G.\n{inside}\
+         01 MARK-B PIC X(16) VALUE \"<GROUP-END>>>>>>\".\n{outside}PROCEDURE DIVISION.\nMAIN-PARA.\n{procedure}    STOP RUN.\n"
     )
 }
 
@@ -473,12 +480,295 @@ const VERB_CASES: &[(&str, &str, &str)] = &[
     ),
 ];
 
+
+
+/// Numbers in and out of national and UTF-8 items (T50a3): the interpreter keeps such an item as
+/// text, so a number moved in is its digits or its text, and a number read out is what its text
+/// spells.
+const NUMBER_CASES: &[(&str, &str, &str)] = &[
+    (
+        "a number moved into a national or UTF-8 item: an item's digits, a literal's, a computed value's text",
+        r#"   05 WS-N PIC N(6).
+   05 WS-U PIC U(6).
+   05 WS-9 PIC 9(4) VALUE 12.
+   05 WS-S PIC S9(3)V99 VALUE -12.5.
+   05 WS-X PIC X(8) VALUE "abcdefgh".
+01 OUT.
+   05 WS-B PIC 9(4) COMP VALUE 345.
+   05 WS-P PIC S9(5) COMP-3 VALUE 678.
+"#,
+        r#"    MOVE 5 TO WS-N
+    DISPLAY "[" WS-N "]"
+    MOVE 0012 TO WS-N
+    DISPLAY "[" WS-N "]"
+    MOVE WS-9 TO WS-N
+    DISPLAY "[" WS-N "]"
+    MOVE WS-S TO WS-U
+    DISPLAY "[" WS-U "]"
+    MOVE WS-B TO WS-N
+    DISPLAY "[" WS-N "]"
+    MOVE WS-P TO WS-U
+    DISPLAY "[" WS-U "]"
+    MOVE 1234567 TO WS-N
+    DISPLAY "[" WS-N "]"
+    MOVE 1.5 TO WS-N
+    DISPLAY "[" WS-N "]"
+    MOVE -7 TO WS-N
+    DISPLAY "[" WS-N "]"
+    MOVE FUNCTION LENGTH(WS-X) TO WS-N
+    DISPLAY "[" WS-N "]"
+    MOVE FUNCTION NUMVAL("-3.5") TO WS-U
+    DISPLAY "[" WS-U "]"
+"#,
+    ),
+    (
+        "a national or UTF-8 item moved into a number: what its text spells, else the receiver as it was",
+        r#"   05 WS-N PIC N(6) VALUE N"  42".
+   05 WS-M PIC N(6) VALUE N"-3.75".
+   05 WS-K PIC N(6) VALUE N"abc".
+   05 WS-E PIC N(6) VALUE N"12abc".
+   05 WS-U PIC U(6) VALUE U"1000".
+   05 WS-9 PIC 9(4) VALUE 7.
+   05 WS-S PIC S9(3)V99 VALUE 0.
+01 OUT.
+   05 WS-B PIC 9(4) COMP VALUE 7.
+   05 WS-P PIC S9(5) COMP-3 VALUE 7.
+"#,
+        r#"    MOVE WS-N TO WS-9
+    DISPLAY WS-9
+    MOVE WS-M TO WS-S
+    DISPLAY WS-S
+    MOVE 9 TO WS-9
+    MOVE WS-K TO WS-9
+    DISPLAY WS-9
+    MOVE WS-E TO WS-9
+    DISPLAY WS-9
+    MOVE WS-N TO WS-B
+    DISPLAY WS-B
+    MOVE WS-M TO WS-P
+    DISPLAY WS-P
+    MOVE WS-U TO WS-9
+    DISPLAY WS-9
+"#,
+    ),
+    (
+        "a national item against a number, ZERO and a class",
+        r#"   05 WS-N PIC N(6) VALUE N"10".
+   05 WS-M PIC N(6) VALUE N"abc".
+   05 WS-Z PIC N(6) VALUE N"0".
+   05 WS-U PIC U(6) VALUE U"ab".
+   05 WS-9 PIC 9(4) VALUE 10.
+"#,
+        r#"    IF WS-N = 10 DISPLAY "N=10" ELSE DISPLAY "N#10" END-IF
+    IF WS-N > 9 DISPLAY "N>9" ELSE DISPLAY "N<=9" END-IF
+    IF WS-N = WS-9 DISPLAY "N=9" ELSE DISPLAY "N#9" END-IF
+    IF WS-M = 10 DISPLAY "M=10" ELSE DISPLAY "M#10" END-IF
+    IF WS-M > 5 DISPLAY "M>5" ELSE DISPLAY "M<=5" END-IF
+    IF WS-Z = ZERO DISPLAY "Z=0" ELSE DISPLAY "Z#0" END-IF
+    IF WS-N = ZERO DISPLAY "N=0" ELSE DISPLAY "N#0" END-IF
+    IF WS-N IS NUMERIC DISPLAY "N num" ELSE DISPLAY "N not num" END-IF
+    IF WS-M IS NUMERIC DISPLAY "M num" ELSE DISPLAY "M not num" END-IF
+    IF WS-M IS ALPHABETIC DISPLAY "M alpha" ELSE DISPLAY "M not alpha" END-IF
+    IF WS-N IS NOT ALPHABETIC DISPLAY "N not alpha" ELSE DISPLAY "N alpha" END-IF
+    IF WS-U IS ALPHABETIC-LOWER DISPLAY "U lower" ELSE DISPLAY "U not lower" END-IF
+"#,
+    ),
+    (
+        "condition-names over national and UTF-8 hosts, SET TO TRUE, EVALUATE TRUE",
+        r#"   05 WS-N PIC N(3) VALUE N"Y".
+      88 IS-Y VALUE N"Y" N"y".
+      88 IS-RANGE VALUE N"A" THRU N"F".
+      88 IS-ALNUM VALUE "Y".
+   05 WS-U PIC U(2) VALUE U"é".
+      88 IS-E VALUE U"é".
+"#,
+        r#"    IF IS-Y DISPLAY "Y" ELSE DISPLAY "not Y" END-IF
+    IF IS-ALNUM DISPLAY "alnum Y" ELSE DISPLAY "not alnum Y" END-IF
+    IF IS-RANGE DISPLAY "range" ELSE DISPLAY "not range" END-IF
+    SET IS-RANGE TO TRUE
+    DISPLAY "[" WS-N "]"
+    IF IS-RANGE DISPLAY "range" ELSE DISPLAY "not range" END-IF
+    IF IS-E DISPLAY "E" ELSE DISPLAY "not E" END-IF
+    EVALUATE TRUE
+        WHEN IS-Y DISPLAY "w Y"
+        WHEN IS-E DISPLAY "w E"
+        WHEN OTHER DISPLAY "w other"
+    END-EVALUATE
+    SET IS-Y TO TRUE
+    DISPLAY "[" WS-N "]"
+"#,
+    ),
+    (
+        "the text of a national item read as a number: spaces, signs, a point, an exponent, too many digits, no number",
+        r#"   05 A1 PIC N(8) VALUE N" 42 ".
+   05 A2 PIC N(8) VALUE N"4 2".
+   05 A3 PIC N(8) VALUE N"+5".
+   05 A4 PIC N(8) VALUE N"1e".
+   05 A5 PIC N(8) VALUE N".5".
+   05 A6 PIC N(8) VALUE N"5.".
+   05 A7 PIC N(8) VALUE N"--3".
+   05 A8 PIC N(8) VALUE N"1,5".
+   05 A9 PIC N(8) VALUE N"12345678".
+   05 AA PIC N(8) VALUE N"007".
+   05 AB PIC N(8) VALUE N"".
+   05 U1 PIC U(8) VALUE U"-12.345".
+   05 W9 PIC 9(4) VALUE 7.
+   05 WS PIC S9(3)V99 VALUE 1.
+   05 WU PIC 9(2) VALUE 7.
+"#,
+        r#"    MOVE A1 TO W9 DISPLAY "A1 " W9
+    MOVE 7 TO W9 MOVE A2 TO W9 DISPLAY "A2 " W9
+    MOVE 7 TO W9 MOVE A3 TO W9 DISPLAY "A3 " W9
+    MOVE 7 TO W9 MOVE A4 TO W9 DISPLAY "A4 " W9
+    MOVE 7 TO W9 MOVE A5 TO W9 DISPLAY "A5 " W9
+    MOVE 7 TO W9 MOVE A6 TO W9 DISPLAY "A6 " W9
+    MOVE 7 TO W9 MOVE A7 TO W9 DISPLAY "A7 " W9
+    MOVE 7 TO W9 MOVE A8 TO W9 DISPLAY "A8 " W9
+    MOVE 7 TO W9 MOVE A9 TO W9 DISPLAY "A9 " W9
+    MOVE 7 TO W9 MOVE AA TO W9 DISPLAY "AA " W9
+    MOVE 7 TO W9 MOVE AB TO W9 DISPLAY "AB " W9
+    MOVE A5 TO WS DISPLAY "A5S " WS
+    MOVE U1 TO WS DISPLAY "U1S " WS
+    MOVE U1 TO WU DISPLAY "U1U " WU
+    MOVE A9 TO WU DISPLAY "A9U " WU
+"#,
+    ),
+    (
+        "a national or UTF-8 item against ZERO, an integer literal, a numeric item with and without decimals",
+        r#"   05 A1 PIC N(6) VALUE N"00".
+   05 A2 PIC N(6) VALUE N"0.0".
+   05 A3 PIC N(6) VALUE N"abc".
+   05 A4 PIC N(6) VALUE N"5".
+   05 A5 PIC N(6) VALUE N"1e-20".
+   05 A6 PIC N(6) VALUE N" -0".
+   05 A7 PIC N(6) VALUE N"42".
+   05 U1 PIC U(6) VALUE U"7".
+   05 W9 PIC 9(4) VALUE 42.
+   05 WS PIC S9(4) VALUE -42.
+   05 W1 PIC 9 VALUE 0.
+"#,
+        r#"    IF A1 = ZERO DISPLAY "A1=0" ELSE DISPLAY "A1#0" END-IF
+    IF A2 = ZERO DISPLAY "A2=0" ELSE DISPLAY "A2#0" END-IF
+    IF A3 = ZERO DISPLAY "A3=0" ELSE DISPLAY "A3#0" END-IF
+    IF A3 > ZERO DISPLAY "A3>0" ELSE DISPLAY "A3<=0" END-IF
+    IF A4 > ZERO DISPLAY "A4>0" ELSE DISPLAY "A4<=0" END-IF
+    IF ZERO < A4 DISPLAY "0<A4" ELSE DISPLAY "0>=A4" END-IF
+    IF A5 = ZERO DISPLAY "A5=0" ELSE DISPLAY "A5#0" END-IF
+    IF A6 = ZERO DISPLAY "A6=0" ELSE DISPLAY "A6#0" END-IF
+    IF A7 = 42 DISPLAY "A7=42" ELSE DISPLAY "A7#42" END-IF
+    IF A7 = 0042 DISPLAY "A7=0042" ELSE DISPLAY "A7#0042" END-IF
+    IF A7 = W9 DISPLAY "A7=W9" ELSE DISPLAY "A7#W9" END-IF
+    IF A7 < W9 DISPLAY "A7<W9" ELSE DISPLAY "A7>=W9" END-IF
+    IF A7 = WS DISPLAY "A7=WS" ELSE DISPLAY "A7#WS" END-IF
+    IF U1 = 7 DISPLAY "U1=7" ELSE DISPLAY "U1#7" END-IF
+    IF U1 = W1 DISPLAY "U1=W1" ELSE DISPLAY "U1#W1" END-IF
+    IF W1 = A1 DISPLAY "W1=A1" ELSE DISPLAY "W1#A1" END-IF
+    IF 5 = A4 DISPLAY "5=A4" ELSE DISPLAY "5#A4" END-IF
+    IF A4 NOT = 4 DISPLAY "A4#4" ELSE DISPLAY "A4=4" END-IF
+"#,
+    ),
+    (
+        "a number into JUSTIFIED RIGHT, UTF-8 and table receivers; a value computed for several receivers; an integer literal with leading zeros",
+        r#"   05 WS-J PIC N(6) JUSTIFIED RIGHT.
+   05 WS-U PIC U(6).
+   05 T-N PIC N(5) OCCURS 3.
+   05 WS-9 PIC 9(3) VALUE 45.
+   05 WS-V PIC S9(2)V9 VALUE -1.5.
+   05 WS-A PIC X(6).
+   05 WS-Z PIC N(3).
+"#,
+        r#"    MOVE WS-9 TO WS-J
+    DISPLAY "[" WS-J "]"
+    MOVE 7 TO WS-J
+    DISPLAY "[" WS-J "]"
+    MOVE -5 TO WS-J
+    DISPLAY "[" WS-J "]"
+    MOVE 7 TO WS-U WS-J
+    DISPLAY "[" WS-U "][" WS-J "]"
+    MOVE FUNCTION LENGTH(WS-A) TO WS-J
+    DISPLAY "[" WS-J "]"
+    MOVE WS-9 TO WS-U
+    DISPLAY "[" WS-U "]"
+    MOVE WS-V TO WS-U
+    DISPLAY "[" WS-U "]"
+    MOVE WS-9 TO T-N(2)
+    DISPLAY "[" T-N(1) "][" T-N(2) "][" T-N(3) "]"
+    MOVE 0012 TO T-N(3)
+    DISPLAY "[" T-N(3) "]"
+    MOVE 2.50 TO WS-U WS-J
+    DISPLAY "[" WS-U "][" WS-J "]"
+    MOVE ZERO TO WS-U
+    DISPLAY "[" WS-U "]"
+    MOVE 100 TO WS-Z
+    DISPLAY "[" WS-Z "]"
+    COMPUTE WS-9 = 7 * 11
+    MOVE WS-9 TO WS-Z
+    DISPLAY "[" WS-Z "]"
+    MOVE WS-U TO WS-A
+    DISPLAY "[" WS-A "]"
+    MOVE WS-9 TO WS-A
+    DISPLAY "[" WS-A "]"
+"#,
+    ),
+    (
+        "class tests over national and UTF-8 text: a full item, padding, an accent, a literal",
+        r#"   05 A1 PIC N(2) VALUE N"10".
+   05 A2 PIC N(4) VALUE N"ab".
+   05 A3 PIC N(4) VALUE N"AB".
+   05 A4 PIC N(4) VALUE N"aB".
+   05 A5 PIC N(3) VALUE N"çb".
+   05 U1 PIC U(3) VALUE U"abc".
+   05 U2 PIC U(3) VALUE U"12 ".
+"#,
+        r#"    IF A1 IS NUMERIC DISPLAY "A1 num" ELSE DISPLAY "A1 not num" END-IF
+    IF A2 IS NUMERIC DISPLAY "A2 num" ELSE DISPLAY "A2 not num" END-IF
+    IF A2 IS ALPHABETIC DISPLAY "A2 alpha" ELSE DISPLAY "A2 not alpha" END-IF
+    IF A2 IS ALPHABETIC-LOWER DISPLAY "A2 lower" ELSE DISPLAY "A2 not lower" END-IF
+    IF A2 IS ALPHABETIC-UPPER DISPLAY "A2 upper" ELSE DISPLAY "A2 not upper" END-IF
+    IF A3 IS ALPHABETIC-UPPER DISPLAY "A3 upper" ELSE DISPLAY "A3 not upper" END-IF
+    IF A4 IS ALPHABETIC-LOWER DISPLAY "A4 lower" ELSE DISPLAY "A4 not lower" END-IF
+    IF A5 IS ALPHABETIC DISPLAY "A5 alpha" ELSE DISPLAY "A5 not alpha" END-IF
+    IF U1 IS ALPHABETIC-LOWER DISPLAY "U1 lower" ELSE DISPLAY "U1 not lower" END-IF
+    IF U2 IS NUMERIC DISPLAY "U2 num" ELSE DISPLAY "U2 not num" END-IF
+    IF U2 IS NOT NUMERIC DISPLAY "U2 not num" ELSE DISPLAY "U2 num" END-IF
+    IF N"abc" IS ALPHABETIC DISPLAY "lit alpha" ELSE DISPLAY "lit not alpha" END-IF
+    IF N"123" IS NUMERIC DISPLAY "lit num" ELSE DISPLAY "lit not num" END-IF
+"#,
+    ),
+    (
+        "condition-names over a national table element, a range, SET TO TRUE, a UTF-8 host and a value of the other class",
+        r#"   05 T-N PIC N(3) OCCURS 2.
+      88 T-ON VALUE N"ON" N"on".
+      88 T-LOW VALUE N"a" THRU N"m".
+   05 WS-U PIC U(4) VALUE U"ação".
+      88 U-OK VALUE U"ação" "ok".
+      88 U-OTHER VALUE "xyz".
+"#,
+        r#"    MOVE N"on" TO T-N(1)
+    MOVE N"zz" TO T-N(2)
+    IF T-ON(1) DISPLAY "1 on" ELSE DISPLAY "1 off" END-IF
+    IF T-ON(2) DISPLAY "2 on" ELSE DISPLAY "2 off" END-IF
+    IF T-LOW(1) DISPLAY "1 low" ELSE DISPLAY "1 high" END-IF
+    IF T-LOW(2) DISPLAY "2 low" ELSE DISPLAY "2 high" END-IF
+    MOVE N"c" TO T-N(2)
+    DISPLAY "[" T-N(2) "]"
+    IF T-LOW(2) DISPLAY "2 low" ELSE DISPLAY "2 high" END-IF
+    IF U-OK DISPLAY "u ok" ELSE DISPLAY "u not ok" END-IF
+    IF U-OTHER DISPLAY "u other" ELSE DISPLAY "u not other" END-IF
+    SET U-OTHER TO TRUE
+    DISPLAY "[" WS-U "]"
+    IF U-OTHER DISPLAY "u other" ELSE DISPLAY "u not other" END-IF
+    IF NOT U-OK DISPLAY "u not ok" ELSE DISPLAY "u ok" END-IF
+"#,
+    ),
+];
+
 #[test]
 fn national_and_utf8_data_compute_as_the_interpreter_computes_them() {
     let (mut t_compile, mut t_module, mut t_interp) = (Duration::ZERO, Duration::ZERO, Duration::ZERO);
     let (mut lines, mut bytes, mut runs) = (0usize, 0usize, 0usize);
     let mut results: Vec<(String, Result<(), String>)> = Vec::new();
-    for (name, items, procedure) in CASES.iter().chain(FUNCTION_CASES).chain(VERB_CASES) {
+    for (name, items, procedure) in CASES.iter().chain(FUNCTION_CASES).chain(VERB_CASES).chain(NUMBER_CASES) {
         let src = program(items, procedure);
         let t = Instant::now();
         let (want_lines, want_image) = interpreter(&src);
@@ -553,7 +843,7 @@ fn national_and_utf8_data_compute_as_the_interpreter_computes_them() {
 
     let passed = results.iter().filter(|(_, r)| r.is_ok()).count();
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
-    println!("== native_national: national and UTF-8 data, module against interpreter (DESKTOP-WASM-001 T44, T50a1, T50a2) ==");
+    println!("== native_national: national and UTF-8 data, module against interpreter (DESKTOP-WASM-001 T44, T50a1, T50a2, T50a3a) ==");
     println!("cases: {} (each in both memory layouts: {runs} module runs)", results.len());
     for (name, r) in &results {
         match r {
@@ -573,6 +863,26 @@ fn national_and_utf8_data_compute_as_the_interpreter_computes_them() {
     println!("result: {passed} of {} cases identical", results.len());
     let failed: Vec<&String> = results.iter().filter(|(_, r)| r.is_err()).map(|(n, _)| n).collect();
     assert!(failed.is_empty(), "failed: {failed:?}");
+}
+
+/// `SET T-LOW (2) TO TRUE` over a condition-name under a table element: the module sets the
+/// element, as COBOL-85 says (T50a3a). The interpreter leaves the element as it was, so this one is
+/// not a twin (queued as a separate fix: the interpreter's SET of a subscripted condition-name).
+#[test]
+fn a_condition_name_under_a_table_element_is_set_by_the_module() {
+    let src = program(
+        "   05 T-N PIC N(3) OCCURS 2.\n      88 T-LOW VALUE N\"a\" THRU N\"m\".\n      88 T-ON VALUE N\"ON\".\n",
+        "    MOVE N\"zz\" TO T-N(1) T-N(2)\n    SET T-LOW(2) TO TRUE\n    DISPLAY \"[\" T-N(1) \"][\" T-N(2) \"]\"\n\
+         \x20   IF T-LOW(1) DISPLAY \"1 low\" ELSE DISPLAY \"1 high\" END-IF\n\
+         \x20   IF T-LOW(2) DISPLAY \"2 low\" ELSE DISPLAY \"2 high\" END-IF\n\
+         \x20   SET T-ON(1) TO TRUE\n    DISPLAY \"[\" T-N(1) \"][\" T-N(2) \"]\"\n",
+    );
+    for multi in [true, false] {
+        let c = compile_program(&common::parse(&src), &native(multi)).expect("compiles");
+        let o = run_native(&c.wasm, NativeInput::default()).expect("the host runs it");
+        assert_eq!(common::wasm_lines(&o), ["[zz ][a  ]", "1 high", "2 low", "[ON ][a  ]"], "multi={multi}");
+    }
+    println!("a condition-name under a table element: SET TO TRUE sets the element (2 layouts), as COBOL-85 says");
 }
 
 /// A code page a data item names and nothing converts ends the run, in the interpreter's words

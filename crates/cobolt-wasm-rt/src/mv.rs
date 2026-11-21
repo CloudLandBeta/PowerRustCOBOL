@@ -29,8 +29,13 @@ use crate::val::Val;
 /// way for both receivers.
 #[derive(Debug, Clone, Copy)]
 pub enum Sender {
-    /// A number (item or literal), already read.
+    /// A number held in an item, already read.
     Num(Val, Fd),
+    /// A number written in the program or computed (a literal, a function's answer), already read:
+    /// into a national or UTF-8 item it is its own text, where an item's number is its digit
+    /// positions (T50a3a). Everywhere else it moves as [`Sender::Num`] does. The flag: an integer
+    /// literal, which the interpreter moves as digits, left-justified.
+    Lit(Val, Fd, bool),
     /// Characters at a location.
     Bytes(Loc, bool),
     /// A figurative constant's fill byte.
@@ -42,7 +47,8 @@ pub enum Sender {
 /// Resolve the sender operand.
 pub fn sender(base: u32, o: &Opd) -> Sender {
     match o.tag {
-        T_LIT_NUM | T_TEMP => Sender::Num(value(base, o), o.fd),
+        T_LIT_NUM => Sender::Lit(value(base, o), o.fd, o.fd.scale == 0),
+        T_TEMP => Sender::Lit(value(base, o), o.fd, false),
         T_LIT_ALNUM => Sender::Bytes(locate(base, o), false),
         T_FIG => Sender::Fill(fig_byte(o.fig), o.fig == FIG_ZERO),
         T_ALL => Sender::All(locate(base, o)),
@@ -82,7 +88,7 @@ pub fn move_to_loc(snd: &Sender, d: &Loc) {
 
 fn move_to_numeric(snd: &Sender, d: &Loc) {
     match snd {
-        Sender::Num(v, _) => {
+        Sender::Num(v, _) | Sender::Lit(v, _, _) => {
             codec::store_value(d, *v, false, false);
         }
         Sender::Fill(_, true) => {
@@ -94,6 +100,11 @@ fn move_to_numeric(snd: &Sender, d: &Loc) {
                 // A group sender makes the move alphanumeric: the bytes land as
                 // they stand (COBOL-85 6.18.4), even in a numeric receiver.
                 put_bytes(d, mem::bytes(loc.addr, loc.len), false);
+            } else if is_classed_loc(loc) {
+                // National or UTF-8 text: the number its characters spell, if they spell one (T50a3a).
+                if let Some(n) = codec::parse_text(crate::nat::utf8_text(loc)) {
+                    codec::store_value(d, Val::Dec(n), false, false);
+                }
             } else if loc.fd.kind == K_NUM_EDITED {
                 // De-editing: the value the edited characters spell, whatever
                 // insertions they carry (COBOL-85 6.18.4 GR4b).
@@ -113,7 +124,7 @@ fn move_to_numeric(snd: &Sender, d: &Loc) {
 fn move_to_alnum(snd: &Sender, d: &Loc) {
     let just = d.fd.justified();
     match snd {
-        Sender::Num(v, fd) => {
+        Sender::Num(v, fd) | Sender::Lit(v, fd, _) => {
             // The digit positions as characters.
             let mut buf = [0u8; 40];
             let n = image_chars(v, fd, &mut buf);

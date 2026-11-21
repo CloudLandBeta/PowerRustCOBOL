@@ -60,6 +60,9 @@ pub const K_NATIONAL16: u8 = 12;
 pub const K_UTF8: u8 = 13;
 
 /// The item carries an operational sign (`PIC S…`).
+/// The `aux` of an alphanumeric literal that is an integer written in the program, moved as the digits
+/// it was written with: into a national or UTF-8 item they stay left-justified (T50a3a).
+pub const AUX_DIGITS: u32 = 1;
 pub const F_SIGNED: u8 = 1;
 /// `SIGN LEADING` (default trailing).
 pub const F_SIGN_LEADING: u8 = 2;

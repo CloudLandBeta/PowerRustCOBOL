@@ -7590,8 +7590,11 @@ The Build takes the Cargo path, and says why, when:
   its SideMenu, timers and file dialogs), files of every organisation, `SORT` and
   `MERGE`, `EXEC SQL` and HTTP, `TRY`, `CATCH`, `FINALLY` and `THROW`, pointers
   in the main program (`USAGE POINTER`, `SET … TO ADDRESS OF`, `SET ADDRESS OF`),
-  and national and UTF-8 data that is moved, displayed, compared, initialised,
-  measured (`LENGTH`, `BYTE-LENGTH`), given a `VALUE` or read by a function
+  and national and UTF-8 data that is moved (to and from a number too),
+  displayed, compared (with a number, `ZERO` or a class test too), named by a
+  condition-name (`SET … TO TRUE` included), accepted from the console, the
+  environment or the arguments, initialised, measured (`LENGTH`, `BYTE-LENGTH`),
+  given a `VALUE` or read by a function
   (`NATIONAL-OF`, `DISPLAY-OF`, `UPPER-CASE` and `LOWER-CASE` by Unicode's rules,
   `ULENGTH`, `UPOS`, `UWIDTH`, `UVALID`, `USUPPLEMENTARY`, `USUBSTR`, and every
   function that reads the text of its argument, such as `TRIM`, `REVERSE`,

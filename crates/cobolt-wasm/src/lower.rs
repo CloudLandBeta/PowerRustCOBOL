@@ -455,8 +455,19 @@ pub(crate) enum Side {
     Edited,
     /// `SPACE`.
     Space,
-    /// `ZERO`, `QUOTE`, `HIGH-VALUE` or `LOW-VALUE`.
+    /// `ZERO`.
+    Zero,
+    /// `QUOTE`, `HIGH-VALUE` or `LOW-VALUE`.
     OtherFig,
+    /// A numeric item named directly: a `DISPLAY`, binary or packed one (T50a3a).
+    NumItem,
+    /// A numeric literal written as digits only (`5`, `0012`), which COBOL-85 moves and compares
+    /// as the characters it was written with (T50a3a).
+    IntLit,
+    /// Any other numeric literal (`1.5`, `-7`, `1E3`).
+    NumLit,
+    /// A computed number: an arithmetic expression, a function that answers a number.
+    Computed,
     /// Anything else: a number, a control's member, an expression, a function, a reference
     /// modification, `NULL`.
     Other,
@@ -1780,10 +1791,8 @@ impl<'a, 'b> Lower<'a, 'b> {
                 Literal::String(_) => Side::AlnumLit,
                 Literal::Figurative(fc) => match fc {
                     FigurativeConstant::Space => Side::Space,
-                    FigurativeConstant::Zero
-                    | FigurativeConstant::Quote
-                    | FigurativeConstant::HighValue
-                    | FigurativeConstant::LowValue => Side::OtherFig,
+                    FigurativeConstant::Zero => Side::Zero,
+                    FigurativeConstant::Quote | FigurativeConstant::HighValue | FigurativeConstant::LowValue => Side::OtherFig,
                     FigurativeConstant::All(inner) => match inner.as_ref() {
                         Literal::National(_) | Literal::Utf8(_) => Side::ClassedAll,
                         Literal::String(_) => Side::AlnumAll,
@@ -1791,10 +1800,16 @@ impl<'a, 'b> Lower<'a, 'b> {
                     },
                     _ => Side::Other,
                 },
+                Literal::Integer(_) | Literal::IntegerDigits(..) if l.integer_digits().is_some() => Side::IntLit,
+                Literal::Integer(_) | Literal::IntegerDigits(..) | Literal::Decimal(..) | Literal::Float(_) => Side::NumLit,
                 _ => Side::Other,
             },
             // A character-valued function answers its characters, as an alphanumeric item does (T50a1).
             Expr::FunctionCall { .. } if self.expr_is_chars(e) => Side::AlnumItem,
+            // A number computed by an expression or a function (T50a3a).
+            Expr::FunctionCall { .. } | Expr::Unary { .. } | Expr::Arithmetic { op: ArithOp::Add | ArithOp::Sub | ArithOp::Mul | ArithOp::Div | ArithOp::Pow, .. } => {
+                Side::Computed
+            }
             _ if is_direct_ref(e) => {
                 let Some(i) = self.lookup_direct(e) else { return Side::Other };
                 let it = &self.layout.items[i];
@@ -1805,10 +1820,11 @@ impl<'a, 'b> Lower<'a, 'b> {
                 } else if it.is_group {
                     Side::Group
                 } else {
-                    use cobolt_wasm_rt::fd::{K_ALNUM, K_ALNUM_EDITED, K_NUM_EDITED};
+                    use cobolt_wasm_rt::fd::{K_ALNUM, K_ALNUM_EDITED, K_BINARY, K_COMP5, K_NUM_DISPLAY, K_NUM_EDITED, K_PACKED};
                     match it.fd.kind {
                         K_ALNUM => Side::AlnumItem,
                         K_NUM_EDITED | K_ALNUM_EDITED => Side::Edited,
+                        K_NUM_DISPLAY | K_BINARY | K_COMP5 | K_PACKED => Side::NumItem,
                         _ => Side::Other,
                     }
                 }
@@ -1857,14 +1873,20 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.err_kind(line, crate::error::ErrorKind::Other, name.clone(), format!("{name}: {D_TEXT_USE}"))
     }
 
-    /// A desktop module's `MOVE` that involves national or UTF-8 data (T44): into such an item
-    /// from characters, a group, an edited item, a literal or a figurative constant; from one into
-    /// such an item, an alphanumeric item or a group. Anything else takes the Cargo path.
+    /// A desktop module's `MOVE` that involves national or UTF-8 data (T44, T50a3a): into such an
+    /// item from characters, a group, an edited item, a literal, a figurative constant or a number
+    /// (a numeric item's digits, a literal's or a computed value's text); from one into such an item,
+    /// an alphanumeric item, a numeric item or a group. Anything else takes the Cargo path.
     fn check_text_move(&mut self, from: &Expr, to: &[Expr], line: u32) -> GenResult<()> {
         let snd = self.text_side(from);
         let classed_snd = matches!(snd, Side::Classed | Side::ClassedAll);
-        for t in to {
-            let rcv = self.text_side(t);
+        let sides: Vec<Side> = to.iter().map(|t| self.text_side(t)).collect();
+        // An integer literal moves as the characters it was written with to a national or UTF-8
+        // receiver and as a number to a numeric one: one `MOVE` cannot send it both ways.
+        if snd == Side::IntLit && sides.contains(&Side::Classed) && sides.contains(&Side::NumItem) {
+            return self.text_refused(line, &[from, &to[0]]);
+        }
+        for (t, rcv) in to.iter().zip(sides) {
             let ok = match (classed_snd, rcv == Side::Classed) {
                 (false, false) => true,
                 (_, true) => matches!(
@@ -1877,9 +1899,14 @@ impl<'a, 'b> Lower<'a, 'b> {
                         | Side::Group
                         | Side::Edited
                         | Side::Space
+                        | Side::Zero
                         | Side::OtherFig
+                        | Side::NumItem
+                        | Side::IntLit
+                        | Side::NumLit
+                        | Side::Computed
                 ),
-                (true, false) => snd == Side::Classed && matches!(rcv, Side::AlnumItem | Side::Group),
+                (true, false) => snd == Side::Classed && matches!(rcv, Side::AlnumItem | Side::Group | Side::NumItem),
             };
             if !ok {
                 return self.text_refused(line, &[from, t]);
@@ -1888,16 +1915,23 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    /// A desktop module's comparison that involves national or UTF-8 data (T44): with such data,
-    /// an alphanumeric item or literal, or `SPACE`. Anything else takes the Cargo path.
+    /// A desktop module's comparison that involves national or UTF-8 data (T44, T50a3a): with such
+    /// data, an alphanumeric item or literal, `SPACE`, `ZERO`, an integer literal (compared as the
+    /// characters it was written with) or a numeric item with no decimals (compared as its digit
+    /// positions). Anything else takes the Cargo path.
     fn check_text_compare(&mut self, lhs: &Expr, rhs: &Expr, line: u32) -> GenResult<()> {
         let (a, b) = (self.text_side(lhs), self.text_side(rhs));
         if a == Side::ClassedAll || b == Side::ClassedAll {
             return self.text_refused(line, &[lhs, rhs]);
         }
         if a == Side::Classed || b == Side::Classed {
-            let other = if a == Side::Classed { b } else { a };
-            if !matches!(other, Side::Classed | Side::AlnumItem | Side::AlnumLit | Side::Space) {
+            let (other, other_e) = if a == Side::Classed { (b, rhs) } else { (a, lhs) };
+            let ok = match other {
+                Side::Classed | Side::AlnumItem | Side::AlnumLit | Side::Space | Side::Zero | Side::IntLit => true,
+                Side::NumItem => self.lookup_direct(other_e).is_some_and(|i| self.layout.items[i].fd.scale == 0),
+                _ => false,
+            };
+            if !ok {
                 return self.text_refused(line, &[lhs, rhs]);
             }
         }
@@ -2147,7 +2181,15 @@ impl<'a, 'b> Lower<'a, 'b> {
                 Ok(())
             }
             Condition::ClassTest { expr, negated, class, .. } => {
-                let o = self.operand_required(expr, line)?;
+                // National or UTF-8 text is tested by character (T50a3a).
+                let o = if self.native && self.text_side(expr) == Side::Classed {
+                    match self.text_operand(expr)? {
+                        Some(o) => o,
+                        None => return self.err(line, "a data item was expected here"),
+                    }
+                } else {
+                    self.operand_required(expr, line)?
+                };
                 self.base();
                 self.i32c(o as i32);
                 self.i32c(match class {
@@ -2263,10 +2305,12 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     fn compare_values(&mut self, lhs: &Expr, op: u32, rhs: &Expr) -> GenResult<()> {
+        let mut classed_cmp = false;
         if self.native {
             self.check_text_compare(lhs, rhs, lhs.span().line)?;
+            classed_cmp = self.text_side(lhs) == Side::Classed || self.text_side(rhs) == Side::Classed;
         }
-        let (a, b) = (self.text_operand(lhs)?, self.text_operand(rhs)?);
+        let (a, b) = (self.compare_operand(lhs, classed_cmp)?, self.compare_operand(rhs, classed_cmp)?);
         match (a, b) {
             (Some(a), Some(b)) => {
                 self.base();
@@ -2286,6 +2330,20 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
+    /// The operand of one side of a comparison. Against national or UTF-8 text (`classed`), an
+    /// integer literal is the characters it was written with, as COBOL-85's pseudo-move makes it
+    /// (T50a3a); anywhere else it is a number.
+    fn compare_operand(&mut self, e: &Expr, classed: bool) -> GenResult<Option<u32>> {
+        if classed {
+            if let Expr::Literal(l @ (Literal::Integer(_) | Literal::IntegerDigits(..)), _) = e {
+                if let Some(d) = l.integer_digits() {
+                    return Ok(Some(self.pool.opd_lit_alnum(d.as_bytes())));
+                }
+            }
+        }
+        self.text_operand(e)
+    }
+
     /// An `88`: the host item equals one of its values or lies in a range.
     pub(crate) fn cond_name(&mut self, cond_idx: usize, host_indices: &[Expr], line: u32) -> GenResult<()> {
         let item = self.layout.items[cond_idx].clone();
@@ -2301,6 +2359,9 @@ impl<'a, 'b> Lower<'a, 'b> {
             return Ok(());
         }
         let host = item.parent.expect("a condition-name has a host");
+        // A national or UTF-8 host is read by character (T50a3a).
+        let host_text = self.native && cobolt_wasm_rt::nat::Class::of(&self.layout.items[host].fd).is_some();
+        self.text_ok = host_text;
         let host_opd = self.item_operand(host, host_indices, None, line)?;
         let host_fd = self.layout.items[host].fd;
         let numeric = host_fd.is_numeric();
@@ -2308,7 +2369,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         for v in &item.cond {
             match v {
                 ConditionValue::Single(l) => {
-                    let o = self.cond_literal(l, numeric, line)?;
+                    let o = if host_text { self.cond_literal_text(l, host, line)? } else { self.cond_literal(l, numeric, line)? };
                     self.base();
                     self.i32c(host_opd as i32);
                     self.i32c(o as i32);
@@ -2316,7 +2377,11 @@ impl<'a, 'b> Lower<'a, 'b> {
                     self.call_rt("rt_rel");
                 }
                 ConditionValue::Range(lo, hi) => {
-                    let (lo, hi) = (self.cond_literal(lo, numeric, line)?, self.cond_literal(hi, numeric, line)?);
+                    let (lo, hi) = if host_text {
+                        (self.cond_literal_text(lo, host, line)?, self.cond_literal_text(hi, host, line)?)
+                    } else {
+                        (self.cond_literal(lo, numeric, line)?, self.cond_literal(hi, numeric, line)?)
+                    };
                     self.base();
                     self.i32c(host_opd as i32);
                     self.i32c(lo as i32);
@@ -2343,6 +2408,21 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.i32c(0);
         }
         Ok(())
+    }
+
+    /// A `VALUE` of a condition-name whose host is a national or UTF-8 item (T50a3a): characters,
+    /// national or UTF-8 text. A number or a figurative constant there is compared by rules the
+    /// module does not mirror, so it takes the Cargo path.
+    pub(crate) fn cond_literal_text(&mut self, l: &Literal, host: usize, line: u32) -> GenResult<u32> {
+        if !matches!(l, Literal::String(_) | Literal::National(_) | Literal::Utf8(_)) {
+            let name = self.layout.items[host].name.clone().unwrap_or_else(|| "FILLER".into());
+            return self.err_kind(line, crate::error::ErrorKind::Other, name.clone(), format!("{name}: {D_TEXT_USE}"));
+        }
+        self.text_ok = matches!(l, Literal::National(_) | Literal::Utf8(_));
+        match self.lit_number(l, line)? {
+            Some(o) => Ok(o),
+            None => self.err(line, "a literal was expected"),
+        }
     }
 
     pub(crate) fn cond_literal(&mut self, l: &Literal, host_numeric: bool, line: u32) -> GenResult<u32> {
@@ -2695,13 +2775,22 @@ impl<'a, 'b> Lower<'a, 'b> {
         // A MOVE whose receiver is an 88-level condition-name is `SET … TO TRUE`;
         // each such receiver is set, the others are moved to.
         let mut plain: Vec<Expr> = Vec::new();
-        let mut conds: Vec<usize> = Vec::new();
+        let mut conds: Vec<(usize, Vec<Expr>)> = Vec::new();
         for t in to {
             let mut is_cond = false;
             if let Expr::Identifier(..) | Expr::Qualified { .. } = t {
                 if let Ok(i) = self.resolve_item(t) {
                     if self.layout.items[i].level == 88 {
-                        conds.push(i);
+                        conds.push((i, Vec::new()));
+                        is_cond = true;
+                    }
+                }
+            } else if let Expr::Subscript { base, indices, .. } = t {
+                // `SET T-LOW (2) TO TRUE`: a condition-name under a table element (T50a3a).
+                let (leaf, quals) = split_name(base);
+                if let Ok(i) = self.layout.lookup(&leaf, &quals) {
+                    if self.layout.items[i].level == 88 {
+                        conds.push((i, indices.clone()));
                         is_cond = true;
                     }
                 }
@@ -2711,8 +2800,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
         }
         if !conds.is_empty() {
-            for c in conds {
-                self.set_condition(c, from, line)?;
+            for (c, indices) in conds {
+                self.set_condition(c, &indices, from, line)?;
             }
             if plain.is_empty() {
                 return Ok(());
@@ -2751,7 +2840,9 @@ impl<'a, 'b> Lower<'a, 'b> {
                 if to.iter().all(|t| !self.is_numeric_item(t)) =>
             {
                 let d = l.integer_digits().unwrap();
-                Some(self.pool.opd_lit_alnum(d.as_bytes()))
+                let classed = self.native
+                    && to.iter().any(|t| self.lookup_direct(t).is_some_and(|i| cobolt_wasm_rt::nat::Class::of(&self.layout.items[i].fd).is_some()));
+                Some(if classed { self.pool.opd_lit_digits(d.as_bytes()) } else { self.pool.opd_lit_alnum(d.as_bytes()) })
             }
             _ => self.text_operand(from)?,
         };
@@ -2799,15 +2890,21 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.call_rt("rt_begin");
                 self.push_expr(from)?;
                 for (k, t) in to.iter().enumerate() {
-                    let dst = self.receiver(t)?;
+                    // A national or UTF-8 receiver takes the number as its text (T50a3a).
+                    let classed = self.native && self.text_side(t) == Side::Classed;
+                    let dst = if classed { self.text_receiver(t)? } else { self.receiver(t)? };
                     if k + 1 < to.len() {
                         self.i32c(0);
                         self.call_rt("rt_pick");
                     }
                     self.base();
                     self.i32c(dst as i32);
-                    self.i32c(0);
-                    self.call_rt("rt_store");
+                    if classed {
+                        self.call_rt("rt_store_text");
+                    } else {
+                        self.i32c(0);
+                        self.call_rt("rt_store");
+                    }
                     self.raw(I::Drop);
                 }
             }
@@ -2824,7 +2921,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// `SET condition-name TO TRUE | FALSE`.
-    pub(crate) fn set_condition(&mut self, cond_idx: usize, from: &Expr, line: u32) -> GenResult<()> {
+    pub(crate) fn set_condition(&mut self, cond_idx: usize, host_indices: &[Expr], from: &Expr, line: u32) -> GenResult<()> {
         let truthy = match from {
             Expr::Literal(Literal::Integer(n), _) => *n != 0,
             Expr::Literal(Literal::IntegerDigits(n, _), _) => *n != 0,
@@ -2833,7 +2930,9 @@ impl<'a, 'b> Lower<'a, 'b> {
         };
         let item = self.layout.items[cond_idx].clone();
         let host = item.parent.expect("host");
-        let host_opd = self.item_operand(host, &[], None, line)?;
+        let host_text = self.native && cobolt_wasm_rt::nat::Class::of(&self.layout.items[host].fd).is_some();
+        self.text_ok = host_text;
+        let host_opd = self.item_operand(host, host_indices, None, line)?;
         let numeric = self.layout.items[host].fd.is_numeric();
         if truthy {
             // The first value that satisfies the condition.
@@ -2842,7 +2941,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                 Some(ConditionValue::Single(l)) | Some(ConditionValue::Range(l, _)) => l.clone(),
                 None => return self.err(line, "a condition-name without values cannot be set"),
             };
-            let src = self.cond_literal(&lit, numeric, line)?;
+            let src = if host_text { self.cond_literal_text(&lit, host, line)? } else { self.cond_literal(&lit, numeric, line)? };
             self.base();
             self.i32c(src as i32);
             self.i32c(host_opd as i32);
@@ -3721,11 +3820,21 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// `ACCEPT` in a desktop module (DESKTOP-WASM-001 T12, ABI A29): what the desktop runner
     /// answers, as the desktop does. `false`: lowered as in a browser module (the clock, and the
     /// console of a conformance build).
+    /// The receiver of an `ACCEPT` in a desktop module: a national or UTF-8 item takes the line's
+    /// characters, fitted by character (T50a3a).
+    fn accept_receiver(&mut self, target: &Expr) -> GenResult<u32> {
+        if self.native && self.text_side(target) == Side::Classed {
+            self.text_receiver(target)
+        } else {
+            self.receiver(target)
+        }
+    }
+
     fn accept_native(&mut self, target: &Expr, from: Option<&AcceptSource>) -> GenResult<bool> {
         use cobolt_wasm_rt::accept::*;
         let (kind, key) = match from {
             None | Some(AcceptSource::Mnemonic(_)) if !self.conformance => {
-                let t = self.receiver(target)?;
+                let t = self.accept_receiver(target)?;
                 self.base();
                 self.i32c(t as i32);
                 self.call_rt("rt_accept_con");
@@ -3740,7 +3849,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             Some(src @ (AcceptSource::EscapeKey | AcceptSource::CrtStatus)) => {
                 let text: &[u8] = if matches!(src, AcceptSource::EscapeKey) { b"00" } else { b"0000" };
                 let from = self.pool.opd_lit_alnum(text);
-                let t = self.receiver(target)?;
+                let t = self.accept_receiver(target)?;
                 self.base();
                 self.i32c(from as i32);
                 self.i32c(t as i32);
@@ -3749,7 +3858,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
             _ => return Ok(false),
         };
-        let t = self.receiver(target)?;
+        let t = self.accept_receiver(target)?;
         self.base();
         self.i32c(t as i32);
         self.i32c(kind as i32);

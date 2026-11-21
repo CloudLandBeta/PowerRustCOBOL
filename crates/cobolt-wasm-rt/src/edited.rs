@@ -86,7 +86,7 @@ pub fn store_numeric_edited(loc: &Loc, v: Val, rounded: bool, has_phrase: bool) 
 pub fn move_to_edited(snd: &Sender, d: &Loc) {
     match d.fd.kind {
         K_NUM_EDITED => match snd {
-            Sender::Num(v, _) => {
+            Sender::Num(v, _) | Sender::Lit(v, _, _) => {
                 store_numeric_edited(d, *v, false, false);
             }
             Sender::Fill(_, true) => {
@@ -122,7 +122,7 @@ fn move_to_alnum_edited(snd: &Sender, d: &Loc) {
     // The source characters.
     let mut digits = [0u8; 40];
     let src: &[u8] = match snd {
-        Sender::Num(v, fd) => {
+        Sender::Num(v, fd) | Sender::Lit(v, fd, _) => {
             let n = mv::image_chars(v, fd, &mut digits);
             &digits[..n]
         }
