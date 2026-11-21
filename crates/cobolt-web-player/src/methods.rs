@@ -611,6 +611,35 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
                 _ => {}
             }
         }
+        // A document the program already holds (the Backend built it), shown with no file: the desktop's `LoadBytes`. The
+        // text and the format its content has wait in the tree for the Viewer's document loader (`ensure_viewer_docs`), which
+        // makes the document the page draws. The argument is text, so a text, Markdown or HTML document is what can arrive;
+        // a PDF or an image is binary, and is a file of the application (`Source`) in the browser.
+        "LOADBYTES" if is_class(&tree.ctls[ctl], ControlType::Viewer) => {
+            use cobolt_forms::viewer::{detect_format, ViewerFormat, ViewerLoadError};
+            // NOT `arg(0)`: it trims, and the argument is the document itself, its indent and its last newline too.
+            let data = args.first().copied().unwrap_or("");
+            match detect_format(None, data.as_bytes()) {
+                Some(f @ (ViewerFormat::Text | ViewerFormat::Markdown | ViewerFormat::HtmlSubset)) => {
+                    let seq = tree.get(ctl, "_LoadBytesSeq").trim().parse::<u64>().unwrap_or(0) + 1;
+                    put(tree, ctl, "_LoadBytes", data, &mut out);
+                    put(tree, ctl, "_LoadBytesFormat", f.as_str(), &mut out);
+                    put(tree, ctl, "_LoadBytesSeq", &seq.to_string(), &mut out);
+                    put(tree, ctl, "Format", f.as_str(), &mut out);
+                    put(tree, ctl, "Progress", "100", &mut out);
+                    put(tree, ctl, "LastError", "", &mut out);
+                    out.events.push(EventReq { ctl, event: "onLoaded" });
+                }
+                other => {
+                    let why = match other {
+                        Some(f) => format!("a {f} document cannot be loaded from text in the browser: make it a file of the application and set Source"),
+                        None => ViewerLoadError::UnsupportedFormat.to_message(),
+                    };
+                    put(tree, ctl, "LastError", &why, &mut out);
+                    out.events.push(EventReq { ctl, event: "onError" });
+                }
+            }
+        }
         "PRINT" | "SHARE" | "SAVEAS" | "SAVEASPDF" | "SAVE-AS-PDF" if is_class(&tree.ctls[ctl], ControlType::Viewer) => {
             return Err(MethodError::Unsupported(format!(
                 "{method} needs the operating system (class D); use the backend to produce the document and download it"
@@ -926,6 +955,41 @@ mod tests {
         call(&mut t, lst, "Sort", &["1"]).unwrap();
         call(&mut t, lst, "DeleteRow", &["1"]).unwrap();
         assert_eq!(val(call(&mut t, lst, "GetRowCount", &[])), "1");
+    }
+
+    /// The Cnd_PRC report, defect 8: `LoadBytes` on a Viewer stopped the handler with run-time error -4 ("not available on a
+    /// Viewer in the browser"). The document the program holds is now the control's: text, Markdown and the HTML subset,
+    /// each with the format its content has, `onLoaded` raised, the argument kept as it came (the desktop does not trim it).
+    #[test]
+    fn a_viewer_takes_the_document_the_program_holds() {
+        let (mut t, v) = crate::tree::testing::tree_with("Viewer", "VWR-1", &[]);
+        let started = std::time::Instant::now();
+        let mut shown = Vec::new();
+        for (case, body, format) in [
+            ("plain text", "  Dear Ana,\n\n  your letter.\n", "Text"),
+            ("Markdown", "# Carta\n\nUm **aviso** para o morador.\n", "Markdown"),
+            ("HTML", "<html><body><h1>Carta</h1><p>Texto</p></body></html>", "HtmlSubset"),
+        ] {
+            let out = call(&mut t, v, "LoadBytes", &[body]).unwrap_or_else(|e| panic!("{case}: {e}"));
+            assert!(out.events.iter().any(|e| e.event == "onLoaded" && e.ctl == v), "{case}: onLoaded is raised");
+            assert!(!out.events.iter().any(|e| e.event == "onError"), "{case}");
+            assert_eq!(t.get(v, "Format"), format, "{case}: the format its content has");
+            assert_eq!((t.get(v, "Progress"), t.get(v, "LastError")), ("100".into(), String::new()), "{case}");
+            assert_eq!(t.get(v, "_LoadBytes"), body, "{case}: kept as it came, indent and last newline too");
+            assert_eq!(t.get(v, "_LoadBytesFormat"), format, "{case}");
+            shown.push(format!("{case} -> {format}"));
+        }
+        assert_eq!(t.get(v, "_LoadBytesSeq"), "3", "each call is a new document for the page to draw");
+        // A document no text carries is refused as the desktop refuses an unknown one, and says what to do.
+        let out = call(&mut t, v, "LoadBytes", &["%PDF-1.7\n1 0 obj\n"]).unwrap();
+        assert!(out.events.iter().any(|e| e.event == "onError"), "a PDF is binary: onError");
+        assert!(t.get(v, "LastError").contains("Source"), "{}", t.get(v, "LastError"));
+        assert_eq!(t.get(v, "_LoadBytesSeq"), "3", "the document on show is the last one that loaded");
+        println!(
+            "Viewer LoadBytes in the browser: {} (3 loaded, onLoaded each), a PDF refused with onError and a reason, in {:.2} ms",
+            shown.join(", "),
+            started.elapsed().as_secs_f64() * 1000.0
+        );
     }
 
     #[test]

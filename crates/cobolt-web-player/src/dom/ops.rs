@@ -623,6 +623,49 @@ impl Shared {
     /// Read the document a Viewer's `Source` names, once per value. Only a file of the application
     /// (the asset table) is ever fetched: a path outside it is an error shown in the control.
     pub(crate) fn ensure_viewer_docs(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32) {
+        // A document the program supplied with `LoadBytes` (`methods.rs`) is text the tree already holds: no file to
+        // read, so it is the control's document at once, once per call. The `Source` the control has now is recorded as
+        // asked, so the file an earlier `Source` named does not replace it; a `Source` set later still does.
+        let supplied: Vec<(usize, String, String, crate::view::viewer::LoadedDoc)> = {
+            let Ok(host) = inner.host.try_borrow() else { return };
+            let Some(tree) = host.trees.get(&inst) else { return };
+            let Ok(st) = self.state.try_borrow() else { return };
+            let Some(iv) = st.instances.get(&inst) else { return };
+            tree.ctls
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| matches!(c.control_type(), Some(cobolt_forms::model::ControlType::Viewer)))
+                .filter_map(|(i, _)| {
+                    let seq = tree.get(i, "_LoadBytesSeq").trim().to_owned();
+                    if seq.is_empty() || iv.ui.viewer_bytes_seq.get(&i) == Some(&seq) {
+                        return None;
+                    }
+                    let src = {
+                        let s = tree.get(i, "Source");
+                        if s.trim().is_empty() {
+                            tree.get(i, "View1Source")
+                        } else {
+                            s
+                        }
+                    };
+                    let format = match tree.get(i, "_LoadBytesFormat").as_str() {
+                        "Markdown" => crate::view::viewer::DocFormat::Markdown,
+                        "HtmlSubset" => crate::view::viewer::DocFormat::Html,
+                        _ => crate::view::viewer::DocFormat::Text,
+                    };
+                    let doc = crate::view::viewer::LoadedDoc { format, text: tree.get(i, "_LoadBytes"), error: None };
+                    Some((i, seq, src.trim().to_owned(), doc))
+                })
+                .collect()
+        };
+        for (ctl, seq, src, doc) in supplied {
+            self.with_ui(inst, |ui| {
+                ui.viewer_bytes_seq.insert(ctl, seq);
+                ui.viewer_src.insert(ctl, src);
+                ui.viewer_docs.insert(ctl, doc);
+            });
+            self.mark_dirty(inst, ctl);
+        }
         let todo: Vec<(usize, String, Option<String>)> = {
             let Ok(host) = inner.host.try_borrow() else { return };
             let Some(tree) = host.trees.get(&inst) else { return };

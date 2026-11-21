@@ -6902,6 +6902,12 @@ or bytes your program already holds:
        INVOKE VWR-1::LoadBytes(WS-DOCUMENT-BUFFER)
 ```
 
+> **Note — in a Web or Mobile application,** `LoadBytes` takes the **text** of a plain-text,
+> Markdown or HTML document: a letter the Backend built, handed to the form and shown by the
+> Viewer. It raises `onLoaded` as it does on the desktop, and every call replaces the document
+> on show. A PDF or an image is binary and cannot travel as text, so the call refuses it with
+> `onError`, and `LastError` says to make it a file of the application and set `Source`.
+
 In the designer, `Source` is not a field you have to type into blind. It comes
 with a **📂** button that opens your operating system's own file chooser, and
 an **✕** that clears the selection — and it accepts a `http://` or `https://`
@@ -10917,7 +10923,26 @@ field its padded bytes, so record lengths follow the storage column of the
 table above. A key over a national field orders records by code point. A
 **LINE SEQUENTIAL** file is the exception: it is meant to be read by people
 and other programs, so national and UTF-8 fields are written as plain UTF-8
-text and read back from it. In the IDE's indexed-file editor, a field
+text and read back from it. Every other byte of the record is written as it
+stands, and read back the same way: a letter of a code page such as 850, put
+in a `PIC X` item with `FUNCTION CHAR`, reaches the file as that one byte, and
+a line that is not UTF-8 is a record, not the end of the file. Trailing spaces
+are dropped from each line, as always. `FUNCTION CHAR(n)` is the single byte at
+position `n` of the collating sequence (`CHAR(200)` is X'C7'), and `FUNCTION
+ORD` answers the position of the first byte of its argument.
+
+```cobol
+           MOVE FUNCTION CHAR(200) TO WS-LETTER
+           STRING "AB" WS-LETTER "CD" DELIMITED BY SIZE INTO MORADOR-REC
+           WRITE MORADOR-REC
+```
+
+> **Note — a code page is not converted for you.** The file holds the bytes
+> your program put in the record. `FUNCTION DISPLAY-OF` writes characters as
+> bytes in one of the three code pages above; a file for a program that expects
+> code page 850 needs those bytes made by the program, or converted outside.
+
+In the IDE's indexed-file editor, a field
 declared `PIC N(n)` or `PIC U(n)` takes its storage width, and its grid cells
 show and accept characters.
 

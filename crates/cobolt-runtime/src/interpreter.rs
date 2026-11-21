@@ -346,6 +346,35 @@ fn rewrite_in_place(
     Ok(())
 }
 
+/// A record as one LINE SEQUENTIAL line, without its line end: the bytes the record holds, with the trailing
+/// white space removed. A record that is UTF-8 text is trimmed as text, as it always was; one that is not (a DOS
+/// exchange file in code page 850, a Windows-1252 one) keeps every byte as it is. A conversion to text there put
+/// U+FFFD (`EF BF BD`) in place of each byte above 127.
+fn line_of_record(record: &[u8]) -> &[u8] {
+    match std::str::from_utf8(record) {
+        Ok(text) => text.trim_end().as_bytes(),
+        Err(_) => {
+            let end = record.iter().rposition(|b| !(b.is_ascii_whitespace() || *b == 0x0B)).map_or(0, |at| at + 1);
+            &record[..end]
+        }
+    }
+}
+
+/// The next line of a LINE SEQUENTIAL file, its `\n` and `\r` taken off, or `None` at the end of the file. The bytes
+/// are not decoded: a line that is not UTF-8 is still a line (a `read_line` into a `String` refused it, and the
+/// `READ` answered status 30).
+fn read_line_bytes(r: &mut std::io::BufReader<std::fs::File>) -> std::io::Result<Option<Vec<u8>>> {
+    use std::io::BufRead as _;
+    let mut line = Vec::new();
+    if r.read_until(b'\n', &mut line)? == 0 {
+        return Ok(None);
+    }
+    while matches!(line.last(), Some(b'\n' | b'\r')) {
+        line.pop();
+    }
+    Ok(Some(line))
+}
+
 /// Bytes of length prefix in front of each record of a **variable-length**
 /// record-SEQUENTIAL file.
 ///
@@ -10316,22 +10345,13 @@ impl Interpreter {
         loop {
             let rec = match self.open_files.get_mut(&fkey) {
                 Some(OpenFile::Reader { r, org }) => match org {
-                    FileOrganization::LineSequential => {
-                        let mut line = String::new();
-                        match r.read_line(&mut line) {
-                            Ok(0) => None,
-                            Ok(_) => {
-                                while line.ends_with('\n') || line.ends_with('\r') {
-                                    line.pop();
-                                }
-                                Some(match &line_layout {
-                                    Some(l) => l.line_to_image(line.as_bytes()),
-                                    None => line.into_bytes(),
-                                })
-                            }
-                            Err(_) => None,
-                        }
-                    }
+                    FileOrganization::LineSequential => match read_line_bytes(r) {
+                        Ok(Some(line)) => Some(match &line_layout {
+                            Some(l) => l.line_to_image(&line),
+                            None => line,
+                        }),
+                        _ => None,
+                    },
                     _ if varying => {
                         let mut p = [0u8; VARYING_LEN_PREFIX];
                         match r.read_exact(&mut p) {
@@ -10391,8 +10411,7 @@ impl Interpreter {
             if let Some(OpenFile::Writer { w, org }) = self.open_files.get_mut(&fkey) {
                 let _ = match org {
                     FileOrganization::LineSequential => {
-                        let s = String::from_utf8_lossy(b);
-                        writeln!(w, "{}", s.trim_end())
+                        w.write_all(line_of_record(b)).and_then(|()| w.write_all(b"\n"))
                     }
                     _ if varying => w
                         .write_all(&(b.len() as u32).to_be_bytes())
@@ -10574,10 +10593,9 @@ impl Interpreter {
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
             Some(OpenFile::Writer { w, org }) => {
                 let r = match org {
-                    FileOrganization::LineSequential => {
-                        let s = String::from_utf8_lossy(line_buf.as_deref().unwrap_or(&buf));
-                        writeln!(w, "{}", s.trim_end())
-                    }
+                    FileOrganization::LineSequential => w
+                        .write_all(line_of_record(line_buf.as_deref().unwrap_or(&buf)))
+                        .and_then(|()| w.write_all(b"\n")),
                     // A variable-length record carries its own length, so the
                     // reader can find where it ends.
                     _ if varying => w
@@ -11071,24 +11089,17 @@ impl Interpreter {
             }
             Some(OpenFile::Reader { r, org }) => match org {
                 // LINE SEQUENTIAL: newline-delimited text records.
-                FileOrganization::LineSequential => {
-                    let mut line = String::new();
-                    match r.read_line(&mut line) {
-                        Ok(0) => (None, status::EOF),
-                        Ok(_) => {
-                            while line.ends_with('\n') || line.ends_with('\r') {
-                                line.pop();
-                            }
-                            // A national or UTF-8 field is text in the line and
-                            // an image in the record (spec 077, D10).
-                            (Some(spec.layout.line_to_image(line.as_bytes())), status::OK)
-                        }
-                        Err(e) => {
-                            tracing::warn!("READ failed: {e}");
-                            (None, "30")
-                        }
+                FileOrganization::LineSequential => match read_line_bytes(r) {
+                    Ok(None) => (None, status::EOF),
+                    // A national or UTF-8 field is text in the line and an
+                    // image in the record (spec 077, D10); every other byte
+                    // is the record's as it stands, whatever its code page.
+                    Ok(Some(line)) => (Some(spec.layout.line_to_image(&line)), status::OK),
+                    Err(e) => {
+                        tracing::warn!("READ failed: {e}");
+                        (None, "30")
                     }
-                }
+                },
                 // Record SEQUENTIAL: no terminator. A fixed-length file gives
                 // one record's worth of bytes per READ; a variable-length one
                 // reads its length prefix first and then that many bytes.
@@ -18794,14 +18805,22 @@ impl Interpreter {
             }
             // ── Character / ordinal ───────────────────────────────────────────
             "ORD" => {
-                let s = self.eval_expr(&args[0], span)?.as_display_string();
-                let b = s.bytes().next().unwrap_or(0);
+                // The first BYTE of the argument: a byte above 127 is its own
+                // ordinal, not the lead byte of its U+FFFD (`as_display_string`
+                // would have replaced it).
+                let v = self.eval_expr(&args[0], span)?;
+                let b = match &v {
+                    CobolValue::String { bytes, .. } => bytes.first().copied().unwrap_or(0),
+                    other => other.as_display_string().bytes().next().unwrap_or(0),
+                };
                 Ok(CobolValue::from_i64(b as i64 + 1)) // 1-based ordinal
             }
             "CHAR" => {
+                // The one byte at that position of the collating sequence. A
+                // `char` of the same number would be U+0080 and up, which is two
+                // bytes of UTF-8, and a one-byte item kept only the first.
                 let n = self.eval_expr(&args[0], span)?.as_i64().unwrap_or(1);
-                let s = ((n.clamp(1, 256) - 1) as u8 as char).to_string();
-                Ok(CobolValue::from_str(&s, 1))
+                Ok(CobolValue::String { bytes: vec![(n.clamp(1, 256) - 1) as u8], capacity: 1 })
             }
             "ORD-MAX" | "ORD-MIN" => {
                 // The *position*, so which of several equal arguments wins is

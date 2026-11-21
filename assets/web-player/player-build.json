@@ -7,9 +7,9 @@
       "sha256": "c45b4f656c0fd2be200a9df0e9ac07806b049507f6a5be35fe229b5f32dd7825"
     },
     {
-      "bytes": 3191004,
+      "bytes": 3191035,
       "path": "parts/canvas/canvas_bg.wasm",
-      "sha256": "bf4c01500f0ae77111e2411776a693eb2f61cab8c1f5fb0e80d3b54261f54aef"
+      "sha256": "12b6b0727da9ec3aff9d080116af20a1f7b4f8a79375028ffad34bea2b293c6d"
     },
     {
       "bytes": 25244,
@@ -17,9 +17,9 @@
       "sha256": "4e76bd99e7392dd110f0f81382d99997084868048882b57322bea5ddb8282c60"
     },
     {
-      "bytes": 5975330,
+      "bytes": 5975376,
       "path": "parts/graphics/graphics_bg.wasm",
-      "sha256": "51a5b334a76c3039dc616a28822b941c948eb4b4c0512c482a24b1f06c0cf0b4"
+      "sha256": "6402739651e54ddb981296185dd4fc3133a20bbacb3391654f9cfb1416afbb86"
     },
     {
       "bytes": 143445,
@@ -27,9 +27,9 @@
       "sha256": "1a74709c11159e42de8abf305d23d211ef643856308eedfae1092d63e68705e7"
     },
     {
-      "bytes": 8472599,
+      "bytes": 8472654,
       "path": "parts/graphics3d/graphics3d_bg.wasm",
-      "sha256": "120cb2715bd906ce8c73f60fe29c40395caef07188cf63799a89bf1a03466e5a"
+      "sha256": "251461ffa44a441c33fc0392f5baa34cf707c4507c2eb4f2a56497b21050d1bb"
     },
     {
       "bytes": 7985,
@@ -37,9 +37,9 @@
       "sha256": "2585e75ede88c4a08edb85882d76f07972c94362415cad19fb64745caca9f26d"
     },
     {
-      "bytes": 2218121,
+      "bytes": 2218129,
       "path": "parts/mermaid/mermaid_bg.wasm",
-      "sha256": "5f46e54aa92c851052a690f9696c77390c47db0bf8800df861c9d19029fd5829"
+      "sha256": "a28836f456fe39ec7489b4ebfa0958f34469be06a338296f9f941f5cd8cfd17e"
     },
     {
       "bytes": 6785,
@@ -49,27 +49,27 @@
     {
       "bytes": 216694,
       "path": "parts/pdf/pdf_bg.wasm",
-      "sha256": "554d0f5631133b57cc1ede85ccd03778f1126fae2e507713d957f88760125c3a"
+      "sha256": "dedf5fc7a62279dc4b09d36d4cfdd7b18b703b875ffdfacfe9e71ccf022b06f8"
     },
     {
       "bytes": 102017,
       "path": "plain/player.js",
-      "sha256": "2cb7e5f76e2ecb5ab68c4bfd50f84c4fe0db66caac414dbeb2cbfea7c8aeb1b2"
+      "sha256": "d03394d23d97ecfa7bf665e1facac0602b232d7a0486a261e77bce33ae72666b"
     },
     {
-      "bytes": 4162715,
+      "bytes": 4169388,
       "path": "plain/player_bg.wasm",
-      "sha256": "fc5e2af5187c4b793c2e938e5d5e5b1c57594c72e16923002e302eb92650b887"
+      "sha256": "aeffa193f7f1dead9e45829492b514924f45b3d064e1c0bf3be9b53f974264d5"
     },
     {
       "bytes": 108295,
       "path": "threaded/player.js",
-      "sha256": "5e5e1997f48670bf3457ab7129f498ff51f4fed1d260145b13547b030a7f5190"
+      "sha256": "d487687ed98d2e8546d0bbf7e3bdd7f48eda308d16f4e688cc6ea9b308181296"
     },
     {
-      "bytes": 3976755,
+      "bytes": 3982406,
       "path": "threaded/player_bg.wasm",
-      "sha256": "221f450d38baabfbd9e3f1db62eec13aa31b6304b57cd1abc0b2a1afca06ce19"
+      "sha256": "7c44feefa0858cda9ba7d5d71b38b2282809ee46e3c04990da1289644567a421"
     },
     {
       "bytes": 4556,
@@ -87,58 +87,58 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 4526071,
-      "after_wasm_opt_bytes": 4162715,
-      "cargo_output_bytes": 6031504,
+      "after_bindgen_bytes": 4529480,
+      "after_wasm_opt_bytes": 4169388,
+      "cargo_output_bytes": 6035272,
       "glue_js_bytes": 102017,
-      "gzip_bytes": 1443113,
+      "gzip_bytes": 1445399,
       "opt_level": "s",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 4291136,
-      "after_wasm_opt_bytes": 3976755,
-      "cargo_output_bytes": 5807839,
+      "after_bindgen_bytes": 4298876,
+      "after_wasm_opt_bytes": 3982406,
+      "cargo_output_bytes": 5816270,
       "glue_js_bytes": 108295,
-      "gzip_bytes": 1418569,
+      "gzip_bytes": 1420989,
       "opt_level": "s",
       "variant": "threaded"
     }
   ],
   "parts": [
     {
-      "after_bindgen_bytes": 2392249,
-      "after_wasm_opt_bytes": 2218121,
-      "cargo_output_bytes": 2540346,
+      "after_bindgen_bytes": 2392502,
+      "after_wasm_opt_bytes": 2218129,
+      "cargo_output_bytes": 2540627,
       "glue_js_bytes": 7985,
-      "gzip_bytes": 798459,
+      "gzip_bytes": 798413,
       "name": "mermaid",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 3459954,
-      "after_wasm_opt_bytes": 3191004,
-      "cargo_output_bytes": 3620666,
+      "after_bindgen_bytes": 3459986,
+      "after_wasm_opt_bytes": 3191035,
+      "cargo_output_bytes": 3620698,
       "glue_js_bytes": 19178,
-      "gzip_bytes": 1255724,
+      "gzip_bytes": 1255634,
       "name": "canvas",
       "opt_level": "s"
     },
     {
       "after_bindgen_bytes": 6575201,
-      "after_wasm_opt_bytes": 5975330,
+      "after_wasm_opt_bytes": 5975376,
       "cargo_output_bytes": 7476804,
       "glue_js_bytes": 25244,
-      "gzip_bytes": 2376699,
+      "gzip_bytes": 2376750,
       "name": "graphics",
       "opt_level": "s"
     },
     {
       "after_bindgen_bytes": 9329322,
-      "after_wasm_opt_bytes": 8472599,
+      "after_wasm_opt_bytes": 8472654,
       "cargo_output_bytes": 10982449,
       "glue_js_bytes": 143445,
-      "gzip_bytes": 3350518,
+      "gzip_bytes": 3350401,
       "name": "graphics3d",
       "opt_level": "s"
     },
@@ -147,7 +147,7 @@
       "after_wasm_opt_bytes": 216694,
       "cargo_output_bytes": 265655,
       "glue_js_bytes": 6785,
-      "gzip_bytes": 100652,
+      "gzip_bytes": 100653,
       "name": "pdf",
       "opt_level": "s"
     }
@@ -160,7 +160,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "d09a10007163ba6135ae54e858d28587e703581fb970424004f5c8328cc1ed32",
+  "source_hash": "bd1f10214002c68baf08113cf6a722fca12394d7ef850e329db0494e02100944",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",
