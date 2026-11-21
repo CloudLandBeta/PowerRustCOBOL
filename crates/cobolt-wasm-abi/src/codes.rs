@@ -223,6 +223,13 @@ pub mod cap {
     /// `COBOL::"PARTIQL"`, `"PARTIQL-FETCH"` and `"PARTIQL-ERROR"` on the files the program's own
     /// `SELECT`s declare, which the runner runs by the interpreter's own rules on its file store (A56).
     pub const PARTIQL_FILES: &str = "partiql.files";
+    /// `COBOL::"ANIMATIONSEQUENCE" ( action name [script | state] )`: the timed `SHOW`, `HIDE` and `PLAY`
+    /// entries of a form instance's sequences, which the runner keeps and fires by the interpreter's own
+    /// rules (A57).
+    pub const SEQUENCES: &str = "sequences";
+    /// `COBOL::"LAYOUT" ( action container [script] )`: a container's layout script installed as breakpoint
+    /// overrides, which the runner reads by the interpreter's own rules and hands to the form host (A57).
+    pub const LAYOUTS: &str = "layouts";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
@@ -249,6 +256,8 @@ pub mod cap {
         MCP_SEARCH,
         PARTIQL,
         PARTIQL_FILES,
+        SEQUENCES,
+        LAYOUTS,
     ];
 }
 

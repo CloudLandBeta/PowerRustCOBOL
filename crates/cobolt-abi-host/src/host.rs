@@ -296,6 +296,7 @@ mod agent;
 pub use self::agent::{AgentControl, AgentEffects, AgentPort, ModelsPort};
 mod partiql;
 pub use self::partiql::{PartiqlControl, PartiqlEffects, PartiqlPort};
+mod scripted;
 
 /// Where a form a program opens on the desktop wants its window, read from `OpenFormSync`'s and
 /// `OpenFormAsync`'s arguments after the form's name as the interpreter reads them (spec 037 R21):
@@ -645,6 +646,10 @@ pub struct Host {
     tool_waits: Vec<(u32, usize)>,
     /// The desktop's FileDropZone copying, which the runner gives the host (T39c); `None` in a page.
     pub drop_zones: Option<Box<dyn DropZonePort>>,
+    /// Each instance's animation sequences (DESKTOP-WASM-001 T49, A57), as each form's interpreter keeps its own.
+    sequences: BTreeMap<u32, cobolt_forms::sequence::SequenceSet>,
+    /// The sequences' clock, in whole milliseconds, which the runner gives the host ([`Host::set_clock`]).
+    clock: Option<fn() -> u64>,
     /// What the window wrote to a control the form does not hold, by instance and upper-case name (T39c):
     /// a FileDropZone's `FileListControl` may name a list that is not there, and the interpreter keeps
     /// what a drop writes to it and reads it back at `CommitFiles()`, so the desktop host does too.
@@ -825,6 +830,8 @@ impl Host {
             partiql: None,
             tool_waits: Vec::new(),
             drop_zones: None,
+            sequences: BTreeMap::new(),
+            clock: None,
             absent: HashMap::new(),
             absent_out: Vec::new(),
             effects: Vec::new(),
@@ -1999,6 +2006,7 @@ impl Host {
         }
         self.drop_streams_of(inst);
         self.unsaved.remove(&inst);
+        self.sequences.remove(&inst);
         if let Some(a) = self.audio.as_mut() {
             a.release(inst);
         }
@@ -3560,6 +3568,11 @@ impl Host {
                 self.models_call(inst, v, args);
                 Ok(None)
             }
+            // A form's animation sequences (A57): kept per instance and fired on the runner's clock
+            // ([`Host::sequences_tick`]); `Status` answers in the application's `BuiltinAnswer3`.
+            "ANIMATIONSEQUENCE" if self.opts.desktop => self.sequence_call(inst, args).map(|()| None),
+            // A container's layout script (A57): the form's `_LayoutScript`, which the form host installs.
+            "LAYOUT" if self.opts.desktop => self.layout_call(inst, args).map(|()| None),
             // The MCP search (A54): the runner searches the files the instance's AgentObjects allowed,
             // and the program's receiver reads the result from the application object.
             "MCP-SEARCH" if self.opts.desktop => {
@@ -4250,6 +4263,8 @@ mod kb_tests;
 mod agent_tests;
 #[cfg(test)]
 mod partiql_tests;
+#[cfg(test)]
+mod scripted_tests;
 #[cfg(test)]
 mod unhandled_tests;
 #[cfg(test)]

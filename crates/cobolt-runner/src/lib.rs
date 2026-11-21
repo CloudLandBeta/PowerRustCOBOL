@@ -62,7 +62,8 @@ pub use pins::Pins;
 /// T38: files on disk of every organisation (A34); T49: the sound player (A36); T48: the AWS controls (A38);
 /// T39c: the text files and pictures a built-in names by its path (A39); T41: `EXEC SQL` (A41);
 /// T42: the HTTP built-ins (A45); T47b: the KnowledgeBase control (A49); T47c: the AgentObject (A50);
-/// T48: the PartiQL built-ins on the program's own files (A56).
+/// T48: the PartiQL built-ins on the program's own files (A56); T49: the animation sequences and the
+/// layout scripts (A57).
 pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::CONSOLE,
     cap::ENV,
@@ -85,6 +86,8 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::MCP_SEARCH,
     cap::PARTIQL,
     cap::PARTIQL_FILES,
+    cap::SEQUENCES,
+    cap::LAYOUTS,
 ];
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row

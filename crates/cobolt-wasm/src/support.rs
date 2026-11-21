@@ -44,7 +44,6 @@ pub const D_FORMS: &str = "a program with no form has no controls or application
 /// The `BINDING-…` built-ins drive a Data Binding, which moves with the bound controls (M6), not with
 /// SQL (M4): T43 relabelled them.
 const D_BINDING: &str = "the Data Binding built-ins are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
-const D_MEDIA: &str = "animation sequences and layouts are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_PHONE: &str = "the phone's secure storage is a Mobile built-in, where a desktop program stops; that stop is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_REMOTE: &str = "remote calls, backend verbs and identity operations are not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
 const D_EXEC_RUST: &str = "EXEC RUST is Rust compiled into the program, so the Build takes the Cargo path";
@@ -248,7 +247,8 @@ const fn cargo(why: &'static str) -> Native {
 /// Every built-in, alphabetically, as `BUILTINS` lists them. A test fails when a
 /// name of `BUILTINS` has no row here, or a row names no built-in (R8).
 pub const BUILTIN_TABLE: &[BuiltinClass] = &[
-    c("ANIMATIONSEQUENCE", Support::Unsupported("the player has no scheduler for timed SHOW / HIDE / PLAY entries yet (spec 109 S7, WASM-PARITY #46)"), cargo(D_MEDIA)),
+    // The runner keeps a form's sequences and fires their entries by the interpreter's rules (T49, A57).
+    c("ANIMATIONSEQUENCE", Support::Unsupported("the player has no scheduler for timed SHOW / HIDE / PLAY entries yet (spec 109 S7, WASM-PARITY #46)"), Native::Host(cap::SEQUENCES)),
     c("APPEND-FILE", Support::BackendOnly(FILES), Native::Host(cap::FILES_TEXT)),
     web("AUDIO-PAUSE", "HTMLAudioElement", BOTH, Native::Host(cap::AUDIO)),
     web("AUDIO-PLAY", "HTMLAudioElement", BOTH, Native::Host(cap::AUDIO)),
@@ -293,7 +293,8 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("KEY-IS-SET", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
     c("KEY-REMOVE", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
     c("KEY-SET", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),
-    c("LAYOUT", Support::Unsupported("the player has no command to install a layout script at run time yet (spec 109 S6, WASM-PARITY #47)"), cargo(D_MEDIA)),
+    // The runner reads the script by the interpreter's rules and hands it to the form host (T49, A57).
+    c("LAYOUT", Support::Unsupported("the player has no command to install a layout script at run time yet (spec 109 S6, WASM-PARITY #47)"), Native::Host(cap::LAYOUTS)),
     // The runner searches the files the form's AgentObjects allowed, with the interpreter's function (T48, A54).
     c("MCP-SEARCH", Support::BackendOnly(SECRETS), Native::Host(cap::MCP_SEARCH)),
     c("MODEL-COUNT", Support::BackendOnly(SECRETS), Native::Host(cap::MODELS)),

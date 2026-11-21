@@ -247,6 +247,25 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
             && e.message.contains("M6"),
     );
 
+    // An animation sequence and a layout script are a form's (T49, A57): in a program with no form
+    // each is refused at its line, saying so; the Cargo path reports them as the interpreter does.
+    let sequence = format!("{HEAD}PROCEDURE DIVISION.\n    COBOL::\"ANIMATIONSEQUENCE\" ( \"Start\" \"INTRO\" )\n    STOP RUN.\n");
+    let e = refusal(&sequence);
+    check(
+        format!("COBOL::\"ANIMATIONSEQUENCE\" with no form: refused at its line ({} at line {}: {})", e.subject, e.line, e.message),
+        e.subject == "COBOL::\"ANIMATIONSEQUENCE\""
+            && e.line == line_of(&sequence, "ANIMATIONSEQUENCE")
+            && e.message.contains("in a form's handler only, so a program with no form takes the Cargo path"),
+    );
+    let layout = format!("{HEAD}PROCEDURE DIVISION.\n    COBOL::\"LAYOUT\" ( \"Clear\" \"PNL-1\" )\n    STOP RUN.\n");
+    let e = refusal(&layout);
+    check(
+        format!("COBOL::\"LAYOUT\" with no form: refused at its line ({} at line {}: {})", e.subject, e.line, e.message),
+        e.subject == "COBOL::\"LAYOUT\""
+            && e.line == line_of(&layout, "LAYOUT")
+            && e.message.contains("in a form's handler only, so a program with no form takes the Cargo path"),
+    );
+
     // `COBOL::"PARTIQL"` and its two siblings are the runner's (T48, A56): the module asks for
     // `partiql.files` and imports `pq_file`. One given fewer arguments than it takes is refused at its
     // line, naming what it takes.
@@ -418,6 +437,25 @@ fn a_desktop_module_refuses_what_the_runner_cannot_serve_with_its_reason() {
     );
     let bare = form_of(&handler("    MOVE \"x\" TO WS-PATH\n"), &[("BTN-1", "Button")], &native());
     check(format!("a form with no IndexedFile requires {:?}, not partiql", pcaps(&bare)), bare.is_ok() && !pcaps(&bare).iter().any(|c| c == "partiql"));
+
+    // An animation sequence and a layout script in a form's handler (T49, A57): each compiles and the
+    // module requires its capability; one given a single argument is refused at its line.
+    let button = [("BTN-1", "Button")];
+    let seq = form_of(&handler("    COBOL::\"ANIMATIONSEQUENCE\" ( \"Create\" \"INTRO\" \"HIDE BTN-1 AFTER 100\" )\n    COBOL::\"ANIMATIONSEQUENCE\" ( \"Status\" \"INTRO\" WS-PATH )\n"), &button, &native());
+    check(format!("COBOL::\"ANIMATIONSEQUENCE\" in a form's handler compiles, requiring {:?}", pcaps(&seq)), seq.is_ok() && pcaps(&seq).iter().any(|c| c == "sequences"));
+    let lay = form_of(&handler("    COBOL::\"LAYOUT\" ( \"Apply\" \"BTN-1\" \"GAP 6\" )\n"), &button, &native());
+    check(format!("COBOL::\"LAYOUT\" in a form's handler compiles, requiring {:?}", pcaps(&lay)), lay.is_ok() && pcaps(&lay).iter().any(|c| c == "layouts"));
+    let mut short_calls = 0;
+    for name in ["ANIMATIONSEQUENCE", "LAYOUT"] {
+        let src = handler(&format!("    COBOL::\"{name}\" ( \"Clear\" )\n"));
+        let e = form_of(&src, &button, &native()).err().unwrap_or_else(|| GenError::new(0, "compiled"));
+        if e.subject == format!("COBOL::\"{name}\"") && e.line == line_of(&src, &format!("\"{name}\"")) && e.message.contains("takes at least 2 arguments") {
+            short_calls += 1;
+        } else {
+            println!("    {name} with one argument: {} at line {}: {}", e.subject, e.line, e.message);
+        }
+    }
+    check(format!("COBOL::\"ANIMATIONSEQUENCE\" and \"LAYOUT\" with one argument: {short_calls} of 2 refused at their line, naming what they take"), short_calls == 2);
     let members = in_form(&handler(
         "    MOVE IXF-1::Execute( \"SELECT A FROM T WHERE A = ? AND B = ?\" WS-PATH 7 ) TO WS-PATH\n\
          \x20   MOVE IXF-1::ExecuteTransaction( \"DELETE FROM T WHERE A = ?\" BTN-1::Caption ) TO WS-PATH\n\

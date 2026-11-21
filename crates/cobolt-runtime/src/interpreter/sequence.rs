@@ -33,9 +33,14 @@ fn unknown(e: SeqCallError) -> RuntimeError {
 
 impl Interpreter {
     /// The sequence clock: whole milliseconds since this interpreter began, or
-    /// the value a test pinned.
+    /// the value a test pinned. In a deterministic run (`PRC_TEST_CLOCK`) it is
+    /// the virtual time the form host's clock moves by, as the runner's is
+    /// (DESKTOP-WASM-001 T49, R28).
     fn sequence_now_ms(&self) -> u64 {
-        self.sequence_now.unwrap_or_else(|| self.sequence_epoch.elapsed().as_millis() as u64)
+        self.sequence_now.unwrap_or_else(|| match crate::test_pins::virtual_elapsed() {
+            Some(elapsed) => elapsed.as_millis() as u64,
+            None => self.sequence_epoch.elapsed().as_millis() as u64,
+        })
     }
 
     /// Pin the sequence clock (tests): the next `sequences_tick` reads `ms`.

@@ -400,6 +400,8 @@ impl Thread {
         // The display lists of a module with a Canvas2D cross in the region after frame-in (A23).
         let gfx = (manifest.limits.gfx_size > 0).then(|| (layout.frame_in_off + layout.frame_size, manifest.limits.gfx_size));
         let mut host = Host::new(manifest, HostOptions { desktop: true, ..HostOptions::default() });
+        // The clock a form's animation sequences run on (T49, A57).
+        host.set_clock(sequence_clock);
         // The sounds a form plays (T49, A36).
         host.audio = Some(Box::new(crate::audio::RunnerAudio::default()));
         // The AWS controls and keys (T48): an asynchronous operation's result comes back on this
@@ -527,6 +529,14 @@ impl Thread {
         loop {
             // The clock may be virtual: a due `Sleep` is looked at again soon rather than slept through.
             let timer = timers.iter().map(|(at, _)| at.saturating_duration_since(cobolt_form_host::clock::now()).min(Duration::from_millis(5))).min();
+            // The next entry of a sequence that plays (T49), woken for as the interpreter's wait wakes for it;
+            // looked at again soon when the clock is virtual.
+            let virtual_clock = cobolt_runtime::test_pins::virtual_elapsed().is_some();
+            let entry = d.host().sequences_due_in().map(|ms| Duration::from_millis(ms.max(1)).min(Duration::from_millis(if virtual_clock { 5 } else { u64::MAX })));
+            let timer = match (timer, entry) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
             // An AgentObject's `Ask` in flight is looked at often enough to say when it ran out of time, as
             // the interpreter's wait polls while an operation is pending (T47c).
             let wait = match (timer, agent.polling().then_some(Duration::from_millis(40))) {
@@ -685,6 +695,8 @@ impl Thread {
             for id in due {
                 d.host().timer_fired(id);
             }
+            // The sequences' entries that came due, for every instance not running a handler (T49).
+            d.host().sequences_tick();
             drive(&mut d, &mut links, &mut opening, &mut adopting, &mut parked, &mut timers, &mut stopped, &tx);
             // The events each free instance has waiting, in order; one may make it busy again.
             while let Some(at) = (0..links.len()).find(|&i| !links[i].queue.is_empty() && links[i].inst.is_some_and(|inst| !d.host().busy(inst))) {
@@ -997,6 +1009,18 @@ fn changes(host: &mut Host, links: &[Link], parked: &mut Vec<(u32, Change)>, gra
                 let (reply, _) = mpsc::channel();
                 let _ = l.requests.send(FormRequest::HandleMethod { handle: l.handle.clone(), method: name.to_ascii_uppercase(), args, reply });
             }
+            Change::Command { ctl, name, args } if ANIMATION_COMMANDS.iter().any(|(c, _)| *c == name) => {
+                // A control's own animation (spec 038), asked by a method or by a sequence's `PLAY` entry (T49):
+                // the window starts, stops or pauses it, as it does for the interpreter's write of the same.
+                let Some(c) = tree.ctls.get(ctl) else { continue };
+                let ctrl_id = if ctl == 0 { l.object.clone() } else { c.name.clone() };
+                let prop = ANIMATION_COMMANDS.iter().find(|(c, _)| *c == name).map(|(_, p)| *p).unwrap_or_default();
+                let value = match (name.as_str(), args.first()) {
+                    ("playanimation" | "play", Some(a)) => a.trim().to_owned(),
+                    _ => "1".to_owned(),
+                };
+                let _ = l.state.send(StateUpdate::new(ctrl_id, prop, value));
+            }
             Change::Command { ctl, name, args } => {
                 if std::env::var_os("PRC_RUNNER_TRACE").is_some() {
                     let who = tree.ctls.get(ctl).map(|c| c.name.as_str()).unwrap_or("?");
@@ -1041,6 +1065,19 @@ fn changes(host: &mut Host, links: &[Link], parked: &mut Vec<(u32, Change)>, gra
             });
         }
     }
+}
+
+/// The animation methods the ABI host hands on as commands, with the property the interpreter writes for
+/// each: `PlayAnimation(name)` and `Play` the animation's name (`1` with none), the others `1`.
+const ANIMATION_COMMANDS: &[(&str, &str)] =
+    &[("playanimation", "_PlayAnimation"), ("play", "_PlayAnimation"), ("stopanimation", "_StopAnimation"), ("pause", "_PauseAnimation")];
+
+/// The clock a form's animation sequences run on (T49): whole milliseconds on the form host's clock, which
+/// is virtual in a deterministic run, from the first time it is read.
+fn sequence_clock() -> u64 {
+    static ORIGIN: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    let origin = *ORIGIN.get_or_init(cobolt_form_host::clock::now);
+    u64::try_from(cobolt_form_host::clock::since(origin).as_millis()).unwrap_or(u64::MAX)
 }
 
 /// The window methods the ABI host keeps as commands of the form (`me::`), sent to the supervisor

@@ -1256,6 +1256,13 @@ impl Lower<'_, '_> {
                 let why = "the runner searches the files a form's AgentObjects allowed, in a form's handler only";
                 self.desktop_app_builtin(name, using, line, cobolt_wasm_abi::codes::cap::MCP_SEARCH, 3, &[2], why)
             }
+            // On the desktop the runner keeps a form's animation sequences and fires their entries (T49).
+            "ANIMATIONSEQUENCE" if self.native => self.desktop_sequence(using, line),
+            // On the desktop the runner hands a container's layout script to the form host (T49).
+            "LAYOUT" if self.native => {
+                let why = "the runner installs a layout script in a form's handler only";
+                self.desktop_app_builtin(name, using, line, cobolt_wasm_abi::codes::cap::LAYOUTS, 2, &[], why)
+            }
             // On the desktop the runner writes a built-in's text file and reads and fits its pictures (T39c).
             "APPEND-FILE" | "WRITE-FILE" if self.native => self.desktop_text_write(name, using, line),
             "IMAGE-FIT" | "IMAGE-INFO" if self.native => self.desktop_image(name, using, line),
@@ -1502,6 +1509,51 @@ impl Lower<'_, '_> {
         self.call_rt("rt_cmd_call");
         for &i in writes.iter().filter(|&&i| i < args.len()) {
             self.app_property_into(&format!("BuiltinAnswer{}", i + 1), &args[i], line)?;
+        }
+        Ok(())
+    }
+
+    /// `COBOL::"ANIMATIONSEQUENCE" ( action name [script | state] )` in a desktop module (DESKTOP-WASM-001 T49,
+    /// ABI A57): the call goes to the application object with every argument as text, and the runner keeps
+    /// and fires the form instance's sequences by the interpreter's rules; the module requires `sequences`.
+    /// Only `Status` writes its third argument, and the application's `BuiltinAnswer3` carries what it wrote:
+    /// an action written as a literal decides at the Build whether the answer is moved; an action held in a
+    /// data item has it moved whatever it is, and the runner answers any other action with the third
+    /// argument as it was sent, so the item keeps its value. A third argument that is not a data item is
+    /// never written, nor is it under the interpreter. Fewer than two arguments are refused, and so is a call
+    /// in a program with no form: the Build takes the Cargo path, which reports them as the interpreter does.
+    fn desktop_sequence(&mut self, using: &[CallArg], line: u32) -> GenResult<()> {
+        let subject = "COBOL::\"ANIMATIONSEQUENCE\"".to_string();
+        if self.form.is_none() {
+            return self.err_kind(
+                line,
+                crate::error::ErrorKind::Other,
+                subject.clone(),
+                format!("{subject}: the runner plays a form's animation sequences in a form's handler only, so a program with no form takes the Cargo path"),
+            );
+        }
+        if using.len() < 2 {
+            return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes at least 2 arguments"));
+        }
+        let args: Vec<Expr> = using
+            .iter()
+            .map(|a| match a {
+                CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+            })
+            .collect();
+        self.names.file_caps.insert(cobolt_wasm_abi::codes::cap::SEQUENCES);
+        let seg = Seg { name: "ANIMATIONSEQUENCE", args: &args, parens: true, index: None };
+        self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
+        self.call_rt("rt_cmd_call");
+        let Some(third) = args.get(2) else { return Ok(()) };
+        let item = matches!(third, Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } | Expr::RefMod { .. });
+        let answered = match &args[0] {
+            Expr::Literal(Literal::String(action), _) => action.trim().eq_ignore_ascii_case("STATUS"),
+            Expr::Literal(..) => false,
+            _ => true,
+        };
+        if item && answered {
+            self.app_property_into("BuiltinAnswer3", third, line)?;
         }
         Ok(())
     }

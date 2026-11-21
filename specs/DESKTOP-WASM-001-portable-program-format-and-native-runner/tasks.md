@@ -2093,8 +2093,8 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
     - **Corrected:** the notes of 2.0.628 and 2.0.629 said PowerCloud still took the Cargo path for T39c's reasons; it has taken the WebAssembly path since 2.0.583.
     - **Tests:** `powercloud_agrees_on_both_engines`: 78 of 78 checks. 16 scenarios on each engine, 84 hosted calls on each, equal; five 1120 x 740 pictures, 4,144,000 pixels compared, 0 differing; 7 cached photos equal byte for byte; the six languages' 322 reads equal. Real time: Run Form 456.9 s, the built program 405.6 s; `rcrun build` on the WebAssembly path 80.6 s; the whole test 955 s. No product code changed, so no other suite was run again.
 
-- [ ] **T49 — AUDIO, ANIMATIONSEQUENCE and LAYOUT** (R11)
-  - *Sound done 2026-11-16 (2.0.555); `ANIMATIONSEQUENCE` and `LAYOUT` are still open, so the box stays empty:*
+- [x] **T49 — AUDIO, ANIMATIONSEQUENCE and LAYOUT** (R11)
+  - *Sound done 2026-11-16 (2.0.555); `ANIMATIONSEQUENCE` and `LAYOUT` were still open, so the box stayed empty:*
     - **Why sound came first:** the operator's ruling of 2026-11-16 ("no project should rely on cargo build") puts first the work that removes a reference project's reason. The sound verbs stood in three of them: PowerCallOfDuty (10 statements), PowerCobolCraft (4) and PowerCloud (7). No reference project uses `ANIMATIONSEQUENCE` or `LAYOUT`.
     - **What runs:** `COBOL::"AUDIO-PLAY"`, `"AUDIO-PAUSE"`, `"AUDIO-RESUME"`, `"AUDIO-STOP"` and `"AUDIO-STATE"` in a form's handler compile as calls on the application object, and each receiver takes its answer from the properties `AudioStatus`, `AudioState`, `AudioPosition` and `AudioDuration` (ABI A36, capability `audio`).
       - The runner plays them through the ABI host's new player port with the runtime's own player, one door per form instance, as each form's interpreter has one. A form's door is released when the form closes.
@@ -2103,6 +2103,21 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
       - the runner twin `sounds_are_played_and_answered_alike` on the null output: 8 readings equal, 1 picture with 0 differing pixels, 9 of 9 checks. With it, the file's 7 twins pass 69 of 69 checks.
     - **Left for this task:** `ANIMATIONSEQUENCE` and `LAYOUT`, after T50's canvases, which hold three reference projects on the Cargo path.
   - Verify: runner twins equal in dumps and frames, with animations under the virtual clock.
+  - *`ANIMATIONSEQUENCE` and `LAYOUT` done 2026-11-21 (2.0.631); with the sound of 2.0.555, T49 is done:*
+    - **What runs** (ABI A57, capabilities `sequences` and `layouts`, no new import):
+      - `COBOL::"ANIMATIONSEQUENCE"` and `COBOL::"LAYOUT"` in a form's handler compile as calls on the application object, with every argument as the program wrote it.
+      - The ABI host keeps each form instance's sequences (`host/scripted.rs`) and reads their scripts and the layout scripts with `cobolt_forms::sequence` and `cobolt_forms::layout_script`, the interpreter's own readers. Names are checked against every control of the form, nested ones included.
+      - The runner fires the entries that came due between handlers, as the interpreter does while it waits for the next event; a form that closes takes its sequences with it.
+      - A control's `PlayAnimation`, `StopAnimation` and `Pause` now reach the window from a built program.
+      - A refusal is the interpreter's, word for word, and the form survives it as there: the message goes to the form's `LastException` and a Critical notification.
+      - A call with fewer than two arguments, or in a program with no form, is refused when the program is built (the Cargo path). A browser module still refuses both.
+    - **Deterministic runs:** under `PRC_TEST_CLOCK` the interpreter's sequence clock is the form host's virtual time, as the runner's is. Without it nothing changes.
+    - **Tests:**
+      - the runner twin `sequences_animations_and_layout_scripts_agree_on_both_engines` (`cobolt-cli` `runner_motion_form`): every sequence action, `SHOW`, `HIDE` and `PLAY` entries, `PlayAnimation` on a control, `Layout` `Apply` and `Clear` at 760 and 560 px, and a sequence never created. 7 dumps equal, 8 pictures with 0 of 2,499,200 pixels differing, 24 of 24 checks;
+      - the ABI host's two new tests, the crate 285 of 285; `native_desktop_refusals` 57 of 57 and 13 of 13; the interpreter's sequence tests 7 of 7;
+      - the whole `cobolt-runner` suite 22 passed (2 live MySQL tests ignored); `desktop_wasm_unchanged` 3 of 3 artefacts match the pin.
+    - **Found by the twin, in the twin:** it had expected the unknown sequence to end the program; both engines keep the form running, as for every unhandled exception (the operator's ruling of 2026-09-06).
+    - **Not measured, and why:** the twin runs in real time, not under the virtual clock this task's Verify line names. Every picture is taken after what it shows has come to rest, so timing cannot move a pixel, but the frames in the middle of a fade are not compared. Under the virtual clock neither engine fires a sequence's entries in step with the script's frames, so a picture taken in the middle of a fade would not compare reliably. The box is ticked on the pictures at rest; motion frame by frame is left to AC19's gate.
 
 - [ ] **T50 — Viewer verbs, the window methods and canvas frames** (R11)
   - *Canvas frames done 2026-11-17 (2.0.560); the Viewer's verbs and the window methods are still open, so the box stays empty:*

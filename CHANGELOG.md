@@ -2,6 +2,27 @@
 
 
 
+## 2.0.631 — 2026-11-21
+
+**Feature: animation sequences and layout scripts run in a desktop WebAssembly module, which closes the sound, animation sequence and layout task (DESKTOP-WASM-001 T49).** A desktop form whose handlers call `COBOL::"ANIMATIONSEQUENCE"` or `COBOL::"LAYOUT"` no longer takes the Cargo path. The built program keeps each form's sequences and fires their entries by the interpreter's own rules, and installs a container's layout script as the interpreter does.
+
+- **What runs** (ABI A57, capabilities `sequences` and `layouts`, no new import):
+  - `COBOL::"ANIMATIONSEQUENCE" ( action name [script | item] )` compiles as a call on the application object, with every argument as the program wrote it. `Create` reads the `SHOW`, `HIDE` and `PLAY` entries and their `AFTER` times and checks every name against the form's controls, nested ones included; `Start`, `Stop`, `Restart` and `Delete` act on the sequence; `Status` answers `Playing` or `Stopped` into the third argument. A form that closes takes its sequences with it.
+  - The runner fires the entries that came due between handlers, as the interpreter fires them while it waits for the next event: `SHOW` and `HIDE` set the control's `Visible`, `PLAY` starts the control's named animation.
+  - `COBOL::"LAYOUT" ( "Apply" container script )` reads the script, checks the names, and hands the container's breakpoint overrides to the form, as the interpreter does; `"Clear"` takes them away.
+  - A control's own `PlayAnimation` (`Play`), `StopAnimation` and `Pause` now reach the window from a built program, which used to drop them.
+  - The refusals are the interpreter's, word for word, and the form survives them as it does there: the message goes to the form's `LastException` and a Critical notification, and the program goes on. A call with fewer than two arguments, or in a program with no form, is refused when the program is built, and the Build takes the Cargo path. A browser module still refuses both built-ins.
+- **One implementation of the rules:** the interpreter and the built program both read scripts with `cobolt_forms::sequence` and `cobolt_forms::layout_script`.
+- **Deterministic runs:** under `PRC_TEST_CLOCK` the interpreter's sequences run on the virtual clock, as the built program's do; without it nothing changes.
+- **Where:** `cobolt-abi-host` (`host/scripted.rs`, new, with its tests; `host.rs`), `cobolt-runner` (`forms.rs`, `lib.rs`), `cobolt-runtime` (`interpreter/sequence.rs`), `cobolt-wasm-abi` (`codes.rs`), `cobolt-wasm` (`lower_form.rs`, `support.rs`), `cobolt-cli` (`tests/runner_motion_form.rs`, new); `specs/WASM-ABI-v1.md` (A57); the web player rebuilt; the System KB rebuilt; `tasks.md`; `specs/WASM-PROGRESS.md`.
+- **Found by the twin, in the twin (no product change):** it had expected a sequence that was never created to end the program. Both engines keep the form running instead, as they do for every unhandled exception (the operator's ruling of 2026-09-06), so the twin now checks the message in the form's `LastException` and pictures the notification on both.
+- **Measured** (macOS arm64):
+  - the runner twin `sequences_animations_and_layout_scripts_agree_on_both_engines` (`cobolt-cli` `runner_motion_form`, new): 7 dumps equal, 8 pictures at 760 x 440 and 560 x 440 with 0 of 2,499,200 pixels differing, 24 of 24 checks. Run Form 21.8 s, the built program 21.1 s, `rcrun build` on the WebAssembly path 11.1 s;
+  - the ABI host's `a_sequence_fires_its_entries_on_the_clock_and_answers_its_state` and `a_layout_script_is_written_to_the_form_for_the_form_host`, new; the crate 285 of 285;
+  - `native_desktop_refusals` 57 of 57 and 13 of 13; the interpreter's sequence tests 7 of 7;
+  - the whole `cobolt-runner` suite, 22 passed (the 2 live MySQL tests ignored), 729 s; `desktop_wasm_unchanged` 3 of 3 artefacts match the pin; the player's `freshness` 6 of 6; `prebuilt_chunked_kb_matches_the_published_documentation` green.
+- **Not measured:** the twin runs in real time and takes every picture once what it shows has come to rest, so the frames in the middle of a fade are not compared. Under the virtual clock neither engine fires a sequence's entries in step with the script's frames, so such a picture would not compare reliably.
+
 ## 2.0.630 — 2026-11-20
 
 **Feature: the PowerCloud example behaves alike on the WebAssembly path and under Run Form, which closes the Maps, AWS, model list and MCP task (DESKTOP-WASM-001 T48).** A new twin runs the whole example on both engines, against local stand-ins for AWS. No product code changed: the twin found no difference between the engines once it ran each one as it is meant to run.
