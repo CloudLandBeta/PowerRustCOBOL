@@ -813,15 +813,60 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. INNER.\nDATA DIVISION.\nLINKAGE SECTION.\n
     );
     let desktop_fn = compile_program(&common::parse(&browser_fn), &native());
     check("the same program compiles into a desktop module".into(), desktop_fn.is_ok());
-    // A PROGRAM COLLATING SEQUENCE would weigh national data: refused at the item's declaration.
-    let collating = format!(
-        "{HEAD}ENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\nOBJECT-COMPUTER. X PROGRAM COLLATING SEQUENCE IS ALPHA.\nSPECIAL-NAMES. ALPHABET ALPHA IS STANDARD-1.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-N PIC N(6).\nPROCEDURE DIVISION.\n    DISPLAY WS-N\n    STOP RUN.\n"
-    );
-    let e = refusal(&collating);
-    let decl = line_of(&collating, "01 WS-N");
+    // A PROGRAM COLLATING SEQUENCE orders alphanumeric comparison only; national and UTF-8 data
+    // beside one compile (T50a4) and compare by code point.
+    for alphabet in ["STANDARD-1", "NATIVE", "\"Z\""] {
+        let collating = format!(
+            "{HEAD}ENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\nOBJECT-COMPUTER. X PROGRAM COLLATING SEQUENCE IS ALPHA.\nSPECIAL-NAMES. ALPHABET ALPHA IS {alphabet}.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-N PIC N(6).\n01 WS-U PIC U(3).\nPROCEDURE DIVISION.\n    DISPLAY WS-N\n    IF WS-N < WS-U DISPLAY \"lt\" END-IF\n    STOP RUN.\n"
+        );
+        check(
+            format!("a PROGRAM COLLATING SEQUENCE of {alphabet} beside national and UTF-8 items compiles into a desktop module (T50a4)"),
+            compile_program(&common::parse(&collating), &native()).is_ok(),
+        );
+    }
+    // A LINE SEQUENTIAL record with national and UTF-8 fields (T50a4): the runner makes each line as
+    // the interpreter does, so the module tells it where those fields lie (`prfiles` format 2). A
+    // file without any stays at format 1; one with several record descriptions, any of which holds
+    // such a field, is refused at its first verb.
+    let line_file = |records: &str| {
+        format!(
+            "{HEAD}ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT LT-F ASSIGN TO \"t50.txt\"\n        ORGANIZATION IS LINE SEQUENTIAL.\n\
+             DATA DIVISION.\nFILE SECTION.\nFD LT-F.\n{records}PROCEDURE DIVISION.\n    OPEN OUTPUT LT-F\n    WRITE LT-REC\n    CLOSE LT-F\n    STOP RUN.\n"
+        )
+    };
+    let section_of = |src: &str| {
+        let m = compile_program(&common::parse(src), &native()).ok()?;
+        let sc = cobolt_wasm_abi::scan::scan_module(&m.wasm).ok()?;
+        cobolt_wasm_abi::files::FilesSection::decode(sc.custom(cobolt_wasm_abi::files::FILES_SECTION)?).ok()
+    };
+    use cobolt_wasm_abi::files::{TextClass, TextField};
+    let with_text = section_of(&line_file(
+        "01 LT-REC.\n   05 LT-ID PIC 9(3).\n   05 LT-N PIC N(4).\n   05 LT-T PIC N(2) OCCURS 2.\n   05 LT-U PIC U(3).\n   05 LT-B PIC U BYTE-LENGTH 5.\n",
+    ));
     check(
-        format!("a PROGRAM COLLATING SEQUENCE: \"WS-N\" refused at its declaration, line {decl}"),
-        e.subject == "WS-N" && e.line == decl && e.message.contains("COLLATING SEQUENCE") && e.message.contains("M6"),
+        "a LINE SEQUENTIAL record with PIC N, a table of them, PIC U and PIC U BYTE-LENGTH: prfiles format 2 lists each at its offset".into(),
+        with_text.as_ref().is_some_and(|f| {
+            f.format == 2
+                && f.files[0].text_fields
+                    == [
+                        TextField { offset: 3, len: 8, class: TextClass::National { chars: 4 } },
+                        TextField { offset: 11, len: 4, class: TextClass::National { chars: 2 } },
+                        TextField { offset: 15, len: 4, class: TextClass::National { chars: 2 } },
+                        TextField { offset: 19, len: 12, class: TextClass::Utf8 { chars: 3 } },
+                        TextField { offset: 31, len: 5, class: TextClass::Utf8Bytes { bytes: 5 } },
+                    ]
+        }),
+    );
+    let plain = section_of(&line_file("01 LT-REC.\n   05 LT-ID PIC 9(3).\n   05 LT-X PIC X(10).\n"));
+    check(
+        "a LINE SEQUENTIAL record with no national or UTF-8 field stays at prfiles format 1 with no text fields".into(),
+        plain.as_ref().is_some_and(|f| f.format == 1 && f.files[0].text_fields.is_empty()),
+    );
+    let two = line_file("01 LT-REC.\n   05 LT-N PIC N(4).\n01 LT-OTHER PIC X(10).\n");
+    let two_err = compile_program(&common::parse(&two), &native()).err();
+    check(
+        "a LINE SEQUENTIAL file with two record descriptions, one holding PIC N: refused at its OPEN, naming LT-F".into(),
+        two_err.as_ref().is_some_and(|e| e.message.contains("more than one record description") && e.subject == "file LT-F" && e.line == line_of(&two, "OPEN OUTPUT LT-F")),
     );
     let page = program("01 WS-N PIC N(6).\n", "WS-X");
     check(
@@ -829,11 +874,11 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. INNER.\nDATA DIVISION.\nLINKAGE SECTION.\n
         compile_program(&common::parse(&page), &Options::default()).is_ok(),
     );
     let took = t.elapsed().as_secs_f64() * 1000.0;
-    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44, T50a1, T50a2, T50a3a, T50a3b) ==");
+    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44, T50a1, T50a2, T50a3a, T50a3b, T50a4) ==");
     println!(
         "programs compiled: {} ({} desktop modules accepted, {} refused, 2 browser modules) in {took:.1} ms",
-        kept.len() + served.len() + uses.len() + call_served.len() + call_refused.len() + 5,
-        kept.len() + served.len() + call_served.len() + 2,
+        kept.len() + served.len() + uses.len() + call_served.len() + call_refused.len() + 10,
+        kept.len() + served.len() + call_served.len() + 7,
         uses.len() + call_refused.len() + 1
     );
     let passed = checks.iter().filter(|(_, ok)| *ok).count();

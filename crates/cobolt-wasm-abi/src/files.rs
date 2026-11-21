@@ -22,8 +22,25 @@ use serde::{Deserialize, Serialize};
 /// The custom section's name.
 pub const FILES_SECTION: &str = "prfiles";
 
-/// The section's format. A runner reads every format up to the one it knows.
-pub const FILES_FORMAT: u32 = 1;
+/// The newest format of the section this release reads. A runner reads every format up to the one it
+/// knows, and refuses a newer one: its meaning cannot be guessed.
+///
+/// - **1**: the original description of each file.
+/// - **2** (T50a4): a LINE SEQUENTIAL file's record holds national or UTF-8 fields ([`FileDecl::text_fields`]),
+///   whose line the runner makes as the interpreter does. A runner that ignored the field would write
+///   the image of such a field (UTF-16BE, or UTF-8 padded to four bytes a position) into the line, so
+///   an older runner must refuse the module.
+pub const FILES_FORMAT: u32 = 2;
+
+/// The format a generator writes for `files`: 1, unless a file needs a later one, so a module that
+/// does not use a later field is byte for byte what an earlier release made.
+pub fn format_for(files: &[FileDecl]) -> u32 {
+    if files.iter().any(|f| !f.text_fields.is_empty()) {
+        2
+    } else {
+        1
+    }
+}
 
 /// The `prfiles` section.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,6 +130,34 @@ pub struct FileDecl {
     /// RECORD KEY.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub named_keys: Option<NamedKeys>,
+    /// LINE SEQUENTIAL (format 2): the national and UTF-8 fields of the record, by offset. A line
+    /// carries each as its characters in UTF-8 and the record holds its image, so the runner turns
+    /// the record into a line on a `WRITE` and a line into the record on a `READ`, by the
+    /// interpreter's own rules (spec 077, D10).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub text_fields: Vec<TextField>,
+}
+
+/// A national or UTF-8 field of a LINE SEQUENTIAL record (format 2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextField {
+    /// Its offset in the record, in bytes.
+    pub offset: u32,
+    /// Its length in the record, in bytes: the size of its image.
+    pub len: u32,
+    pub class: TextClass,
+}
+
+/// How a national or UTF-8 field holds its characters (the interpreter's `CharClass`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TextClass {
+    /// `PIC N(n)`: n UTF-16 code units, an image of 2·n bytes.
+    National { chars: u32 },
+    /// `PIC U(n)`: n characters, an image of 4·n bytes.
+    Utf8 { chars: u32 },
+    /// `PIC U BYTE-LENGTH n`: the whole characters that fit n bytes.
+    Utf8Bytes { bytes: u32 },
 }
 
 /// The keys of an INDEXED file as its `SELECT` names them (A56).
@@ -235,6 +280,7 @@ mod tests {
                     record: NamedKey { name: "CUST-ID".into(), quals: vec![], parts: vec![], dup: false },
                     alternates: vec![NamedKey { name: "CUST-KEY".into(), quals: vec!["CUST-REC".into()], parts: vec![("CUST-REGION".into(), vec![]), ("CUST-NAME".into(), vec![])], dup: true }],
                 }),
+                text_fields: vec![],
             }],
         };
         let bytes = s.encode();
@@ -242,10 +288,36 @@ mod tests {
         let lean = br#"{"format":1,"files":[{"name":"LOG","org":"line-sequential","access":"sequential","record_len":132}]}"#;
         let d = FilesSection::decode(lean).unwrap();
         assert_eq!(d.files[0].org, Org::LineSequential);
-        assert!(!d.files[0].optional && d.files[0].keys.is_empty());
-        assert!(FilesSection::decode(br#"{"format":2,"files":[]}"#).is_err());
+        assert!(!d.files[0].optional && d.files[0].keys.is_empty() && d.files[0].text_fields.is_empty());
+        assert!(FilesSection::decode(br#"{"format":3,"files":[]}"#).is_err());
+        assert!(FilesSection::decode(br#"{"format":0,"files":[]}"#).is_err());
         println!("── files_section_round_trips_and_reads_a_lean_entry ──");
         println!("  round trip: {} bytes, equal", bytes.len());
-        println!("  lean entry read, format 2 refused · 3 of 3 checks passed");
+        println!("  lean entry read, formats 0 and 3 refused · 5 of 5 checks passed");
+    }
+
+    /// T50a4: a file with national or UTF-8 fields in its line record is a format 2 section, which
+    /// reads back as written, and a file without any stays at format 1 (so a module that does not
+    /// use the field is byte for byte what an earlier release made).
+    #[test]
+    fn a_line_file_with_text_fields_is_format_2_and_others_stay_format_1() {
+        let lean = br#"{"format":1,"files":[{"name":"LOG","org":"line-sequential","access":"sequential","record_len":132}]}"#;
+        let mut d = FilesSection::decode(lean).unwrap().files.remove(0);
+        assert_eq!(format_for(std::slice::from_ref(&d)), 1);
+        d.text_fields = vec![
+            TextField { offset: 0, len: 20, class: TextClass::National { chars: 10 } },
+            TextField { offset: 20, len: 32, class: TextClass::Utf8 { chars: 8 } },
+            TextField { offset: 52, len: 12, class: TextClass::Utf8Bytes { bytes: 12 } },
+        ];
+        assert_eq!(format_for(std::slice::from_ref(&d)), 2);
+        let s = FilesSection { format: format_for(std::slice::from_ref(&d)), files: vec![d] };
+        let bytes = s.encode();
+        let json = String::from_utf8(bytes.clone()).unwrap();
+        assert!(json.contains(r#""class":{"national":{"chars":10}}"#), "{json}");
+        let back = FilesSection::decode(&bytes).unwrap();
+        assert_eq!(back, s);
+        assert_eq!(back.files[0].text_fields.len(), 3);
+        println!("── a_line_file_with_text_fields_is_format_2_and_others_stay_format_1 ──");
+        println!("  3 classes (national, UTF-8, UTF-8 by bytes) round trip in {} bytes · 6 of 6 checks passed", bytes.len());
     }
 }

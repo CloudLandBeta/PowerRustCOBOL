@@ -7603,7 +7603,10 @@ The Build takes the Cargo path, and says why, when:
   `POINTER`, `COUNT IN` and the overflow too); such an item is passed to a
   called program (one elementary item, described as its parameter is), read
   and written as text by a control's property, a method's argument or a path,
-  used as an SQL host variable and as a `SORT` key. A program takes the Cargo
+  used as an SQL host variable and as a `SORT` key, held in the record of a
+  LINE SEQUENTIAL file with one record description (the line carries the
+  characters as UTF-8 text) and kept in a program with a `PROGRAM COLLATING
+  SEQUENCE`, which orders alphanumeric data only. A program takes the Cargo
   path when it uses a pointer in a called program, an SQL descriptor area
   (`DESCRIBE`, `USING` or `INTO DESCRIPTOR`), or national or UTF-8 data in any
   other way (the Build names the item and the line). The column *On the Desktop*

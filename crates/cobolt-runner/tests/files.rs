@@ -1458,6 +1458,144 @@ DRAIN.
     END-PERFORM.
 ";
 
+/// A LINE SEQUENTIAL file whose record holds national and UTF-8 fields (T50a4): the line carries
+/// each as its characters in UTF-8 (the interpreter's `image_to_line`, spec 077 D10), a table of
+/// them and a BYTE-LENGTH field included, and a line read back fills each field by its own
+/// class, whatever the characters' width: accents, CJK, a long text cut, a short line, an empty one.
+const LINE_TEXT: &str = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T50LINE.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT LF ASSIGN TO \"text.dat\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS.
+    SELECT RAW ASSIGN TO \"text.dat\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS.
+    SELECT SHORT-F ASSIGN TO \"short.dat\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS.
+    SELECT LF2 ASSIGN TO \"short.dat\"
+        ORGANIZATION IS LINE SEQUENTIAL
+        FILE STATUS IS WS-FS.
+DATA DIVISION.
+FILE SECTION.
+FD LF.
+01 LF-REC.
+   05 LF-ID   PIC 9(3).
+   05 LF-NAME PIC N(6).
+   05 LF-CITY PIC U(5).
+   05 LF-NOTE PIC X(4).
+   05 LF-TAG  PIC N(2) OCCURS 2.
+   05 LF-RAW  PIC U BYTE-LENGTH 6.
+FD RAW.
+01 RAW-REC PIC X(60).
+FD SHORT-F.
+01 SHORT-REC PIC X(80).
+FD LF2.
+01 LF2-REC.
+   05 LF2-ID   PIC 9(3).
+   05 LF2-NAME PIC N(6).
+   05 LF2-CITY PIC U(5).
+   05 LF2-NOTE PIC X(4).
+   05 LF2-TAG  PIC N(2) OCCURS 2.
+   05 LF2-RAW  PIC U BYTE-LENGTH 6.
+WORKING-STORAGE SECTION.
+01 WS-FS   PIC XX.
+01 WS-EOF  PIC X VALUE \"N\".
+01 WS-N    PIC 99 VALUE 0.
+PROCEDURE DIVISION.
+MAIN-PARA.
+    OPEN OUTPUT LF
+    DISPLAY \"open output \" WS-FS
+    MOVE 1 TO LF-ID
+    MOVE N\"abc\" TO LF-NAME
+    MOVE U\"xy\" TO LF-CITY
+    MOVE \"pqr\" TO LF-NOTE
+    MOVE N\"ab\" TO LF-TAG(1)
+    MOVE N\"cd\" TO LF-TAG(2)
+    MOVE U\"zz\" TO LF-RAW
+    WRITE LF-REC
+    DISPLAY \"write 1 \" WS-FS
+    MOVE 2 TO LF-ID
+    MOVE N\"ação\" TO LF-NAME
+    MOVE U\"日本語\" TO LF-CITY
+    MOVE \"é\" TO LF-NOTE
+    MOVE N\"çã\" TO LF-TAG(1)
+    MOVE N\"日本\" TO LF-TAG(2)
+    MOVE U\"añb\" TO LF-RAW
+    WRITE LF-REC
+    DISPLAY \"write 2 \" WS-FS
+    MOVE 3 TO LF-ID
+    MOVE N\"Configuração\" TO LF-NAME
+    MOVE U\"Configuração\" TO LF-CITY
+    MOVE \"long text\" TO LF-NOTE
+    MOVE N\"x\" TO LF-TAG(1)
+    MOVE SPACES TO LF-TAG(2)
+    MOVE U\"Ação\" TO LF-RAW
+    WRITE LF-REC
+    DISPLAY \"write 3 \" WS-FS
+    CLOSE LF
+    DISPLAY \"close \" WS-FS
+    OPEN EXTEND LF
+    MOVE 4 TO LF-ID
+    MOVE N\"€uro\" TO LF-NAME
+    MOVE U\"Zürich\" TO LF-CITY
+    MOVE \"ok\" TO LF-NOTE
+    MOVE N\"\" TO LF-TAG(1)
+    MOVE N\"z\" TO LF-TAG(2)
+    MOVE U\"\" TO LF-RAW
+    WRITE LF-REC
+    DISPLAY \"extend 4 \" WS-FS
+    CLOSE LF
+    OPEN INPUT LF
+    DISPLAY \"open input \" WS-FS
+    PERFORM UNTIL WS-EOF = \"Y\"
+        READ LF
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END
+                ADD 1 TO WS-N
+                DISPLAY \"read \" LF-ID \" [\" LF-NAME \"] [\" LF-CITY \"] [\" LF-NOTE \"] [\" LF-TAG(1) \"] [\" LF-TAG(2) \"] [\" LF-RAW \"] \" WS-FS
+        END-READ
+    END-PERFORM
+    DISPLAY \"end \" WS-FS \" after \" WS-N
+    CLOSE LF
+    MOVE \"N\" TO WS-EOF
+    OPEN INPUT RAW
+    PERFORM UNTIL WS-EOF = \"Y\"
+        READ RAW
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END DISPLAY \"line [\" RAW-REC \"]\"
+        END-READ
+    END-PERFORM
+    CLOSE RAW
+    OPEN OUTPUT SHORT-F
+    MOVE \"007ABCDEF\" TO SHORT-REC
+    WRITE SHORT-REC
+    MOVE \"008日本語\" TO SHORT-REC
+    WRITE SHORT-REC
+    MOVE SPACES TO SHORT-REC
+    WRITE SHORT-REC
+    MOVE \"009Ünïcödé-nameLongCityTextpqrstuvwxyzabcdefghijklmnopqrstuvwxyz0123456789\" TO SHORT-REC
+    WRITE SHORT-REC
+    CLOSE SHORT-F
+    MOVE \"N\" TO WS-EOF
+    MOVE 0 TO WS-N
+    OPEN INPUT LF2
+    PERFORM UNTIL WS-EOF = \"Y\"
+        READ LF2
+            AT END MOVE \"Y\" TO WS-EOF
+            NOT AT END
+                ADD 1 TO WS-N
+                DISPLAY \"short \" WS-N \" \" LF2-ID \" [\" LF2-NAME \"] [\" LF2-CITY \"] [\" LF2-NOTE \"] [\" LF2-TAG(1) \"] [\" LF2-TAG(2) \"] [\" LF2-RAW \"] \" WS-FS
+        END-READ
+    END-PERFORM
+    CLOSE LF2
+    STOP RUN.
+";
+
 /// The programs, by organisation, with lines each must print: the statuses the cases are there for.
 const PROGRAMS: &[(&str, &str, &[&str])] = &[
     (
@@ -1601,6 +1739,11 @@ const PROGRAMS: &[(&str, &str, &[&str])] = &[
             "drain [K003THIRD       ]",
             "drain [K001FIRST       ]",
         ],
+    ),
+    (
+        "line text",
+        LINE_TEXT,
+        &["write 3 00", "extend 4 00", "end 10 after 04", "line [001abc"],
     ),
 ];
 
@@ -1759,6 +1902,9 @@ fn files_of_every_organisation_match_the_interpreter() {
     println!("  merge procedure: a MERGE's OUTPUT PROCEDURE (a section left by GO TO, shared with no SORT) returns after it");
     println!("  same area:  SAME RECORD AREA across SEQUENTIAL, LINE SEQUENTIAL and RELATIVE files (longer peer padded, shorter cut),");
     println!("              READ INTO, AT END leaves the peers alone; an INDEXED file READ NEXT through its SORT peer, RELEASEd and RETURNed");
+    println!("  line text:  a LINE SEQUENTIAL record with PIC N, a table of PIC N, PIC U and PIC U BYTE-LENGTH fields (T50a4): written as the");
+    println!("              characters' UTF-8 text (accents, CJK, euro, a cut long text, empty), OUTPUT then EXTEND, read back by class and through a");
+    println!("              PIC X file of the same bytes; short, empty and over-long lines read into the record (the file is byte for byte equal)");
     for r in &rows {
         println!("{r}");
     }

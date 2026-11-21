@@ -35,7 +35,7 @@ use cobolt_ast::expr::{CmpOp, Expr};
 use cobolt_ast::program::{AccessMode, EngineChoice, FileControl, FileOrganization, StorageMode};
 use cobolt_ast::stmt::{OpenMode, ReadDirection, ShareMode, Stmt};
 use cobolt_wasm_abi::codes::cap;
-use cobolt_wasm_abi::files::{verb, Access, FileDecl, KeyDecl, Org};
+use cobolt_wasm_abi::files::{verb, Access, FileDecl, KeyDecl, Org, TextClass, TextField};
 use cobolt_wasm_rt::nfile;
 use wasm_encoder::Instruction as I;
 
@@ -65,7 +65,7 @@ pub(crate) struct LinageMeta {
     pub body: (u32, u32),
     pub footing: (u32, u32),
 }
-const D_LINE_TEXT: &str = "national and UTF-8 text in a LINE SEQUENTIAL record is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";
+const D_LINE_TEXT: &str = "national and UTF-8 text in a LINE SEQUENTIAL file with more than one record description is not on the WebAssembly path: the interpreter lays each line out by the record written, and the program takes the Cargo path";
 
 impl Lower<'_, '_> {
     /// Lay out a file the desktop runner keeps: its description in the module's `prfiles` section,
@@ -101,8 +101,17 @@ impl Lower<'_, '_> {
                 longest = i;
             }
         }
+        // A LINE SEQUENTIAL line carries a national or UTF-8 field as its characters in UTF-8 and the
+        // record holds its image (spec 077, D10), so the runner needs where those fields lie (T50a4).
+        // The interpreter reads every line by the first record description and writes each by its own,
+        // so a file with several of them, any of which holds such a field, stays on the Cargo path.
+        let mut text_fields: Vec<TextField> = Vec::new();
         if fc.organization == FileOrganization::LineSequential && rec_items.iter().any(|&r| self.holds_text_class(r)) {
-            refusal = refusal.or_else(|| Some(refuse(D_LINE_TEXT)));
+            if rec_items.len() > 1 {
+                refusal = refusal.or_else(|| Some(refuse(D_LINE_TEXT)));
+            } else {
+                self.collect_text_fields(record, 0, area_off, &mut text_fields);
+            }
         }
         if let Some((n, why)) = refusal {
             self.native_refusals.insert(n, why);
@@ -212,6 +221,7 @@ impl Lower<'_, '_> {
                     },
                     // A56: the keys as `COBOL::"PARTIQL"` finds them, spelled as the interpreter's
                     // `FileSpec` holds them.
+                    text_fields: std::mem::take(&mut text_fields),
                     named_keys: match (fc.organization, fc.record_key.as_deref()) {
                         (FileOrganization::Indexed, Some(rk)) => {
                             let parts = |ps: &[cobolt_ast::program::KeyField]| ps.iter().map(|p| (p.name.clone(), p.quals.clone())).collect::<Vec<_>>();
@@ -571,6 +581,34 @@ impl Lower<'_, '_> {
         matches!(it.pic_kind, Some(PicKind::National | PicKind::Utf8))
             || matches!(it.usage, Usage::National | Usage::Utf8)
             || it.children.iter().any(|&c| self.holds_text_class(c))
+    }
+
+    /// The national and UTF-8 fields under item `i`, in declaration order, each at its offset in the
+    /// record area that begins at `area_off`; `shift` is the distance of the occurrence of an
+    /// enclosing `OCCURS` the walk is in. Every occurrence of a table is listed, as the
+    /// interpreter's `RecordLayout` lists them (it repeats a table `max` times), and a field a
+    /// `REDEFINES` lays over another is listed too: the runner drops one that overlaps an earlier
+    /// field, as `class_fields` does.
+    fn collect_text_fields(&self, i: usize, shift: u32, area_off: u32, out: &mut Vec<TextField>) {
+        let it = &self.layout.items[i];
+        let times = it.occurs.as_ref().map_or(1, |o| o.0.max(1));
+        for k in 0..times {
+            let at = shift + k * it.size;
+            if let Some(class) = cobolt_wasm_rt::nat::Class::of(&it.fd).filter(|_| !it.is_group) {
+                out.push(TextField {
+                    offset: (it.off + at).saturating_sub(area_off),
+                    len: class.width(),
+                    class: match class {
+                        cobolt_wasm_rt::nat::Class::National { chars } => TextClass::National { chars },
+                        cobolt_wasm_rt::nat::Class::Utf8 { chars } => TextClass::Utf8 { chars },
+                        cobolt_wasm_rt::nat::Class::Utf8Bytes { bytes } => TextClass::Utf8Bytes { bytes },
+                    },
+                });
+            }
+            for &c in &it.children {
+                self.collect_text_fields(c, at, area_off, out);
+            }
+        }
     }
 
     /// The file `f` of a verb, which the runner keeps; its capability goes in the manifest.

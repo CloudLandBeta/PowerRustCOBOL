@@ -69,7 +69,7 @@
     {
       "bytes": 4101846,
       "path": "threaded/player_bg.wasm",
-      "sha256": "daee6a122c58481883c5622ec68228cea3ef3bd12356ef4161867b2cc944a5fd"
+      "sha256": "b0b08f542497906b3d2aa4fbef89241e10d76f07a6e40a8bc48d89e35b19605f"
     },
     {
       "bytes": 4556,
@@ -100,7 +100,7 @@
       "after_wasm_opt_bytes": 4101846,
       "cargo_output_bytes": 5971494,
       "glue_js_bytes": 108295,
-      "gzip_bytes": 1471920,
+      "gzip_bytes": 1471915,
       "opt_level": "s",
       "variant": "threaded"
     }
@@ -160,7 +160,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "16628c6c99e0972a220554e86df5ec7971ea79fb441a91365d3b987f24b65b96",
+  "source_hash": "0767c7e0e88ba68ba5a188dd9d3dcc2f2d7e1e822b8d2b92376fadd1e686eb2a",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",

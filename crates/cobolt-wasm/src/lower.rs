@@ -430,11 +430,6 @@ pub struct Lower<'a, 'b> {
 pub(crate) const D_TEXT_USE: &str =
     "this use of national or UTF-8 data is not computed in a WebAssembly module yet, so the Build takes the Cargo path (DESKTOP-WASM-001 M6)";
 
-/// Why a desktop module refuses national or UTF-8 data in a program with a `PROGRAM COLLATING
-/// SEQUENCE`: the module compares such data by code point only.
-const D_TEXT_COLLATING: &str =
-    "national or UTF-8 data in a program with a PROGRAM COLLATING SEQUENCE take the Cargo path (DESKTOP-WASM-001 M6)";
-
 impl Side {
     /// Whether a `MOVE` of this into a national or UTF-8 item is computed in a module (T44, T50a3a).
     pub(crate) fn moves_into_classed(self) -> bool {
@@ -584,19 +579,6 @@ impl<'a, 'b> Lower<'a, 'b> {
             layout.end_unit();
         }
         layout.finish();
-        // A desktop module computes national and UTF-8 data (T44), comparing them by code point: a
-        // PROGRAM COLLATING SEQUENCE the interpreter would weigh them by takes the Cargo path.
-        if native && prog.collating_sequence.is_some() {
-            if let Some(it) = layout.items.iter().find(|it| !it.hidden && cobolt_wasm_rt::nat::Class::of(&it.fd).is_some()) {
-                let subject = it.name.clone().unwrap_or_else(|| "FILLER".into());
-                let mut e = GenError::kinded(it.span_line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject}: {D_TEXT_COLLATING}"));
-                if let Some((p, _)) = order.get(it.unit as usize) {
-                    e.program = p.identification.program_id.to_ascii_uppercase();
-                }
-                return Err(e);
-            }
-        }
-
         // What each unit offers a CALL: its USING parameters and RETURNING item.
         let mut units: Vec<UnitInfo> = Vec::new();
         for (u, (p, _)) in order.iter().enumerate() {

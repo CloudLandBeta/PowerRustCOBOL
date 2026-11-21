@@ -293,6 +293,48 @@ SHOW-IT.
     END-PERFORM.
 "#;
 
+/// T50a4: a program whose collating sequence is the native order (`STANDARD-1` or `NATIVE`, which the
+/// interpreter leaves in force as the byte order): national and UTF-8 data compare, sort and move as
+/// they do with no sequence at all (lines only). A reordering sequence is the module-only test below.
+const COLLATING_NATIVE: &str = r#"IDENTIFICATION DIVISION.
+PROGRAM-ID. T50C.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+OBJECT-COMPUTER. THIS-MACHINE PROGRAM COLLATING SEQUENCE IS ALPHA.
+SPECIAL-NAMES. ALPHABET ALPHA IS @ALPHABET@.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-N PIC N(6).
+01 WS-M PIC N(6).
+01 WS-U PIC U(6).
+01 WS-X PIC X(6).
+01 WS-C PIC 9(3).
+PROCEDURE DIVISION.
+MAIN-PARA.
+    MOVE N"Ação" TO WS-N
+    MOVE N"Ação" TO WS-M
+    IF WS-N = WS-M DISPLAY "same" ELSE DISPLAY "differ" END-IF
+    MOVE N"pão" TO WS-M
+    IF WS-N < WS-M DISPLAY "A before p" ELSE DISPLAY "p before A" END-IF
+    IF WS-N > N"Aa" DISPLAY "above Aa" ELSE DISPLAY "not above Aa" END-IF
+    IF WS-M NOT < N"pa" DISPLAY "pão from pa" ELSE DISPLAY "pão below pa" END-IF
+    MOVE U"ñandú" TO WS-U
+    IF WS-U < U"zzz" DISPLAY "ñandú before zzz" ELSE DISPLAY "zzz before ñandú" END-IF
+    IF WS-U = U"ñandú" DISPLAY "u same" ELSE DISPLAY "u differ" END-IF
+    MOVE "Ab" TO WS-X
+    MOVE N"Ab" TO WS-N
+    IF WS-N = WS-X DISPLAY "n eq x" ELSE DISPLAY "n ne x" END-IF
+    IF WS-N < "B" DISPLAY "n before B" ELSE DISPLAY "B before n" END-IF
+    IF "a" < "B" DISPLAY "alnum a first" ELSE DISPLAY "alnum B first" END-IF
+    IF WS-X > "Aa" DISPLAY "x above Aa" ELSE DISPLAY "x not above Aa" END-IF
+    MOVE ZERO TO WS-C
+    INSPECT WS-M TALLYING WS-C FOR ALL N"p"
+    DISPLAY "[" WS-N "][" WS-M "][" WS-U "][" WS-X "] " WS-C
+    MOVE LOW-VALUE TO WS-N
+    DISPLAY "low " FUNCTION LENGTH(WS-N)
+    STOP RUN.
+"#;
+
 /// T50a2: INSPECT, STRING and UNSTRING by character (name, the items of `G`, the procedure).
 const VERB_CASES: &[(&str, &str, &str)] = &[
     (
@@ -875,10 +917,14 @@ fn national_and_utf8_data_compute_as_the_interpreter_computes_them() {
         results.push((name.to_string(), outcome));
     }
     // The nested programs: lines only (their items are not under G).
+    let standard = COLLATING_NATIVE.replace("@ALPHABET@", "STANDARD-1");
+    let native_seq = COLLATING_NATIVE.replace("@ALPHABET@", "NATIVE");
     for (name, src) in [
         ("a nested program's national item keeps its class", NESTED),
         ("a national and a UTF-8 item passed by reference, by content and by value; a table element; a literal; a number", CALL_PARAMS),
         ("a SORT on a national key: ascending, descending, a second key, accents and capitals", SORT_KEYS),
+        ("a PROGRAM COLLATING SEQUENCE of STANDARD-1 over national, UTF-8 and alphanumeric data", standard.as_str()),
+        ("a PROGRAM COLLATING SEQUENCE of NATIVE over national, UTF-8 and alphanumeric data", native_seq.as_str()),
     ] {
         let t = Instant::now();
         let (want, _) = interpreter(src);
@@ -912,7 +958,7 @@ fn national_and_utf8_data_compute_as_the_interpreter_computes_them() {
 
     let passed = results.iter().filter(|(_, r)| r.is_ok()).count();
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
-    println!("== native_national: national and UTF-8 data, module against interpreter (DESKTOP-WASM-001 T44, T50a1, T50a2, T50a3a) ==");
+    println!("== native_national: national and UTF-8 data, module against interpreter (DESKTOP-WASM-001 T44, T50a1, T50a2, T50a3a, T50a3b, T50a4) ==");
     println!("cases: {} (each in both memory layouts: {runs} module runs)", results.len());
     for (name, r) in &results {
         match r {
@@ -952,6 +998,35 @@ fn a_condition_name_under_a_table_element_is_set_by_the_module() {
         assert_eq!(common::wasm_lines(&o), ["[zz ][a  ]", "1 high", "2 low", "[ON ][a  ]"], "multi={multi}");
     }
     println!("a condition-name under a table element: SET TO TRUE sets the element (2 layouts), as COBOL-85 says");
+}
+
+/// A `PROGRAM COLLATING SEQUENCE` orders alphanumeric comparison only: national and UTF-8 text
+/// compare by code point whatever the sequence says (COBOL: the program collating sequence is the
+/// alphanumeric one). The interpreter weighs such text by the alphabet's table through its UTF-8
+/// bytes, so under a sequence that reorders it differs; this is not a twin, and the interpreter's
+/// rule is queued as a separate fix (T50a4).
+#[test]
+fn a_program_collating_sequence_orders_alphanumeric_data_only() {
+    let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. T50Z.\nENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\n\
+               OBJECT-COMPUTER. THIS-MACHINE PROGRAM COLLATING SEQUENCE IS ZED.\nSPECIAL-NAMES.\n    ALPHABET ZED IS \"Z\".\n\
+               DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-N PIC N(4).\n01 WS-M PIC N(4).\n01 WS-U PIC U(4).\n01 WS-X PIC X(4).\n\
+               PROCEDURE DIVISION.\nMAIN-PARA.\n\
+               \x20   IF \"Z\" < \"A\" DISPLAY \"alnum: Z first\" ELSE DISPLAY \"alnum: A first\" END-IF\n\
+               \x20   MOVE N\"Z\" TO WS-N\n    MOVE N\"A\" TO WS-M\n\
+               \x20   IF WS-N < WS-M DISPLAY \"national: Z first\" ELSE DISPLAY \"national: A first\" END-IF\n\
+               \x20   IF WS-N < N\"A\" DISPLAY \"national lit: Z first\" ELSE DISPLAY \"national lit: A first\" END-IF\n\
+               \x20   MOVE U\"Z\" TO WS-U\n\
+               \x20   IF WS-U < U\"A\" DISPLAY \"utf8: Z first\" ELSE DISPLAY \"utf8: A first\" END-IF\n\
+               \x20   MOVE \"Z\" TO WS-X\n\
+               \x20   IF WS-N = WS-X DISPLAY \"n eq x\" ELSE DISPLAY \"n ne x\" END-IF\n\
+               \x20   IF WS-X < \"A\" DISPLAY \"x: Z first\" ELSE DISPLAY \"x: A first\" END-IF\n    STOP RUN.\n";
+    let want = ["alnum: Z first", "national: A first", "national lit: A first", "utf8: A first", "n eq x", "x: Z first"];
+    for multi in [true, false] {
+        let c = compile_program(&common::parse(src), &native(multi)).expect("a national item beside a PROGRAM COLLATING SEQUENCE compiles");
+        let o = run_native(&c.wasm, NativeInput::default()).expect("the host runs it");
+        assert_eq!(common::wasm_lines(&o), want, "multi={multi}");
+    }
+    println!("a PROGRAM COLLATING SEQUENCE that reorders: alphanumeric Z first, national and UTF-8 by code point (6 lines x 2 layouts)");
 }
 
 /// A code page a data item names and nothing converts ends the run, in the interpreter's words

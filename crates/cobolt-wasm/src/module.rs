@@ -1689,7 +1689,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     module.section(&CustomSection { name: std::borrow::Cow::Borrowed("prlines"), data: std::borrow::Cow::Borrowed(&lines_bytes) });
     // A34: the disk files a desktop module's routines name by number.
     if opts.native && !native_files.is_empty() {
-        let files = cobolt_wasm_abi::files::FilesSection { format: cobolt_wasm_abi::files::FILES_FORMAT, files: native_files };
+        let files = cobolt_wasm_abi::files::FilesSection { format: cobolt_wasm_abi::files::format_for(&native_files), files: native_files };
         let bytes = files.encode();
         module.section(&CustomSection { name: std::borrow::Cow::Borrowed(cobolt_wasm_abi::files::FILES_SECTION), data: std::borrow::Cow::Borrowed(&bytes) });
     }

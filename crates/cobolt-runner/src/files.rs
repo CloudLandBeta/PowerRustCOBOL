@@ -22,14 +22,43 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cobolt_runtime::file_core::{self, Cursor, Handle, IndexedDecl, ReadReq, RewriteReq, ShareLock, WriteReq};
-use cobolt_runtime::files::RecordLayout;
+use cobolt_runtime::files::{FieldPos, RecordLayout};
+use cobolt_runtime::national::CharClass;
 use cobolt_runtime::indexed::{IndexedEngine, IndexedStore, KeySpec, OpenMode, ReadDir, StartOp};
 use cobolt_runtime::indexed_log::{LogFormat, LogLevel};
 use cobolt_runtime::seqfile::SequentialFile;
-use cobolt_wasm_abi::files::{verb, Access, FileDecl, KeyDecl, Org};
+use cobolt_wasm_abi::files::{verb, Access, FileDecl, KeyDecl, Org, TextClass};
 
 /// A status the runtime cannot name as a number: a permanent error.
 const PERMANENT: i32 = 30;
+
+/// The record layout the runtime reads a file's lines by: its length and, for a LINE SEQUENTIAL file
+/// whose record holds national or UTF-8 fields (format 2), where those lie, which is all the
+/// runtime's `image_to_line` and `line_to_image` look at.
+fn record_layout(d: &FileDecl) -> RecordLayout {
+    let fields = d
+        .text_fields
+        .iter()
+        .map(|t| FieldPos {
+            name: String::new(),
+            quals: Vec::new(),
+            offset: t.offset as usize,
+            len: t.len as usize,
+            numeric: false,
+            decimals: 0,
+            signed: false,
+            is_group: false,
+            class: Some(match t.class {
+                TextClass::National { chars } => CharClass::National { chars: chars as usize },
+                TextClass::Utf8 { chars } => CharClass::Utf8 { chars: chars as usize },
+                TextClass::Utf8Bytes { bytes } => CharClass::Utf8Bytes { bytes: bytes as usize },
+            }),
+            sign_separate: false,
+            sign_leading: false,
+        })
+        .collect();
+    RecordLayout { len: d.record_len as usize, fields, ..RecordLayout::default() }
+}
 
 /// The engine new INDEXED files are created with, in the Cargo path's order: the project's choice
 /// (`[ide] indexed_engine`, in `prsettings`), else `COBOL_INDEXED_ENGINE` on this machine, else
@@ -282,7 +311,7 @@ impl Files {
     /// number a sequential RELATIVE read delivered.
     pub fn read(&mut self, id: u32, slot: u32, how: i32, kor: u32, key: Option<&[u8]>, rel_num: i64) -> (i32, Option<Vec<u8>>, Option<u64>) {
         let Some(d) = self.decl(id).cloned() else { return (PERMANENT, None, None) };
-        let layout = RecordLayout { len: d.record_len as usize, ..RecordLayout::default() };
+        let layout = record_layout(&d);
         let req = ReadReq {
             random: how & verb::READ_KEYED != 0,
             dir: if how & verb::READ_PREVIOUS != 0 { ReadDir::Previous } else { ReadDir::Next },
@@ -315,9 +344,12 @@ impl Files {
                 let end = ks.ranges().iter().map(|(o, l)| o + l).max().unwrap_or(0);
                 (rec.len() >= end).then(|| ks.key_of(rec))
             });
+        // A LINE SEQUENTIAL record with national or UTF-8 fields is written as the text of those
+        // fields, not as their images (spec 077, D10): the interpreter's `image_to_line`.
+        let line = (d.org == Org::LineSequential && !d.text_fields.is_empty()).then(|| record_layout(&d).image_to_line(rec));
         let req = WriteReq {
             rec,
-            line: None,
+            line: line.as_deref(),
             varying: d.varying,
             out_of_range: d.varying && !in_range,
             seq_key,
