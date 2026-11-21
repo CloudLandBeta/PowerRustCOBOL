@@ -28,13 +28,15 @@ use cobolt_runtime::esql::state::Outcome;
 use cobolt_runtime::esql::SqlRunUnit;
 use cobolt_runtime::interpreter::Interpreter;
 use cobolt_runtime::value::{CobolNumeric, CobolValue};
-use cobolt_wasm_abi::sql::{db, obj, wire, SqlCell, SqlSection, SQL_FORMAT};
+use cobolt_wasm_abi::sql::{db, obj, wire, SqlCell, SqlEntries, SqlSection, SQL_FORMAT};
 
 /// One statement, read from the section once.
 struct Statement {
     program: usize,
     exec: ExecSql,
     cells: Vec<SqlCell>,
+    /// Format 2: the statement works on an SQL descriptor area, whose entries cross as far as it uses them.
+    entries: Option<SqlEntries>,
 }
 
 /// A value as it crosses the import.
@@ -48,6 +50,10 @@ enum Value {
 #[derive(Clone)]
 pub struct SqlSetup {
     programs: Arc<Vec<Program>>,
+    /// Each program's items whose address its pointers hold, in the order the program numbers them
+    /// (format 2): its interpreter numbers its own addresses the same way before the first statement,
+    /// so a descriptor's data pointer, which crosses as one of these numbers, names the same item.
+    ptr_items: Arc<Vec<Vec<SqlCell>>>,
     statements: Arc<Vec<Statement>>,
 }
 
@@ -77,10 +83,14 @@ impl SqlSetup {
         if s.format == 0 || s.format > SQL_FORMAT {
             return Err(format!("format {} is newer than this runner reads ({SQL_FORMAT})", s.format));
         }
+        let mut ptr_items = Vec::with_capacity(s.programs.len());
         let programs = s
             .programs
             .into_iter()
-            .map(|p| serde_json::from_value::<Program>(p.program).map_err(|e| format!("program {}: {e}", p.name)))
+            .map(|p| {
+                ptr_items.push(p.ptr_items);
+                serde_json::from_value::<Program>(p.program).map_err(|e| format!("program {}: {e}", p.name))
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let statements = s
             .statements
@@ -92,10 +102,10 @@ impl SqlSetup {
                 if program >= programs.len() {
                     return Err(format!("statement {i} names program {program}, which the section does not have"));
                 }
-                Ok(Statement { program, exec, cells: st.cells })
+                Ok(Statement { program, exec, cells: st.cells, entries: st.entries })
             })
             .collect::<Result<Vec<_>, String>>()?;
-        Ok(Some(SqlSetup { programs: Arc::new(programs), statements: Arc::new(statements) }))
+        Ok(Some(SqlSetup { programs: Arc::new(programs), ptr_items: Arc::new(ptr_items), statements: Arc::new(statements) }))
     }
 }
 
@@ -119,6 +129,11 @@ impl SqlRun {
                     self.instances.insert(self.calling, interp.sql_instance());
                 }
             }
+            // The items the program's pointers number, in its order (a descriptor area's data pointers).
+            for c in &self.setup.ptr_items[st.program] {
+                let k = cell_key(&interp.env, c)?;
+                interp.env.addr_of(&k);
+            }
             self.interpreters.insert(key, interp);
             if self.calling.is_none() {
                 self.made_in_call.push(st.program);
@@ -127,17 +142,59 @@ impl SqlRun {
         let interp = self.interpreters.get_mut(&key).expect("made above");
         let keys: Vec<String> = st.cells.iter().map(|c| cell_key(&interp.env, c)).collect::<Result<_, _>>()?;
         let mut at = 0;
-        let mut before = Vec::with_capacity(keys.len());
-        for k in &keys {
-            match take(input, &mut at).ok_or("the program sent fewer values than the statement has cells")? {
-                Value::Dec(n) => interp.env.set(k, CobolValue::Numeric(n)),
-                Value::Float(f) => interp.env.set(k, CobolValue::Float(f)),
-                Value::Bytes(b) => interp.env.set_verbatim_bytes(k, &b),
+        let mut taken = |interp: &mut Interpreter, c: u32, at: &mut usize| -> Result<Value, String> {
+            let v = take(input, at).ok_or("the program sent fewer values than the statement has cells")?;
+            let k = &keys[c as usize];
+            match &v {
+                Value::Dec(n) => interp.env.set(k, CobolValue::Numeric(*n)),
+                Value::Float(f) => interp.env.set(k, CobolValue::Float(*f)),
+                Value::Bytes(b) => interp.env.set_verbatim_bytes(k, b),
             }
-            let mut v = Vec::new();
-            put(&interp.env, k, &mut v);
-            before.push(v);
+            Ok(v)
+        };
+        match &st.entries {
+            None => {
+                for c in 0..keys.len() as u32 {
+                    taken(interp, c, &mut at)?;
+                }
+            }
+            Some(plan) => {
+                // An SQL descriptor area: the head says how many entries cross, then each entry's
+                // cells, then the rest, as the module's routine sends them.
+                for c in 0..plan.head {
+                    taken(interp, c, &mut at)?;
+                }
+                let limit = keys.get(plan.limit as usize).and_then(|k| interp.env.get(k)).and_then(|v| v.as_i64()).unwrap_or(0);
+                let mut failed: Option<String> = None;
+                plan.walk(plan.crossing(limit), keys.len() as u32, |c| {
+                    if c < plan.head || failed.is_some() {
+                        return false;
+                    }
+                    match taken(interp, c, &mut at) {
+                        // A data pointer is set when it names an item (its position is not 0).
+                        Ok(Value::Dec(n)) => n.mantissa != 0,
+                        Ok(_) => false,
+                        Err(e) => {
+                            failed = Some(e);
+                            false
+                        }
+                    }
+                });
+                if let Some(e) = failed {
+                    return Err(e);
+                }
+            }
         }
+        // What every cell holds now, the ones that did not cross included: a statement that writes one of
+        // those has it answered, as any other changed cell.
+        let before: Vec<Vec<u8>> = keys
+            .iter()
+            .map(|k| {
+                let mut v = Vec::new();
+                put(&interp.env, k, &mut v);
+                v
+            })
+            .collect();
         let outcome = interp.exec_sql_outcome(&st.exec);
         let mut out = vec![match outcome {
             Outcome::Success => wire::OUT_SUCCESS,

@@ -868,18 +868,79 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. INNER.\nDATA DIVISION.\nLINKAGE SECTION.\n
         "a LINE SEQUENTIAL file with two record descriptions, one holding PIC N: refused at its OPEN, naming LT-F".into(),
         two_err.as_ref().is_some_and(|e| e.message.contains("more than one record description") && e.subject == "file LT-F" && e.line == line_of(&two, "OPEN OUTPUT LT-F")),
     );
+    // An SQL descriptor area (T50a5): its statements cross the entries as far as the statement uses
+    // them, and its data pointers cross as the position of the item they point at, so the module's
+    // `prsql` section moves to format 2 only when a program has one; a program that takes the address
+    // of a group beside a descriptor statement is refused at that statement.
+    let sqlda = |items: &str, body: &str| {
+        format!(
+            "{HEAD}DATA DIVISION.\nWORKING-STORAGE SECTION.\n{}01 SQLSTATE PIC X(5).\n01 SQLCODE PIC S9(9) COMP-5.\n01 WS-STMT PIC X(60).\n{items}PROCEDURE DIVISION.\n{body}    STOP RUN.\n",
+            cobolt_lexer::sql::SQLDA_TEXT
+        )
+    };
+    let sql_of = |src: &str| {
+        let m = compile_program(&common::parse(src), &native()).ok()?;
+        let sc = cobolt_wasm_abi::scan::scan_module(&m.wasm).ok()?;
+        serde_json::from_slice::<cobolt_wasm_abi::sql::SqlSection>(sc.custom(cobolt_wasm_abi::sql::SQL_SECTION)?).ok()
+    };
+    let describe = sqlda(
+        "01 WS-CODE PIC 9(4).\n",
+        "    EXEC SQL CONNECT TO ':memory:' AS A END-EXEC\n    MOVE \"SELECT 1\" TO WS-STMT\n    EXEC SQL PREPARE S1 FROM :WS-STMT END-EXEC\n\
+         \x20   EXEC SQL DESCRIBE S1 INTO SQLDA END-EXEC\n    EXEC SQL DECLARE C1 CURSOR FOR S1 END-EXEC\n    EXEC SQL OPEN C1 END-EXEC\n\
+         \x20   SET SQLDA-DATA (1) TO ADDRESS OF WS-CODE\n    EXEC SQL FETCH C1 USING DESCRIPTOR SQLDA END-EXEC\n",
+    );
+    let d = sql_of(&describe);
+    check(
+        "DESCRIBE INTO, FETCH USING DESCRIPTOR and a pointer in the table of entries compile: prsql format 2, the pointed-at item numbered, a statement per descriptor verb (T50a5)".into(),
+        d.as_ref().is_some_and(|s| {
+            s.format == 2
+                && s.programs.iter().any(|p| !p.ptr_items.is_empty())
+                && s.statements.iter().filter(|x| x.entries.is_some()).count() == 2
+                && s.statements.iter().filter(|x| x.entries.as_ref().is_some_and(|e| e.data.is_some() && e.skip.is_some())).count() == 1
+        }),
+    );
+    let plain_sql = sqlda("01 WS-N PIC 9(4).\n", "    EXEC SQL CONNECT TO ':memory:' AS A END-EXEC\n    EXEC SQL SELECT 1 INTO :WS-N FROM T END-EXEC\n");
+    check(
+        "a program with EXEC SQL and no descriptor statement stays at prsql format 1 with no entries and no numbered items".into(),
+        sql_of(&plain_sql).is_some_and(|s| s.format == 1 && s.statements.iter().all(|x| x.entries.is_none()) && s.programs.iter().all(|p| p.ptr_items.is_empty())),
+    );
+    let group = sqlda(
+        "01 WS-G.\n   05 WS-G1 PIC X(2).\n   05 WS-G2 PIC X(3).\n01 WS-P USAGE POINTER.\n",
+        "    SET WS-P TO ADDRESS OF WS-G\n    EXEC SQL DESCRIBE S1 INTO SQLDA END-EXEC\n    EXEC SQL FETCH C1 USING DESCRIPTOR SQLDA END-EXEC\n",
+    );
+    let group_err = compile_program(&common::parse(&group), &native()).err();
+    check(
+        "the address of a group beside FETCH USING DESCRIPTOR: refused at that statement, naming EXEC SQL and the Cargo path".into(),
+        group_err.as_ref().is_some_and(|e| e.subject == "EXEC SQL" && e.message.contains("Cargo path") && e.line == line_of(&group, "FETCH C1 USING DESCRIPTOR")),
+    );
+    let describe_only = sqlda(
+        "01 WS-G.\n   05 WS-G1 PIC X(2).\n   05 WS-G2 PIC X(3).\n01 WS-P USAGE POINTER.\n",
+        "    SET WS-P TO ADDRESS OF WS-G\n    EXEC SQL DESCRIBE S1 INTO SQLDA END-EXEC\n",
+    );
+    check(
+        "the address of a group beside DESCRIBE INTO alone compiles (a DESCRIBE reads no data pointer): prsql format 2, no numbered items".into(),
+        sql_of(&describe_only).is_some_and(|s| s.format == 2 && s.programs.iter().all(|p| p.ptr_items.is_empty())),
+    );
+    let pointer_and_plain_sql = sqlda(
+        "01 WS-N PIC 9(4).\n01 WS-P USAGE POINTER.\n",
+        "    SET WS-P TO ADDRESS OF WS-N\n    EXEC SQL SELECT 1 INTO :WS-N FROM T END-EXEC\n",
+    );
+    check(
+        "a program with a pointer and a plain EXEC SQL (no descriptor statement) stays at prsql format 1 with no numbered items".into(),
+        sql_of(&pointer_and_plain_sql).is_some_and(|s| s.format == 1 && s.programs.iter().all(|p| p.ptr_items.is_empty())),
+    );
     let page = program("01 WS-N PIC N(6).\n", "WS-X");
     check(
         "a browser module with a PIC N item still compiles (unchanged)".into(),
         compile_program(&common::parse(&page), &Options::default()).is_ok(),
     );
     let took = t.elapsed().as_secs_f64() * 1000.0;
-    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44, T50a1, T50a2, T50a3a, T50a3b, T50a4) ==");
+    println!("== native_desktop_refusals: national and UTF-8 data (DESKTOP-WASM-001 T44, T50a1, T50a2, T50a3a, T50a3b, T50a4, T50a5) ==");
     println!(
         "programs compiled: {} ({} desktop modules accepted, {} refused, 2 browser modules) in {took:.1} ms",
-        kept.len() + served.len() + uses.len() + call_served.len() + call_refused.len() + 10,
-        kept.len() + served.len() + call_served.len() + 7,
-        uses.len() + call_refused.len() + 1
+        kept.len() + served.len() + uses.len() + call_served.len() + call_refused.len() + 15,
+        kept.len() + served.len() + call_served.len() + 11,
+        uses.len() + call_refused.len() + 2
     );
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
     for (what, ok) in &checks {

@@ -7590,6 +7590,9 @@ The Build takes the Cargo path, and says why, when:
   its SideMenu, timers and file dialogs), files of every organisation, `SORT` and
   `MERGE`, `EXEC SQL` and HTTP, `TRY`, `CATCH`, `FINALLY` and `THROW`, pointers
   in the main program (`USAGE POINTER`, `SET … TO ADDRESS OF`, `SET ADDRESS OF`),
+  an SQL descriptor area (`INCLUDE SQLDA`: `DESCRIBE … INTO`, `FETCH … USING
+  DESCRIPTOR`, `OPEN` and `EXECUTE … USING DESCRIPTOR`, the entries' `SQLDA-DATA`
+  and `SQLDA-IND-PTR` pointers set with `SET SQLDA-DATA (i) TO ADDRESS OF item`),
   and national and UTF-8 data that is moved (to and from a number too),
   displayed, compared (with a number, `ZERO` or a class test too), named by a
   condition-name (`SET … TO TRUE` included), accepted from the console, the
@@ -7606,10 +7609,14 @@ The Build takes the Cargo path, and says why, when:
   used as an SQL host variable and as a `SORT` key, held in the record of a
   LINE SEQUENTIAL file with one record description (the line carries the
   characters as UTF-8 text) and kept in a program with a `PROGRAM COLLATING
-  SEQUENCE`, which orders alphanumeric data only. A program takes the Cargo
-  path when it uses a pointer in a called program, an SQL descriptor area
-  (`DESCRIBE`, `USING` or `INTO DESCRIPTOR`), or national or UTF-8 data in any
-  other way (the Build names the item and the line). The column *On the Desktop*
+  SEQUENCE`, which orders alphanumeric data only. A descriptor
+  statement carries as many entries as `SQLDA-COUNT` names (`SQLDA-CAPACITY` for
+  `DESCRIBE`), and the statement's area holds 32 KiB, so about 28 entries with
+  their text value: more ends the run with an error that names the statement. A
+  program takes the Cargo path when it uses a pointer in a called program, a
+  descriptor area in a program that also takes the address of a group (a data
+  pointer could point at it), or national or UTF-8 data in any other way (the
+  Build names the item and the line). The column *On the Desktop*
   of "What runs in a browser module" below lists every statement and built-in;
 - a form holds a control the runner does not serve yet (the sign-in control, the
   Viewer), or a control bound to data (Data Binding): the Build

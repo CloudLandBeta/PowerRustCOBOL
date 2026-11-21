@@ -195,6 +195,110 @@ pub fn exec(base: u32, spec: u32) -> u32 {
     for k in 0..n {
         at += put_cell(&cell(base, spec, k), at);
     }
+    call(base, spec, stmt, n, buf, at)
+}
+
+/// A pointer cell of an SQL descriptor area (T50a5): its value crosses as the position, from 1, of
+/// the item it points at among the items whose address the program takes (`ptr.rs` hands out ids in
+/// the order they are first taken; the runner numbers the items in the order they are written), or
+/// 0 for `NULL`. Returns the bytes written and whether the pointer is set.
+fn put_pointer(base: u32, loc: &Loc, at: u32, area: u32, items: u32) -> (u32, bool) {
+    let id = match codec::load_value(loc) {
+        Val::Dec(n) => (n.mantissa / cobolt_decimal::pow10(n.decimals as u32).unwrap_or(1)) as i64,
+        Val::F(f) => f as i64,
+    };
+    let table = base.wrapping_add(area);
+    let mut pos = 0u32;
+    if items > 0 && id >= 1 && id as u64 <= u64::from(rd(table)) {
+        for n in 0..items {
+            if i64::from(rd(table.wrapping_add(4 + 4 * items + 4 * n))) == id {
+                pos = n + 1;
+                break;
+            }
+        }
+    }
+    mem::wr_u8(at, wire::DEC);
+    mem::bytes_mut(at + 1, 16).copy_from_slice(&i128::from(pos).to_le_bytes());
+    mem::wr_u8(at + 17, 0);
+    (18, pos != 0)
+}
+
+/// The integer an operand holds.
+fn int_of(base: u32, opd: u32) -> i64 {
+    match crate::opd::value(base, &parse(opd)) {
+        Val::Dec(n) => (n.mantissa / cobolt_decimal::pow10(n.decimals as u32).unwrap_or(1)) as i64,
+        Val::F(f) => f as i64,
+    }
+}
+
+/// Run an `EXEC SQL` statement that works on an SQL descriptor area (T50a5, `prsql` format 2). The
+/// spec record is the one [`exec`] reads, then ten words after its cells:
+///
+/// ```text
+///  head  per  max  limit  data  ind  skip  area  items
+/// ```
+///
+/// `data`, `ind` and `skip` are an entry's cells by place among its `per` (`u32::MAX` for none); `area`
+/// is the pointer table's offset in the region and `items` how many items it numbers.
+///
+/// The cells are `head` that always cross, `max` entries of `per` cells, and the rest, which always
+/// cross. Only the first *n* entries cross, *n* being what the `limit` operand holds (kept within
+/// `0..=max`): a descriptor of a hundred entries is longer than the statement's area, and the
+/// statement uses what its `SQLDA-COUNT` says. The `data` and `ind` cells of an entry are pointers
+/// and cross as [`put_pointer`] says; the `skip` cell (the entry's inline text) is left out of an
+/// entry whose data pointer is set. `cobolt_wasm_abi::sql::SqlEntries` states the same plan for the
+/// runner, which reads the cells in the same order.
+pub fn exec_descriptor(base: u32, spec: u32) -> u32 {
+    let stmt = rd(spec);
+    let n = rd(spec + 4);
+    let t = spec + 8 + 4 * n;
+    let (head, per, max, limit) = (rd(t), rd(t + 4), rd(t + 8), rd(t + 12));
+    let (data, ind, skip) = (rd(t + 16), rd(t + 20), rd(t + 24));
+    let (area, items) = (rd(t + 28), rd(t + 32));
+    let buf = st().ws + WS_SCRATCH;
+    let end = buf + SCRATCH_SIZE;
+    let mut at = buf;
+    // The cells cross while the statement's area has room for each; the generator cannot know how
+    // many entries a run sends.
+    let send = |loc: &Loc, at: &mut u32| {
+        if *at + cell_bound(loc.len) > end {
+            crate::fail_text(err::SCRATCH_OVERFLOW, &[crate::Part::T(b"the SQL descriptor area holds more than EXEC SQL statement "), crate::Part::N(stmt), crate::Part::T(b" can carry")]);
+        }
+        *at += put_cell(loc, *at);
+    };
+    for c in 0..head {
+        send(&cell(base, spec, c), &mut at);
+    }
+    let entries = (int_of(base, limit).clamp(0, i64::from(max))) as u32;
+    for e in 0..entries {
+        let mut set = false;
+        for pos in 0..per {
+            if pos == skip && set {
+                continue;
+            }
+            let loc = cell(base, spec, head + e * per + pos);
+            if pos == data || pos == ind {
+                if at + 18 > end {
+                    crate::fail_text(err::SCRATCH_OVERFLOW, &[crate::Part::T(b"the SQL descriptor area holds more than EXEC SQL statement "), crate::Part::N(stmt), crate::Part::T(b" can carry")]);
+                }
+                let (len, is_set) = put_pointer(base, &loc, at, area, items);
+                at += len;
+                if pos == data {
+                    set = is_set;
+                }
+            } else {
+                send(&loc, &mut at);
+            }
+        }
+    }
+    for c in head + per * max..n {
+        send(&cell(base, spec, c), &mut at);
+    }
+    call(base, spec, stmt, n, buf, at)
+}
+
+/// Call the runner with the values at `buf..at` and store the cells it answers.
+fn call(base: u32, spec: u32, stmt: u32, n: u32, buf: u32, at: u32) -> u32 {
     // SAFETY: the runner reads the values and writes the answer within `SCRATCH_SIZE` bytes at `buf`.
     let got = unsafe { host::sql_exec(stmt, buf, at - buf, SCRATCH_SIZE) };
     if got < 5 {
@@ -218,4 +322,10 @@ pub fn exec(base: u32, spec: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn rt_sql_exec(base: u32, spec: u32) -> u32 {
     exec(base, spec)
+}
+
+/// `EXEC SQL` on an SQL descriptor area: see [`exec_descriptor`].
+#[no_mangle]
+pub extern "C" fn rt_sql_exec_descriptor(base: u32, spec: u32) -> u32 {
+    exec_descriptor(base, spec)
 }

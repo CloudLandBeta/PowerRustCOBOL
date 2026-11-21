@@ -618,8 +618,15 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let file_caps: BTreeSet<&'static str> = names.file_caps.clone();
     let native_files: Vec<cobolt_wasm_abi::files::FileDecl> = std::mem::take(&mut names.native_files);
     // A desktop module's `EXEC SQL`: the `prsql` section (T41, A41).
-    let sql_programs = std::mem::take(&mut names.sql_programs);
+    let mut sql_programs = std::mem::take(&mut names.sql_programs);
     let sql_statements = std::mem::take(&mut names.sql_statements);
+    // Only a program with a descriptor statement that reads data pointers needs them numbered on the
+    // runner's side; any other keeps its section as it always was.
+    for (n, p) in sql_programs.iter_mut().enumerate() {
+        if !sql_statements.iter().any(|x| x.program == n as u32 && x.entries.as_ref().is_some_and(|e| e.data.is_some())) {
+            p.ptr_items.clear();
+        }
+    }
 
     // ── image and memory map, continued ──────────────────────────────────
     let mut built: Vec<Built> = Vec::new();
@@ -1695,7 +1702,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     }
     // A41: the `EXEC SQL` statements the runner runs, and the programs it builds them in.
     if opts.native && !sql_statements.is_empty() {
-        let sql = cobolt_wasm_abi::sql::SqlSection { format: cobolt_wasm_abi::sql::SQL_FORMAT, programs: sql_programs, statements: sql_statements };
+        let sql = cobolt_wasm_abi::sql::SqlSection { format: cobolt_wasm_abi::sql::format_for(&sql_programs, &sql_statements), programs: sql_programs, statements: sql_statements };
         let bytes = serde_json::to_vec(&sql).expect("the prsql section serialises");
         module.section(&CustomSection { name: std::borrow::Cow::Borrowed(cobolt_wasm_abi::sql::SQL_SECTION), data: std::borrow::Cow::Borrowed(&bytes) });
     }

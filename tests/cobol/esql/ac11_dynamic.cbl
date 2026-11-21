@@ -136,7 +136,11 @@
                ADD 1 TO WS-FAIL
                DISPLAY "FAIL execute using: " WS-N
            END-IF
-      *> EXECUTE of a statement never prepared: 07003.
+      *> EXECUTE of a statement named but not prepared on this path: 07003
+      *> (WS-N is 1 here, so the PREPARE below never runs).
+           IF WS-N = 99
+               EXEC SQL PREPARE S9 FROM :WS-STMT END-EXEC
+           END-IF
            EXEC SQL EXECUTE S9 END-EXEC
            IF SQLSTATE = "07003"
                ADD 1 TO WS-PASS

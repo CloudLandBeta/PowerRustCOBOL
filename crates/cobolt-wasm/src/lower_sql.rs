@@ -24,7 +24,7 @@ use crate::error::{ErrorKind, GenResult};
 use crate::lower::Lower;
 use cobolt_ast::sql::{ExecSql, SqlCursorQuery, SqlHostName, SqlHostRef, SqlInto, SqlKind, SqlUsing, SqlValue};
 use cobolt_ast::expr::{Expr, Literal};
-use cobolt_wasm_abi::sql::{SqlCell, SqlProgram, SqlStatement};
+use cobolt_wasm_abi::sql::{SqlCell, SqlEntries, SqlProgram, SqlStatement};
 use wasm_encoder::Instruction as I;
 
 /// The leaf names whose items the interpreter sets after every statement (`sql_set_status`).
@@ -41,7 +41,29 @@ const STATUS_LEAVES: &[&str] = &[
     "SQLCA-CONNECTION",
 ];
 
-const D_DESCRIPTOR: &str = "an SQL descriptor area (DESCRIBE, USING or INTO DESCRIPTOR) is not computed in a WebAssembly module yet: the interpreter fills its entries by their names and reaches the host variables through the pointers in its table, and a module's pointers are whole items outside any table, so the Build takes the Cargo path (DESKTOP-WASM-001 M6)";
+/// What a statement does with an SQL descriptor area, which decides the cells of each entry that cross.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DescMode {
+    /// `DESCRIBE`: the runner fills the entries' names and types; the entries up to `SQLDA-CAPACITY`
+    /// cross, so the cells it changes are compared with what the program holds.
+    Describe,
+    /// `OPEN` or `EXECUTE … USING DESCRIPTOR`: the entries' pointers, indicators and inline text are the
+    /// values the statement binds.
+    Inputs,
+    /// `FETCH … USING DESCRIPTOR`: the same cells; the row goes through the pointers or into the text.
+    Fetch,
+}
+
+/// The fields of an entry of `INCLUDE SQLDA`'s layout a statement of `mode` works on, in the order its
+/// cells cross.
+fn entry_fields(mode: DescMode) -> &'static [&'static str] {
+    match mode {
+        DescMode::Describe => &["SQLDA-NAME", "SQLDA-TYPE-NAME", "SQLDA-TYPE", "SQLDA-LENGTH", "SQLDA-PRECISION", "SQLDA-SCALE", "SQLDA-NULLABLE"],
+        DescMode::Inputs | DescMode::Fetch => &["SQLDA-DATA", "SQLDA-IND-PTR", "SQLDA-IND", "SQLDA-VALUE"],
+    }
+}
+
+const D_DESCRIPTOR_GROUP: &str = "the address of a group is taken in this program, and an SQL descriptor area's data pointer could point at it: the runner's copy of a group is not one value, so the Build takes the Cargo path (DESKTOP-WASM-001 T50a5)";
 const D_FILE_RECORD: &str = "is in a file record of a program containing this one, which the runner's copy of the declarations does not carry";
 
 /// One cell: an item, and the subscripts of the occurrence (an indicator table's).
@@ -57,6 +79,8 @@ impl Lower<'_, '_> {
         // What the statement reads and what it writes.
         let mut reads: Vec<&SqlHostRef> = Vec::new();
         let mut targets: Vec<&SqlHostRef> = Vec::new();
+        // The SQL descriptor area the statement works on, and how (T50a5).
+        let mut sqlda: Option<(&SqlHostName, DescMode)> = None;
         let prog = self.programs[self.cur_unit];
         match &e.kind {
             SqlKind::Declarative | SqlKind::Close { .. } | SqlKind::Commit | SqlKind::Rollback => {}
@@ -73,12 +97,12 @@ impl Lower<'_, '_> {
                 match using {
                     SqlUsing::None => {}
                     SqlUsing::Hosts(h) => reads.extend(h.iter()),
-                    SqlUsing::Descriptor(_) => return refuse(D_DESCRIPTOR),
+                    SqlUsing::Descriptor(d) => sqlda = Some((d, DescMode::Inputs)),
                 }
             }
             SqlKind::Fetch { into, .. } => match into {
                 SqlInto::Hosts(h) => targets.extend(h.iter()),
-                SqlInto::Descriptor(_) => return refuse(D_DESCRIPTOR),
+                SqlInto::Descriptor(d) => sqlda = Some((d, DescMode::Fetch)),
             },
             SqlKind::Connect { target, user, password, .. } => {
                 reads.extend([Some(target), user.as_ref(), password.as_ref()].into_iter().flatten().filter_map(host));
@@ -92,9 +116,9 @@ impl Lower<'_, '_> {
             SqlKind::ExecutePrepared { using, .. } => match using {
                 SqlUsing::None => {}
                 SqlUsing::Hosts(h) => reads.extend(h.iter()),
-                SqlUsing::Descriptor(_) => return refuse(D_DESCRIPTOR),
+                SqlUsing::Descriptor(d) => sqlda = Some((d, DescMode::Inputs)),
             },
-            SqlKind::Describe { .. } => return refuse(D_DESCRIPTOR),
+            SqlKind::Describe { sqlda: d, .. } => sqlda = Some((d, DescMode::Describe)),
         }
         // The cells, each once, in the order the statement meets them.
         let mut cells: Vec<Cell> = Vec::new();
@@ -137,11 +161,44 @@ impl Lower<'_, '_> {
             }
         }
 
-        // The values and the answer must fit the routines' scratch area.
-        let lens: u32 = cells.iter().map(|(i, _)| cobolt_wasm_rt::sql::cell_bound(self.layout.items[*i].size)).sum();
-        let answer = 5 + lens + 4 * cells.len() as u32;
+        // An SQL descriptor area (T50a5): its head cells and the table of its entries come first, as far
+        // as the statement uses them; the items its data pointers can point at come with the rest.
+        let mut descriptor: Option<(Vec<Cell>, Vec<Cell>, SqlEntries)> = None;
+        if let Some((d, mode)) = sqlda {
+            match self.sqlda_cells(d, mode) {
+                Ok(plan) => descriptor = Some(plan),
+                Err(why) => return refuse(&why),
+            }
+            // The program's pointers number the items whose address it takes (the main program only);
+            // a `DESCRIBE` writes names and types, never through a data pointer.
+            if self.cur_unit == 0 && mode != DescMode::Describe {
+                for x in self.ptr_items.clone() {
+                    if self.layout.items[x].is_group {
+                        return refuse(D_DESCRIPTOR_GROUP);
+                    }
+                    add((x, Vec::new()), &mut cells);
+                }
+            }
+        }
+        let head_cells: Vec<Cell> = descriptor.as_ref().map(|(h, _, _)| h.clone()).unwrap_or_default();
+        // The head cell that says how many entries cross.
+        let limit_item: Option<usize> = descriptor.as_ref().map(|(h, _, p)| h[p.limit as usize].0);
+
+        // The values and the answer must fit the routines' scratch area (a descriptor's entries are
+        // checked as they are sent: how many cross is known only when the statement runs).
+        let lens: u32 = cells.iter().chain(head_cells.iter()).map(|(i, _)| cobolt_wasm_rt::sql::cell_bound(self.layout.items[*i].size)).sum();
+        let answer = 5 + lens + 4 * (cells.len() + head_cells.len()) as u32;
         if lens.max(answer) > cobolt_wasm_rt::state::SCRATCH_SIZE {
             return refuse(&format!("its host variables hold {lens} bytes, more than a module statement can carry"));
+        }
+        // The cells in the order they cross: the head, the entries, then the rest.
+        let mut entries_plan: Option<SqlEntries> = None;
+        if let Some((head, ents, plan)) = descriptor {
+            let rest = std::mem::take(&mut cells);
+            cells = head;
+            cells.extend(ents);
+            cells.extend(rest);
+            entries_plan = Some(plan);
         }
 
         // The section entry.
@@ -152,21 +209,12 @@ impl Lower<'_, '_> {
             }
         }
         for (idx, subs) in &cells {
-            let mut quals = Vec::new();
-            let mut p = self.layout.items[*idx].parent;
-            while let Some(q) = p {
-                if let Some(n) = &self.layout.items[q].name {
-                    quals.push(n.clone());
-                }
-                p = self.layout.items[q].parent;
-            }
-            let name = self.layout.items[*idx].name.clone().unwrap_or_default();
-            section_cells.push(SqlCell { name, quals, subs: subs.clone() });
+            section_cells.push(self.sql_cell(*idx, subs));
         }
         let program = self.sql_program_number(line)?;
         let exec = serde_json::to_value(e).map_err(|err| crate::error::GenError::new(line, format!("EXEC SQL: {err}")))?;
         let stmt = self.names.sql_statements.len() as u32;
-        self.names.sql_statements.push(SqlStatement { program, exec, cells: section_cells });
+        self.names.sql_statements.push(SqlStatement { program, exec, cells: section_cells, entries: entries_plan.clone() });
 
         // The call: the spec record, then the routine, which leaves the condition.
         let mut words = vec![stmt, cells.len() as u32];
@@ -177,11 +225,66 @@ impl Lower<'_, '_> {
             self.text_ok = self.native && cobolt_wasm_rt::nat::Class::of(&self.layout.items[*idx].fd).is_some();
             words.push(self.item_operand(*idx, &indices, None, line)?);
         }
+        if let Some(p) = &entries_plan {
+            // The plan for the routine: where the cells divide, the operand that says how many entries
+            // cross, and the pointer table its data pointers are numbered by.
+            let limit = self.item_operand(limit_item.expect("a plan has its limit"), &[], None, line)?;
+            let (area, items) = if self.cur_unit == 0 { (self.ptr_area(), self.ptr_items.len() as u32) } else { (0, 0) };
+            words.extend([p.head, p.per, p.max, limit, p.data.unwrap_or(u32::MAX), p.ind_ptr.unwrap_or(u32::MAX), p.skip.unwrap_or(u32::MAX), area, items]);
+        }
         let spec = self.pool.spec(&words);
         self.base();
         self.i32c(spec as i32);
-        self.call_rt("rt_sql_exec");
+        self.call_rt(if entries_plan.is_some() { "rt_sql_exec_descriptor" } else { "rt_sql_exec" });
         self.sql_whenever(e, line)
+    }
+
+    /// The cells of an SQL descriptor area (`INCLUDE SQLDA`'s layout, which the interpreter finds by the
+    /// names of its fields): the head cells (`SQLDA-CAPACITY`, `SQLDA-COUNT`, `SQLDA-NEEDED`), each
+    /// entry's cells a statement of `mode` works on, and how they divide (T50a5).
+    fn sqlda_cells(&self, d: &SqlHostName, mode: DescMode) -> Result<(Vec<Cell>, Vec<Cell>, SqlEntries), String> {
+        let not_one = || format!("{} is not an SQL descriptor area laid out as INCLUDE SQLDA lays it out", d.name);
+        let group = self.sql_item(d)?;
+        let named = |among: &[usize], name: &str| {
+            among.iter().copied().find(|&c| {
+                let it = &self.layout.items[c];
+                it.level != 88 && it.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name))
+            })
+        };
+        let kids = self.layout.items[group].children.clone();
+        let (Some(cap), Some(count), Some(needed), Some(entry), Some(_tag)) =
+            (named(&kids, "SQLDA-CAPACITY"), named(&kids, "SQLDA-COUNT"), named(&kids, "SQLDA-NEEDED"), named(&kids, "SQLDA-ENTRY"), named(&kids, "SQLDA-TAG"))
+        else {
+            return Err(not_one());
+        };
+        let Some((max, None)) = self.layout.items[entry].occurs.clone() else { return Err(not_one()) };
+        let entry_kids = self.layout.items[entry].children.clone();
+        let mut fields = Vec::new();
+        for f in entry_fields(mode) {
+            match named(&entry_kids, f) {
+                Some(c) if self.layout.items[c].occurs.is_none() && !self.layout.items[c].is_group => fields.push(c),
+                _ => return Err(not_one()),
+            }
+        }
+        let head = vec![(cap, Vec::new()), (count, Vec::new()), (needed, Vec::new())];
+        let mut entries = Vec::with_capacity(fields.len() * max as usize);
+        for i in 1..=i64::from(max) {
+            for &f in &fields {
+                entries.push((f, vec![i]));
+            }
+        }
+        let pointers = mode != DescMode::Describe;
+        let plan = SqlEntries {
+            head: head.len() as u32,
+            per: fields.len() as u32,
+            max,
+            // `DESCRIBE` fills as many entries as the descriptor holds; the others bind as many as it counts.
+            limit: if mode == DescMode::Describe { 0 } else { 1 },
+            data: pointers.then_some(0),
+            ind_ptr: pointers.then_some(1),
+            skip: pointers.then_some(3),
+        };
+        Ok((head, entries, plan))
     }
 
     /// `WHENEVER … GO TO`: the condition the statement ended in is on the stack.
@@ -298,6 +401,20 @@ impl Lower<'_, '_> {
         }
     }
 
+    /// The section's name for an item (and the subscripts of the occurrence): as the program would name it in full.
+    fn sql_cell(&self, idx: usize, subs: &[i64]) -> SqlCell {
+        let mut quals = Vec::new();
+        let mut p = self.layout.items[idx].parent;
+        while let Some(q) = p {
+            if let Some(n) = &self.layout.items[q].name {
+                quals.push(n.clone());
+            }
+            p = self.layout.items[q].parent;
+        }
+        let name = self.layout.items[idx].name.clone().unwrap_or_default();
+        SqlCell { name, quals, subs: subs.to_vec() }
+    }
+
     /// The number of the current program in the `prsql` section, adding it the first time.
     fn sql_program_number(&mut self, line: u32) -> GenResult<u32> {
         let prog = self.programs[self.cur_unit];
@@ -341,7 +458,9 @@ impl Lower<'_, '_> {
         }
         let program = serde_json::to_value(&bare).map_err(|err| crate::error::GenError::new(line, format!("EXEC SQL: {err}")))?;
         let n = self.names.sql_programs.len() as u32;
-        self.names.sql_programs.push(SqlProgram { name: prog.identification.program_id.to_ascii_uppercase(), program });
+        // The items the program's pointers number, for an SQL descriptor area's data pointers (T50a5).
+        let ptr_items = if self.cur_unit == 0 { self.ptr_items.clone().into_iter().map(|i| self.sql_cell(i, &[])).collect() } else { Vec::new() };
+        self.names.sql_programs.push(SqlProgram { name: prog.identification.program_id.to_ascii_uppercase(), program, ptr_items });
         self.names.sql_program_keys.insert(key, n);
         Ok(n)
     }

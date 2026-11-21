@@ -35,7 +35,7 @@ const D_PTR_BASED: &str = "SET ADDRESS OF in a WebAssembly module names an eleme
 /// Why `ADDRESS OF` any other item is refused.
 const D_PTR_ITEM: &str = "ADDRESS OF in a WebAssembly module names a whole data item outside the LINKAGE SECTION that is not in a table, with no subscript or reference modification; the interpreter numbers any other the same as the item it lies in, so the Build takes the Cargo path";
 /// Why any other pointer operand is refused.
-const D_PTR_POINTER: &str = "a pointer in a WebAssembly module is a USAGE POINTER item outside the LINKAGE SECTION, named without a subscript, so the Build takes the Cargo path";
+const D_PTR_POINTER: &str = "a pointer in a WebAssembly module is a USAGE POINTER item outside the LINKAGE SECTION, named whole or with every subscript of its table, so the Build takes the Cargo path";
 /// Why an item described otherwise than the LINKAGE item it can reach is refused.
 const D_PTR_SHAPE: &str = "in a WebAssembly module an item whose address a LINKAGE item takes is described as that item is (an elementary item of the same PICTURE and USAGE): the interpreter reads the LINKAGE item with the other item's description, a module with its own, so the Build takes the Cargo path";
 
@@ -199,7 +199,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// The program's table: a count, an address per id and an id per item, zero until written.
-    fn ptr_area(&mut self) -> u32 {
+    pub(crate) fn ptr_area(&mut self) -> u32 {
         match self.ptr_area {
             Some(a) => a,
             None => {
@@ -210,10 +210,12 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
     }
 
-    /// A whole item, as an operand.
+    /// A whole item, or a pointer element of a table, as an operand.
     fn ptr_operand(&mut self, e: &Expr, line: u32) -> GenResult<u32> {
-        let i = self.resolve_item(e)?;
-        self.item_operand(i, &[], None, line)
+        match self.operand(e)? {
+            Some(o) => Ok(o),
+            None => self.err(line, "a data-name was expected"),
+        }
     }
 
     /// The item a name designates, when it is a name: no subscript, no reference modification.
@@ -259,13 +261,20 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
     }
 
-    /// A pointer operand: a `USAGE POINTER` item outside the LINKAGE SECTION, named whole.
+    /// A pointer operand: a `USAGE POINTER` item outside the LINKAGE SECTION, named whole, or an
+    /// element of a table of them (`SQLDA-DATA (1)`, T50a5) with a subscript for each `OCCURS` it lies
+    /// in. A table element is a place to hold an address like any other: `rt_ptr_take` stores the id
+    /// in the operand it is given, whatever its subscripts.
     fn ptr_pointer(&mut self, e: &Expr, line: u32) -> GenResult<usize> {
-        let Some(i) = self.ptr_name(e) else {
+        let (named, subscripts) = match e {
+            Expr::Subscript { base, indices, .. } if !indices.is_empty() => (base.as_ref(), indices.len()),
+            other => (other, 0),
+        };
+        let Some(i) = self.ptr_name(named) else {
             return self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {D_PTR_POINTER}"));
         };
         let it = &self.layout.items[i];
-        if it.usage == Usage::Pointer && it.link.is_none() && it.occurs.is_none() {
+        if it.usage == Usage::Pointer && it.link.is_none() && self.layout.occurs_chain(i).len() == subscripts {
             Ok(i)
         } else {
             self.ptr_refuse(line, i, D_PTR_POINTER)

@@ -29,8 +29,25 @@ use serde::{Deserialize, Serialize};
 /// The custom section's name.
 pub const SQL_SECTION: &str = "prsql";
 
-/// The section's format. A runner reads every format up to the one it knows.
-pub const SQL_FORMAT: u32 = 1;
+/// The newest format of the section this release reads. A runner reads every format up to the one it
+/// knows, and refuses a newer one: its meaning cannot be guessed.
+///
+/// - **1**: the programs, the statements and their cells.
+/// - **2** (T50a5): an SQL descriptor area. A statement may carry [`SqlEntries`] (the descriptor's table
+///   crosses as far as it is used, not whole) and a program its [`SqlProgram::ptr_items`] (the items
+///   whose address its pointers hold, which the descriptor's data pointers point at). A runner that
+///   ignored either would read the descriptor's pointers as no item at all, so an older one refuses.
+pub const SQL_FORMAT: u32 = 2;
+
+/// The format a generator writes for a section: 1, unless a program or a statement needs a later one,
+/// so a module that does not use a later field is byte for byte what an earlier release made.
+pub fn format_for(programs: &[SqlProgram], statements: &[SqlStatement]) -> u32 {
+    if programs.iter().any(|p| !p.ptr_items.is_empty()) || statements.iter().any(|s| s.entries.is_some()) {
+        2
+    } else {
+        1
+    }
+}
 
 /// The `prsql` section.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -50,6 +67,12 @@ pub struct SqlProgram {
     /// The program as the parser left it (`cobolt_ast::program::Program`), without its procedure:
     /// its data and the cursors it declares, which is what the runner's interpreter is built from.
     pub program: serde_json::Value,
+    /// Format 2: the items whose address the program's pointers can hold, in the order the program
+    /// numbers them (the first is 1). The runner's interpreter numbers its own addresses the same
+    /// way, so a data pointer of an SQL descriptor area, which crosses as one of these numbers,
+    /// names the same item on both sides.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ptr_items: Vec<SqlCell>,
 }
 
 /// One `EXEC SQL` statement.
@@ -61,6 +84,71 @@ pub struct SqlStatement {
     pub exec: serde_json::Value,
     /// The cells whose values cross with the statement, in the order the module sends them.
     pub cells: Vec<SqlCell>,
+    /// Format 2: the statement works on an SQL descriptor area, whose table of entries crosses only as
+    /// far as the statement uses it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entries: Option<SqlEntries>,
+}
+
+/// How a statement's cells divide when it works on an SQL descriptor area (format 2).
+///
+/// The cells are, in order: `head` cells that always cross; `max` entries of `per` cells each; and
+/// the rest, which always cross (the statement's host variables, the status items and the items the
+/// descriptor's pointers can point at). The module sends the first `n` entries, `n` being the value
+/// of cell `limit` (the head cell that holds `SQLDA-COUNT`, or `SQLDA-CAPACITY` for `DESCRIBE`) kept
+/// within `0..=max`, so a descriptor of a hundred entries whose statement names three costs three
+/// entries, not a hundred (a whole descriptor is longer than the area a statement has). The runner
+/// reads the same cells in the same order: it takes `limit` from the head it has just read.
+///
+/// An entry's `data` and `ind_ptr` cells (their place among the `per` cells) are pointers: they
+/// cross as the **position** (from 1) of the item they point at in [`SqlProgram::ptr_items`], or 0.
+/// The cell at `skip` (the entry's inline text, which only a NULL data pointer uses) is left out of
+/// an entry whose `data` pointer is not NULL.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SqlEntries {
+    pub head: u32,
+    pub per: u32,
+    pub max: u32,
+    pub limit: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ind_ptr: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip: Option<u32>,
+}
+
+impl SqlEntries {
+    /// The number of entries that cross when `limit` holds `value`.
+    pub fn crossing(&self, value: i64) -> u32 {
+        value.clamp(0, i64::from(self.max)) as u32
+    }
+
+    /// Visit, in the order the module sends them, the cells that cross when `entries` entries do:
+    /// the head, then each entry's cells, then the rest, `cell_count` being the statement's total.
+    /// `visit` is given each cell's number in the statement's list and says, for an entry's `data`
+    /// cell, whether its pointer is set (the value of any other cell's answer is not read); the
+    /// entry's `skip` cell is visited only when its data pointer is not set.
+    pub fn walk(&self, entries: u32, cell_count: u32, mut visit: impl FnMut(u32) -> bool) {
+        for c in 0..self.head {
+            visit(c);
+        }
+        for e in 0..entries {
+            let mut set = false;
+            for pos in 0..self.per {
+                if Some(pos) == self.skip && set {
+                    continue;
+                }
+                let is_set = visit(self.head + e * self.per + pos);
+                if Some(pos) == self.data {
+                    set = is_set;
+                }
+            }
+        }
+        for c in self.head + self.per * self.max..cell_count {
+            visit(c);
+        }
+    }
 }
 
 /// An elementary item the statement may read or write, named as the program would name it in full.
@@ -77,7 +165,8 @@ pub struct SqlCell {
 
 /// The values that cross `sql_exec(stmt, buf, len, cap) -> i32`.
 ///
-/// On the way in, the `len` bytes at `buf` are one value per cell of the statement, in order. On
+/// On the way in, the `len` bytes at `buf` are one value per cell of the statement, in order (a
+/// statement with [`SqlEntries`] sends the cells that structure names, and no others). On
 /// the way out the runner writes the answer over them (at most `cap` bytes): one byte, the
 /// condition the statement ended in (`OUT_*`); a little-endian `u32`, the number of cells that
 /// follow; and each of those cells as its number in the statement's list (`u32`) then its value.
@@ -174,17 +263,56 @@ mod tests {
     fn the_section_round_trips_and_reads_an_older_cell() {
         let s = SqlSection {
             format: SQL_FORMAT,
-            programs: vec![SqlProgram { name: "SHOP".into(), program: serde_json::json!({"x": 1}) }],
+            programs: vec![SqlProgram { name: "SHOP".into(), program: serde_json::json!({"x": 1}), ptr_items: vec![] }],
             statements: vec![SqlStatement {
                 program: 0,
                 exec: serde_json::json!({"kind": "Commit"}),
                 cells: vec![SqlCell { name: "CITY".into(), quals: vec!["CUSTOMER".into()], subs: vec![] }],
+                entries: None,
             }],
         };
+        assert_eq!(format_for(&s.programs, &s.statements), 1);
         let text = serde_json::to_string(&s).unwrap();
         assert_eq!(serde_json::from_str::<SqlSection>(&text).unwrap(), s);
         let cell: SqlCell = serde_json::from_str(r#"{"name":"SQLSTATE"}"#).unwrap();
         assert_eq!(cell, SqlCell { name: "SQLSTATE".into(), quals: vec![], subs: vec![] });
         println!("prsql: 1 section round-tripped, 1 cell of an older shape read");
+    }
+
+    /// T50a5: a descriptor statement makes a format 2 section, and the cells that cross with `n`
+    /// entries are the head, the entries' cells (the inline text only where the data pointer is NULL)
+    /// and the rest, in the order the module sends them.
+    #[test]
+    fn a_descriptor_statement_is_format_2_and_names_the_cells_that_cross() {
+        // 3 head cells; 4 entries of 4 cells (data, indicator pointer, indicator, text); 2 more cells.
+        let e = SqlEntries { head: 3, per: 4, max: 4, limit: 1, data: Some(0), ind_ptr: Some(1), skip: Some(3) };
+        let total = 3 + 4 * 4 + 2;
+        let crossing = |entries: u32, set: &dyn Fn(u32) -> bool| {
+            let mut seen = Vec::new();
+            e.walk(entries, total, |c| {
+                seen.push(c);
+                // The data pointer of entry `i` is cell 3 + 4i.
+                c >= 3 && (c - 3) % 4 == 0 && set((c - 3) / 4)
+            });
+            seen
+        };
+        // Two entries cross; the second has its data pointer set, so its text stays behind.
+        assert_eq!(crossing(2, &|i| i == 1), vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 19, 20]);
+        assert_eq!(e.crossing(-5), 0);
+        assert_eq!(e.crossing(2), 2);
+        assert_eq!(e.crossing(900), 4);
+        assert_eq!(crossing(0, &|_| false), vec![0, 1, 2, 19, 20]);
+        assert_eq!(crossing(4, &|_| true), vec![0, 1, 2, 3, 4, 5, 7, 8, 9, 11, 12, 13, 15, 16, 17, 19, 20]);
+        let s = SqlSection {
+            format: 2,
+            programs: vec![SqlProgram { name: "P".into(), program: serde_json::json!({}), ptr_items: vec![SqlCell { name: "WS-CODE".into(), quals: vec![], subs: vec![] }] }],
+            statements: vec![SqlStatement { program: 0, exec: serde_json::json!({}), cells: vec![], entries: Some(e) }],
+        };
+        assert_eq!(format_for(&s.programs, &s.statements), 2);
+        let text = serde_json::to_string(&s).unwrap();
+        assert_eq!(serde_json::from_str::<SqlSection>(&text).unwrap(), s);
+        let old: SqlStatement = serde_json::from_str(r#"{"program":0,"exec":{},"cells":[]}"#).unwrap();
+        assert!(old.entries.is_none());
+        println!("prsql descriptor: cells crossing for 0, 2 and 4 entries named, format 2 chosen only with entries or pointer items, an older statement read · 9 of 9 checks passed");
     }
 }
