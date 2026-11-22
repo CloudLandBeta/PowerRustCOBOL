@@ -2,6 +2,13 @@
 
 
 
+## 2.1.11 — 2026-11-22
+
+**Feature: WASM-038 makes the encryption at rest of Mobile local storage a project setting, on by default.** The operator answered the first point of Q11 (2.1.10): the encryption is not always on, it is a setting on the Mobile page of Project Settings, and it is on by default. Specification only: no code and no documentation moved.
+
+- **R23 now describes the setting:** while it is on, files and SQLite databases are encrypted by the application as 2.1.10 said; while it is off they are written as the Desktop writes them and the encryption code is not linked into the shell (it is built only behind a Cargo feature that a project with the setting off does not build). R2, the goals, the i18n list and Q6 follow. AC17 adds the off case: the same program writes plain containers the Desktop reads, and the staged shell does not link the encryption code.
+- **Q11 has four points now.** (1) is decided. The new (4), what happens when an application update turns the setting on or off and meets data written the other way, is open with a recommendation: the open fails as a file that cannot be opened, naming the setting, with no migration in the first release. (2) the key against a restored backup and (3) data shipped inside the application are still open. Q1, Q3 and Q4 are open as before.
+
 ## 2.1.10 — 2026-11-22
 
 **Feature: WASM-038 takes our own encryption at rest into the first release of Mobile local storage.** The operator decided Q6, the last of the six questions 2.1.9 left unclear: the application encrypts its files and its SQLite databases itself, on top of what Android and iOS give the private area. Specification only: no code and no documentation moved.
