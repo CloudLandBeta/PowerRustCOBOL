@@ -2,6 +2,13 @@
 
 
 
+## 2.1.10 — 2026-11-22
+
+**Feature: WASM-038 takes our own encryption at rest into the first release of Mobile local storage.** The operator decided Q6, the last of the six questions 2.1.9 left unclear: the application encrypts its files and its SQLite databases itself, on top of what Android and iOS give the private area. Specification only: no code and no documentation moved.
+
+- **New R23 and AC17:** the four file organisations and SQLite are encrypted at rest; the program sees the same records, FILE STATUS and SQLCODE as without encryption (R2 now says the container's bytes on the phone are encrypted); the key is held by the shell in the platform's secure store and never reaches the page, a project file or the data folder; the encryption is linked only behind the shell's Cargo feature (Q2); the Build's checklist says what the stores ask of an application with its own encryption. The old non-goal "encryption beyond the platform's" is removed, and Q10 (one release) now includes the encryption.
+- **New open question Q11** with three points the encryption raises: always on or a setting, what a backup restored on another phone does to the key (it meets R21), and data shipped inside the application. Still open with it: Q1, Q3 and Q4.
+
 ## 2.1.9 — 2026-11-22
 
 **Feature: WASM-038 records the operator's decisions on local storage for a Mobile application.** The spec (2.1.6) listed ten open questions; six are now decided and written in, and four stay open. Specification only: no code and no documentation moved.
