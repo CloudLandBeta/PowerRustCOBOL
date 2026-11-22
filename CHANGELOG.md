@@ -2,6 +2,10 @@
 
 
 
+## 2.0.642 — 2026-11-21
+
+**Fix: `cargo check --workspace --all-targets` builds again.** The `leaderboard_prototype` example of `cobolt-ide` includes `src/aurora.rs` by path, and since 2026-11-08 that file's icon pill paints its icon through `panels::designer::paint_toolbar_icon`, which lives in the IDE's `panels` module and is not part of the example: the example stopped compiling at `aurora.rs:705`, and with it every whole-workspace build, check and test run (`cargo test --workspace` could not even start). Found by the whole-workspace sweep of DESKTOP-WASM-001 T54. The example now declares a stand-in `panels::designer::paint_toolbar_icon` with the signature the file calls; the prototype draws no toolbar, so nothing it shows changes, and the IDE itself is untouched. `cargo check --workspace --all-targets` finishes with exit 0.
+
 ## 2.0.641 — 2026-11-21
 
 **Fix: six tests that the WebAssembly work had left stale check what the code does now.** The whole-workspace sweep of DESKTOP-WASM-001 T54 (39 crates, 8 925 tests passed, 12 failed) found them; each one tested a construct or a place that an earlier change had moved, not a defect of the product.

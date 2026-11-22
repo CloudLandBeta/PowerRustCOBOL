@@ -50,6 +50,21 @@ mod theme;
 #[path = "../src/aurora.rs"]
 #[allow(dead_code, unused_imports)]
 mod aurora;
+// `aurora.rs`'s icon pill paints its icon through the designer's `paint_toolbar_icon`, which lives
+// in the IDE's `panels` and is not built here; the prototype draws no toolbar, so a stand-in with the
+// same signature lets the file build (`cargo check --workspace --all-targets` builds this example).
+#[allow(dead_code)]
+mod panels {
+    pub(crate) mod designer {
+        use egui::{Color32, Pos2, Rect, Shape, Vec2};
+
+        pub(crate) fn paint_toolbar_icon(painter: &egui::Painter, center: Pos2, draw_fn: &dyn Fn(&mut Vec<Shape>, Rect, Color32), col: Color32) {
+            let mut shapes: Vec<Shape> = Vec::new();
+            draw_fn(&mut shapes, Rect::from_center_size(center, Vec2::splat(30.0)), col);
+            painter.extend(shapes);
+        }
+    }
+}
 use theme::Theme;
 
 // ── palette ────────────────────────────────────────────────────────────────
