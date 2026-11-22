@@ -2,6 +2,15 @@
 
 
 
+## 2.1.13 — 2026-11-22
+
+**Fix: a Build with no runner stops instead of compiling PowerRustCOBOL with Cargo.** A Desktop Build puts the program into the PowerRustCOBOL runner (`prc-runner`, installed beside the IDE and `rcrun`) and compiles only the developer's code, in about a second. When it found no runner it quietly took the Cargo path instead, which compiles PowerRustCOBOL's own crates on the developer's machine: a Full Build of PowerCallOfDuty took 1 min 03 s and rebuilt `cobolt-runtime`, `cobolt-forms`, `cobolt-form-host`, `cobolt-media`, `cobolt-indexed` and `cobolt-graphics`. The same program built in 1.0 s with the runner supplied. The same happened on a clean Windows install of a release that carried no runner (2.0.613 and earlier do not; 2.1.12 is the first that does).
+
+- **The Build now stops at once** with `CompilerError::RunnerNotFound`, before it stages or compiles anything and with `bin/` untouched. The message names the runner, the folder it looked in (or the path `PRC_RUNNER` names), and what to do: install PowerRustCOBOL again, set `PRC_RUNNER`, or in a source checkout run `cargo build --release -p cobolt-runner`. It no longer says the Rust toolchain is needed.
+- **Unchanged:** every reason that is a need of the program still takes the Cargo path as before: a Debug Build, `--cargo` or `build_path = "cargo"`, External Crates, `EXEC RUST`, and a construct or control the runner does not run yet. A Build asked for the WebAssembly path alone (`wasm_only`) still gets `RunnerUnavailable` as its reason.
+- **Test:** `desktop_wasm_build` section 5 now checks that no runner and a runner path that is not a file both give `RunnerNotFound`, that the message names the runner, `PRC_RUNNER`, the folder and the checkout command, that `bin/` is byte-identical afterwards, and that `wasm_only` keeps its reason.
+- **The Developer's Guide** says that a Build never compiles PowerRustCOBOL, and has a section for the Build that stops on a missing runner (with the release caveat). The runner row left the table of Cargo-path reasons.
+
 ## 2.1.12 — 2026-11-22
 
 **Feature: WASM-038 migrates Mobile data when an update turns the encryption setting on or off.** The operator answered point (4) of Q11: an application whose update changes the setting converts the data its earlier version wrote the other way, rather than refusing to open it. Specification only: no code and no documentation moved.

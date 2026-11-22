@@ -22,8 +22,9 @@
 //! - a construct the generator refuses takes the Cargo path, naming its file and line: one in
 //!   Common Code, one built-in in the main program (AC11);
 //! - with no toolchain, the Cargo path stops and `bin/` is left as it was (AC17);
-//! - a Debug Build gives `DebugBuild`, the project's choice `Chosen`, no runner
-//!   `RunnerUnavailable`;
+//! - a Debug Build gives `DebugBuild`, the project's choice `Chosen`; no runner stops the Build with
+//!   `RunnerNotFound` (a missing runner is a broken installation, not a reason to compile the
+//!   platform with Cargo), and `wasm_only` still reports `RunnerUnavailable` as its reason;
 //! - the forms' current code is compiled, not a stale generated file: the front end runs before
 //!   the toolchain is looked for (the twin of `regenerate_before_build_tests`);
 //! - (T33) a form of controls the runner draws builds on the WebAssembly path; one holding a
@@ -432,13 +433,35 @@ fn the_build_classifies_and_takes_the_webassembly_path() {
     check("[desktop] build_path = \"cargo\" → Chosen", reason_of(&r) == Ok(CargoReason::Chosen));
     check("bin/'s tree hash is the same before and after", tree_hash(&bin_dir) == before);
 
-    // ── 5. Debug → DebugBuild; no runner → RunnerUnavailable ──
+    // ── 5. Debug → DebugBuild; no runner → the Build stops, it does not compile the platform ──
     let debug = build_project(&manifest, &BuildOptions { debug: true, ..opts(Some(&runner)) });
     check("a Debug Build → DebugBuild", reason_of(&debug) == Ok(CargoReason::DebugBuild));
+    let bin_before = tree_hash(&manifest.parent().unwrap().join("bin"));
     let none = build_project(&manifest, &opts(None));
-    check("no runner beside this program, none in PRC_RUNNER → RunnerUnavailable", reason_of(&none) == Ok(CargoReason::RunnerUnavailable));
+    let none_text = none.as_ref().err().map(|e| e.to_string()).unwrap_or_default();
+    check(
+        "no runner beside this program, none in PRC_RUNNER → RunnerNotFound, not the Cargo path",
+        matches!(&none, Err(CompilerError::RunnerNotFound { .. })),
+    );
+    check(
+        "its message names the runner, PRC_RUNNER, the folder looked in and the checkout command",
+        none_text.contains(cobolt_compiler::RUNNER_NAME)
+            && none_text.contains(cobolt_compiler::RUNNER_ENV)
+            && none_text.contains("was not found in ")
+            && none_text.contains("cargo build --release -p cobolt-runner"),
+    );
+    check("its message says nothing of the Rust toolchain being needed", !none_text.contains("toolchain"));
     let missing = build_project(&manifest, &opts(Some(&root.join("no-such-runner"))));
-    check("a runner path that is not a file → RunnerUnavailable", reason_of(&missing) == Ok(CargoReason::RunnerUnavailable));
+    check(
+        "a runner path that is not a file → RunnerNotFound, naming that path",
+        matches!(&missing, Err(CompilerError::RunnerNotFound { searched }) if searched.contains("no-such-runner")),
+    );
+    check("nothing compiled: bin/ is as it was", tree_hash(&manifest.parent().unwrap().join("bin")) == bin_before);
+    let only = build_project(&manifest, &BuildOptions { wasm_only: true, ..opts(None) });
+    check(
+        "a Build asked for the WebAssembly path alone still gets the reason: WasmOnly { RunnerUnavailable }",
+        matches!(&only, Err(CompilerError::WasmOnly { reason: CargoReason::RunnerUnavailable })),
+    );
 
     // ── 6. The forms' current code, not a stale generated file, before the toolchain is looked for ──
     let fdir = root.join("prct16f9");

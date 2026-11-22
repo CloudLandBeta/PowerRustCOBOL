@@ -801,6 +801,21 @@ pub enum CompilerError {
     #[error("the PowerRustCOBOL runner at '{path}' could not take the program: {detail}")]
     Runner { path: String, detail: String },
 
+    /// A Build that nothing sends to Cargo found no PowerRustCOBOL runner to put the program into.
+    /// It stops here. It does not fall back to Cargo: that would compile PowerRustCOBOL's own
+    /// crates on the developer's machine, which a Build never does — the platform is installed with
+    /// the IDE, and only the developer's code is compiled. `searched` says where the runner was
+    /// looked for (the folder of the running program, or what [`RUNNER_ENV`] names).
+    #[error(
+        "the PowerRustCOBOL runner ({}) was not found {searched}. A Build puts your program into \
+         that runner and compiles nothing of PowerRustCOBOL itself, so it stops here rather than \
+         compile the platform with Cargo. The runner is installed beside the IDE and `rcrun`: \
+         install PowerRustCOBOL again, or set {} to the full path of a {}. In a source checkout, \
+         build it with `cargo build --release -p cobolt-runner`.",
+        RUNNER_NAME, RUNNER_ENV, RUNNER_NAME
+    )]
+    RunnerNotFound { searched: String },
+
     /// A build was asked for a target this host cannot produce (spec 041 R18).
     #[error(
         "cannot build for '{requested}' on this machine ({host}): PowerRustCOBOL builds \
@@ -1987,7 +2002,10 @@ pub enum CargoReason {
     /// A construct the WebAssembly path does not take yet, and why (the reason of its Desktop
     /// class, T10). `file` is relative to the project; `line` is 0 when the construct is a whole file.
     Refused { construct: String, reason: String, file: String, line: u32 },
-    /// No PowerRustCOBOL runner was found to put the program into.
+    /// No PowerRustCOBOL runner was found to put the program into. Unlike the others this is not a
+    /// need of the program: a Build that reaches it stops with [`CompilerError::RunnerNotFound`]
+    /// instead of taking the Cargo path (a Build asked for the WebAssembly path alone still
+    /// reports it as its reason).
     RunnerUnavailable,
 }
 
@@ -2028,6 +2046,25 @@ pub fn runner_path() -> Option<PathBuf> {
         return p.is_file().then_some(p);
     }
     runner_near(&std::env::current_exe().ok()?)
+}
+
+/// Where a Build looked for the runner, in words, as [`CompilerError::RunnerNotFound`] names it:
+/// the runner the options name, the one [`RUNNER_ENV`] names, else the folder of the running
+/// program, in the order [`classify`] tries them.
+fn runner_searched(opts: &BuildOptions) -> String {
+    let mut places = Vec::new();
+    if let Some(p) = &opts.runner {
+        places.push(format!("at {}", p.display()));
+    }
+    if let Some(p) = std::env::var_os(RUNNER_ENV) {
+        places.push(format!("at {} ({RUNNER_ENV})", PathBuf::from(p).display()));
+    } else {
+        match std::env::current_exe().ok().as_deref().and_then(Path::parent) {
+            Some(dir) => places.push(format!("in {}", dir.display())),
+            None => places.push("beside the program that builds".to_string()),
+        }
+    }
+    places.join(" or ")
 }
 
 /// The runner that ships with the program at `exe` (DESKTOP-WASM-001 T20): [`RUNNER_NAME`] in the
@@ -3304,6 +3341,13 @@ fn build_core(
     };
     if opts.wasm_only {
         return Err(CompilerError::WasmOnly { reason });
+    }
+    // No runner is a broken installation, not a reason to compile the platform here: the runner
+    // ships with the IDE, and a Build compiles the developer's code only. Every other reason
+    // (Debug, EXEC RUST, External Crates, a construct the runner does not run yet) is a need of
+    // the program, and takes the Cargo path as before.
+    if matches!(reason, CargoReason::RunnerUnavailable) {
+        return Err(CompilerError::RunnerNotFound { searched: runner_searched(opts) });
     }
 
     // ── 6. The toolchain, then the workspace root (where the cobolt-* crates live) ──
@@ -14597,7 +14641,9 @@ function_prefix = "sales-"
         fs::write(&src, cobol).unwrap();
         let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).map(Path::to_path_buf);
         let build = |debug: bool| {
-            let opts = BuildOptions { verbose: false, workspace_root: workspace_root.clone(), debug, ..Default::default() };
+            // The Cargo profiles are what this measures: the Cargo path is asked for (a test finds
+            // no runner beside it, and a Build with none stops rather than take the Cargo path).
+            let opts = BuildOptions { verbose: false, workspace_root: workspace_root.clone(), debug, force_cargo: true, ..Default::default() };
             build_single_file(&src, &opts).unwrap_or_else(|e| panic!("the build (debug = {debug}) failed: {e}"))
         };
         let stamp = |p: &Path| {
@@ -14943,9 +14989,12 @@ function_prefix = "sales-"
         )
         .unwrap();
 
+        // The Cargo path refuses a non-host target; the Cargo path is asked for (a test finds no
+        // runner beside it, and a Build with none stops before it reaches the Cargo path).
         let opts = BuildOptions {
             verbose: false,
             target: Some(other.to_string()),
+            force_cargo: true,
             ..Default::default()
         };
         let err = build_single_file(&src, &opts).expect_err("a non-host target must be refused");

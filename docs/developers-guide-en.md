@@ -17057,7 +17057,28 @@ in a single pixel.
 | `<file> line <n> holds an EXEC RUST block` | `EXEC RUST` is Rust compiled into the program. | Move the Rust into a Backend program, or accept the Cargo path. |
 | `<file> line <n> uses <construct>, which the WebAssembly path does not build yet (…)` | The program uses something the runner does not run yet. The reason in brackets says what. | See *What the WebAssembly path does not run yet* below. |
 | `the form <name> (<file>) holds the control <id> (<type>), which the WebAssembly path does not build yet (…)` | A form holds a control the runner does not serve, or a control bound to data. | The same list. |
-| `the PowerRustCOBOL runner (prc-runner) is not installed beside the IDE` | The runner is missing, which only happens in an unusual installation. | Install PowerRustCOBOL again, or set the environment variable `PRC_RUNNER` to the full path of a `prc-runner`. |
+A Build never takes the Cargo path because something of PowerRustCOBOL is missing.
+Every reason in the table is a need of *your program*; the platform itself — the
+runner and everything it runs — is installed with the IDE, so a Build compiles your
+code and nothing of PowerRustCOBOL, whether it is **Build** or a full build.
+
+#### When the Build stops: the runner is missing
+
+If the Build finds no runner, it **stops at once**, before it touches `bin/`, and
+says so. It does not fall back to Cargo, because that would compile PowerRustCOBOL
+itself on your machine, which a Build is never meant to do.
+
+| The Build says | What it means | What you can do |
+|---|---|---|
+| `the PowerRustCOBOL runner (prc-runner) was not found in <folder>` (on Windows, `prc-runner.exe`) | There is no runner in the folder of the IDE or `rcrun` that is building, and the environment variable `PRC_RUNNER` does not name one. | Install PowerRustCOBOL again: the installer puts the runner beside the IDE and `rcrun`. Or set `PRC_RUNNER` to the full path of a `prc-runner`. |
+
+> **Note.** In a source checkout the runner is not built with the IDE. Build it once
+> with `cargo build --release -p cobolt-runner` (or the same without `--release`
+> for a debug IDE); it is put next to the IDE.
+
+> **Caveat.** The releases up to 2.0.613 do not include the runner, so a Build with
+> one of them could only take the Cargo path. 2.1.12 is the first release that
+> carries it; install it or a later one.
 
 Two project settings, written to the project file only when they differ from the
 default (so a default project's file does not change):
