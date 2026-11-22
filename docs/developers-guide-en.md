@@ -20161,6 +20161,18 @@ secrets work as in a Web project (23.9). **A Backend release refuses a literal s
 workshop-management application with a Backend over indexed files — and
 `examples/PowerAnalyticsWeb` — the look of the desktop PowerAnalytics dashboard on the web — show
 what a larger application looks like; open them from **File ▸ Open Project**.
+
+`PowerOficina` opens with its data already in place: its `data/` folder holds the sixteen indexed
+files, filled with fictitious customers, vehicles, quotes, payments and a catalog, so every screen and
+the Dashboard have something to show the first time you press **Preview**, with no program to run
+first. The folder's `README.md` says what is in it and how to make a fresh set.
+
+> **Note.** The data is a snapshot. The Dashboard counts its months back from today, so as the weeks
+> pass the older quotes fill fewer of them. To refresh it, empty `data/` (keep the `README.md`) and run
+> `backend/src/seed-load.cbl` and then `tests/demo-data.cbl` once, as their first lines say.
+
+> **Caveat.** An example you open from an installed copy is copied to your own folder, with its data;
+> changes you make to the data stay in your copy, and the installed original is not touched.
 ---
 
 ## 26. Graphics: Canvas 2D, Canvas 3D and the graphics objects

@@ -2,6 +2,18 @@
 
 
 
+## 2.1.2 — 2026-11-22
+
+**Fix: PowerOficina opens with its data.** Opened on a machine with no earlier installation (a clean Windows PC, reported 2026-11-22), the example showed every screen and the Dashboard empty.
+
+- **Cause.** The installer stages `examples/` with `git archive HEAD`, so an installed example holds only what git tracks, and PowerOficina's `data/` folder had never been committed: the 2.0.389 entry that introduced the example left "the data files (the Backend seeds them with `seed-load`)" out, but nothing runs `seed-load` for a person who has just pressed Preview. On the developer's machine the folder existed from earlier runs, which hid it.
+- **Fix.** The sixteen indexed files (`approvals`, `audit`, `catalog`, `customers`, `diagnoses`, `faultrules`, `installments`, `notifications`, `payments`, `queue`, `quoteitems`, `quotes`, `refunds`, `sequences`, `tokens`, `vehicles`) are now in the repository, with a `data/README.md` that says what they hold. They are the output of the project's own `seed-load` and `demo-data` programs: 72 catalog rows, 14 customers, 16 vehicles, 39 quotes in every state, with their diagnoses, approvals, payments, instalments, queue and messages. Every name, document, plate, phone and address is invented (the addresses end in `exemplo.com.br`, the approval links point at `oficina.exemplo`); no key or credential is among them. The `.lck` files stay ignored.
+- **Checked from a clean copy** (`git archive` of the example plus the staged data, read with the debug `rcrun` from a folder that had no earlier data): `customers` 14, `quotes` 39, `catalog` 72 records.
+- **New test `poweroficina_ships_the_data_its_screens_start_from`** (`cobolt-compiler`): each of the 16 definitions in `indexed/` must have a data file that git tracks, with the indexed-file header, a catalog that holds the seed row `PAD-FREIO`, customers with the demo addresses, and a quotes file large enough for the demo quotes. It failed first, naming the 14 files that existed but were not tracked, and passes now: 16 of 16 files, 630 784 bytes, 11.04 ms.
+- **Known limit, not fixed here.** The data is a snapshot of 2026-11: the Dashboard counts its months back from today, so by about May 2027 it fills none of them. A first-start seeding of a Web project's Backend (a setting that runs named programs once, on empty data, relative to the day of the first start) would keep a demo like this one fresh and would serve a developer's own projects; it is a feature of its own and is not part of this fix. The Guide (25.10) says how to refresh the data by hand.
+- **Documentation.** Developer's Guide 25.10 says the example opens with its data, with a Note on the snapshot and a Caveat on the copy. No document in another language was touched (standing instruction of 2026-11-21, until release 2.1.100).
+- **Numbering.** 2.1.1 is the browser-subset fix on `main`; `features-2x-mobile-local-storage` also carries a 2.1.2 (the WASM-038 specification), which takes the next free number when it is merged.
+
 ## 2.1.1 — 2026-11-22
 
 **Fix: a browser module runs six more things the language has, and each answers as the interpreter does.** An audit of every verb and data structure against what a Web or Mobile module refused found that most refusals were not limits of a page but gaps of the generator. These are closed; what stays refused is a limit of a page (no process, no command line, no environment) or work that needs a part of its own (listed at the end).
