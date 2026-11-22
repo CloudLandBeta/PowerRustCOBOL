@@ -674,13 +674,13 @@ fn pill_with<'a>(
     let r = resp.rect;
     // A radius of 18 or more means a capsule: round ends whatever the height.
     let radius = if pill_r >= 18 { r.height() / 2.0 } else { pill_r as f32 };
-    let (top, bottom) = if enabled && resp.hovered() {
-        (look.top.lerp_to_gamma(Color32::WHITE, 0.25), look.bottom.lerp_to_gamma(Color32::WHITE, 0.15))
-    } else {
-        (look.top, look.bottom)
-    };
+    // While the button is held down the pill sinks (operator, 2026-11-22: under Spatial a pressed
+    // button did not show). The same state egui's own buttons use for their active look.
+    let pressed = enabled && resp.is_pointer_button_down_on();
+    let (top, bottom) = pill_faces(look, enabled, resp.hovered(), pressed);
     let mut shapes = Vec::new();
-    if enabled {
+    // A pressed pill lies flat on the surface: no shadow under it.
+    if enabled && !pressed {
         shapes.push(Shape::from(
             Shadow {
                 offset: [0, 3],
@@ -692,19 +692,47 @@ fn pill_with<'a>(
         ));
     }
     shapes.push(Shape::mesh(gradient_rounded_rect(r, radius, top, bottom)));
+    // Raised: lit on top, shaded below. Pressed: the other way round, as a hollow is.
+    let (top_edge, bottom_edge) = if pressed {
+        (Stroke::new(2.0, Color32::from_rgba_unmultiplied(0, 0, 0, 90)), Stroke::new(1.0, rgba(255, 255, 255, 0.35)))
+    } else {
+        (Stroke::new(1.0, rgba(255, 255, 255, 0.7)), Stroke::new(2.0, Color32::from_rgba_unmultiplied(0, 0, 0, 26)))
+    };
     shapes.push(Shape::line_segment(
         [Pos2::new(r.left() + radius, r.top() + 1.0), Pos2::new(r.right() - radius, r.top() + 1.0)],
-        Stroke::new(1.0, rgba(255, 255, 255, 0.7)),
+        top_edge,
     ));
     shapes.push(Shape::line_segment(
         [Pos2::new(r.left() + radius, r.bottom() - 1.0), Pos2::new(r.right() - radius, r.bottom() - 1.0)],
-        Stroke::new(2.0, Color32::from_rgba_unmultiplied(0, 0, 0, 26)),
+        bottom_edge,
     ));
     ui.painter().set(slot, Shape::Vec(shapes));
     if let Some(icon) = icon {
-        crate::panels::designer::paint_toolbar_icon(ui.painter(), r.center(), icon, look.ink);
+        let sink = if pressed { egui::vec2(0.0, 1.0) } else { egui::Vec2::ZERO };
+        crate::panels::designer::paint_toolbar_icon(ui.painter(), r.center() + sink, icon, look.ink);
     }
     resp
+}
+
+/// How far a pressed pill's two ends are taken toward black: a dark face (white ink: Spatial's grey, the
+/// saturated Run) far enough that the press reads on a dark surface; a light face (dark ink: the pastels,
+/// Spatial's Run) less far, so the dark ink keeps its 4.5:1 on it (tested for every palette).
+const PRESS_DARKEN_DARK_FACE: (f32, f32) = (0.32, 0.22);
+const PRESS_DARKEN_LIGHT_FACE: (f32, f32) = (0.18, 0.12);
+
+/// The two ends of a pill's gradient in the state it is in: at rest, lit while the pointer is over it,
+/// darker than at rest while it is pressed. A disabled pill stays as it is.
+fn pill_faces(look: Pill, enabled: bool, hovered: bool, pressed: bool) -> (Color32, Color32) {
+    if enabled && pressed {
+        // The ink says which kind of face this is: dark ink sits on a light face.
+        let light_face = u16::from(look.ink.r()) + u16::from(look.ink.g()) + u16::from(look.ink.b()) < 384;
+        let (t, b) = if light_face { PRESS_DARKEN_LIGHT_FACE } else { PRESS_DARKEN_DARK_FACE };
+        (look.top.lerp_to_gamma(Color32::BLACK, t), look.bottom.lerp_to_gamma(Color32::BLACK, b))
+    } else if enabled && hovered {
+        (look.top.lerp_to_gamma(Color32::WHITE, 0.25), look.bottom.lerp_to_gamma(Color32::WHITE, 0.15))
+    } else {
+        (look.top, look.bottom)
+    }
 }
 
 #[cfg(test)]
@@ -863,5 +891,184 @@ mod tests {
             assert!(contrast_ratio(pal.tab_selected_ink, pal.tab_selected) >= 7.0, "{} selected tab", theme.id);
             assert!(crate::aurora::palette_for(theme.id).is_some(), "{} has a palette", theme.id);
         }
+    }
+
+    /// The eight Aurora palettes by name, for the tests of the pills.
+    fn every_palette() -> [(&'static str, &'static Palette); 8] {
+        [
+            ("pastel", &PASTEL),
+            ("prime", &PRIME),
+            ("navy-teal", &SLICK_NAVY_TEAL),
+            ("graphite-indigo", &SLICK_GRAPHITE_INDIGO),
+            ("slate-coral", &SLICK_SLATE_CORAL),
+            ("charcoal-emerald", &SLICK_CHARCOAL_EMERALD),
+            ("piano-coral", &SLICK_PIANO_CORAL),
+            ("spatial", &SPATIAL),
+        ]
+    }
+
+    /// Perceived brightness of a face, 0 (black) to 255 (white).
+    fn brightness(c: Color32) -> f32 {
+        0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32
+    }
+
+    /// A pressed pill must not look like a resting or a lit one — in any palette (operator, 2026-11-22: under
+    /// Spatial a pressed button did not show). Pressed is clearly darker than at rest, rest is no darker than
+    /// lit, the ink still reads on the pressed face, and a disabled pill never changes.
+    #[test]
+    fn a_pressed_pill_is_darker_than_at_rest_and_than_lit_in_every_palette() {
+        let started = std::time::Instant::now();
+        let (mut looks, mut checks) = (0usize, 0usize);
+        let mut palest_press = 0.0f32; // the pressed face as a share of the resting one: the nearest to 1 is the weakest press
+        let mut smallest_lit_step = f32::MAX;
+        let mut worst_ink = f64::MAX;
+        for (theme, pal) in every_palette() {
+            let ps = &pal.pills;
+            for (name, p) in [
+                ("open", ps.open),
+                ("check", ps.check),
+                ("search", ps.search),
+                ("build", ps.build),
+                ("run", ps.run),
+                ("debug", ps.debug),
+                ("stop", ps.stop),
+            ] {
+                looks += 1;
+                let rest = pill_faces(p, true, false, false);
+                let lit = pill_faces(p, true, true, false);
+                let down = pill_faces(p, true, true, true);
+                let down_without_hover = pill_faces(p, true, false, true);
+                assert_eq!(down, down_without_hover, "{theme} {name}: a press looks the same wherever the pointer is");
+                for (end, r, l, d) in [("top", rest.0, lit.0, down.0), ("bottom", rest.1, lit.1, down.1)] {
+                    let (br, bl, bd) = (brightness(r), brightness(l), brightness(d));
+                    // At least a tenth darker at each end: relative, because a face as dark as navy's (44 of 255) cannot lose 10 points.
+                    assert!(bd <= br * 0.90, "{theme} {name} {end}: pressed {bd:.0} is not clearly darker than rest {br:.0}");
+                    // (Lit lightens toward white, so a face that is already near white — Spatial's Run — gains little.)
+                    assert!(br <= bl, "{theme} {name} {end}: lit {bl:.0} is darker than rest {br:.0}");
+                    palest_press = palest_press.max(bd / br);
+                    smallest_lit_step = smallest_lit_step.min(bl - br);
+                    checks += 2;
+                }
+                assert_ne!(rest, down, "{theme} {name}: pressed must not look like rest");
+                assert_ne!(lit, down, "{theme} {name}: pressed must not look like lit");
+                for face in [down.0, down.1] {
+                    let r = contrast_ratio(p.ink, face);
+                    worst_ink = worst_ink.min(r);
+                    assert!(r >= 4.5, "{theme} {name}: ink {r:.2}:1 on the pressed face {face:?}");
+                    checks += 1;
+                }
+            }
+            let off = ps.disabled;
+            for (hovered, pressed) in [(false, false), (true, false), (true, true), (false, true)] {
+                assert_eq!(pill_faces(off, false, hovered, pressed), (off.top, off.bottom), "{theme}: a disabled pill stays as it is");
+                checks += 1;
+            }
+        }
+        println!(
+            "Aurora pill, pressed state (pure faces)\n  \
+             cases: {looks} pill looks (7 buttons x 8 palettes: pastel, prime, navy-teal, graphite-indigo, slate-coral, charcoal-emerald, piano-coral, spatial) at rest, lit and pressed, plus the disabled pill in 4 states per palette\n  \
+             weakest press: the pressed face is {:.0} % of the resting one (floor: 90 %); smallest lightening, rest to lit: {smallest_lit_step:.1} of 255; worst ink on a pressed face: {worst_ink:.2}:1 (floor 4.5)\n  \
+             time: {:.2} ms\n  \
+             result: {checks} checks passed, 0 failed",
+            palest_press * 100.0,
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+
+    /// The colours of a rendered frame's pill: the gradient mesh's top and bottom, and how many shapes
+    /// the pill is made of (a raised one has a shadow under it, a pressed one does not).
+    fn painted_pill(out: &egui::FullOutput) -> (Color32, Color32, usize) {
+        fn walk(shape: &Shape, top: &mut (f32, Color32), bottom: &mut (f32, Color32), leaves: &mut usize) {
+            match shape {
+                Shape::Vec(v) => v.iter().for_each(|s| walk(s, top, bottom, leaves)),
+                Shape::Mesh(m) => {
+                    *leaves += 1;
+                    for v in &m.vertices {
+                        if v.pos.y < top.0 {
+                            *top = (v.pos.y, v.color);
+                        }
+                        if v.pos.y > bottom.0 {
+                            *bottom = (v.pos.y, v.color);
+                        }
+                    }
+                }
+                _ => *leaves += 1,
+            }
+        }
+        let (mut top, mut bottom, mut leaves) = ((f32::MAX, Color32::TRANSPARENT), (f32::MIN, Color32::TRANSPARENT), 0usize);
+        for clipped in &out.shapes {
+            walk(&clipped.shape, &mut top, &mut bottom, &mut leaves);
+        }
+        (top.1, bottom.1, leaves)
+    }
+
+    /// In a real frame under Spatial: holding the button down on a toolbar pill paints a darker face and no
+    /// shadow; letting go brings the raised pill back. Measured on the painted mesh, not on a predicted colour.
+    #[test]
+    fn a_pressed_spatial_pill_paints_a_darker_sunken_face_and_lets_go_on_release() {
+        let started = std::time::Instant::now();
+        crate::theme::set_active(&crate::theme::SPATIAL);
+        let look = SPATIAL.pills.open;
+        let ctx = egui::Context::default();
+        let mut now = 0.0f64;
+        let at = std::cell::Cell::new(Pos2::new(20.0, 15.0));
+        let mut frame = |events: Vec<egui::Event>| -> (Color32, Color32, usize) {
+            now += 0.016;
+            let input = egui::RawInput {
+                time: Some(now),
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 120.0))),
+                events,
+                ..Default::default()
+            };
+            let mut rect = Rect::NOTHING;
+            let mut out = ctx.run_ui(input, |ui| {
+                rect = pill(ui, true, "Open", look).rect;
+            });
+            out.textures_delta.clear();
+            at.set(rect.center());
+            painted_pill(&out)
+        };
+        let button = |pressed: bool, at: Pos2| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+
+        frame(vec![]);
+        let rest = frame(vec![]);
+        let over = at.get();
+        let lit = frame(vec![egui::Event::PointerMoved(over)]);
+        frame(vec![button(true, over)]);
+        let held = frame(vec![]);
+        let held_longer = frame(vec![]);
+        frame(vec![button(false, over)]);
+        let released = frame(vec![]);
+
+        assert_eq!((rest.0, rest.1), (look.top, look.bottom), "resting pill paints its own faces");
+        assert_eq!((lit.0, lit.1), pill_faces(look, true, true, false), "the pointer over it lights it");
+        assert_eq!((held.0, held.1), pill_faces(look, true, true, true), "held down it is pressed");
+        assert_eq!((held_longer.0, held_longer.1), (held.0, held.1), "and stays pressed while the button is held");
+        assert!(brightness(held.0) + 10.0 <= brightness(rest.0), "the pressed face is darker than rest: {:?} against {:?}", held.0, rest.0);
+        assert!(brightness(held.0) + 10.0 <= brightness(lit.0), "and than lit: {:?} against {:?}", held.0, lit.0);
+        assert_eq!(held.2 + 1, rest.2, "a raised pill has a shadow under it, a pressed one has none");
+        assert_eq!((released.0, released.1), pill_faces(look, true, true, false), "let go, the pointer still over it: lit again, not pressed");
+        crate::theme::set_active(crate::theme::default_theme());
+        println!(
+            "Aurora pill, pressed state (painted in a frame, Spatial 'open' pill)\n  \
+             cases: rest, pointer over, press, button held, release (8 frames)\n  \
+             painted top face: rest {:?}, lit {:?}, pressed {:?} (brightness {:.0} / {:.0} / {:.0}); shapes: raised {}, pressed {}\n  \
+             time: {:.2} ms\n  \
+             result: 8 checks passed, 0 failed",
+            rest.0,
+            lit.0,
+            held.0,
+            brightness(rest.0),
+            brightness(lit.0),
+            brightness(held.0),
+            rest.2,
+            held.2,
+            started.elapsed().as_secs_f64() * 1000.0
+        );
     }
 }
