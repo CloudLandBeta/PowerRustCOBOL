@@ -20251,8 +20251,8 @@ missing, or working and unlisted.
 - **`AutoPresent`** — the drawing shows at the end of every handler. Without it, call
   `Present()`.
 - **Events** — `onPointerDown`, `onPointerMove`, `onPointerUp`, `onWheel`, `onKeyDown`,
-  `onKeyUp`, `onGamepadButton` (argument `pad button 1|0`) and `onGamepadAxis` (argument `pad axis
-  value`) are raised **only when a handler is bound**. `PointerX`, `PointerY`, `IsKeyDown( key )`,
+  `onKeyUp`, `onEscapePressed`, `onGamepadButton` (argument `pad button 1|0`) and `onGamepadAxis`
+  (argument `pad axis value`) are raised **only when a handler is bound**. `PointerX`, `PointerY`, `IsKeyDown( key )`,
   `GamepadAxis( axis [pad] )` and `GamepadButton( button [pad] )` can be read **at any time**, whatever
   handlers are bound. The game above polls the keyboard in `onFrame`:
 
@@ -20270,6 +20270,48 @@ missing, or working and unlisted.
   ```cobol
            CNV-GAME::SetFocus()
   ```
+
+- **Escape is how the keyboard leaves the canvas, and `onEscapePressed` reports it.** Because the
+  canvas keeps Tab and the arrows, Escape gives the keyboard back to the window, as it does on any
+  focusable control. A canvas that has the keyboard raises `onEscapePressed` (argument `Escape`) for
+  that press, once, when a handler is bound: that is where a game closes or pauses.
+
+  ```cobol
+           INVOKE    ME::Close()
+  ```
+
+  > **Caveat.** Because Escape ends the canvas's hold on the keyboard, it is not one of the keys
+  > `IsKeyDown( "Escape" )` or `onKeyDown` report on the desktop; use `onEscapePressed`. A program
+  > that wants the keyboard back after Escape calls `SetFocus()` in that handler. The page player
+  > does not raise `onEscapePressed` on a canvas yet: in a browser the key reaches
+  > `IsKeyDown( "Escape" )` and `onKeyDown` instead.
+
+- **A game that looks with the mouse hides the pointer and keeps it in the middle.** Two things
+  make that work. Set the canvas's **`Cursor`** to `None` (the Properties panel lists it with
+  `Default`, `Hand`, `Crosshair` and the others): the pointer is not drawn while it is over the
+  canvas. And call **`CenterPointer()`**, which moves the mouse pointer to the middle of the canvas.
+  The next read of `PointerX` and `PointerY` answers the middle, so a game that turns the view by
+  how far the pointer moved since the last frame does not take the jump for a movement. A game
+  usually calls it when the player has left the mouse alone for a moment, and puts its own "last
+  pointer" items to the middle at the same time:
+
+  ```cobol
+           IF      WS-IDLE-FRAMES > 59
+               CNV-GAME::CenterPointer()
+               COMPUTE WS-LAST-POINTER-X = CNV-GAME::PointerX
+               COMPUTE WS-LAST-POINTER-Y = CNV-GAME::PointerY
+               MOVE    0                         TO    WS-IDLE-FRAMES
+           END-IF
+  ```
+
+  > **Note.** The window moves the pointer only while it has the keyboard, so a game that runs in
+  > the background does not take the pointer from the window in front. Each call is served once.
+  >
+  > **Caveat.** A web page may not move the visitor's pointer: in a browser `CenterPointer()` is
+  > accepted and does nothing, and `Cursor` = `None` hides the pointer over the canvas as it does on
+  > the desktop. A desktop window system that cannot place the pointer (Wayland) ignores the move;
+  > the next real movement of the mouse then corrects `PointerX` and `PointerY`. 📷 *Screenshot
+  > needed: the Properties panel with `Cursor` = `None` on a Canvas3D.*
 
 - **The universal methods work here too.** `Show`, `Hide`, `Enable`, `Disable` and `SetFocus`
   (also spelt `Focus`) act on a canvas, an image buffer, a plot, a physics world or a 3D scene as

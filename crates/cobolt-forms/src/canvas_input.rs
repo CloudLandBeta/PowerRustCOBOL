@@ -22,6 +22,10 @@ use egui::{Event, Rect, Sense, Ui};
 
 pub use crate::frame_clock::{FrameClock, MAX_STEPS};
 
+/// The property a program's `CenterPointer()` raises, one more each call: the window moves the mouse pointer to the middle of
+/// the canvas when it sees a number it has not served yet.
+pub const POINTER_REQUEST_PROP: &str = "_PointerRequest";
+
 fn num(ctrl: &Control, prop: &str) -> f64 {
     ctrl.get_prop(prop).and_then(|v| v.as_str().trim().parse::<f64>().ok()).unwrap_or(0.0)
 }
@@ -39,6 +43,50 @@ pub fn key_name(key: egui::Key) -> String {
 pub fn is_key_held(held: &str, name: &str) -> bool {
     let n = name.trim();
     !n.is_empty() && held.split(',').any(|k| k.trim().eq_ignore_ascii_case(n))
+}
+
+/// `CenterPointer()`: the program asked for the mouse pointer in the middle of the canvas. Each request is served once, and only
+/// while the window has the keyboard (a game in the background does not take the pointer from the window in front). The middle
+/// is the middle of the part of the canvas on show. The position the program reads (`PointerX`, `PointerY`) is the middle at
+/// once, because a window may not report the move until the pointer next moves, and the program must not see that as a drag.
+/// A window system that cannot place the pointer (Wayland) ignores the command; the next real move corrects the position.
+///
+/// Answers whether the position the window still reports is the one from before the move (`hover` has not changed since): that
+/// report is stale, and is not passed on, until the window reports another position.
+fn serve_pointer_request(ui: &mut Ui, screen: Rect, ctrl: &Control, ctrl_id: egui::Id, id: &str, hover: Option<egui::Pos2>, out: &mut RenderOutput) -> bool {
+    let moved_from_mem = ctrl_id.with("canvas-pointer-moved-from");
+    let asked = num(ctrl, POINTER_REQUEST_PROP) as u64;
+    let served_mem = ctrl_id.with("canvas-pointer-served");
+    if asked != ui.ctx().memory(|m| m.data.get_temp::<u64>(served_mem)).unwrap_or(0) {
+        ui.ctx().memory_mut(|m| m.data.insert_temp(served_mem, asked));
+        let shown = screen.intersect(ui.clip_rect());
+        if ui.input(|i| i.focused) && shown.is_positive() {
+            let middle = shown.center();
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::CursorPosition(middle));
+            let (x, y) = ((middle.x - screen.min.x).round() as i64, (middle.y - screen.min.y).round() as i64);
+            ui.ctx().memory_mut(|m| {
+                m.data.insert_temp(ctrl_id.with("canvas-pointer"), (x, y));
+                match hover {
+                    Some(from) => {
+                        m.data.insert_temp(moved_from_mem, from);
+                    }
+                    None => m.data.remove::<egui::Pos2>(moved_from_mem),
+                }
+            });
+            out.prop_updates.push((id.to_string(), "PointerX".into(), x.to_string()));
+            out.prop_updates.push((id.to_string(), "PointerY".into(), y.to_string()));
+            return hover.is_some();
+        }
+    }
+    let from = ui.ctx().memory(|m| m.data.get_temp::<egui::Pos2>(moved_from_mem));
+    match (from, hover) {
+        (Some(from), Some(now)) if from == now => true,
+        (Some(_), _) => {
+            ui.ctx().memory_mut(|m| m.data.remove::<egui::Pos2>(moved_from_mem));
+            false
+        }
+        _ => false,
+    }
 }
 
 /// One canvas, one frame: focus, events, pollable state and `onFrame`.
@@ -65,6 +113,7 @@ pub(crate) fn run(ui: &mut Ui, screen: Rect, ctrl: &Control, ctrl_id: egui::Id, 
 
     // Pointer.
     let hover = ui.input(|i| i.pointer.hover_pos());
+    let stale = serve_pointer_request(ui, screen, ctrl, ctrl_id, id, hover, out);
     let over = resp.hovered() || resp.is_pointer_button_down_on();
     let local = hover.map(|p| ((p.x - screen.min.x).round() as i64, (p.y - screen.min.y).round() as i64));
     let at = local.map(|(x, y)| format!("{x} {y}")).unwrap_or_default();
@@ -81,7 +130,7 @@ pub(crate) fn run(ui: &mut Ui, screen: Rect, ctrl: &Control, ctrl_id: egui::Id, 
     if over && pressed {
         resp.request_focus(); // a press gives the canvas the keyboard
     }
-    if over {
+    if over && !stale {
         if let Some((x, y)) = local {
             let mem = ctrl_id.with("canvas-pointer");
             if ui.ctx().memory(|m| m.data.get_temp::<(i64, i64)>(mem)) != Some((x, y)) {
@@ -150,6 +199,14 @@ pub(crate) fn run(ui: &mut Ui, screen: Rect, ctrl: &Control, ctrl_id: egui::Id, 
         }
     } else {
         held.clear();
+    }
+    // Escape gives the keyboard back (Tab and the arrows are the canvas's own, so it is the way out), which is why the press is read
+    // on the frame the focus is lost, as `onEscapePressed` of any focusable control is. A game closes or pauses on it.
+    if resp.has_focus() || resp.lost_focus() {
+        let escape = events.iter().any(|e| matches!(e, Event::Key { key: egui::Key::Escape, pressed: true, repeat: false, .. }));
+        if escape {
+            raise("onEscapePressed", key_name(egui::Key::Escape));
+        }
     }
     if held != before {
         ui.ctx().memory_mut(|m| m.data.insert_temp(keys_mem, held.clone()));

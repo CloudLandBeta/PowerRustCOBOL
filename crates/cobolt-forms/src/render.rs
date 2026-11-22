@@ -7745,6 +7745,8 @@ pub fn cursor_icon_for(value: &str) -> Option<egui::CursorIcon> {
             Some(egui::CursorIcon::ResizeHorizontal)
         }
         "help" => Some(egui::CursorIcon::Help),
+        // The pointer is not drawn while it is over the control (a game that looks with the mouse).
+        "none" | "hidden" => Some(egui::CursorIcon::None),
         _ => None,
     }
 }
@@ -23326,6 +23328,140 @@ mod tests {
         assert_eq!(snapshot, "0|0.500,-1.000|10");
     }
 
+    /// A canvas that has the keyboard raises `onEscapePressed` when Escape is pressed, on the frame it gives the keyboard back, once, and
+    /// only to a bound handler; a canvas that does not have the keyboard raises nothing. (The way out of a canvas, which keeps Tab and
+    /// the arrows, stays Escape: a game closes or pauses on the event.)
+    #[test]
+    fn a_canvas_with_the_keyboard_raises_on_escape_pressed_once() {
+        let bound = ctrlp_events("CV-1", ControlType::Canvas2D, 0, 0, 200, 100, &[], &["onEscapePressed"]);
+        let unbound = ctrlp("CV-2", ControlType::Canvas2D, 0, 150, 200, 100, &[]);
+        let escape = |pressed: bool| Event::Key { key: egui::Key::Escape, physical_key: Some(egui::Key::Escape), pressed, repeat: false, modifiers: Modifiers::default() };
+        let inside = pos2(60.0, 40.0);
+        let with_focus = || -> Vec<(f64, Vec<Event>)> {
+            vec![
+                (0.0, vec![]),
+                (0.1, vec![Event::PointerMoved(inside)]),
+                (0.15, vec![Event::PointerMoved(pos2(62.0, 42.0))]),
+                (0.2, vec![press(pos2(62.0, 42.0))]),
+                (0.3, vec![release(pos2(62.0, 42.0))]),
+                (0.4, vec![]),
+                (0.5, vec![escape(true)]),
+                (0.6, vec![escape(false)]),
+                (0.7, vec![escape(true)]),
+                (0.8, vec![escape(false)]),
+            ]
+        };
+        let started = std::time::Instant::now();
+        let count = |got: &[UiEvent], id: &str| got.iter().filter(|e| e.ctrl_id == id && e.event == "onEscapePressed").count();
+        let (got, _) = drive_timed(&[bound.clone(), unbound.clone()], with_focus());
+        let (without, _) = drive_timed(&[bound.clone()], vec![(0.0, vec![]), (0.1, vec![escape(true)]), (0.2, vec![escape(false)])]);
+        let value = got.iter().find(|e| e.event == "onEscapePressed").and_then(|e| e.value.clone());
+        println!(
+            "Escape on a canvas: with the keyboard {} raise(s) on the bound canvas (value {value:?}) and {} on the unbound one; the second press, with no keyboard left, {} more; without the keyboard {} ({} ms)",
+            count(&got, "CV-1"),
+            count(&got, "CV-2"),
+            count(&got, "CV-1").saturating_sub(1),
+            count(&without, "CV-1"),
+            started.elapsed().as_millis()
+        );
+        assert_eq!(count(&got, "CV-1"), 1, "once: Escape gives the keyboard back, so the second press has no canvas to reach");
+        assert_eq!(value.as_deref(), Some("Escape"));
+        assert_eq!(count(&got, "CV-2"), 0, "only a bound handler is run");
+        assert_eq!(count(&without, "CV-1"), 0, "no keyboard, no event");
+    }
+
+    /// `CenterPointer()`, the window's side: a new request number puts the mouse pointer in the middle of the canvas, once; the
+    /// program reads the middle at once and not the position the window still reports from before the move (which would turn
+    /// the move into a drag); a window that does not have the keyboard is left alone, and the request is not kept for later.
+    #[test]
+    fn a_canvas_serves_a_center_pointer_request_once_and_reports_the_middle() {
+        let canvas = ctrlp("CV-1", ControlType::Canvas3D, 20, 40, 200, 100, &[]);
+        let controls = [canvas];
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let frame = |time: f64, focused: bool, events: Vec<Event>| -> (Vec<Pos2>, Vec<(String, String)>) {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            input.focused = focused;
+            input.time = Some(time);
+            input.events = events;
+            let updates = RefCell::new(Vec::<(String, String, String)>::new());
+            let st = MapState(&overrides);
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(400.0, 300.0));
+                    let active = ActiveTabs::default();
+                    let inp = RenderInput { css_final: None, controls: &controls, state: &st, form_size: Vec2::new(400.0, 300.0), glass: true, mode: RenderMode::Interactive, active_tabs: &active, backdrop: Backdrop::default() };
+                    updates.borrow_mut().extend(render_form(ui, &inp).prop_updates);
+                });
+            });
+            full.textures_delta.clear();
+            let moves: Vec<Pos2> = full
+                .viewport_output
+                .values()
+                .flat_map(|v| v.commands.iter())
+                .filter_map(|c| match c {
+                    egui::ViewportCommand::CursorPosition(p) => Some(*p),
+                    _ => None,
+                })
+                .collect();
+            let pointer: Vec<(String, String)> = updates.borrow().iter().filter(|(_, k, _)| k.starts_with("Pointer")).map(|(_, k, v)| (k.clone(), v.clone())).collect();
+            for (id, k, v) in updates.into_inner() {
+                overrides.borrow_mut().entry(id).or_default().insert(k, v);
+            }
+            (moves, pointer)
+        };
+        let ask = |n: u32| {
+            overrides.borrow_mut().entry("CV-1".into()).or_default().insert("_PointerRequest".into(), n.to_string());
+        };
+        let started = std::time::Instant::now();
+        let at = pos2(50.0, 60.0);
+        let middle = pos2(120.0, 90.0);
+        let px = |x: &str, y: &str| vec![("PointerX".to_string(), x.to_string()), ("PointerY".to_string(), y.to_string())];
+
+        // The pointer rests at (50,60), which is (30,20) on the canvas (egui sees it over the canvas one frame later); nothing is asked.
+        let (m0, _) = frame(0.00, true, vec![Event::PointerMoved(at)]);
+        let (m1, p0) = frame(0.05, true, vec![]);
+        let (_, p1) = frame(0.07, true, vec![]);
+        // Request 1: the window moves the pointer to the middle and the program reads the middle (100,50), not the old position.
+        ask(1);
+        let (m2, p2) = frame(0.10, true, vec![]);
+        // The window still reports (50,60): not passed on.
+        let (m3, p3) = frame(0.15, true, vec![]);
+        // The pointer is reported in the middle, then moves by one pixel: that is what the program reads.
+        let (_, p4) = frame(0.20, true, vec![Event::PointerMoved(pos2(121.0, 91.0))]);
+        // The same request again: nothing. A new one: served again.
+        let (m5, _) = frame(0.25, true, vec![]);
+        ask(2);
+        let (m6, _) = frame(0.30, true, vec![]);
+        // A window that does not have the keyboard is not served, and the request is not kept for when it has.
+        ask(3);
+        let (m7, _) = frame(0.35, false, vec![]);
+        let (m8, _) = frame(0.40, true, vec![]);
+        println!(
+            "CenterPointer, window side: rest -> {} moves, reads {p0:?}; request 1 -> moves {m2:?}, reads {p2:?}; stale report -> {} moves, {} readings; moved 1 px -> reads {p4:?}; same request -> {} moves; request 2 -> {} move; unfocused request 3 -> {} moves, then focused -> {} moves ({} ms)",
+            m0.len() + m1.len(),
+            m3.len(),
+            p3.len(),
+            m5.len(),
+            m6.len(),
+            m7.len(),
+            m8.len(),
+            started.elapsed().as_millis()
+        );
+        assert_eq!((m0.len(), m1.len()), (0, 0), "no request, no move");
+        assert_eq!(p0, px("30", "20"));
+        assert!(p1.is_empty(), "the pointer did not change: {p1:?}");
+        assert_eq!(m2, [middle], "the middle of the canvas");
+        assert_eq!(p2, px("100", "50"), "the program reads the middle at once");
+        assert!(m3.is_empty() && p3.is_empty(), "the old position is not passed on: {m3:?} {p3:?}");
+        assert_eq!(p4, px("101", "51"));
+        assert!(m5.is_empty(), "a request is served once");
+        assert_eq!(m6, [middle], "a new request is served");
+        assert!(m7.is_empty() && m8.is_empty(), "no keyboard, no move, and nothing kept: {m7:?} {m8:?}");
+    }
+
     /// WASM-018 T19 (R14): `onFrame` follows `TargetFps` with the elapsed time written to `ElapsedMs`; a fixed
     /// step gives exactly `1000 / TargetFps`; no `TargetFps`, no frames.
     #[test]
@@ -25788,6 +25924,9 @@ mod tests {
             Some(egui::CursorIcon::ResizeHorizontal)
         );
         assert_eq!(cursor_icon_for("Help"), Some(egui::CursorIcon::Help));
+        // `None` hides the pointer; `Hidden` is the same.
+        assert_eq!(cursor_icon_for("None"), Some(egui::CursorIcon::None));
+        assert_eq!(cursor_icon_for("hidden"), Some(egui::CursorIcon::None));
     }
 
     /// A TabControl is a keyboard stop: Tab reaches it, and while it has the

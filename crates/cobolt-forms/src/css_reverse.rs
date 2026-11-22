@@ -264,6 +264,7 @@ fn cursor_name(v: &str) -> Option<&'static str> {
         "ns-resize" => "SizeNS",
         "ew-resize" => "SizeWE",
         "help" => "Help",
+        "none" => "None",
         _ => return None,
     })
 }
@@ -628,6 +629,7 @@ pub fn write(property: &str, value: &Value, notation: Notation, ctx: &Ctx) -> Op
             "SizeNS" => "ns-resize",
             "SizeWE" => "ew-resize",
             "Help" => "help",
+            "None" | "Hidden" => "none",
             _ => "default",
         }
         .to_owned(),
@@ -783,7 +785,7 @@ mod tests {
                 n += 1;
             }
         }
-        for cur in ["Default", "Hand", "Text", "Wait", "Crosshair", "No", "SizeAll", "SizeNS", "SizeWE", "Help"] {
+        for cur in ["Default", "Hand", "Text", "Wait", "Crosshair", "No", "SizeAll", "SizeNS", "SizeWE", "Help", "None"] {
             assert_eq!(known("cursor", &write("Cursor", &Value::Text(cur.into()), Notation::Px, &c).unwrap(), ControlType::Panel), vec![("Cursor", Value::Text(cur.into()))]);
             n += 1;
         }

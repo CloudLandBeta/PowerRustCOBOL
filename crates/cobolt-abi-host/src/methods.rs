@@ -780,9 +780,11 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
     Ok(out)
 }
 
-/// The methods a canvas answers from the input state the page keeps (`IsKeyDown`, `GamepadAxis`, `GamepadButton`).
+/// The methods a canvas answers from the input state the page keeps (`IsKeyDown`, `GamepadAxis`, `GamepadButton`), and
+/// `CenterPointer`, which a page cannot honour (it may not move the visitor's pointer) and answers by doing nothing, so a
+/// program written for the desktop runs unchanged.
 fn is_polled_input(m: &str) -> bool {
-    matches!(m, "ISKEYDOWN" | "GAMEPADAXIS" | "GAMEPADBUTTON")
+    matches!(m, "ISKEYDOWN" | "GAMEPADAXIS" | "GAMEPADBUTTON" | "CENTERPOINTER")
 }
 
 /// The answer of a polled-input method of a canvas, or `None` when `m` is not one or the control is not a canvas. The text a
@@ -799,6 +801,7 @@ fn polled_input(tree: &FormTree, ctl: usize, m: &str, args: &[&str]) -> Option<S
             let held = tree.get(ctl, "_Keys");
             u8::from(!name.is_empty() && held.split(',').any(|k| k.trim().eq_ignore_ascii_case(name))).to_string()
         }
+        "CENTERPOINTER" => String::new(),
         "GAMEPADAXIS" => format!("{:.3}", cobolt_forms::gamepad::axis_of(&cobolt_forms::gamepad::snapshot(&cobolt_forms::gamepad::current()), number(1), number(0))),
         _ => cobolt_forms::gamepad::button_of(&cobolt_forms::gamepad::snapshot(&cobolt_forms::gamepad::current()), number(1), number(0)).to_string(),
     })
@@ -947,6 +950,29 @@ mod tests {
         call(&mut t, g, "SetRowHeight", &["28"]).unwrap();
         assert_eq!((t.get(g, "RowHeight"), t.get(g, "_RuntimeRowHeight")), ("28".into(), "28".into()));
         assert!(!t.take_changes().iter().any(|c| matches!(c, crate::tree::Change::Command { .. })), "no command left for the page to ignore");
+    }
+
+    /// A page may not move the visitor's pointer: `CenterPointer` is accepted on a Canvas2D and on a Canvas3D and does nothing
+    /// (no answer, no property written, nothing for the page to run), so a program written for the desktop runs unchanged; it
+    /// is not a read-back that needs the graphics part, and it is not refused as an unknown method.
+    #[test]
+    fn center_pointer_is_accepted_and_does_nothing_in_the_browser() {
+        let started = std::time::Instant::now();
+        let mut report = Vec::new();
+        for kind in ["Canvas2D", "Canvas3D"] {
+            let (mut t, c) = crate::tree::testing::tree_with(kind, "CNV-1", &[("Width", "200"), ("Height", "100")]);
+            let before = (t.get(c, "PointerX"), t.get(c, "PointerY"), t.get(c, "_PointerRequest"));
+            let answer = call(&mut t, c, "CenterPointer", &[]).expect("accepted").value;
+            let sync = is_gfx_sync_call(&t.ctls[c], "CenterPointer");
+            let after = (t.get(c, "PointerX"), t.get(c, "PointerY"), t.get(c, "_PointerRequest"));
+            let commands = t.take_changes().iter().filter(|ch| matches!(ch, crate::tree::Change::Command { .. })).count();
+            report.push(format!("{kind}: answer {answer:?}, asks the graphics part {sync}, {commands} commands"));
+            assert_eq!(answer.unwrap_or_default(), "", "{kind}: no answer");
+            assert!(!sync, "{kind}: the page answers it itself");
+            assert_eq!(before, after, "{kind}: nothing written");
+            assert_eq!(commands, 0, "{kind}: nothing for the page to run");
+        }
+        println!("CenterPointer in the browser: {} ({} us)", report.join("; "), started.elapsed().as_micros());
     }
 
     #[test]

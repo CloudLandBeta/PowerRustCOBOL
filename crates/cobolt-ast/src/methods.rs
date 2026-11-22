@@ -312,6 +312,8 @@ pub fn is_known_method(name: &str) -> bool {
             | "TRANSFORM" | "TRANSLATE" | "UNBIND" | "UPDATE"
             // Canvas input state a host answers (WASM-018 T19, T28): the held keys and the gamepad.
             | "ISKEYDOWN" | "GAMEPADAXIS" | "GAMEPADBUTTON"
+            // A canvas asks the window to put the mouse pointer in its middle.
+            | "CENTERPOINTER"
         // Hyperlink (WASM-006 R12): `Open` is listed above; `OpenIn(target)` takes `Self`,
         // `NewTab`, `NewWindow`, `Parent` or `Top`.
             | "SETURL" | "GETURL" | "OPENIN"

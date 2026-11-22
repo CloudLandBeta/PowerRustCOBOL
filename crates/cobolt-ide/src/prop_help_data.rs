@@ -514,12 +514,12 @@ pub static PROP_HELP: &[PropHelp] = &[
         "Rayon des coins arrondis du contrôle, en pixels ; 0 donne des coins droits. Le fond, la bordure et l'ombre le suivent. Par défaut : Button 3, graphiques 8, ProgressBar et ToolBar 10, la plupart des autres 0.",
     ] },
     PropHelp { ty: "", prop: "Cursor", text: [
-        "Mouse pointer shown while hovering the control in the running form: Default, Hand, Text, Wait, Crosshair, No, SizeAll, SizeNS or SizeWE. Default leaves the control's own pointer; ignored while the control is disabled.",
-        "Puntero del ratón que se muestra al pasar sobre el control en el formulario en ejecución: Default, Hand, Text, Wait, Crosshair, No, SizeAll, SizeNS o SizeWE. Default deja el puntero propio del control; se ignora si el control está deshabilitado.",
-        "Ponteiro do mouse exibido ao passar sobre o controle no formulário em execução: Default, Hand, Text, Wait, Crosshair, No, SizeAll, SizeNS ou SizeWE. Default mantém o ponteiro próprio do controle; ignorado com o controle desabilitado.",
-        "実行中のフォームでコントロール上にマウスを置いたときのポインターです：Default、Hand、Text、Wait、Crosshair、No、SizeAll、SizeNS、SizeWE。Default はコントロール本来のポインターのまま。無効なコントロールでは適用されません。",
-        "在运行中的窗体里鼠标悬停于控件时显示的指针：Default、Hand、Text、Wait、Crosshair、No、SizeAll、SizeNS 或 SizeWE。Default 保留控件自身的指针；控件禁用时不生效。",
-        "Pointeur de souris affiché au survol du contrôle dans le formulaire en exécution : Default, Hand, Text, Wait, Crosshair, No, SizeAll, SizeNS ou SizeWE. Default garde le pointeur propre au contrôle ; ignoré si le contrôle est désactivé.",
+        "Mouse pointer shown while hovering the control in the running form: Default, Hand, Text, Wait, Crosshair, No, SizeAll, SizeNS, SizeWE or None (hides the pointer while it is over the control). Default leaves the control's own pointer; ignored while the control is disabled.",
+        "Puntero del ratón que se muestra al pasar sobre el control en el formulario en ejecución: Default, Hand, Text, Wait, Crosshair, No, SizeAll, SizeNS, SizeWE o None (oculta el puntero mientras está sobre el control). Default deja el puntero propio del control; se ignora si el control está deshabilitado.",
+        "Ponteiro do mouse exibido ao passar sobre o controle no formulário em execução: Default, Hand, Text, Wait, Crosshair, No, SizeAll, SizeNS, SizeWE ou None (oculta o ponteiro enquanto está sobre o controle). Default mantém o ponteiro próprio do controle; ignorado com o controle desabilitado.",
+        "実行中のフォームでコントロール上にマウスを置いたときのポインターです：Default、Hand、Text、Wait、Crosshair、No、SizeAll、SizeNS、SizeWE、None（コントロール上ではポインターを隠す）。Default はコントロール本来のポインターのまま。無効なコントロールでは適用されません。",
+        "在运行中的窗体里鼠标悬停于控件时显示的指针：Default、Hand、Text、Wait、Crosshair、No、SizeAll、SizeNS、SizeWE 或 None（指针位于控件上方时隐藏）。Default 保留控件自身的指针；控件禁用时不生效。",
+        "Pointeur de souris affiché au survol du contrôle dans le formulaire en exécution : Default, Hand, Text, Wait, Crosshair, No, SizeAll, SizeNS, SizeWE ou None (masque le pointeur tant qu'il est sur le contrôle). Default garde le pointeur propre au contrôle ; ignoré si le contrôle est désactivé.",
     ] },
     PropHelp { ty: "", prop: "DataFormat", text: [
         "Legacy per-control binding format, kept only so older forms load unchanged. The running form does not read it; set up bindings with the Data Binding panel instead.",

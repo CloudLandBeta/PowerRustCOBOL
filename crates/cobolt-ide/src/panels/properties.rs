@@ -6574,6 +6574,7 @@ impl PropertiesPanel {
                 "SizeNS",
                 "SizeWE",
                 "Help",
+                "None",
             ],
             "Default",
         );

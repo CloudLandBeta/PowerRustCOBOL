@@ -197,6 +197,7 @@ pub fn cursor(name: &str) -> &'static str {
         "sizeall" | "move" => "move",
         "sizens" => "ns-resize",
         "sizewe" => "ew-resize",
+        "none" | "hidden" => "none",
         _ => "default",
     }
 }
@@ -995,6 +996,8 @@ mod tests {
         assert_eq!(v_align("Middle"), "center");
         assert_eq!(cursor("SizeWE"), "ew-resize");
         assert_eq!(cursor("whatever"), "default");
+        // `None` (or `Hidden`) hides the pointer over the element.
+        assert_eq!((cursor("None"), cursor("hidden")), ("none", "none"));
         assert_eq!(direction_vector("West"), (-1.0, 0.0));
     }
 

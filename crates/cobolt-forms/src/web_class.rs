@@ -169,7 +169,7 @@ pub const FIDELITY: &[PropertyFidelity] = {
         f("Underline", Exact, ""),
         f("Strikethrough", Exact, ""),
         f("Tooltip", Exact, ""),
-        f("Cursor", Exact, "Default|Hand|Text|Wait|Crosshair|No|SizeAll|SizeNS|SizeWE"),
+        f("Cursor", Exact, "Default|Hand|Text|Wait|Crosshair|No|SizeAll|SizeNS|SizeWE|None"),
         f("Padding", Exact, ""),
         f("PaddingLeft", Exact, ""),
         f("PaddingTop", Exact, ""),

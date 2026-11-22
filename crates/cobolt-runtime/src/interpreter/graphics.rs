@@ -19,6 +19,8 @@ use std::collections::HashMap;
 
 use cobolt_graphics::{Limits, ObjectKind, Registry, Value};
 
+use cobolt_forms::canvas_input::POINTER_REQUEST_PROP;
+
 use super::Interpreter;
 use crate::value::CobolValue;
 
@@ -279,6 +281,13 @@ impl Interpreter {
             let name = args.first().map(|a| a.as_display_string()).unwrap_or_default();
             let held = self.obj_get(obj, "_Keys");
             return Some(if held.split(',').any(|k| !name.trim().is_empty() && k.trim().eq_ignore_ascii_case(name.trim())) { "1" } else { "0" }.to_string());
+        }
+        if matches!(kind, ObjectKind::Canvas2D | ObjectKind::Canvas3D) && m.eq_ignore_ascii_case("CenterPointer") {
+            // Move the mouse pointer to the middle of the canvas. Only a window can: the canvas asks it with a request counter the
+            // window compares with the last one it served (`canvas_input`); a host with no pointer to move does nothing.
+            let asked = self.obj_get(obj, POINTER_REQUEST_PROP).trim().parse::<u64>().unwrap_or(0);
+            self.obj_set(obj, POINTER_REQUEST_PROP, (asked + 1).to_string());
+            return Some(String::new());
         }
         let told = if kind == ObjectKind::Canvas3D { self.graphics_sync_gpu() } else { Vec::new() };
         let texts: Vec<(String, bool)> = args.iter().map(|a| (a.as_display_string(), a.is_numeric())).collect();
@@ -1002,6 +1011,32 @@ mod tests {
         assert_eq!(moved.len(), 1, "one picture drawn again on the window's device");
         assert!(on_window, "the new picture is on the window's device");
         assert!(err.is_empty(), "nothing was replaced: {err}");
+    }
+
+    /// `CenterPointer()` on a Canvas2D and on a Canvas3D asks the window for the pointer in the middle: each call raises the
+    /// canvas's request counter by one (the window serves each number once) and tells the host, answers nothing, and draws and
+    /// publishes nothing, so no `LastError` is left behind.
+    #[test]
+    fn center_pointer_raises_the_request_the_window_serves() {
+        let started = Instant::now();
+        let mut i = interp(&[("CANVAS-1", "Canvas2D", &[("Width", "160"), ("Height", "120")][..]), ("VIEW-1", "Canvas3D", &[("Width", "160"), ("Height", "120")][..])]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        i.state_tx = Some(tx);
+        let mut seen = Vec::new();
+        for obj in ["CANVAS-1", "VIEW-1"] {
+            let answers: Vec<String> = (0..3).map(|_| call(&mut i, obj, "CenterPointer", &[])).collect();
+            let counter = i.obj_get(obj, POINTER_REQUEST_PROP);
+            let told: Vec<String> = rx.try_iter().filter(|u| u.ctrl_id == obj && u.prop == POINTER_REQUEST_PROP).map(|u| u.value).collect();
+            seen.push((obj, answers, counter, told, i.obj_get(obj, "LastError")));
+        }
+        i.release_graphics();
+        println!("CenterPointer: {} canvases x 3 calls in {} ms; (canvas, answers, counter, told host, LastError) = {seen:?}", seen.len(), started.elapsed().as_millis());
+        for (obj, answers, counter, told, err) in &seen {
+            assert!(answers.iter().all(|a| a.is_empty()), "{obj}: a method with no answer");
+            assert_eq!(counter, "3", "{obj}");
+            assert_eq!(told, &["1", "2", "3"], "{obj}: the host hears every request, in order");
+            assert!(err.is_empty(), "{obj}: {err}");
+        }
     }
 
     /// The device slot is one per process: tests that publish a device take turns.

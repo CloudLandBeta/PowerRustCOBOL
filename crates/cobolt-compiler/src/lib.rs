@@ -8659,8 +8659,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Tooltip" => ("free text","Text shown in a small pop-up while the pointer rests on the control in the running form, after its HoverDelayMs (empty = no tooltip). Every visual control shows it."),
         "AccessibleLabel" => ("free text, or empty", "The name a screen reader announces for the control, on the desktop (its accessibility node) and in a browser (`aria-label`). Empty: the control's own caption (a Button, CheckBox, RadioButton, Hyperlink, Label or GroupBox), else the Label just before it in tab order (in a browser, `aria-labelledby` to that Label), else its `Tooltip`. A control the keyboard reaches with none of these is named by a Web or Mobile Check as a warning, form and control."),
         "Cursor" => (
-            "one of: `Default` | `Hand` | `Text` | `Wait` | `Crosshair` | `No` | `SizeAll` | `SizeNS` | `SizeWE`",
-            "Mouse cursor shown while hovering the control.",
+            "one of: `Default` | `Hand` | `Text` | `Wait` | `Crosshair` | `No` | `SizeAll` | `SizeNS` | `SizeWE` | `Help` | `None`",
+            "Mouse cursor shown while hovering the control. `None` hides the pointer while it is over the control (a game that looks with the mouse); on a canvas, `CenterPointer()` moves it to the middle.",
         ),
         "HoverDelayMs" => ("milliseconds ≥ 0", "How long the pointer must rest before `onHoverEnter` fires."),
         "Anchor" => ("comma-separated edges from `Top` | `Bottom` | `Left` | `Right` (default `Top,Left`; MenuBar `Top,Left,Right`, StatusBar `Bottom,Left,Right`)", "Responsive design: the parent edges the control follows. One edge on an axis keeps that distance, both stretch the control with its parent, neither keeps its centre at the same proportion. Ignored while the form is not responsive, and ignored by a docked control or an item of a Flex/Grid/Flow container."),
@@ -10026,6 +10026,8 @@ fn graphics_method_lines(control: &str) -> Vec<String> {
         lines.push("`IsKeyDown(key: String)` → Number — 1 while that key is held down, else 0; read at any time, whatever handlers are bound.".to_string());
         lines.push("`GamepadAxis(axis: Number, [pad: Number])` → Number — the value of an axis of a gamepad, -1 to 1 (pad 0 when none is named); 0 when there is no such pad or axis. Read at any time, whatever handlers are bound; the axes and buttons are those of the browser's \"standard\" mapping.".to_string());
         lines.push("`GamepadButton(button: Number, [pad: Number])` → Number — 1 while that button of the gamepad is pressed, else 0; read at any time. `onGamepadButton` (argument `pad button 1|0`) and `onGamepadAxis` (argument `pad axis value`) are raised when a handler is bound.".to_string());
+        lines.push("`onEscapePressed` (argument `Escape`) is raised, when a handler is bound, when Escape is pressed while the canvas has the keyboard: Escape gives the keyboard back to the window (a canvas keeps Tab and the arrows), so on the desktop it is not a key `IsKeyDown` or `onKeyDown` report; call `SetFocus()` in the handler to keep the keyboard. A browser page does not raise it on a canvas yet: there the key reaches `IsKeyDown(\"Escape\")` and `onKeyDown`.".to_string());
+        lines.push("`CenterPointer()` — moves the mouse pointer to the middle of the canvas, for a game that looks with the mouse (with `Cursor` = `None` to hide the pointer). `PointerX` and `PointerY` read the middle at once. A window does it only while it has the keyboard; a browser page may not move the visitor's pointer, so there the call does nothing.".to_string());
     }
     lines
 }
@@ -10048,7 +10050,7 @@ A web developer finds the same drawing model with these differences:\n\n\
 | `ctx.fillRect(x, y, w, h)` | `CNV-1::FillRect(x y w h)` — the same names, called as inline methods |\n\
 | `requestAnimationFrame` | set `TargetFps` and bind `onFrame`; `FixedStep` gives an exact step |\n\
 | drawing shows at once | with `AutoPresent` the drawing shows at the end of the handler; otherwise call `Present` |\n\
-| events on the element | `onPointerDown`, `onPointerMove`, `onPointerUp`, `onWheel`, `onKeyDown`, `onKeyUp`, `onGamepadButton`, `onGamepadAxis`, raised only when a handler is bound; `PointerX`, `PointerY`, `IsKeyDown(key)`, `GamepadAxis(axis)` and `GamepadButton(button)` can be read at any time |\n\
+| events on the element | `onPointerDown`, `onPointerMove`, `onPointerUp`, `onWheel`, `onKeyDown`, `onKeyUp`, `onEscapePressed`, `onGamepadButton`, `onGamepadAxis`, raised only when a handler is bound; `PointerX`, `PointerY`, `IsKeyDown(key)`, `GamepadAxis(axis)` and `GamepadButton(button)` can be read at any time |\n\
 | CSS pixels and `devicePixelRatio` | `PixelRatio` scales the surface; `Width` and `Height` stay in form pixels |\n\
 | an exception on a wrong call | the call sets `LastError` and the drawing goes on |\n\
 | `getContext(\"webgl2\")` | a separate control, Canvas3D, showing a Scene3D |\n\n\
@@ -15964,6 +15966,7 @@ generated = ["generated/inner-form1.cbl"]
             assert!(names.contains(needed), "the HTML-canvas table names {needed}, which Canvas2D does not have");
         }
         assert!(canvas.contains("`IsKeyDown(key: String)`"));
+        assert!(canvas.contains("`CenterPointer()`"));
         println!("System KB graphics: 7 types, {total} methods documented, 0 missing");
     }
 
