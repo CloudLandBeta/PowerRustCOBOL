@@ -549,14 +549,13 @@ Node 2</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="AccessibleLabel"></Property>
-    <Event name="onClick" paragraph="BTN-TRAP--ONCLICK"><![CDATA[       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-TABLE.
-           05 WS-CELL PIC 9 OCCURS 3 TIMES.
-       01 WS-I PIC 9(4) VALUE 9.
-       PROCEDURE DIVISION.
+    <Event name="onClick" paragraph="BTN-TRAP--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
            MOVE "trapping" TO LBL-OUT::Caption
-           MOVE 1 TO WS-CELL (WS-I).
+           PERFORM DEEP
+           MOVE "not reached" TO LBL-OUT::Caption
+           GOBACK.
+       DEEP.
+           PERFORM DEEP.
 ]]></Event>
   </Control>
   <Control id="BTN-ERR" type="Button" x="10" y="350" w="80" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -598,13 +597,10 @@ Node 2</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="AccessibleLabel"></Property>
-    <Event name="onClick" paragraph="BTN-ERR--ONCLICK"><![CDATA[       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-TABLE.
-           05 WS-CELL PIC 9 OCCURS 3 TIMES.
-       01 WS-I PIC 9(4) VALUE 9.
-       PROCEDURE DIVISION.
-           MOVE 1 TO WS-CELL (WS-I).
+    <Event name="onClick" paragraph="BTN-ERR--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           PERFORM DEEP.
+       DEEP.
+           PERFORM DEEP.
 ]]></Event>
   </Control>
 </Form>

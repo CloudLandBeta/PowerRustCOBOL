@@ -299,10 +299,10 @@ fn run_cell(chrome: &Chrome, url: &str, cell: Cell) -> Result<String, String> {
 
     // a trap and a COBOL error are reported and the application goes on
     click(&mut p, "BTN-TRAP")?;
-    p.wait_for("__m.errors().some((e) => e.code === 1100 || e.code === -10)", 20).map_err(|e| format!("the trap was not reported: {e}; {}", p.eval("JSON.stringify(__m.errors())").unwrap_or(Value::Null)))?;
+    p.wait_for("__m.errors().some((e) => e.code === 1106 || e.code === -10)", 20).map_err(|e| format!("the trap was not reported: {e}; {}", p.eval("JSON.stringify(__m.errors())").unwrap_or(Value::Null)))?;
     press(&mut p, "BTN-GO", GREETING).map_err(|e| format!("the application does not answer after a trap: {e}"))?;
     click(&mut p, "BTN-ERR")?;
-    p.wait_for("__m.errors().some((e) => e.code === 1100)", 20).map_err(|e| format!("the COBOL error was not reported with its number: {e}"))?;
+    p.wait_for("__m.errors().some((e) => e.code === 1106)", 20).map_err(|e| format!("the COBOL error was not reported with its number: {e}"))?;
 
     // 100 forms opened and closed; the instance limit; fixed memory
     let disposal = p.eval(DISPOSAL)?;

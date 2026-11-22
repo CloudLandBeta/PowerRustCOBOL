@@ -149,6 +149,10 @@ mod tests {
                 dispatched.push(name.trim_start_matches("COBOL-").to_string());
             }
         }
+        // The model-list built-ins are not match arms of `interpreter.rs`: the interpreter and the
+        // desktop runner share one door for them (`model_door`, DESKTOP-WASM-001 T47/T48), whose table
+        // is the dispatch.
+        dispatched.extend(crate::model_door::VERBS.iter().map(|(v, _, _)| v.to_string()));
         dispatched.sort();
         dispatched.dedup();
         let listed: Vec<String> = BUILTINS.iter().map(|b| b.name.to_string()).collect();

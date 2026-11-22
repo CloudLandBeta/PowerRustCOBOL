@@ -17,6 +17,8 @@ use cobolt_forms::web_class::{Class, TABLE};
 use cobolt_wire::controls::{rows, of_control};
 
 const INTERPRETER: &str = include_str!("../src/interpreter.rs");
+/// The Viewer's properties and methods live in the door the interpreter and the desktop runner share (DESKTOP-WASM-001 T50).
+const VIEWER_DOOR: &str = include_str!("../src/viewer_door.rs");
 const KB: &str = include_str!("../src/interpreter/kb.rs");
 const AWS_ROUTES: &str = include_str!("../src/aws/routes.toml");
 const CODEGEN: &str = include_str!("../../cobolt-codegen/src/lib.rs");
@@ -60,7 +62,7 @@ fn every_row_names_an_operation_the_runtime_has() {
         } else if op.control == "Viewer" && op.operation == "OPEN" {
             // The upload slot of a document the user opens: on the desktop, the
             // Viewer's `Source`, which the property layer resolves onto `View1Source`.
-            op.method == "Source" && INTERPRETER.contains("prop.eq_ignore_ascii_case(\"Source\")")
+            op.method == "Source" && (INTERPRETER.contains("prop.eq_ignore_ascii_case(\"Source\")") || VIEWER_DOOR.contains("prop.eq_ignore_ascii_case(\"Source\")"))
         } else if op.control == "IndexedFile" {
             // The facade paragraph `<id>-<OP>.` codegen writes.
             CODEGEN.contains(&format!("{{id}}-{}.\\n", op.operation))

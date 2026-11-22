@@ -2322,7 +2322,8 @@ mod tests {
     }
 
     /// A form with a label, a greeting button and a button whose handler
-    /// subscripts past its table (a COBOL run-time error, with its unit and line).
+    /// performs a paragraph that performs itself, 513 levels deep (a COBOL run-time error, with its unit and line;
+    /// a subscript past its table no longer stops a module, WASM-PARITY #69).
     fn hello_form(caption: &str) -> String {
         let event = |control: &str, data: &str, body: &str| {
             format!(
@@ -2330,11 +2331,7 @@ mod tests {
             )
         };
         let greet = event("BTN-GREET", "", "           MOVE \"Hello\" TO LBL-OUT::Caption.\n");
-        let fail = event(
-            "BTN-ERR",
-            "       WORKING-STORAGE SECTION.\n       01 WS-T.\n          05 WS-E PIC X OCCURS 3.\n       01 WS-I PIC 9 VALUE 7.\n",
-            "           MOVE \"X\" TO WS-E(WS-I).\n",
-        );
+        let fail = event("BTN-ERR", "", "           PERFORM DEEP.\n       DEEP.\n           PERFORM DEEP.\n");
         format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <Form name="main-form" title="Hello" width="900" height="600" index-base="1" main-form="true">

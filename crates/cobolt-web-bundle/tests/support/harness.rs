@@ -222,8 +222,10 @@ const GENERATED = generatedDir && {
   spins: 10000000,
   instances: 4,
   // a COBOL run-time error ends the run with the ERROR command first (code 1000 + the routine's number)
-  trapCheck: (errs) => errs.some((e) => e.code === 1100 || e.code === -10),
-  errCheck: (errs) => errs.some((e) => e.code === 1100),
+  // (the handlers' error is the PERFORM that would be the 513th level, routine 106: a subscript past its table no
+  // longer stops a module, WASM-PARITY #69, 2.0.572)
+  trapCheck: (errs) => errs.some((e) => e.code === 1106 || e.code === -10),
+  errCheck: (errs) => errs.some((e) => e.code === 1106),
 };
 
 async function core(program, mode, src = FIXTURE, player = 'plain') {

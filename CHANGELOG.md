@@ -2,6 +2,16 @@
 
 
 
+## 2.0.641 — 2026-11-21
+
+**Fix: six tests that the WebAssembly work had left stale check what the code does now.** The whole-workspace sweep of DESKTOP-WASM-001 T54 (39 crates, 8 925 tests passed, 12 failed) found them; each one tested a construct or a place that an earlier change had moved, not a defect of the product.
+
+- **`cobolt-runtime` `the_table_is_every_builtin_the_interpreter_dispatches`:** the model-list built-ins (`MODEL-SET` to `PROVIDER-GET`, 12 names) are dispatched through the door the interpreter and the desktop runner share (`model_door`, T47 and T48), not through match arms of `interpreter.rs`, which is all the test read; it now counts the door's table.
+- **`cobolt-runtime` `every_row_names_an_operation_the_runtime_has`:** the Viewer's `Source` is handled in `viewer_door.rs` since T50; the test now looks there too.
+- **`cobolt-web-bundle` `e2e_node` (28 of 28 again), `matrix_chrome` (8 of 8 cells, 56 s) and the IDE's Web Preview acceptance test (`acceptance_on_the_real_build_in_the_headless_helper_008`):** their handlers made a run-time error with a subscript past a table, which stopped a module until 2.0.572 made it read blank and write nowhere, as the interpreter does (WASM-PARITY #69). The scenario project's `BTN-TRAP` and `BTN-ERR` and the IDE test's `BTN-ERR` now perform a paragraph that performs itself, which ends the run with error 1106 as the generator's own test does; the expected code is 1106 (it was 1100). The IDE test shows the page's error: "Run-time error 1106 in form main-form, BTN-ERR onClick".
+- **`cobolt-web-bundle` `every_part_of_the_bundle_against_the_recorded_size`:** the ledger (`tests/size-ledger.json`) is recorded again (`PRC_RECORD_SIZES=1`): the plain player grew 7.6 % (3 997 932 to 4 301 538 bytes) and the scenario's module about 10 % (157 330 to 173 411 bytes) since it was last recorded, while the runtime and the generator took on the national and UTF-8 data, `TRY`, the descriptor area and the rest of M2 to M5. The growth was not bisected to a commit.
+- **Not touched, and not this work's:** `docs_embed::every_document_ships_in_every_language` (the guide's translations are deleted, rule #8), `the_example_holds_no_secret_and_checks_and_builds` (the operator's untracked example files), `http_transport_answers_every_row_of_the_table` and `tools_over_serve_list_check_refuse_paths_and_answer_no_project` (still expect 17 MCP tools; commit `b5369e76`, 2026-11-19, made the list longer) and the `cobolt-server` guard `the_ide_runs_the_backend_as_a_child_and_links_none_of_the_server` (the IDE's closure holds `tungstenite` through `cobolt-project-tools`, which a ruling of the operator's should settle). `a_port_in_use_is_seen` failed once while other tests held ports and passes alone.
+
 ## 2.0.640 — 2026-11-21
 
 **Feature: the M6 close of the desktop WebAssembly path (DESKTOP-WASM-001 T51, T52, T53): every reference project builds on the WebAssembly path with no Rust toolchain, and the Developer's Guide and the System KB describe the finished Build.** The five reference projects (PowerCallOfDuty, PowerCloud, PowerCobolCraft, PowerGraphics, PowerSpatial) and the fixture holding one of every control make a WebAssembly program, draw the same picture as the Cargo-built one in every pixel, and build in under a second; nothing reaches the `DesktopControl` fallback.
