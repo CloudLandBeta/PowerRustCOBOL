@@ -36,6 +36,9 @@ use wasm_encoder::Instruction as I;
 pub(crate) const RETURN_CODE: &str = "RETURN-CODE";
 const RC_OTHER_USE: &str = "RETURN-CODE is used here other than as a number: a desktop module compiles it in MOVE, ADD, SUBTRACT, MULTIPLY, COMPUTE, DISPLAY and comparisons with a number, so this program takes the Cargo path";
 const RC_NOT_WHOLE: &str = "RETURN-CODE receives a value that may carry a fraction or characters: a desktop module holds it as a whole number, so this program takes the Cargo path";
+const RC_OTHER_USE_BROWSER: &str = "RETURN-CODE is used here other than as a number: a browser module compiles it in MOVE, ADD, SUBTRACT, MULTIPLY, COMPUTE, DISPLAY and comparisons with a number";
+const RC_NOT_WHOLE_BROWSER: &str = "RETURN-CODE receives a value that may carry a fraction or characters: a browser module holds it as a whole number";
+const RC_SIZE_ERROR_BROWSER: &str = "RETURN-CODE has no size to exceed, so ON SIZE ERROR on it is not compiled in a browser module";
 const RC_SIZE_ERROR: &str = "RETURN-CODE has no size to exceed, so ON SIZE ERROR on it is not compiled in a desktop module, and this program takes the Cargo path";
 /// The page line of a `LINAGE` file, which a desktop module holds as RETURN-CODE is held: a whole
 /// number the program reads (DESKTOP-WASM-001 T39b).
@@ -1695,9 +1698,9 @@ impl<'a, 'b> Lower<'a, 'b> {
         };
         match self.layout.lookup(&name, &quals) {
             Ok(i) => Ok(i),
-            Err(_) if self.native && quals.is_empty() && name.eq_ignore_ascii_case(RETURN_CODE) => {
+            Err(_) if self.rc_register() && quals.is_empty() && name.eq_ignore_ascii_case(RETURN_CODE) => {
                 if !self.rc_ok {
-                    return self.err(line, RC_OTHER_USE);
+                    return self.err(line, self.rc_other_use());
                 }
                 Ok(self.return_code_item())
             }
@@ -1964,6 +1967,12 @@ impl<'a, 'b> Lower<'a, 'b> {
             Expr::Literal(l, _) => self.lit_number(l, line),
             Expr::Identifier(..) | Expr::Qualified { .. } => {
                 let idx = self.resolve_item(e)?;
+                // A level-78 constant reads as the literal it was declared with.
+                if self.layout.constants.contains(&idx) {
+                    if let Some(l) = self.layout.items[idx].value.clone() {
+                        return self.lit_number(&l, line);
+                    }
+                }
                 self.item_operand(idx, &[], None, line).map(Some)
             }
             // `X::Split(sep)(i)`: the part of that index, a value method's answer (the interpreter's
@@ -2291,7 +2300,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         // RETURN-CODE in a desktop module (T15) compares as a number, with a number.
         if self.mentions_return_code(lhs) || self.mentions_return_code(rhs) {
             if !(self.numeric_side(lhs) && self.numeric_side(rhs)) {
-                return self.err(line, RC_OTHER_USE);
+                return self.err(line, self.rc_other_use());
             }
             return self.with_rc(|me| me.compare_values(lhs, op, rhs));
         }
@@ -2496,7 +2505,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
         // The `super::` reads of this statement are asked, and waited for, before it begins (ABI A24).
         self.hoist_super_reads_of(s, line)?;
-        if self.native && self.return_code_arith(s, line)? {
+        if self.rc_register() && self.return_code_arith(s, line)? {
             self.rc_ok = true;
         }
         match s {
@@ -2594,8 +2603,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
             Stmt::Throw { message, .. } => self.throw_(message, line),
             // A pointer statement `ptr_scan` refused is reported there; the module is not made.
-            Stmt::SetPointer { .. } if self.native && self.ptr_refused.contains(&(self.cur_unit, line)) => Ok(()),
-            Stmt::SetPointer { address_of, targets, source, .. } if self.native => self.set_pointer(address_of.as_ref(), targets, source, line),
+            Stmt::SetPointer { .. } if self.ptr_refused.contains(&(self.cur_unit, line)) => Ok(()),
+            Stmt::SetPointer { address_of, targets, source, .. } => self.set_pointer(address_of.as_ref(), targets, source, line),
             Stmt::Call { program, using, returning, on_exception, not_on_exception, convention: cobolt_ast::stmt::CallConvention::WebSocket, .. } => {
                 self.remote_call(program, using, returning.as_ref(), on_exception, not_on_exception, line)
             }
@@ -2825,7 +2834,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             return Ok(());
         }
         // RETURN-CODE in a desktop module (T15): checked, then nameable for this statement.
-        if self.native && (self.mentions_return_code(from) || to.iter().any(|t| self.names_return_code(t))) {
+        if self.rc_register() && (self.mentions_return_code(from) || to.iter().any(|t| self.names_return_code(t))) {
             self.return_code_move(from, to, line)?;
             self.rc_ok = true;
         }
@@ -2948,7 +2957,32 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.call_rt("rt_move");
             Ok(())
         } else {
-            self.err(line, "SET condition-name TO FALSE is not supported in a WebAssembly module yet")
+            // No `WHEN SET TO FALSE` clause exists, so the interpreter's rule applies
+            // (`Interpreter::set_condition`): the smallest whole number from 0 that satisfies none of the
+            // condition's values goes into the host. A number there is a number; in an alphanumeric item
+            // its digits stand at the right, as the interpreter's `set` leaves them; a national or UTF-8
+            // item takes them as text.
+            let n = false_candidate(&item.cond);
+            let src = if host_text {
+                let digits = n.to_string();
+                let lit = match cobolt_wasm_rt::nat::Class::of(&self.layout.items[host].fd) {
+                    Some(cobolt_wasm_rt::nat::Class::National { .. }) => Literal::National(digits),
+                    _ => Literal::Utf8(digits),
+                };
+                self.cond_literal_text(&lit, host, line)?
+            } else if numeric {
+                self.cond_literal(&Literal::Integer(n), true, line)?
+            } else if self.layout.items[host].fd.kind == cobolt_wasm_rt::fd::K_NATIONAL {
+                return self.err(line, "national and UTF-8 literals are not supported in a WebAssembly module yet");
+            } else {
+                let width = self.layout.items[host].size as usize;
+                self.pool.opd_lit_alnum(format!("{n:>width$}").as_bytes())
+            };
+            self.base();
+            self.i32c(src as i32);
+            self.i32c(host_opd as i32);
+            self.call_rt("rt_move");
+            Ok(())
         }
     }
 
@@ -3805,6 +3839,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             Some(AcceptSource::DayOfWeek) => ACC_DAY_OF_WEEK,
             // A mnemonic bound to the console behaves as the plain form.
             Some(AcceptSource::Mnemonic(_)) => ACC_CONSOLE,
+            Some(src @ (AcceptSource::EscapeKey | AcceptSource::CrtStatus)) => return self.accept_screen_status(target, src),
+            // A page has no command line, no arguments and no environment variables to read.
             Some(other) => {
                 return self.err(line, format!("ACCEPT FROM {other:?} is not supported in a WebAssembly module"));
             }
@@ -3830,6 +3866,20 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
     }
 
+    /// `ACCEPT … FROM ESCAPE KEY` / `FROM CRT STATUS`, as the interpreter answers them: no screen
+    /// status is ever kept, so the key code is `00` and the status `0000`. Needs no host, so a
+    /// browser module and a desktop module serve it alike.
+    fn accept_screen_status(&mut self, target: &Expr, src: &AcceptSource) -> GenResult<()> {
+        let text: &[u8] = if matches!(src, AcceptSource::EscapeKey) { b"00" } else { b"0000" };
+        let from = self.pool.opd_lit_alnum(text);
+        let t = self.accept_receiver(target)?;
+        self.base();
+        self.i32c(from as i32);
+        self.i32c(t as i32);
+        self.call_rt("rt_move");
+        Ok(())
+    }
+
     fn accept_native(&mut self, target: &Expr, from: Option<&AcceptSource>) -> GenResult<bool> {
         use cobolt_wasm_rt::accept::*;
         let (kind, key) = match from {
@@ -3845,15 +3895,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             Some(AcceptSource::CommandLine) => (ACC_COMMAND_LINE, 0),
             Some(AcceptSource::ArgumentNumber) => (ACC_ARG_COUNT, 0),
             Some(AcceptSource::ArgumentValue) => (ACC_ARG_VALUE, self.native_reg(true)),
-            // What the desktop answers: no screen status is ever kept.
             Some(src @ (AcceptSource::EscapeKey | AcceptSource::CrtStatus)) => {
-                let text: &[u8] = if matches!(src, AcceptSource::EscapeKey) { b"00" } else { b"0000" };
-                let from = self.pool.opd_lit_alnum(text);
-                let t = self.accept_receiver(target)?;
-                self.base();
-                self.i32c(from as i32);
-                self.i32c(t as i32);
-                self.call_rt("rt_move");
+                self.accept_screen_status(target, src)?;
                 return Ok(true);
             }
             _ => return Ok(false),
@@ -3877,6 +3920,24 @@ impl<'a, 'b> Lower<'a, 'b> {
     // numbers with no division; read as a number (a numeric receiver, an operand, a comparison
     // with a number) and by DISPLAY, which shows it as the interpreter does. Any other use is
     // refused, and the program takes the Cargo path.
+
+    /// Whether this module holds `RETURN-CODE` as a register: a desktop module and a browser module
+    /// do; a conformance build (the NIST gate) reads the name as the interpreter's `-X` card does.
+    pub(crate) fn rc_register(&self) -> bool {
+        self.native || !self.conformance
+    }
+
+    fn rc_other_use(&self) -> &'static str {
+        if self.native { RC_OTHER_USE } else { RC_OTHER_USE_BROWSER }
+    }
+
+    fn rc_not_whole(&self) -> &'static str {
+        if self.native { RC_NOT_WHOLE } else { RC_NOT_WHOLE_BROWSER }
+    }
+
+    fn rc_size_error(&self) -> &'static str {
+        if self.native { RC_SIZE_ERROR } else { RC_SIZE_ERROR_BROWSER }
+    }
 
     /// The register's layout item, made when first named.
     fn return_code_item(&mut self) -> usize {
@@ -3903,7 +3964,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// Whether `e` is a register: `RETURN-CODE` in a desktop module that declares no item of
     /// that name, or `LINAGE-COUNTER` in one with a `LINAGE` file (T39b).
     pub(crate) fn names_return_code(&self, e: &Expr) -> bool {
-        self.native
+        self.rc_register()
             && matches!(e, Expr::Identifier(n, _) if n.eq_ignore_ascii_case(RETURN_CODE))
             && self.layout.lookup(RETURN_CODE, &[]).is_err()
             || self.names_linage_counter(e)
@@ -3980,14 +4041,14 @@ impl<'a, 'b> Lower<'a, 'b> {
             return self.err_kind(line, crate::error::ErrorKind::Other, LINAGE_COUNTER, LC_READ_ONLY);
         }
         if to.iter().any(|t| self.names_return_code(t)) && !self.whole(from) {
-            return self.err(line, RC_NOT_WHOLE);
+            return self.err(line, self.rc_not_whole());
         }
         if self.mentions_return_code(from) {
             for t in to {
                 // A numeric or numeric-edited receiver: the interpreter moves the register's value
                 // as it moves any number (NIST SQ201M moves LINAGE-COUNTER into PICTURE -9(18)).
                 if !self.names_return_code(t) && !self.is_numeric_item(t) && !self.is_numeric_edited_item(t) {
-                    return self.err(line, RC_OTHER_USE);
+                    return self.err(line, self.rc_other_use());
                 }
             }
         }
@@ -4029,7 +4090,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                     return self.err_kind(line, crate::error::ErrorKind::Other, LINAGE_COUNTER, LC_READ_ONLY);
                 }
                 if receivers.iter().any(|e| self.names_return_code(e)) {
-                    return self.err(line, RC_NOT_WHOLE);
+                    return self.err(line, self.rc_not_whole());
                 }
                 return Ok(true);
             }
@@ -4043,10 +4104,10 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
         if receivers.iter().any(|e| self.names_return_code(e)) {
             if size_error {
-                return self.err(line, RC_SIZE_ERROR);
+                return self.err(line, self.rc_size_error());
             }
             if !sources.into_iter().all(|e| self.whole(e)) {
-                return self.err(line, RC_NOT_WHOLE);
+                return self.err(line, self.rc_not_whole());
             }
         }
         Ok(true)
@@ -4073,9 +4134,11 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// to the 32 bits a process's exit code has, as `rcrun run` does; in a program that never
     /// names RETURN-CODE the run's ends stay as they were, byte for byte.
     fn resolve_run_ends(&mut self) -> GenResult<()> {
+        // Only a desktop module has a process to hand it to; in a browser module the register is
+        // for the program's own use and the run ends as it always has.
         let opd = match self.rc_reg {
-            Some(i) => Some(self.item_operand(i, &[], None, 0)?),
-            None => None,
+            Some(i) if self.native => Some(self.item_operand(i, &[], None, 0)?),
+            _ => None,
         };
         let read = |code: &mut Vec<Ins>, opd: u32| {
             code.push(Ins::GlobalGet(G::Base));
@@ -4238,6 +4301,60 @@ fn concat_parts(e: &Expr, out: &mut Vec<Expr>) {
         }
         other => out.push(other.clone()),
     }
+}
+
+/// How the whole number `n` stands to one literal, as the interpreter's `compare_values` reads a number
+/// against it: as numbers when the literal is a number or its text reads as one, otherwise as
+/// characters (the digits of `n` against the literal, the shorter padded on the right with spaces).
+fn number_vs_literal(n: i64, l: &Literal) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let as_number = |v: f64| {
+        let d = n as f64 - v;
+        if d.abs() < 1e-10 {
+            Ordering::Equal
+        } else if d < 0.0 {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        }
+    };
+    let as_text = |s: &str| {
+        if let Ok(v) = s.trim().parse::<f64>() {
+            return as_number(v);
+        }
+        let digits = n.to_string();
+        let width = digits.len().max(s.len());
+        format!("{digits:<width$}").cmp(&format!("{s:<width$}"))
+    };
+    match l {
+        Literal::Integer(v) | Literal::IntegerDigits(v, _) => n.cmp(v),
+        Literal::Float(f) => as_number(*f),
+        Literal::Decimal(m, s) => (i128::from(n) * 10i128.pow(u32::from(*s))).cmp(m),
+        Literal::String(s) | Literal::National(s) | Literal::Utf8(s) => as_text(s),
+        Literal::Figurative(FigurativeConstant::Zero | FigurativeConstant::Null) => n.cmp(&0),
+        Literal::Figurative(FigurativeConstant::All(inner)) => number_vs_literal(n, inner),
+        // A digit sorts after a space, a quote and a low value, and before a high value.
+        Literal::Figurative(FigurativeConstant::HighValue) => Ordering::Less,
+        Literal::Figurative(FigurativeConstant::Space | FigurativeConstant::LowValue | FigurativeConstant::Quote) => Ordering::Greater,
+    }
+}
+
+/// What `SET condition-name TO FALSE` puts in the host when the declaration has no way to say: the
+/// smallest whole number from 0 that satisfies none of the condition's values, at most 1000
+/// (`Interpreter::set_condition`).
+fn false_candidate(values: &[ConditionValue]) -> i64 {
+    use std::cmp::Ordering;
+    let satisfied = |n: i64| {
+        values.iter().any(|v| match v {
+            ConditionValue::Single(l) => number_vs_literal(n, l) == Ordering::Equal,
+            ConditionValue::Range(lo, hi) => number_vs_literal(n, lo) != Ordering::Less && number_vs_literal(n, hi) != Ordering::Greater,
+        })
+    };
+    let mut n = 0;
+    while satisfied(n) && n < 1000 {
+        n += 1;
+    }
+    n
 }
 
 fn split_name(e: &Expr) -> (String, Vec<String>) {

@@ -170,11 +170,13 @@ fn return_code_is_a_whole_number_register_handed_to_the_runner() {
         past.push(format!("  {name:<12} interpreter {:>22} exit {:>11} | module {:>19} exit {:>11}", shown.join(""), interp_code, want, want_code));
     }
 
-    // Without `native` the browser build refuses RETURN-CODE, as before T15; a desktop module that
+    // A browser build holds the register too (`browser_return_code.rs`) and hands it to no exit; the
+    // conformance build (the NIST gate) still refuses the name, as before T15. A desktop module that
     // never names it imports no `exit`, and its run ends as before.
     let prog = common::parse(&program("T15WEB", "    MOVE 4 TO RETURN-CODE\n", STOP));
-    let web = compile_program(&prog, &Options::default()).err().map(|e| e.to_string()).unwrap_or_default();
-    check(web.contains("RETURN-CODE is not defined"), format!("without native: {web:?}"), &mut failures);
+    check(compile_program(&prog, &Options::default()).is_ok(), "without native: the browser build holds RETURN-CODE".to_string(), &mut failures);
+    let conf = compile_program(&prog, &Options { conformance: true, ..Options::default() }).err().map(|e| e.to_string()).unwrap_or_default();
+    check(conf.contains("RETURN-CODE is not defined"), format!("conformance build: {conf:?}"), &mut failures);
     let prog = common::parse(&program("T15NONE", "    DISPLAY \"HELLO\"\n", STOP));
     for multi in [true, false] {
         let c = compile_program(&prog, &native(multi)).expect("a plain program compiles");
@@ -202,7 +204,7 @@ fn return_code_is_a_whole_number_register_handed_to_the_runner() {
     for r in &past {
         println!("{r}");
     }
-    println!("without native: refused as before; a desktop module that never names it is the browser module, byte for byte");
+    println!("without native: the browser build holds the register (the conformance build refuses it); a desktop module that never names it is the browser module, byte for byte");
     println!("checks: {passed} of {checks} passed");
     for f in &failures {
         println!("  FAIL {f}");

@@ -69,9 +69,6 @@ pub enum Support {
 pub const DISK_FILES: &str = "only an INDEXED file declared STORAGE IS MEMORY (without WITH PERSISTENCE) is held in a browser module; other files are on the backend: call a backend program with CALL … WITH WEBSOCKET LINKAGE";
 /// What a `SORT` with `USING` or `GIVING` is told.
 pub const SORT_FILES: &str = "a browser module sorts records given by an INPUT PROCEDURE and returned to an OUTPUT PROCEDURE; USING and GIVING name files, which are on the backend";
-/// What `SET` a pointer, or `SET ADDRESS OF`, is told: the generator does not
-/// lower it (DESKTOP-WASM-001 C13); the backend's interpreter runs it.
-pub const POINTERS: &str = "pointers and ADDRESS OF are not compiled into a module; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
 
 pub fn support(s: &Stmt) -> Support {
     use Support::*;
@@ -112,6 +109,9 @@ pub fn support(s: &Stmt) -> Support {
         | Stmt::ControlSet { .. }
         | Stmt::TryCatch { .. }
         | Stmt::Throw { .. }
+        // Lowered by `lower_ptr`: a desktop module since DESKTOP-WASM-001 T45b, a browser module since
+        // 2.1.1 (C13 had said "lowered or reclassified", and it was reclassified until then).
+        | Stmt::SetPointer { .. }
         | Stmt::Accept { .. } => Module,
         // Files: the browser has none on disk. An INDEXED file held in memory
         // lives with the form instance (Q8); every other file is the
@@ -128,9 +128,6 @@ pub fn support(s: &Stmt) -> Support {
         // OUTPUT PROCEDURE sorts in memory; USING and GIVING name files.
         Stmt::Sort { .. } | Stmt::Release { .. } | Stmt::Return { .. } => MemoryFiles(SORT_FILES),
         Stmt::Merge { .. } => BackendOnly("MERGE reads files, which are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"),
-        // A browser module does not lower it (DESKTOP-WASM-001 C13); a desktop
-        // module does (T45b, `lower_ptr`).
-        Stmt::SetPointer { .. } => BackendOnly(POINTERS),
         Stmt::Unlock { .. } | Stmt::Commit { .. } | Stmt::Rollback { .. } => {
             BackendOnly("file input/output runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE")
         }
@@ -424,7 +421,7 @@ pub const STATEMENT_TABLE: &[(&str, Support, Native)] = &[
     ("REWRITE", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("ROLLBACK", Support::BackendOnly(BACKEND_FILES), Native::Files),
     ("SEARCH", Support::Module, Native::Module),
-    ("SET (pointer)", Support::BackendOnly(POINTERS), Native::Module),
+    ("SET (pointer)", Support::Module, Native::Module),
     ("SORT", Support::MemoryFiles(SORT_FILES), Native::Files),
     ("START", Support::MemoryFiles(DISK_FILES), Native::Files),
     ("STOP", Support::Module, Native::Module),

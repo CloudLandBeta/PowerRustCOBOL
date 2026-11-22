@@ -1053,9 +1053,6 @@ impl Lower<'_, '_> {
                 while sub_exprs.len() < chain.len() {
                     sub_exprs.push(one.clone());
                 }
-                // A desktop module's national or UTF-8 leaf is reset in its class (T44).
-                self.text_ok = self.native;
-                let first = self.item_operand_bounded(leaf, &sub_exprs, None, line, fixed)?;
                 // Replacement value by category.
                 let repl = if replacing.is_empty() {
                     0
@@ -1068,18 +1065,38 @@ impl Lower<'_, '_> {
                     }
                 };
                 let free: Vec<(u32, u32)> = chain[fixed..].iter().map(|(stride, max, _)| (*stride, *max)).collect();
-                if free.len() > 4 {
-                    return self.err(line, "INITIALIZE below more than four nested OCCURS is not supported");
+                // The routine walks four levels of OCCURS at most (`rt_initialize`); a leaf below more of
+                // them is reset one occurrence of the outer levels at a time, each with its own entry.
+                let outer = free.len().saturating_sub(MOST_FREE_LEVELS);
+                let combos: u64 = free[..outer].iter().map(|(_, max)| u64::from(*max)).product();
+                if combos > MOST_UNROLLED {
+                    return self.err(
+                        line,
+                        format!("INITIALIZE below {} nested OCCURS reaches {combos} occurrences of the outer tables, more than the {MOST_UNROLLED} a module resets one by one", free.len()),
+                    );
                 }
-                let mut e = [0u32; 11];
-                e[0] = first;
-                e[1] = repl;
-                e[2] = free.len() as u32;
-                for (k, (stride, max)) in free.iter().enumerate() {
-                    e[3 + 2 * k] = *stride;
-                    e[4 + 2 * k] = *max;
+                for combo in 0..combos {
+                    // The outer levels, outermost first: the combo number read in the tables' own radix.
+                    let mut rest = combo;
+                    let mut subs = sub_exprs.clone();
+                    for k in (0..outer).rev() {
+                        let max = u64::from(free[k].1);
+                        subs[fixed + k] = Expr::Literal(Literal::Integer((rest % max + 1) as i64), cobolt_lexer::Span::new(0, 0, line, 0));
+                        rest /= max;
+                    }
+                    // A desktop module's national or UTF-8 leaf is reset in its class (T44).
+                    self.text_ok = self.native;
+                    let first = self.item_operand_bounded(leaf, &subs, None, line, fixed)?;
+                    let mut e = [0u32; 11];
+                    e[0] = first;
+                    e[1] = repl;
+                    e[2] = (free.len() - outer) as u32;
+                    for (k, (stride, max)) in free[outer..].iter().enumerate() {
+                        e[3 + 2 * k] = *stride;
+                        e[4 + 2 * k] = *max;
+                    }
+                    entries.push(e);
                 }
-                entries.push(e);
             }
         }
         let mut words = vec![entries.len() as u32];
@@ -1155,6 +1172,11 @@ impl Lower<'_, '_> {
         Ok(())
     }
 }
+
+/// Levels of OCCURS below an `INITIALIZE` target that one entry of `rt_initialize` walks.
+const MOST_FREE_LEVELS: usize = 4;
+/// Occurrences of the outer tables an `INITIALIZE` resets one entry at a time.
+const MOST_UNROLLED: u64 = 4096;
 
 /// `INITIALIZE … REPLACING` category of a picture.
 fn init_category(k: PicKind) -> InitCategory {

@@ -88,14 +88,6 @@ fn constructs_outside_the_subset_are_refused_at_their_line_with_the_alternative(
             &["EXEC RUST", "native build", "backend"],
         ),
         (
-            // DESKTOP-WASM-001 C13: nothing lowers SET of a pointer; it was classed as
-            // compiled and refused with the generic "not yet supported".
-            "IDENTIFICATION DIVISION.\nPROGRAM-ID. P1.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-PTR USAGE POINTER.\n01 WS-CODE PIC X(4).\nPROCEDURE DIVISION.\n    SET WS-PTR TO ADDRESS OF WS-CODE.\n    STOP RUN.\n",
-            8,
-            ErrorKind::BackendOnly,
-            &["SET (pointer)", "browser module", "backend", "CALL … WITH WEBSOCKET LINKAGE"],
-        ),
-        (
             "IDENTIFICATION DIVISION.\nPROGRAM-ID. B1.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 H PIC 9(4).\n01 ST PIC X(10).\nPROCEDURE DIVISION.\n    CALL \"COBOL-OPEN-DB\" USING \"x.db\" H ST.\n    STOP RUN.\n",
             8,
             ErrorKind::BackendOnly,

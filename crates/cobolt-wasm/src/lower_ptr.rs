@@ -45,10 +45,6 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// that breaks a rule is reported at its line and skipped when the statements are lowered, and
     /// the scan goes on, so one run names every refusal, the program's other constructs included.
     pub(crate) fn ptr_scan(&mut self, unit: usize) -> GenResult<()> {
-        // A browser module refuses every pointer statement at the statement (`support`).
-        if !self.native {
-            return Ok(());
-        }
         let mut sets: Vec<Stmt> = Vec::new();
         for p in &self.paras {
             for s in p.stmts {
@@ -62,7 +58,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         if unit != 0 {
             for s in &sets {
                 let line = s.span().line;
-                let r = self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {D_PTR_UNIT}"));
+                let r = self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {}", self.ptr_text(D_PTR_UNIT)));
                 self.ptr_record(line, r);
             }
             return Ok(());
@@ -118,7 +114,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                 }
                 // `SET ptr TO NULL` and `SET ptr TO ptr-2` are parsed as `MOVE`s.
                 let PointerSource::AddressOf(x) = source else {
-                    return self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {D_PTR_POINTER}"));
+                    return self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {}", self.ptr_text(D_PTR_POINTER)));
                 };
                 let x = self.ptr_taken(x, line)?;
                 if !self.ptr_items.contains(&x) {
@@ -177,7 +173,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             return Ok(());
         }
         let PointerSource::AddressOf(x) = source else {
-            return self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {D_PTR_POINTER}"));
+            return self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {}", self.ptr_text(D_PTR_POINTER)));
         };
         let i = self.resolve_item(x)?;
         let Some(n) = self.ptr_items.iter().position(|&j| j == i) else {
@@ -229,7 +225,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// The item of `SET ADDRESS OF item`: an elementary LINKAGE 01 or 77 whose slot is its own.
     fn ptr_based(&mut self, e: &Expr, line: u32) -> GenResult<usize> {
         let Some(i) = self.ptr_name(e) else {
-            return self.err_kind(line, ErrorKind::Other, "SET ADDRESS OF", format!("SET ADDRESS OF: {D_PTR_BASED}"));
+            return self.err_kind(line, ErrorKind::Other, "SET ADDRESS OF", format!("SET ADDRESS OF: {}", self.ptr_text(D_PTR_BASED)));
         };
         let it = &self.layout.items[i];
         let shared = it.link.is_some_and(|l| self.layout.items.iter().enumerate().any(|(j, o)| j != i && o.level != 88 && o.link == Some(l)));
@@ -244,7 +240,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// The item of `ADDRESS OF item`: a whole item outside the LINKAGE SECTION and outside any table.
     fn ptr_taken(&mut self, e: &Expr, line: u32) -> GenResult<usize> {
         let Some(i) = self.ptr_name(e) else {
-            return self.err_kind(line, ErrorKind::Other, "ADDRESS OF", format!("ADDRESS OF: {D_PTR_ITEM}"));
+            return self.err_kind(line, ErrorKind::Other, "ADDRESS OF", format!("ADDRESS OF: {}", self.ptr_text(D_PTR_ITEM)));
         };
         let it = &self.layout.items[i];
         let mut in_table = false;
@@ -271,7 +267,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             other => (other, 0),
         };
         let Some(i) = self.ptr_name(named) else {
-            return self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {D_PTR_POINTER}"));
+            return self.err_kind(line, ErrorKind::Other, "SET", format!("SET (pointer): {}", self.ptr_text(D_PTR_POINTER)));
         };
         let it = &self.layout.items[i];
         if it.usage == Usage::Pointer && it.link.is_none() && self.layout.occurs_chain(i).len() == subscripts {
@@ -287,8 +283,18 @@ impl<'a, 'b> Lower<'a, 'b> {
         a.children.is_empty() && b.children.is_empty() && a.fd == b.fd && a.usage == b.usage && a.pic_template == b.pic_template
     }
 
+    /// A refusal's reason as this module words it: a desktop module's Build takes the Cargo path; a
+    /// page has none, so a browser module names the backend, which runs the interpreter's own rules.
+    fn ptr_text(&self, why: &str) -> String {
+        if self.native {
+            why.to_string()
+        } else {
+            why.replace(", so the Build takes the Cargo path", "; a backend program, called with CALL … WITH WEBSOCKET LINKAGE, runs the interpreter's own rules")
+        }
+    }
+
     fn ptr_refuse<T>(&self, line: u32, item: usize, why: &str) -> GenResult<T> {
         let name = self.layout.items[item].name.clone().unwrap_or_else(|| "FILLER".into());
-        self.err_kind(line, ErrorKind::Other, name.clone(), format!("{name}: {why}"))
+        self.err_kind(line, ErrorKind::Other, name.clone(), format!("{name}: {}", self.ptr_text(why)))
     }
 }

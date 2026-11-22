@@ -19227,6 +19227,61 @@ control and the property, never the value. Clear it, put the value in a `[[confi
 of `backend/backend.toml`, and write that configuration's name in the control's
 **BackendConfig** (24.8).
 
+**Data and statements that run in a page.** The tail of the language is covered too, and a
+page gives the answers the desktop gives:
+
+```cobol
+       WORKING-STORAGE SECTION.
+       78  MAX-LINES              VALUE 50.
+       01  WS-MODE                PIC X VALUE "Y".
+           88  FAST-MODE                VALUE "Y".
+       01  WS-CELLS.
+           05  WS-LEVEL-1  OCCURS 3.
+               10  WS-LEVEL-2  OCCURS 3.
+                   15  WS-LEVEL-3  OCCURS 3.
+                       20  WS-LEVEL-4  OCCURS 3.
+                           25  WS-LEVEL-5  OCCURS 3  PIC 9.
+       01  WS-PTR                 USAGE POINTER.
+       ...
+           IF WS-LINE > MAX-LINES  PERFORM NEXT-PAGE  END-IF
+           SET FAST-MODE TO FALSE
+           INITIALIZE WS-CELLS
+           MOVE 4 TO RETURN-CODE
+           SET WS-PTR TO ADDRESS OF WS-MODE
+```
+
+- **Level-78 constants.** `78 MAX-LINES VALUE 50.` holds a number or a text literal and
+  reads as that literal wherever a value is read (`IF`, `COMPUTE`, `MOVE`, `DISPLAY`,
+  `PERFORM … UNTIL`, `EVALUATE … WHEN`). It belongs to no group, wherever you write it, and
+  takes no room in the record above it.
+- **`SET condition-name TO FALSE`.** With no `WHEN SET TO FALSE` clause in the language, the
+  host item takes the smallest whole number from 0 up that none of the condition's values
+  accepts (an alphanumeric host takes it as digits at its right end), as on the desktop.
+  `SET condition-name TO TRUE` was always available.
+- **`INITIALIZE` of a table of up to seven levels** (the COBOL-2002 limit), whole or one
+  occurrence of it, with or without `REPLACING`.
+- **`RETURN-CODE`** is a whole-number register that starts at zero. `MOVE`, `ADD`,
+  `SUBTRACT`, `MULTIPLY`, `COMPUTE` and `GIVING` write it; `DISPLAY`, a comparison, an
+  `EVALUATE` and any numeric receiver read it. A page has no process to end with the number,
+  so it stays in the page for your own program to read.
+- **Pointers.** `USAGE POINTER`, `NULL`, `SET pointer TO ADDRESS OF item`,
+  `SET pointer TO pointer`, `SET ADDRESS OF linkage-item TO pointer` and the comparison of a
+  pointer with `NULL` or with another pointer, numbered and aliased as on the desktop.
+- **`ACCEPT … FROM ESCAPE KEY`** and **`FROM CRT STATUS`** answer `00` and `0000`, as on the
+  desktop, where no screen status is ever kept.
+
+> **Note.** The item a level-78 constant names is also a data item, so `DISPLAY MAX-LINES`
+> shows `50`, and a decimal constant (`78 TAX-RATE VALUE 0.0725.`) shows with its decimal
+> point, as the literal does.
+
+> **Caveats.** What a page still cannot follow stops the Build at its line, naming why:
+> `RETURN-CODE` with a fraction or characters in it (`MOVE 7.9 TO RETURN-CODE`,
+> `COMPUTE RETURN-CODE = 10 / 4`), or with `ON SIZE ERROR`; `SET … TO FALSE` on a national
+> item; `INITIALIZE` of a table more than four levels deep whose outer levels multiply to
+> more than 4096 occurrences; and `ACCEPT` from `COMMAND-LINE`, `ENVIRONMENT` or `ARGUMENT-VALUE`, which a
+> page does not have. The `CONSTANT AS` form of a constant is not part of the language yet,
+> on the desktop or in a page: write `78 name VALUE literal`.
+
 A control property can be the receiving field of `ADD`, `SUBTRACT`, `MULTIPLY`, `DIVIDE`
 and `COMPUTE` on the web as on the desktop (`ADD 1 TO NUD-1::Value`); the sum goes to the
 host as text, and `ROUNDED` is refused for such a receiver. One difference remains: a

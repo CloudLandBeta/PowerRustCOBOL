@@ -1458,7 +1458,8 @@ fn parse_88_values(p: &mut Parser) -> Vec<ConditionValue> {
 /// Convert a flat list of `DataDecl`s into a proper parent–child tree.
 ///
 /// The algorithm is O(n²) in the worst case but n is small in practice.
-/// Items with level 77 or 66 are always roots.
+/// Items with level 77, 78 or 66 are always roots. A level-78 constant (`78 K VALUE 5.`) belongs
+/// to no group: nested under the item above it, it turned an elementary item into a group.
 fn build_tree(items: Vec<DataDecl>) -> Vec<DataDecl> {
     if items.is_empty() {
         return items;
@@ -1472,7 +1473,7 @@ fn build_tree(items: Vec<DataDecl>) -> Vec<DataDecl> {
     for i in 1..n {
         let level = items[i].level;
         // Special levels are always root-level
-        if level == 77 || level == 66 {
+        if level == 77 || level == 66 || level == 78 {
             continue;
         }
         // Find the last preceding item with a strictly lower level

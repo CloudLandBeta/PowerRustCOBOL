@@ -263,12 +263,11 @@ fn the_console_and_the_environment_reach_the_runner_and_the_manifest_names_them(
     }
 
     // Without `native`, the browser build's answers, as before T12.
-    let refusals: [(&str, String, &str); 5] = [
+    let refusals: [(&str, String, &str); 4] = [
         ("environment", program("T12ENV", ENV_WS, ENV_PD), "ACCEPT FROM Environment"),
         ("arguments", program("T12ARG", ARGS_WS, ARGS_PD), "ACCEPT FROM ArgumentNumber"),
         ("environment-name", program("T12DEN", "", "    DISPLAY \"HOME\" UPON ENVIRONMENT-NAME\n"), "DISPLAY UPON ENVIRONMENT-NAME"),
         ("argument-number", program("T12DAN", "", "    DISPLAY 2 UPON ARGUMENT-NUMBER\n"), "DISPLAY UPON ARGUMENT-NUMBER"),
-        ("escape-key-crt-status", program("T12SCR", SCREEN_WS, SCREEN_PD), "ACCEPT FROM EscapeKey"),
     ];
     for (name, src, says) in &refusals {
         let prog = common::parse(src);
@@ -278,6 +277,13 @@ fn the_console_and_the_environment_reach_the_runner_and_the_manifest_names_them(
             format!("without native, {name}: {refused:?} does not say {says:?}"),
             &mut failures,
         );
+    }
+    // `ACCEPT … FROM ESCAPE KEY` and `FROM CRT STATUS` need no host: a browser module answers `00` and
+    // `0000` as the desktop does, and names no capability.
+    let scr = common::parse(&program("T12SCR", SCREEN_WS, SCREEN_PD));
+    match compile_program(&scr, &Options::default()) {
+        Ok(web) => check(needs(&web).0.is_empty(), "without native, the screen status names no capability".to_string(), &mut failures),
+        Err(e) => check(false, format!("without native, escape-key-crt-status is refused: {e}"), &mut failures),
     }
     // An INDEXED file declared STORAGE IS MEMORY: the browser module holds it and reads it back in
     // key order.
@@ -304,11 +310,12 @@ fn the_console_and_the_environment_reach_the_runner_and_the_manifest_names_them(
             Err(e) => check(false, format!("desktop multi={multi}: the memory file is refused: {e}"), &mut failures),
         }
     }
-    // `RETURN-CODE` compiles in a desktop module only (T15, `tests/native_return_code.rs`); the
-    // browser build refuses it, as before.
+    // `RETURN-CODE` is a register in a desktop module (T15, `tests/native_return_code.rs`) and in a
+    // browser one (`tests/browser_return_code.rs`); the conformance build still refuses the name.
     let rc = common::parse(&program("T12RC", "", "    MOVE 4 TO RETURN-CODE\n"));
-    let rc_refused = compile_program(&rc, &Options::default()).err().map(|e| e.to_string()).unwrap_or_default();
-    check(rc_refused.contains("RETURN-CODE"), format!("without native, RETURN-CODE is refused: {rc_refused:?}"), &mut failures);
+    check(compile_program(&rc, &Options::default()).is_ok(), "without native, the browser build holds RETURN-CODE".to_string(), &mut failures);
+    let rc_refused = compile_program(&rc, &Options { conformance: true, ..Options::default() }).err().map(|e| e.to_string()).unwrap_or_default();
+    check(rc_refused.contains("RETURN-CODE"), format!("conformance build, RETURN-CODE is refused: {rc_refused:?}"), &mut failures);
     let prog = common::parse(&program("T12CON", CONSOLE_WS, CONSOLE_PD));
     let ignored = compile_program(&prog, &Options::default()).expect("a browser module ignores ACCEPT");
     let kinds: Vec<_> = ignored.warnings.iter().map(|w| w.kind).collect();
@@ -335,7 +342,7 @@ fn the_console_and_the_environment_reach_the_runner_and_the_manifest_names_them(
         (all.len() * 2) as f64 / (run_ms / 1000.0).max(1e-9)
     );
     println!("without native: {} refusals, the console ignored with 6 warnings, as before", refusals.len());
-    println!("without native: a program naming RETURN-CODE is refused: {rc_refused}");
+    println!("conformance build: a program naming RETURN-CODE is refused: {rc_refused}");
     println!("checks: {passed} of {checks} passed");
     for f in &failures {
         println!("  FAIL {f}");

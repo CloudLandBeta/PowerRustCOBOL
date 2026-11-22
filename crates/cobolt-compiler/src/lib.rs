@@ -8124,6 +8124,15 @@ fn browser_subset_doc() -> String {
          comparisons with a number compile, and the program ends with the exit code it holds (0 when it is never set), as on \
          the Cargo path. A program that gives `RETURN-CODE` a fraction or characters, divides into it, puts `ON SIZE ERROR` on \
          it or uses it any other way takes the Cargo path, which names the reason.\n\n\
+         A browser module runs the rest of the language's data and statements with the answers the desktop gives: a level-78 \
+         constant (`78 NAME VALUE literal`, which reads as its literal wherever a value is read and belongs to no group), \
+         `SET condition-name TO FALSE` (the host item takes the smallest whole number from 0 that none of the condition's \
+         values accepts), `INITIALIZE` of a table up to seven levels deep (refused when the outer levels beyond the inner four \
+         multiply to more than 4096 occurrences), `RETURN-CODE` as the whole-number register described above with no exit to hand \
+         it to (a page has no process), pointers (`USAGE POINTER`, `NULL`, `SET pointer TO ADDRESS OF item`, `SET pointer TO \
+         pointer`, `SET ADDRESS OF linkage-item TO pointer`), and `ACCEPT … FROM ESCAPE KEY` and `FROM CRT STATUS` (`00` and \
+         `0000`). `ACCEPT` from `COMMAND-LINE`, `ENVIRONMENT` and `ARGUMENT-VALUE` is refused: a page has none. The `CONSTANT AS` \
+         form of a constant is not part of the language yet.\n\n\
          ### Statements\n\n| Statement | In a browser module | Instead | On the Desktop | Why |\n|---|---|---|---|---|\n",
     );
     for (name, s, n) in STATEMENT_TABLE {

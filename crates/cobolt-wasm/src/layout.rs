@@ -93,6 +93,9 @@ pub struct Layout {
     /// A file's record (its top-level item) -> the upper-case name of its FD or
     /// SD, which qualifies the record and its items (`PRINT-REC IN PRINT-FILE`).
     record_file: HashMap<usize, String>,
+    /// The level-78 constants (`78 K VALUE 5.`): items that stand for their literal wherever a value
+    /// is read, as the interpreter reads them.
+    pub constants: std::collections::HashSet<usize>,
     /// A desktop module's layout: a national or UTF-8 item is described as the image the
     /// interpreter keeps ([`K_NATIONAL16`], [`K_UTF8`], DESKTOP-WASM-001 T44). A browser module's
     /// is described as it always was.
@@ -112,6 +115,7 @@ impl Layout {
             externals: HashMap::new(),
             unit_ranges: Vec::new(),
             record_file: HashMap::new(),
+            constants: std::collections::HashSet::new(),
             native: false,
         }
     }
@@ -194,6 +198,15 @@ impl Layout {
             if d.level == 66 || d.level == 88 {
                 continue; // handled after the records they refer to
             }
+            // A level-78 constant is an item of its own that holds its literal.
+            let is_constant = d.level == 78;
+            let owned;
+            let d = if is_constant {
+                owned = constant(d);
+                &owned
+            } else {
+                d
+            };
             // A level-01 REDEFINES shares the storage of the record it names.
             // An EXTERNAL item is one storage for every unit that declares it.
             let external_at = if d.is_external { d.name.as_ref().and_then(|n| self.externals.get(&n.to_ascii_uppercase()).copied()) } else { None };
@@ -215,6 +228,9 @@ impl Layout {
             let idx = self.add_decl(d, None, start, None, Usage::Display)?;
             self.items[idx].redefines = redef;
             self.roots.push(idx);
+            if is_constant {
+                self.constants.insert(idx);
+            }
             let end = self.end_of(idx)?;
             let it = &self.items[idx];
             let (it_off, it_len) = (it.off, end - it.off);
@@ -855,6 +871,40 @@ impl Default for Layout {
 /// The item's name as a refusal names it: upper-case, `FILLER` when it has none.
 fn decl_name(d: &DataDecl) -> String {
     d.name.as_deref().map_or_else(|| "FILLER".to_owned(), str::to_ascii_uppercase)
+}
+
+/// A level-78 constant (`78 K VALUE 5.`) as the level-77 item that holds it, with the `PICTURE` its
+/// literal needs: `9(n)` for a whole number (`S9(n)` when negative), `9(i)V9(f)` for a decimal,
+/// `X(n)` for text. A literal with no such picture (floating point, figurative, national) stays as
+/// written and `item_fd` refuses it by name.
+fn constant(d: &DataDecl) -> DataDecl {
+    use cobolt_ast::data::PicClause;
+    let mut out = d.clone();
+    out.level = 77;
+    out.children.clear();
+    let (template, kind, digits, decimals) = match &d.value {
+        Some(Literal::Integer(n)) => {
+            let w = n.unsigned_abs().to_string().len();
+            (format!("{}9({w})", if *n < 0 { "S" } else { "" }), PicKind::Numeric, w, 0)
+        }
+        Some(Literal::IntegerDigits(n, w)) => {
+            let w = (*w as usize).max(n.unsigned_abs().to_string().len());
+            (format!("{}9({w})", if *n < 0 { "S" } else { "" }), PicKind::Numeric, w, 0)
+        }
+        Some(Literal::Decimal(m, scale)) => {
+            let total = m.unsigned_abs().to_string().len();
+            let f = *scale as usize;
+            let i = total.saturating_sub(f).max(1);
+            (format!("{}9({i})V9({f})", if *m < 0 { "S" } else { "" }), PicKind::Numeric, i, f)
+        }
+        Some(Literal::String(s)) => {
+            let w = s.len().max(1);
+            (format!("X({w})"), PicKind::Alphanumeric, w, 0)
+        }
+        _ => return out,
+    };
+    out.picture = Some(PicClause { template, kind, digits: digits as u16, decimals: decimals as u16, span: d.span });
+    out
 }
 
 /// A national or UTF-8 item of a desktop module, described as its image (T44): `PIC N(n)` n UTF-16
