@@ -37,6 +37,57 @@ fn serve(body: &'static str) -> u16 {
     port
 }
 
+/// `loading` is said when the engine starts the page, and engines differ in when:
+/// WebView2 says it after `ready` and even between two answers (the Windows job of
+/// the build read it as the answer to `devtools`), WebKit before `ready` or not
+/// within a short run. It answers no command, so a test that waits for an answer
+/// reads past it.
+fn is_loading(line: &str) -> bool {
+    line.starts_with(r#"{"event":"loading""#)
+}
+
+/// The next line the helper says that is not `loading`, within `limit`.
+fn next_line(rx: &mpsc::Receiver<String>, limit: Duration) -> String {
+    loop {
+        let line = rx
+            .recv_timeout(limit)
+            .unwrap_or_else(|_| panic!("a line from the helper within {limit:?}"));
+        if !is_loading(&line) {
+            return line;
+        }
+    }
+}
+
+#[test]
+fn a_loading_line_is_read_past_wherever_the_engine_says_it() {
+    // The order WebView2 gave in the failing run, and the other places it may fall.
+    let (tx, rx) = mpsc::channel();
+    for line in [
+        r#"{"event":"loading","url":"http://127.0.0.1:57887/"}"#,
+        r#"{"event":"ready","visible":false}"#,
+        r#"{"event":"loading","url":"http://127.0.0.1:57887/"}"#,
+        r#"{"event":"failed","message":"`size` is not a command of the headless helper"}"#,
+        r#"{"event":"loading","url":"http://127.0.0.1:57887/"}"#,
+        r#"{"event":"loading","url":"http://127.0.0.1:57887/"}"#,
+        r#"{"event":"closed"}"#,
+    ] {
+        tx.send(line.to_owned()).unwrap();
+    }
+    let said: Vec<String> = (0..3)
+        .map(|_| next_line(&rx, Duration::from_millis(50)))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            r#"{"event":"ready","visible":false}"#,
+            r#"{"event":"failed","message":"`size` is not a command of the headless helper"}"#,
+            r#"{"event":"closed"}"#,
+        ]
+    );
+    assert!(rx.try_recv().is_err(), "nothing is left unread");
+    println!("reader: 4 `loading` lines (before ready, between answers, before closed) read past; ready, failed and closed read in order");
+}
+
 #[test]
 fn the_helper_opens_with_no_window_on_show_and_refuses_the_window_commands() {
     let port = serve_a_page();
@@ -56,10 +107,7 @@ fn the_helper_opens_with_no_window_on_show_and_refuses_the_window_commands() {
             }
         }
     });
-    let next = || {
-        rx.recv_timeout(Duration::from_secs(30))
-            .expect("a line from the helper within 30 s")
-    };
+    let next = || next_line(&rx, Duration::from_secs(30));
     let mut send = |line: &str| {
         writeln!(stdin, "{line}")
             .and_then(|_| stdin.flush())
@@ -174,8 +222,9 @@ impl Helper {
         writeln!(self.stdin, "{line}").and_then(|_| self.stdin.flush()).expect("the helper reads");
     }
 
+    /// The next line that is not `loading` (see [`is_loading`]).
     fn next(&self) -> String {
-        self.rx.recv_timeout(Duration::from_secs(40)).expect("a line from the helper within 40 s")
+        next_line(&self.rx, Duration::from_secs(40))
     }
 
     /// The next line that is the answer `event` (or `failed`), as JSON.

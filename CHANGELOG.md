@@ -2,6 +2,14 @@
 
 
 
+## 2.1.17 — 2026-11-22
+
+**Fix: the headless web view helper's test no longer fails on Windows, and no longer depends on when the engine says `loading`.** `the_helper_opens_with_no_window_on_show_and_refuses_the_window_commands` failed in the Windows job of the build (run of `cargo test -p cobolt-web-preview`, the others of that package passing): after `ready` and the answer to `size`, the line it read as the answer to `devtools` was `{"event":"loading","url":"http://127.0.0.1:57887/"}`. The helper says `loading` when the engine starts the page, which is what it is documented to do (the first load and every reload), and WebView2 starts it later than WebKit does, after `ready` and between two answers. The test took the next line to be the answer.
+
+- **The helper is unchanged.** `loading` answers no command and the library client of the IDE and of the tools (`cobolt-project-tools`) already picks the event it waits for and keeps the rest, so only the test read lines in order.
+- **The test reads past `loading`.** `tests/headless.rs` skips it in both of its readers, the one of this test and `Helper::next` of the script and render tests, which had the same assumption at their first line (`ready`) and passed only because WebKit and WebView2 happened to say `ready` first.
+- **Checked** with `PRC_REQUIRE_WEBVIEW=1` on macOS, the three tests of `headless.rs` and the eight of the helper. The Windows and Linux jobs of the build are the check for those systems: this machine does not start WebView2.
+
 ## 2.1.16 — 2026-11-22
 
 **Fix: the Preview's Output names the frontend when it builds it, serves it and opens it.** A PowerOficina Preview printed the Backend's lines and then `Compilando para a visualização…`, `Pacote web compilado…` and `Servindo PowerOficina.project em …`, and nothing in them said that the page, the frontend, was what was being built and served, so the page looked absent for as long as the player took to start. The three lines now say it, in the six languages of the IDE:
