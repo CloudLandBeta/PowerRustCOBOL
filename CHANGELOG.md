@@ -2,6 +2,13 @@
 
 
 
+## 2.1.9 — 2026-11-22
+
+**Feature: WASM-038 records the operator's decisions on local storage for a Mobile application.** The spec (2.1.6) listed ten open questions; six are now decided and written in, and four stay open. Specification only: no code and no documentation moved.
+
+- **Decided:** Q2, the file and SQL engines run natively in the shell behind a Cargo feature that is off unless the project declares `local-storage`, with the engines compiled to WebAssembly in the player named as the fallback and its per-page round trip added to the Q1 spike; Q5, a backup setting on the Mobile page, on by default as each platform defaults (new R21, AC15); Q7, no IDE data browser; Q8, every limit follows the platform's own guidance and answers with a FILE STATUS or an SQLCODE (new R22, AC16); Q9, the data folder is `data/` under the private area with the Desktop's relative resolution (R5); Q10, everything in one release instead of slices.
+- **Still open:** Q1 (how the module reaches storage), Q3 (the SqlDatabase control in the Mobile toolbox), Q4 (the browser-at-phone-width preview) and Q6 (encryption at rest: the operator's reply is not clear on whether it asks for it, and it sets the scope of Q10).
+
 ## 2.1.8 — 2026-11-22
 
 **Fix: PowerCallOfDuty opens full screen, hides the mouse pointer, leaves on Esc, and brings the view and the pointer back to the middle after two seconds without a mouse movement.** Four usability problems of the example, reported together: a pointer that left the window took the look away from the player; the game did not take the whole screen; a view the player had turned stayed turned; and the pointer was always in sight. It rests on the three things 2.1.7 gave the canvas (`Cursor` = `None`, `CenterPointer()`, `onEscapePressed`), which is why it is the next number and not part of the same change.
