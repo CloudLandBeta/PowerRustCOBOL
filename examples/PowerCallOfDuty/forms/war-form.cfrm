@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="WAR-FORM" title="PowerCallOfDuty" width="1280" height="760" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" definition="A mini first-person shooter drawn by a Canvas3D: a ruined city under a smoky dusk sky, an AR-15 and a Desert Eagle, doors that open and close, ammunition behind pillars and inside containers, bullet marks on the walls, and tanks, helicopters and drones that attack in growing waves." index-base="1" responsive="true">
+<Form name="WAR-FORM" title="PowerCallOfDuty" width="1280" height="760" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" definition="A mini first-person shooter drawn by a Canvas3D: a ruined city under a smoky dusk sky, an AR-15 and a Desert Eagle, doors that open and close, ammunition behind pillars and inside containers, bullet marks on the walls, and tanks, helicopters and drones that attack in growing waves." full-screen="true" index-base="1" responsive="true">
   <working-storage><![CDATA[      *> The city: one record per piece - kind, x, z (metres) and turn (degrees about the vertical axis).
       *> H house, A apartment block, R and B red and blue containers, P pillar, W burnt-out car, J jersey barrier.
       *> A door, or a container's open end, faces local +Z; a pillar's ammunition crate stands behind it, at local -Z.
@@ -159,6 +159,15 @@
        01 WS-VIEW-WIDTH                          GLOBAL    PIC 9(5)        VALUE 1280.
        01 WS-VIEW-HEIGHT                         GLOBAL    PIC 9(5)        VALUE 760.
        01 WS-LOOK-READY                          GLOBAL    PIC 9           VALUE 0.
+      *> Mouse look at rest: after WS-IDLE-LIMIT frames (30 a second, so 60 is two seconds) without a movement of the mouse the view eases back
+      *> to its default (looking straight ahead) and the pointer goes back to the middle of the view. WS-LOOK-SKIP counts the frames after
+      *> that in which the pointer's jump is not read as a movement. WS-RECENTRE-YAW is the one switch: 1 also turns the view back to
+      *> where it started (and, since the player walks the way the view faces, the walking direction with it); 0 levels the view only.
+       01 WS-IDLE-FRAMES                         GLOBAL    PIC 9(5)        VALUE 0.
+       01 WS-IDLE-LIMIT                          GLOBAL    PIC 9(3)        VALUE 60.
+       01 WS-RECENTRED                           GLOBAL    PIC 9           VALUE 0.
+       01 WS-LOOK-SKIP                           GLOBAL    PIC 9           VALUE 0.
+       01 WS-RECENTRE-YAW                        GLOBAL    PIC 9           VALUE 1.
        01 WS-HEALTH                              GLOBAL    PIC S9(3)V9(2)  VALUE 100.
        01 WS-DEAD-FRAMES                         GLOBAL    PIC 9(5)        VALUE 0.
        01 WS-DAMAGE                              GLOBAL    PIC S9(3)V9(2).
@@ -993,19 +1002,61 @@
            *> Mouse look: the pointer's movement since the last frame turns the view; near the left or right edge it keeps turning.
            COMPUTE WS-POINTER-X = CNV-3D::PointerX
            COMPUTE WS-POINTER-Y = CNV-3D::PointerY
-           IF      WS-LOOK-READY = 1 AND WS-HEALTH > 0
-               COMPUTE WS-YAW = WS-YAW - ( WS-POINTER-X - WS-LAST-POINTER-X ) * 0.16
-               COMPUTE WS-PITCH = WS-PITCH - ( WS-POINTER-Y - WS-LAST-POINTER-Y ) * 0.13
-               IF      WS-POINTER-X > 0 AND WS-POINTER-X < 110
-                   COMPUTE WS-YAW = WS-YAW + ( 110 - WS-POINTER-X ) * 0.03
+           IF      WS-LOOK-SKIP > 0
+               *> The pointer was just put back in the middle: where it jumped to is not a movement of the mouse.
+               SUBTRACT 1                        FROM  WS-LOOK-SKIP
+           ELSE
+               IF      WS-LOOK-READY = 1 AND WS-HEALTH > 0
+                   COMPUTE WS-YAW = WS-YAW - ( WS-POINTER-X - WS-LAST-POINTER-X ) * 0.16
+                   COMPUTE WS-PITCH = WS-PITCH - ( WS-POINTER-Y - WS-LAST-POINTER-Y ) * 0.13
+                   IF      WS-POINTER-X > 0 AND WS-POINTER-X < 110
+                       COMPUTE WS-YAW = WS-YAW + ( 110 - WS-POINTER-X ) * 0.03
+                   END-IF
+                   IF      WS-POINTER-X > WS-VIEW-WIDTH - 110
+                       COMPUTE WS-YAW = WS-YAW - ( WS-POINTER-X - WS-VIEW-WIDTH + 110 ) * 0.03
+                   END-IF
                END-IF
-               IF      WS-POINTER-X > WS-VIEW-WIDTH - 110
-                   COMPUTE WS-YAW = WS-YAW - ( WS-POINTER-X - WS-VIEW-WIDTH + 110 ) * 0.03
+
+               *> A movement of the mouse starts the count of frames at rest again.
+               IF      WS-POINTER-X NOT = WS-LAST-POINTER-X OR WS-POINTER-Y NOT = WS-LAST-POINTER-Y
+                   MOVE    0                     TO    WS-IDLE-FRAMES
+                   MOVE    0                     TO    WS-RECENTRED
+               ELSE
+                   IF      WS-IDLE-FRAMES < 99999
+                       ADD     1                 TO    WS-IDLE-FRAMES
+                   END-IF
                END-IF
            END-IF
            MOVE    1                             TO    WS-LOOK-READY
            MOVE    WS-POINTER-X                  TO    WS-LAST-POINTER-X
            MOVE    WS-POINTER-Y                  TO    WS-LAST-POINTER-Y
+
+           *> At rest for more than two seconds: the pointer goes back to the middle of the view (once), and the view eases back to
+           *> its default, about a quarter of a second to get there. The mouse moving again stops it.
+           IF      WS-IDLE-FRAMES > WS-IDLE-LIMIT AND WS-HEALTH > 0
+               IF      WS-RECENTRED = 0
+                   MOVE    1                     TO    WS-RECENTRED
+                   MOVE    6                     TO    WS-LOOK-SKIP
+                   CNV-3D::CenterPointer()
+               END-IF
+               IF      WS-RECENTRE-YAW = 1
+                   *> The short way round: never a whole turn back.
+                   IF      WS-YAW > 180
+                       SUBTRACT 360              FROM  WS-YAW
+                   END-IF
+                   IF      WS-YAW < -180
+                       ADD     360               TO    WS-YAW
+                   END-IF
+                   COMPUTE WS-YAW = WS-YAW * 0.7
+                   IF      WS-YAW > -0.5 AND WS-YAW < 0.5
+                       MOVE    0                 TO    WS-YAW
+                   END-IF
+               END-IF
+               COMPUTE WS-PITCH = WS-PITCH * 0.7
+               IF      WS-PITCH > -0.5 AND WS-PITCH < 0.5
+                   MOVE    0                     TO    WS-PITCH
+               END-IF
+           END-IF
            IF      WS-PITCH > 65
                MOVE    65                        TO    WS-PITCH
            END-IF
@@ -2365,12 +2416,12 @@
   </user-procedures>
   <Control id="CNV-3D" type="Canvas3D" x="0" y="0" w="1280" h="760" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Anchor">Top,Bottom,Left,Right</Property>
-    <Property name="Definition">The battlefield: a 3D view of the ruined city that fills the window, drawn thirty times a second. Click it to take the keyboard; the mouse looks, the arrows or W A S D walk, the right button or X fires.</Property>
+    <Property name="Definition">The battlefield: a 3D view of the ruined city that fills the window, drawn thirty times a second. Click it to take the keyboard; the mouse looks (the pointer is hidden, and goes back to the middle with the view after two seconds at rest), the arrows or W A S D walk, the right button or X fires, Esc leaves the game.</Property>
     <Property name="Width">1280</Property>
     <Property name="Height">760</Property>
     <Property name="TargetFps">30</Property>
-    <Property name="Cursor">Crosshair</Property>
-    <Property name="AccessibleLabel">A first-person view of a ruined city at war: the mouse turns the view, the arrow keys or W A S D walk, the right mouse button or X fires, M switches weapon, R reloads, Space opens and closes doors</Property>
+    <Property name="Cursor">None</Property>
+    <Property name="AccessibleLabel">A first-person view of a ruined city at war: the mouse turns the view, the arrow keys or W A S D walk, the right mouse button or X fires, M switches weapon, R reloads, Space opens and closes doors, Escape leaves the game</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Event name="onFrame" paragraph="CNV-3D--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
@@ -2383,6 +2434,10 @@
     <Event name="onRightClick" paragraph="CNV-3D--ONRIGHTCLICK"><![CDATA[       PROCEDURE DIVISION.
            *> The trigger: the next frame fires the weapon in the hands.
            MOVE    1                             TO    WS-TRIGGER
+]]></Event>
+    <Event name="onEscapePressed" paragraph="CNV-3D--ONESCAPEPRESSED"><![CDATA[       PROCEDURE DIVISION.
+           *> Escape leaves the game.
+           INVOKE    ME::Close()
 ]]></Event>
   </Control>
   <Control id="SCN-1" type="Scene3D" x="1120" y="728" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
@@ -2459,7 +2514,7 @@
   <Control id="LBL-HELP" type="Label" x="16" y="726" w="1100" h="32" tab-order="10" z-order="1" visible="true" enabled="true">
     <Property name="Anchor">Bottom,Left</Property>
     <Property name="Definition">The controls of the game.</Property>
-    <Property name="Caption">Mouse: look   Arrows or W A S D: walk   Right button or X: fire   M: AR-15 / Desert Eagle   R: reload   Space: doors (and redeploy)</Property>
+    <Property name="Caption">Mouse: look   Arrows or W A S D: walk   Right button or X: fire   M: AR-15 / Desert Eagle   R: reload   Space: doors (and redeploy)   Esc: leave</Property>
     <Property name="FontSize">15</Property>
     <Property name="ForegroundColor">#C8D0DC</Property>
   </Control>
