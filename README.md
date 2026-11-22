@@ -24,6 +24,17 @@ See the LICENSE file in the project root for full license information.
 
 ---
 
+> ### ⚡ New in version 2.1: a Desktop Build with no Rust toolchain
+>
+> **Build** now makes your Desktop application the way a Web application is made: your COBOL
+> is compiled to a **WebAssembly module**, packed into a copy of a prebuilt native **runner**,
+> and written as one executable in `bin/`. On the measuring machine the five example projects
+> built in 0.4 to 0.8 seconds with **no Rust toolchain installed**, and every frame they draw
+> was identical, pixel for pixel, to the one the Cargo-built program draws. A project that
+> needs something the runner does not run yet (an `EXEC RUST` block, an External Crate, a call
+> to a Backend, Data Binding) still takes the Cargo path, and Build says which line sent it
+> there. [How it works ↓](#version-21-the-desktop-build-on-webassembly)
+
 > ### 🌐 New in version 2: Web and Mobile applications
 >
 > The COBOL you already write, the Form Designer you already use — and now **File ▸ New
@@ -155,7 +166,8 @@ binaries.
 | You build | You need |
 | --------- | -------- |
 | a Web application | nothing beyond the IDE — no Rust toolchain; the player is prebuilt |
-| a Backend release binary | the same toolchain a Desktop **Build** needs (Rust and the platform linker) |
+| a Desktop application | nothing beyond the IDE on the WebAssembly path (the default since version 2.1); Rust and the platform linker when the project takes the Cargo path |
+| a Backend release binary | Rust and the platform linker (a Backend release binary is built by Cargo) |
 | an Android package | the Android SDK and NDK, Java 17 to 21, the Rust target of the phone and the Tauri command line — the Build names each one that is missing |
 | an iOS app for the simulator | a Mac with Xcode 16 or later |
 
@@ -180,6 +192,61 @@ The full reference is the Developer's Guide chapters
 [The Backend and the secure channel](docs/developers-guide-en.md#24-the-backend-and-the-secure-channel),
 [Mobile applications: Android and iOS](docs/developers-guide-en.md#25-mobile-applications-android-and-ios)
 and [Graphics: Canvas 2D, Canvas 3D and the graphics objects](docs/developers-guide-en.md#26-graphics-canvas-2d-canvas-3d-and-the-graphics-objects).
+
+## Version 2.1: the Desktop Build on WebAssembly
+
+Until version 2.1, **Build** turned a Desktop project into a Rust project and compiled it with
+Cargo: every machine that built an application needed Rust 1.95.0 and the platform linker, and
+the first build took a long time. From version 2.1 the default is the **WebAssembly path**:
+
+```mermaid
+flowchart LR
+    SRC["Your COBOL + forms"] --> GEN["Generator<br/>COBOL → WebAssembly module"]
+    GEN --> PACK["Module + machine code<br/>packed into a copy of prc-runner"]
+    PACK --> EXE["bin/yourapp"]
+    SRC -. "EXEC RUST, External Crates,<br/>or what the runner does not run yet" .-> CARGO["Cargo path<br/>needs Rust"]
+    CARGO --> EXE
+```
+
+- **No Rust toolchain on the build machine.** The runner, `prc-runner`, is installed beside
+  the IDE and `rcrun`; Build packs your module into a copy of it. The end user still installs
+  nothing.
+- **The same program.** The WebAssembly path is held to the interpreter that runs your program
+  under **Run** and **Run Form**: the same output, byte for byte, the same exit code, and the
+  same pixels on every form.
+- **A Build says which path it took, and why.** The IDE's Output (`Path: WebAssembly (no Rust
+  toolchain used)` or `Path: Cargo, because …`) and `rcrun build` (`Path   : …`) both print it.
+- **Two settings** (Project Settings ▸ Desktop application): *Build path* (WebAssembly or
+  Cargo) and *Include the machine code*. `rcrun build --cargo` and `rcrun build
+  --no-machine-code` do the same for one Build.
+- **Still on the Cargo path:** `EXEC RUST`, External Crates, the **Debug** button, and what
+  the runner does not run yet — a call to a Backend (`CALL … WITH WEBSOCKET LINKAGE`, the
+  `WS-…` verbs, `AUTH-OP`), Data Binding, the sign-in control, the phone's secure store, a
+  control whose design names a program data item, a report printed into a Viewer, and a few
+  language extensions (user-defined functions, the list methods of collections, formatting,
+  control collections). Build names the construct and its line; the full list, with what to
+  do about each, is in
+  [the Developer's Guide, chapter 18](docs/developers-guide-en.md#18-building-a-distributable-binary).
+
+| Measured on macOS arm64 (Apple M3 Pro) | Result |
+| -------------------------------------- | ------ |
+| Build of the five example projects, the slowest of five Builds each | 0.4 to 0.8 s, no Rust toolchain on the machine |
+| The same forms drawn by the WebAssembly-built and the Cargo-built program | 6 projects, 426 pairs of pictures at three window sizes, **0 differing pixels** |
+| NIST CCVS85 through the generator and the runner, the eight finished modules | 380 of 380 programs run, 8 363 assertions passed, 0 failed |
+| The ten-times project (90 forms, 66 550 lines) | 68.2 s, over the 30-second goal; reported, not hidden |
+
+**Honest scope.**
+
+- These figures were measured on **macOS** only. The same measurements on Windows and Linux,
+  the check that a program built on one system runs under the runner of another, and the
+  installers are **not run yet**: they are four continuous-integration workflows that can only
+  start from the `main` branch, and seven of the twenty acceptance criteria of the
+  specification stay open until they have run
+  ([`specs/WASM-PROGRESS.md`](specs/WASM-PROGRESS.md) names each one).
+- The largest test project does not meet the 30-second goal (68.2 s); the five example
+  projects take under a second.
+- The English documents are the reference for version 2.1. The documents in Portuguese,
+  Spanish, French, Japanese and Chinese are brought up to date in release 2.1.100.
 
 ## Build applications with Claude Code
 
@@ -378,12 +445,14 @@ web-view Preview), with the same COBOL-85 core underneath.
 
 ## Install a release
 
-> ⚠️ **PowerRustCOBOL needs Rust 1.95.0: exactly that release, not a newer one and not
-> an older one.** Every package is built with Rust 1.95.0 and carries libraries already
-> compiled by it, which only that same compiler can use; with any other Rust release,
-> your machine has to compile them all again. For now, a desktop application also takes
-> a long time to compile the first time (later builds use the cache and are fast). This
-> will be resolved in an upcoming release.
+> ⚠️ **When PowerRustCOBOL needs Rust, it needs Rust 1.95.0: exactly that release, not a newer
+> one and not an older one.** Since version 2.1 a Desktop Build takes the WebAssembly path by
+> default and needs no Rust at all; Rust is needed for a project that takes the Cargo path (an
+> `EXEC RUST` block, External Crates, the Debug button, or a construct the runner does not run
+> yet) and for building PowerRustCOBOL from source. Every package carries libraries already
+> compiled by Rust 1.95.0, which only that same compiler can use; with any other Rust release,
+> your machine has to compile them all again, and a Cargo-path application takes a long time
+> to compile the first time (later builds use the cache and are fast).
 
 Download the package for your system from the
 **[releases page](https://github.com/CloudLandBeta/PowerRustCOBOL/releases/latest)**
@@ -450,17 +519,19 @@ There is **no Python, Node, JVM, CMake, NASM or C++ compiler** anywhere in the
 build — a C compiler and a linker are the whole of it, and on every platform they
 arrive with the package Rust already needs in order to link.
 
-> ⚠️ **Rust and the linker are needed *after* the IDE is built, too — on every
+> ⚠️ **Rust and the linker can be needed *after* the IDE is built, too — on every
 > platform, however you got the IDE.** PowerRustCOBOL designs forms and *runs*
-> programs entirely on its own, but **Build** compiles your project through
-> `cargo`, and so does any **Run** of a program containing an `EXEC RUST` block.
-> Both need the Rust toolchain **and** the platform's linker — so they are
-> prerequisites of a released `.msi`, `.dmg`, `.deb` or `.rpm` just as much as of
-> this repository. The IDE asks on its first run and names whatever is missing;
-> everything else (the Form Designer, the editor, **Run**, the debugger) works
-> without either. (A **Web** application's Build is the exception: it emits the
-> WebAssembly module and copies the prebuilt player, so it needs no Rust toolchain.
-> The Android and iOS targets have prerequisites of their own, listed under
+> programs entirely on its own. A Desktop **Build** takes the WebAssembly path by
+> default and needs neither; but a Build that takes the Cargo path compiles your
+> project through `cargo`, and so does any **Run** of a program containing an
+> `EXEC RUST` block. Those need the Rust toolchain **and** the platform's linker —
+> so they are prerequisites of a released `.msi`, `.dmg`, `.deb` or `.rpm` just as
+> much as of this repository. The IDE looks on its first run and names whatever is
+> missing; everything else (the Form Designer, the editor, **Run**, the debugger,
+> and a Build on the WebAssembly path) works without either. (A **Web**
+> application's Build emits the WebAssembly module and copies the prebuilt player,
+> so it needs no Rust toolchain either. The Android and iOS targets have
+> prerequisites of their own, listed under
 > [What each target needs](#what-each-target-needs).)
 
 #### macOS
@@ -681,6 +752,11 @@ standalone build (project metadata is synthesized from the file name); anything
 else is treated as a `cobolt.toml` manifest. If the project has forms, the binary
 launches the GUI application; otherwise it runs headless. The compressed AST and
 forms are embedded inside the executable.
+
+Since version 2.1 a Desktop build takes the WebAssembly path by default, and
+`rcrun build` prints which path it took (`Path   : WebAssembly` or `Path   : Cargo,
+because …`). `--cargo` forces the Cargo path, and `--no-machine-code` leaves the
+program's machine code out of the file.
 
 ### Package a project for distribution
 
