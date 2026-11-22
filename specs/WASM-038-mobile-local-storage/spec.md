@@ -1,0 +1,143 @@
+<!--
+SPDX-License-Identifier: Apache-2.0
+Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+-->
+
+# Spec — Local storage on the phone: files, indexed files, text and SQLite databases in a Mobile application
+
+- **Status:** draft (2026-11-22), waiting for the operator's review; no design, no code.
+  - The operator asked for it on 2026-11-22: *"Web applications cannot declare local (browser) files since the ephemerality nature of a web page, but mobile apps on the other hand can save files locally as the Mobile OS (Android/iOS) allow saving locally. Some limitations may apply, but is perfectly acceptable to save content in the mobile device (i.e. files such indexed files, text, SQLite databases etc). Check the limitation and remove any block to such structures that may are being applied to mobile (web apps limits stays as it is)."*
+  - It reverses, **for the Mobile kind only**, the ruling that persistent data lives on the Backend (WASM-INDEX D1, WASM-010 non-goals). A Web project keeps every limit it has.
+- **Folder:** specs/WASM-038-mobile-local-storage/
+- **Author:** Anthropic Claude Codex Agent   **Date:** 2026-11-22
+
+## 1. Overview
+
+A Mobile application is its Web bundle (the player, the program module, the forms) running in the phone's own web view inside a Tauri 2 shell (WASM-012). Its COBOL is compiled to a WebAssembly module that runs in that web view, where a page has no disk: file input/output of every organisation, `SORT … USING/GIVING`, `MERGE`, `COMMIT`/`ROLLBACK`/`UNLOCK`, `EXEC SQL` and `COBOL::SqlDatabase` are refused at their line, and the Build says *call a Backend program*. That is right for a page. It is wrong for an application installed on a phone, which owns a private storage area where it can keep files and databases that survive a restart, the background and a lost connection.
+
+This spec lets a Mobile project keep **its own files and SQLite databases on the device**, with the COBOL it already writes for the desktop, and keeps every limit a Web project has.
+
+### 1.1 What blocks it today (verified 2026-11-22)
+
+| Where | What it does | Kind-aware? |
+|---|---|---|
+| `cobolt-wasm` `support.rs`, `lower.rs` (`Lowerer::file`), `lower_idx.rs`, `lower_sql.rs` | Every file statement outside an INDEXED file declared `STORAGE IS MEMORY` (no `WITH PERSISTENCE`), `SORT … USING/GIVING`, `MERGE`, `COMMIT`, `ROLLBACK`, `UNLOCK` and `EXEC SQL` stops the module with `ErrorKind::BackendOnly`, naming the Backend as the way out | **No.** The module is generated with the same classification for a Web and a Mobile project; `Options::mobile` only unlocks `COBOL::SecureStore`, `SecureLoad` and `SecureDelete` (`lower_form.rs`). Measured with `compile_program`: a SEQUENTIAL, a LINE SEQUENTIAL, a RELATIVE, an INDEXED (disk) and an INDEXED `STORAGE IS MEMORY WITH PERSISTENCE` file and an `EXEC SQL` program are each refused with the same message under `Options::default()` and under `Options { mobile: true }`, and each compiles under `Options { native: true }` (the Desktop path) |
+| `cobolt-compiler` `mobile_features.rs` | The device features a program may use are a short, versioned table (`secure-storage`, `open-address`, `deep-link`) that a project declares in `[mobile] features`; the Build refuses a use that is not declared | Yes, but it has no row for storage |
+| `cobolt-mobile-shell` | The only native commands the page may call are `secure_store`, `secure_load` and `secure_delete` | Yes: nothing serves a file or a database |
+| `cobolt-web-player` | Hosts the program module's browser imports; it has no file or SQL engine (`cobolt-abi-host` is its pure half) | n/a |
+| `cobolt-ide` `panels/toolbox.rs` (WASM-015 AC11), `lower_form.rs` (`D_SQL_OBJECT_MEMBER`) | The SqlDatabase control is withdrawn from the Web **and Mobile** toolbox; `COBOL::SqlDatabase::…` is refused in a form's handler | Web and Mobile alike |
+| System KB (`cobolt-compiler`: *What runs in a browser module*), Developer's Guide 23.5 and 24, `toolbox_web_hidden_note` (six languages) | They say file and SQL work belongs to the Backend | Web and Mobile alike |
+
+So lifting the refusals is not a flag: **a Mobile module that compiled today's file statements would have nothing on the phone to run them.** What a Desktop program has, and a Mobile one lacks, is a host. The Desktop runner serves a module's file and SQL work (`cobolt-runner` `files.rs`, `sql.rs`, ABI A34 and A41: the `prfiles` and `prsql` sections, the `prn` imports, the capabilities `files.*` and `sql`) with the interpreter's own code (`cobolt_runtime::file_core`, `esql`), which is why a desktop program's records, containers and FILE STATUS equal the interpreter's. A Mobile application needs the same service, reached from a web view.
+
+## 2. Goals / Non-goals
+
+- **Goals:**
+  - A Mobile project's COBOL declares, opens and uses **SEQUENTIAL, LINE SEQUENTIAL, RELATIVE and INDEXED files** (an INDEXED file declared by a `.cidx` as well), with every verb a Desktop program has, in the application's private storage on the phone.
+  - A Mobile project's COBOL uses **embedded SQL (`EXEC SQL`) and `COBOL::SqlDatabase` against SQLite databases** kept on the phone.
+  - **The same answers as the Desktop and the interpreter**: the records written, the container made, every FILE STATUS and SQLCODE/SQLSTATE.
+  - Data that **survives** the application's restart, its time in the background and its termination by the system.
+  - The project **declares** that it keeps data on the phone (WASM-012 R7), and the Build says what the stores will ask for (R13).
+  - **A Web project is unchanged**: the same refusals, the same messages, the same module.
+- **Non-goals:**
+  - Local files or databases in a **Web** project.
+  - Connecting to a MySQL or PostgreSQL **server** from the phone (the page-side secrets and network rules of WASM-013 apply; the Backend does it).
+  - **Synchronising** the phone's data with the Backend (a design the developer writes with `CALL … WITH WEBSOCKET LINKAGE`; WASM-022 owns offline queues).
+  - Files the user can see or that other applications can reach: shared storage, the system's Files application, document pickers, the share sheet, SD cards. The application's own area only.
+  - Encryption of the data at rest beyond what the operating system gives the application's private area (Q6).
+  - A file editor or database browser in the IDE (Q7).
+  - Changing the Desktop path, the interpreter or any Web behaviour.
+
+## 3. User stories
+
+- As a developer of a field-service application, I want my orders, customers and notes in an indexed file on the phone, written with the `SELECT … ORGANIZATION IS INDEXED` I already know, so that the application works with no signal and keeps its data when the phone restarts.
+- As a COBOL developer, I want `EXEC SQL` against a SQLite database that lives with the application, so that I use SQL for what is relational without writing a Backend program for a table that is only ever the phone's.
+- As a developer, I want the Build to tell me, at the line, when a program uses the phone's storage and the project did not say so, so that the store declarations are never a surprise.
+- As a developer of a Web application, I want nothing to change for me.
+- As a user of the application, I want my data to still be there after the phone restarts, and to know it goes when I uninstall the application.
+
+## 4. Requirements (EARS)
+
+**What a Mobile program can use**
+
+- **R1 (ubiquitous):** A Mobile project's COBOL shall support the file organisations SEQUENTIAL, LINE SEQUENTIAL, RELATIVE and INDEXED, with the clauses and verbs the Desktop path supports for them: `SELECT … ASSIGN`, `ACCESS MODE`, `RECORD KEY` and `ALTERNATE RECORD KEY`, `FILE STATUS`, `OPEN` (every mode), `CLOSE`, `READ` (sequential, by key, `NEXT`, `PREVIOUS`), `WRITE`, `REWRITE`, `DELETE`, `START`, `COMMIT`, `ROLLBACK` and `UNLOCK` where the Desktop answers them, `SORT` and `MERGE` with `USING` and `GIVING`, `LINAGE` and `SAME [RECORD] AREA`.
+- **R2 (ubiquitous):** For the same program and the same data, a Mobile module shall write the same records, make the same containers and end every statement in the same FILE STATUS as the Desktop path and the interpreter. The records and their order are the contract, not the speed (R12).
+- **R3 (ubiquitous):** A Mobile project's COBOL shall support `EXEC SQL` (statements, cursors, host variables, indicator variables, `SQLCODE`, `SQLSTATE`, `WHENEVER`, descriptor areas) and `COBOL::SqlDatabase` (its methods and `ExecuteSql`) against **SQLite** databases kept in the application's private storage, with the answers the Desktop gives.
+- **R4 (ubiquitous):** `STORAGE IS MEMORY` shall keep its meaning in a Mobile project: without `WITH PERSISTENCE` the file lives and dies with the form instance, as in a Web project; **with** `WITH PERSISTENCE` it is written to the application's private storage, as on the Desktop.
+
+**Where the data lives**
+
+- **R5 (ubiquitous):** Every file and database a Mobile application opens shall live in **one private area of the application** (Android: the application's internal files directory; iOS: its Application Support directory) and nowhere else. A name in an `ASSIGN` clause or a connection string is relative to a data folder inside that area.
+- **R6 (event):** When a program names a path outside the data folder (an absolute path, a `..` segment, a path that leaves it through a link), the open shall fail as a file that cannot be opened (FILE STATUS 30 or 35 as the Desktop would answer for a path it cannot open, SQLCODE for an SQL connection), the page shall not be able to ask the shell for anything outside the folder, and the Build shall refuse a literal name that does so, at its line.
+- **R7 (ubiquitous):** The data shall persist across the application's restart, its time in the background and its termination by the system; it shall be removed only when the user uninstalls the application or clears its data, which the Build's checklist (R10) and the Guide shall say.
+
+**Declaring it**
+
+- **R8 (ubiquitous):** Local storage shall be a **device feature** of WASM-012 R9: a row `local-storage` in the feature table, declared in `[mobile] features`, whose uses the compiler finds in the program (a file statement or an `EXEC SQL` or a `COBOL::SqlDatabase` call in a Mobile project) so that the shell is granted exactly what the application uses.
+- **R9 (event):** When a Mobile program uses a file or SQL statement and the project has not declared `local-storage`, the Build shall refuse at that line, naming the feature and the setting that declares it; when the project has declared it and no program uses it, the Build shall say so as a warning.
+- **R10 (event):** When the Build ends for a Mobile project that declares `local-storage`, it shall print what the stores ask for (R13 of WASM-012): the iOS privacy answer (data kept on the device is not "collected" unless sent off it) and the Android data-safety answer, and that the data goes with the application. No operating-system permission is requested for the application's private area.
+
+**What stays the same**
+
+- **R11 (constraint):** A Web project shall be unchanged: the same classification, the same refusals with the same messages and the same module bytes for the same program. A Desktop project shall be unchanged. A Mobile project that uses no file and no SQL shall produce the same module bytes as before.
+
+**How it behaves**
+
+- **R12 (ubiquitous):** A file or SQL statement shall complete in a time the user does not notice for one record, and a loop over ten thousand records shall finish in a time the plan states from measurement on the reference devices (AC9), never by a different order of the records.
+- **R13 (state):** While a file or SQL statement waits for the device, the form shall behave as it does at any statement that waits (WASM-010): the handler pauses, events raised meanwhile run afterwards, in order, and the page stays alive.
+- **R14 (event):** When the data is written by a statement that has completed, it shall be on the phone's storage if the application is then terminated, by the rule the Desktop gives (`WRITE` and `REWRITE` durable at the statement that completed them; `CLOSE` and `COMMIT` as the Desktop's engines define them), and the plan shall state the rule it implements for each engine.
+- **R15 (event):** When the phone has no room, or the operating system refuses the write, the program shall get the failure as a normal one it can handle: the FILE STATUS the Desktop gives for a full volume (34) or a permanent error (30), the SQLCODE for SQL, and `ON EXCEPTION` or `INVALID KEY` where the verb has them. The application shall not end.
+- **R16 (state):** While two forms of one application have the same file open, the Desktop's sharing and locking rules for the files of one process shall apply (share locks, `READ … WITH LOCK`, `SHARING WITH`). Two applications never share a file (R5).
+
+**IDE, agent and documentation**
+
+- **R17 (ubiquitous):** In a Mobile project, the IDE shall offer what the Desktop offers for data: the Indexed Files entry and its `.cidx` definitions, the facade the definition generates, and the SqlDatabase control in the toolbox (Q3); the **Check** shall report a program that the Build would refuse; Web projects keep the Backend-owned side of data (WASM-015 AC11) exactly as it is.
+- **R18 (ubiquitous):** The Preview and Run of a Mobile project on an emulator, a simulator or a device shall run the application with its storage. When the IDE falls back to the browser at a phone width (WASM-012 R3a), it shall say that the application's files are the preview's, not the phone's (Q4).
+- **R19 (ubiquitous):** The coding-agent tools (`check`, `build`, `kb_lookup`, `kb_search`), the System KB (*What runs in a browser module* gains the Mobile column), the Developer's Guide and the six-language texts that say file and SQL work belongs to the Backend shall say it for a Web project only.
+- **R20 (constraint):** No secret (a database password, a key) shall be written to a project file by this feature, and the page shall not hold one (WASM-013): a SQLite database needs none, and a connection string that names a server is refused on the phone (non-goal).
+
+## 5. Acceptance criteria
+
+- [ ] **AC1 (R1, R2, R7)** — On an Android emulator and an iOS simulator, one program per organisation (SEQUENTIAL, LINE SEQUENTIAL, RELATIVE, INDEXED with an alternate key) writes 1 000 records, the application is closed and started again, and a second program run reads back the same 1 000 records, byte for byte, in the Desktop's order. Each test ends with one result block (GOLDEN RULE #7): the cases, the milliseconds per phase and the records per second.
+- [ ] **AC2 (R2)** — The Desktop runner's file battery (`crates/cobolt-runner/tests/files.rs`) and the interpreter's file tests, run against the Mobile host, end every statement in the same FILE STATUS and the same record image: the number of cases, every one identical, none skipped.
+- [ ] **AC3 (R3)** — An `EXEC SQL` program (create a table, insert, select with a cursor, update, delete, a `WHENEVER`, an error that sets SQLCODE) and a `COBOL::SqlDatabase` handler give the Desktop's answers against a SQLite file on the phone; the database is still there after a restart.
+- [ ] **AC4 (R4)** — `STORAGE IS MEMORY` without `WITH PERSISTENCE` is gone after the form closes and after a restart; with `WITH PERSISTENCE` it is not.
+- [ ] **AC5 (R5, R6)** — A program that names `/sdcard/x`, `../x`, an absolute iOS path and a link that leaves the folder cannot open them and cannot make the shell read or write them; a literal of that kind is refused by the Build at its line.
+- [ ] **AC6 (R8, R9, R10)** — A Mobile project that uses a file or SQL statement and does not declare `local-storage` fails the Build at the first use, naming the feature; declared, it builds and prints the store checklist; declared and unused, it warns.
+- [ ] **AC7 (R11)** — A Web project's Build gives the same refusals with the same messages for the six programs of §1.1 as before this change (a test compares the messages), the module of a Web program and of a Mobile program that use no file are byte-identical to the previous release's, and `cargo test -p cobolt-wasm`, the NIST gate (NC 95 of 95 and the other finished modules) and the Desktop tests do not move.
+- [ ] **AC8 (R14)** — A program writes a record, the statement completes, the application process is killed at once, and the record is there at the next start (INDEXED, RELATIVE, SEQUENTIAL, LINE SEQUENTIAL and SQLite), on both platforms.
+- [ ] **AC9 (R12)** — The plan's measured figures on the two reference devices (the 10 000-record loops of AC1) are met, and printed in the result block.
+- [ ] **AC10 (R15)** — A volume with no free space (an emulator filled to the limit) gives FILE STATUS 34 and an SQLCODE, and the application keeps running.
+- [ ] **AC11 (R16)** — Two forms of one application reading and writing one INDEXED file keep the Desktop's locking behaviour (the Desktop's two-handle tests, run on the phone).
+- [ ] **AC12 (R17)** — In a Mobile project the Indexed Files entry, the `.cidx` editor and (Q3) the SqlDatabase control are offered; in a Web project they are not; the toolbox note (six languages) says so for each kind.
+- [ ] **AC13 (R18, R19)** — The System KB, `chunked.data` (regenerated), the Developer's Guide (English; its translations are regenerated by the operator's cycle) and the agent tools say Web-only where they said Web and Mobile; `prebuilt_chunked_kb_matches_the_published_documentation` is green.
+- [ ] **AC14 (R20)** — A scan of the project files and the staged diff finds no credential; a connection string naming a server is refused on the phone with the reason.
+
+## 6. Constraints & steering check
+
+- **i18n (six languages):** yes. New `Tr` fields for the Build's messages and checklist, the Mobile page of Project Settings (the declared features), the toolbox note and the preview notice (R9, R10, R17, R18). Every one carries EN ES PT JA ZH FR. COBOL names in generated code stay English.
+- **Generated code / regenerate contract:** the generated COBOL of a form is unchanged. The `.cidx` facade (`cobolt-indexed`) is generated for a Mobile project as for a Desktop one; the module generator (`cobolt-wasm`) gains a Mobile storage mode, and the ABI gains what the plan names (versioned, never a field removed: `specs/WASM-ABI-v1.md`).
+- **Interpreter changes reach every host:** the feature adds a host for the module's file and SQL work; the interpreter's own file and SQL code stays the one source of the answers (R2), so nothing in it forks (skill `interpreter-binary-parity`).
+- **Documentation:** English Developer's Guide: chapter 23 (what a page can do), the Mobile chapter and the data chapters get the Mobile storage; the System KB's browser-subset section is generated from `cobolt_wasm::support`, so the Mobile column comes from the table; GOLDEN RULE #3 and #8 apply (the five translations are regenerated by the operator's cycle; none is deleted until 2.1.100's release work says so).
+- **Render:** no form is painted differently; the toolbox and Project Settings use the IDE's existing paint.
+- **System KB:** updated and `chunked.data` regenerated with the change.
+- **Fix vs feature (GOLDEN RULE #5):** **feature** — a capability beyond COBOL-85 and the IDE's existing scope (a platform's storage). Branch `features-2x-mobile-local-storage`. It shares no commit and no push with a fix.
+- **Version:** every agent change bumps `z`; the operator decides whether this raises `y`.
+- **Forum:** nothing posted unprompted (GOLDEN RULES #4, #4b, #6); it joins the Release Candidate post when the operator asks.
+- **Hard constraints of `tech.md`:** Rust only; no secret in a project file; the Web player's dependency closure stays guarded (`tests/dependency_guard.rs`); the shell adds a dependency only behind a Cargo feature that a project without `local-storage` does not build (R11).
+- **Not drivable by the agent:** the device checks (AC1, AC8, AC10) need an emulator or a simulator the operator's machine has (iOS: Xcode, macOS only); the agent measures with the MCP tools and the shell's own tests, and the operator's run closes those criteria.
+
+## 7. Open questions
+
+Each has the recommendation `/plan` would start from. Q1 is the design's hinge; the rest are decisions of scope.
+
+- **Q1 — How does a module in the web view reach storage?** The module's file and SQL calls are synchronous on the Desktop (`prn` imports); a web view's call into the shell is asynchronous. Three ways, none chosen: **(a)** each file or SQL statement becomes a *statement that waits* (WASM-010 already pauses and resumes a module at a call that waits): the module sends a request (the `prfiles` and `prsql` wire formats already are request and answer byte strings), the player forwards it to a shell command, and the shell runs the **Desktop host's own adapters** on the phone; **(b)** a virtual file system in the player that the shell loads at start and flushes after writes; **(c)** a synchronous bridge (a worker with `Atomics.wait`, which the threaded player variant of WASM-017 R19 already needs). **Recommendation: (a), proved first by a spike on both operating systems** that measures a 10 000-record loop (AC9), because it reuses the interpreter's code with no second engine, the data is durable at the statement (R14) and the module needs no change of execution model; (b) is the fallback if the per-statement round trip is too slow. The spike is task 1 of the plan and its figures go in the plan.
+- **Q2 — Which engines run on the phone?** The shell would link the runtime's file engines and the SQL layer; SQLite is bundled C code (the Android NDK and iOS toolchains build it). What the linked size costs an application, and whether the IDE's Mobile staging builds the dependency only for a project that declares `local-storage`, is the plan's measurement. **Recommendation: a Cargo feature of the shell, off unless declared** (R11).
+- **Q3 — The SqlDatabase control in the Mobile toolbox.** WASM-015 AC11 withdrew it from Web and Mobile because the database was the Backend's. **Recommendation: offer it in Mobile** (SQLite on the phone), keep it withdrawn in Web, and refuse a server connection string on the phone (R20). **Answer needed.**
+- **Q4 — The browser-at-phone-width fallback of Preview.** With no emulator or simulator, the IDE previews in the browser, which has no private area. Either the preview keeps the application's files in the browser's own storage for the session (a convenience, with the notice of R18) or it refuses a program that uses them and says to use an emulator. **Recommendation: refuse with the notice** in the first release; a faithful browser stand-in is a second feature, not a second engine to keep equal. **Answer needed.**
+- **Q5 — Backup.** Whether the data is included in the platform's backups (iOS: iCloud backup; Android: `allowBackup`, device-to-device transfer). **Recommendation: a setting in the Mobile page, default on for iOS and Android as the platforms default, with the checklist saying what it means**; sensitive data should use the secure store (`SecureStore`), not a file.
+- **Q6 — Encryption at rest.** The platforms encrypt the private area when the phone is locked (Android file-based encryption, iOS Data Protection). **Recommendation: nothing of our own in v1**; the Guide says so, and says what to put in the secure store instead. A SQLCipher-class option is a later feature.
+- **Q7 — Seeing the data during development.** An emulator's private area is reachable with the tools the SDKs give (`adb run-as`, the simulator's container folder). **Recommendation: out of scope here; the Guide says where it is.** An IDE panel is a later feature.
+- **Q8 — Limits.** The largest file, the largest record in one request, the most open files, the largest database, and what a request may carry between the page and the shell. **Recommendation: the plan states them from the spike; every limit has a FILE STATUS or SQLCODE answer (R15) and a line in the Guide.**
+- **Q9 — The sandbox's name and place.** The data folder's name inside the private area (`data/` as the desktop's default project data folder, or per-database folders), and how a relative `ASSIGN` maps (the Desktop resolves against the project's working directory). **Recommendation: `data/` under the private area, the Desktop's relative resolution unchanged.**
+- **Q10 — First release scope.** Everything above at once, or in slices. **Recommendation: slices that each leave a working application:** (1) the declaration, the Build gate and the host with INDEXED and LINE SEQUENTIAL files; (2) SEQUENTIAL, RELATIVE, `SORT` and `MERGE`; (3) `EXEC SQL` and `COBOL::SqlDatabase` on SQLite; (4) the IDE, KB and documentation parts that are not already moved by a slice. The tasks follow that order.

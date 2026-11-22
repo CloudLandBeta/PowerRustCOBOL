@@ -2,6 +2,15 @@
 
 
 
+## 2.1.6 — 2026-11-22
+
+**Feature specification: WASM-038, local storage on the phone (a document change, no code).** The operator asked that a Mobile application may keep its files, indexed files, text and SQLite databases on the device, while a Web application keeps every limit it has. `specs/WASM-038-mobile-local-storage/spec.md` records the request as 20 requirements (R1–R20), 14 acceptance criteria and 10 open questions, and `specs/WASM-INDEX.md` gains its row, its edges and the ruling **D25** (a Mobile application keeps its data on the phone; a Web application does not).
+
+- **What blocks it today.** It is not a switch: the module generator classifies file and SQL statements the same way for a Web and a Mobile project (`Options::mobile` only unlocks the secure-store verbs), so the six programs measured (SEQUENTIAL, LINE SEQUENTIAL, RELATIVE, INDEXED on disk, INDEXED with persistence, `EXEC SQL`) are refused with one message under both and compile under the Desktop's mode; and the phone has nothing to run them, because the shell serves only `secure_store`, `secure_load` and `secure_delete`. The specification therefore adds a `local-storage` device feature, a host on the phone that reuses the Desktop host's adapters, and the Build gate that declares it.
+- **Web unchanged.** R11 and AC7 make the Web classification, its messages and its module bytes a tested constant.
+- **Open for the operator:** Q1 (how the module reaches the phone's storage; a measured spike decides at `/plan`), Q3 (the SqlDatabase control in the Mobile toolbox) and Q4 (the browser-at-phone-width Preview). Nothing is designed or built yet.
+- **Numbering.** This entry was written as 2.1.2 on `features-2x-mobile-local-storage`, when 2.1.1 was the newest on `main`; `main` took 2.1.2 to 2.1.5 (PowerOficina's data, the macOS package test, the web tests, the Spatial pressed button) first, so the specification takes 2.1.6 when it is merged, text unchanged.
+
 ## 2.1.5 — 2026-11-22
 
 **Fix: a pressed toolbar button shows that it is pressed, under Spatial and every other Aurora theme.** The operator's report: under the Spatial theme the IDE's buttons did not show when they were pressed down.
