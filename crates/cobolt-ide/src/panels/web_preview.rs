@@ -1826,6 +1826,30 @@ mod tests {
         }
     }
 
+    /// The operator, 2026-11-22: a PowerOficina Preview printed a line for the Backend and none that said
+    /// the frontend was being built, served or opened, so the page looked absent for as long as the player
+    /// took to start. The three lines that tell that part of the story name the frontend, in each language,
+    /// and still carry what they carried (the time, the size, the project and the address).
+    #[test]
+    fn the_build_and_serve_lines_name_the_frontend_in_every_language() {
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            let frontend = match lang {
+                Language::Japanese => "フロントエンド",
+                Language::Chinese => "前端",
+                _ => "frontend",
+            };
+            let building = Note::Building.text(&tr);
+            let done = Note::BuildDone { ms: 1326, bytes: 23_360_000, files: 54, startup_ms: Some(364.0) }.text(&tr);
+            let serving = Note::Serving { name: "PowerOficina.project".into(), url: "http://127.0.0.1:60269/".into() }.text(&tr);
+            for (what, line) in [("building", &building), ("built", &done), ("serving", &serving)] {
+                assert!(line.to_lowercase().contains(frontend), "{lang:?} {what}: the line names the frontend: {line}");
+            }
+            assert!(done.contains("1326") && done.contains("54") && done.contains("364"), "{lang:?}: {done}");
+            assert!(serving.contains("PowerOficina.project") && serving.contains("http://127.0.0.1:60269/"), "{lang:?}: {serving}");
+        }
+    }
+
     #[test]
     fn every_note_reads_in_all_six_languages_without_a_gap() {
         let notes = vec![

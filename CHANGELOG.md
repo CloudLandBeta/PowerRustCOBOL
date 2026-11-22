@@ -2,6 +2,16 @@
 
 
 
+## 2.1.16 — 2026-11-22
+
+**Fix: the Preview's Output names the frontend when it builds it, serves it and opens it.** A PowerOficina Preview printed the Backend's lines and then `Compilando para a visualização…`, `Pacote web compilado…` and `Servindo PowerOficina.project em …`, and nothing in them said that the page, the frontend, was what was being built and served, so the page looked absent for as long as the player took to start. The three lines now say it, in the six languages of the IDE:
+
+- `Building the frontend for the Preview…`, `Frontend (web bundle) built in … ms: … in … files. Start-up: …` and `Serving the frontend of … at …`. Each still carries what it carried: the time, the size, the number of files, the start-up time, the project and the address.
+- **Checked against the shipped project, in a browser:** a copy of PowerOficina built with `rcrun mcp` and served with its Backend on the project's folder opens its Dashboard filled (4 vehicles in service, 3 services running, 12 ready for pickup, 23 of 34 quotes approved, the monthly chart), from the 39 quotes of its `data/quotes.idx`. A run that shows no figures is a copy without the `data/` folder the example has carried since 2.1.2; the Developer's Guide says so.
+- **Not changed:** the page's own `Loading the application…` panel with its progress bar (the loader draws it as soon as it starts), and the note that the player does not send the development token yet, which is accurate: the Dashboard's call went through because `DASH-SUMMARY` is exported as `public`.
+- **Test:** `the_build_and_serve_lines_name_the_frontend_in_every_language` (six languages, three lines, the figures kept).
+- **The Developer's Guide** has a section on what the Output says while the page starts, with a note on the size budget and a caveat on a copy without its `data/` folder.
+
 ## 2.1.15 — 2026-11-22
 
 **Fix: a rounded PowerSpatial window blurs the desktop inside its arc only, on macOS, docked windows included.** The windows docked to the PowerSpatial main window (the rail on the left, the toolbar above, the rooms bar below) showed a frosted rectangle behind their rounded corners, while the main window ended cleanly at its arc. The window server blurs the desktop behind every pixel of a window that has any alpha at all, however faint, so one feather of a soft shadow outside the arc made the blur behind that corner a rectangle. Measured on the real forms, the toolbar and the rooms bar paint such pixels at their corners (a button's shadow reaching the window's edge); the cure is not to chase each one but to give the window server nothing outside the arc.

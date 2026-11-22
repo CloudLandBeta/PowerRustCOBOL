@@ -19466,6 +19466,23 @@ yourself (**Run ▸ Start Backend**) is used as it is, and **Stop**, closing the
 project or the IDE stops the one the Run started. No token is put into the page: a page
 started this way reaches the exports marked `public = true`.
 
+**What the Output says while the page starts.** The Backend and the frontend are two things
+that start one after the other, and the Output names each. First the Backend's own lines (where
+it listens, and that it is ready). Then the frontend, the page your forms become:
+`Building the frontend for the Preview…`, then `Frontend (web bundle) built in … ms` with its
+size and its start-up time, then `Serving the frontend of … at …` with the address, and last
+`Opened … in the system's default browser`. From that moment the work is the browser's: it
+downloads the player and the program, and the page shows `Loading the application…` with a
+progress bar until the first form is drawn. The first call to the Backend shows up in the
+Output as a line of the Backend's own log when the page makes it.
+
+> **Note.** A first download over the size budget is a warning, not an error: the page still
+> starts, only the first load is slower than the budget asks for.
+>
+> **Caveat.** An example opened from a copy older than the one that added its `data/` folder
+> starts with empty indexed files, so its Dashboard shows no figures although every line above
+> appeared. Check that the project's `data/` folder holds its `.idx` files.
+
 ### 23.9 What the Build does about security
 
 - It **scans your project's own files** — forms, Common Code and copybooks, stylesheets,
