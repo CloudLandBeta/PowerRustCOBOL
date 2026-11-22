@@ -27,6 +27,11 @@
 //! to another is made its native child, so the window server moves the two in
 //! the same screen update.
 //!
+//! And it rounds them ([`round_window`]): the blur follows a window's alpha, and
+//! a faint pixel outside a rounded window's arc — a soft shadow's last feather —
+//! would blur a rectangle behind the corner, so on macOS the window's content is
+//! clipped to the arc.
+//!
 //! Call it on the thread that owns the windows — the main thread, where egui
 //! runs its frame. It is cheap and idempotent, so a host may call it every
 //! second to catch windows opened since the last call.
@@ -67,6 +72,32 @@ pub fn raise_group(parent: (f64, f64, f64, f64)) -> bool {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = parent;
+        false
+    }
+}
+
+/// Round the window whose frame is `frame` to `radius` points: its content
+/// layer is clipped to the arc, so every pixel outside it is fully transparent
+/// whatever was painted there — a soft shadow, a glow, a faint fill — and the
+/// window server's blur, which follows the window's alpha, ends at the arc too.
+/// Without it the blur is a RECTANGLE as soon as anything paints one pixel with
+/// the slightest alpha outside the arc, and a rounded window shows a frosted
+/// block behind its corners. `frame` is the outer rect in points,
+/// `(x, y, width, height)`, top-left origin on the primary screen, as
+/// [`attach_child_window`] takes it. `true` once the window is rounded (rounded
+/// already included); `false` when no window has that frame, or where the
+/// platform has nothing to ask (only macOS does: Windows and Linux blur the
+/// whole window rectangle), so a caller tries again on a later frame.
+///
+/// Call it on the thread that owns the windows, like [`set_all_windows`].
+pub fn round_window(frame: (f64, f64, f64, f64), radius: f64) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos_group::round(frame, radius)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (frame, radius);
         false
     }
 }
@@ -216,6 +247,11 @@ mod macos_group {
         fn objc_msgSend_stret();
     }
 
+    // `CALayer`, which `round` talks to: loaded with the framework even where
+    // nothing else of this crate reaches it (a test binary has no AppKit).
+    #[link(name = "QuartzCore", kind = "framework")]
+    unsafe extern "C" {}
+
     /// `[object frame]`: an `NSRect` comes back in registers on arm64 and
     /// through a hidden pointer (`objc_msgSend_stret`) on x86_64.
     unsafe fn frame_of(object: Id) -> Rect {
@@ -299,6 +335,66 @@ mod macos_group {
             }
             let v = rect_of(main, c"visibleFrame");
             (v.w > 0.0 && v.h > 0.0).then(|| (v.x, screen_h - (v.y + v.h), v.w, v.h))
+        }
+    }
+
+    /// Clip `layer` to a circular arc of `radius` points at its four corners:
+    /// `cornerRadius` and `masksToBounds`, which make the compositor drop every
+    /// pixel of the layer's content outside the arc (and so the window server
+    /// drop the blur there).
+    pub(super) unsafe fn round_layer(layer: Id, radius: f64) {
+        unsafe {
+            let send_radius: extern "C" fn(Id, Sel, f64) = std::mem::transmute(objc_msgSend as *const ());
+            let send_flag: extern "C" fn(Id, Sel, i8) = std::mem::transmute(objc_msgSend as *const ());
+            send_radius(layer, sel_registerName(c"setCornerRadius:".as_ptr()), radius.max(0.0));
+            send_flag(layer, sel_registerName(c"setMasksToBounds:".as_ptr()), 1);
+        }
+    }
+
+    /// The radius and clipping flag of `layer`, as [`round_layer`] set them.
+    #[cfg(test)]
+    pub(super) unsafe fn layer_rounding(layer: Id) -> (f64, bool) {
+        unsafe {
+            let get_radius: extern "C" fn(Id, Sel) -> f64 = std::mem::transmute(objc_msgSend as *const ());
+            let get_flag: extern "C" fn(Id, Sel) -> i8 = std::mem::transmute(objc_msgSend as *const ());
+            (
+                get_radius(layer, sel_registerName(c"cornerRadius".as_ptr())),
+                get_flag(layer, sel_registerName(c"masksToBounds".as_ptr())) != 0,
+            )
+        }
+    }
+
+    /// A new, empty `CALayer`: what the content view of a window holds, without a window.
+    #[cfg(test)]
+    pub(super) unsafe fn new_layer() -> Id {
+        unsafe {
+            let send_id: extern "C" fn(Id, Sel) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let class = objc_getClass(c"CALayer".as_ptr());
+            send_id(send_id(class, sel_registerName(c"alloc".as_ptr())), sel_registerName(c"init".as_ptr()))
+        }
+    }
+
+    pub(super) fn round(frame: (f64, f64, f64, f64), radius: f64) -> bool {
+        unsafe {
+            let w = window_at(frame);
+            if w.is_null() {
+                return false;
+            }
+            let send_id: extern "C" fn(Id, Sel) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let send_flag: extern "C" fn(Id, Sel, i8) = std::mem::transmute(objc_msgSend as *const ());
+            let view = send_id(w, sel_registerName(c"contentView".as_ptr()));
+            if view.is_null() {
+                return false;
+            }
+            // The renderer makes this view's layer a CAMetalLayer; asking for a
+            // layer here changes nothing for a view that already has one.
+            send_flag(view, sel_registerName(c"setWantsLayer:".as_ptr()), 1);
+            let layer = send_id(view, sel_registerName(c"layer".as_ptr()));
+            if layer.is_null() {
+                return false;
+            }
+            round_layer(layer, radius);
+            true
         }
     }
 
@@ -540,5 +636,35 @@ mod tests {
     #[test]
     fn nothing_is_attached_where_no_window_matches() {
         assert!(!super::attach_child_window((0.0, 0.0, 10.0, 10.0), (20.0, 0.0, 10.0, 10.0)));
+    }
+
+    /// Nothing is rounded where no window has the frame: the caller asks again
+    /// on a later frame, once the window exists.
+    #[test]
+    fn nothing_is_rounded_where_no_window_matches() {
+        assert!(!super::round_window((0.0, 0.0, 10.0, 10.0), 35.0));
+    }
+
+    /// The layer a window shows is clipped to the arc: its corner radius is the
+    /// form's, and it masks to its bounds — the two properties that make the
+    /// compositor, and so the window server's blur, stop at the arc. (Seen once, on
+    /// the screen, in a stand-alone Metal-backed window with a rectangle painted
+    /// over all of it: square blur without the two properties, arc-shaped with
+    /// them. A test cannot open a window, so this one checks the properties.)
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_layer_is_clipped_to_the_arc_it_is_given() {
+        use super::macos_group::{layer_rounding, new_layer, round_layer};
+        unsafe {
+            let layer = new_layer();
+            assert!(!layer.is_null(), "CoreAnimation answers a layer");
+            assert_eq!(layer_rounding(layer), (0.0, false), "a new layer is square and lets paint overflow");
+            round_layer(layer, 35.0);
+            assert_eq!(layer_rounding(layer), (35.0, true));
+            round_layer(layer, 29.5);
+            assert_eq!(layer_rounding(layer), (29.5, true), "a window resized to another arc follows it");
+            round_layer(layer, -3.0);
+            assert_eq!(layer_rounding(layer), (0.0, true), "a negative radius is no radius");
+        }
     }
 }

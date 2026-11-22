@@ -8045,6 +8045,10 @@ unsaturated accents. It is the one **see-through** theme:
   operating system blurs it, the way a room behind frosted glass is softened.
   This works on macOS and Windows, and on Linux where the desktop offers it
   (KDE on Wayland). Elsewhere the desktop shows through without blur.
+  On macOS the blur of a rounded window — one with no title bar and a **Corner
+  radius**, such as the bars docked to the main window of the PowerSpatial
+  example — ends at its arc: nothing outside the rounded corners is blurred,
+  whatever the window's controls cast there, such as the end of a soft shadow.
 - **The form's backdrop is the theme's glass.** A solid *Back color*, a
   background gradient or a background picture on the form would hide the
   desktop, so under Spatial they are set aside. Choose another theme and they

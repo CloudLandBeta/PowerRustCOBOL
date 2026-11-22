@@ -2,6 +2,16 @@
 
 
 
+## 2.1.15 — 2026-11-22
+
+**Fix: a rounded PowerSpatial window blurs the desktop inside its arc only, on macOS, docked windows included.** The windows docked to the PowerSpatial main window (the rail on the left, the toolbar above, the rooms bar below) showed a frosted rectangle behind their rounded corners, while the main window ended cleanly at its arc. The window server blurs the desktop behind every pixel of a window that has any alpha at all, however faint, so one feather of a soft shadow outside the arc made the blur behind that corner a rectangle. Measured on the real forms, the toolbar and the rooms bar paint such pixels at their corners (a button's shadow reaching the window's edge); the cure is not to chase each one but to give the window server nothing outside the arc.
+
+- **The window's content is clipped to its arc.** `cobolt_os_blur::round_window` sets the content layer's `cornerRadius` and `masksToBounds` to the arc the form's `CornerRadius` draws, so every pixel outside it is transparent whatever was painted there, and the blur, which follows the alpha, ends at the arc. The form host does it for its own window and for every child window with an arc (a window with no title bar and a `CornerRadius`), when the window appears, moves, is resized or changes its radius, and once a second after that; the radius is taken in native points, over the zoom.
+- **Seen in a stand-alone Metal-backed test window** like the one the renderer makes: a rectangle painted over the whole window blurred a rectangle, and the same window with the two properties set blurred an arc. Not seen in PowerSpatial itself.
+- **Not touched:** Windows and Linux. `round_window` answers `false` there and nothing changes: their blur is the system's, and the shape of it there was not measured.
+- **Tests:** `a_layer_is_clipped_to_the_arc_it_is_given` (macOS), `nothing_is_rounded_where_no_window_matches`, and `a_windows_arc_is_handed_over_when_it_changes_and_once_a_second`.
+- **The Developer's Guide** says that the blur of a rounded window ends at its arc.
+
 ## 2.1.14 — 2026-11-22
 
 **Fix: the Run, Debug and Build buttons wait while a Run or a Build is under way, and work again when it ends.** The toolbar and the menus only looked at the IDE's own runner, so a Run started from the Preview (a Web or Mobile project), a form run in its own window, a Build in the background or a built program left Run enabled: a second click started a second Run or Build on top of the first. Now one question, `App::activity()`, answers for the toolbar, the Run menu, the File menu's Build and Cmd+R together.

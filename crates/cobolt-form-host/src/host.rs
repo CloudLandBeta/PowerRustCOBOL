@@ -5761,6 +5761,9 @@ impl FormHost {
                     vp_ui.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                     close_requested = true;
                 }
+                // A rounded child window ends at its arc for the window server
+                // too: its blur must not be a rectangle behind the corners.
+                round_os_window(vp_ui.ctx(), child.body.window_arc(vp_ui.ctx()));
                 // 049/051 — a child window whose form carries a SideMenu draws
                 // its own breadcrumb strip, so the rail keeps the Open/Collapsed
                 // control it has on every other surface. A form with no
@@ -5996,10 +5999,114 @@ pub(crate) fn sync_os_blur(frame: &eframe::Frame, want: bool) {
     }
 }
 
+/// What the host last gave the operating system for one window's arc.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ArcSent {
+    /// The window's outer frame in native points, rounded: x, y, width, height.
+    frame: [i32; 4],
+    /// The arc's radius in native points, in tenths of a point.
+    radius: i32,
+}
+
+/// Whether a window's arc is to be handed to the operating system now: the
+/// first time, when the window moved, was resized or changed its radius, and
+/// again once a second — a window closed and opened under the same viewport
+/// starts without it, and one found at no frame yet is looked for again.
+pub(crate) fn arc_due(
+    last: Option<(ArcSent, std::time::Instant)>,
+    now: ArcSent,
+    at: std::time::Instant,
+) -> bool {
+    match last {
+        None => true,
+        Some((sent, when)) => sent != now || at.saturating_duration_since(when) >= std::time::Duration::from_secs(1),
+    }
+}
+
+/// Round this window's own surface to its arc (macOS; see
+/// [`cobolt_os_blur::round_window`]). A rounded window is drawn round by the
+/// engine, and the window server blurs the desktop behind every pixel with any
+/// alpha at all: one faint pixel of a soft shadow outside the arc, and the
+/// blur behind that corner is a rectangle — the frosted block the docked
+/// PowerSpatial windows showed behind their corners (operator, 2026-11-22).
+/// Clipping the window's content to the arc leaves nothing to blur outside it,
+/// whatever is painted there. Called each frame by the window's own viewport;
+/// the work is done when the frame or the radius changed, and once a second.
+pub(crate) fn round_os_window(ctx: &egui::Context, arc: Option<cobolt_forms::paint::ContainerClip>) {
+    use std::cell::RefCell;
+    use std::time::Instant;
+    thread_local! {
+        static SENT: RefCell<HashMap<egui::ViewportId, (ArcSent, Instant)>> = RefCell::new(HashMap::new());
+    }
+    let Some((_, radius, _)) = arc else { return };
+    let Some(outer) = ctx.input(|i| i.viewport().outer_rect) else { return };
+    // The native calls take screen points; egui's are those over the zoom
+    // (`fit_window_group` zooms a group too large for the screen).
+    let zoom = ctx.zoom_factor() as f64;
+    let frame = (
+        outer.min.x as f64 * zoom,
+        outer.min.y as f64 * zoom,
+        outer.width() as f64 * zoom,
+        outer.height() as f64 * zoom,
+    );
+    let radius = radius as f64 * zoom;
+    let now = ArcSent {
+        frame: [frame.0.round() as i32, frame.1.round() as i32, frame.2.round() as i32, frame.3.round() as i32],
+        radius: (radius * 10.0).round() as i32,
+    };
+    let id = ctx.viewport_id();
+    let at = Instant::now();
+    if !arc_due(SENT.with(|s| s.borrow().get(&id).copied()), now, at) {
+        return;
+    }
+    if cobolt_os_blur::round_window(frame, radius) {
+        SENT.with(|s| s.borrow_mut().insert(id, (now, at)));
+    }
+}
+
+#[cfg(test)]
+mod arc_tests {
+    use super::{arc_due, ArcSent};
+    use std::time::{Duration, Instant};
+
+    fn sent(x: i32, radius: i32) -> ArcSent {
+        ArcSent { frame: [x, 40, 70, 348], radius }
+    }
+
+    /// A window's arc goes to the operating system when the window is new, when it
+    /// moved, was resized or changed its radius, and again once a second — and not
+    /// on every frame in between, where the lookup of the window would be the cost
+    /// of every redraw.
+    #[test]
+    fn a_windows_arc_is_handed_over_when_it_changes_and_once_a_second() {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let (shape, moved, rounder) = (sent(10, 350), sent(12, 350), sent(10, 400));
+        assert!(arc_due(None, shape, t0), "a window not yet rounded is rounded");
+        assert!(!arc_due(Some((shape, t0)), shape, at(16)), "the next frame, unchanged: nothing to do");
+        assert!(!arc_due(Some((shape, t0)), shape, at(999)), "and so for the rest of the second");
+        assert!(arc_due(Some((shape, t0)), moved, at(16)), "a window dragged is found at its new frame");
+        assert!(arc_due(Some((shape, t0)), rounder, at(16)), "a new radius reaches the window");
+        assert!(arc_due(Some((shape, t0)), shape, at(1000)), "after a second it is given again");
+        // A clock that stepped back (the sample is older than the one before) never panics.
+        assert!(!arc_due(Some((shape, at(500))), shape, t0));
+    }
+}
+
 impl FormHost {
     /// Whether this host's window wants the desktop behind it blurred.
     pub(crate) fn wants_os_blur(&self) -> bool {
         self.see_through && self.root.surface_theme.see_through()
+    }
+
+    /// The arc the host's own window is rounded with: the main form's while
+    /// the form fills the window, the shell's while it draws a pane in it.
+    pub(crate) fn os_window_arc(&self, ctx: &egui::Context) -> Option<cobolt_forms::paint::ContainerClip> {
+        if self.surface == Surface::Pane {
+            self.shell_window_arc(ctx)
+        } else {
+            self.root.window_arc(ctx)
+        }
     }
 
     /// Whether the shell's window wants the desktop behind it blurred: its
@@ -6045,6 +6152,7 @@ impl eframe::App for FormHost {
     // reactive refocus in `update_children`, which this path relies on.
     fn ui(&mut self, root_ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         sync_os_blur(frame, self.wants_os_blur());
+        round_os_window(root_ui.ctx(), self.os_window_arc(root_ui.ctx()));
         #[cfg(feature = "graphics")]
         crate::canvas::share_window_device(root_ui.ctx(), frame);
         self.ui_impl(root_ui);
