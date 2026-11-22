@@ -17203,6 +17203,17 @@ project has nothing to build, so its Debug still runs on the IDE's runtime.
 > produced the slow binary. The setting is gone. A `debug_compilation` line in an
 > older project file is ignored, and the next Build is optimised.
 
+**One Run or Build at a time.** While anything is running — the IDE's own runner,
+the debugger, a form started in its own window, a built program — the toolbar's
+**Run** and **Debug** buttons (and the same items in the **Run** menu, and
+`Cmd+R` / `Ctrl+R`) wait: they are greyed out, and the tooltip says `Running…`.
+While a Build is under way — or while the Preview of a Web or Mobile project is
+building its page or waiting for its Backend — **Build** waits as well, and the
+tooltip says `A build is already running`. The buttons come back the moment the
+Run or the Build ends; there is nothing to click to wake them up. **Stop** is
+available for as long as a Run is live or the Preview is starting or serving,
+and it stops every one of them: the form windows and the built programs too.
+
 ### Where your builds are kept (Settings ▸ Build Folder)
 
 A build is a real compile, and a compile needs somewhere to work. Besides the

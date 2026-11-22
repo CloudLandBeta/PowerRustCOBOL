@@ -2,6 +2,14 @@
 
 
 
+## 2.1.14 — 2026-11-22
+
+**Fix: the Run, Debug and Build buttons wait while a Run or a Build is under way, and work again when it ends.** The toolbar and the menus only looked at the IDE's own runner, so a Run started from the Preview (a Web or Mobile project), a form run in its own window, a Build in the background or a built program left Run enabled: a second click started a second Run or Build on top of the first. Now one question, `App::activity()`, answers for the toolbar, the Run menu, the File menu's Build and Cmd+R together.
+
+- **Run and Debug are disabled** while anything runs (the IDE's runner, the debugger, a form run in its own window, a built program) or builds (a Build in the background, the Preview building its page or waiting for its Backend); **Build is disabled** while a Build is under way. Each says why when you hover it (`A build is already running`, `Running…`; the strings existed in all six languages).
+- **They work again the moment it ends.** A finished process leaves the list at once, so nothing needs a click to wake up. **Stop** is enabled while a Run is live or the Preview is starting or serving, and now also stops the forms run in their own windows and the built programs, which it left running before.
+- **Test:** `run_waits_for_a_run_or_a_build_and_works_again_when_it_ends` covers idle, running, building, the Preview starting, the Preview serving and "it ended", for Run, Debug, Build and Stop.
+
 ## 2.1.13 — 2026-11-22
 
 **Fix: a Build with no runner stops instead of compiling PowerRustCOBOL with Cargo.** A Desktop Build puts the program into the PowerRustCOBOL runner (`prc-runner`, installed beside the IDE and `rcrun`) and compiles only the developer's code, in about a second. When it found no runner it quietly took the Cargo path instead, which compiles PowerRustCOBOL's own crates on the developer's machine: a Full Build of PowerCallOfDuty took 1 min 03 s and rebuilt `cobolt-runtime`, `cobolt-forms`, `cobolt-form-host`, `cobolt-media`, `cobolt-indexed` and `cobolt-graphics`. The same program built in 1.0 s with the runner supplied. The same happened on a clean Windows install of a release that carried no runner (2.0.613 and earlier do not; 2.1.12 is the first that does).

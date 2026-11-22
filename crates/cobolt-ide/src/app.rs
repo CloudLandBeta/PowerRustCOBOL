@@ -3654,6 +3654,25 @@ impl CoboltApp {
         }
     }
 
+    /// What is under way, for the Run, Debug, Build and Stop buttons and menu items — one answer,
+    /// so the toolbar and the menus never disagree (operator, 2026-11-22: Run is disabled while a
+    /// run or a build is under way and works again when it ends).
+    ///
+    /// A run is the console runner, a debug session, a project's form (`external_runs`) or a built
+    /// application (`built_runs`): the lists are reaped every frame, so a member is a live process.
+    /// A build is a project Build or a Run's build (`pending_build_rx`), or a Preview that is
+    /// building its page or waiting for its Backend, which is the part of a Web Run that takes
+    /// seconds and in which a second click only ever said "already under way". A Preview that
+    /// serves its page is not a build: Run may open it again, and Stop ends it.
+    fn activity(&self) -> crate::panels::toolbar::Activity {
+        let running = self.runner.is_running()
+            || self.debug_runner.is_running()
+            || !self.external_runs.is_empty()
+            || !self.built_runs.is_empty();
+        let building = self.pending_build_rx.is_some() || self.web_preview.building() || self.web_preview.awaiting_backend();
+        crate::panels::toolbar::Activity { running, building, stoppable: running || self.web_preview.active() }
+    }
+
     /// Whether the open project was last fully built by an OLDER
     /// PowerRustCOBOL than the one running.
     fn build_is_stale(&self) -> bool {
@@ -3692,6 +3711,23 @@ impl CoboltApp {
         self.web_preview.close();
         self.browser_confirm = None;
         self.runner.stop();
+        // A project's form and a built application are processes of their own. Run waits for them
+        // (`activity`), so Stop ends them too: a form that hangs must not leave Run disabled for
+        // good. The lists are cleared as a re-Run clears them; a remote debug session goes with them.
+        for run in &mut self.external_runs {
+            run.stop();
+        }
+        self.external_runs.clear();
+        for run in &mut self.built_runs {
+            run.stop();
+        }
+        self.built_runs.clear();
+        if self.debug_external {
+            self.debug_active = false;
+            self.debug_external = false;
+            self.debug_owner_form = None;
+            self.debugger.reset();
+        }
         self.output.push_status(crate::ui_text::ide("── Stop requested ──"));
     }
 
@@ -13508,7 +13544,7 @@ impl CoboltApp {
                 }
             }
             Item::BuildBinary => {
-                let building = self.pending_build_rx.is_some() || self.web_preview.building();
+                let building = !self.activity().may_build();
                 let build_label = if building {
                     "⏳ Building…"
                 } else if self.is_web_project() {
@@ -14965,7 +15001,7 @@ impl CoboltApp {
             self.do_save();
         }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::R)))
-            && !self.runner.is_running()
+            && self.activity().may_start()
         {
             self.do_run();
         }
@@ -17583,13 +17619,17 @@ impl eframe::App for CoboltApp {
                         }
                         crate::menu_layout::Menu::Run => {
                             ui.menu_button(tr.menu_run, |ui| {
-                                let busy = self.runner.is_running();
+                                let activity = self.activity();
                                 let run = ui.add_enabled(
-                                    !busy && menu_compilable,
+                                    activity.may_start() && menu_compilable,
                                     egui::Button::new(tr.menu_run_btn),
                                 );
                                 if !menu_compilable {
-                                    run.clone().on_hover_text(tr.tb_need_program);
+                                    run.clone().on_disabled_hover_text(tr.tb_need_program);
+                                } else if activity.building {
+                                    run.clone().on_disabled_hover_text(tr.tb_build_busy);
+                                } else if activity.running {
+                                    run.clone().on_disabled_hover_text(tr.tb_running);
                                 }
                                 if run.clicked() {
                                     self.do_run();
@@ -17598,7 +17638,7 @@ impl eframe::App for CoboltApp {
                                 // Debug was absent from this menu entirely — reachable
                                 // only from the toolbar, where it was also mis-gated.
                                 let dbg = ui.add_enabled(
-                                    !busy && menu_debuggable,
+                                    activity.may_start() && menu_debuggable,
                                     egui::Button::new(tr.tb_debug),
                                 );
                                 if !menu_debuggable {
@@ -17608,7 +17648,7 @@ impl eframe::App for CoboltApp {
                                     self.do_debug();
                                     ui.close();
                                 }
-                                if ui.add_enabled(busy, egui::Button::new(tr.menu_stop)).clicked() {
+                                if ui.add_enabled(activity.stoppable, egui::Button::new(tr.menu_stop)).clicked() {
                                     self.do_stop(); ui.close();
                                 }
                                 // WASM-012 T19 — where a Mobile project runs: choose, start, stop.
@@ -17673,10 +17713,11 @@ impl eframe::App for CoboltApp {
         // Save is additionally gated on there being something to save. Computed
         // before the call so it does not overlap the `&mut self.lang` borrow.
         let has_unsaved = self.has_unsaved_changes();
+        // Likewise before the call: it reads all of `self`, which `&mut self.lang` below forbids.
+        let activity = self.activity();
         match toolbar::show(
             root_ui,
             ctx,
-            &self.runner,
             &tr,
             &mut self.lang,
             compilable,
@@ -17684,7 +17725,7 @@ impl eframe::App for CoboltApp {
             debug_hint,
             has_active,
             has_unsaved,
-            self.pending_build_rx.is_some() || self.web_preview.building(),
+            activity,
             self.task_wizard.on,
         ) {
             ToolbarAction::ToggleTaskWizard => self.toggle_task_wizard(ctx),

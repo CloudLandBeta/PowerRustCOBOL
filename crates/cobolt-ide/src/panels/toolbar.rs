@@ -10,7 +10,32 @@ use egui::{Button, Color32, Context, Panel, RichText};
 
 use crate::i18n::{Language, Tr};
 use crate::panels::designer;
-use crate::runner::Runner;
+
+/// What is under way, as the toolbar and the Run menu read it (operator, 2026-11-22: the Run
+/// button is disabled while a run or a build is under way and works again when it ends — a second
+/// click used to be answered only by a line in the Output).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Activity {
+    /// A program, a project's form or a built application is running.
+    pub running: bool,
+    /// A build is under way, or a Preview is waiting for its Backend or building its page.
+    pub building: bool,
+    /// There is something for Stop to end: a run, or the Preview (starting or serving).
+    pub stoppable: bool,
+}
+
+impl Activity {
+    /// May another Run or Debug start? Not while one is running or a build is under way.
+    pub fn may_start(self) -> bool {
+        !self.running && !self.building
+    }
+
+    /// May a Build start? Every build of a project stages into one folder, so not while another
+    /// is under way. A running program does not stop it.
+    pub fn may_build(self) -> bool {
+        !self.building
+    }
+}
 
 type IconFn = dyn Fn(&mut Vec<egui::Shape>, egui::Rect, Color32);
 
@@ -33,7 +58,6 @@ fn toolbar_icon(ui: &mut egui::Ui, enabled: bool, toggled: bool, label: &str, ic
 pub fn show(
     panel_ui: &mut egui::Ui,
     ctx: &Context,
-    runner: &Runner,
     tr: &Tr,
     lang: &mut Language,
     compilable: bool,
@@ -46,16 +70,18 @@ pub fn show(
     // `has_unsaved`: true when a form designer, an editor tab, or the Settings
     // form has pending edits — gates Save only.
     has_unsaved: bool,
-    // `building`: a build is already running. Every build of a project stages
-    // into one folder and a full build empties it first, so a second build
-    // wrecks the first — the File menu has always greyed its Build item out
-    // while one runs, and this is the same rule on the button beside it.
-    building: bool,
+    // `activity`: what is under way. A build wrecks another one (every build of a
+    // project stages into one folder and a full build empties it first — the File
+    // menu has always greyed its Build item out while one runs), and Run and Debug
+    // wait for a run or a build to end: the same rule on the buttons.
+    activity: Activity,
     // `wizard_on`: the Task Wizard switch (spec 104), shown engaged while on.
     wizard_on: bool,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::None;
-    let busy = runner.is_running();
+    let Activity { running, building, stoppable } = activity;
+    let may_start = activity.may_start();
+    let may_build = activity.may_build();
     // Aurora Pastel draws each button as its own raised gradient pill
     // (`crate::aurora::pill`); every other theme keeps egui's buttons.
     let aurora = crate::aurora::active();
@@ -126,9 +152,9 @@ pub fn show(
 
             // ── Build binary ──────────────────────────────────────────────────
             let build_resp = if aurora {
-                crate::aurora::icon_pill(ui, compilable && !building, tr.tb_build, pills.build, &designer::icon_build)
+                crate::aurora::icon_pill(ui, compilable && may_build, tr.tb_build, pills.build, &designer::icon_build)
             } else {
-                icon_only(ui, compilable && !building, tr.tb_build, None, &designer::icon_build)
+                icon_only(ui, compilable && may_build, tr.tb_build, None, &designer::icon_build)
             };
             if build_resp.clicked() {
                 action = ToolbarAction::Build;
@@ -149,23 +175,28 @@ pub fn show(
 
             // ── Run (interpreted) ─────────────────────────────────────────────
             let run_resp = if aurora {
-                crate::aurora::icon_pill(ui, !busy && compilable, tr.tb_run, pills.run, &designer::icon_run)
+                crate::aurora::icon_pill(ui, may_start && compilable, tr.tb_run, pills.run, &designer::icon_run)
             } else {
-                icon_only(ui, !busy && compilable, tr.tb_run, Some(Color32::from_rgb(80, 200, 80)), &designer::icon_run)
+                icon_only(ui, may_start && compilable, tr.tb_run, Some(Color32::from_rgb(80, 200, 80)), &designer::icon_run)
             };
             if run_resp.clicked() {
                 action = ToolbarAction::Run;
             }
             crate::theme::flash_on_click(ui, &run_resp);
+            // Disabled, so `on_disabled_hover_text` (see the Build button): it says why.
             if !compilable {
-                run_resp.on_hover_text(tr.tb_need_program);
+                run_resp.on_disabled_hover_text(tr.tb_need_program);
+            } else if building {
+                run_resp.on_disabled_hover_text(tr.tb_build_busy);
+            } else if running {
+                run_resp.on_disabled_hover_text(tr.tb_running);
             }
 
             // ── Debug (right of Run; in a project, enabled once it has been built) ─
             let dbg_resp = if aurora {
-                crate::aurora::icon_pill(ui, !busy && debuggable, tr.tb_debug, pills.debug, &designer::icon_bug)
+                crate::aurora::icon_pill(ui, may_start && debuggable, tr.tb_debug, pills.debug, &designer::icon_bug)
             } else {
-                icon_only(ui, !busy && debuggable, tr.tb_debug, Some(Color32::from_rgb(200, 150, 80)), &designer::icon_bug)
+                icon_only(ui, may_start && debuggable, tr.tb_debug, Some(Color32::from_rgb(200, 150, 80)), &designer::icon_bug)
             };
             if dbg_resp.clicked() {
                 action = ToolbarAction::Debug;
@@ -177,9 +208,9 @@ pub fn show(
 
             // ── Stop ─────────────────────────────────────────────────────────
             let stop_resp = if aurora {
-                crate::aurora::icon_pill(ui, busy, tr.tb_stop, pills.stop, &designer::icon_stop)
+                crate::aurora::icon_pill(ui, stoppable, tr.tb_stop, pills.stop, &designer::icon_stop)
             } else {
-                icon_only(ui, busy, tr.tb_stop, Some(Color32::from_rgb(220, 80, 80)), &designer::icon_stop)
+                icon_only(ui, stoppable, tr.tb_stop, Some(Color32::from_rgb(220, 80, 80)), &designer::icon_stop)
             };
             if stop_resp.clicked() {
                 action = ToolbarAction::Stop;
@@ -218,7 +249,7 @@ pub fn show(
                 }
                 ui.separator();
 
-                if runner.is_running() {
+                if running {
                     ui.spinner();
                     ui.label(RichText::new(tr.tb_running).color(Color32::YELLOW));
                 }
@@ -310,6 +341,32 @@ mod tests {
     use super::*;
     use crate::panels::task_wizard::{catalogue, TASKS};
     use egui::{Event, PointerButton, Pos2, Rect};
+
+    /// Run and Debug wait for a run or a build, and work again once it ends (operator, 2026-11-22);
+    /// Build waits for a build only; Stop is for whatever there is to stop.
+    #[test]
+    fn run_waits_for_a_run_or_a_build_and_works_again_when_it_ends() {
+        let idle = Activity::default();
+        let running = Activity { running: true, stoppable: true, ..idle };
+        let building = Activity { building: true, ..idle };
+        let starting_preview = Activity { building: true, stoppable: true, ..idle };
+        let serving_preview = Activity { stoppable: true, ..idle };
+        let rows = [
+            ("idle", idle, true, true),
+            ("a program or form is running", running, false, true),
+            ("a build is under way", building, false, false),
+            ("the Preview waits for its Backend or builds its page", starting_preview, false, false),
+            ("the Preview serves the page", serving_preview, true, true),
+            // The run or the build ended: nothing is under way, as in the first row.
+            ("it ended", Activity::default(), true, true),
+        ];
+        for (what, a, may_start, may_build) in rows {
+            println!("{what:<56} may_start {may_start:<5} may_build {may_build:<5} stoppable {}", a.stoppable);
+            assert_eq!(a.may_start(), may_start, "{what}: Run and Debug");
+            assert_eq!(a.may_build(), may_build, "{what}: Build");
+        }
+        assert!(!idle.stoppable && running.stoppable && starting_preview.stoppable && serving_preview.stoppable);
+    }
 
     /// One frame of the IDE as far as the switch goes: the toolbar's right-to-left group,
     /// the app acting on what it reported, then the catalogue at the end of the frame —
