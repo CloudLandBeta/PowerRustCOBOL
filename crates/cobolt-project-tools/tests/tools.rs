@@ -311,7 +311,16 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
         .collect();
     assert_eq!(
         names,
-        ["list_files", "check", "describe", "set_definition", "regenerate", "add_to_project", "add_crate", "remove_crate", "build", "validate", "kb_lookup", "render_form", "run_form", "add_powerchat", "create_project", "open_project", "kb_search"]
+        [
+            "list_files", "check", "describe", "set_definition", "regenerate", "add_to_project", "add_crate", "remove_crate", "build", "validate",
+            "kb_lookup", "render_form", "run_form", "add_powerchat", "create_project", "open_project", "kb_search", "app_kb_search", "edit_indexed",
+            "read_file", "list_folder", "search_files", "write_file", "edit_file", "rename_file", "remove_file", "import_file", "write_gap_report",
+            "git", "apply_change_set", "project_settings", "set_project_settings", "sql_connections", "set_sql_connection", "remove_sql_connection",
+            "test_sql_connection", "save_project", "package_project", "upgrade_project", "run_project", "run_status", "stop_run", "start_backend",
+            "backend_status", "stop_backend", "start_web_preview", "run_mobile", "create_android_studio_project", "debug_start", "debug_breakpoints",
+            "debug_control", "debug_state", "project_kb_search", "project_kb_reindex", "indexed_records", "read_output", "read_diagnostics", "beautify",
+            "ide_settings", "set_ide_settings", "ide_state", "ide_picture", "ide_command", "ide_widget"
+        ]
     );
     let (check_text, is_err) = text_of(&replies[2]);
     assert!(!is_err);
@@ -330,25 +339,35 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
     );
 
     // No project: every PROJECT tool answers "no project open"; the knowledge
-    // tools need no project and still answer (spec 084).
+    // tools need no project and still answer (spec 084); the IDE-wide tools and the IDE's own
+    // windows need no project either, but they need the IDE itself, which a headless server
+    // is not (spec 084 R66, R69–R72), so they say so.
+    const KNOWLEDGE: [&str; 2] = ["kb_lookup", "kb_search"];
+    const IDE_ONLY: [&str; 8] =
+        ["ide_settings", "set_ide_settings", "ide_state", "ide_picture", "ide_command", "ide_widget", "read_output", "read_diagnostics"];
     let mut none = ProjectTools::new(HeadlessHost::new(dir.join("missing.project.toml"), "x"));
-    let (mut refused, mut knowledge) = (0, 0);
+    let (mut refused, mut knowledge, mut ide_only) = (0, 0, 0);
     for name in names.iter().filter(|n| **n != "create_project" && **n != "open_project") {
         let reply = exchange(
             &mut none,
             &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":{"path":"forms/MAIN-FORM.cfrm","name":"Button","query":"Button Caption"}}})],
         );
         let (t, is_err) = text_of(&reply[0]);
-        if name.starts_with("kb_") {
+        if KNOWLEDGE.contains(name) {
             assert!(!is_err && t.contains("\"found\":true"), "{name} answers without a project: {t}");
             knowledge += 1;
+        } else if IDE_ONLY.contains(name) {
+            assert!(is_err && t.starts_with(&format!("{name} needs PowerRustCOBOL AI running")), "{name}: {t}");
+            ide_only += 1;
         } else {
             assert!(is_err && t == "no project open", "{name}: {t}");
             refused += 1;
         }
     }
-    assert_eq!((refused, knowledge), (13, 2));
-    println!("serve: no project → {refused} project tools answered \"no project open\", {knowledge} knowledge tools answered");
+    assert_eq!((refused, knowledge, ide_only), (52, 2, 8));
+    println!(
+        "serve: no project → {refused} project tools answered \"no project open\", {knowledge} knowledge tools answered, {ide_only} IDE-only tools said they need the IDE"
+    );
 }
 
 #[test]

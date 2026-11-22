@@ -16,12 +16,14 @@
 //!   the gap grows to about 400 ms. It writes `Enabled` 0: the ticks stop.
 //! * **Snackbar** — a program writes `Text`, `Category`, `Timeout`, `Buttons` and `CornerRadius`, then calls `Show`: a
 //!   notification shows with that text, that category (`data-category`, and `role` alert for an error), that button, those
-//!   corners; with `Timeout` 0 it stays. A second `Show` with other values, `Timeout` 600 and two corners of its own: it
+//!   corners; with `Timeout` 0 it stays. A second `Show` with other values, `Timeout` 3000 and two corners of its own: it
 //!   shows beside the first, with its own text, category, corners and no button, and goes away on its own while the first
 //!   stays.
 //!
 //! The timings are wide bands (a tick of 100 ms is accepted from 90 to 260), because a page in a loaded machine is late,
-//! never early; the *order* of the three intervals is the claim.
+//! never early; the *order* of the three intervals is the claim. The second notification's `Timeout` is 3000 ms for the
+//! same reason: the page reads it after a round trip to the browser, and on a slow shared runner a shorter one (600 ms
+//! was used until 2.1.4) had already gone when the page looked, which is not what the test is about.
 //!
 //! With no Chrome on the machine (`CHROME` names one) the test says it was skipped, and why.
 
@@ -84,7 +86,7 @@ fn form() -> String {
         &[
             "MOVE \"Second note\" TO SNK-1::Text.",
             "MOVE \"Info\" TO SNK-1::Category.",
-            "MOVE 600 TO SNK-1::Timeout.",
+            "MOVE 3000 TO SNK-1::Timeout.",
             "MOVE \"\" TO SNK-1::Buttons.",
             "MOVE 2 TO SNK-1::CornerRadiusTopLeft.",
             "MOVE 30 TO SNK-1::CornerRadiusBottomRight.",
@@ -234,10 +236,10 @@ fn timer_and_snackbar_round_trip_their_properties_in_chrome() {
     check(second["radius"] == "2px 20px 30px 20px", format!("… second corners (2 top-left, 30 bottom-right, 20 elsewhere): {}", second["radius"]));
     check(second["buttons"] == serde_json::json!([]), format!("… second Buttons=\"\": {}", second["buttons"]));
 
-    sleep(&mut page, 1800);
+    sleep(&mut page, 3500);
     let later = page.eval(TOASTS).unwrap();
     let later = later.as_array().cloned().unwrap_or_default();
-    check(later.len() == 1 && later[0]["text"] == "Saved the order", format!("Timeout: the Timeout=600 notification went away, the Timeout=0 one stays ({} left: {})", later.len(), later.iter().map(|t| t["text"].to_string()).collect::<Vec<_>>().join(", ")));
+    check(later.len() == 1 && later[0]["text"] == "Saved the order", format!("Timeout: the Timeout=3000 notification went away, the Timeout=0 one stays ({} left: {})", later.len(), later.iter().map(|t| t["text"].to_string()).collect::<Vec<_>>().join(", ")));
 
     println!("AC4 non-visual (Chrome {}): Timer and Snackbar, {checked} checks, {} failed", exe.display(), failures.len());
     drop(page);

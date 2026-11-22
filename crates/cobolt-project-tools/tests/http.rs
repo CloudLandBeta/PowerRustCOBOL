@@ -114,8 +114,8 @@ fn http_transport_answers_every_row_of_the_table() {
     let list = json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}).to_string();
     let (code, body) = post(p, "/mcp", "", &list);
     let v: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(v["result"]["tools"].as_array().unwrap().len(), 17);
-    rows.push(("tools/list (7)", code));
+    assert_eq!(v["result"]["tools"].as_array().unwrap().len(), 64);
+    rows.push(("tools/list (64)", code));
 
     let note = json!({"jsonrpc":"2.0","method":"notifications/initialized"}).to_string();
     let (code, body) = post(p, "/mcp", "", &note);

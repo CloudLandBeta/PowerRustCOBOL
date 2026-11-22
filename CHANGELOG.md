@@ -2,6 +2,15 @@
 
 
 
+## 2.1.4 — 2026-11-22
+
+**Fix: the web-tests job of the all-platforms build is green again.** Run 45006174202 (`main` at 2.1.0, workflow *Build PowerRustCOBOL (all platforms)*) failed *web tests* on Linux, Windows and macOS in the step *Browser runner, module runner, goldens, agent tools and servers*. The previous run (`main` at 2.0.613's merge) had failed the same job (on macOS, whose log I read, with the same two tests); the run before that was green. Nothing in the product was wrong: two tests of the MCP server still counted the tools it had before 2.0.613, and one browser test of a Snackbar looked too late on a slow runner.
+
+- **The tool list (all three systems).** `http_transport_answers_every_row_of_the_table` expected 17 tools from `tools/list` and `tools_over_serve_list_check_refuse_paths_and_answer_no_project` pinned a list of 17 names; the server has listed 64 since 2.0.613 (the file tools, `git`, `apply_change_set`, the settings, SQL, run, Backend, debugger, Output and IDE tools). Both now expect the 64, in the server's order. The second test also called every tool with no project open and expected `no project open` from all but the two knowledge tools; the eight IDE-wide tools (`ide_settings`, `set_ide_settings`, `ide_state`, `ide_picture`, `ide_command`, `ide_widget`, `read_output`, `read_diagnostics`) need no project but need the running IDE, which a headless server is not, and answer that. The test now says so for each of them: 52 project tools answer `no project open`, 2 knowledge tools answer, 8 IDE-only tools say they need PowerRustCOBOL AI.
+- **The Snackbar test (macOS only).** `timer_and_snackbar_round_trip_their_properties_in_chrome` showed a second notification with `Timeout` 600 ms, then read the page after a round trip to Chrome; on the macOS runner the 600 ms were already over, so it found one notification, not two, and four of its 17 checks failed (the same test passed 17 of 17 on the same runner in the previous run). It could not be made to fail here, so the cause is read from the log, not reproduced. The second notification now has `Timeout` 3000 ms and the test waits 3500 ms before checking that it went away and the `Timeout` 0 one stayed; what it claims is unchanged.
+- **Results.** `cobolt-project-tools`, every test target, on macOS 27: 275 passed, 0 failed (the full run found the one red test above; after the change `tools` 16 of 16 and `http` 2 of 2; the Chrome test 17 of 17 in 13.6 s). Not run here: the Windows and Linux runners; the next dispatch of the workflow from `main` is the proof.
+- No Developer's Guide change: a test-only fix.
+
 ## 2.1.3 — 2026-11-22
 
 **Fix: the program-package test no longer fails on macOS 15 and 26 for a comparison nobody needs.** The first CI run that reached the step *Test the program package on this system's carrier* (run 58, `main` at 2.1.0, workflow *Build PowerRustCOBOL (all platforms)*) failed on both macOS jobs: `a_copy_of_this_test_carries_a_program_and_still_runs` passed 11 of its 13 checks on `macos-aarch64` (macOS 26.7.2) and on `macos-x86_64` (macos-15).
