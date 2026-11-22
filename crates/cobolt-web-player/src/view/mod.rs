@@ -319,6 +319,9 @@ pub struct UiState {
     pub viewer_docs: BTreeMap<usize, viewer::LoadedDoc>,
     /// The `Source` value already asked for, by control (a document is read once per value).
     pub viewer_src: BTreeMap<usize, String>,
+    /// The `LoadBytes` call already shown, by control (the control's `_LoadBytesSeq` when it was drawn): a document the
+    /// program supplied is drawn once per call.
+    pub viewer_bytes_seq: BTreeMap<usize, String>,
     /// The Mermaid diagrams the part has drawn (or failed to), by their source text (WASM-016 R13).
     pub mermaid: BTreeMap<String, MermaidState>,
     /// The SideMenu rail's state, an application-level preference that survives navigation (spec 049

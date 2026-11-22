@@ -16,7 +16,7 @@
 //!   prefix ([`VARYING_LEN_PREFIX`]) in front of each.
 
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead as _, BufReader, BufWriter, Read as _, Seek as _, SeekFrom, Write as _};
+use std::io::{BufReader, BufWriter, Read as _, Seek as _, SeekFrom, Write as _};
 
 use crate::files::RecordLayout;
 use crate::indexed::{status, OpenMode};
@@ -84,6 +84,37 @@ enum Handle {
 pub struct SequentialFile {
     handle: Handle,
     line_sequential: bool,
+}
+
+/// A record as one LINE SEQUENTIAL line, without its line end: the bytes the record holds, with the trailing
+/// white space removed. A record that is UTF-8 text is trimmed as text, as it always was; one that is not (a DOS
+/// exchange file in code page 850, a Windows-1252 one) keeps every byte as it is. A conversion to text there put
+/// U+FFFD (`EF BF BD`) in place of each byte above 127.
+fn line_of_record(record: &[u8]) -> &[u8] {
+    match std::str::from_utf8(record) {
+        Ok(text) => text.trim_end().as_bytes(),
+        Err(_) => {
+            let end = record
+                .iter()
+                .rposition(|b| !(b.is_ascii_whitespace() || *b == 0x0B))
+                .map_or(0, |at| at + 1);
+            &record[..end]
+        }
+    }
+}
+
+/// The next line of a LINE SEQUENTIAL file, its `\n` and `\r` taken off, or `None` at the end of the file. The
+/// bytes are not decoded: a line that is not UTF-8 is still a line (a `read_line` into a `String` refused it, and
+/// the `READ` answered status 30).
+fn read_line_bytes(r: &mut impl std::io::BufRead) -> std::io::Result<Option<Vec<u8>>> {
+    let mut line = Vec::new();
+    if r.read_until(b'\n', &mut line)? == 0 {
+        return Ok(None);
+    }
+    while matches!(line.last(), Some(b'\n' | b'\r')) {
+        line.pop();
+    }
+    Ok(Some(line))
 }
 
 impl SequentialFile {
@@ -187,16 +218,15 @@ impl SequentialFile {
         };
         // LINE SEQUENTIAL: newline-delimited text records.
         if self.line_sequential {
-            let mut line = String::new();
-            return match r.read_line(&mut line) {
-                Ok(0) => SeqRead::End,
-                Ok(_) => {
-                    while line.ends_with('\n') || line.ends_with('\r') {
-                        line.pop();
-                    }
+            return match read_line_bytes(r) {
+                Ok(None) => SeqRead::End,
+                // A national or UTF-8 field is text in the line and an image
+                // in the record; every other byte is the record's as it
+                // stands, whatever its code page.
+                Ok(Some(line)) => {
                     let bytes = match layout {
-                        Some(l) => l.line_to_image(line.as_bytes()),
-                        None => line.into_bytes(),
+                        Some(l) => l.line_to_image(&line),
+                        None => line,
                     };
                     SeqRead::Record { bytes, place: None }
                 }
@@ -256,8 +286,8 @@ impl SequentialFile {
             return None;
         };
         Some(if self.line_sequential {
-            let s = String::from_utf8_lossy(line.unwrap_or(record));
-            writeln!(w, "{}", s.trim_end())
+            w.write_all(line_of_record(line.unwrap_or(record)))
+                .and_then(|()| w.write_all(b"\n"))
         } else if varying {
             w.write_all(&(record.len() as u32).to_be_bytes())
                 .and_then(|()| w.write_all(record))

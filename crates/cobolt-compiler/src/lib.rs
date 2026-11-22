@@ -6795,7 +6795,7 @@ Without the clause, `.` is the decimal point and `,` groups digits, the usual wa
 - `FUNCTION LENGTH` counts characters (`PIC N(30)` → 30); `FUNCTION BYTE-LENGTH` counts storage (→ 60). `ULENGTH`, `USUBSTR(x, start, len)` count characters; `UPOS(x, n)` / `UWIDTH(x, n)` answer in bytes (0 when out of range); `UVALID(x)` is 0 or the position of the first ill-formed byte; `USUPPLEMENTARY(x)` is where the first character above U+FFFF starts, or 0. For a national argument, `UVALID` and `USUPPLEMENTARY` count UTF-16 code units.
 - `FUNCTION NATIONAL-OF(x [, cp])` reads bytes in a code page as characters; `FUNCTION DISPLAY-OF(n [, cp])` writes characters as bytes in one. `cp` is `"UTF-8"`/1208 (default), `"WINDOWS-1252"`/1252 or `"ISO-8859-1"`/819 — any other literal is a Check error; a character a single-byte page cannot hold becomes X'7F'. `UPPER-CASE`/`LOWER-CASE` of national or UTF-8 data follow Unicode.
 - `MOVE` fits by whole characters, also into `PIC X`; figuratives take the class's characters (`HIGH-VALUE` = U+FFFF national, U+10FFFF UTF-8); `JUSTIFIED RIGHT` works by character. Comparisons are by code point, padded with spaces, no collating sequence. `STRING` into, and `UNSTRING`/`INSPECT` of, a national or UTF-8 item count characters (POINTER, COUNT IN, TALLYING, BEFORE/AFTER). `INITIALIZE … REPLACING NATIONAL DATA BY N"…"` / `UTF-8 DATA BY U"…"`. `ACCEPT` into one reads UTF-8, or Windows-1252 when the bytes are not UTF-8.
-- A group, a `REDEFINES` and a record see the storage bytes; a national `RECORD KEY` orders by code point; a LINE SEQUENTIAL file holds the characters as UTF-8 text. A `.cidx` field may be `PIC N(n)` or `PIC U(n)`.
+- A group, a `REDEFINES` and a record see the storage bytes; a national `RECORD KEY` orders by code point; a LINE SEQUENTIAL file holds the characters as UTF-8 text, and every other byte of the record as it stands (a byte above 127 from `FUNCTION CHAR` is written and read back as that byte; a line that is not UTF-8 is still a record). `FUNCTION CHAR(n)` is the single byte at position n (`CHAR(200)` is X'C7'). A `.cidx` field may be `PIC N(n)` or `PIC U(n)`.
 - A form property is text: `MOVE TXT-NAME::Text TO WS-NAME` (`PIC N(40)`) and `MOVE WS-NAME TO LBL-OUT::Caption` keep every character.
 - Check refuses: arithmetic on a national or UTF-8 item; `USAGE NATIONAL` without `PIC N`, `USAGE UTF-8` without `PIC U`; `BYTE-LENGTH` other than on a single `PIC U`; a VALUE longer than the item; national numeric (`PIC 9 USAGE NATIONAL`) and national-edited pictures, which are not supported yet.
 
@@ -10214,7 +10214,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         "Viewer" => vec![
             (
                 "LoadBytes(data: String)",
-                "Open a document from bytes your program already holds, instead of from a file (`Source`). The format is resolved from the CONTENT, so a PDF, a PNG or Markdown all open correctly without a filename to go on. A COBOL item is fixed-length: `PIC X(100)` holding 42 characters delivers 100, padded — size the item to the document.",
+                "Open a document from bytes your program already holds, instead of from a file (`Source`). The format is resolved from the CONTENT, so a PDF, a PNG or Markdown all open correctly without a filename to go on. A COBOL item is fixed-length: `PIC X(100)` holding 42 characters delivers 100, padded — size the item to the document. In a Web or Mobile application it takes the TEXT of a plain-text, Markdown or HTML document (raising `onLoaded`); a PDF or an image cannot travel as text, so it raises `onError` and `LastError` says to make it a file of the application and set `Source`.",
             ),
             (
                 "SaveAs(path: String)",
@@ -11924,7 +11924,7 @@ fn methods_reference_doc() -> String {
             "Viewer (spec 058)",
             "A document viewer: text, Markdown, images, PDF and an HTML subset, with Find, Save As, Print, split view and — under `Layout = Streamed` — an append-only chatbot conversation surface. Decoding runs off the UI thread. Every property is readable and writable too (`View1X`/`View2X` per view, with the plain names aliasing the FIRST view), so nothing here is reachable only by mouse.",
             &[
-                ("LoadBytes(data: String)", "Open a document from bytes instead of a path; the format is resolved from the content."),
+                ("LoadBytes(data: String)", "Open a document from bytes instead of a path; the format is resolved from the content. On the web it takes the text of a text, Markdown or HTML document."),
                 ("SaveAs(path: String)", "Write the source's ORIGINAL bytes to `path` — a copy, never a re-encode. `onSaveComplete`, or `onError` with `LastError`."),
                 ("SaveAsPdf(path: String)", "Write the conversation (`Streamed`) or a Markdown/text document as a PDF with its formatting; no argument opens the Save panel with `conversation.pdf` proposed. `onSaveComplete`, `onSaveCancelled`, or `onError` with `LastError`."),
                 ("Print()", "Hand the document to the OS print path. `onPrintComplete`/`onPrintCancelled` — from what the OS reported."),

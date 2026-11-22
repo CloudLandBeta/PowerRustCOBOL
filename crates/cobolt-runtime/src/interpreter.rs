@@ -16312,14 +16312,22 @@ impl Interpreter {
             }
             // ── Character / ordinal ───────────────────────────────────────────
             "ORD" => {
-                let s = self.eval_expr(&args[0], span)?.as_display_string();
-                let b = s.bytes().next().unwrap_or(0);
+                // The first BYTE of the argument: a byte above 127 is its own
+                // ordinal, not the lead byte of its U+FFFD (`as_display_string`
+                // would have replaced it).
+                let v = self.eval_expr(&args[0], span)?;
+                let b = match &v {
+                    CobolValue::String { bytes, .. } => bytes.first().copied().unwrap_or(0),
+                    other => other.as_display_string().bytes().next().unwrap_or(0),
+                };
                 Ok(CobolValue::from_i64(b as i64 + 1)) // 1-based ordinal
             }
             "CHAR" => {
+                // The one byte at that position of the collating sequence. A
+                // `char` of the same number would be U+0080 and up, which is two
+                // bytes of UTF-8, and a one-byte item kept only the first.
                 let n = self.eval_expr(&args[0], span)?.as_i64().unwrap_or(1);
-                let s = ((n.clamp(1, 256) - 1) as u8 as char).to_string();
-                Ok(CobolValue::from_str(&s, 1))
+                Ok(CobolValue::String { bytes: vec![(n.clamp(1, 256) - 1) as u8], capacity: 1 })
             }
             "ORD-MAX" | "ORD-MIN" => {
                 // The *position*, so which of several equal arguments wins is

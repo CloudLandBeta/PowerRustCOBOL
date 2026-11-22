@@ -520,7 +520,9 @@ impl RecordLayout {
                     CobolValue::Numeric(CobolNumeric::new(mantissa, f.decimals)),
                 );
             } else {
-                env.set_str(&key, &String::from_utf8_lossy(slice));
+                // The bytes as they stand: a byte above 127 that is not UTF-8
+                // (a code page's letter) stays that byte instead of U+FFFD.
+                env.set_bytes(&key, slice);
             }
         }
     }
