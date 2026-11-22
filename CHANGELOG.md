@@ -2,6 +2,16 @@
 
 
 
+## 2.1.3 — 2026-11-22
+
+**Fix: the program-package test no longer fails on macOS 15 and 26 for a comparison nobody needs.** The first CI run that reached the step *Test the program package on this system's carrier* (run 58, `main` at 2.1.0, workflow *Build PowerRustCOBOL (all platforms)*) failed on both macOS jobs: `a_copy_of_this_test_carries_a_program_and_still_runs` passed 11 of its 13 checks on `macos-aarch64` (macOS 26.7.2) and on `macos-x86_64` (macos-15).
+
+- **What failed, and what did not.** The two failing checks compared our hand-written ad hoc signature with what `codesign -s -` writes for the same file: *its CodeDirectory is the one codesign writes (same CDHash)* and *codesign -s - of it gives the same file, byte for byte*. On both runners the two CodeDirectories had the same version (0x20400), size (4687 bytes on Apple silicon, 18287 on Intel), flags and page count, and a different CDHash. Everything that matters passed there: `codesign --verify --strict` accepted our file, the packaged copy ran, and its four parts read back checked. The comparison passes on this Mac (macOS 27.2.1), which is why it was not seen earlier: the signer writes what the newest `codesign` writes, and the older ones write something else.
+- **Fix.** The comparison is reported, no longer asserted. The test now requires, on every macOS, that `codesign -s -` can sign the file again (the layout is one Apple's tool accepts) and that what it writes verifies with `--strict`; the checks stay at 13. When the two files are not identical the report says where they differ: the lengths, then up to eight runs of differing bytes, each placed by file offset or, inside the signature, by the CodeDirectory field it falls in (`flags`, `executable segment base`, `page size`, a hash …), with the first bytes on each side. The next CI run will therefore say what macOS 15 and 26 write differently.
+- **New test `the_report_of_a_different_signature_names_where_it_differs`:** 6 of 6 cases (a difference before the signature, in the flags, in the executable segment, the limit on listed runs with the totals still complete, equal files, different lengths); `cobolt-program-package` 4 + 7 passed, 0 failed on macOS 27 (the round trip 13 of 13, identical to `codesign`'s file there).
+- **Not verified here.** The failure happens only on macOS 15 and 26, which this machine is not: the two new hard checks passed in my run on macOS 27 and were not run on the runners. That `codesign -s -` signs the file again was visible in the failing log (no `FAILED` mark on that line); that its output verifies was not. If a runner refuses either, the CI log now says which.
+- **Numbering.** 2.1.2 is the PowerOficina data fix on `main`.
+
 ## 2.1.2 — 2026-11-22
 
 **Fix: PowerOficina opens with its data.** Opened on a machine with no earlier installation (a clean Windows PC, reported 2026-11-22), the example showed every screen and the Dashboard empty.

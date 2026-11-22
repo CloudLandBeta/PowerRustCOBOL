@@ -9,7 +9,9 @@
 //! The round trip packages a copy of this test's own executable on this system's carrier (Mach-O
 //! here on macOS, an overlay on Linux and Windows), writes it, reads the payload back from the
 //! file, and runs the copy: the copy reads its own payload through `current_exe`, as the runner
-//! will. On macOS `codesign --verify --strict` must accept it, and the kernel must run it.
+//! will. On macOS `codesign --verify --strict` must accept it, the system's `codesign` must be able
+//! to sign it again, and the kernel must run it. Whether our signature is byte for byte what a
+//! given macOS's `codesign` writes is reported, with where the files differ, and not asserted.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -89,6 +91,75 @@ fn field<'a>(text: &'a str, key: &str) -> &'a str {
     text.lines().find_map(|l| l.strip_prefix(key)).unwrap_or("?").trim()
 }
 
+/// The CodeDirectory header's fields by their offset in the structure (all of it big-endian).
+fn cd_field(at: usize) -> &'static str {
+    match at {
+        0..=3 => "magic",
+        4..=7 => "length",
+        8..=11 => "version",
+        12..=15 => "flags",
+        16..=19 => "hash offset",
+        20..=23 => "identifier offset",
+        24..=27 => "special slots",
+        28..=31 => "code slots",
+        32..=35 => "code limit",
+        36 => "hash size",
+        37 => "hash type",
+        38 => "platform",
+        39 => "page size",
+        40..=43 => "spare",
+        44..=47 => "scatter offset",
+        48..=51 => "team offset",
+        52..=55 => "spare",
+        56..=63 => "code limit 64",
+        64..=71 => "executable segment base",
+        72..=79 => "executable segment limit",
+        80..=87 => "executable segment flags",
+        _ => "identifier, special slot or page hash",
+    }
+}
+
+/// Where two files differ, for the report of a signature that verifies but is not the one the
+/// system's `codesign` writes: the lengths, then at most `limit` runs of differing bytes, each with
+/// its place (a file offset before the signature, or an offset into the signature and the
+/// CodeDirectory field it falls in) and the first bytes on each side, then the totals.
+fn differences(ours: &[u8], theirs: &[u8], limit: usize) -> Vec<String> {
+    const SIGNATURE: [u8; 4] = [0xfa, 0xde, 0x0c, 0xc0];
+    const SUPERBLOB_HEADER: usize = 12 + 3 * 8;
+    let mut out = Vec::new();
+    if ours.len() != theirs.len() {
+        out.push(format!("  lengths differ: ours {} bytes, codesign's {} bytes", ours.len(), theirs.len()));
+    }
+    let signature = ours.windows(4).rposition(|w| w == SIGNATURE);
+    let shared = ours.len().min(theirs.len());
+    let (mut runs, mut total, mut i) = (0usize, 0usize, 0usize);
+    while i < shared {
+        if ours[i] == theirs[i] {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < shared && ours[i] != theirs[i] {
+            i += 1;
+        }
+        runs += 1;
+        total += i - start;
+        if runs <= limit {
+            let place = match signature {
+                Some(s) if start >= s + SUPERBLOB_HEADER => {
+                    format!("signature +{} (CodeDirectory +{}: {})", start - s, start - s - SUPERBLOB_HEADER, cd_field(start - s - SUPERBLOB_HEADER))
+                }
+                Some(s) if start >= s => format!("signature +{} (its header)", start - s),
+                _ => format!("file offset {start}, before the signature"),
+            };
+            let shown = (i - start).min(16);
+            out.push(format!("  differs at {place}: {} byte(s); ours {}, codesign's {}", i - start, hex(&ours[start..start + shown]), hex(&theirs[start..start + shown])));
+        }
+    }
+    out.push(format!("  {runs} run(s) of differing bytes, {total} byte(s) in all{}", if runs > limit { format!(" (the first {limit} are listed)") } else { String::new() }));
+    out
+}
+
 #[test]
 fn a_copy_of_this_test_carries_a_program_and_still_runs() {
     if std::env::var(CHILD).is_ok() {
@@ -144,11 +215,27 @@ fn a_copy_of_this_test_carries_a_program_and_still_runs() {
         if !resigned {
             signing.push(text);
         }
+        // What has to hold on every macOS: the system's own `codesign` signs the file again, which
+        // means the layout is one Apple's tool accepts, and what it writes verifies. Whether our
+        // CodeDirectory is byte for byte the one a given release writes is NOT a requirement, and
+        // it was asserted here until 2026-11-22: the first CI run found macOS 15 and macOS 26 write
+        // something other than macOS 27 does (same version, size and page count, another CDHash),
+        // while both of them verified ours with --strict and ran it. It is reported instead, with
+        // where the two files differ, so a change of what `codesign` writes can be seen and judged.
+        checks.push(("codesign -s - signs it again".into(), resigned));
+        let (resigned_verifies, _) = codesign(&["--verify", "--strict", "-v"], &copy);
+        checks.push(("what codesign -s - writes for it verifies too".into(), resigned_verifies));
         let same = field(&ours, "CDHash=") == field(&theirs, "CDHash=");
-        checks.push(("its CodeDirectory is the one codesign writes (same CDHash)".into(), same));
-        let identical = std::fs::read(&copy).unwrap() == packed;
-        checks.push(("codesign -s - of it gives the same file, byte for byte".into(), identical));
-        signing.push(format!("the file codesign -s - writes for it is {} ours", if identical { "byte for byte" } else { "NOT" }));
+        let written = std::fs::read(&copy).unwrap();
+        let identical = written == packed;
+        signing.push(format!(
+            "its CodeDirectory is {} the one this system's codesign writes; the file codesign -s - writes for it is {} ours",
+            if same { "(CDHash) the same as" } else { "NOT (CDHash) the same as" },
+            if identical { "byte for byte" } else { "NOT" }
+        ));
+        if !identical {
+            signing.extend(differences(&packed, &written, 8));
+        }
     }
 
     let t = Instant::now();
@@ -195,6 +282,36 @@ fn a_copy_of_this_test_carries_a_program_and_still_runs() {
     }
     if !run.status.success() {
         println!("child stderr: {}", String::from_utf8_lossy(&run.stderr));
+    }
+    assert_eq!(passed, checks.len());
+}
+
+#[test]
+fn the_report_of_a_different_signature_names_where_it_differs() {
+    let t = Instant::now();
+    let mut ours = vec![0u8; 300];
+    ours[100..104].copy_from_slice(&[0xfa, 0xde, 0x0c, 0xc0]); // where the signature starts
+    let mut theirs = ours.clone();
+    theirs[10] ^= 1; // before the signature
+    theirs[100 + 36 + 13] ^= 0xff; // the CodeDirectory's flags
+    theirs[100 + 36 + 64] = 9; // its executable segment base
+    theirs[100 + 36 + 120] ^= 1; // a hash, far past the header
+    let report = differences(&ours, &theirs, 3).join("\n");
+    let mut checks: Vec<(&str, bool)> = Vec::new();
+    checks.push(("a difference before the signature is placed by file offset", report.contains("file offset 10, before the signature")));
+    checks.push(("a difference in the CodeDirectory names its field (flags)", report.contains("CodeDirectory +13: flags")));
+    checks.push(("a difference in the executable segment names it", report.contains("CodeDirectory +64: executable segment base")));
+    checks.push(("only `limit` runs are listed, the totals count them all", report.contains("4 run(s) of differing bytes, 4 byte(s) in all (the first 3 are listed)")));
+    checks.push(("two files that agree report no run", differences(&ours, &ours, 3).join("\n").contains("0 run(s)")));
+    checks.push(("a different length is said first", differences(&ours, &ours[..250], 3)[0].contains("lengths differ: ours 300 bytes, codesign's 250 bytes")));
+    let passed = checks.iter().filter(|c| c.1).count();
+    println!("── the_report_of_a_different_signature_names_where_it_differs ──");
+    println!("{report}");
+    println!("{} cases in {:.2} ms: {passed} of {} passed", checks.len(), ms(t), checks.len());
+    for (name, ok) in &checks {
+        if !ok {
+            println!("  FAIL {name}");
+        }
     }
     assert_eq!(passed, checks.len());
 }
