@@ -2,6 +2,14 @@
 
 
 
+## 2.1.12 — 2026-11-22
+
+**Feature: WASM-038 migrates Mobile data when an update turns the encryption setting on or off.** The operator answered point (4) of Q11: an application whose update changes the setting converts the data its earlier version wrote the other way, rather than refusing to open it. Specification only: no code and no documentation moved.
+
+- **New R24 and AC18:** at the first open the shell converts the file or SQLite database to the form the setting now asks for, with the records, their order, their keys and the content unchanged; the old form stays intact until the new one is complete, so a crash or a refusal leaves the data as it was; with no room for the conversion the open fails as R15 says (FILE STATUS 34 or an SQLCODE); the open waits as any waiting statement and the program is not told.
+- **A correction to 2.1.11:** it said that with the setting off the encryption code is not linked into the shell. That cannot hold once data is migrated, because an update that turns the setting off must still read what an earlier version wrote encrypted. The encryption code now stays in every build that has local storage, behind the storage's Cargo feature (Q2). R23 and AC17 say so.
+- **Q11:** (1) and (4) are decided; (2), the key against a restored backup, now carries the recommendation that a store whose key is missing opens as a file that cannot be opened and is left untouched; (3), data shipped inside the application, is open. Q1, Q3 and Q4 are open as before.
+
 ## 2.1.11 — 2026-11-22
 
 **Feature: WASM-038 makes the encryption at rest of Mobile local storage a project setting, on by default.** The operator answered the first point of Q11 (2.1.10): the encryption is not always on, it is a setting on the Mobile page of Project Settings, and it is on by default. Specification only: no code and no documentation moved.
