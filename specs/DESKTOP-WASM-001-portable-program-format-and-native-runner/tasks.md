@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program (DESKTOP-WASM-001)
 
-- **Status:** implementing since 2026-11-14. F1–F3 and T1–T12 are done (2.0.483–2.0.497, with the fix 2.0.492 found by T8): every task of M0, and the first four of M1. The CI dispatches of T4 and T7 are owed until their workflows are on `main`.
+- **Status:** done, 2026-11-21 (2.0.643). F1-F3 and T1-T54 are done: M0 to M6 are closed (M6 at 2.0.640) and T54 checked the acceptance criteria. What is owed is not a task: the four CI workflows can only be dispatched from `main`, so seven criteria stay open on their other platforms (`./spec.md` §5, `specs/WASM-PROGRESS.md`).
 - **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-14
 - **Branch:** `features-2x-desktop-wasm` (feature), cut from `main` at 2.0.484. The spec commits were copied onto `main` (2.0.478–2.0.482), and `features-2x-wasm-program-format` is kept as it was. The two fixes F1 and F2 went on `fixes-2x-wasm-emit-order`, cut from `main`, and are in `main`.
 
@@ -2292,7 +2292,7 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
     - **The Developer's Guide** (`docs/developers-guide-en.md`): §17 gains the Build's flags and environment (`rcrun build --cargo`, `--no-machine-code`, `PRC_RUNNER`); §18 gains "Two ways a Build makes your program" (a diagram of the Build's choice, the report's wording, the Project Settings, what each path needs on the machine, what takes the Cargo path and what to do about each, the SQL descriptor's limit, the measured figures, and screenshot placeholders); §3's first-run Rust check says Build needs Rust only on the Cargo path. Every label and claim was read against the source (the Build path options, the Viewer's report trigger, the refused constructs). The measured figures are the M6 close's. Audience: COBOL developers; no Rust. **The five translations do not exist** (`ls docs/developers-guide-*.md` finds the English file only), so there is nothing to delete.
     - **The System KB:** the compiler's "The Build" section lists the residual (a call to a Backend, the Data Binding verbs, the phone's secure store, the program-level database's `Mode`; a sign-in control, a bound control, a control naming a data item, a chart naming its table's fields; and the language extensions the generator does not compile yet, with the report printed into a Viewer and the form-only built-ins of a program with no form) and no longer says the Viewer is unserved (it has been served since T50). The statement table gains `CALL … WITH WEBSOCKET LINKAGE`, and the generated "What runs in a browser module" section shows it. `cargo run -p cobolt-ide --example build_chunked_kb` was run (4 430 records from 8 documents, 15 720 448 bytes), and **`prebuilt_chunked_kb_matches_the_published_documentation` is green.**
 
-- [ ] **T54 — Finalize**
+- [x] **T54 — Finalize**
   - Do:
     - Check off the ACs in `spec.md` with the evidence named in `WASM-PROGRESS.md`. Set the status to done here and in the spec.
     - Before the commit, quarantine untracked program files in other languages and run the credential scan.
@@ -2301,6 +2301,30 @@ Each task here moves its controls out of the `DesktopControl` fallback. It is ve
     - The player `--lib` green.
     - `rcrun` builds.
     - The four CI workflows (`build-goal`, `pixel-parity`, `desktop-wasm`, `build-all-platforms`) dispatched once and recorded.
+  - *Closed 2026-11-21 (2.0.643), the operator away. Three of the four Verify bullets are met as written; the fourth cannot be done from this branch, and 7 of the 20 acceptance criteria stay open for that reason alone (below).*
+    - **The sweep, crate by crate** (`cargo test --no-fail-fast` for each of the 39 workspace members, `--lib`, `--bin`, each `--test` in groups of 12 and `--doc`, every `test result:` line read; `-j 3` at `nice 15`; 121.3 min on the 11-core M3 Pro). The single command `cargo test --workspace --no-fail-fast` was not run, for two reasons: the disk (18 GB machine; the ~190 test executables of the whole workspace do not fit at once, so the driver removed each batch's executables after it ran) and because the workspace did not build under it at the start, the `leaderboard_prototype` example having failed to compile since 2026-11-08 (fixed at 2.0.642; `cargo check --workspace --all-targets` is now green, exit 0). **First sweep: 33 crates clean, 6 with failures; 8 925 tests passed, 12 failed, 58 ignored.**
+    - **The 12 failures and what became of each** (none is in the generator, the runner, the module format or the Build; the first six were tests the WebAssembly work had left stale and are fixed at 2.0.641, one is environmental, five stay):
+
+      | # | Test | Crate | Cause | State |
+      |---|---|---|---|---|
+      | 1 | `builtins::tests::the_table_is_every_builtin_the_interpreter_dispatches` | `cobolt-runtime` | the model-list built-ins are dispatched from `model_door.rs`, which the test did not read | fixed, 2.0.641 |
+      | 2 | `every_row_names_an_operation_the_runtime_has` | `cobolt-runtime` | the Viewer's operations are dispatched from `viewer_door.rs`, which the test did not read | fixed, 2.0.641 |
+      | 3 | `the_loader_the_player_and_the_program_run_together_under_node` | `cobolt-web-bundle` | WASM-PARITY #69 (2.0.572): a subscript outside its table no longer traps; the run-time error that traps is a PERFORM nested 512 deep, error 1106 | fixed, 2.0.641 |
+      | 4 | `the_scenario_project_runs_in_every_cell_of_the_matrix_in_chrome` | `cobolt-web-bundle` | same, `matrix_chrome.rs` expected 1100 | fixed, 2.0.641 |
+      | 5 | `every_part_of_the_bundle_against_the_recorded_size` | `cobolt-web-bundle` | the recorded sizes (`size-ledger.json`) predate the growth of the player (+7.6 %) and the scenario's module (about +10 %) while M2 to M5 landed | re-recorded, 2.0.641 |
+      | 6 | `acceptance_on_the_real_build_in_the_headless_helper_008` | `cobolt-ide` | the Preview's hello form made its failure with an out-of-range subscript (same #69) | fixed, 2.0.641 |
+      | 7 | `web::devbackend::tests::a_port_in_use_is_seen` | `cobolt-project-tools` | environmental: the test frees a port and asserts it free again at once; another process on the machine took it in between (assertion at `devbackend.rs:238`); passes alone | none; passes on re-run |
+      | 8 | `docs_embed::tests::every_document_ships_in_every_language` | `cobolt-ide` | GOLDEN RULE #8: the translations of the documents changed since the last regeneration are deleted until the operator raises x or y | open, by rule (not this work's) |
+      | 9 | `the_example_holds_no_secret_and_checks_and_builds` | `cobolt-web-tests` | the operator's untracked `examples/*/agentic_ai/**/skills/agent-object.md` contains `APIKey`; the test scans the whole example folder | open, the operator's files |
+      | 10 | `http_transport_answers_every_row_of_the_table` | `cobolt-project-tools` | the test expects `tools/list` to answer 17 tools; it answers 64 since `b5369e76` (2.0.613) | open, stale since 2.0.613, not this work's |
+      | 11 | `tools_over_serve_list_check_refuse_paths_and_answer_no_project` | `cobolt-project-tools` | the test expects the 17 names of its list; the server answers the longer list since `b5369e76` | open, same cause |
+      | 12 | `the_ide_runs_the_backend_as_a_child_and_links_none_of_the_server` | `cobolt-server` | the IDE's closure links `tungstenite` (client side, through `cobolt-project-tools`' browser driver), which the guard bars with the server's crates | open, **needs the operator's ruling** |
+
+    - **After the fixes: 5 failures, 8 932 passed** (the first sweep's figures adjusted by the re-runs of the seven that turned green; the 2-hour sweep was not repeated). Each of the five is named above with its cause; these five are the known reds of this branch.
+    - **The player `--lib` is green:** `cargo test -p cobolt-web-player --lib`, 215 passed, 0 failed. **`rcrun` builds** (`cargo build -p cobolt-cli`, exit 0). **`cargo check --workspace --all-targets` is green** (exit 0, 1 min 4 s).
+    - **Before the commit:** no untracked program file in another language (`.py .sh .js .ts .rb .pl .php .lua .awk .jq .ps1 .bat`) exists in the repo, so nothing was moved to the quarantine; the credential scan ran clean on every commit of this close (2.0.640 to 2.0.643); no example `.cfrm` or `agent.json` of the operator's was staged.
+    - **The four CI workflows were not dispatched, and cannot be from here.** GitHub runs a `workflow_dispatch` from the repository's default branch, so `build-goal.yml`, `pixel-parity.yml`, `desktop-wasm.yml` and `build-all-platforms.yml` can only be started once this work is in `main`; this machine has no `gh` and no token. This is not a task left undone but the evidence the specification waits for: **7 acceptance criteria (AC1, AC2, AC3, AC6, AC13, AC18, AC19) keep their local half met and recorded and stay unchecked**, each with the reason in `spec.md` §5 and in the audit of `specs/WASM-PROGRESS.md`. The other 13 are checked, each with its evidence. The operator's step: merge into `main`, dispatch the four once outside the push window, paste each result block under the audit table, tick the seven.
+    - **Decisions taken here for the project's long term** (the operator being away): (1) the seven criteria are left unchecked rather than ticked on one platform's evidence; (2) the failing tests that were the WebAssembly work's own staleness are fixed at once, as fixes on their own commit, never inside a feature commit; (3) the five reds that are not this work's (translations by rule #8, the operator's files, the 2.0.613 tool list, the `tungstenite` guard) are not touched, and the guard's question is left to the operator: the recommendation is to allow the client-only `tungstenite` the browser driver uses while keeping `tokio-tungstenite` and the server crates barred (the guard's purpose is that the IDE does not link the server), or to move the driver out of the IDE's closure.
 
 ## Acceptance criteria → tasks
 
@@ -2342,3 +2366,5 @@ This spec is done when:
 - the System KB is regenerated and the Developer's Guide describes the finished Build, with its translations deleted;
 - F1 and F2 landed as fix commits on their own branch, and every feature task as a feature commit on `features-2x-wasm-program-format`, each with its own `z` and CHANGELOG entry, pushed outside the forbidden window;
 - nothing was merged into `main` without the operator asking.
+
+*At 2.0.643 (T54): every item above holds except the first, whose seven open criteria wait for the four CI workflows, which only run from `main` (see T54), and the sweeps are green apart from five reds that are not this work's.*

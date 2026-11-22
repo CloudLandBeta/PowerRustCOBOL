@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Plan — The WebAssembly module as the portable program format: native builds without a Rust toolchain per program
 
-- **Status:** accepted by the operator, 2026-11-13 (2.0.481). Broken into tasks 2026-11-14 (2.0.482, `./tasks.md`), which refines §1.2's order and §7's guide item.
+- **Status:** implemented, 2026-11-21 (2.0.643; M0 to M6 closed, `./tasks.md`); the four-platform CI evidence of seven acceptance criteria is owed (`./spec.md` §5). Accepted by the operator, 2026-11-13 (2.0.481). Broken into tasks 2026-11-14 (2.0.482, `./tasks.md`), which refines §1.2's order and §7's guide item.
 - **Spec:** ./spec.md   **Date:** 2026-11-13
 - **Branch:** `features-2x-desktop-wasm` (2.x), cut from `main` at 2.0.484. The plan was written on `features-2x-wasm-program-format`.
 - **Ground truth:** read 2026-11-13 at `8142a5ad` (2.0.480). File:line references are to that tree.
