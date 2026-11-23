@@ -125,10 +125,10 @@ jobs:
             "$wix/heat.exe" dir "$stage" -cg AppFiles -gg -scom -sreg -sfrag -srd -dr INSTALLFOLDER -var var.SourceDir -out "work/$3.files.wxs"
             "$wix/candle.exe" -arch x64 -ext WixUIExtension -ext WixUtilExtension \
               -dVer="$1" -dRustVersion="$RELEASE_RUST" -dPrcDll=target-setup/release/cobolt_setup.dll \
-              -dSourceDir="$stage" -out "wixobj/$3-" crates/cobolt-setup/wix/product.wxs "work/$3.files.wxs"
+              -dSourceDir="$stage" -out "wixobj/$3/" crates/cobolt-setup/wix/product.wxs "work/$3.files.wxs"
             "$wix/light.exe" -sval -ext WixUIExtension -ext WixUtilExtension \
               -cultures:en-us -loc crates/cobolt-setup/wix/prc-strings.wxl \
-              "wixobj/$3-product.wixobj" "wixobj/$3-$3.files.wixobj" -o "work/$3.msi"
+              "wixobj/$3/product.wixobj" "wixobj/$3/$3.files.wixobj" -o "work/$3.msi"
             ls -l "work/$3.msi"
           }
           build 9.9.1 6 v1

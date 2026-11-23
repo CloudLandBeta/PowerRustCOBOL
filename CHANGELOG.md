@@ -2,6 +2,12 @@
 
 
 
+## 2.1.34 — 2026-11-23
+
+**Feature (spec 112, task T13): the installer check gives `candle` an output folder.** `.github/workflows/installer-check.yml`.
+
+- The first run of the check on a Windows runner built the library, checked its exports and composed the artwork, then stopped at `candle` (`CNDL0001`: it was given two source files and a single output file name). Each package now compiles into its own folder (`wixobj/<variant>/`), as the release workflow already does, and `light` reads the objects from there. Nothing about the installer itself changed.
+
 ## 2.1.33 — 2026-11-23
 
 **Feature (spec 112, task T13 written, T14 done): the setup's page, actions and sequence are in the installer's source, and a workflow installs the real `.msi` to prove them.** `crates/cobolt-setup/wix/` (new), `.github/workflows/build-all-platforms.yml`, `.github/workflows/installer-check.yml` (new), `crates/cobolt-setup`, `crates/cobolt-ide/src/prepare.rs`.
