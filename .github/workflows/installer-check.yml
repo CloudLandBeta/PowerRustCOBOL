@@ -150,6 +150,10 @@ jobs:
       - name: Helpers
         run: |
           cat > work/check.sh <<'EOF'
+          # Git Bash rewrites an argument that starts with two slashes, and one with a star in it (/l*v) is left
+          # half-way: msiexec took that for a bad command line and showed its help box, which nobody answers on a
+          # runner. Nothing here is a path to be rewritten (they come from cygpath), so no argument is.
+          export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
           failed=0
           pass() { echo "PASS  $1"; }
           fail() { echo "FAIL  $1"; failed=$((failed + 1)); }
@@ -157,27 +161,33 @@ jobs:
           check() { local d="$1"; shift; if "$@"; then pass "$d"; else fail "$d"; fi; }
           not() { ! "$@"; }
           # is a program of this name running?
-          running() { tasklist //FI "IMAGENAME eq $1" | grep -qi "$1"; }
+          running() { tasklist /FI "IMAGENAME eq $1" | grep -qi "$1"; }
           STUB_LOG="/c/Program Files/PowerRustCOBOL/prepare_stub.log"
           RESULT="$TEMP/prc-prepare-result.txt"
           # what the stand-in step recorded, one line per run, and how many lines that is
           stub_log() { tr -d '\r' < "$STUB_LOG" 2>/dev/null; }
           lines_of() { local n; n=$(stub_log | grep -c . ); echo "${n:-0}"; }
+          # ...and how many of them are preparation steps (the example copy is not one: it runs on every execution)
+          steps_of() { local n; n=$(stub_log | grep -c -- '--step' || true); echo "${n:-0}"; }
           # does line <n> of the stand-in step's log contain <text>?
           line_has() { stub_log | sed -n "$1p" | grep -q -- "$2"; }
           result_has() { tr -d '\r' < "$RESULT" 2>/dev/null | grep -q -- "$1"; }
           # install <msi> <log> <cancel after seconds | never> <text to count from | -> [PROP=value ...]: prints the exit code
           install() {
             local msi="$1" log="$2" after="$3" marker="$4"; shift 4
-            timeout 600 target-setup/release/examples/drive_msi.exe "$(cygpath -aw "work/$msi")" "$(cygpath -aw "work/$log")" "$after" "$marker" "$@" > "work/$log.out" 2>&1
-            echo $?
+            local status=0 code
+            timeout 600 target-setup/release/examples/drive_msi.exe "$(cygpath -aw "work/$msi")" "$(cygpath -aw "work/$log")" "$after" "$marker" "$@" > "work/$log.out" 2>&1 || status=$?
+            # A shell keeps eight bits of an exit code (1602 arrives as 66), so the real code is read from the
+            # driver's own summary line; the shell's is only the answer when the driver never got that far.
+            code=$(sed -n 's/^drive_msi: MsiInstallProductW returned \([0-9]*\) .*/\1/p' "work/$log.out" | tail -1)
+            echo "${code:-$status}"
           }
           # A removal that does not return is a finding, not a reason to hold the job: it is given four minutes, and
           # when it does not finish the log says what was running and how far Windows Installer got.
           uninstall() {
             local rc=0
             echo "uninstalling $1"
-            timeout 240 msiexec //x "$(cygpath -aw "work/$1")" //qn '//l*v' "$(cygpath -aw "work/$1.uninstall.log")" || rc=$?
+            timeout 240 msiexec /x "$(cygpath -aw "work/$1")" /qn '/l*v' "$(cygpath -aw "work/$1.uninstall.log")" || rc=$?
             echo "uninstall of $1 returned $rc"
             if [ "$rc" = 124 ]; then
               echo "---- the removal did not finish in 240 s; what is running"
@@ -188,7 +198,15 @@ jobs:
           }
           clean_machine() { rm -rf "/c/Program Files/PowerRustCOBOL" "$LOCALAPPDATA/PowerRustCOBOL" "$TEMP/prc-prepare-result.txt" "$TEMP/prc-prepare-cancel.txt"; }
           # the lines of an install's log that are the setup's own
-          what_the_log_said() { grep -a 'PRC:' "work/$1" | cut -c1-240 || true; }
+          # (the setup's own lines reach the driver's handler for certain; whether the installer also writes them
+          # to the log is what the first runs did not show, so a check reads both, and the report names both)
+          heard() { cat "work/$1" "work/$1.out" 2>/dev/null | tr -d '\r\0'; }
+          said() { heard "$2" | grep -aq -- "$1"; }
+          said_count() { heard "$2" | grep -a -c -- "$1" || true; }
+          what_the_log_said() {
+            echo "(in the log)"; tr -d '\r\0' < "work/$1" | grep -a 'PRC:' | cut -c1-240 || true
+            echo "(heard by the driver)"; tr -d '\r\0' < "work/$1.out" | grep -a 'PRC:' | cut -c1-240 || true
+          }
           EOF
 
       # The bundle (T19) around the first package, built exactly as the release workflow builds it: its own step, so
@@ -203,6 +221,10 @@ jobs:
           "$wix/candle.exe" -arch x64 -ext WixBalExtension \
             -dVer=9.9.1 -dMsiFile=work/v1.msi -dBuildToolsExe=work/prc-buildtools.exe \
             -out wixobj/bundle/ crates/cobolt-setup/wix/bundle.wxs
+          # Are the two strings bundle.wxl replaces ones WixStdBA has? (How many times its own file names each.)
+          for id in InstallLicenseLinkText InstallAcceptCheckbox; do
+            echo "$id is named $(tr -d '\0' < "$wix/WixBalExtension.dll" | grep -a -c "$id" || true) time(s) by the extension"
+          done
           "$wix/light.exe" -ext WixBalExtension -cultures:en-us -loc crates/cobolt-setup/wix/bundle.wxl \
             wixobj/bundle/bundle.wixobj -o work/setup.exe
           ls -l work/setup.exe
@@ -220,11 +242,11 @@ jobs:
           echo "---- the folder after the install"; ls -A "/c/Program Files/PowerRustCOBOL"
           check "the install returned 0 (got $rc)" test "$rc" = 0
           check "PowerRustCOBOL.exe is installed" test -f "/c/Program Files/PowerRustCOBOL/PowerRustCOBOL.exe"
-          check "the facts were gathered (PrcFacts ran in the execute sequence)" grep -aq 'PRC: facts' work/A.log
+          check "the facts were gathered (PrcFacts ran in the execute sequence)" said 'PRC: facts' A.log
           check "no preparation step ran: the stand-in step's log holds one line ($(lines_of))" test "$(lines_of)" = 1
           check "that one line is the example copy" line_has 1 '--seed-examples'
           check "no cache was made" not test -e "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target"
-          check "no room on the bar was asked for (PrcTicks did not run)" not grep -aq 'ticks added to the progress bar' work/A.log
+          check "no room on the bar was asked for (PrcTicks did not run)" not said 'ticks added to the progress bar' A.log
           exit $failed
 
       - name: "B. PREPARE_PLATFORM=1: Rust, then the compile, then the example copy"
@@ -244,8 +266,8 @@ jobs:
           check "the compile ran second, told the build folder" line_has 2 '--step compile .*--build-root .*PowerRustCOBOL.builds'
           check "the example copy ran last (a Cancel then leaves no project behind)" line_has 3 '--seed-examples'
           check "the cache was made and marked as the setup's" test -f "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target/.prepared-by-setup"
-          check "the bar was given its 1000 ticks, Rust 50 and compile 950" grep -aq 'ticks added to the progress bar (Rust 50, compile 950)' work/B.log
-          check "both steps ended with exit code 0" test "$(grep -a -c 'the step ended after .* with exit code 0' work/B.log)" -ge 2
+          check "the bar was given its 1000 ticks, Rust 50 and compile 950" said 'ticks added to the progress bar (Rust 50, compile 950)' B.log
+          check "both steps ended with exit code 0" test "$(said_count 'the step ended after .* with exit code 0' B.log)" -ge 2
           check "the result file says Rust is done" result_has 'step=rust status=ok'
           check "the result file says Release is done" result_has 'step=release status=ok'
           check "the result file says Debug is done" result_has 'step=debug status=ok'
@@ -256,12 +278,12 @@ jobs:
         timeout-minutes: 8
         run: |
           source work/check.sh
-          before=$(lines_of)
+          before=$(steps_of)
           rc=$(install v1.msi C.log never - PREPARE_PLATFORM=1)
           echo "---- the facts and the steps, as the supervisor logged them"; what_the_log_said C.log
           check "the install returned 0 (got $rc)" test "$rc" = 0
-          check "no step ran again ($before lines before, $(lines_of) after)" test "$(lines_of)" = "$before"
-          check "the facts were not gathered for a product that is installed" not grep -aq 'PRC: facts' work/C.log
+          check "no preparation step ran again ($before before, $(steps_of) after)" test "$(steps_of)" = "$before"
+          check "the facts were not gathered for a product that is installed" not said 'PRC: facts' C.log
           exit $failed
 
       - name: "D. A newer version over it: prepared again, and the old version is named"
@@ -273,7 +295,7 @@ jobs:
           rc=$(install v2.msi D.log never - PREPARE_PLATFORM=1)
           echo "---- the facts and the steps, as the supervisor logged them"; what_the_log_said D.log
           check "the install returned 0 (got $rc)" test "$rc" = 0
-          check "the facts name the version it replaces" grep -aq 'previous_version: Some("9.9.1")' work/D.log
+          check "the facts name the version it replaces" said 'previous_version: Some("9.9.1")' D.log
           check "the steps ran again: three more lines ($before before, $(lines_of) after)" test "$(lines_of)" = "$((before + 3))"
           exit $failed
 
@@ -289,7 +311,7 @@ jobs:
           echo "---- the driver's summary"; tail -3 work/E.log.out | cut -c1-240
           check "the install ended with 1602, cancelled by the user (got $rc)" test "$rc" = 1602
           check "the cache the setup made was removed by the rollback" not test -e "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target"
-          check "the rollback said so" grep -aq 'PRC: rollback: the setup created .* and removed it' work/E.log
+          check "the rollback said so" said 'PRC: rollback: the setup created .* and removed it' E.log
           check "the program was rolled back (no PowerRustCOBOL.exe left)" not test -e "/c/Program Files/PowerRustCOBOL/PowerRustCOBOL.exe"
           check "the stand-in step is not running" not running PowerRustCOBOL.exe
           check "the example copy never ran: the log holds the Rust step and the compile only ($(lines_of))" test "$(lines_of)" = 2
@@ -308,7 +330,7 @@ jobs:
           echo "---- the facts and the steps, as the supervisor logged them"; what_the_log_said E2.log
           check "the install ended with 1602 (got $rc)" test "$rc" = 1602
           check "the developer's cache is still there" test -f "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target/warm/9.0.0"
-          check "the rollback said it was there before and stays" grep -aq 'PRC: rollback: .* was there before this setup and stays' work/E2.log
+          check "the rollback said it was there before and stays" said 'PRC: rollback: .* was there before this setup and stays' E2.log
           clean_machine
           exit $failed
 
@@ -323,7 +345,7 @@ jobs:
           clean_machine
           rm -f "$TEMP/prc-buildtools.log"
           rc=0
-          timeout 600 work/setup.exe //quiet //norestart //log "$(cygpath -aw work/F.log)" PREPARE_PLATFORM=1 || rc=$?
+          timeout 600 work/setup.exe /quiet /norestart /log "$(cygpath -aw work/F.log)" PREPARE_PLATFORM=1 || rc=$?
           echo "the bundle returned $rc"
           echo "---- the Build Tools program's log"; tr -d '\r' < "$TEMP/prc-buildtools.log" 2>/dev/null | cut -c1-240 || echo "(none)"
           echo "---- what the stand-in step was run with"; stub_log | cut -c1-260

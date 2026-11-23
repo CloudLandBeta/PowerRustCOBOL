@@ -55,6 +55,7 @@ mod imp {
     static PROGRESS: AtomicU32 = AtomicU32::new(0);
     static CANCELS_SENT: AtomicU32 = AtomicU32::new(0);
 
+    const INFO: u32 = 0x0400_0000;
     const ACTIONSTART: u32 = 0x0800_0000;
     const ACTIONDATA: u32 = 0x0900_0000;
     const PROGRESS_KIND: u32 = 0x0A00_0000;
@@ -114,7 +115,14 @@ mod imp {
                 return 2; // IDCANCEL
             }
         }
-        1 // handled
+        // The setup's own lines ("PRC: ...") are INFO messages, meant for the log. Answering "handled" for them is
+        // not what `msiexec` does, and the first runs on a hosted machine found none of them in the log, so they
+        // get the installer's own handling.
+        if class == INFO {
+            0
+        } else {
+            1 // handled
+        }
     }
 
     fn wide(text: &str) -> Vec<u16> {

@@ -665,16 +665,29 @@ fn the_bundles_page_asks_for_microsofts_terms_and_says_what_setup_will_do() {
             "bundle.wxl no longer overrides {id}"
         );
     }
+    // WiX 3 takes a string's words as the element's text; a `Value` attribute is WiX 2's and `light` refuses it
+    // (LGHT0107, which the first runner build of the bundle showed).
+    assert!(
+        !BUNDLE_WXL.contains(" Value="),
+        "a loc string carries its words as element text, not as a Value attribute"
+    );
     assert!(
         BUNDLE_WXL.contains("&lt;a href=&quot;#&quot;&gt;"),
         "the paragraph needs the link WixStdBA opens (the bundle's LicenseUrl)"
     );
-    for what in [
-        "Microsoft C++ build tools",
-        "downloads and installs them",
-        "about 2 GB",
-    ] {
+    for what in ["Microsoft C++ build tools", "downloads and installs them"] {
         assert!(BUNDLE_WXL.contains(what), "the page lost: {what}");
+    }
+    // The sizes the page says are the sizes the `.msi`'s page says: one place, `figures`.
+    use crate::figures::{human, FIGURES};
+    for size in [
+        human(FIGURES.build_tools_download_bytes),
+        human(FIGURES.build_tools_installed_bytes),
+    ] {
+        assert!(
+            BUNDLE_WXL.contains(&size),
+            "bundle.wxl does not say {size}, the figure in force"
+        );
     }
 }
 

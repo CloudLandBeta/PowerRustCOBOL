@@ -2,6 +2,16 @@
 
 
 
+## 2.1.36 — 2026-11-23
+
+**Feature (spec 112, tasks T13, T17 and T19): the bundle's text file is written the way WiX 3 reads it, the installer check stops tripping on its own shell, and the Developer's Guide says what the Windows setup now does.** `crates/cobolt-setup/wix/bundle.wxl`, `crates/cobolt-setup/src/installer.rs`, `crates/cobolt-setup/examples/drive_msi.rs`, `.github/workflows/installer-check.yml`, `docs/developers-guide-en.md`, `.claude/skills/installer-look/SKILL.md`.
+
+- **What the first full run of 2.1.35 on a Windows runner showed.** `light` refused the bundle's text file (`LGHT0107`: the `Value` attribute is not declared; WiX 3 takes a string's words as the element's text), so the bundle was never built and scenario F had nothing to run. The removal of the first package hung for four minutes: Git Bash left the star-bearing switch `//l*v` half-way rewritten, `msiexec` took it for a bad command line and opened its help box, which nobody answers on a runner; every scenario after B then ran on top of the installed first package (B's install ended after 0.3 s). A cancelled install showed as exit code 66, which is 1602 with the shell's eight bits. Scenario C counted the example copy as a preparation step, and no line the setup writes to the install log (`PRC: ...`) was found.
+- **The bundle's text file.** Each string is the element's text. A guard test refuses a `Value` attribute in it, and another reads the two sizes the page states (1.5 GB to download, 6 GB on disk) from `figures`, the place the `.msi`'s page takes them from.
+- **The installer check.** No argument is rewritten by the shell any more (`MSYS2_ARG_CONV_EXCL`), and the removal, the bundle and `tasklist` use single-slash switches. The real code of an install is read from the driver's summary line, not from the shell's eight bits. Scenario C compares the preparation steps it ran, not every line of the stand-in's log. A check on the setup's own lines reads the install log and the driver's output, and the report names both. The driver no longer answers "handled" to the installer's information messages (what `msiexec` does with them is the installer's own handling), and the bundle step prints whether WixStdBA names the two strings the file replaces.
+- **Documentation.** The Developer's Guide has a section for the Windows setup: what it asks, what it prepares, what Cancel does, what a silent install does, and the bundle that installs Microsoft's C++ build tools first; the `installer-look` skill names the bundle and its text file.
+- **Not run yet:** the bundle's `light` (the next run is the first that can reach it), scenarios B to F with a real removal between them, the bundle's page (interactive), and the branch where the tools are absent.
+
 ## 2.1.35 — 2026-11-23
 
 **Feature (spec 112, task T19 written): the setup is also a bundle that installs Microsoft's C++ build tools first, and the installer check no longer waits on a hung removal.** `crates/cobolt-setup/src/buildtools.rs` and `buildtools/system.rs`, `src/bin/prc_buildtools.rs`, `crates/cobolt-setup/wix/bundle.wxs` and `bundle.wxl` (new), `.github/workflows/build-all-platforms.yml`, `.github/workflows/installer-check.yml`.

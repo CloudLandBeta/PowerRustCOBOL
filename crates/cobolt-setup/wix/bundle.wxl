@@ -8,6 +8,6 @@
   (the bundle's LicenseUrl), and the box that accepts them. ASCII only.
 -->
 <WixLocalization Culture="en-us" xmlns="http://schemas.microsoft.com/wix/2006/localization">
-  <String Id="InstallLicenseLinkText" Value="If this computer has no Microsoft C++ build tools, setup first downloads and installs them from Microsoft (about 2 GB), then installs PowerRustCOBOL AI. Microsoft's &lt;a href=&quot;#&quot;&gt;license terms&lt;/a&gt; apply to them." />
-  <String Id="InstallAcceptCheckbox" Value="I accept Microsoft's &amp;license terms" />
+  <String Id="InstallLicenseLinkText">If this computer has no Microsoft C++ build tools, setup first downloads and installs them from Microsoft (roughly 1.5 GB to download and 6 GB on disk), then installs PowerRustCOBOL AI. Microsoft's &lt;a href=&quot;#&quot;&gt;license terms&lt;/a&gt; apply to them.</String>
+  <String Id="InstallAcceptCheckbox">I accept Microsoft's &amp;license terms</String>
 </WixLocalization>

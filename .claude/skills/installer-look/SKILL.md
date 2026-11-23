@@ -88,7 +88,10 @@ artwork is pinned to a light right-hand panel with the mascot on the left —
 the mirror of the agreed look. This was tried, shipped in 1.65.112, and
 rejected.
 
-So the two screens carrying the big bitmap are authored in the workflow:
+So the two screens carrying the big bitmap are authored by us, in
+`crates/cobolt-setup/wix/product.wxs` (a file since spec 112, built by the
+release workflow and by `installer-check.yml`; until then it was a heredoc in the
+workflow, and a guard test, `crates/cobolt-setup/src/installer.rs`, now reads it):
 
 - **`PrcWelcomeDlg`** — wordmark, `THE NEXT GENERATION COBOL RAD IDE` in ember,
   the welcome copy, the version bottom-left. All `Transparent="yes"` over the
@@ -103,13 +106,38 @@ error and maintenance dialogs — reached through the same sequence
 `WixUI_InstallDir` uses, copied into our `<UI Id="PrcUI">`. Do not fork more
 dialogs than the two that need it.
 
+**One more screen is ours, and it is not a picture: `PrcPrepareDlg`** (spec 112),
+the page that asks whether to prepare the platform (a radio group, *Prepare now*
+or *Skip*, and the text of what that costs in a multiline `Edit` bound to
+`PRC_TEXT`: a `ScrollableText` cannot expand a property). It is **banner style
+like the stock dialogs**, sits between the install folder and the ready dialog,
+and is reached only when `PRC_NEED` is set, so a machine with nothing to prepare
+never sees it. Its words come from `PrcFacts` (`crates/cobolt-setup`), which is
+why they are not in the WXS. The finish page (`PrcExitDlg`) now also shows
+`[PRC_RESULT]`, what was prepared and what was not.
+
+**The `.msi` is not the whole Windows installer any more.** The file a developer
+downloads is `PowerRustCOBOL-<version>-windows-x86_64-setup.exe`, a WiX Burn
+bundle (`crates/cobolt-setup/wix/bundle.wxs`) that installs Microsoft's C++ build
+tools first when the machine has none (they cannot be installed from inside the
+`.msi`: Windows Installer runs one installation at a time) and then runs this
+same `.msi`, which is still published alone. The bundle's own page is WixStdBA's
+stock licence-link page with two strings replaced (`bundle.wxl`), **not** the
+dark mascot look; a themed one is a separate piece. The `.msi` keeps its own
+wizard inside it (`DisplayInternalUI`).
+
 Details that matter:
 
 - New `TextStyle` **ids** (`PrcMark`, `PrcSub`, `PrcTitle`, `PrcBody`, `PrcVer`).
   Redefining `WixUI_Font_Normal` collides with `WixUI_Common`.
 - `<UIRef Id="WixUI_Common" />` supplies the common dialogs and fonts; our
   `<InstallUISequence>` `Show` overrides its exit dialog.
-- `candle`/`light` need `-ext WixUIExtension -ext WixUtilExtension`.
+- `candle`/`light` need `-ext WixUIExtension -ext WixUtilExtension`, and `light`
+  takes `-cultures:en-us -loc crates/cobolt-setup/wix/prc-strings.wxl`, which
+  replaces the one WixUI string the setup rewrites (the cancel confirmation,
+  `CancelDlgText`, which WixUI marks overridable). `candle` with several sources
+  and one `-out` fails (`CNDL0001`): give `-out` a folder ending in a slash.
+  The bundle takes `-ext WixBalExtension` and `-loc bundle.wxl`.
 - The licence screen needs an **RTF**, generated from the repository's own
   `LICENSE` at build time. Apache-2.0 is pure ASCII, so the only escaping is
   RTF's own three metacharacters.

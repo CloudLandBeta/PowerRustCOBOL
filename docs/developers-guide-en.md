@@ -171,7 +171,7 @@ platform SDK.
 
 | Your machine | Installer | Archive |
 | --- | --- | --- |
-| Windows 10 / 11, 64-bit | `.msi` — double-click, or `msiexec /i … /quiet` to deploy it silently | `.zip` |
+| Windows 10 / 11, 64-bit | `-setup.exe` — double-click; it also installs Microsoft's C++ build tools first when the computer has none (see [Windows: let the setup get everything ready](#windows-let-the-setup-get-everything-ready)). The same installer without that step is the `.msi`, for `msiexec /i … /quiet` and managed deployments | `.zip` |
 | Macs with Apple Silicon | `.dmg` — drag PowerRustCOBOL to Applications | `.tar.gz` |
 | Intel Macs | `.dmg` | `.tar.gz` |
 | Debian, Ubuntu, Mint and relatives | `.deb` — `sudo apt install ./PowerRustCOBOL-*.deb` | `.tar.gz` |
@@ -231,6 +231,125 @@ file or create a full **project** (recommended — see §6).
 
 From a terminal you can also drive everything headlessly with `rcrun` (see §17),
 which is what continuous-integration pipelines use.
+
+### Windows: let the setup get everything ready
+
+Some builds cannot start from nothing. A **Debug** build, a program with an
+`EXEC RUST` block and a project that brings its own crates all go through
+**Cargo**, and Cargo needs three things on your machine before it compiles a
+single line of yours: the **Rust** toolchain, the **C++ build tools** that
+supply the linker (see *Rust is installed and Build still cannot finish*, below),
+and PowerRustCOBOL's own parts, compiled once for your computer. Without the
+setup's help the first such build stops to ask permission and then spends
+somewhere between ten minutes and an hour compiling.
+
+On Windows the setup can do all of that **once, while you watch a progress page
+and have a coffee**, so your first Debug build compiles only your program.
+It never starts without your yes, and it never takes anything away from the
+install if you say no.
+
+```mermaid
+flowchart TD
+    A["Run PowerRustCOBOL-…-setup.exe"] --> B{"C++ build tools<br/>on this computer?"}
+    B -- "no" --> C["Setup downloads Microsoft's installer,<br/>checks that Microsoft signed it,<br/>installs the tools and waits"]
+    B -- "yes" --> D
+    C --> D["The wizard: licence, folder"]
+    D --> E{"Already prepared<br/>for this version?"}
+    E -- "yes: no page is shown" --> G["Files are installed"]
+    E -- "no" --> F{"Your choice on the<br/>preparation page"}
+    F -- "Skip" --> G
+    F -- "Prepare now" --> H["Files are installed"]
+    H --> I["Rust 1.95.0 installed,<br/>if it is not there"]
+    I --> J["PowerRustCOBOL's platform compiled:<br/>release, then debug"]
+    J --> K["Finish page: what was prepared<br/>and what was not"]
+    G --> K
+```
+
+> 📷 **Screenshot needed** — `setup-prepare-page.png`. Run the `.msi` wizard on a
+> machine where Rust is not installed; capture the **preparation page** after the
+> install folder page, with *Prepare now* selected and the text showing the time
+> and the disk space.
+
+**The page.** After you choose the install folder, the wizard shows a page that
+says, in plain words, what is about to happen and why, how long it takes, how
+much disk it uses, and what you give up by skipping. *Prepare now* is already
+selected. *Skip* installs exactly what a setup without this page always
+installed. The page is not shown at all when this version is already prepared
+for you (a repair or a reinstall). When a disk is too small it says which one and
+by how much, and offers only *Skip*. When the C++ build tools are missing — which
+the `-setup.exe` normally prevents — it says that nothing can be prepared until
+they are installed, and where to get them.
+
+**What *Prepare now* does**, after the program's files are in place:
+
+1. **Rust.** If Rust 1.95.0 — the exact release PowerRustCOBOL is built with —
+   is not installed for you, the setup installs it with the official `rustup`.
+   Rust you already have stays as it is.
+2. **The platform.** It compiles PowerRustCOBOL's parts for the release and the
+   debug profiles into your own shared build cache. The progress page names the
+   step, the part being compiled and the time spent, with a line at least every
+   ten seconds. It runs at normal priority: this is the "full speed" in the page's
+   promise, so expect the computer to be busy for the whole time.
+3. **The example projects** are copied last, so cancelling never leaves one behind.
+
+When it ends, the finish page says either that PowerRustCOBOL AI is prepared, or
+which part was not done and why.
+
+> **Note — the bundle and the `.msi`.** The `-setup.exe` is a small bootstrapper
+> that runs the `.msi` after making sure the C++ build tools are there. Windows
+> Installer runs only one installation at a time and Microsoft's own installer
+> cannot run inside another one, which is why the build tools are installed
+> *before* the `.msi` starts and not by it. Its first page says what it will do,
+> links Microsoft's license terms and asks you to accept them; if you already have
+> the C++ build tools it downloads nothing. The `.msi` on its own never installs
+> the build tools: it tells you they are missing and where to get them.
+
+**Cancelling.** Pressing **Cancel** during the preparation asks you to confirm,
+and says what it will do: the whole installation is cancelled, PowerRustCOBOL's
+files are removed as in any cancelled install, and the build cache is removed
+*only if this setup created it* — a cache you already had stays where it is.
+Whatever the setup installed from outside (Rust, Microsoft's C++ build tools)
+stays installed.
+
+**When something fails** — no network, a full disk, a compile that stops — the
+install is still complete. The finish page lists what was not done and why, no
+mark is written for what did not finish, and the first Debug or `EXEC RUST` build
+asks its usual question and compiles then.
+
+**Silent installs.** `msiexec /i PowerRustCOBOL-….msi /qn` installs the files
+and nothing else. To prepare the platform in a silent install, say so:
+
+```bash
+msiexec /i PowerRustCOBOL-2.1.35-windows-x86_64.msi /qn PREPARE_PLATFORM=1
+```
+
+or give the same `PREPARE_PLATFORM=1` to the `-setup.exe` with `/quiet`. A silent
+install accepts no license on anyone's behalf, so the C++ build tools are never
+installed silently by the `.msi`; the bundle installs them only when it is run
+with `/quiet` by someone who has accepted Microsoft's terms for them.
+
+**Upgrading.** A newer version installed over an older one prepares again — the
+platform changes with the version — and the page names the version it replaces.
+
+> ⚠️ **Caveat — the times and sizes are estimates for now.** The page says
+> *about an hour* and gives disk figures that come from the project's own
+> measurements of the pieces, not yet from a clean-machine run of this setup. The
+> page words them as estimates until they are measured.
+
+> ⚠️ **Caveat — the bundle's page is plain.** The `.msi`'s wizard has the dark
+> PowerRustCOBOL look; the bundle's first page is the standard bootstrapper page
+> with two lines of its own text.
+
+> ⚠️ **Caveat — the Microsoft installer is never interrupted.** Once it has
+> started, a Cancel waits for it to finish: stopping it midway can leave Visual
+> Studio half installed. The page says *waiting for Microsoft's installer to
+> finish*, and the setup gives up on it only after an hour and a half.
+
+> ⚠️ **Caveat — a computer with no C++ build tools after the bundle.** If Microsoft's
+> installer fails or asks for a restart that did not make the tools usable, the
+> program is installed all the same, the platform is not compiled, and the finish
+> page says that the first Debug or `EXEC RUST` build compiles it once the tools
+> are there.
 
 ### The first-run Rust check
 
