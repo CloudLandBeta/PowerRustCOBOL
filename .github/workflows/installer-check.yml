@@ -1,0 +1,277 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# The Windows installer, built from its real source and installed for real (spec 112, task T13).
+#   Actions -> "Installer check: the real .msi on a Windows runner" -> Run workflow
+#   (it also runs on every push that touches the setup's code or this file)
+#
+# WHAT IT PROVES
+#
+# crates/cobolt-setup/wix/product.wxs is the one part of the setup that no unit test can run: `light` links it and
+# Windows Installer runs it. This job does both, with the real library (cobolt_setup.dll) and a stand-in for the
+# IDE's headless step (the example `prepare_stub`, installed as PowerRustCOBOL.exe), so that every step is quick and
+# leaves a line in a log. Five scenarios, each installed silently through `drive_msi` (a program that is the user
+# interface, so it can also answer Cancel):
+#
+#   A  no opt-in            the install puts exactly the staged files on disk and runs no step (AC1, AC2)
+#   B  PREPARE_PLATFORM=1   the Rust step, then the compile, then the example copy, in that order; the cache is made
+#                           and marked; the outcomes are written; the bar was given its 1000 ticks (AC3, R10)
+#   C  reinstall            the same version again prepares nothing (AC10)
+#   D  upgrade              a newer version over it prepares again and names the version it replaces (AC10, R16)
+#   E  Cancel               in the middle of the compile: the install ends with 1602, the cache the setup made is
+#                           removed, nothing is left running, no example project was copied (AC8)
+#   E2 Cancel, a developer's own cache  the same Cancel leaves a cache the setup did not make exactly where it is
+#
+# WHAT IT CANNOT PROVE
+#
+# The wizard (the page, its radio buttons, the finish text) is the user interface of an interactive install, which a
+# hosted runner has nobody to click through: `light` accepting every dialog and control proves the syntax, the
+# operator's clean-machine run (T16) judges the look. And the real compile and the real Rust and Build Tools
+# installs are not here: `prepare-platform-smoke.yml` proves the compile, T16 the installs.
+
+name: "Installer check: the real .msi on a Windows runner"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/installer-check.yml"
+      - "crates/cobolt-setup/**"
+      - "crates/cobolt-media/examples/installer_art.rs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Rust the release is built with; the page offers it, so the runner must have it (the facts look for it).
+  RELEASE_RUST: "1.95.0"
+
+jobs:
+  installer:
+    name: The installer, built and installed
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+
+      # The same build and the same checks as the release workflow's: the C runtime linked in, its own target
+      # folder, every entry point the WiX names exported, no Visual C++ runtime needed.
+      - name: Build the library, the driver and the stand-in step
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+          CARGO_TARGET_DIR: target-setup
+        run: |
+          set -euo pipefail
+          cargo build --release -p cobolt-setup --lib --examples
+          ls -l target-setup/release/cobolt_setup.dll target-setup/release/examples/drive_msi.exe target-setup/release/examples/prepare_stub.exe
+
+      - name: The library's exports and dependencies
+        run: |
+          set -euo pipefail
+          dll=target-setup/release/cobolt_setup.dll
+          vsw="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+          dumpbin=$("$vsw" -latest -products '*' -find 'VC/Tools/MSVC/**/bin/Hostx64/x64/dumpbin.exe' | head -1 || true)
+          test -n "$dumpbin"
+          exports=$("$dumpbin" //exports "$dll")
+          for name in PrcFacts PrcRun PrcTicks PrcRollback PrcReadResult; do
+            if grep -qw "$name" <<<"$exports"; then echo "  exports $name"; else echo "::error::cobolt_setup.dll does not export $name"; exit 1; fi
+          done
+          deps=$("$dumpbin" //dependents "$dll")
+          echo "$deps"
+          for needle in vcruntime140 msvcp140; do
+            if grep -qi "$needle" <<<"$deps"; then echo "::error::cobolt_setup.dll needs $needle"; exit 1; fi
+          done
+
+      - name: Compose the installer artwork
+        run: |
+          set -euo pipefail
+          cargo run --release -p cobolt-media --example installer_art -- assets/images/chibi.png dist/art
+          ls -l dist/art
+
+      # Three packages from the one WiX source: 9.9.1 and 9.9.2 (a quick compile, six seconds), and 9.9.3 whose
+      # compile takes two minutes, long enough to be cancelled in the middle of. Each carries the stand-in step as
+      # PowerRustCOBOL.exe and its configuration beside it.
+      - name: Build the installers from the real WiX
+        run: |
+          set -euo pipefail
+          choco install wixtoolset --no-progress -y
+          wix="/c/Program Files (x86)/WiX Toolset v3.14/bin"
+          test -d "$wix" || wix=$(ls -d "/c/Program Files (x86)/WiX Toolset v"*/bin | tail -1)
+          {
+            printf '{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0\\fnil Segoe UI;}}\\fs18 '
+            sed -e 's/\\/\\\\/g' -e 's/{/\\{/g' -e 's/}/\\}/g' LICENSE | sed -e 's/$/\\par/'
+            printf '}'
+          } > license.rtf
+          mkdir -p work wixobj
+          build() { # <version> <compile seconds> <stage folder>
+            stage="work/$3"; mkdir -p "$stage"
+            cp target-setup/release/examples/prepare_stub.exe "$stage/PowerRustCOBOL.exe"
+            printf 'compile_seconds=%s\n' "$2" > "$stage/prepare_stub.cfg"
+            "$wix/heat.exe" dir "$stage" -cg AppFiles -gg -scom -sreg -sfrag -srd -dr INSTALLFOLDER -var var.SourceDir -out "work/$3.files.wxs"
+            "$wix/candle.exe" -arch x64 -ext WixUIExtension -ext WixUtilExtension \
+              -dVer="$1" -dRustVersion="$RELEASE_RUST" -dPrcDll=target-setup/release/cobolt_setup.dll \
+              -dSourceDir="$stage" -out "wixobj/$3-" crates/cobolt-setup/wix/product.wxs "work/$3.files.wxs"
+            "$wix/light.exe" -sval -ext WixUIExtension -ext WixUtilExtension \
+              -cultures:en-us -loc crates/cobolt-setup/wix/prc-strings.wxl \
+              "wixobj/$3-product.wixobj" "wixobj/$3-$3.files.wixobj" -o "work/$3.msi"
+            ls -l "work/$3.msi"
+          }
+          build 9.9.1 6 v1
+          build 9.9.2 6 v2
+          build 9.9.3 120 slow
+
+
+      # A tiny helper, written here and not kept: each scenario says what it expects and the job fails at the end
+      # if any was not met, so one red scenario does not hide the others.
+      - name: Helpers
+        run: |
+          cat > work/check.sh <<'EOF'
+          failed=0
+          pass() { echo "PASS  $1"; }
+          fail() { echo "FAIL  $1"; failed=$((failed + 1)); }
+          # check <description> <command...>: passes when the command succeeds
+          check() { local d="$1"; shift; if "$@"; then pass "$d"; else fail "$d"; fi; }
+          not() { ! "$@"; }
+          # is a program of this name running?
+          running() { tasklist //FI "IMAGENAME eq $1" | grep -qi "$1"; }
+          STUB_LOG="/c/Program Files/PowerRustCOBOL/prepare_stub.log"
+          RESULT="$TEMP/prc-prepare-result.txt"
+          # what the stand-in step recorded, one line per run, and how many lines that is
+          stub_log() { tr -d '\r' < "$STUB_LOG" 2>/dev/null; }
+          lines_of() { local n; n=$(stub_log | grep -c . ); echo "${n:-0}"; }
+          # does line <n> of the stand-in step's log contain <text>?
+          line_has() { stub_log | sed -n "$1p" | grep -q -- "$2"; }
+          result_has() { tr -d '\r' < "$RESULT" 2>/dev/null | grep -q -- "$1"; }
+          # install <msi> <log> <cancel after seconds | never> <text to count from | -> [PROP=value ...]: prints the exit code
+          install() {
+            local msi="$1" log="$2" after="$3" marker="$4"; shift 4
+            target-setup/release/examples/drive_msi.exe "$(cygpath -aw "work/$msi")" "$(cygpath -aw "work/$log")" "$after" "$marker" "$@" > "work/$log.out" 2>&1
+            echo $?
+          }
+          uninstall() { msiexec //x "$(cygpath -aw "work/$1")" //qn '//l*v' "$(cygpath -aw "work/$1.uninstall.log")"; echo "uninstall of $1 returned $?"; }
+          clean_machine() { rm -rf "/c/Program Files/PowerRustCOBOL" "$LOCALAPPDATA/PowerRustCOBOL" "$TEMP/prc-prepare-result.txt" "$TEMP/prc-prepare-cancel.txt"; }
+          # the lines of an install's log that are the setup's own
+          what_the_log_said() { grep -a 'PRC:' "work/$1" | cut -c1-240 || true; }
+          EOF
+
+      - name: "A. Silent install without the opt-in: the staged files, and no step"
+        if: always()
+        run: |
+          source work/check.sh
+          clean_machine
+          rc=$(install v1.msi A.log never -)
+          echo "---- the facts and the steps, as the supervisor logged them"; what_the_log_said A.log
+          echo "---- the folder after the install"; ls -A "/c/Program Files/PowerRustCOBOL"
+          check "the install returned 0 (got $rc)" test "$rc" = 0
+          check "PowerRustCOBOL.exe is installed" test -f "/c/Program Files/PowerRustCOBOL/PowerRustCOBOL.exe"
+          check "the facts were gathered (PrcFacts ran in the execute sequence)" grep -aq 'PRC: facts' work/A.log
+          check "no preparation step ran: the stand-in step's log holds one line ($(lines_of))" test "$(lines_of)" = 1
+          check "that one line is the example copy" line_has 1 '--seed-examples'
+          check "no cache was made" not test -e "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target"
+          check "no room on the bar was asked for (PrcTicks did not run)" not grep -aq 'ticks added to the progress bar' work/A.log
+          exit $failed
+
+      - name: "B. PREPARE_PLATFORM=1: Rust, then the compile, then the example copy"
+        if: always()
+        run: |
+          source work/check.sh
+          uninstall v1.msi; clean_machine
+          rc=$(install v1.msi B.log never - PREPARE_PLATFORM=1)
+          echo "---- the facts and the steps, as the supervisor logged them"; what_the_log_said B.log
+          echo "---- the driver's summary"; tail -3 work/B.log.out | cut -c1-240
+          echo "---- what the stand-in step was run with"; stub_log | cut -c1-260
+          echo "---- the result file the steps wrote"; tr -d '\r' < "$RESULT" 2>/dev/null || echo "(none)"
+          check "the install returned 0 (got $rc)" test "$rc" = 0
+          check "three runs: the Rust step, the compile, the example copy ($(lines_of))" test "$(lines_of)" = 3
+          check "the Rust step ran first" line_has 1 '--step rust'
+          check "the compile ran second, told the build folder" line_has 2 '--step compile .*--build-root .*PowerRustCOBOL.builds'
+          check "the example copy ran last (a Cancel then leaves no project behind)" line_has 3 '--seed-examples'
+          check "the cache was made and marked as the setup's" test -f "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target/.prepared-by-setup"
+          check "the bar was given its 1000 ticks, Rust 50 and compile 950" grep -aq 'ticks added to the progress bar (Rust 50, compile 950)' work/B.log
+          check "both steps ended with exit code 0" test "$(grep -a -c 'the step ended after .* with exit code 0' work/B.log)" -ge 2
+          check "the result file says Rust is done" result_has 'step=rust status=ok'
+          check "the result file says Release is done" result_has 'step=release status=ok'
+          check "the result file says Debug is done" result_has 'step=debug status=ok'
+          exit $failed
+
+      - name: "C. The same version again: nothing is prepared"
+        if: always()
+        run: |
+          source work/check.sh
+          before=$(lines_of)
+          rc=$(install v1.msi C.log never - PREPARE_PLATFORM=1)
+          echo "---- the facts and the steps, as the supervisor logged them"; what_the_log_said C.log
+          check "the install returned 0 (got $rc)" test "$rc" = 0
+          check "no step ran again ($before lines before, $(lines_of) after)" test "$(lines_of)" = "$before"
+          check "the facts were not gathered for a product that is installed" not grep -aq 'PRC: facts' work/C.log
+          exit $failed
+
+      - name: "D. A newer version over it: prepared again, and the old version is named"
+        if: always()
+        run: |
+          source work/check.sh
+          before=$(lines_of)
+          rc=$(install v2.msi D.log never - PREPARE_PLATFORM=1)
+          echo "---- the facts and the steps, as the supervisor logged them"; what_the_log_said D.log
+          check "the install returned 0 (got $rc)" test "$rc" = 0
+          check "the facts name the version it replaces" grep -aq 'previous_version: Some("9.9.1")' work/D.log
+          check "the steps ran again: three more lines ($before before, $(lines_of) after)" test "$(lines_of)" = "$((before + 3))"
+          exit $failed
+
+      - name: "E. Cancel in the middle of the compile: the install ends, the setup's cache goes"
+        if: always()
+        run: |
+          source work/check.sh
+          uninstall v2.msi; clean_machine
+          # Cancel is answered ten seconds after the compile's first line reaches the page.
+          rc=$(install slow.msi E.log 10 "Compiling the platform" PREPARE_PLATFORM=1)
+          echo "---- the facts and the steps, as the supervisor logged them"; what_the_log_said E.log
+          echo "---- the driver's summary"; tail -3 work/E.log.out | cut -c1-240
+          check "the install ended with 1602, cancelled by the user (got $rc)" test "$rc" = 1602
+          check "the cache the setup made was removed by the rollback" not test -e "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target"
+          check "the rollback said so" grep -aq 'PRC: rollback: the setup created .* and removed it' work/E.log
+          check "the program was rolled back (no PowerRustCOBOL.exe left)" not test -e "/c/Program Files/PowerRustCOBOL/PowerRustCOBOL.exe"
+          check "the stand-in step is not running" not running PowerRustCOBOL.exe
+          check "the example copy never ran: the log holds the Rust step and the compile only ($(lines_of))" test "$(lines_of)" = 2
+          exit $failed
+
+      - name: "E2. Cancel with a cache the developer already had: it stays"
+        if: always()
+        run: |
+          source work/check.sh
+          clean_machine
+          # A cache of the developer's own: a folder with something in it and NO marker of the setup's.
+          mkdir -p "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target/warm"
+          echo "theirs" > "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target/warm/9.0.0"
+          rc=$(install slow.msi E2.log 10 "Compiling the platform" PREPARE_PLATFORM=1)
+          echo "---- the facts and the steps, as the supervisor logged them"; what_the_log_said E2.log
+          check "the install ended with 1602 (got $rc)" test "$rc" = 1602
+          check "the developer's cache is still there" test -f "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target/warm/9.0.0"
+          check "the rollback said it was there before and stays" grep -aq 'PRC: rollback: .* was there before this setup and stays' work/E2.log
+          clean_machine
+          exit $failed
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-check-logs
+          path: |
+            work/*.log
+            work/*.out
+          if-no-files-found: warn

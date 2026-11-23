@@ -22,9 +22,11 @@ use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+use windows_sys::Win32::Foundation::{ERROR_MORE_DATA, ERROR_SUCCESS};
 use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-use windows_sys::Win32::System::ApplicationInstallationAndServicing::{MsiSetPropertyW, MSIHANDLE};
+use windows_sys::Win32::System::ApplicationInstallationAndServicing::{
+    MsiGetProductInfoW, MsiSetPropertyW, MSIHANDLE,
+};
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 /// The longest any one question of the page may take: `rustup` and `vswhere` answer at once, so a program that
@@ -115,6 +117,43 @@ pub(crate) fn set_property(session: &Session, name: &str, value: &str) {
     }
 }
 
+/// The version of one installed product, by its product code: `None` for a code Windows Installer does not know.
+fn version_of(product_code: &str) -> Option<String> {
+    let code = wide(product_code);
+    let attribute = wide("VersionString");
+    let mut room = 64u32;
+    // A version string is short; the loop only exists for the protocol (a too-small buffer is told the size).
+    for _ in 0..3 {
+        let mut buf = vec![0u16; room as usize];
+        let mut size = room;
+        // SAFETY: `code` and `attribute` are NUL-terminated; `buf` holds `size` characters.
+        let rc = unsafe {
+            MsiGetProductInfoW(code.as_ptr(), attribute.as_ptr(), buf.as_mut_ptr(), &mut size)
+        };
+        match rc {
+            ERROR_SUCCESS => {
+                let text = String::from_utf16_lossy(&buf[..(size as usize).min(buf.len())]);
+                return Some(text.trim().to_owned()).filter(|t| !t.is_empty());
+            }
+            ERROR_MORE_DATA => room = size.saturating_add(1),
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// The version of the product this setup replaces. `<MajorUpgrade>` makes `FindRelatedProducts` leave the product
+/// codes of the older versions in `WIX_UPGRADE_DETECTED` (separated by `;`), and Windows Installer knows each one's
+/// version: the first that answers is named on the page. `None` on a first install.
+fn previous_version(session: &Session) -> Option<String> {
+    let codes = session.property("WIX_UPGRADE_DETECTED")?;
+    codes
+        .split(';')
+        .map(str::trim)
+        .filter(|code| !code.is_empty())
+        .find_map(version_of)
+}
+
 /// What the installer knows, from the session.
 fn inputs(session: &Session) -> Option<Inputs> {
     let text = |name: &str| session.property(name).filter(|v| !v.trim().is_empty());
@@ -129,8 +168,8 @@ fn inputs(session: &Session) -> Option<Inputs> {
         version: text("ProductVersion")?,
         // The release workflow sets it from the manifest, as it does the Rust it builds with.
         pinned_rust: text("PRC_PINNED_RUST")?,
-        // `<UpgradeVersion Property="PRC_PREVIOUS_VERSION">` finds the older product being replaced.
-        previous_version: text("PRC_PREVIOUS_VERSION"),
+        // The older product a major upgrade is replacing, if any.
+        previous_version: previous_version(session),
         mode,
     })
 }

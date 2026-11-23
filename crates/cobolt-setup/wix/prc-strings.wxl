@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+
+  The one WixUI string this installer overrides (spec 112, decision D6): the cancel confirmation. It is the stock
+  sentence, with the property PRC_CANCEL_NOTE appended. The preparation page sets that property to what a Cancel
+  leaves installed when the developer chose Prepare now, and clears it otherwise, so the confirmation says
+  something extra only when there is something to say.
+
+  Passed to light as `-loc prc-strings.wxl` beside `-cultures:en-us`. WixUI marks its strings overridable for exactly
+  this. If light ever refuses the override, delete this file and the `-loc`: the preparation page already says, in its
+  own text, that Cancel cancels the installation and what stays installed.
+-->
+<WixLocalization Culture="en-us" xmlns="http://schemas.microsoft.com/wix/2006/localization">
+  <String Id="CancelDlgText">Are you sure you want to cancel [ProductName] installation? [PRC_CANCEL_NOTE]</String>
+</WixLocalization>

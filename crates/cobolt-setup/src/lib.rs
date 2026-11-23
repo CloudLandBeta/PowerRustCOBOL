@@ -22,6 +22,10 @@ pub mod rollback;
 pub mod ticks;
 pub mod watch;
 
+/// Guards on the installer's source (`wix/product.wxs` and the release workflow): tests only.
+#[cfg(test)]
+mod installer;
+
 #[cfg(windows)]
 mod entries;
 #[cfg(windows)]

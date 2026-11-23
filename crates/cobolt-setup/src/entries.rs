@@ -81,10 +81,12 @@ pub extern "system" fn PrcReadResult(handle: MSIHANDLE) -> u32 {
         let file = path_property(session, "PRC_RESULT_FILE");
         let linker = path_property(session, "PRC_LINKER").is_some();
         let text = result::finish_text_from_file(asked, file.as_deref().map(Path::new), linker);
+        // The whole text goes to the log as well: the finish page has room for a few lines, the log for all of it.
         session.info(&format!(
-            "PRC: finish page: asked {asked}, result file {}, linker {linker}: {} characters",
+            "PRC: finish page: asked {asked}, result file {}, linker {linker}: {} characters: {}",
             file.as_deref().unwrap_or("(none)"),
-            text.len()
+            text.len(),
+            text.replace("\r\n", " | ")
         ));
         set_property(session, "PRC_RESULT", &text);
         // What the steps wrote is read; the file is not kept.

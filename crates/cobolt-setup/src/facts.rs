@@ -312,18 +312,22 @@ pub fn properties(plan: &Plan) -> Vec<(&'static str, String)> {
     ]
 }
 
-/// The property that says whether the setup prepares (`PRC_PREPARE`, `1` or empty).
+/// The property that says whether the setup prepares (`PRC_PREPARE`).
 ///
 /// * A **silent** install (R5, AC2) prepares only with the opt-in (`PREPARE_PLATFORM=1`) and only where *Prepare now*
-///   would have been offered.
-/// * A **wizard** gets the page's default: *Prepare now* where it is offered and *Skip* where it is not. The radio
-///   buttons then change it, and nothing here runs again to put it back.
+///   would have been offered: `1`, or empty, which also removes a value an administrator may have put on the command
+///   line.
+/// * A **wizard** gets the page's default: `1` (*Prepare now*) where it is offered and `0` (*Skip*) where it is not,
+///   so the radio group is never shown with nothing selected. The radio buttons then change it, and nothing here
+///   runs again to put it back. Every condition in the installer tests `= "1"`, so `0` prepares nothing.
 pub fn prepare_property(plan: &Plan, mode: Mode) -> (&'static str, String) {
-    let on = match mode {
-        Mode::Interactive => plan.offer == Offer::PrepareNow,
-        Mode::Silent { .. } => plan.runs(mode, None),
+    let value = match mode {
+        Mode::Interactive if plan.offer == Offer::PrepareNow => "1",
+        Mode::Interactive => "0",
+        Mode::Silent { .. } if plan.runs(mode, None) => "1",
+        Mode::Silent { .. } => "",
     };
-    ("PRC_PREPARE", if on { "1".to_owned() } else { String::new() })
+    ("PRC_PREPARE", value.to_owned())
 }
 
 // ── The real machine ─────────────────────────────────────────────────────────
@@ -619,6 +623,7 @@ mod tests {
                         let (name, wizard) = prepare_property(&plan, Mode::Interactive);
                         assert_eq!(name, "PRC_PREPARE");
                         assert_eq!(wizard == "1", plan.offer == Offer::PrepareNow);
+                        assert!(wizard == "1" || wizard == "0", "a wizard's radio is never left empty: {wizard:?}");
                     }
                 }
             }
@@ -736,11 +741,12 @@ mod tests {
         let value = |plan: &Plan, mode| prepare_property(plan, mode);
         let on = ("PRC_PREPARE", "1".to_owned());
         let off = ("PRC_PREPARE", String::new());
+        let skip = ("PRC_PREPARE", "0".to_owned());
 
-        // A wizard's radio starts on Prepare now where it is offered, and on Skip where it is not.
+        // A wizard's radio starts on Prepare now where it is offered, and on Skip ("0", never empty) where it is not.
         assert_eq!(value(&offered, Mode::Interactive), on);
-        assert_eq!(value(&low, Mode::Interactive), off);
-        assert_eq!(value(&done, Mode::Interactive), off);
+        assert_eq!(value(&low, Mode::Interactive), skip);
+        assert_eq!(value(&done, Mode::Interactive), skip);
         // Without the opt-in a silent install downloads and compiles nothing (R5, AC2).
         assert_eq!(value(&offered, Mode::Silent { opt_in: false }), off);
         // With it, where Prepare now is offered, it prepares.

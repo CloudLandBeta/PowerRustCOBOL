@@ -653,6 +653,62 @@ mod tests {
         println!("--prepare-platform arguments: 2 good lines and {} mistakes, each a sentence", mistakes.len());
     }
 
+    /// The command line of one of the installer's steps, as Windows would split it: the last of the eight fields of
+    /// the custom action's data, its properties filled in, cut at the spaces outside quotation marks.
+    fn installer_command(action: &str) -> Vec<String> {
+        const WXS: &str = include_str!("../../cobolt-setup/wix/product.wxs");
+        let tag = &WXS[WXS.find(&format!("<CustomAction Id=\"{action}\"")).expect("the action is in the installer")..];
+        let value = tag.split("Value=\"").nth(1).and_then(|v| v.split('"').next()).expect("a Value");
+        let filled = value
+            .replace("&quot;", "\"")
+            .replace("[INSTALLFOLDER]", "C:\\Program Files\\PowerRustCOBOL\\")
+            .replace("[PRC_RESULT_FILE]", "C:\\T\\result.txt")
+            .replace("[PRC_CANCEL_FILE]", "C:\\T\\cancel.txt")
+            .replace("[PRC_BUILD_FOLDER]", "C:\\Users\\dev\\AppData\\Local\\PowerRustCOBOL\\builds");
+        let command = filled.splitn(8, '|').nth(7).expect("eight fields");
+        let (mut words, mut word, mut quoted) = (Vec::new(), String::new(), false);
+        for c in command.chars() {
+            match c {
+                '"' => quoted = !quoted,
+                ' ' if !quoted => words.push(std::mem::take(&mut word)),
+                c => word.push(c),
+            }
+        }
+        words.push(word);
+        words.into_iter().filter(|w| !w.is_empty()).collect()
+    }
+
+    /// The two command lines the installer's WiX hands the supervisor are spelled the way this module reads them
+    /// (`crates/cobolt-setup/wix/product.wxs` cannot be run here; a switch renamed on one side would otherwise fail
+    /// on a customer's machine, as a step that "ended without saying how").
+    #[test]
+    fn the_installers_command_lines_are_read_by_the_headless_step() {
+        let rust = installer_command("SetPrcRust");
+        assert_eq!(rust[0], "C:\\Program Files\\PowerRustCOBOL\\PowerRustCOBOL.exe", "{rust:?}");
+        let a = parse_args(&rust[1..]).unwrap_or_else(|why| panic!("{why}: {rust:?}"));
+        assert_eq!(a.step, Step::Rust);
+        assert_eq!(a.result, PathBuf::from("C:\\T\\result.txt"));
+        assert_eq!(a.cancel_file, Some(PathBuf::from("C:\\T\\cancel.txt")));
+
+        let compile = installer_command("SetPrcCompile");
+        let a = parse_args(&compile[1..]).unwrap_or_else(|why| panic!("{why}: {compile:?}"));
+        assert_eq!(a.step, Step::Compile);
+        assert_eq!(a.result, PathBuf::from("C:\\T\\result.txt"));
+        assert_eq!(a.cancel_file, Some(PathBuf::from("C:\\T\\cancel.txt")));
+        assert_eq!(
+            a.build_root,
+            Some(PathBuf::from("C:\\Users\\dev\\AppData\\Local\\PowerRustCOBOL\\builds")),
+            "the compile is told the folder the page judged and the rollback cleans"
+        );
+        // Both profiles and the program's own version: the page promises Debug and EXEC RUST.
+        assert!(a.release && a.debug && a.version == crate::version::VERSION && a.sdk.is_none());
+        println!(
+            "the installer's 2 command lines ({} and {} words) are read by parse_args: rust and compile, same result and cancel files, one build folder",
+            rust.len(),
+            compile.len()
+        );
+    }
+
     #[test]
     fn the_system_account_profile_is_recognised_and_nothing_else_is() {
         for (path, yes) in [
