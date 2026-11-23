@@ -185,6 +185,24 @@ fn form(plain: &str, checks: &[Check]) -> String {
     plain.replace("width=\"640\" height=\"480\"", "width=\"640\" height=\"480\" index-base=\"1\"").replace("</Form>", &format!("{extra}</Form>"))
 }
 
+/// Chrome 157 is rolling out `flow-start` / `flow-end` as the computed spelling of `flex-start` / `flex-end`
+/// (its runtime features `CSSFlowStartAndEnd` and `CSSFlowStartAndEndSerialization`). Chrome's own field trial
+/// switches them on for some fresh profiles and not for others, so two launches of the same Chrome on the same
+/// runner image disagree. The page writes `flex-end` (the only spelling Firefox and Safari read); both spellings
+/// are one keyword, so a computed style is compared with the new one read as the old one.
+fn one_spelling(computed: &str) -> String {
+    computed.replace("flow-start", "flex-start").replace("flow-end", "flex-end")
+}
+
+#[test]
+fn chrome_may_spell_the_flex_keywords_flow_in_a_computed_style() {
+    assert_eq!(one_spelling("flow-end right"), "flex-end right");
+    assert_eq!(one_spelling("flow-start"), "flex-start");
+    assert_eq!(one_spelling("flex-end right"), "flex-end right");
+    assert_eq!(one_spelling("end"), "end", "`end` is another keyword and stays as it is");
+    assert_ne!(one_spelling("flow-end"), "end", "`flow-end` is never read as `end`");
+}
+
 #[test]
 fn every_exact_property_gives_its_computed_style_in_chrome() {
     let checks = checks();
@@ -232,7 +250,7 @@ fn every_exact_property_gives_its_computed_style_in_chrome() {
             .eval(&format!("(() => {{ {lib} const e = root.querySelector('[data-name=\"{}\"]'); if (!e && {:?} !== 'X-SNACK') return 'no element'; return String({}); }})()", ch.id, ch.id, ch.read))
             .unwrap_or_else(|e| serde_json::Value::String(format!("error: {e}")));
         let got = got.as_str().unwrap_or("").to_owned();
-        let ok = got == ch.want;
+        let ok = one_spelling(&got) == ch.want;
         lines.push(format!("  {} {} → {:?} → {:?}", if ok { "ok  " } else { "FAIL" }, ch.rows.join(", "), ch.want, got));
         if !ok {
             mismatches.push(format!("{}: expected {:?}, got {:?}", ch.rows.join(", "), ch.want, got));

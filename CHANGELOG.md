@@ -2,6 +2,16 @@
 
 
 
+## 2.1.20 — 2026-11-23
+
+**Fix: the test of the exact computed styles accepts `flow-end` where it expects `flex-end`, because Chrome 157 spells the keyword either way depending on a trial it runs itself.** `every_exact_property_gives_its_computed_style_in_chrome` failed in the macOS job of run 62 (`TextAlignment`: expected `flex-end right`, got `flow-end right`; `VerticalAlignment`: expected `flex-end`, got `flow-end`) and passed in run 61, on the same runner image (`macos-26-arm64` 20261117.0516.1) and the same Chrome (157.0.8103.79).
+
+- **What it is.** Chrome 157 carries two runtime features, `CSSFlowStartAndEnd` and `CSSFlowStartAndEndSerialization`, which add `flow-start` and `flow-end` as the computed spelling of `flex-start` and `flex-end` (the string is in the browser's keyword table next to `flex-start`, `flex-end`). The page is not involved: the style it writes stays `flex-end` (`element.style.justifyContent` still answers `flex-end`), and only `getComputedStyle` answers `flow-end`. The two features are the kind a browser switches on by its own field trial for some fresh profiles and not for others, and the test starts every Chrome with a new, empty profile, so two launches of the same Chrome on the same image can disagree; run 61 and run 62 read as two such launches.
+- **How it was found.** Twenty launches of Chrome 157.0.8103.80 with fresh profiles on this machine all answered `flex-end`. With `--enable-blink-features=CSSFlowStartAndEnd,CSSFlowStartAndEndSerialization` the same page answered `flow-end` for `justify-content` and `align-items` and `flow-start` for `flex-start`, while `end` stayed `end`; either feature alone changed nothing. What the field trial does on the runner was not seen: that two features are the cause is shown, that the trial switched them on in run 62 is the explanation that fits.
+- **What the test does now.** `one_spelling` reads `flow-start` and `flow-end` in a computed style as `flex-start` and `flex-end` before the comparison, and the output line still shows what Chrome answered. A second test, `chrome_may_spell_the_flex_keywords_flow_in_a_computed_style`, holds the helper to that (and to leaving `end` alone).
+- **Not changed.** The player keeps writing `flex-end`: Firefox and Safari read no other spelling, and Chrome reads both.
+- **No page, player or product code changed**: tests only.
+
 ## 2.1.19 — 2026-11-23
 
 **Fix: the first Build that needs Cargo no longer fights a background compile for the cache. It asks first, says how long it takes, and shows its progress.** On a first Windows install of 2.1.17 a Build stopped at `Another build is using the compiled-crate cache - waiting for it to finish`, every core went to 100% and the machine stopped answering. The Output of that Build (a Full Build of a project with External Crates, which only Cargo links) shows what happened: the shared cache was still empty (`6481 of 6482 shared libraries are missing or changed`, then a 404 for a release that was not published), and the cargo of the Build waited for the lock of another cargo. The only other cargo the IDE starts by itself is its start-up warm-up, which compiled three stand-in programs in the background on the first start of every version (read from the code and the log: the other cargo was not seen running).
