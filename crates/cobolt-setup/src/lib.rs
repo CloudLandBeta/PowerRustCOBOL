@@ -10,6 +10,7 @@
 
 pub mod data;
 pub mod disk;
+pub mod facts;
 pub mod figures;
 pub mod lines;
 pub mod prepare;
@@ -20,5 +21,7 @@ pub mod result;
 pub mod ident;
 #[cfg(windows)]
 mod supervisor;
+#[cfg(windows)]
+pub use facts::system::PrcFacts;
 #[cfg(windows)]
 pub use supervisor::PrcRun;

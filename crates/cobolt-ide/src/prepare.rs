@@ -1010,6 +1010,46 @@ mod tests {
     }
 
     #[test]
+    fn what_the_setup_asks_of_the_machine_is_what_the_compile_leaves_there() {
+        use cobolt_setup::facts;
+        // The setup's page is decided before any file of this program is installed, so it spells three things of
+        // the compiler's by itself. Each is held equal here.
+
+        // 1. A pinned Rust is found in a toolchain list the way the compiler finds it.
+        let lists = [
+            "stable-aarch64-apple-darwin (default)\n1.95.0-aarch64-apple-darwin\n",
+            "stable-x86_64-pc-windows-msvc (default)\r\n1.92-x86_64-pc-windows-msvc\r\n",
+            "1.95.01-x86_64-pc-windows-msvc\n",
+            "no installed toolchains\n",
+            "",
+            "  1.95.0-x86_64-pc-windows-msvc  \n",
+        ];
+        for list in lists {
+            assert_eq!(facts::lists_toolchain(list, PINNED), warmup::lists_toolchain(list, PINNED), "{list:?}");
+        }
+
+        // 2. The default build folder ends the way the compiler's does.
+        let root = cobolt_compiler::default_build_root();
+        let tail: PathBuf = facts::BUILD_FOLDER.iter().collect();
+        assert!(root.ends_with(&tail), "{} does not end in {}", root.display(), tail.display());
+
+        // 3. The stamps a compile writes are found where, and as, the setup looks for them.
+        let s = Scratch::new("stamps");
+        let (outcomes, ..) = compile(&s, &[], Ok(()), &mut Building, &AtomicBool::new(false));
+        assert!(outcomes.iter().all(|o| o.status == Ran::Ok));
+        let folder: PathBuf = std::iter::once(s.0.join("builds"))
+            .chain(facts::STAMP_FOLDER.iter().map(PathBuf::from))
+            .collect();
+        let names: Vec<String> = std::fs::read_dir(&folder)
+            .unwrap_or_else(|e| panic!("{}: {e}", folder.display()))
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .collect();
+        assert_eq!(facts::stamps("9.9.9", &names), (true, true), "{names:?}");
+        assert_eq!(facts::stamps("9.9.8", &names), (false, false));
+        println!("setup facts vs compiler: {} toolchain lists agree, build folder ends in {}, stamps {names:?} read back as (release, debug)", lists.len(), tail.display());
+    }
+
+    #[test]
     fn the_marker_the_setup_looks_for_is_the_one_the_compile_writes() {
         // The DLL removes a cancelled setup's cache by this name without linking the compiler, so the two spell it alike.
         assert_eq!(cobolt_setup::prepare::CREATED_BY_SETUP, plat::CREATED_BY_SETUP);

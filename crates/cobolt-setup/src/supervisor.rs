@@ -138,7 +138,7 @@ impl Session {
     }
 }
 
-fn wide(text: &str) -> Vec<u16> {
+pub(crate) fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
@@ -588,7 +588,7 @@ fn run(session: &Session, data: &RunData) -> u32 {
 }
 
 /// Run `body` as one custom action: nothing it does, not even a panic, may fail the install by accident.
-fn guarded(handle: MSIHANDLE, body: impl FnOnce(&Session) -> u32) -> u32 {
+pub(crate) fn guarded(handle: MSIHANDLE, body: impl FnOnce(&Session) -> u32) -> u32 {
     let session = Session(handle);
     match catch_unwind(AssertUnwindSafe(|| body(&session))) {
         Ok(result) => result,
