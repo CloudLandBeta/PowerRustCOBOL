@@ -2,6 +2,15 @@
 
 
 
+## 2.1.21 — 2026-11-23
+
+**Feature (spec only): spec 112 — the Windows setup prepares the platform for Debug and EXEC RUST.** A draft requirements spec, `specs/112-windows-install-time-preparation/spec.md`, for moving the long first-Build compile into the Windows `.msi`, on the developer's confirmation: a preparation page (what, why, time, disk, sources, licences, *prepare now* or *skip*), a check and install of Rust (the release's pinned version) and the Visual Studio Build Tools with the IDE's own detection and link probe, then the platform compiled for the release and the debug profiles into the installing developer's shared cache at full speed, so the first Debug or `EXEC RUST` Build compiles only the program. Cancelling during it cancels the install after a confirmation; a preparation that fails leaves a complete install and the 2.1.19 question at the first Build. Windows only: the macOS `.dmg` has no install-time hook and the Linux packages run as root inside the package manager's lock.
+
+- **It reverses a recorded decision**, that the Build Tools are the developer's call on Microsoft's page and not something the installer does for them; only on the developer's explicit choice, never in a silent install unless `PREPARE_PLATFORM=1`.
+- **No CI time is added.** The compile runs on the developer's machine; the release workflow's "Compile the platform libraries" step and its timeout are unchanged, so the requested rise of the build timeout is not applied. A CI job that ran the whole preparation would need its own timeout above the measured time; the plan decides whether one is worth having.
+- **Open for the operator (§7):** classification, skip, what a cancel keeps, the Microsoft terms, restart, build folder, other Windows users, the silent property, and the figure for "about an hour", which no run has measured yet.
+- **Nothing was built or run:** a document only. Draft; `/plan` waits for approval.
+
 ## 2.1.20 — 2026-11-23
 
 **Fix: the test of the exact computed styles accepts `flow-end` where it expects `flex-end`, because Chrome 157 spells the keyword either way depending on a trial it runs itself.** `every_exact_property_gives_its_computed_style_in_chrome` failed in the macOS job of run 62 (`TextAlignment`: expected `flex-end right`, got `flow-end right`; `VerticalAlignment`: expected `flex-end`, got `flow-end`) and passed in run 61, on the same runner image (`macos-26-arm64` 20261117.0516.1) and the same Chrome (157.0.8103.79).
