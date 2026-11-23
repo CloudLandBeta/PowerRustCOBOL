@@ -2,6 +2,15 @@
 
 
 
+## 2.1.22 — 2026-11-23
+
+**Feature (plan only): spec 112 — the design of the Windows setup's preparation.** `specs/112-windows-install-time-preparation/plan.md`: a banner-style preparation page with a *prepare now* / *skip* choice, three deferred actions (Rust as the user, the Build Tools as the system, the compile as the user) run by a small Rust supervisor DLL that is the only way a custom action can hear Cancel and show progress, and a headless `PowerRustCOBOL.exe --prepare-platform` that does the work with code that already exists (`toolchain::detect`, `warmup::build_variant`, the stamps). A failed or declined preparation never fails the install; Cancel returns `ERROR_INSTALL_USEREXIT`, which makes the installer roll back.
+
+- **The plan's first task is a spike on Windows, and it can block the rest.** Windows Installer runs one installation at a time, and the Visual Studio installer installs some components through it; a nested install may fail or deadlock inside our transaction. The plan names three fallbacks (run it before the execute phase, a Burn bootstrapper, or only detect and name the Build Tools) for the operator to choose if the spike says so.
+- **Five spec amendments are proposed, not applied:** a cache that existed before cannot be restored exactly; free space is checked on every volume written to; a program that uses a platform crate outside the three variants compiles it at its first Build; an installer of the Build Tools that has started is let finish after a Cancel; "the installing developer" is the account Windows Installer impersonates.
+- **No CI time is added**, and the timeout is unchanged; a manually dispatched smoke workflow would prove the compile on demand.
+- **Nothing was built or run, and nothing was run on Windows:** a document only. Draft; `/tasks` waits for approval.
+
 ## 2.1.21 — 2026-11-23
 
 **Feature (spec only): spec 112 — the Windows setup prepares the platform for Debug and EXEC RUST.** A draft requirements spec, `specs/112-windows-install-time-preparation/spec.md`, for moving the long first-Build compile into the Windows `.msi`, on the developer's confirmation: a preparation page (what, why, time, disk, sources, licences, *prepare now* or *skip*), a check and install of Rust (the release's pinned version) and the Visual Studio Build Tools with the IDE's own detection and link probe, then the platform compiled for the release and the debug profiles into the installing developer's shared cache at full speed, so the first Debug or `EXEC RUST` Build compiles only the program. Cancelling during it cancels the install after a confirmation; a preparation that fails leaves a complete install and the 2.1.19 question at the first Build. Windows only: the macOS `.dmg` has no install-time hook and the Linux packages run as root inside the package manager's lock.
