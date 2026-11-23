@@ -30,6 +30,9 @@ use std::time::SystemTime;
 use crate::runtime_features::RuntimeFeatures;
 use crate::{build_cache, generate_cargo_toml, resolve_build_root};
 
+pub mod prepare;
+use prepare::{CargoBuild, CargoRunner, Ended, Flow, Priority, Profile, SystemCargo, Tick};
+
 /// Where the cache records which versions were warmed.
 const WARM_DIR: &str = "warm";
 /// Names the compiler a shipped `target/` was made by.
@@ -85,9 +88,15 @@ fn stamp_name(version: &str, debug: bool) -> String {
 /// A build that got this far compiled whatever the platform lacked, for the profile it built.
 pub(crate) fn mark_current_warm(cache: &Path, debug: bool) {
     if let Some(v) = CURRENT.get() {
-        let _ = std::fs::create_dir_all(cache.join(WARM_DIR));
-        let _ = std::fs::write(cache.join(WARM_DIR).join(stamp_name(v, debug)), v);
+        let _ = mark_warm(cache, v, debug);
     }
+}
+
+/// Write the stamp that says `version`'s platform is compiled in `cache` for the profile. The setup's
+/// preparation (spec 112) reports a failure to write it: a profile it says it prepared must have its stamp.
+pub(crate) fn mark_warm(cache: &Path, version: &str, debug: bool) -> std::io::Result<()> {
+    std::fs::create_dir_all(cache.join(WARM_DIR))?;
+    std::fs::write(cache.join(WARM_DIR).join(stamp_name(version, debug)), version)
 }
 
 /// The three stand-in programs: what a form application links without a
@@ -160,7 +169,7 @@ fn pinned_toolchain() -> Option<&'static str> {
 }
 
 /// Whether the output of `rustup toolchain list` (`1.95.0-aarch64-apple-darwin (default)`) names `release`.
-fn lists_toolchain(list: &str, release: &str) -> bool {
+pub fn lists_toolchain(list: &str, release: &str) -> bool {
     list.lines().any(|line| line.trim().strip_prefix(release).is_some_and(|rest| rest.starts_with('-')))
 }
 
@@ -249,13 +258,48 @@ pub(crate) fn seed_from_shipped(sdk_root: &Path, cache: &Path, log: &mut dyn FnM
     }
 }
 
-fn build_variant(
-    sdk_root: &Path,
-    dir: &Path,
-    cache: &Path,
-    features: RuntimeFeatures,
-    check: &build_cache::PlatformCheck,
-) -> Result<(), String> {
+/// One stand-in program to compile: what it links, where it is staged, which cache it compiles into and in
+/// which profile.
+pub(crate) struct Stand<'a> {
+    pub sdk_root: &'a Path,
+    /// Where the stand-in is staged (a `Cargo.toml` and a `main.rs`).
+    pub dir: &'a Path,
+    pub cache: &'a Path,
+    pub features: RuntimeFeatures,
+    pub check: &'a build_cache::PlatformCheck,
+    pub profile: Profile,
+    pub priority: Priority,
+}
+
+/// How a stand-in's compile ended, when it did not fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Built {
+    Done,
+    /// The caller stopped it ([`Flow::Stop`]).
+    Stopped,
+}
+
+/// The stale platform crates this stand-in has still to clean: the ones in its graph that no earlier stand-in
+/// of the run has cleaned. Cleaning drops a crate's compiled units in BOTH profiles, so a crate cleaned for one
+/// stand-in and compiled again must not be cleaned again for the next, or the second stand-in would throw away
+/// what the first compiled.
+pub(crate) fn to_clean(
+    stale: &[&'static str],
+    graph: &[&'static str],
+    cleaned: &std::collections::HashSet<&'static str>,
+) -> Vec<&'static str> {
+    stale.iter().copied().filter(|c| graph.contains(c) && !cleaned.contains(c)).collect()
+}
+
+/// Compile one stand-in into the cache, through `runner`, telling `on` what cargo says and stopping when it
+/// answers [`Flow::Stop`]. Offline first, and online when that fails (a cold crate cache), as every Build does.
+pub(crate) fn build_variant(
+    stand: &Stand<'_>,
+    cleaned: &mut std::collections::HashSet<&'static str>,
+    runner: &mut dyn CargoRunner,
+    on: &mut dyn FnMut(Tick) -> Flow,
+) -> Result<Built, String> {
+    let Stand { sdk_root, dir, cache, features, check, profile, priority } = *stand;
     let io = |e: std::io::Error| format!("{}: {e}", dir.display());
     std::fs::create_dir_all(dir.join("src")).map_err(io)?;
     let manifest = generate_cargo_toml(
@@ -271,32 +315,29 @@ fn build_variant(
     std::fs::write(dir.join("src").join("main.rs"), "fn main() {}\n").map_err(io)?;
     build_cache::seed_lock(sdk_root, dir);
 
-    if !check.stale.is_empty() {
+    if check.stale.iter().any(|c| !cleaned.contains(c)) {
         let graph = build_cache::sdk_crates_in_graph(dir, cache)?;
-        let stale: Vec<&str> = check.stale.iter().copied().filter(|c| graph.contains(c)).collect();
+        let stale = to_clean(&check.stale, &graph, cleaned);
         build_cache::clean_platform(dir, cache, &stale)?;
+        // A cleaned crate is recorded as it is now, as a Build does, so the next Build finds it fresh.
+        for name in &stale {
+            cleaned.insert(name);
+            if let Some((_, hash)) = check.hashes.iter().find(|(n, _)| n == name) {
+                build_cache::write_marker(cache, name, hash).map_err(|e| format!("cannot record {name}: {e}"))?;
+            }
+        }
     }
 
+    let mut last_tail = Vec::new();
     for offline in [true, false] {
-        let mut cmd = build_cache::cargo();
-        cmd.args(["build", "--release"]);
-        if offline {
-            cmd.arg("--offline");
-        }
-        let out = cmd
-            .current_dir(dir)
-            .env("CARGO_TARGET_DIR", cache)
-            .output()
-            .map_err(|e| format!("cannot run cargo: {e}"))?;
-        if out.status.success() {
-            return Ok(());
-        }
-        if !offline {
-            let err = String::from_utf8_lossy(&out.stderr);
-            return Err(format!("cargo build failed: {}", err.lines().rev().take(12).collect::<Vec<_>>().join("\n")));
+        match runner.build(&CargoBuild { dir, cache, profile, offline, priority }, on) {
+            Ended::Success => return Ok(Built::Done),
+            Ended::Stopped => return Ok(Built::Stopped),
+            Ended::NotRun(why) => return Err(format!("cannot run cargo: {why}")),
+            Ended::Failed { tail, .. } => last_tail = tail,
         }
     }
-    Ok(())
+    Err(format!("cargo build failed: {}", last_tail.join("\n")))
 }
 
 /// Build the platform for `libs_dir(sdk_root)` — what the release workflow runs
@@ -315,9 +356,20 @@ pub fn produce_libs(sdk_root: &Path, log: &mut dyn FnMut(&str)) -> Result<u64, S
     let rustc = rustc_version().ok_or("rustc is not available")?;
     let check = build_cache::PlatformCheck::default();
     let scratch = out.join("_scratch");
+    let mut cleaned = std::collections::HashSet::new();
     for (label, features) in variants() {
         log(&format!("compiling {label}…"));
-        build_variant(sdk_root, &scratch.join(label), &target, features, &check)?;
+        let dir = scratch.join(label);
+        let stand = Stand {
+            sdk_root,
+            dir: &dir,
+            cache: &target,
+            features,
+            check: &check,
+            profile: Profile::Release,
+            priority: Priority::BelowNormal,
+        };
+        build_variant(&stand, &mut cleaned, &mut SystemCargo, &mut |_| Flow::Go)?;
     }
     let _ = std::fs::remove_dir_all(&scratch);
     for profile in ["release", "debug"] {

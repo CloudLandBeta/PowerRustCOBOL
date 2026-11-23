@@ -58,6 +58,8 @@ pub mod main_form;
 pub mod menu_layout;
 mod panels;
 pub mod pdf_export;
+// Spec 112: the Windows setup's headless steps (`--prepare-platform`).
+pub mod prepare;
 pub mod prompt_complete;
 pub mod prompt_polish;
 pub mod prop_help;
@@ -134,6 +136,15 @@ fn main() -> eframe::Result<()> {
                 std::process::exit(1);
             }
         }
+    }
+
+    // `--prepare-platform` (spec 112): the Windows setup's headless steps, which install the pinned Rust and
+    // compile the platform into the installing developer's cache. Handled here for the same reason as
+    // `--seed-examples` (no logging, no window, run by a deferred impersonated action); it reports in a result
+    // file and always ends with a code the installer treats as "go on", so it never fails an installation.
+    if std::env::args().skip(1).any(|a| a == "--prepare-platform") {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        std::process::exit(prepare::run(&args));
     }
 
     // Initialise logging.

@@ -46,6 +46,9 @@ cobolt-media    = { path = "../cobolt-media" }
 
 # Phase 11 — binary compiler
 cobolt-compiler = { path = "../cobolt-compiler" }
+# Spec 112 — what the Windows setup's preparation decides and says, and the grammar its steps speak. Plain
+# Rust with no dependency of its own off Windows; the `.msi`'s DLL is built from the same crate.
+cobolt-setup = { path = "../cobolt-setup" }
 # Spec 080 — the coding-agent tools; the IDE serves them over HTTP and shares
 # their moved-down code (generated paths, form validation, binding guardian).
 cobolt-project-tools = { path = "../cobolt-project-tools" }

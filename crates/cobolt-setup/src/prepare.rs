@@ -27,6 +27,11 @@ pub const BUILD_TOOLS_URL: &str = "https://visualstudio.microsoft.com/visual-cpp
 /// terms, and it is never typed from memory.
 pub const MICROSOFT_TERMS_URL: &str = "https://visualstudio.microsoft.com/license-terms/";
 
+/// The file the platform's compile writes in the compiled-crate cache when the setup created that cache, and only
+/// then: what tells a cancelled setup that it may remove the folder (R14). The DLL reads it without linking the
+/// compiler, so the name is spelled here as well, and a test in the IDE holds the two equal.
+pub const CREATED_BY_SETUP: &str = ".prepared-by-setup";
+
 /// What is on the machine of Rust.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RustState {

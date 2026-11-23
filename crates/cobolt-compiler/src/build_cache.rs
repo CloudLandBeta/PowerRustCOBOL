@@ -326,17 +326,26 @@ pub(crate) fn after_cargo_attempt(
 /// the progress stood still, and a seeded build whose program failed to compile dropped the SDK's
 /// `Cargo.lock` and resolved every crate afresh (2.0.475). The variable outranks any config file.
 pub(crate) fn cargo() -> Command {
-    let mut command = crate::warmup::tool("cargo");
-    command.env("CARGO_TERM_COLOR", "never");
     // Compiling the platform keeps every core busy for minutes, or an hour on a modest machine, and at the
     // normal priority a Windows machine stops answering meanwhile (operator report, 2.1.17). Below normal
     // lets the IDE and everything else the developer runs keep their turn; rustc inherits it.
+    cargo_at(crate::warmup::prepare::Priority::BelowNormal)
+}
+
+/// [`cargo`] at the given priority. The setup's preparation (spec 112) asks for `Normal`: nobody is working on
+/// the machine during an installation, and the developer has been told it takes the whole machine. Normal is
+/// asked for by name, not left to the default, because a process inherits a below-normal class from the one
+/// that starts it.
+pub(crate) fn cargo_at(priority: crate::warmup::prepare::Priority) -> Command {
+    let mut command = crate::warmup::tool("cargo");
+    command.env("CARGO_TERM_COLOR", "never");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
-        command.creation_flags(BELOW_NORMAL_PRIORITY_CLASS);
+        command.creation_flags(priority.windows_class());
     }
+    #[cfg(not(windows))]
+    let _ = priority;
     command
 }
 

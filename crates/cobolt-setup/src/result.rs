@@ -50,15 +50,18 @@ impl Status {
             .into_iter()
             .find(|s| s.name() == name)
     }
+}
 
-    /// The exit code a step process ends with: `0` for done or skipped, `1` for failed. The supervisor
-    /// reads the file first and the code only when the file says nothing.
-    pub fn exit_code(self) -> i32 {
-        match self {
-            Status::Ok | Status::Skipped => 0,
-            Status::Failed => 1,
-        }
-    }
+/// What a step process ends with. A step that did its work or **reported that it could not** ends with
+/// [`REPORTED`](exit::REPORTED): the result file says which, and a failure is never a failed install (R12). The
+/// other codes are for a step that did not get as far as reporting.
+pub mod exit {
+    /// The step reported in the result file (done, failed or skipped: the file says which).
+    pub const REPORTED: i32 = 0;
+    /// The step was started with arguments it does not understand: a mistake in the installer, not a failure of the work.
+    pub const BAD_ARGUMENTS: i32 = 2;
+    /// The step was asked to stop and did.
+    pub const CANCELLED: i32 = 3;
 }
 
 /// One line of the result file.
@@ -544,10 +547,9 @@ mod tests {
     }
 
     #[test]
-    fn a_step_that_failed_exits_with_a_code_and_one_that_did_not_exits_clean() {
-        assert_eq!(
-            [Status::Ok, Status::Skipped, Status::Failed].map(Status::exit_code),
-            [0, 0, 1]
-        );
+    fn the_exit_codes_tell_a_report_from_a_mistake_from_a_cancel() {
+        // 0 is what every process that did what it was asked ends with; the two others must differ from it and from each other.
+        let codes = [exit::REPORTED, exit::BAD_ARGUMENTS, exit::CANCELLED];
+        assert_eq!(codes, [0, 2, 3]);
     }
 }

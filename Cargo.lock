@@ -2341,6 +2341,7 @@ dependencies = [
  "cobolt-runtime",
  "cobolt-semantic",
  "cobolt-server",
+ "cobolt-setup",
  "cobolt-stdlib",
  "dirs 5.0.1",
  "eframe",
