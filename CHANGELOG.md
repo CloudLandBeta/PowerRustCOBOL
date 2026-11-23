@@ -2,6 +2,15 @@
 
 
 
+## 2.1.23 — 2026-11-23
+
+**Feature (tasks only): spec 112 — the task list of the Windows setup's preparation.** `specs/112-windows-install-time-preparation/tasks.md`: 18 ordered, independently verifiable tasks in five groups, with a table that maps every acceptance criterion (AC1 to AC12) to the tasks that prove it.
+
+- **The first two tasks are the Windows spike and its decision, and everything after them waits.** The spike builds a toy `.msi` with the real supervisor DLL and runs it three times on a Windows runner (to the end; cancelled during a 20-minute heartbeat; cancelled during a nested Visual Studio install), driven by a Rust program that answers Cancel through the installer's own UI hook. Its logs are written into the plan, and the operator then picks the fallback if the nested install does not work and answers the five proposed spec amendments.
+- **Most of the work needs no Windows:** the pure decision and the page text, the progress-line grammar, the result file and the free-space rule, a compile that streams, counts and can be cancelled for both profiles, the `--prepare-platform` mode and the two installs with their verified downloads, all tested on every operating system.
+- **The last tasks are the operator's measurement on a clean Windows machine** (the figures the page prints are constants until then, and the feature is not releasable before they are filled), the Guide and the installer reference, and the finalize sweep.
+- **Nothing was built or run:** a document only. Draft; `/implement` waits for approval.
+
 ## 2.1.22 — 2026-11-23
 
 **Feature (plan only): spec 112 — the design of the Windows setup's preparation.** `specs/112-windows-install-time-preparation/plan.md`: a banner-style preparation page with a *prepare now* / *skip* choice, three deferred actions (Rust as the user, the Build Tools as the system, the compile as the user) run by a small Rust supervisor DLL that is the only way a custom action can hear Cancel and show progress, and a headless `PowerRustCOBOL.exe --prepare-platform` that does the work with code that already exists (`toolchain::detect`, `warmup::build_variant`, the stamps). A failed or declined preparation never fails the install; Cancel returns `ERROR_INSTALL_USEREXIT`, which makes the installer roll back.

@@ -1,0 +1,135 @@
+<!--
+SPDX-License-Identifier: Apache-2.0
+Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+-->
+
+# Tasks — The Windows setup prepares the platform for Debug and EXEC RUST
+
+- **Status:** draft
+- **Plan:** ./plan.md   **Date:** 2026-11-23
+
+Ordered, small, independently-verifiable tasks. Each names the files it touches, the requirement(s) it meets and how to verify it. Plan §8's stages T0 to T8 are the *stages*; the numbers here are finer, and the table at the end maps every acceptance criterion to the tasks that prove it.
+
+**How every verification builds.** The worktree has its own target folder; clone another worktree's with `cp -cR` (APFS) rather than building cold, and run `df -h /` first (a cold build is gigabytes, and a full disk looks like compiler errors). Sweeps use `--no-fail-fast` and every `test result:` line is read. `cobolt-ide` tests need `--bin cobolt-ide`; `cobolt-forms` needs `--features render`. Anything that needs Windows says so and is run by the Windows workflow or by the operator; nothing is driven through the application window.
+
+**Pushing.** The spike (T2) and the smoke workflow (T15) run from the remote, so the branch `features-windows-install-prep` is pushed for them, **never between 09:00 and 18:00 Monday to Friday (São Paulo)** and never merged into `main` unless the operator asks. Every commit carries its `z` bump and a top `CHANGELOG.md` entry (feature), the credential scan gates it (`credscan.sh && git commit`), and the quarantine sweep runs before it.
+
+## A. The spike, and the decision it forces
+
+- [ ] **T1 — The spike harness** (R6, R14; plan R-1, R-2, R-3, D1)
+  - Files: `Cargo.toml` (new member), `crates/cobolt-setup/Cargo.toml`, `src/lib.rs`, `src/supervisor.rs`, `examples/drive_msi.rs` (all new); `.github/workflows/spike-msi-prepare.yml` (new, `workflow_dispatch` only).
+  - Do: a `cdylib` + `rlib` crate on `windows-sys`, whose first entry point is the supervisor `PrcRun` (job object with kill-on-close, `ACTIONDATA` per line, a zero-tick `PROGRESS` poll every 500 ms, `IDCANCEL` to `ERROR_INSTALL_USEREXIT`), built for the workflow with `RUSTFLAGS="-C target-feature=+crt-static"` and **its own `CARGO_TARGET_DIR`** (so the rest of the workspace is not rebuilt with another flag). A Rust driver, `examples/drive_msi.rs`, installs a toy `.msi` through `MsiSetExternalUIW` and answers `IDCANCEL` after *n* seconds, which is how Cancel is exercised on a runner with nobody at the keyboard. The workflow builds the toy `.msi` (one file, the real DLL as Binary, three deferred actions: environment dump with `whoami` and token elevation; `vs_BuildTools.exe modify` adding one small Windows-Installer-based component; a 20-minute heartbeat) and runs it three times: to the end, cancelled during the heartbeat, cancelled during the nested install.
+  - Verify: `cargo build -p cobolt-setup` and `cargo test -p cobolt-setup` green on macOS (the Windows calls are `#[cfg(windows)]`); on the runner `dumpbin /dependents cobolt_setup.dll` lists no `VCRUNTIME`/`api-ms-win-crt`; the workflow's three logs are produced.
+
+- [ ] **T2 — Run the spike, record it, and decide** (R-1, R-2, R-3; amendments A1 to A5)
+  - Files: `specs/112-windows-install-time-preparation/plan.md` (new §9 *Spike results*), `spec.md` only if the operator accepts amendments.
+  - Do: push the branch (outside the window), dispatch `spike-msi-prepare.yml`, read the logs, and write down what happened: does the nested Visual Studio install fail, retry or deadlock; what is the environment and elevation inside a deferred action; does text reach the progress page over 20 minutes; does `IDCANCEL` arrive and does the job kill take the child; what does killing the bootstrapper do. Then ask the operator: **F1, F2 or F3** if the nested install does not work, and **A1 to A5** as proposed or changed.
+  - Verify: §9 holds the real log excerpts and the decision; no later task is started on an unanswered question. **Gate: T3 onward waits for this.** If F2 is chosen the plan is rewritten and `/tasks` re-run; F1 changes T13 only; F3 removes T9 and part of T13 and changes R6 in the spec.
+
+## B. The logic that needs no Windows
+
+- [ ] **T3 — The pure decision** (R1, R2, R3, R4, R5, R6, R16; AC12)
+  - Files: `crates/cobolt-compiler/src/prepare.rs` (new) and `lib.rs` (`pub mod prepare;`), or the dependency-free crate `cobolt-prepare` if the measurement below says so.
+  - Do: first **measure**: `cargo tree -p cobolt-compiler --prefix none | sort -u | wc -l`, and the size of a release `cobolt-setup` DLL on the runner with that dependency; use a separate crate if the tree is over 100 crates or the DLL over 5 MB, and record the numbers in the plan (D3). Then `Facts` (Rust: none, other, pinned; linker; stamps; free space per volume; interactivity; `PREPARE_PLATFORM`), `Plan` (what the three steps do), `page_text(&Facts)` and `result_text(...)`, English, with the figures read from the constants of T4 and the *measured* wording rules of R19.
+  - Verify: `cargo test -p cobolt-compiler prepare` green; one result block as GOLDEN RULE #7 asks: the table Rust × linker × stamps × disk × interactivity (every row, count of rows, pass/fail), and the text for each.
+
+- [ ] **T4 — Grammar, result file, free-space rule, figures** (R4, R12, R13, R19)
+  - Files: `crates/cobolt-compiler/src/prepare.rs` (or the crate of T3).
+  - Do: the progress line (`PRC step=… unit=… crates=… elapsed=…`, `PRC note=…`) with its parser and a round trip; the result file format (`step=… status=ok|failed|skipped` plus a sentence) and its reader; the free-space rule (need plus margin per volume, the edges); one `Measured` constants block (time per step, disk per cache and per download, margin) that holds today's 2.1.19 estimates, labelled **not measured**, until T16 fills it.
+  - Verify: `cargo test -p cobolt-compiler prepare` green: the round trip over every line kind, malformed lines refused, each failure of R12 produces its sentence, the rule at its edges (one byte under, exact, one over), and a test that the page prints exactly the constants.
+
+- [ ] **T5 — Compile a profile, stream it, cancel it** (R9, R11, R13; AC5, AC7)
+  - Files: `crates/cobolt-compiler/src/warmup.rs` (`build_variant`), `build_cache.rs` (`cargo()`).
+  - Do: `build_variant` takes a `Profile` (release or debug) and the cache's `debug`/`release` folder follows it; it reads cargo's output as it comes instead of `.output()`, counts `Compiling` lines, reports each and a heartbeat, and honours a cancel flag by stopping the child between lines; `build_cache` gets a sibling of `cargo()` that takes the priority (the default stays below-normal; the compile asks for normal). `produce_libs` still calls the release path with identical behaviour.
+  - Verify: `cargo test -p cobolt-compiler warmup build_cache` green, including `a_debug_build_leaves_its_own_stamp`; new tests: both profiles name their own folders, the line counter on recorded cargo output, a cancel flag set mid-stream stops before the next unit, and the priority argument selects below-normal or normal (the flag value, since the Windows priority class itself is read in T16).
+
+- [ ] **T6 — Prepare every variant for both profiles** (R9, R12, R14, R16; AC4, AC6)
+  - Files: `crates/cobolt-compiler/src/warmup.rs`.
+  - Do: `prepare_platform(opts, progress, cancel)` loops profile × `variants()`, reports unit progress, writes `warm/<v>` and `warm/<v>-debug` through `mark_current_warm` **only for a profile whose every variant finished**, writes the created marker `<cache>/.prepared-by-setup` only when it created the folder, and returns a report (what finished, what failed and why). A failure of one unit never writes a stamp for its profile.
+  - Verify: `cargo test -p cobolt-compiler warmup` green with the cargo runner replaced by a recorded fake: all done writes both stamps and the marker only for a new folder; a failing debug unit writes the release stamp and not the debug one; a cancel writes none and returns *cancelled*. One real run of a single variant, release, in a scratch build root: `cargo test -p cobolt-compiler warmup -- --ignored one_real_variant` (minutes), crate count printed.
+
+- [ ] **T7 — The `--prepare-platform` mode** (R10, R12, R13)
+  - Files: `crates/cobolt-ide/src/prepare.rs` (new), `main.rs` (switch handled before logging and eframe, as `--seed-examples`).
+  - Do: `--prepare-platform --step <rust|build-tools|compile> --result <file> [--version <v>]`; prints the progress lines of T4 on stdout with a heartbeat at least every 5 s; writes the result file and exits `0` for ok and for failed-but-reported, and a distinct code for *cancelled* and for *bad arguments*; refuses a build root under `\config\systemprofile\` with a plain sentence (D7, R-2); `--step compile` runs the check of T10 then `prepare_platform` (T6).
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prepare` green: the argument parser, the `systemprofile` refusal, each step's exit code and result file with every install and cargo call replaced by a recorded fake (no network, no process); `cargo build -p cobolt-ide` green and `PowerRustCOBOL --prepare-platform --step compile --result x` with no toolchain on macOS prints one `PRC` line and a result file saying why it did nothing.
+
+- [ ] **T8 — The Rust step, with verified downloads** (R6, R7, R8; AC3)
+  - Files: `crates/cobolt-ide/src/prepare.rs` (or a `prepare/rust.rs`), `crates/cobolt-compiler/src/lib.rs` (the installs' argv beside `rust_install_command`, which keeps its text).
+  - Do: where `rustup` exists, `rustup toolchain install <pinned> --profile minimal` and leave the default alone; where it does not, download `rustup-init.exe` from the vendor's address, check its **SHA-256** against the value Rust publishes, run `-y --default-toolchain <pinned> --profile minimal`; every download goes through the IDE's existing HTTP client; a mismatch or an error is a result line, not a panic. Non-Windows builds compile the code and the step answers "not supported on this system".
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prepare` green: both branches pick the right argv, the default toolchain is never named in the first, a wrong hash is refused (fixture), a missing network is a sentence; the argv strings are asserted against `rust_install_command`'s pinned version so the two cannot drift.
+
+- [ ] **T9 — The Build Tools step** (R6, R7; AC3) — *removed if F3*
+  - Files: `crates/cobolt-ide/src/prepare.rs` (or `prepare/build_tools.rs`), `crates/cobolt-compiler/src/lib.rs`.
+  - Do: download Microsoft's bootstrapper (`aka.ms/vs/17/release/vs_BuildTools.exe`), verify its **Authenticode signature** and publisher (`WinVerifyTrust`, `#[cfg(windows)]`), run it with `--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended`; exit `3010` is success only if T10's link probe then passes (Q5); the step is never killed by a Cancel (A4): it reports *waiting for Microsoft's installer to finish* and ends when the installer does, within the 30-minute watchdog.
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prepare` green (argv, exit-code table incl. 0, 3010, 1602, 1618, 5100, a refused signature on a fixture); the workload id in the argv is the one `linker_install_command` names (`Microsoft.VisualStudio.Workload.VCTools`), and a test says so, so the IDE's copy-paste text and the setup cannot name different workloads; `--includeRecommended` is the documented difference (it brings the Windows SDK a link needs).
+
+- [ ] **T10 — The check after the installs** (R7; plan R-7)
+  - Files: `crates/cobolt-ide/src/prepare.rs`; `crates/cobolt-ide/src/toolchain.rs` only if `detect` is not callable headless or does not find `%USERPROFILE%\.cargo\bin` without a new `PATH`.
+  - Do: `toolchain::detect` for the pinned Rust (`RUSTUP_TOOLCHAIN`) and `with_link_check` for the linker, exactly the IDE's own; a requirement still missing or not working ends the preparation with a sentence that names it and the next step. If `detect` needs the `.cargo/bin` fallback, add it and report it as a fix to existing code in the CHANGELOG.
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide toolchain prepare` green: a fixture toolchain folder without `PATH` is found; a missing linker (`error: linker … not found`, `missing_linker`) is reported by name; nothing is reported as installed that the check did not confirm.
+
+## C. The setup library
+
+- [ ] **T11 — Facts and the page text** (R1, R3, R4, R16; AC12)
+  - Files: `crates/cobolt-setup/src/facts.rs` (new), `lib.rs`.
+  - Do: `PrcFacts` gathers what only the machine knows: Rust through `rustup toolchain list` and the `.cargo` folders of the installing user; the linker through `vswhere` (`Microsoft.VisualStudio.Component.VC.Tools.x86.x64`); the free space on the volumes written to (A2); the stamps of this version in the user's default build folder. It hands them to the decision of T3 and sets `PRC_TEXT`, `PRC_NEED`, `PRC_DISK_OK`, `PRC_ALREADY` and `PRC_CANCEL_NOTE`. The detection here is a **hint for the page**; T10 stays the authority.
+  - Verify: `cargo test -p cobolt-setup` green on macOS: the `vswhere` and `rustup toolchain list` parsers over recorded outputs (found, none, other versions, a corrupt line), the page for every case of T3's table, the volume choice (build folder on D:, system on C:).
+
+- [ ] **T12 — The supervisor, hardened** (R10, R11, R13, R14, R15; AC5, AC7, AC8)
+  - Files: `crates/cobolt-setup/src/supervisor.rs`, `ticks.rs`, `rollback.rs`, `result.rs` (new), `lib.rs` (exports `PrcFacts`, `PrcTicks`, `PrcRun`, `PrcReadResult`, `PrcRollback`).
+  - Do: from the spike's cut: the user's primary token and environment block for the user steps (`CreateProcessAsUser`, suspended, put in the job, resumed), a plain process for the system step; normal priority; each progress line becomes an `ACTIONDATA` message; Cancel is polled every 500 ms; a step with no line for 15 minutes (30 for the Build Tools) is a watchdog result, not a hang (D10); the Build Tools child is not killed (A4); `IDCANCEL` returns `ERROR_INSTALL_USEREXIT`, everything else returns success after writing the result; each entry point inside `catch_unwind`; `PrcTicks` adds the fixed total and `PrcRun` reports each unit weighted by its measured share; `PrcReadResult` turns the file into `PRC_RESULT`; `PrcRollback` removes the cache only if `.prepared-by-setup` is there.
+  - Verify: `cargo test -p cobolt-setup` green on macOS for the pure parts (tick weights sum to the total, the watchdog clock, the rollback rule over a temp folder with and without the marker, the result reader); on the runner, the spike's three runs repeated with the real supervisor: end, Cancel in the heartbeat, Cancel in the Build Tools step.
+
+## D. The installer
+
+- [ ] **T13 — The page, the actions, the sequence** (R1, R2, R3, R4, R5, R14, R16; AC1, AC2, AC10) — *shaped by T2*
+  - Files: `.github/workflows/build-all-platforms.yml` (the Windows leg: build the DLL with `crt-static`, the `<Binary>`, the CAs, `PrcPrepareDlg`, the properties and `SecureCustomProperties`, the sequence, a small `.wxl` overriding `CancelDlgText`, the finish page's text); `specs` untouched.
+  - Do: `PrcPrepareDlg` banner-style between `InstallDirDlg` and `VerifyReadyDlg` (`NOT Installed`), a `RadioButtonGroup` (*Prepare now* the default, *Skip*) disabled by `PRC_DISK_OK`, scrollable `[PRC_TEXT]`; `PRC_PREPARE` from the radio, or from `PREPARE_PLATFORM` when `UILevel` is not full; `PrcFacts` before the page; `PrcTicks`; `PrcRust`, `PrcBuildTools`, `PrcCompile` after `InstallFiles`, in that order, and `SeedExamples` moved **after** `PrcCompile`; `PrcRollback` scheduled before them; `PrcReadResult` after `ExecuteAction`, before `PrcExitDlg`, whose text shows `[PRC_RESULT]` and keeps the *Build Tools page* button; no action returns failure to the engine but through `IDCANCEL`. The workflow's comment on the finish page is rewritten to say the decision it records was reversed, on the developer's explicit choice, and why.
+  - Verify: the Windows leg of the release build links the `.msi` (`candle`/`light`, including the `.wxl` override; if `light` refuses it, D6's fallback is applied and noted); `msiexec /i … /qn` without `PREPARE_PLATFORM` installs the same file list as 2.1.21's (a list comparison, printed) and starts no process of T7 (AC1, AC2); with `/qn PREPARE_PLATFORM=1` the three actions run; a reinstall of the same version shows no page and compiles nothing (AC10).
+
+- [ ] **T14 — A guard on the installer source** (R12, R15; AC1)
+  - Files: a test in `cobolt-setup` (reads the WiX text from the workflow, as `warmup.rs` already cites it).
+  - Do: assert that `PrcRun` is scheduled after `InstallFiles` and before `SeedExamples`; that every preparation action is conditioned on `PRC_PREPARE`; that `PrcPrepareDlg` is shown only `NOT Installed`; that the DLL is the Binary; that no preparation action carries `Return="check"` where only `IDCANCEL` may fail.
+  - Verify: `cargo test -p cobolt-setup` green; the test fails when the sequence is edited so that `SeedExamples` precedes the compile (shown once by hand).
+
+- [ ] **T15 — The on-demand smoke workflow** (R9, R10; AC4, AC9)
+  - Files: `.github/workflows/prepare-platform-smoke.yml` (new, `workflow_dispatch`, its own timeout above the measured time).
+  - Do: take an `.msi` from a release run, install with `/qn PREPARE_PLATFORM=1 /l*v`, assert both stamps, then a Debug Build and an `EXEC RUST` Build of two fixtures and read the crates compiled (A3: only the program plus the platform crates its features add beyond the three variants), print the time of every step. Hosted runners already carry Rust and the C++ tools, so this proves the compile and the stamps, **not** the installing paths.
+  - Verify: dispatched once from the pushed branch; the log shows both stamps, `platform_prep` `Ready` for each profile, and the crate counts.
+
+## E. Measured on a clean machine, then the documents
+
+- [ ] **T16 — The clean-machine run and the figures** (AC1 to AC11; R19) — *the operator's, on a Windows machine with neither Rust nor the Build Tools*
+  - Files: `crates/cobolt-compiler/src/prepare.rs` (the `Measured` block), this file (the table below, ticked).
+  - Do: the operator runs the table: AC1, AC2 (a network monitor at the page), AC3 (both machines: none, and Build Tools with another Rust, `rustup default` before and after), AC5 (priority class read from the system while compiling), AC6 (network cut after the page, a full disk, a requirement that does not install), AC7 (a line at least every ten seconds), AC8 (Cancel in each of the three steps: *no* continues, *yes* leaves no file or registry entry and no `cargo` or `rustc` of the setup), AC9 (the time of each step, the disk of the cache and of each download, the margin, with the system's default protection on), AC10, AC11 (uninstall leaves the build folder; a second Windows user gets the 2.1.19 question). The figures replace the *not measured* constants; the page's wording follows them.
+  - Verify: each row is ticked with its real number; `cargo test -p cobolt-compiler prepare` green with the constants filled and the "not measured" label gone, and the test that the page prints exactly the measured figures passes. **The feature is not releasable until this task is done.**
+
+- [ ] **T17 — Documents and the installer's reference** (R1, R5, R16, R17, R18)
+  - Files: `docs/developers-guide-en.md`, `.claude/skills/installer-look/SKILL.md`, then deletion of `docs/developers-guide-{es,pt,fr,jp,cn}.md`.
+  - Do: rewrite the Guide's section "The libraries that come with PowerRustCOBOL" and the Windows installation text for a COBOL developer who knows Fujitsu PowerCOBOL or Veryant isCOBOL: what the setup offers and asks, the silent property `PREPARE_PLATFORM=1` and what it accepts, what Cancel does and what stays installed, that a second Windows user gets the first-Build question, the same-version-other-folder case (R-11), the over-the-shoulder account (A5); COBOL and prose, never Rust; original wording; a mermaid flow, screenshot placeholders (the operator captures), Notes and Caveats. Update the installer-look skill with the new page and the reversed decision (one rule, three places), and delete the five translations (GOLDEN RULE #8; the two `docs_embed.rs` guards turn red until the next minor, which is the intended signal).
+  - Verify: the Guide's claims are traced to T13's and T16's results (`/doc-audit` on the touched sections); the five files are gone and no English file was deleted (`git status`).
+
+- [ ] **T18 — Finalize** (all; AC12)
+  - Do: no `Tr` key was needed, so confirm that: `cargo test -p cobolt-ide --bin cobolt-ide i18n` unchanged green; the System KB is untouched, so `prebuilt_chunked_kb_matches_the_published_documentation` stays green; every commit carries its `z` bump and a top `CHANGELOG.md` entry (absolute date; the last states the feature complete and names the amendments the operator accepted); the full sweeps below; the credential scan and the quarantine sweep before each commit; the spike workflow is kept as the record (as `spike-windows-without-msvc.yml` is) with a header comment saying what it settled.
+  - Verify: `cargo build --workspace`; `cargo test -p cobolt-compiler --no-fail-fast`; `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`; `cargo test -p cobolt-setup --no-fail-fast`; `cargo test -p cobolt-forms --features render` — every `test result:` line read and reported; the known reds are named, not dismissed. Nothing is merged or pushed unless the operator asks.
+
+## Every acceptance criterion has a task
+
+| AC | Proved by |
+|---|---|
+| AC1 (page, skip = today's file list) | T13 (list comparison), T14, T16 |
+| AC2 (nothing downloaded without a choice; silent) | T13, T16 (network monitor), T3 (R5 rows) |
+| AC3 (installs, check, pinned Rust beside) | T8, T9, T10, T16 |
+| AC4 (first Debug / `EXEC RUST` Build compiles the program only) | T6, T15, T16 |
+| AC5 (normal priority, read from the system) | T5 (flag), T12, T16 |
+| AC6 (network cut, full disk, a requirement that fails) | T4, T6, T7, T16 |
+| AC7 (a line at least every ten seconds) | T5, T7, T12 (heartbeat), T16 |
+| AC8 (Cancel in each step) | T1, T2, T12 (runner), T16 |
+| AC9 (measured figures, page equals them) | T4 (constants and test), T16 |
+| AC10 (newer prepares, same version offers none) | T3, T13, T16 |
+| AC11 (uninstall keeps the cache; second user) | T12 (no uninstall action), T16 |
+| AC12 (logic tested on every OS) | T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T14, T18 |
+
+## Done criteria
+
+All acceptance criteria in `spec.md` are checked (T16's table with real numbers), tests pass, the Guide is updated and its five translations deleted, and the work is committed on `features-windows-install-prep` in feature commits that each carry their version bump. Not merged, not pushed beyond the spike's needs, unless the operator asks.
