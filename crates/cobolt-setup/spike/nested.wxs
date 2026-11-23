@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+
+  The second, trivial package of the spike of spec 112 (task T1): one text file.
+  A deferred custom action of spike.wxs asks Windows Installer to install it
+  while the first package's install is running, which is the textbook nested
+  installation and says what the installer answers.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="PrcSpikeNested" Language="1033" Version="1.0.0"
+           Manufacturer="PowerRustCOBOL spike" UpgradeCode="482EACD8-249A-4422-8F47-7B8F75EB3D99">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64"
+             Description="Spike of spec 112: the package a custom action tries to install" />
+    <MediaTemplate EmbedCab="yes" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="PrcSpikeNested">
+          <Component Id="PayloadComponent" Guid="*" Win64="yes">
+            <File Id="PayloadFile" Name="payload.txt" Source="$(var.Payload)" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Complete" Level="1">
+      <ComponentRef Id="PayloadComponent" />
+    </Feature>
+  </Product>
+</Wix>

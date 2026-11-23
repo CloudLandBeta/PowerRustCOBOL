@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+
+  The toy package of the spike of spec 112, task T1. It installs one file
+  (spike_child.exe) and runs the real supervisor DLL (`PrcRun`) as deferred custom
+  actions, each selected by a public property so one package answers every
+  question:
+
+    SPIKE_ENV=1     who and where a deferred action is: as the user (impersonated),
+                    as itself while impersonated, and as SYSTEM
+    SPIKE_NESTED=1  can a deferred action run another .msi (NESTED_MSI=path)
+    SPIKE_BT=1      can it run Microsoft's Build Tools bootstrapper
+                    (BT_EXE=path, BT_PATH=install folder; SPIKE_KILL=1 kills it on Cancel)
+    SPIKE_BEAT=n    a step of n seconds that prints a line a second
+
+  Built by .github/workflows/spike-msi-prepare.yml, which also drives it.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="PrcSpike" Language="1033" Version="1.0.0"
+           Manufacturer="PowerRustCOBOL spike" UpgradeCode="E0AB4A8F-89EB-403B-8186-622BC84E7826">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64"
+             Description="Spike of spec 112: a setup action that runs long, hears Cancel and nests installs" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="PrcSpike">
+          <Component Id="ChildComponent" Guid="*" Win64="yes">
+            <File Id="ChildExe" Name="spike_child.exe" Source="$(var.Child)" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Complete" Level="1">
+      <ComponentRef Id="ChildComponent" />
+    </Feature>
+
+    <Binary Id="PrcCA" SourceFile="$(var.Dll)" />
+
+    <Property Id="SPIKE_ENV" Secure="yes" />
+    <Property Id="SPIKE_NESTED" Secure="yes" />
+    <Property Id="SPIKE_BT" Secure="yes" />
+    <Property Id="SPIKE_BEAT" Secure="yes" />
+    <Property Id="SPIKE_KILL" Secure="yes" />
+    <Property Id="NESTED_MSI" Secure="yes" />
+    <Property Id="BT_EXE" Secure="yes" />
+    <Property Id="BT_PATH" Secure="yes" />
+
+    <!-- The data of each step: identity | seconds without a line before giving up |
+         kill on Cancel | command line. See crates/cobolt-setup/src/data.rs. -->
+    <CustomAction Id="SetSpikeEnvAsUser" Property="SpikeEnvAsUser"
+                  Value="asuser|60|0|&quot;[INSTALLFOLDER]spike_child.exe&quot; env" />
+    <CustomAction Id="SpikeEnvAsUser" BinaryKey="PrcCA" DllEntry="PrcRun"
+                  Execute="deferred" Impersonate="yes" Return="check" />
+
+    <CustomAction Id="SetSpikeEnvPlain" Property="SpikeEnvPlain"
+                  Value="plain|60|0|&quot;[INSTALLFOLDER]spike_child.exe&quot; env" />
+    <CustomAction Id="SpikeEnvPlain" BinaryKey="PrcCA" DllEntry="PrcRun"
+                  Execute="deferred" Impersonate="yes" Return="check" />
+
+    <CustomAction Id="SetSpikeEnvSystem" Property="SpikeEnvSystem"
+                  Value="plain|60|0|&quot;[INSTALLFOLDER]spike_child.exe&quot; env" />
+    <CustomAction Id="SpikeEnvSystem" BinaryKey="PrcCA" DllEntry="PrcRun"
+                  Execute="deferred" Impersonate="no" Return="check" />
+
+    <CustomAction Id="SetSpikeNestedMsi" Property="SpikeNestedMsi"
+                  Value="plain|300|0|&quot;[INSTALLFOLDER]spike_child.exe&quot; run msiexec.exe /i &quot;[NESTED_MSI]&quot; /qn /l*v &quot;[INSTALLFOLDER]nested-msi.log&quot;" />
+    <CustomAction Id="SpikeNestedMsi" BinaryKey="PrcCA" DllEntry="PrcRun"
+                  Execute="deferred" Impersonate="no" Return="check" />
+
+    <CustomAction Id="SetSpikeNestedBt" Property="SpikeNestedBt"
+                  Value="plain|1800|[SPIKE_KILL]|&quot;[INSTALLFOLDER]spike_child.exe&quot; run &quot;[BT_EXE]&quot; --installPath &quot;[BT_PATH]&quot; --quiet --wait --norestart --nocache --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" />
+    <CustomAction Id="SpikeNestedBt" BinaryKey="PrcCA" DllEntry="PrcRun"
+                  Execute="deferred" Impersonate="no" Return="check" />
+
+    <CustomAction Id="SetSpikeBeat" Property="SpikeBeat"
+                  Value="asuser|600|0|&quot;[INSTALLFOLDER]spike_child.exe&quot; beat [SPIKE_BEAT]" />
+    <CustomAction Id="SpikeBeat" BinaryKey="PrcCA" DllEntry="PrcRun"
+                  Execute="deferred" Impersonate="yes" Return="check" />
+
+    <UI>
+      <ProgressText Action="SpikeEnvAsUser" Template="[1]">Spike: environment, as the user</ProgressText>
+      <ProgressText Action="SpikeEnvPlain" Template="[1]">Spike: environment, impersonated action, plain child</ProgressText>
+      <ProgressText Action="SpikeEnvSystem" Template="[1]">Spike: environment, as the system</ProgressText>
+      <ProgressText Action="SpikeNestedMsi" Template="[1]">Spike: a nested Windows Installer package</ProgressText>
+      <ProgressText Action="SpikeNestedBt" Template="[1]">Spike: Build Tools</ProgressText>
+      <ProgressText Action="SpikeBeat" Template="[1]">Spike: a long step</ProgressText>
+    </UI>
+
+    <InstallExecuteSequence>
+      <Custom Action="SetSpikeEnvAsUser" Before="SpikeEnvAsUser">SPIKE_ENV AND NOT REMOVE</Custom>
+      <Custom Action="SpikeEnvAsUser" After="InstallFiles">SPIKE_ENV AND NOT REMOVE</Custom>
+      <Custom Action="SetSpikeEnvPlain" Before="SpikeEnvPlain">SPIKE_ENV AND NOT REMOVE</Custom>
+      <Custom Action="SpikeEnvPlain" After="SpikeEnvAsUser">SPIKE_ENV AND NOT REMOVE</Custom>
+      <Custom Action="SetSpikeEnvSystem" Before="SpikeEnvSystem">SPIKE_ENV AND NOT REMOVE</Custom>
+      <Custom Action="SpikeEnvSystem" After="SpikeEnvPlain">SPIKE_ENV AND NOT REMOVE</Custom>
+      <Custom Action="SetSpikeNestedMsi" Before="SpikeNestedMsi">SPIKE_NESTED AND NOT REMOVE</Custom>
+      <Custom Action="SpikeNestedMsi" After="SpikeEnvSystem">SPIKE_NESTED AND NOT REMOVE</Custom>
+      <Custom Action="SetSpikeNestedBt" Before="SpikeNestedBt">SPIKE_BT AND NOT REMOVE</Custom>
+      <Custom Action="SpikeNestedBt" After="SpikeNestedMsi">SPIKE_BT AND NOT REMOVE</Custom>
+      <Custom Action="SetSpikeBeat" Before="SpikeBeat">SPIKE_BEAT AND NOT REMOVE</Custom>
+      <Custom Action="SpikeBeat" After="SpikeNestedBt">SPIKE_BEAT AND NOT REMOVE</Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>

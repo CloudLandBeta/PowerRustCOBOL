@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name         = "cobolt-setup"
+description  = "The Windows setup's own code (spec 112): the supervisor the .msi calls as a custom action, so a long preparation can show progress and hear Cancel"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+publish = false
+
+# A cdylib is what the .msi's Binary table carries; the rlib is what the tests
+# and the examples link. The pure parts (what to run, how its output becomes
+# lines) build and are tested on every operating system; everything that
+# touches Windows Installer is `#[cfg(windows)]`.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# The DLL runs on a machine that may not have the Visual C++ runtime yet, which
+# is the very reason the setup exists. The release workflow therefore builds it
+# with `-C target-feature=+crt-static` and its own target folder, so that flag
+# does not rebuild the rest of the workspace.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_ApplicationInstallationAndServicing",
+    "Win32_System_Environment",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+] }

@@ -1,0 +1,220 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# A SPIKE, not a build. It ships nothing and changes nothing.
+#   Actions -> "Spike: a setup action that runs long, hears Cancel and nests installs" -> Run workflow
+#
+# THE QUESTIONS (spec 112, task T1; the answers go into specs/112-.../plan.md §9)
+#
+# The Windows setup is to prepare the platform for Debug and EXEC RUST: install
+# Rust and the Visual Studio Build Tools if they are missing, then compile for an
+# hour, with a Cancel that cancels the install. Windows Installer was not built
+# for that, and four things decide whether the design stands:
+#
+#   1. NESTED INSTALLS. Windows Installer runs one installation at a time and
+#      holds a mutex for the whole execute phase. The Visual Studio installer
+#      installs some components through Windows Installer. What happens when
+#      Microsoft's bootstrapper runs inside our transaction: it works, it fails
+#      with 1618, or it waits for us while we wait for it?
+#   2. IDENTITY. Who is a deferred action that is impersonated, one that is not,
+#      and the child each starts? Which user profile and environment does the
+#      child see (the build cache is under LOCALAPPDATA, and the toolchain reads
+#      CARGO_HOME and PATH)? Is the token elevated? Which session?
+#   3. A LONG STEP. May a deferred action run for twenty minutes (the real one
+#      runs for an hour), and does text sent with MsiProcessMessage reach the
+#      progress handler the whole time?
+#   4. CANCEL. Does IDCANCEL reach the action, does the job object take the child
+#      and everything it started with it, and what does killing Microsoft's
+#      bootstrapper do to a half-finished Visual Studio install, compared with
+#      letting it finish?
+#
+# THE METHOD
+#
+# A hosted runner has nobody at the keyboard, so the package is installed by
+# `drive_msi`, a Rust program that is the user interface: it prints every message
+# the installer sends and answers IDCANCEL when told to. The package carries the
+# real supervisor DLL (crates/cobolt-setup) and a toy child; the log IS the
+# deliverable.
+#
+# WHAT A HOSTED RUNNER CANNOT SHOW
+#
+# It already has Visual Studio, so the Build Tools scenarios may find components
+# present and never reach the Windows-Installer-based ones; it runs as an
+# administrator with no UAC, so the cross-account case (a standard user typing an
+# administrator's credentials) does not exist here. The artifact this job
+# uploads (the package, the driver, the child) is meant to be repeated by hand on
+# a clean Windows machine, where every component is absent, and that run is the
+# decisive one. See plan.md §9.
+
+name: "Spike: a setup action that runs long, hears Cancel and nests installs"
+
+on:
+  workflow_dispatch:
+    inputs:
+      beat_seconds:
+        description: "Length of the long step, in seconds (the real one runs for about an hour)"
+        default: "1200"
+      build_tools:
+        description: "Also run the Visual Studio Build Tools scenarios (about 40 minutes)"
+        type: boolean
+        default: true
+  # GitHub offers "Run workflow" only for a workflow file that is on the default
+  # branch, and this spike lives on its own branch until the decision it exists
+  # for is taken. A push of the spike's own files runs it instead, with the
+  # default inputs. Remove this trigger when the spike is settled.
+  push:
+    branches: [features-windows-install-prep]
+    paths:
+      - ".github/workflows/spike-msi-prepare.yml"
+      - "crates/cobolt-setup/spike/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-msi-prepare
+  cancel-in-progress: false
+
+env:
+  RELEASE_RUST: "1.95.0"
+  # An input is read through the environment, never expanded into a script. A
+  # push has no inputs, hence the defaults.
+  BEAT_SECONDS: ${{ inputs.beat_seconds || '1200' }}
+
+jobs:
+  spike:
+    name: The supervisor inside a real installation
+    runs-on: windows-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+
+      # The DLL runs on a machine that may not have the Visual C++ runtime yet,
+      # so it is built with the C runtime linked in, and in a target folder of
+      # its own so that flag does not rebuild anything else.
+      - name: Build the DLL, the driver and the child
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+          CARGO_TARGET_DIR: spike-target
+        run: |
+          set -euo pipefail
+          cargo build --release -p cobolt-setup --lib --examples
+          ls -l spike-target/release/cobolt_setup.dll spike-target/release/examples/drive_msi.exe spike-target/release/examples/spike_child.exe
+
+      - name: Does the DLL need the Visual C++ runtime? (it must not)
+        run: |
+          dll=spike-target/release/cobolt_setup.dll
+          for needle in vcruntime140 msvcp140 api-ms-win-crt; do
+            if grep -aqi "$needle" "$dll"; then echo "  mentions  $needle"; else echo "  free of   $needle"; fi
+          done
+          vsw="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+          dumpbin=$("$vsw" -latest -products '*' -find 'VC/Tools/MSVC/**/bin/Hostx64/x64/dumpbin.exe' | head -1 || true)
+          if [ -n "$dumpbin" ]; then "$dumpbin" //dependents "$dll" || true; else echo "  (no dumpbin on this runner)"; fi
+
+      - name: Build the two packages
+        run: |
+          set -euo pipefail
+          choco install wixtoolset --no-progress -y
+          wix="/c/Program Files (x86)/WiX Toolset v3.14/bin"
+          test -d "$wix" || wix=$(ls -d "/c/Program Files (x86)/WiX Toolset v"*/bin | tail -1)
+          mkdir -p spike-work
+          echo "nested payload" > spike-work/payload.txt
+          "$wix/candle.exe" -arch x64 -dPayload=spike-work/payload.txt -out spike-work/nested.wixobj crates/cobolt-setup/spike/nested.wxs
+          "$wix/light.exe" -sval -out spike-work/nested.msi spike-work/nested.wixobj
+          "$wix/candle.exe" -arch x64 -dDll=spike-target/release/cobolt_setup.dll \
+            -dChild=spike-target/release/examples/spike_child.exe -out spike-work/spike.wixobj crates/cobolt-setup/spike/spike.wxs
+          "$wix/light.exe" -sval -out spike-work/spike.msi spike-work/spike.wixobj
+          ls -l spike-work/*.msi
+
+      - name: Get Microsoft's Build Tools bootstrapper
+        if: ${{ github.event_name == 'push' || inputs.build_tools }}
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -fL -o spike-work/vs_BuildTools.exe https://aka.ms/vs/17/release/vs_BuildTools.exe
+          ls -l spike-work/vs_BuildTools.exe
+
+      # Each scenario installs the package through drive_msi, with a log of every
+      # message and an exit code. 1602 is "cancelled by the user".
+      - name: "A. Identity, and a nested Windows Installer package"
+        run: |
+          set +e
+          msi=$(cygpath -aw spike-work/spike.msi); nested=$(cygpath -aw spike-work/nested.msi)
+          drive=spike-target/release/examples/drive_msi.exe
+          "$drive" "$msi" "$(cygpath -aw spike-work/A.log)" never - SPIKE_ENV=1 SPIKE_NESTED=1 "NESTED_MSI=$nested" 2>&1 | tee spike-work/A.out
+          echo "---- the supervisor's own lines, from the install log"
+          grep -a "PRC:" spike-work/A.log | cut -c1-300
+          echo "---- the nested package's own log"
+          cat "/c/Program Files/PrcSpike/nested-msi.log" 2>/dev/null | grep -a -i -E "1618|another installation|Return value|Installation (success|failed)" | head -20 || echo "(none)"
+          msiexec //x "$msi" //qn //norestart; echo "uninstall exit: $?"
+
+      - name: "B. A long step runs to its end and keeps the progress text coming"
+        run: |
+          set +e
+          msi=$(cygpath -aw spike-work/spike.msi)
+          drive=spike-target/release/examples/drive_msi.exe
+          "$drive" "$msi" "$(cygpath -aw spike-work/B.log)" never - SPIKE_BEAT=$BEAT_SECONDS 2>&1 | tee spike-work/B.out | tail -8
+          grep -a "PRC:" spike-work/B.log | tail -6 | cut -c1-300
+          msiexec //x "$msi" //qn //norestart; echo "uninstall exit: $?"
+
+      - name: "C. Cancel in the middle of the long step"
+        run: |
+          set +e
+          msi=$(cygpath -aw spike-work/spike.msi)
+          drive=spike-target/release/examples/drive_msi.exe
+          "$drive" "$msi" "$(cygpath -aw spike-work/C.log)" 60 - SPIKE_BEAT=$BEAT_SECONDS 2>&1 | tee spike-work/C.out | tail -8
+          echo "---- the supervisor's lines"
+          grep -a "PRC:" spike-work/C.log | tail -8 | cut -c1-300
+          echo "---- left behind? (the cancelled install must have rolled back)"
+          ls "/c/Program Files/PrcSpike" 2>&1 | head -3
+          tasklist | grep -i spike_child || echo "no spike_child.exe still running"
+
+      - name: "D. Build Tools, Cancel answered, the installer NOT stopped (the plan's policy)"
+        if: ${{ github.event_name == 'push' || inputs.build_tools }}
+        run: |
+          set +e
+          msi=$(cygpath -aw spike-work/spike.msi); bt=$(cygpath -aw spike-work/vs_BuildTools.exe)
+          drive=spike-target/release/examples/drive_msi.exe
+          "$drive" "$msi" "$(cygpath -aw spike-work/D.log)" 120 - SPIKE_BT=1 "BT_EXE=$bt" 'BT_PATH=C:\prc-spike-bt-d' 2>&1 | tee spike-work/D.out | tail -12
+          grep -a "PRC:" spike-work/D.log | tail -12 | cut -c1-300
+          echo "---- what the Build Tools install left"
+          ls /c/prc-spike-bt-d 2>&1 | head -5
+
+      - name: "E. Build Tools, Cancel answered, the installer KILLED (to learn what a kill does)"
+        if: ${{ github.event_name == 'push' || inputs.build_tools }}
+        run: |
+          set +e
+          msi=$(cygpath -aw spike-work/spike.msi); bt=$(cygpath -aw spike-work/vs_BuildTools.exe)
+          drive=spike-target/release/examples/drive_msi.exe
+          "$drive" "$msi" "$(cygpath -aw spike-work/E.log)" 120 - SPIKE_BT=1 SPIKE_KILL=1 "BT_EXE=$bt" 'BT_PATH=C:\prc-spike-bt-e' 2>&1 | tee spike-work/E.out | tail -12
+          grep -a "PRC:" spike-work/E.log | tail -12 | cut -c1-300
+          echo "---- processes of the Visual Studio installer still alive after the kill"
+          tasklist | grep -i -E "vs_buildtools|vs_installer|setup.exe|vs_setup|vsixinstaller|msiexec" || echo "none"
+          echo "---- what the killed install left"
+          ls /c/prc-spike-bt-e 2>&1 | head -5
+
+      # The package, the driver and the child, to repeat the run by hand on a
+      # clean machine: `drive_msi.exe spike.msi A.log never - SPIKE_BT=1 ...`.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: spike-msi-prepare
+          path: |
+            spike-work/*.log
+            spike-work/*.out
+            spike-work/spike.msi
+            spike-work/nested.msi
+            spike-target/release/examples/drive_msi.exe
+            spike-target/release/examples/spike_child.exe
+            spike-target/release/cobolt_setup.dll
+          retention-days: 14

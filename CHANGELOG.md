@@ -2,6 +2,15 @@
 
 
 
+## 2.1.24 — 2026-11-23
+
+**Feature (spec 112, task T1): the spike harness of the Windows setup's preparation — a new crate, `cobolt-setup`, and a dispatchable workflow that runs it.** The crate is the supervisor the `.msi` will call as a custom action: it starts a long step in a kill-on-close job object, turns each line of its output into progress text, asks the installer about Cancel twice a second (the only way Windows Installer documents for an action to hear it) and returns `ERROR_INSTALL_USEREXIT` when the developer cancels. Only a Cancel fails the action; a step that cannot start, a child that exits with an error and a watchdog that gives up are results, not a failed install. Nothing in the shipped product uses it yet.
+
+- **`crates/cobolt-setup`:** `data` (what a step is told to run, parsed from `CustomActionData`) and `lines` (how a pipe's bytes become lines) are plain Rust and tested on every OS; `ident` and `supervisor` are Windows only. The DLL is meant to be built with the C runtime linked in, because it runs on a machine that may not have the Visual C++ runtime yet.
+- **`examples/drive_msi.rs`** is the user interface a hosted runner does not have: it installs a package, prints every message the installer sends and answers Cancel after a chosen time. **`examples/spike_child.rs`** stands in for the real step (`env`, `beat <seconds>`, `run <program>`).
+- **`.github/workflows/spike-msi-prepare.yml`** (dispatch, or a push of the spike's own files while it lives on its branch, because GitHub offers "Run workflow" only for workflows on the default branch) builds a toy `.msi` and runs five scenarios: identity of an impersonated and of a system action; a nested Windows Installer package; a long step with live progress; Cancel in the middle of it; and Microsoft's Build Tools bootstrapper with Cancel answered while it is allowed to finish, and while it is killed. The log is the deliverable; the package, driver and child are uploaded to repeat the run on a clean machine, where the decisive answers are.
+- **Tested here:** 6 unit tests pass on macOS; the Windows code is type-checked and clippy-clean for the Windows target. **Not run on Windows:** every claim about installer behaviour waits for the spike (T2). No CI time is added to the release workflow.
+
 ## 2.1.23 — 2026-11-23
 
 **Feature (tasks only): spec 112 — the task list of the Windows setup's preparation.** `specs/112-windows-install-time-preparation/tasks.md`: 18 ordered, independently verifiable tasks in five groups, with a table that maps every acceptance criterion (AC1 to AC12) to the tasks that prove it.
