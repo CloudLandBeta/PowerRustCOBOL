@@ -796,6 +796,17 @@ pub enum CompilerError {
     #[error("this program would be built with Cargo because {reason}; only the WebAssembly path was asked for")]
     WasmOnly { reason: CargoReason },
 
+    /// The Build takes the Cargo path, for `reason`, and the platform it links is not compiled on this
+    /// machine yet, and the host asked to be told before that starts
+    /// ([`BuildOptions::ask_before_platform_compile`]). It stops before anything is staged or compiled and
+    /// `bin/` is left as it was; building again without the flag compiles the platform, once per version
+    /// ([`warmup::platform_prep`] says how much).
+    #[error(
+        "this program is built with Cargo because {reason}, and PowerRustCOBOL's platform is not \
+         compiled on this machine yet: the first Build that needs Cargo compiles it, once ({prep:?})"
+    )]
+    PlatformPrep { prep: warmup::PlatformPrep, reason: CargoReason },
+
     /// The WebAssembly path could not put the program into the PowerRustCOBOL runner: its file
     /// could not be read, or it is not an executable the program package knows (DESKTOP-WASM-001 T16).
     #[error("the PowerRustCOBOL runner at '{path}' could not take the program: {detail}")]
@@ -2329,6 +2340,12 @@ pub struct BuildOptions {
     /// (DESKTOP-WASM-001 T34). `cobolt-bench pixel-parity` learns a project's path this way without
     /// a Cargo build. Off by default.
     pub wasm_only: bool,
+    /// Stop with [`CompilerError::PlatformPrep`], before anything is staged or compiled, when the Build
+    /// takes the Cargo path and this version's platform is not compiled on this machine yet, so a host
+    /// that can ask the developer first does (the IDE: how long it takes, what else they can do). Only
+    /// a host that named its version ([`warmup::set_current_version`]) can be answered, and `false` — the
+    /// default, and `rcrun`'s — compiles what is missing without asking, as a Build always did.
+    pub ask_before_platform_compile: bool,
 }
 
 impl Default for BuildOptions {
@@ -2346,6 +2363,7 @@ impl Default for BuildOptions {
             force_cargo: false,
             no_machine_code: false,
             wasm_only: false,
+            ask_before_platform_compile: false,
         }
     }
 }
@@ -2596,11 +2614,7 @@ where
 
 /// The triple this machine builds for.
 fn host_triple() -> Result<String, CompilerError> {
-    probe_host_triple(|| {
-        std::process::Command::new("rustc")
-            .arg("-vV")
-            .output()
-    })
+    probe_host_triple(|| warmup::tool("rustc").arg("-vV").output())
 }
 
 /// A toolchain failure on the Cargo path, typed with the reason the Build took that path
@@ -3440,6 +3454,14 @@ fn build_core(
             "⚠️  The compiled-crate cache is not used — building in this program's own folder: {why}"
         )),
     }
+    // The first Build of a version that needs Cargo compiles the platform, which takes minutes and keeps
+    // every core busy: a host that asked is told first, before anything is staged or started (2.1.19).
+    if let (true, Some(version), Some(cache)) = (opts.ask_before_platform_compile, warmup::current_version(), &shared) {
+        let prep = warmup::platform_prep(&workspace_root, cache, version, opts.debug);
+        if prep != warmup::PlatformPrep::Ready {
+            return Err(CompilerError::PlatformPrep { prep, reason });
+        }
+    }
     if let Some(cache) = &shared {
         // A crate with nothing to clean is recorded now; cargo does the rest.
         for (name, hash) in &platform_check.record {
@@ -3698,11 +3720,22 @@ fn build_core(
     // PowerRustCOBOL can have changed them.
     let mut forced_full: Vec<String> = Vec::new();
     if let Some(cache) = shared.clone() {
-        // The IDE names its version, and then a full build REPAIRS the shared libraries
-        // the release shipped — what is missing or changed comes back from the release
-        // on GitHub. The platform crates come from the SDK's own sources: a changed one
-        // is caught by its marker (`check_platform`), never by a purge.
-        if let (true, Some(version)) = (opts.full, warmup::current_version()) {
+        // The IDE names its version, and then the first Build that reaches the cache copies the libraries
+        // the release shipped into it, before cargo looks. Until 2.1.19 a background compile did, at the
+        // IDE's start, and a first Build that came meanwhile found the cache empty and waited on its lock.
+        let mut copied = false;
+        if let (false, Some(_)) = (opts.debug, warmup::current_version()) {
+            report(0.52, "Copying the shipped libraries…");
+            match warmup::seed_from_shipped(&workspace_root, &cache, &mut |l| log(l)) {
+                Ok(done) => copied = done,
+                Err(why) => log(&format!("⚠️  {why} — compiling what is missing here")),
+            }
+        }
+        // …and then a full build REPAIRS the shared libraries — what is missing or changed comes back
+        // from the release on GitHub (never what was just copied: it is the release's own). The platform
+        // crates come from the SDK's own sources: a changed one is caught by its marker
+        // (`check_platform`), never by a purge.
+        if let (true, false, Some(version)) = (opts.full, copied, warmup::current_version()) {
             log("🔧 Full build: checking the shared libraries");
             if let Err(why) = warmup::repair_libs(&workspace_root, version, &mut |l| log(l)) {
                 log(&format!("⚠️  Could not repair the shared libraries from GitHub ({why}) — compiling what is missing here"));
@@ -3826,6 +3859,7 @@ fn build_core(
 
             let mut captured = String::new();
             let mut compiled = 0usize;
+            let began = std::time::Instant::now();
             let mut said_waiting = false;
             if let Some(err) = child.stderr.take() {
                 for line in BufReader::new(err).lines() {
@@ -3843,7 +3877,11 @@ fn build_core(
                         // Asymptotically approach 0.95 as more crates finish.
                         let frac =
                             0.60 + 0.35 * (1.0 - 1.0 / (1.0 + compiled as f32 / 12.0));
-                        report(frac.min(0.95), &format!("Compiling {name}…"));
+                        let secs = began.elapsed().as_secs();
+                        report(
+                            frac.min(0.95),
+                            &format!("Compiling {name}… · {compiled} crates · {}:{:02}", secs / 60, secs % 60),
+                        );
                     }
                     captured.push_str(&line);
                     captured.push('\n');
@@ -3923,7 +3961,7 @@ fn build_core(
 
     // The platform in the cache is now this version's: later full builds keep it.
     if let Some(cache) = &shared {
-        warmup::mark_current_warm(cache);
+        warmup::mark_current_warm(cache, opts.debug);
     }
 
     // ── 11. Copy binary to bin/ ───────────────────────────────────────────────
@@ -16166,7 +16204,8 @@ generated = ["generated/inner-form1.cbl"]
         let compiled = log
             .iter()
             .filter_map(|m| m.strip_prefix("Compiling "))
-            .map(|n| n.trim_end_matches('…').trim().to_owned())
+            // "Compiling <crate>… · N crates · m:ss": the name ends at the ellipsis.
+            .map(|n| n.split('…').next().unwrap_or(n).trim().to_owned())
             // "Compiling form programs…" is one of the build's own phases, not a crate.
             .filter(|n| !n.contains(' '))
             .collect();

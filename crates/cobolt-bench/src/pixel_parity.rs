@@ -964,6 +964,7 @@ fn run_pair(source: &PairSource, scratch: &Path, runner: &Path, golden: Option<&
             build_dir: Some(root.join("build-wasm")),
             runner: Some(runner.to_path_buf()),
             wasm_only: true,
+            ask_before_platform_compile: false,
             ..Default::default()
         };
         let built_wasm = match cobolt_compiler::build_project(&wasm.manifest, &opts) {

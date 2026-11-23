@@ -16,6 +16,7 @@
 
 use std::time::Duration;
 
+use cobolt_compiler::warmup::{PlatformPrep, Why};
 use cobolt_compiler::{BuildPath, BuildPhase, BuildResult, CargoReason, CompilerError};
 
 use crate::i18n::Tr;
@@ -32,6 +33,9 @@ pub struct BuildFailure {
     /// Why the Build took the Cargo path, when the compiler said (it does for
     /// every project Build).
     pub reason: Option<CargoReason>,
+    /// The Build stopped, before compiling anything, to ask whether the platform may be compiled on this
+    /// machine first (2.1.19): what that takes, and why the Build needs Cargo. It is a question, not an error.
+    pub platform: Option<(PlatformPrep, CargoReason)>,
 }
 
 impl BuildFailure {
@@ -42,8 +46,64 @@ impl BuildFailure {
             CompilerError::Toolchain { .. } => (true, None),
             _ => (false, None),
         };
-        Self { message: e.to_string(), needs_rust, reason }
+        let platform = match e {
+            CompilerError::PlatformPrep { prep, reason } => Some((prep.clone(), reason.clone())),
+            _ => None,
+        };
+        Self { message: e.to_string(), needs_rust, reason, platform }
     }
+}
+
+/// The question a Build asks before it compiles the platform (2.1.19), in the IDE's language: why it has
+/// to, what else the developer can do, how long it takes, and the words of the button that says yes. Short
+/// on purpose: a reason, an alternative and a time, one line each.
+pub struct PlatformQuestion {
+    pub why: String,
+    pub instead: String,
+    pub time: String,
+    pub yes: String,
+}
+
+/// The [`PlatformQuestion`] for `prep`, with `reason` (why the Build takes the Cargo path, already in
+/// the IDE's language). `None` for [`PlatformPrep::Ready`]: there is nothing to ask.
+pub fn platform_question(prep: &PlatformPrep, reason: &str) -> Option<PlatformQuestion> {
+    use crate::ui_text::{ide, idef};
+    let (why, instead, minutes) = match prep {
+        PlatformPrep::Ready => return None,
+        PlatformPrep::OwnCrates => (
+            idef("Why: this program needs Cargo ({}), and PowerRustCOBOL's own crates are compiled once on this machine.", &[&reason]),
+            ide("Instead: a program that needs no Cargo is built in seconds, without compiling the platform.").to_owned(),
+            true,
+        ),
+        PlatformPrep::Everything(Why::DebugProfile) => (
+            ide("Why: Debug builds compile the whole platform without optimisation, and none of it is shipped.").to_owned(),
+            ide("Instead: use Build or Run, not Debug.").to_owned(),
+            false,
+        ),
+        PlatformPrep::Everything(Why::OtherCompiler { release, here }) => {
+            let here = if here.is_empty() { ide("no rustc").to_owned() } else { here.clone() };
+            (
+                idef("Why: this machine has {}, and the libraries shipped with PowerRustCOBOL need Rust {}.", &[&here, release]),
+                idef("Instead: install Rust {} with `rustup toolchain install {}` (a few minutes), then Build again.", &[release, release]),
+                false,
+            )
+        }
+        PlatformPrep::Everything(Why::NoLibraries) => (
+            ide("Why: this installation has no precompiled libraries for this machine.").to_owned(),
+            ide("Instead: install PowerRustCOBOL again, which brings them.").to_owned(),
+            false,
+        ),
+    };
+    Some(PlatformQuestion {
+        why,
+        instead,
+        time: if minutes {
+            ide("Time: about 10 to 30 minutes on a modest machine, once per version. The machine stays busy meanwhile.").to_owned()
+        } else {
+            ide("Time: an hour or more on a modest machine, once per version. The machine stays busy meanwhile.").to_owned()
+        },
+        yes: if minutes { ide("Yes, wait 10 to 30 minutes") } else { ide("Yes, wait an hour or more") }.to_owned(),
+    })
 }
 
 /// A phase's name in the language of `tr`.
@@ -335,5 +395,79 @@ mod tests {
         let after = std::fs::read_to_string(&manifest).unwrap();
         assert!(after.contains("build_path = \"cargo\"") && !after.contains("machine_code"), "{after}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// **2.1.19 — the question before the platform is compiled** is a typed failure, not an error, and its
+    /// four lines (why, instead, time, the button) come out in all six languages, whole: the reason, the
+    /// compiler found here and the release needed are in the text, no hole is left, and the button says
+    /// how long the wait is.
+    #[test]
+    fn build_path_report_the_platform_question_comes_out_in_six_languages() {
+        let started = std::time::Instant::now();
+        let reason = "THE-REASON";
+        let preps = [
+            PlatformPrep::OwnCrates,
+            PlatformPrep::Everything(Why::DebugProfile),
+            PlatformPrep::Everything(Why::OtherCompiler { release: "1.95.0".into(), here: "rustc 1.93.1 (01f6ddf75 2026-02-11)".into() }),
+            PlatformPrep::Everything(Why::OtherCompiler { release: "1.95.0".into(), here: String::new() }),
+            PlatformPrep::Everything(Why::NoLibraries),
+        ];
+        assert!(platform_question(&PlatformPrep::Ready, reason).is_none(), "a ready platform asks nothing");
+        let english = |prep: &PlatformPrep| {
+            crate::ui_text::begin(Language::English);
+            platform_question(prep, reason).expect("a question")
+        };
+        let mut checks = 1usize;
+        for lang in Language::ALL {
+            for prep in &preps {
+                let base = english(prep);
+                crate::ui_text::begin(*lang);
+                let q = platform_question(prep, reason).expect("a question");
+                for (what, text) in [("why", &q.why), ("instead", &q.instead), ("time", &q.time), ("yes", &q.yes)] {
+                    assert!(!text.trim().is_empty() && !text.contains("{}"), "{lang:?} {prep:?} {what}: {text}");
+                    checks += 1;
+                }
+                if *lang != Language::English {
+                    for (what, a, b) in [("why", &q.why, &base.why), ("instead", &q.instead, &base.instead), ("time", &q.time, &base.time), ("yes", &q.yes, &base.yes)] {
+                        assert_ne!(a, b, "{lang:?} {prep:?}: {what} is not translated");
+                        checks += 1;
+                    }
+                }
+                match prep {
+                    PlatformPrep::OwnCrates => assert!(q.why.contains(reason), "{lang:?}: the Cargo reason is named: {}", q.why),
+                    PlatformPrep::Everything(Why::OtherCompiler { here, .. }) => {
+                        assert!(q.why.contains("1.95.0"), "{lang:?}: the release needed is named: {}", q.why);
+                        assert!(q.why.contains(if here.is_empty() { "rustc" } else { "1.93.1" }), "{lang:?}: the compiler found is named: {}", q.why);
+                        assert!(q.instead.contains("rustup toolchain install 1.95.0"), "{lang:?}: the command is given: {}", q.instead);
+                    }
+                    _ => {}
+                }
+                checks += 1;
+            }
+            // The button says how long the wait is, in the words of the language: tens of minutes for the platform's own crates.
+            crate::ui_text::begin(*lang);
+            let short = platform_question(&PlatformPrep::OwnCrates, reason).unwrap();
+            let long = platform_question(&PlatformPrep::Everything(Why::NoLibraries), reason).unwrap();
+            assert_ne!(short.yes, long.yes, "{lang:?}: the two waits are named differently");
+            assert_ne!(short.time, long.time, "{lang:?}: the two waits are timed differently");
+            checks += 2;
+        }
+        crate::ui_text::begin(Language::English);
+        assert_eq!(english(&preps[0]).yes, "Yes, wait 10 to 30 minutes");
+        assert_eq!(english(&preps[4]).yes, "Yes, wait an hour or more");
+        checks += 2;
+
+        // The failure is typed, and it is not an offer to install Rust.
+        let asked = CompilerError::PlatformPrep { prep: PlatformPrep::OwnCrates, reason: CargoReason::ExternalCrate };
+        let failure = BuildFailure::from_error(&asked);
+        assert!(!failure.needs_rust && failure.platform == Some((PlatformPrep::OwnCrates, CargoReason::ExternalCrate)));
+        assert!(BuildFailure::from_error(&CompilerError::Toml("x".into())).platform.is_none());
+        checks += 2;
+        println!("== build_path_report: the platform question (2.1.19) ==");
+        println!(
+            "{} languages × {} cases (own crates, Debug, other compiler, no compiler, no libraries), {checks} of {checks} checks passed in {:.1} ms",
+            Language::ALL.len(),
+            preps.len(),
+            started.elapsed().as_secs_f64() * 1000.0
+        );
     }
 }

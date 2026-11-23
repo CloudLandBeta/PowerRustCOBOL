@@ -17300,32 +17300,68 @@ POWERRUSTCOBOL_BUILD_DIR=/data/builds rcrun build myapp.project.toml
 
 ### The libraries that come with PowerRustCOBOL
 
-The other vendors' libraries are not left for your first Build to compile. Each
-release compiles them once, on its build machines, and the installation carries
-the result in the Platform SDK, under `sdk/libs/<system>/<processor>` (on macOS,
-inside the application bundle). The first time the IDE starts it copies them into
-the shared cache and, in the background, compiles PowerRustCOBOL's own parts
-three ways: for a form application, for one that reaches a database, and for one
-that draws (a Canvas2D, Canvas3D, ImageBuffer, Plot, Scene3D, Physics2D or
-Physics3D). From then on a Build of a small application compiles only your
-program.
+Most programs never need PowerRustCOBOL's own parts compiled on your machine: the
+Build puts your program into the PowerRustCOBOL runner that is installed with the
+IDE and compiles only your program. A program that needs Cargo — a **Debug**
+build, a project that uses **External Crates**, a program with an `EXEC RUST`
+block, or one with a construct the runner does not run yet — is linked with
+PowerRustCOBOL's own parts instead, and the first such Build of each PowerRustCOBOL
+version has some compiling to do before it reaches your program. Nothing is
+compiled when the IDE starts, and nothing is compiled behind your back: the Build
+**asks first**.
 
-Two things decide whether that copy can be used:
+The other vendors' libraries are not left for that Build to compile. Each release
+compiles them once, on its build machines, and the installation carries the result
+in the Platform SDK, under `sdk/libs/<system>/<processor>` (on macOS, inside the
+application bundle). The Build copies them into the shared cache before it looks
+at it. What remains is PowerRustCOBOL's own parts: they are identified by the
+folder the SDK is installed in, so they cannot be shipped, and are compiled on your
+machine, once per version.
+
+**The question.** Before anything is staged or compiled, the Build stops and asks
+*Compile PowerRustCOBOL's platform?* in three short lines — why, what you can do
+instead, how long it takes — and two answers:
+
+| Why it is asked | Time | What you can do instead |
+|---|---|---|
+| The usual case: the libraries shipped with the release fit your Rust, and PowerRustCOBOL's own parts are compiled | 10 to 30 minutes on a modest machine | a program that needs no Cargo is built in seconds |
+| A Debug build: no libraries are shipped for it | an hour or more on a modest machine | Build or Run without Debug |
+| Your Rust is not the release's, so the shipped libraries cannot be used | an hour or more | install the release's Rust beside yours (below), then Build again |
+| The installation holds no libraries for your machine | an hour or more | install PowerRustCOBOL again |
+
+The first answer is **Yes, wait 10 to 30 minutes** or **Yes, wait an hour or more**,
+so the button already says what you agree to. The second is **Not now**: nothing is
+started, and the Run or Debug that was waiting for the Build is given up. A Run
+Form pressed in a designer window shows the question in that window.
+
+<!-- 📷 platform-question.png — the "Compile PowerRustCOBOL's platform?" dialog:
+     the three lines (Why, Instead, Time) and the two buttons. Capture it with a
+     Debug build of a project on a machine that has not built it before. -->
+
+**The progress.** After **Yes**, the Building dialog is the progress: its bar, the
+part being compiled, how many have been compiled so far and the time spent, and a
+line saying that this happens once for this version. On Windows the compile runs
+at below-normal priority, so the IDE and your other programs keep answering. The
+shared cache keeps the result: later Builds of any program wait for none of this.
+A Debug build and a release build are compiled separately, so each asks once.
+
+Two things decide whether the shipped copy can be used:
 
 - **The Rust compiler.** A compiled library can only be used by the very compiler
   that made it, so every PowerRustCOBOL release is built with one fixed Rust
-  release, **Rust 1.95.0**, and records it in `rustc.txt` beside the libraries.
-  Install that release (the IDE's own offer to install Rust does), or switch to it
-  with:
+  release, **Rust 1.95.0**, and records it in `rustc.txt` beside the libraries. If
+  that release is installed beside your default Rust, PowerRustCOBOL uses it for its
+  own builds, without changing your default or your other projects and without
+  restarting the IDE. This installs it (the IDE's own offer to install Rust installs
+  it too):
 
   ```text
-  rustup default 1.95.0
+  rustup toolchain install 1.95.0
   ```
 
-  then start the IDE again; the command downloads the release when it is missing.
-  When the Rust on your machine is a different version, the Output panel says so,
-  names both versions and gives the same command. Until then every library is
-  compiled on your machine, once.
+  When the Rust on your machine is a different version and 1.95.0 is not installed,
+  the question says so, and the Output panel names both versions and gives the same
+  command. Until then every library is compiled on your machine, once.
 - **The crate versions.** Every program starts from the list of library versions
   the SDK was built with (the SDK's `Cargo.lock`), so that the shipped libraries
   apply to it. A machine that has never downloaded those versions downloads them
@@ -17335,28 +17371,34 @@ Two things decide whether that copy can be used:
 
 A full build checks every shipped library against the record the installation
 carries and, when one is missing or changed, downloads the release's copy from
-the PowerRustCOBOL releases page on GitHub and puts back only those files.
+the PowerRustCOBOL releases page on GitHub and puts back only those files. The
+Build that has just copied the libraries does not check them again.
 
 Before it compiles anything, a Build also checks that the Platform SDK holds every
 file PowerRustCOBOL's parts are compiled with (the window icon, the form themes and
 the fonts). An SDK that lacks one is named in the error, with what it lacks.
 
-> ⚠️ **Caveat.** When the Output panel says the shipped libraries were made by
-> another Rust compiler, or that crate versions other than the SDK's are being
-> used, the Build that follows is a long one: on a modest machine, an hour or more.
-> It happens once; the shared cache keeps the result for every later Build.
+> ⚠️ **Caveat.** When the question says that the shipped libraries cannot be used,
+> or the Output panel says that crate versions other than the SDK's are being
+> used, the Build that follows is a long one: on a modest machine, an hour or
+> more, with every processor busy. It happens once; the shared cache keeps the
+> result for every later Build.
+
+> **Note.** `rcrun build` on the command line never asks: it compiles what is
+> missing, as it always did. Only the IDE, which can show a question and its
+> progress, stops first.
 
 ```mermaid
 flowchart TD
-    A[First IDE start] --> B{Installed Rust = the release's?}
-    B -- yes --> C[Shipped libraries copied into shared-target]
-    B -- no --> D[Output panel names both versions and the rustup command]
-    C --> E[Build: SDK's Cargo.lock, offline]
-    D --> E
-    E --> F{Pinned versions on this machine?}
-    F -- yes --> G[Compile PowerRustCOBOL's parts and the program]
-    F -- no --> H[Download those versions, keep the lock]
-    H --> G
+    A[A Build that needs Cargo] --> B{This version's platform compiled here?}
+    B -- yes --> G[Compile the program]
+    B -- no --> C[Question: why, instead, time]
+    C -- Not now --> X[Nothing is started]
+    C -- Yes --> D{Rust 1.95.0 is the default, or installed beside it?}
+    D -- yes --> E[Shipped libraries copied into shared-target]
+    D -- no --> F[Output panel names both versions and the command]
+    E --> H[Compile PowerRustCOBOL's own parts, then the program]
+    F --> H
 ```
 
 ### Full builds and the recorded version

@@ -8,8 +8,8 @@
 //!
 //! `cargo run --release -p cobolt-compiler --example prebuild_libs -- <sdk folder>`
 //!
-//! The release workflow runs it after `stage_sdk`; the IDE copies the result
-//! into its shared cache the first time it opens (`warmup::warm_platform_cache`).
+//! The release workflow runs it after `stage_sdk`; the first Build that takes the Cargo path copies the
+//! result into its shared cache (`warmup::seed_from_shipped`).
 
 fn main() {
     let Some(sdk) = std::env::args().nth(1) else {

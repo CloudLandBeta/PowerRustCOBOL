@@ -279,6 +279,21 @@ enum BuildThenLaunch {
     Debug(Box<Form>),
 }
 
+/// What a Build asked before it compiled PowerRustCOBOL's platform on this machine (2.1.19), kept
+/// while the dialog is up: the answer to repeat the same Build on yes, and the Run or Debug that
+/// was waiting for it, which a no gives up.
+struct PlatformPrompt {
+    prep: cobolt_compiler::warmup::PlatformPrep,
+    /// Why the Build takes the Cargo path, in the language the question was raised in.
+    reason: String,
+    full: bool,
+    debug: bool,
+    then_run: Option<(PathBuf, BuildThenLaunch)>,
+    /// The form whose designer window the Build belongs to (a Run Form), so the question appears
+    /// where the developer is looking, as the Building dialog does; `None` for the IDE's own window.
+    host: Option<PathBuf>,
+}
+
 /// Whether Run Form or Debug has to build the application first, rather than
 /// hand the form to `rcrun run-form`.
 ///
@@ -794,6 +809,16 @@ pub struct CoboltApp {
     /// Whether the build now running is a FULL one — only a full build stamps
     /// the project with the PowerRustCOBOL version that produced it.
     pending_build_full: bool,
+    /// Whether the build now running, or the last one asked for, is a Debug one: the platform
+    /// question ends a build before it compiles anything, and says yes by asking for the same one.
+    pending_build_debug: bool,
+    /// The question a Build asked before compiling the platform on this machine (2.1.19), on
+    /// screen until it is answered.
+    platform_prompt: Option<PlatformPrompt>,
+    /// The developer said yes to it: the next build does not ask again, and takes this.
+    platform_confirmed: bool,
+    /// The build now running is the one they said yes to: the Building dialog says why it is slow.
+    platform_compiling: bool,
     /// When the build now running was asked for — forms regenerated, compiled
     /// and linked from there — so its outcome can say how long it took.
     pending_build_started: Option<std::time::Instant>,
@@ -2293,24 +2318,11 @@ impl CoboltApp {
         // The machine's build folder (spec 100), handed to the compiler for the whole process so the
         // build the IDE starts and the project tools it hosts agree on where builds are kept.
         cobolt_compiler::set_build_root_override(crate::ui_prefs::load_build_dir());
-        // The first start of a new version compiles the platform libraries once, in the
-        // background, so no program's build has to (a start of the same version does nothing).
-        // Skipped when no SDK is installed: there is nothing to compile then.
+        // The version the compiler keeps the shared libraries for. Nothing is compiled here: until 2.1.19 a
+        // background thread compiled the platform on the first start of a version, which kept every core
+        // busy and held the cache's lock against the developer's own first build. A Build that needs the
+        // platform asks first (`PlatformPrompt`) and compiles it then, in front of the developer.
         cobolt_compiler::warmup::set_current_version(crate::version::VERSION);
-        if !cobolt_compiler::warmup::is_warm(crate::version::VERSION) {
-            if let Some(sdk) = cobolt_compiler::resolve_workspace_root(None) {
-                std::thread::spawn(move || {
-                    let mut log = |line: &str| tracing::info!("platform libraries: {line}");
-                    if let Err(why) = cobolt_compiler::warmup::warm_platform_cache(
-                        &sdk,
-                        crate::version::VERSION,
-                        &mut log,
-                    ) {
-                        tracing::warn!("platform libraries not prepared (a build will compile them): {why}");
-                    }
-                });
-            }
-        }
         let mut style = (*cc.egui_ctx.global_style()).clone();
         style.visuals = egui::Visuals::dark();
         cc.egui_ctx.set_global_style(style);
@@ -2380,6 +2392,10 @@ impl CoboltApp {
             built_runs: Vec::new(),
             build_modal_host: None,
             pending_build_full: false,
+            pending_build_debug: false,
+            platform_prompt: None,
+            platform_confirmed: false,
+            platform_compiling: false,
             pending_build_started: None,
             stale_build_prompt: None,
             inspector: crate::inspector::ProcessInspector::new(Default::default()),
@@ -6162,6 +6178,8 @@ impl CoboltApp {
     /// `false`, the unoptimised one the debugger attaches to when `true`. The
     /// button decides it; a project no longer carries a setting for it.
     fn do_build_binary_with(&mut self, full: bool, debug: bool) {
+        // A yes to the platform question holds for this one build, whether or not it starts.
+        let confirmed = std::mem::take(&mut self.platform_confirmed);
         // One build at a time. Every build of a project stages into the same
         // `cobolt-build-<binary>` folder of the build cache, and a full build's first act
         // is to throw that folder away — so a second build started while one is
@@ -6178,6 +6196,7 @@ impl CoboltApp {
             return;
         }
         self.pending_build_full = full;
+        self.pending_build_debug = debug;
         self.pending_build_started = Some(std::time::Instant::now());
         if !self.allow_data_binding_project_action(BindingActionGate::BuildProject) {
             return;
@@ -6288,6 +6307,9 @@ impl CoboltApp {
                 force_cargo: false,
                 no_machine_code: false,
                 wasm_only: false,
+                // A Build that needs the platform compiled here stops first and asks (`PlatformPrompt`),
+                // unless the developer has just said yes to it.
+                ask_before_platform_compile: !confirmed,
             };
             // Typed, so a missing toolchain is known by its variant, not by its words (T18).
             let result = build_project(&manifest, &opts).map_err(|e| crate::build_path_report::BuildFailure::from_error(&e));
@@ -6297,6 +6319,7 @@ impl CoboltApp {
         // Poll both channels each frame; store the receivers so update() can drain them.
         self.pending_build_rx = Some(rx);
         self.pending_build_progress = Some(prx);
+        self.platform_compiling = confirmed;
         self.build_phase = (0.0, "Starting…".to_string());
         self.build_modal_closed = false;
         // Hosted by the IDE main window unless the caller (a designer's Run
@@ -14373,6 +14396,78 @@ impl CoboltApp {
         }
     }
 
+    /// Is the platform question on screen in a designer window that is still open?
+    fn platform_prompt_hosted_by_open_designer(&self) -> bool {
+        self.platform_prompt
+            .as_ref()
+            .and_then(|p| p.host.as_ref())
+            .is_some_and(|host| self.designers.iter().any(|(p, _)| p == host))
+    }
+
+    /// The question a Build asks before it compiles PowerRustCOBOL's platform on this machine (2.1.19):
+    /// why it has to, what else the developer can do, how long it takes — one line each — and two answers.
+    /// A real [`egui::Modal`] of a pinned width, so the text wraps inside it and nothing here is measured
+    /// from the space around it; there is no ✕ and Esc does nothing. **Yes** builds again without asking,
+    /// and the Building dialog, with the crates compiled and the time spent, is the progress. **Not now**
+    /// leaves the Build undone, and the Run or Debug that waited for it.
+    fn show_platform_prompt(&mut self, ctx: &Context) {
+        let Some(prompt) = &self.platform_prompt else {
+            return;
+        };
+        let Some(question) = crate::build_path_report::platform_question(&prompt.prep, &prompt.reason) else {
+            self.platform_prompt = None;
+            return;
+        };
+        let mut answer: Option<bool> = None;
+        egui::Modal::new(egui::Id::new("platform_prep_modal"))
+            .backdrop_color(egui::Color32::from_black_alpha(150))
+            .show(ctx, |ui| {
+                ui.set_width(460.0);
+                ui.heading(crate::ui_text::ide("Compile PowerRustCOBOL's platform?"));
+                ui.add_space(8.0);
+                ui.add(egui::Label::new(question.why.as_str()).wrap());
+                ui.add_space(4.0);
+                ui.add(egui::Label::new(question.instead.as_str()).wrap());
+                ui.add_space(4.0);
+                ui.add(egui::Label::new(egui::RichText::new(question.time.as_str()).strong()).wrap());
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if ui.button(question.yes.as_str()).clicked() {
+                        answer = Some(true);
+                    }
+                    if ui.button(crate::ui_text::ide("Not now")).clicked() {
+                        answer = Some(false);
+                    }
+                });
+                ui.add_space(4.0);
+            });
+        let Some(yes) = answer else {
+            return;
+        };
+        let Some(asked) = self.platform_prompt.take() else {
+            return;
+        };
+        if yes {
+            self.platform_confirmed = true;
+            self.do_build_binary_with(asked.full, asked.debug);
+            if self.pending_build_rx.is_some() {
+                // The Run or Debug that waited for this Build goes on waiting for it, in the same window.
+                self.pending_build_then_run = asked.then_run;
+                self.build_modal_host = asked.host;
+                return;
+            }
+            // The Build refused to start (a form with errors, no project): each said why in the Output.
+        } else {
+            self.output.push_status(crate::ui_text::ide(
+                "Build not started: the platform was not compiled. Choose Build again when you are ready.",
+            ));
+        }
+        if let Some((form_path, _)) = asked.then_run {
+            self.output.push_status(self.lang.tr().status_run_not_started.to_owned());
+            self.set_element_status(&form_path, ElementStatus::Failed);
+        }
+    }
+
     /// The first-run Rust question (see [`crate::toolchain`]).
     ///
     /// There is no ✕: the only ways out are Install and a refusal, because a
@@ -14702,6 +14797,7 @@ impl CoboltApp {
         let tr = self.lang.tr();
         let (frac, msg) = (self.build_phase.0, self.build_phase.1.clone());
         let outcome = self.build_outcome.clone();
+        let platform_compiling = self.platform_compiling;
         let mut details = false;
         let mut close = false;
         egui::Modal::new(egui::Id::new("building_modal"))
@@ -14735,6 +14831,21 @@ impl CoboltApp {
                                 egui::Label::new(egui::RichText::new(label).size(13.0)).truncate(),
                             );
                         });
+                        // The Build the developer said yes to compiles PowerRustCOBOL's platform first
+                        // (2.1.19): the label above counts the crates and the time; this says why.
+                        if platform_compiling {
+                            ui.add_space(6.0);
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(crate::ui_text::ide(
+                                        "First time on this version: PowerRustCOBOL's platform is being compiled, once. The machine may be slow meanwhile.",
+                                    ))
+                                    .small()
+                                    .weak(),
+                                )
+                                .wrap(),
+                            );
+                        }
                     }
                     Some(Ok(summary)) => {
                         ui.heading(
@@ -17317,6 +17428,25 @@ impl eframe::App for CoboltApp {
                         }
                     }
                 }
+                // The Build needs the platform compiled on this machine and stopped, before compiling
+                // anything, to ask (2.1.19). Not a failure: no error is shown and nothing is marked
+                // failed; the question is on screen, and a yes builds again, without asking.
+                Ok(Err(failure)) if failure.platform.is_some() => {
+                    let (prep, reason) = failure.platform.clone().expect("guarded");
+                    self.pending_build_rx = None;
+                    self.pending_build_progress = None;
+                    self.output.push_status(crate::ui_text::ide(
+                        "⏸ The Build waits for your answer: PowerRustCOBOL's platform has to be compiled on this machine first.",
+                    ));
+                    self.platform_prompt = Some(PlatformPrompt {
+                        prep,
+                        reason: crate::build_path_report::reason_text(&self.lang.tr(), &reason),
+                        full: self.pending_build_full,
+                        debug: self.pending_build_debug,
+                        then_run: self.pending_build_then_run.take(),
+                        host: self.build_modal_host.clone(),
+                    });
+                }
                 Ok(Err(failure)) => {
                     let took = took();
                     let e = failure.message.clone();
@@ -17454,6 +17584,10 @@ impl eframe::App for CoboltApp {
         self.show_build_folder(ctx, &tr);
         self.show_project_upgrade_modal(ctx, &tr);
         self.show_toolchain_prompt(ctx, &tr);
+        // A Run Form's question appears in its designer window (below), the others here.
+        if !self.platform_prompt_hosted_by_open_designer() {
+            self.show_platform_prompt(ctx);
+        }
         self.show_ollama_prompt(ctx, &tr);
         self.show_ai_setup_modal(ctx, &tr);
         self.show_loading_modal(ctx, &tr);
@@ -18199,6 +18333,12 @@ impl eframe::App for CoboltApp {
                         // the main window it lands BEHIND this one, so the
                         // Details button read as doing nothing at all.
                         self.show_build_details_window(vp_ctx);
+                    }
+                    // The platform question a Run Form of this designer raised, likewise.
+                    if self.platform_prompt.as_ref().and_then(|p| p.host.as_deref())
+                        == Some(self.designers[idx].0.as_path())
+                    {
+                        self.show_platform_prompt(vp_ctx);
                     }
                     // Same rule for the stale-build prompt this designer's
                     // Run Form raised: it must appear under the operator's

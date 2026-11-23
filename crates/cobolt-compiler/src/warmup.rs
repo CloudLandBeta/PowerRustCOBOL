@@ -4,24 +4,24 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! The platform's compiled libraries, made once per PowerRustCOBOL version.
+//! The platform's compiled libraries, made once per PowerRustCOBOL version, when a program needs them.
 //!
-//! A program's build is its own few seconds only when the crates under it are
-//! already compiled in the shared cache ([`crate::build_cache`]). This module
-//! puts them there before the first program asks:
+//! Most programs are built by the WebAssembly runner and compile nothing of the platform. A program
+//! that needs Cargo (a Debug build, External Crates, EXEC RUST) links the platform's crates, and a build
+//! of it is its own few seconds only when the crates under it are already compiled in the shared cache
+//! ([`crate::build_cache`]). This module is what puts them there, and what judges, before the first such
+//! build, how long that will take ([`platform_prep`]), so the IDE can ask first:
 //!
-//! 1. **Shipped libraries.** A release carries `libs/<os>/<arch>/target`, the
-//!    cache a release build produced ([`produce_libs`]). The first time it is
-//!    needed the folder is copied into the cache — when the compiler that made
-//!    it is the compiler installed here, since another `rustc` cannot read it.
-//! 2. **Warm-up.** Three stand-in programs (a form application, one that also
-//!    reaches SQL, and one that draws on a Canvas) are built against the SDK,
-//!    which compiles whatever the shipped libraries did not cover — the
-//!    platform crates, whose cargo identity includes the folder the SDK is
-//!    installed in.
+//! 1. **Shipped libraries.** A release carries `libs/<os>/<arch>/target`, the cache a release build
+//!    produced ([`produce_libs`]). The first Cargo-path build copies it into the cache ([`seed_from_shipped`])
+//!    — when the compiler that made it is the compiler used here, since another `rustc` cannot read it.
+//! 2. **The platform's own crates.** Their cargo identity includes the folder the SDK is installed in, so
+//!    they are compiled here, once, by the program's own build.
 //!
-//! `warm/<version>` in the cache records that all three are done, so the next start
-//! of the same version does nothing.
+//! `warm/<version>` in the cache records that a build compiled them, so the next build of the same
+//! version waits for nothing. Nothing compiles at start-up: until 2.1.19 the IDE compiled three stand-in
+//! programs in the background on the first start of a version, which held the cache's lock against the
+//! developer's own first build and kept every core busy for as long as a first build takes.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -76,11 +76,17 @@ pub(crate) fn current_version() -> Option<&'static str> {
     CURRENT.get().map(String::as_str)
 }
 
-/// A build that got this far compiled whatever the platform lacked.
-pub(crate) fn mark_current_warm(cache: &Path) {
+/// The stamp a build of `version` leaves in `warm/` for the profile it compiled: the debug and the
+/// release platforms are compiled separately, and only the release one ever shipped.
+fn stamp_name(version: &str, debug: bool) -> String {
+    if debug { format!("{version}-debug") } else { version.to_owned() }
+}
+
+/// A build that got this far compiled whatever the platform lacked, for the profile it built.
+pub(crate) fn mark_current_warm(cache: &Path, debug: bool) {
     if let Some(v) = CURRENT.get() {
         let _ = std::fs::create_dir_all(cache.join(WARM_DIR));
-        let _ = std::fs::write(cache.join(WARM_DIR).join(v), v);
+        let _ = std::fs::write(cache.join(WARM_DIR).join(stamp_name(v, debug)), v);
     }
 }
 
@@ -120,82 +126,127 @@ fn os_name() -> &'static str {
 }
 
 fn rustc_version() -> Option<String> {
-    let out = Command::new("rustc").arg("-vV").output().ok()?;
+    let out = tool("rustc").arg("-vV").output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
 
-/// Whether the platform has been warmed for `version` in this build folder.
-pub fn is_warm(version: &str) -> bool {
-    let (root, _) = resolve_build_root(None);
-    build_cache::cache_dir(&root).join(WARM_DIR).join(version).is_file()
-}
-
-/// What [`warm_platform_cache`] did.
-#[derive(Debug, Default, Clone)]
-pub struct WarmOutcome {
-    /// Already warm for this version — nothing was done.
-    pub already: bool,
-    /// The shipped libraries were copied into the cache.
-    pub seeded_from_libs: bool,
-    /// The stand-ins that were built.
-    pub built: Vec<&'static str>,
-}
-
-/// Make sure the shared cache holds the platform compiled for `version`.
-/// `log` receives one line per step. Safe to call from a background thread; a
-/// failure leaves the cache usable (the next program's build compiles what is
-/// missing, as it always did) and is returned for the log.
-pub fn warm_platform_cache(
-    sdk_root: &Path,
-    version: &str,
-    log: &mut dyn FnMut(&str),
-) -> Result<WarmOutcome, String> {
-    let (build_root, _) = resolve_build_root(None);
-    let cache = build_cache::open(&build_root)?;
-    let stamp = cache.join(WARM_DIR).join(version);
-    if stamp.is_file() {
-        return Ok(WarmOutcome { already: true, ..Default::default() });
+/// A tool of the Rust toolchain (`cargo`, `rustc`), asked for the release PowerRustCOBOL is built with
+/// ([`release_rust`]) whenever `rustup` has it installed, whatever the machine's default is. The libraries
+/// a release ships can only be used by that compiler, and a developer's default is often a newer stable:
+/// installing the release beside it is enough, and nothing about their other projects changes.
+/// `RUSTUP_TOOLCHAIN` outranks the default and any `rust-toolchain` file, and means nothing without rustup.
+pub(crate) fn tool(program: &str) -> Command {
+    let mut command = Command::new(program);
+    if let Some(release) = pinned_toolchain() {
+        command.env("RUSTUP_TOOLCHAIN", release);
     }
-    let mut outcome = WarmOutcome::default();
+    command
+}
 
-    // A cache of an older version holds platform units this version no longer
-    // matches; cargo would leave them beside the new ones for good.
-    if let Ok(old) = std::fs::read_dir(cache.join(WARM_DIR)) {
-        if old.flatten().next().is_some() {
-            log("   a new PowerRustCOBOL version — the platform libraries are compiled again; third-party ones stay");
+/// [`release_rust`] when `rustup` lists it as installed. Only a yes is remembered, so installing it
+/// while the IDE is open takes effect at the next build.
+fn pinned_toolchain() -> Option<&'static str> {
+    static FOUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    use std::sync::atomic::Ordering::Relaxed;
+    let release = release_rust();
+    if !FOUND.load(Relaxed) {
+        let out = Command::new("rustup").args(["toolchain", "list"]).output().ok().filter(|o| o.status.success())?;
+        if !lists_toolchain(&String::from_utf8_lossy(&out.stdout), release) {
+            return None;
         }
+        FOUND.store(true, Relaxed);
     }
+    Some(release)
+}
 
+/// Whether the output of `rustup toolchain list` (`1.95.0-aarch64-apple-darwin (default)`) names `release`.
+fn lists_toolchain(list: &str, release: &str) -> bool {
+    list.lines().any(|line| line.trim().strip_prefix(release).is_some_and(|rest| rest.starts_with('-')))
+}
+
+/// What a Build that takes the Cargo path has to do to the platform before it can compile the program.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlatformPrep {
+    /// The platform is compiled in the cache for this version and profile: nothing to wait for.
+    Ready,
+    /// The third-party libraries are in the cache or shipped for this compiler: PowerRustCOBOL's own crates
+    /// are compiled here, once. Minutes.
+    OwnCrates,
+    /// Every crate is compiled here, once. On a modest machine, an hour or more.
+    Everything(Why),
+}
+
+/// Why the third-party libraries cannot be reused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Why {
+    /// A Debug build: only release libraries are shipped.
+    DebugProfile,
+    /// The shipped libraries were made by another compiler than the one this machine would use.
+    OtherCompiler {
+        /// The Rust release PowerRustCOBOL is built with, which makes them usable.
+        release: String,
+        /// What `rustc -V` says here, or that there is none.
+        here: String,
+    },
+    /// This installation has no libraries for this machine.
+    NoLibraries,
+}
+
+/// What a Cargo-path build of `version` has to compile before it reaches the program, judged from the
+/// shared `cache` and the SDK's shipped libraries, without compiling anything.
+pub fn platform_prep(sdk_root: &Path, cache: &Path, version: &str, debug: bool) -> PlatformPrep {
+    let ready = cache.join(WARM_DIR).join(stamp_name(version, debug)).is_file();
+    let populated = cache.join(if debug { "debug" } else { "release" }).join(".fingerprint").is_dir();
+    let libs = libs_dir(sdk_root);
+    let shipped = libs.join("target").is_dir().then(|| std::fs::read_to_string(libs.join(RUSTC_STAMP)).unwrap_or_default());
+    judge(ready, populated, debug, shipped.as_deref(), || rustc_version())
+}
+
+/// [`platform_prep`] from the facts: whether this version's stamp is there, whether the cache already holds
+/// compiled crates of the profile, `shipped` (what compiler made the shipped libraries, when there are any)
+/// and, asked only when it matters, this machine's `rustc -vV`.
+fn judge(ready: bool, populated: bool, debug: bool, shipped: Option<&str>, ours: impl FnOnce() -> Option<String>) -> PlatformPrep {
+    if ready {
+        return PlatformPrep::Ready;
+    }
+    if populated {
+        return PlatformPrep::OwnCrates;
+    }
+    if debug {
+        return PlatformPrep::Everything(Why::DebugProfile);
+    }
+    let Some(theirs) = shipped else {
+        return PlatformPrep::Everything(Why::NoLibraries);
+    };
+    match ours() {
+        Some(here) if here.trim() == theirs.trim() => PlatformPrep::OwnCrates,
+        here => PlatformPrep::Everything(Why::OtherCompiler {
+            release: release_rust().to_owned(),
+            here: here.as_deref().and_then(|h| h.lines().next()).map(str::trim).unwrap_or("").to_owned(),
+        }),
+    }
+}
+
+/// Put the libraries the release shipped into the cache, when the cache holds no compiled crates yet and
+/// this machine's compiler is the one that made them. `Ok(true)` when it copied. The platform's own crates
+/// are not among them (see [`produce_libs`]): the program's build compiles those.
+pub(crate) fn seed_from_shipped(sdk_root: &Path, cache: &Path, log: &mut dyn FnMut(&str)) -> Result<bool, String> {
     let shipped = libs_dir(sdk_root).join("target");
-    if shipped.is_dir() && !cache.join("release").join(".fingerprint").is_dir() {
-        let theirs = std::fs::read_to_string(libs_dir(sdk_root).join(RUSTC_STAMP)).unwrap_or_default();
-        match rustc_version() {
-            Some(ours) if ours.trim() == theirs.trim() => {
-                log(&format!("   using the libraries shipped in {}", libs_dir(sdk_root).display()));
-                copy_tree(&shipped, &cache).map_err(|e| format!("cannot copy the shipped libraries: {e}"))?;
-                outcome.seeded_from_libs = true;
-            }
-            ours => log(&other_compiler(&theirs, ours.as_deref())),
+    if !shipped.is_dir() || cache.join("release").join(".fingerprint").is_dir() {
+        return Ok(false);
+    }
+    let theirs = std::fs::read_to_string(libs_dir(sdk_root).join(RUSTC_STAMP)).unwrap_or_default();
+    match rustc_version() {
+        Some(ours) if ours.trim() == theirs.trim() => {
+            log(&format!("   using the libraries shipped in {}", libs_dir(sdk_root).display()));
+            copy_tree(&shipped, cache).map_err(|e| format!("cannot copy the shipped libraries: {e}"))?;
+            Ok(true)
+        }
+        ours => {
+            log(&other_compiler(&theirs, ours.as_deref()));
+            Ok(false)
         }
     }
-
-    let check = build_cache::check_platform(sdk_root, &cache).map_err(|e| format!("cannot judge the platform crates: {e}"))?;
-    for (name, hash) in &check.record {
-        let _ = build_cache::write_marker(&cache, name, hash);
-    }
-    for (label, features) in variants() {
-        log(&format!("   compiling the platform libraries ({label})…"));
-        let dir = build_root.join(format!("cobolt-build-_warmup-{label}"));
-        build_variant(sdk_root, &dir, &cache, features, &check)?;
-        outcome.built.push(label);
-    }
-    for (name, hash) in &check.hashes {
-        let _ = build_cache::write_marker(&cache, name, hash);
-    }
-
-    std::fs::create_dir_all(cache.join(WARM_DIR)).map_err(|e| e.to_string())?;
-    std::fs::write(&stamp, version).map_err(|e| e.to_string())?;
-    Ok(outcome)
 }
 
 fn build_variant(
@@ -251,7 +302,7 @@ fn build_variant(
 /// Build the platform for `libs_dir(sdk_root)` — what the release workflow runs
 /// after staging the SDK. The result is `target/` stripped of what a user's
 /// machine cannot use (incremental state, build-script scratch space) and
-/// the `rustc.txt` that [`warm_platform_cache`] checks before copying it.
+/// the `rustc.txt` that [`seed_from_shipped`] checks before copying it.
 pub fn produce_libs(sdk_root: &Path, log: &mut dyn FnMut(&str)) -> Result<u64, String> {
     // The build runs in a scratch folder under the SDK, and cargo reads a relative `CARGO_TARGET_DIR` from its own
     // working directory: the workflow's `dist/<package>/sdk` put the libraries in `_scratch/forms/dist/...`, which
@@ -310,8 +361,8 @@ fn other_compiler(theirs: &str, ours: Option<&str>) -> String {
         "   ⚠️  The shipped libraries were made by {made_by}, and this machine has {here}. Cargo cannot \
          use libraries another compiler made, so they are compiled here instead: the first build takes \
          as long as a build from nothing (on a modest machine, an hour or more). PowerRustCOBOL is \
-         built with Rust {release}: to use them, run `rustup default {release}` (it installs that \
-         release when it is missing) and start PowerRustCOBOL again."
+         built with Rust {release}: to use them, run `rustup toolchain install {release}` (a few minutes; \
+         your default Rust is not changed) and build again."
     )
 }
 
@@ -673,8 +724,72 @@ mod tests {
         let said = other_compiler(theirs, Some("rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc\n"));
         assert!(said.contains("made by rustc 1.95.0 (59807616e 2026-04-14)"), "{said}");
         assert!(said.contains("this machine has rustc 1.93.1"), "{said}");
-        assert!(said.contains("`rustup default 1.95.0`"), "{said}");
+        assert!(said.contains("`rustup toolchain install 1.95.0`"), "{said}");
         assert!(other_compiler(theirs, None).contains("no rustc on the PATH"));
+    }
+
+    /// **2.1.19 — the Build asks before it compiles the platform, and says how much.** What the cache and the
+    /// shipped libraries hold decides it, with nothing run but one `rustc -vV`, asked only when it matters.
+    #[test]
+    fn the_prep_is_judged_from_the_cache_and_the_shipped_libraries() {
+        let made = "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\n";
+        let never = || -> Option<String> { panic!("the compiler is only asked when shipped libraries could be used") };
+        // The version's stamp is there: nothing to wait for, whatever else is true.
+        assert_eq!(judge(true, false, true, None, never), PlatformPrep::Ready);
+        // A cache that holds compiled crates leaves only PowerRustCOBOL's own; the shipped ones are not looked at.
+        assert_eq!(judge(false, true, false, Some(made), never), PlatformPrep::OwnCrates);
+        assert_eq!(judge(false, true, true, None, never), PlatformPrep::OwnCrates);
+        // A Debug build with an empty cache: nothing was ever shipped for it.
+        assert_eq!(judge(false, false, true, Some(made), never), PlatformPrep::Everything(Why::DebugProfile));
+        // No libraries shipped for this machine.
+        assert_eq!(judge(false, false, false, None, never), PlatformPrep::Everything(Why::NoLibraries));
+        // Shipped libraries and the compiler that made them: only the platform's own crates.
+        assert_eq!(judge(false, false, false, Some(made), || Some(format!("{made}\n"))), PlatformPrep::OwnCrates);
+        // Another compiler: everything, and the words say which one is here and which one is needed.
+        let other = judge(false, false, false, Some(made), || Some("rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc".into()));
+        assert_eq!(
+            other,
+            PlatformPrep::Everything(Why::OtherCompiler { release: release_rust().to_owned(), here: "rustc 1.93.1 (01f6ddf75 2026-02-11)".into() })
+        );
+        let none = judge(false, false, false, Some(made), || None);
+        assert!(matches!(none, PlatformPrep::Everything(Why::OtherCompiler { ref here, .. }) if here.is_empty()), "{none:?}");
+    }
+
+    /// 2.1.19 — the release and the debug platforms are stamped apart: a debug Build compiling its platform
+    /// does not make the release one look compiled, and the other way round.
+    #[test]
+    fn a_debug_build_leaves_its_own_stamp() {
+        assert_eq!(stamp_name("2.1.19", false), "2.1.19");
+        assert_eq!(stamp_name("2.1.19", true), "2.1.19-debug");
+        let cache = std::env::temp_dir().join(format!("prc-prep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&cache);
+        let sdk = cache.join("no-sdk");
+        let stamp = |name: &str| {
+            std::fs::create_dir_all(cache.join(WARM_DIR)).unwrap();
+            std::fs::write(cache.join(WARM_DIR).join(name), "x").unwrap();
+        };
+        assert_eq!(platform_prep(&sdk, &cache, "2.1.19", false), PlatformPrep::Everything(Why::NoLibraries));
+        assert_eq!(platform_prep(&sdk, &cache, "2.1.19", true), PlatformPrep::Everything(Why::DebugProfile));
+        stamp("2.1.19-debug");
+        assert_eq!(platform_prep(&sdk, &cache, "2.1.19", true), PlatformPrep::Ready);
+        assert_eq!(platform_prep(&sdk, &cache, "2.1.19", false), PlatformPrep::Everything(Why::NoLibraries), "release is not stamped");
+        stamp("2.1.19");
+        assert_eq!(platform_prep(&sdk, &cache, "2.1.19", false), PlatformPrep::Ready);
+        assert_eq!(platform_prep(&sdk, &cache, "2.1.20", false), PlatformPrep::Everything(Why::NoLibraries), "a new version asks again");
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    /// 2.1.19 — the toolchain `rustup` lists is read by its release number and a dash, so `1.95.0` is not
+    /// found in `1.95.01` or `nightly-1.95.0`, and a default marker or spaces around it change nothing.
+    #[test]
+    fn the_pinned_toolchain_is_found_in_the_rustup_list() {
+        let list = "stable-aarch64-apple-darwin (default)\n1.95.0-aarch64-apple-darwin\nnightly-aarch64-apple-darwin\n";
+        assert!(lists_toolchain(list, "1.95.0"));
+        assert!(lists_toolchain("  1.95.0-x86_64-pc-windows-msvc (default)  \n", "1.95.0"));
+        assert!(!lists_toolchain(list, "1.94.0"));
+        assert!(!lists_toolchain("1.95.01-x86_64-pc-windows-msvc\n", "1.95.0"));
+        assert!(!lists_toolchain("nightly-1.95.0-x86_64-pc-windows-msvc\n", "1.95.0"));
+        assert!(!lists_toolchain("", "1.95.0"));
     }
 
     #[test]
