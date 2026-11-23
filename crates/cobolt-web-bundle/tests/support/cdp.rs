@@ -112,7 +112,7 @@ impl Chrome {
     /// Talk to a page Chrome already has open, by its `webSocketDebuggerUrl`.
     pub fn attach(&self, ws_url: &str) -> Result<Page, String> {
         let stream = TcpStream::connect(("127.0.0.1", self.port)).map_err(|e| e.to_string())?;
-        stream.set_read_timeout(Some(Duration::from_secs(30))).map_err(|e| e.to_string())?;
+        stream.set_read_timeout(Some(answer_timeout())).map_err(|e| e.to_string())?;
         let (ws, _) = tungstenite::client::client(ws_url, stream).map_err(|e| format!("DevTools handshake: {e}"))?;
         let mut page = Page { ws, next: 1, console: Vec::new(), exceptions: Vec::new(), browser_log: Vec::new(), dialogs: Vec::new(), dialog_accept: None };
         page.call("Runtime.enable", json!({}))?;
@@ -122,6 +122,18 @@ impl Chrome {
         // there. A page is given the preference the tests are written for, whatever the machine's.
         page.call("Emulation.setEmulatedMedia", json!({"features": [{"name": "prefers-reduced-motion", "value": "no-preference"}]}))?;
         Ok(page)
+    }
+}
+
+/// How long one DevTools answer may take before the read gives up (on Windows, `os error 10060`). Thirty seconds on a
+/// developer's machine; where `PRC_TIMING_ADVISORY=1` says the machine is a shared runner, whose Chrome has held one
+/// evaluation of a heavy cell longer than that (the Windows cell `multi/threaded/worker` of a build run), two minutes.
+/// This file is included by tests of several crates, so it reads the variable itself.
+fn answer_timeout() -> Duration {
+    if std::env::var("PRC_TIMING_ADVISORY").is_ok_and(|v| v == "1") {
+        Duration::from_secs(120)
+    } else {
+        Duration::from_secs(30)
     }
 }
 

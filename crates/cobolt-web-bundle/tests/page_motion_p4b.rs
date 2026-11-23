@@ -219,9 +219,16 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
     // later instant its script runs: before, that one frame was held ahead on the curve, by up to 0.064 on a heavy page).
     let fit = worst["fit"].as_f64().unwrap();
     let curve_off: Vec<f64> = worst["curve_off"].as_array().unwrap().iter().filter_map(|v| v.as_f64()).collect();
-    assert!(fit < 0.003, "the frames after the re-flow follow ZoomOut on Elastic: {worst}");
+    // How close to the curve is a matter of the clock the page's frames are stamped with, so it has two limits: 0.003, the
+    // precision a developer's machine keeps, which is advisory where timing is (a shared runner's frame came 0.0056 off it,
+    // about 0.75 ms of jitter, where the next run on the same image passed); and 0.03, which no machine's jitter reaches and
+    // the held-ahead frame this test was written for exceeds (0.064), which fails everywhere.
+    assert!(fit < 0.03, "the frames after the re-flow follow ZoomOut on Elastic: {worst}");
+    support::assert_timing(fit < 0.003, || format!("the frames after the re-flow are within 0.003 of ZoomOut on Elastic: {fit:.4}"));
     support::assert_timing(worst["n_fit"].as_u64().unwrap() > 20, || format!("more than 20 frames after the re-flow to fit ZoomOut on Elastic: {}", worst["n_fit"]));
-    assert!(!curve_off.is_empty() && curve_off.iter().all(|e| *e < 0.003), "the frame of the re-flow is on that curve: {worst}");
+    assert!(!curve_off.is_empty() && curve_off.iter().all(|e| *e < 0.03), "the frame of the re-flow is on that curve: {worst}");
+    let off = curve_off.iter().cloned().fold(0.0, f64::max);
+    support::assert_timing(off < 0.003, || format!("the frame of the re-flow is within 0.003 of ZoomOut on Elastic: {off:.4}"));
     println!(
         "re-flow mid-intro, scale: the requestAnimationFrame samples within {fit:.4} of ZoomOut on Elastic; the painted frame(s) of the re-flow within {:.4}",
         curve_off.iter().cloned().fold(0.0, f64::max)

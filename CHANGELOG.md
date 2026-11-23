@@ -2,6 +2,15 @@
 
 
 
+## 2.1.18 — 2026-11-22
+
+**Fix: two web tests that failed on a shared runner by a fraction of their clock now treat that fraction as timing.** The `web tests` jobs of the build failed in a different place on each of the last runs (the one run that passed every cell is 59), and two of those failures were the clock of the machine, not the page:
+
+- **`the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not` (Linux, run 62, `page_motion_p4b.rs`):** the frame of the re-flow came 0.0056 off the ZoomOut-on-Elastic curve, against a limit of 0.003, which is about 0.75 ms of jitter at that point of the curve; the frames after it fitted within 0.0011, and the same test passed on the same image in the run before. The check now has two limits: 0.003, the precision a developer's machine keeps, is a timing limit (a warning where `PRC_TIMING_ADVISORY=1`, a failure elsewhere), and 0.03 fails everywhere, because the held-ahead frame the test was written for was 0.064 off, which no jitter reaches. The same two limits apply to the fit of the frames after the re-flow.
+- **`the_scenario_project_runs_in_every_cell_of_the_matrix_in_chrome` (Windows, run 61, `matrix_chrome.rs`):** the cell `multi/threaded/worker` failed with `Runtime.evaluate: IO error ... (os error 10060)`, the 30 s the DevTools client waits for one answer. Where `PRC_TIMING_ADVISORY=1` the client now waits 120 s (`answer_timeout` in `tests/support/cdp.rs`, which tests of three crates include); elsewhere it is still 30 s. The Windows cell of the next run passed with the old limit, so this is a margin, not a measured fix: a Chrome that holds an answer for two minutes still fails the test.
+- **Not changed:** the macOS failure of run 62, `every_exact_property_gives_its_computed_style_in_chrome`, where Chrome 157.0.8103.79 answered `flow-end` for `flex-end` in `TextAlignment` and `VerticalAlignment` while the run before, on the same image and Chrome, answered `flex-end`. That is not a timing limit and is left to be understood first.
+- **No page, player or product code changed**: tests only.
+
 ## 2.1.17 — 2026-11-22
 
 **Fix: the headless web view helper's test no longer fails on Windows, and no longer depends on when the engine says `loading`.** `the_helper_opens_with_no_window_on_show_and_refuses_the_window_commands` failed in the Windows job of the build (run of `cargo test -p cobolt-web-preview`, the others of that package passing): after `ready` and the answer to `size`, the line it read as the answer to `devtools` was `{"event":"loading","url":"http://127.0.0.1:57887/"}`. The helper says `loading` when the engine starts the page, which is what it is documented to do (the first load and every reload), and WebView2 starts it later than WebKit does, after `ready` and between two answers. The test took the next line to be the answer.
