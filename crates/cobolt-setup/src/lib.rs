@@ -9,7 +9,12 @@
 //! ([`lines`]) are plain Rust, built and tested on every operating system.
 
 pub mod data;
+pub mod disk;
+pub mod figures;
 pub mod lines;
+pub mod prepare;
+pub mod progress;
+pub mod result;
 
 #[cfg(windows)]
 pub mod ident;
