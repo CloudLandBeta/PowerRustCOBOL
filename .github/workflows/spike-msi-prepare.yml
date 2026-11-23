@@ -81,8 +81,11 @@ concurrency:
 env:
   RELEASE_RUST: "1.95.0"
   # An input is read through the environment, never expanded into a script. A
-  # push has no inputs, hence the defaults.
-  BEAT_SECONDS: ${{ inputs.beat_seconds || '1200' }}
+  # push has no inputs, hence the defaults. The twenty-minute step was proven by
+  # the first run (B ended after 1200.8 s, the install returning 0), so a push
+  # now runs a short one and spends its time on the scenarios that still have
+  # questions; a dispatch keeps the long default.
+  BEAT_SECONDS: ${{ inputs.beat_seconds || (github.event_name == 'push' && '90') || '1200' }}
 
 jobs:
   spike:
@@ -151,11 +154,11 @@ jobs:
           set +e
           msi=$(cygpath -aw spike-work/spike.msi); nested=$(cygpath -aw spike-work/nested.msi)
           drive=spike-target/release/examples/drive_msi.exe
-          "$drive" "$msi" "$(cygpath -aw spike-work/A.log)" never - SPIKE_ENV=1 SPIKE_NESTED=1 "NESTED_MSI=$nested" 2>&1 | tee spike-work/A.out
-          echo "---- the supervisor's own lines, from the install log"
-          grep -a "PRC:" spike-work/A.log | cut -c1-300
-          echo "---- the nested package's own log"
-          cat "/c/Program Files/PrcSpike/nested-msi.log" 2>/dev/null | grep -a -i -E "1618|another installation|Return value|Installation (success|failed)" | head -20 || echo "(none)"
+          "$drive" "$msi" "$(cygpath -aw spike-work/A.log)" never - SPIKE_ENV=1 SPIKE_NESTED=1 "NESTED_MSI=$nested" > spike-work/A.out 2>&1
+          echo "---- what the driver saw, without the property dump and the start/end of each action (whole file: artifact A.out)"
+          grep -a -v -F -e 'Property(S)' -e 'Action start' -e 'Action ended' spike-work/A.out | cut -c1-260
+          echo "---- the nested package's own log (a Windows Installer log is Unicode: the NULs are dropped to read it)"
+          tr -d '\000' < "/c/Program Files/PrcSpike/nested-msi.log" 2>/dev/null | grep -a -i -E "1618|another installation|Return value 3|Installation (success|failed)|MSIEXEC|mutex" | head -20
           msiexec //x "$msi" //qn //norestart; echo "uninstall exit: $?"
 
       - name: "B. A long step runs to its end and keeps the progress text coming"
@@ -163,8 +166,8 @@ jobs:
           set +e
           msi=$(cygpath -aw spike-work/spike.msi)
           drive=spike-target/release/examples/drive_msi.exe
-          "$drive" "$msi" "$(cygpath -aw spike-work/B.log)" never - SPIKE_BEAT=$BEAT_SECONDS 2>&1 | tee spike-work/B.out | tail -8
-          grep -a "PRC:" spike-work/B.log | tail -6 | cut -c1-300
+          "$drive" "$msi" "$(cygpath -aw spike-work/B.log)" never - SPIKE_BEAT=$BEAT_SECONDS > spike-work/B.out 2>&1
+          grep -a -v -F -e 'Property(S)' -e 'Action start' -e 'Action ended' spike-work/B.out | grep -a -v -E 'beat [0-9]+/[0-9]+ after' | tail -14 | cut -c1-260
           msiexec //x "$msi" //qn //norestart; echo "uninstall exit: $?"
 
       - name: "C. Cancel in the middle of the long step"
@@ -172,36 +175,88 @@ jobs:
           set +e
           msi=$(cygpath -aw spike-work/spike.msi)
           drive=spike-target/release/examples/drive_msi.exe
-          "$drive" "$msi" "$(cygpath -aw spike-work/C.log)" 60 - SPIKE_BEAT=$BEAT_SECONDS 2>&1 | tee spike-work/C.out | tail -8
-          echo "---- the supervisor's lines"
-          grep -a "PRC:" spike-work/C.log | tail -8 | cut -c1-300
+          # Cancel is answered from the 20th second on. The step is let to finish
+          # (no kill flag), so the install ends at the step's end, with 1602.
+          "$drive" "$msi" "$(cygpath -aw spike-work/C.log)" 20 - SPIKE_BEAT=$BEAT_SECONDS > spike-work/C.out 2>&1
+          grep -a -v -F -e 'Property(S)' -e 'Action start' -e 'Action ended' spike-work/C.out | grep -a -v -E 'beat [0-9]+/[0-9]+ after' | tail -14 | cut -c1-260
           echo "---- left behind? (the cancelled install must have rolled back)"
           ls "/c/Program Files/PrcSpike" 2>&1 | head -3
           tasklist | grep -i spike_child || echo "no spike_child.exe still running"
 
+      - name: "C2. Cancel in the middle of the long step, the step KILLED (the job object)"
+        if: ${{ !cancelled() }}
+        run: |
+          set +e
+          msi=$(cygpath -aw spike-work/spike.msi)
+          drive=spike-target/release/examples/drive_msi.exe
+          # The same, with the kill flag: the install must end about a second
+          # after Cancel is first answered (the 20th second), not at the step's end.
+          "$drive" "$msi" "$(cygpath -aw spike-work/C2.log)" 20 - SPIKE_BEAT=$BEAT_SECONDS SPIKE_BEAT_KILL=1 > spike-work/C2.out 2>&1
+          grep -a -v -F -e 'Property(S)' -e 'Action start' -e 'Action ended' spike-work/C2.out | grep -a -v -E 'beat [0-9]+/[0-9]+ after' | tail -14 | cut -c1-260
+          echo "---- left behind?"
+          ls "/c/Program Files/PrcSpike" 2>&1 | head -3
+          tasklist | grep -i spike_child || echo "no spike_child.exe still running"
+
+      # The first run's D ended after 24.2 s with the install returning 0, 0
+      # Cancel answers (the Cancel was due at 120 s) and no install folder, and the
+      # log showed only its last 12 lines: the bootstrapper's own exit code was
+      # never seen. So D and E now print everything the driver saw, then what
+      # this runner already had and what Microsoft's installer wrote down.
+      - name: "Which Visual Studio this runner already has (the Build Tools scenarios are not clean-machine results)"
+        if: ${{ !cancelled() && (github.event_name == 'push' || inputs.build_tools) }}
+        run: |
+          set +e
+          vsw="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+          "$vsw" -all -products '*' -property displayName
+          "$vsw" -all -products '*' -property installationVersion
+          "$vsw" -all -products '*' -property installationPath
+          echo "---- with the C++ x86/x64 tools (the requirement the setup checks)"
+          "$vsw" -all -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          exit 0
+
       - name: "D. Build Tools, Cancel answered, the installer NOT stopped (the plan's policy)"
-        if: ${{ github.event_name == 'push' || inputs.build_tools }}
+        if: ${{ !cancelled() && (github.event_name == 'push' || inputs.build_tools) }}
         run: |
           set +e
           msi=$(cygpath -aw spike-work/spike.msi); bt=$(cygpath -aw spike-work/vs_BuildTools.exe)
           drive=spike-target/release/examples/drive_msi.exe
-          "$drive" "$msi" "$(cygpath -aw spike-work/D.log)" 120 - SPIKE_BT=1 "BT_EXE=$bt" 'BT_PATH=C:\prc-spike-bt-d' 2>&1 | tee spike-work/D.out | tail -12
-          grep -a "PRC:" spike-work/D.log | tail -12 | cut -c1-300
+          "$drive" "$msi" "$(cygpath -aw spike-work/D.log)" 120 - SPIKE_BT=1 "BT_EXE=$bt" 'BT_PATH=C:\prc-spike-bt-d' > spike-work/D.out 2>&1
+          echo "---- what the driver saw (whole file: artifact D.out)"
+          grep -a -v -F -e 'Property(S)' -e 'Action start' -e 'Action ended' spike-work/D.out | cut -c1-260 | head -150
           echo "---- what the Build Tools install left"
-          ls /c/prc-spike-bt-d 2>&1 | head -5
+          ls -la /c/prc-spike-bt-d 2>&1 | head -8
+          exit 0
 
       - name: "E. Build Tools, Cancel answered, the installer KILLED (to learn what a kill does)"
-        if: ${{ github.event_name == 'push' || inputs.build_tools }}
+        if: ${{ !cancelled() && (github.event_name == 'push' || inputs.build_tools) }}
         run: |
           set +e
           msi=$(cygpath -aw spike-work/spike.msi); bt=$(cygpath -aw spike-work/vs_BuildTools.exe)
           drive=spike-target/release/examples/drive_msi.exe
-          "$drive" "$msi" "$(cygpath -aw spike-work/E.log)" 120 - SPIKE_BT=1 SPIKE_KILL=1 "BT_EXE=$bt" 'BT_PATH=C:\prc-spike-bt-e' 2>&1 | tee spike-work/E.out | tail -12
-          grep -a "PRC:" spike-work/E.log | tail -12 | cut -c1-300
+          "$drive" "$msi" "$(cygpath -aw spike-work/E.log)" 120 - SPIKE_BT=1 SPIKE_KILL=1 "BT_EXE=$bt" 'BT_PATH=C:\prc-spike-bt-e' > spike-work/E.out 2>&1
+          echo "---- what the driver saw (whole file: artifact E.out)"
+          grep -a -v -F -e 'Property(S)' -e 'Action start' -e 'Action ended' spike-work/E.out | cut -c1-260 | head -150
           echo "---- processes of the Visual Studio installer still alive after the kill"
           tasklist | grep -i -E "vs_buildtools|vs_installer|setup.exe|vs_setup|vsixinstaller|msiexec" || echo "none"
           echo "---- what the killed install left"
-          ls /c/prc-spike-bt-e 2>&1 | head -5
+          ls -la /c/prc-spike-bt-e 2>&1 | head -8
+          exit 0
+
+      - name: "What Microsoft's installer wrote down (the logs of its bootstrapper)"
+        if: ${{ !cancelled() && (github.event_name == 'push' || inputs.build_tools) }}
+        run: |
+          set +e
+          user_tmp=$(cygpath -u "$TEMP")
+          for d in "$user_tmp" /c/Windows/Temp; do
+            echo "---- newest Visual Studio installer logs in $d"
+            ls -t "$d"/dd_* 2>/dev/null | head -6
+          done
+          for f in $(ls -t "$user_tmp"/dd_bootstrapper_*.log /c/Windows/Temp/dd_bootstrapper_*.log 2>/dev/null | head -3); do
+            cp "$f" "spike-work/vs-$(basename "$f")"
+            echo "======== $f (last 60 lines)"
+            tr -d '\000' < "$f" | tail -60 | cut -c1-260
+          done
+          exit 0
 
       # The package, the driver and the child, to repeat the run by hand on a
       # clean machine: `drive_msi.exe spike.msi A.log never - SPIKE_BT=1 ...`.

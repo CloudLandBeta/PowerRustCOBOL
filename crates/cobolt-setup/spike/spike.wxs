@@ -14,6 +14,7 @@
     SPIKE_BT=1      can it run Microsoft's Build Tools bootstrapper
                     (BT_EXE=path, BT_PATH=install folder; SPIKE_KILL=1 kills it on Cancel)
     SPIKE_BEAT=n    a step of n seconds that prints a line a second
+                    (SPIKE_BEAT_KILL=1 kills it on Cancel; unset, it is let to finish)
 
   Built by .github/workflows/spike-msi-prepare.yml, which also drives it.
 -->
@@ -43,6 +44,7 @@
     <Property Id="SPIKE_NESTED" Secure="yes" />
     <Property Id="SPIKE_BT" Secure="yes" />
     <Property Id="SPIKE_BEAT" Secure="yes" />
+    <Property Id="SPIKE_BEAT_KILL" Secure="yes" />
     <Property Id="SPIKE_KILL" Secure="yes" />
     <Property Id="NESTED_MSI" Secure="yes" />
     <Property Id="BT_EXE" Secure="yes" />
@@ -76,7 +78,7 @@
                   Execute="deferred" Impersonate="no" Return="check" />
 
     <CustomAction Id="SetSpikeBeat" Property="SpikeBeat"
-                  Value="asuser|600|0|&quot;[INSTALLFOLDER]spike_child.exe&quot; beat [SPIKE_BEAT]" />
+                  Value="asuser|600|[SPIKE_BEAT_KILL]|&quot;[INSTALLFOLDER]spike_child.exe&quot; beat [SPIKE_BEAT]" />
     <CustomAction Id="SpikeBeat" BinaryKey="PrcCA" DllEntry="PrcRun"
                   Execute="deferred" Impersonate="yes" Return="check" />
 
