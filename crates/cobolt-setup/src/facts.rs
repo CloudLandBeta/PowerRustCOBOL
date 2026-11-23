@@ -129,7 +129,9 @@ fn looks_like_windows_path(line: &str) -> bool {
         || line.starts_with("\\\\")
 }
 
-fn linker(probe: &mut dyn Probe) -> Linker {
+/// Whether the C++ build tools are installed: the `vswhere` question the page asks, and the bundle's Build Tools
+/// program asks again (it is public for that reason, and for nothing else).
+pub fn linker(probe: &mut dyn Probe) -> Linker {
     let Some(program_files) = probe
         .var("ProgramFiles(x86)")
         .or_else(|| probe.var("ProgramFiles"))

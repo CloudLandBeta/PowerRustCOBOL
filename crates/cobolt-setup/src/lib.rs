@@ -10,6 +10,7 @@
 //! rollback rule ([`rollback`]) are plain Rust, built and tested on every
 //! operating system.
 
+pub mod buildtools;
 pub mod data;
 pub mod disk;
 pub mod facts;

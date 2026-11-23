@@ -546,3 +546,190 @@ fn the_release_workflow_builds_the_library_and_the_installer_the_way_the_wix_hea
         "the installer's source must live in one place"
     );
 }
+
+// ── The bundle (task T19) ────────────────────────────────────────────────────────────────────────────────────────
+
+const BUNDLE: &str = include_str!("../wix/bundle.wxs");
+const BUNDLE_WXL: &str = include_str!("../wix/bundle.wxl");
+const MANIFEST: &str = include_str!("../Cargo.toml");
+
+/// Every `<ExitCode Value=".." Behavior=".."/>` row of the bundle, as `(value, behavior)`.
+fn exit_rows() -> Vec<(u32, String)> {
+    BUNDLE
+        .split("<ExitCode ")
+        .skip(1)
+        .map(|part| {
+            let tag = format!(
+                " {}",
+                &part[..part.find('>').expect("an <ExitCode> tag is closed")]
+            );
+            (
+                attr(&tag, "Value")
+                    .expect("a Value")
+                    .parse()
+                    .expect("a number"),
+                attr(&tag, "Behavior").expect("a Behavior").to_owned(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn every_exit_code_the_build_tools_program_can_return_is_a_row_of_the_bundle() {
+    use crate::buildtools::{decide, Run, BUSY, CANCELLED, RESTART_REQUIRED};
+    use crate::prepare::Linker;
+
+    // The rows the bundle declares: success, a restart for Windows to schedule, and the two that end the bundle.
+    let rows = exit_rows();
+    assert_eq!(
+        rows,
+        [
+            (0, "success".to_owned()),
+            (RESTART_REQUIRED, "scheduleReboot".to_owned()),
+            (CANCELLED, "error".to_owned()),
+            (BUSY, "error".to_owned()),
+        ],
+        "the ExitCode rows of bundle.wxs and the program's constants must agree"
+    );
+
+    // And the program returns nothing else, for any ending of Microsoft's installer.
+    let mut codes: Vec<u32> = (0..=9999).collect();
+    codes.extend([u32::MAX, 0x8000_4005]);
+    let mut returned = std::collections::BTreeSet::new();
+    for code in codes {
+        for linker in [Linker::Present, Linker::Missing] {
+            returned.insert(decide(&Run::Exited(code), linker).exit);
+        }
+    }
+    returned.insert(decide(&Run::TimedOut, Linker::Missing).exit);
+    returned.insert(decide(&Run::NotRun("x".into()), Linker::Missing).exit);
+    let declared: std::collections::BTreeSet<u32> = rows.iter().map(|(v, _)| *v).collect();
+    assert_eq!(
+        returned, declared,
+        "the program returned an exit code the bundle has no row for (or a row is never returned)"
+    );
+}
+
+#[test]
+fn the_bundle_runs_the_build_tools_program_first_and_then_the_msi_with_its_own_wizard() {
+    let exe = BUNDLE
+        .find("<ExePackage ")
+        .expect("the Build Tools package");
+    let msi = BUNDLE.find("<MsiPackage ").expect("the .msi package");
+    assert!(
+        exe < msi,
+        "the build tools must be installed before the .msi runs"
+    );
+
+    let exe_tag = &BUNDLE[exe..exe + BUNDLE[exe..].find('>').unwrap()];
+    let msi_tag = &BUNDLE[msi..msi + BUNDLE[msi..].find('>').unwrap()];
+    let (exe_tag, msi_tag) = (format!(" {exe_tag}"), format!(" {msi_tag}"));
+    // The program the package carries is the binary the crate builds, never uninstalled, never skipped.
+    assert_eq!(attr(&exe_tag, "Name"), Some("prc-buildtools.exe"));
+    assert!(
+        MANIFEST.contains("name = \"prc-buildtools\""),
+        "Cargo.toml builds a different program than the bundle carries"
+    );
+    assert_eq!(attr(&exe_tag, "Permanent"), Some("yes"));
+    assert_eq!(attr(&exe_tag, "Vital"), Some("yes"));
+    assert_eq!(attr(&exe_tag, "PerMachine"), Some("yes"));
+    // The .msi shows the wizard it has when installed alone, and the bundle's entry replaces its own.
+    assert_eq!(attr(&msi_tag, "DisplayInternalUI"), Some("yes"));
+    assert!(BUNDLE.contains("Name=\"ARPSYSTEMCOMPONENT\" Value=\"1\""));
+    // The silent opt-in goes through, and can be given on the bundle's command line.
+    assert!(BUNDLE.contains("<MsiProperty Name=\"PREPARE_PLATFORM\" Value=\"[PREPARE_PLATFORM]\""));
+    let variable = BUNDLE
+        .split("<Variable ")
+        .nth(1)
+        .expect("the PREPARE_PLATFORM variable");
+    assert!(
+        variable.starts_with("Name=\"PREPARE_PLATFORM\"")
+            && variable.contains("bal:Overridable=\"yes\"")
+    );
+    // The same property is the one the .msi reads (a public property, set on a silent install).
+    assert!(
+        WXS.contains("<Property Id=\"PREPARE_PLATFORM\""),
+        "product.wxs no longer declares the PREPARE_PLATFORM property the bundle passes"
+    );
+}
+
+#[test]
+fn the_bundles_page_asks_for_microsofts_terms_and_says_what_setup_will_do() {
+    assert!(
+        BUNDLE.contains("LicenseUrl=\"https://"),
+        "the box needs a link to accept"
+    );
+    for id in ["InstallLicenseLinkText", "InstallAcceptCheckbox"] {
+        assert!(
+            BUNDLE_WXL.contains(&format!("Id=\"{id}\"")),
+            "bundle.wxl no longer overrides {id}"
+        );
+    }
+    assert!(
+        BUNDLE_WXL.contains("&lt;a href=&quot;#&quot;&gt;"),
+        "the paragraph needs the link WixStdBA opens (the bundle's LicenseUrl)"
+    );
+    for what in [
+        "Microsoft C++ build tools",
+        "downloads and installs them",
+        "about 2 GB",
+    ] {
+        assert!(BUNDLE_WXL.contains(what), "the page lost: {what}");
+    }
+}
+
+#[test]
+fn the_bundle_source_is_ascii_and_its_comments_are_well_formed() {
+    for (what, text) in [("bundle.wxs", BUNDLE), ("bundle.wxl", BUNDLE_WXL)] {
+        if let Some((line, bad)) = text
+            .lines()
+            .enumerate()
+            .find_map(|(n, l)| l.chars().find(|c| !c.is_ascii()).map(|c| (n + 1, c)))
+        {
+            panic!("{what} line {line} holds {bad:?}");
+        }
+        let mut rest = text;
+        while let Some(start) = rest.find("<!--") {
+            let after = &rest[start + 4..];
+            let end = after.find("-->").expect("a comment is closed");
+            assert!(
+                !after[..end].contains("--"),
+                "{what}: a double hyphen inside a comment: {}",
+                &after[..end.min(60)]
+            );
+            rest = &after[end + 3..];
+        }
+    }
+}
+
+#[test]
+fn the_release_workflow_builds_the_bundle_after_the_msi_and_publishes_both() {
+    for needle in [
+        "cargo build --release -p cobolt-setup --lib --bin prc-buildtools",
+        "prc-buildtools.exe needs",
+        "dist/prc/prc-buildtools.exe",
+        "crates/cobolt-setup/wix/bundle.wxs",
+        "-ext WixBalExtension",
+        "-dBuildToolsExe=dist/prc/prc-buildtools.exe",
+        "-loc crates/cobolt-setup/wix/bundle.wxl",
+        "\"dist/${PKG}-setup.exe\"",
+        "-name '*-setup.exe'",
+        "windows-x86_64-setup.exe",
+        "windows-x86_64.msi",
+    ] {
+        assert!(
+            WORKFLOW.contains(needle),
+            "the release workflow lost `{needle}`"
+        );
+    }
+    let msi = WORKFLOW
+        .find("Build the installer (.msi)")
+        .expect("the .msi step");
+    let bundle = WORKFLOW
+        .find("Build the setup bundle (-setup.exe)")
+        .expect("the bundle step");
+    assert!(
+        msi < bundle,
+        "the bundle chains the .msi, so it is built after it"
+    );
+}

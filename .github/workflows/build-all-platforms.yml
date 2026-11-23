@@ -525,7 +525,7 @@ jobs:
           CARGO_TARGET_DIR: target-setup
         run: |
           set -euo pipefail
-          cargo build --release -p cobolt-setup --lib
+          cargo build --release -p cobolt-setup --lib --bin prc-buildtools
           dll=target-setup/release/cobolt_setup.dll
           test -s "$dll"
           vsw="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
@@ -540,9 +540,19 @@ jobs:
           for needle in vcruntime140 msvcp140; do
             if grep -qi "$needle" <<<"$deps"; then echo "::error::cobolt_setup.dll needs $needle"; exit 1; fi
           done
+          # The bundle's Build Tools step (T19) runs on a machine that has no C++ build tools yet, so it must not
+          # need their runtime either.
+          exe=target-setup/release/prc-buildtools.exe
+          test -s "$exe"
+          exe_deps=$("$dumpbin" //dependents "$exe")
+          echo "$exe_deps"
+          for needle in vcruntime140 msvcp140; do
+            if grep -qi "$needle" <<<"$exe_deps"; then echo "::error::prc-buildtools.exe needs $needle"; exit 1; fi
+          done
           mkdir -p dist/prc
           cp "$dll" dist/prc/cobolt_setup.dll
-          ls -l dist/prc/cobolt_setup.dll
+          cp "$exe" dist/prc/prc-buildtools.exe
+          ls -l dist/prc/cobolt_setup.dll dist/prc/prc-buildtools.exe
 
       # The installer's source is a file, not a heredoc: it is long, a test
       # guards it (crates/cobolt-setup/src/installer.rs) and the installer
@@ -587,6 +597,25 @@ jobs:
             -cultures:en-us -loc crates/cobolt-setup/wix/prc-strings.wxl \
             wixobj/product.wixobj wixobj/appfiles.wixobj -o "dist/${PKG}.msi"
           test -s "dist/${PKG}.msi"
+
+      # The file a developer downloads (spec 112, T19, D12): a Burn bundle that installs Microsoft's C++ build
+      # tools when the computer has none, then this same .msi (which is also published alone). Its source and
+      # the reason it exists are in crates/cobolt-setup/wix/bundle.wxs.
+      - name: Build the setup bundle (-setup.exe)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          wix="/c/Program Files (x86)/WiX Toolset v3.14/bin"
+          test -d "$wix" || wix=$(ls -d "/c/Program Files (x86)/WiX Toolset v"*/bin | tail -1)
+          test -s "dist/${PKG}.msi" && test -s dist/prc/prc-buildtools.exe
+          mkdir -p bundleobj
+          "$wix/candle.exe" -arch x64 -ext WixBalExtension \
+            -dVer="$VERSION" -dMsiFile="dist/${PKG}.msi" -dBuildToolsExe=dist/prc/prc-buildtools.exe \
+            -out bundleobj/ crates/cobolt-setup/wix/bundle.wxs
+          "$wix/light.exe" -ext WixBalExtension -cultures:en-us -loc crates/cobolt-setup/wix/bundle.wxl \
+            bundleobj/bundle.wixobj -o "dist/${PKG}-setup.exe"
+          test -s "dist/${PKG}-setup.exe"
 
       # macOS: a .dmg with the app and a link to /Applications — the drag-here
       # window every Mac user already knows. Only the bundle goes in: the
@@ -1413,7 +1442,7 @@ jobs:
           packages="$RUNNER_TEMP/packages"
           mkdir -p "$packages"
           find "$RUNNER_TEMP/incoming" -type f \
-            \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.msi' -o -name '*.dmg' \
+            \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*.dmg' \
                -o -name '*.deb' -o -name '*.rpm' \) \
             -exec mv -t "$packages/" {} +
           # Every platform must have contributed BOTH its archive and its
@@ -1463,7 +1492,8 @@ jobs:
             "| --- | --- |" \
             "| PowerRustCOBOL-$VERSION-macos-aarch64.dmg | Macs with Apple Silicon |" \
             "| PowerRustCOBOL-$VERSION-macos-x86_64.dmg | Intel Macs |" \
-            "| PowerRustCOBOL-$VERSION-windows-x86_64.msi | Windows 10 and 11, 64-bit |" \
+            "| PowerRustCOBOL-$VERSION-windows-x86_64-setup.exe | Windows 10 and 11, 64-bit. Installs Microsoft's C++ build tools first when the computer has none |" \
+            "| PowerRustCOBOL-$VERSION-windows-x86_64.msi | Windows 10 and 11, 64-bit. The same installer without that step, for silent and managed installs |" \
             "| PowerRustCOBOL-$VERSION-linux-x86_64.deb | Debian, Ubuntu, Mint and relatives |" \
             "| PowerRustCOBOL-$VERSION-linux-x86_64.rpm | Fedora, RHEL, CentOS Stream, openSUSE |" \
             "" \

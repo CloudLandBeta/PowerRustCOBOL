@@ -13,8 +13,8 @@
 # crates/cobolt-setup/wix/product.wxs is the one part of the setup that no unit test can run: `light` links it and
 # Windows Installer runs it. This job does both, with the real library (cobolt_setup.dll) and a stand-in for the
 # IDE's headless step (the example `prepare_stub`, installed as PowerRustCOBOL.exe), so that every step is quick and
-# leaves a line in a log. Five scenarios, each installed silently through `drive_msi` (a program that is the user
-# interface, so it can also answer Cancel):
+# leaves a line in a log. Six scenarios of the .msi, each installed silently through `drive_msi` (a program that is
+# the user interface, so it can also answer Cancel), and one of the bundle around it:
 #
 #   A  no opt-in            the install puts exactly the staged files on disk and runs no step (AC1, AC2)
 #   B  PREPARE_PLATFORM=1   the Rust step, then the compile, then the example copy, in that order; the cache is made
@@ -24,6 +24,9 @@
 #   E  Cancel               in the middle of the compile: the install ends with 1602, the cache the setup made is
 #                           removed, nothing is left running, no example project was copied (AC8)
 #   E2 Cancel, a developer's own cache  the same Cancel leaves a cache the setup did not make exactly where it is
+#   F  the bundle           on a machine that has the C++ build tools (a runner does): the Build Tools program
+#                           finds them and downloads nothing, the chain installs the same .msi with the opt-in
+#                           passed through (T19)
 #
 # WHAT IT CANNOT PROVE
 #
@@ -77,8 +80,8 @@ jobs:
           CARGO_TARGET_DIR: target-setup
         run: |
           set -euo pipefail
-          cargo build --release -p cobolt-setup --lib --examples
-          ls -l target-setup/release/cobolt_setup.dll target-setup/release/examples/drive_msi.exe target-setup/release/examples/prepare_stub.exe
+          cargo build --release -p cobolt-setup --lib --bins --examples
+          ls -l target-setup/release/cobolt_setup.dll target-setup/release/prc-buildtools.exe target-setup/release/examples/drive_msi.exe target-setup/release/examples/prepare_stub.exe
 
       - name: The library's exports and dependencies
         run: |
@@ -95,6 +98,12 @@ jobs:
           echo "$deps"
           for needle in vcruntime140 msvcp140; do
             if grep -qi "$needle" <<<"$deps"; then echo "::error::cobolt_setup.dll needs $needle"; exit 1; fi
+          done
+          # The bundle's Build Tools program runs before any C++ tools exist: it must not need their runtime either.
+          exe_deps=$("$dumpbin" //dependents target-setup/release/prc-buildtools.exe)
+          echo "$exe_deps"
+          for needle in vcruntime140 msvcp140; do
+            if grep -qi "$needle" <<<"$exe_deps"; then echo "::error::prc-buildtools.exe needs $needle"; exit 1; fi
           done
 
       - name: Compose the installer artwork
@@ -160,22 +169,54 @@ jobs:
           # install <msi> <log> <cancel after seconds | never> <text to count from | -> [PROP=value ...]: prints the exit code
           install() {
             local msi="$1" log="$2" after="$3" marker="$4"; shift 4
-            target-setup/release/examples/drive_msi.exe "$(cygpath -aw "work/$msi")" "$(cygpath -aw "work/$log")" "$after" "$marker" "$@" > "work/$log.out" 2>&1
+            timeout 600 target-setup/release/examples/drive_msi.exe "$(cygpath -aw "work/$msi")" "$(cygpath -aw "work/$log")" "$after" "$marker" "$@" > "work/$log.out" 2>&1
             echo $?
           }
-          uninstall() { msiexec //x "$(cygpath -aw "work/$1")" //qn '//l*v' "$(cygpath -aw "work/$1.uninstall.log")"; echo "uninstall of $1 returned $?"; }
+          # A removal that does not return is a finding, not a reason to hold the job: it is given four minutes, and
+          # when it does not finish the log says what was running and how far Windows Installer got.
+          uninstall() {
+            local rc=0
+            echo "uninstalling $1"
+            timeout 240 msiexec //x "$(cygpath -aw "work/$1")" //qn '//l*v' "$(cygpath -aw "work/$1.uninstall.log")" || rc=$?
+            echo "uninstall of $1 returned $rc"
+            if [ "$rc" = 124 ]; then
+              echo "---- the removal did not finish in 240 s; what is running"
+              tasklist | grep -i 'msiexec\|PowerRustCOBOL\|prepare_stub' || true
+              echo "---- the tail of its log"
+              tail -n 25 "work/$1.uninstall.log" | tr -d '\r\0' | cut -c1-200 || true
+            fi
+          }
           clean_machine() { rm -rf "/c/Program Files/PowerRustCOBOL" "$LOCALAPPDATA/PowerRustCOBOL" "$TEMP/prc-prepare-result.txt" "$TEMP/prc-prepare-cancel.txt"; }
           # the lines of an install's log that are the setup's own
           what_the_log_said() { grep -a 'PRC:' "work/$1" | cut -c1-240 || true; }
           EOF
 
+      # The bundle (T19) around the first package, built exactly as the release workflow builds it: its own step, so
+      # that a bundle that does not link cannot hide what the scenarios of the .msi show.
+      - name: Build the bundle around the first package
+        run: |
+          set -euo pipefail
+          wix="/c/Program Files (x86)/WiX Toolset v3.14/bin"
+          test -d "$wix" || wix=$(ls -d "/c/Program Files (x86)/WiX Toolset v"*/bin | tail -1)
+          cp target-setup/release/prc-buildtools.exe work/prc-buildtools.exe
+          mkdir -p wixobj/bundle
+          "$wix/candle.exe" -arch x64 -ext WixBalExtension \
+            -dVer=9.9.1 -dMsiFile=work/v1.msi -dBuildToolsExe=work/prc-buildtools.exe \
+            -out wixobj/bundle/ crates/cobolt-setup/wix/bundle.wxs
+          "$wix/light.exe" -ext WixBalExtension -cultures:en-us -loc crates/cobolt-setup/wix/bundle.wxl \
+            wixobj/bundle/bundle.wixobj -o work/setup.exe
+          ls -l work/setup.exe
+
       - name: "A. Silent install without the opt-in: the staged files, and no step"
         if: always()
+        timeout-minutes: 8
         run: |
           source work/check.sh
           clean_machine
           rc=$(install v1.msi A.log never -)
           echo "---- the facts and the steps, as the supervisor logged them"; what_the_log_said A.log
+          echo "---- how Windows Installer treated the setup's own actions"
+          tr -d '\r\0' < work/A.log | grep -a 'PrcFacts\|PrcTicks\|PrcRun\|SeedExamples\|UILevel' | cut -c1-200 | head -20 || true
           echo "---- the folder after the install"; ls -A "/c/Program Files/PowerRustCOBOL"
           check "the install returned 0 (got $rc)" test "$rc" = 0
           check "PowerRustCOBOL.exe is installed" test -f "/c/Program Files/PowerRustCOBOL/PowerRustCOBOL.exe"
@@ -188,6 +229,7 @@ jobs:
 
       - name: "B. PREPARE_PLATFORM=1: Rust, then the compile, then the example copy"
         if: always()
+        timeout-minutes: 8
         run: |
           source work/check.sh
           uninstall v1.msi; clean_machine
@@ -211,6 +253,7 @@ jobs:
 
       - name: "C. The same version again: nothing is prepared"
         if: always()
+        timeout-minutes: 8
         run: |
           source work/check.sh
           before=$(lines_of)
@@ -223,6 +266,7 @@ jobs:
 
       - name: "D. A newer version over it: prepared again, and the old version is named"
         if: always()
+        timeout-minutes: 8
         run: |
           source work/check.sh
           before=$(lines_of)
@@ -235,6 +279,7 @@ jobs:
 
       - name: "E. Cancel in the middle of the compile: the install ends, the setup's cache goes"
         if: always()
+        timeout-minutes: 8
         run: |
           source work/check.sh
           uninstall v2.msi; clean_machine
@@ -252,6 +297,7 @@ jobs:
 
       - name: "E2. Cancel with a cache the developer already had: it stays"
         if: always()
+        timeout-minutes: 8
         run: |
           source work/check.sh
           clean_machine
@@ -263,6 +309,32 @@ jobs:
           check "the install ended with 1602 (got $rc)" test "$rc" = 1602
           check "the developer's cache is still there" test -f "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target/warm/9.0.0"
           check "the rollback said it was there before and stays" grep -aq 'PRC: rollback: .* was there before this setup and stays' work/E2.log
+          clean_machine
+          exit $failed
+
+      # A runner has the C++ build tools, so this is the bundle's "present" branch: the Build Tools program finds them,
+      # downloads nothing, and the chain goes on to install the same .msi with the opt-in passed through. The
+      # "absent" branch (the real download and install) is prepare-platform-smoke.yml's, and T16's on a clean machine.
+      - name: "F. The bundle on a machine that has the C++ build tools: the .msi is installed, no Build Tools"
+        if: always()
+        timeout-minutes: 12
+        run: |
+          source work/check.sh
+          clean_machine
+          rm -f "$TEMP/prc-buildtools.log"
+          rc=0
+          timeout 600 work/setup.exe //quiet //norestart //log "$(cygpath -aw work/F.log)" PREPARE_PLATFORM=1 || rc=$?
+          echo "the bundle returned $rc"
+          echo "---- the Build Tools program's log"; tr -d '\r' < "$TEMP/prc-buildtools.log" 2>/dev/null | cut -c1-240 || echo "(none)"
+          echo "---- what the stand-in step was run with"; stub_log | cut -c1-260
+          echo "---- the bundle's own log, the lines about its packages"
+          cat work/F*.log 2>/dev/null | tr -d '\r\0' | grep -a -i 'BuildTools\|Applying\|exit code\|Planned package' | cut -c1-220 | head -30 || true
+          check "the bundle returned 0 (got $rc)" test "$rc" = 0
+          check "the .msi it chains is installed" test -f "/c/Program Files/PowerRustCOBOL/PowerRustCOBOL.exe"
+          check "the Build Tools program ran and found the tools already there" grep -aq 'installed already; nothing to do' "$TEMP/prc-buildtools.log"
+          check "it downloaded nothing" not grep -aq 'downloading' "$TEMP/prc-buildtools.log"
+          check "PREPARE_PLATFORM=1 reached the .msi: the stand-in step ran three times ($(lines_of))" test "$(lines_of)" = 3
+          uninstall v1.msi
           clean_machine
           exit $failed
 

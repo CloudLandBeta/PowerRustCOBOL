@@ -21,6 +21,12 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+# The bundle's Build Tools step (T19): a program of its own, because Microsoft's installer cannot run inside the
+# `.msi` (plan section 9). Built with the library, by the same release step.
+[[bin]]
+name = "prc-buildtools"
+path = "src/bin/prc_buildtools.rs"
+
 # The DLL runs on a machine that may not have the Visual C++ runtime yet, which
 # is the very reason the setup exists. The release workflow therefore builds it
 # with `-C target-feature=+crt-static` and its own target folder, so that flag
@@ -29,8 +35,14 @@ crate-type = ["cdylib", "rlib"]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_Security_Cryptography_Catalog",
+    "Win32_Security_Cryptography_Sip",
+    "Win32_Security_WinTrust",
     "Win32_Storage_FileSystem",
     "Win32_System_ApplicationInstallationAndServicing",
+    "Win32_System_Com",
+    "Win32_System_Com_Urlmon",
     "Win32_System_Environment",
     "Win32_System_IO",
     "Win32_System_JobObjects",

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+
+  The Windows bundle (WiX 3 Burn), spec 112 task T19, decision D12.
+
+  WHY IT EXISTS. The setup prepares the platform only when a linker is installed, and the linker is Microsoft's C++
+  build tools. They cannot be installed from inside product.wxs's package: Windows Installer runs one installation
+  at a time and Microsoft's bootstrapper answers 1618 inside it (plan section 9, measured). So the file a
+  developer downloads, PowerRustCOBOL-<version>-setup.exe, is this bundle: it runs a small program first,
+  prc-buildtools.exe, which installs the build tools when this computer has none, and then installs the same .msi
+  that is also published on its own. The .msi stays a complete installer: a silent or managed install uses it
+  directly, and it says plainly when the linker is missing.
+
+  WHAT THE FIRST PACKAGE DOES. prc-buildtools.exe (crates/cobolt-setup/src/buildtools.rs and bin/prc_buildtools.rs)
+  decides for itself, so the bundle chains it every time: nothing to do when the tools are there; otherwise it
+  downloads Microsoft's installer, checks that Microsoft signed it, runs it and waits. Its exit code is the whole
+  protocol, and the ExitCode rows below are held to the program's constants by a test (installer.rs):
+    0     go on with the .msi
+    3010  go on, and ask Windows for a restart at the end
+    1602  the developer cancelled: end the bundle
+    1618  another installation is running, which the .msi could not run beside either: end the bundle
+  Every other outcome of the build tools is 0: a Build Tools install that did not happen is not a reason to withhold
+  the program, and the .msi's finish page names the missing linker and what to do.
+
+  WHAT THE DEVELOPER SEES. WixStdBA's own page (a licence-link page, nothing else to choose): what the setup will
+  do, a link to Microsoft's licence terms, and a box that has to be ticked, which is the acceptance of those terms
+  for the build tools (spec 112 Q4). Then the .msi's own wizard (DisplayInternalUI), the same pages as installing
+  the .msi alone.
+
+  Built with:
+    candle -arch x64 -ext WixBalExtension -dVer=<x.y.z> -dMsiFile=<the .msi> -dBuildToolsExe=<prc-buildtools.exe>
+           bundle.wxs
+    light  -ext WixBalExtension -cultures:en-us -loc bundle.wxl bundle.wixobj -o <setup.exe>
+
+  Every string in this file is ASCII. Prose belongs in comments.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:bal="http://schemas.microsoft.com/wix/BalExtension">
+  <!-- UpgradeCode is FIXED for the bundle's whole life, like the .msi's; the two differ (a bundle is not a
+       product). -->
+  <Bundle Name="PowerRustCOBOL AI" Version="$(var.Ver)" Manufacturer="Emerson Lopes"
+          UpgradeCode="B2D4F6A8-1C3E-4A5B-9D7F-0E2C4A6B8D10">
+    <BootstrapperApplicationRef Id="WixStandardBootstrapperApplication.HyperlinkLicense">
+      <bal:WixStandardBootstrapperApplication
+          LicenseUrl="https://visualstudio.microsoft.com/license-terms/"
+          SuppressOptionsUI="yes"
+          SuppressRepair="yes" />
+    </BootstrapperApplicationRef>
+
+    <!-- The one choice the .msi's page does not make for a silent install: pass it through, as
+         setup.exe /quiet PREPARE_PLATFORM=1. Empty means "not asked", which the .msi reads as unset. -->
+    <Variable Name="PREPARE_PLATFORM" Type="string" Value="" bal:Overridable="yes" />
+
+    <Chain>
+      <!-- Always chained, and permanent: the program decides whether there is anything to do, and it is never
+           "uninstalled" (the build tools are the developer's, whoever installed them). -->
+      <ExePackage Id="BuildTools" Name="prc-buildtools.exe" SourceFile="$(var.BuildToolsExe)"
+                  Compressed="yes" PerMachine="yes" Permanent="yes" Vital="yes">
+        <ExitCode Value="0" Behavior="success" />
+        <ExitCode Value="3010" Behavior="scheduleReboot" />
+        <ExitCode Value="1602" Behavior="error" />
+        <ExitCode Value="1618" Behavior="error" />
+      </ExePackage>
+
+      <!-- The same .msi that is published alone. Its own wizard is shown (DisplayInternalUI); the bundle's
+           entry in Apps and features replaces the .msi's own (ARPSYSTEMCOMPONENT), so there is one
+           PowerRustCOBOL AI to uninstall, not two. -->
+      <MsiPackage Id="PowerRustCOBOL" SourceFile="$(var.MsiFile)" Compressed="yes" Vital="yes"
+                  DisplayInternalUI="yes" ForcePerMachine="yes">
+        <MsiProperty Name="PREPARE_PLATFORM" Value="[PREPARE_PLATFORM]" />
+        <MsiProperty Name="ARPSYSTEMCOMPONENT" Value="1" />
+      </MsiPackage>
+    </Chain>
+  </Bundle>
+</Wix>
