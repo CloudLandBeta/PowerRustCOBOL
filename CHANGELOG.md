@@ -2,6 +2,15 @@
 
 
 
+## 2.1.32 — 2026-11-23
+
+**Feature (spec 112, task T12 ticked and the decision D12 carried into the setup's decision module): the supervisor ran on a Windows runner, and the page and the steps now know that the Build Tools are not installed by the `.msi`.** `crates/cobolt-setup`: `prepare.rs`, `facts.rs`, `facts/system.rs`; `specs/112-…/tasks.md`.
+
+- **T12 on the runner.** Run 45281652688 (the spike at a5ae0d9, 5 min 29 s, green): a 90 s step returns 0 after 90.5 s with 696 progress messages; Cancel answered from the 20th second ends the install with 1602 (at 90.5 s when the step is let to finish, at 20.5 s with the kill flag, no child left); and the new case F passes all six checks: the install returns 0 although two steps ended badly, a step that exits 7 is a failure the page names, a step silent for 60 s under a 5 s watchdog is given up and named, the page text names the unit the step is in and reaches the last one, no `spike_child.exe` is left running.
+- **What the decision does when the C++ tools are missing (D12).** Microsoft's Build Tools cannot be installed from inside the `.msi` (1618 after 3 to 23 s, run 2 and run 3), so with no linker the page is a Rust-only offer: it names the Build Tools (their address and Microsoft's terms), says this setup does not install them and that the first Debug or EXEC RUST Build asks first, and asks for no cache; the compile is not run. `Steps` now carries `build_tools_missing`, with `compiles()`, `is_empty()` and `does_something()`; the coffee-and-an-hour text appears only when the platform is going to be compiled; the cancel note says Rust stays installed only when the setup has installed it.
+- **`PrcFacts` sets what the steps need:** `PRC_LINKER` (non-empty when the C++ tools are present), `PRC_BUILD_FOLDER` (the one folder the page's disk check, the compile and `PrcRollback` all name), `PRC_RESULT_FILE` and `PRC_CANCEL_FILE` (in the installing user's temp folder), and a silent install's `PRC_PREPARE` (only with `PREPARE_PLATFORM=1`, and only where the page would have offered).
+- **Verified here:** `cargo test -p cobolt-setup` 64 passed, 0 failed, 1 ignored (the T16 gate); was 62. The 96 recorded machines are gathered equal to the decision's own table and counted by outcome (offered / low on room / the tools only named / already prepared); a new case covers Rust present and the linker absent. `cargo test -p cobolt-ide --bin cobolt-ide prepare::` 16 passed, 0 failed. Clippy `-D warnings` clean. **Not run on Windows:** the properties `PrcFacts` now sets (the WiX that reads them is T13).
+
 ## 2.1.31 — 2026-11-23
 
 **Feature (spec 112, task T12): the supervisor is hardened, and the three small actions around it exist.** `crates/cobolt-setup`: `data.rs`, `supervisor.rs`, `ticks.rs` (new), `watch.rs` (new), `rollback.rs` (new), `entries.rs` (new, Windows), `result.rs`, `lib.rs`, the spike (`spike.wxs`, `spike_child.rs`, `spike-msi-prepare.yml`). Nothing the developer sees changes yet: the page and the actions that call this code are T13.

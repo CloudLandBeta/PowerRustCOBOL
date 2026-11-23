@@ -100,22 +100,38 @@ pub enum RustAction {
 }
 
 /// The steps *Prepare now* would run, in order.
+///
+/// The Visual Studio Build Tools are **not** a step: Windows Installer runs one installation at a time, and
+/// Microsoft's installer refuses to start inside this one (it fails with 1618, spec 112 decision D12). The bundle
+/// that carries this package installs them before it; the package only notices when they are missing, says so, and
+/// does not compile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Steps {
     /// Install Rust.
     pub rust: RustAction,
-    /// Install the Visual Studio Build Tools.
-    pub build_tools: bool,
-    /// Compile the platform for the release profile.
+    /// The C++ build tools are missing and this setup does not install them, so it cannot compile. Never set for
+    /// a version that is already prepared, which needs no compile.
+    pub build_tools_missing: bool,
+    /// The platform still has to be compiled for the release profile.
     pub release: bool,
-    /// Compile the platform for the debug profile.
+    /// The platform still has to be compiled for the debug profile.
     pub debug: bool,
 }
 
 impl Steps {
-    /// Whether there is nothing to do.
+    /// Whether this setup compiles: something is left to compile and there is a linker to compile with.
+    pub fn compiles(&self) -> bool {
+        (self.release || self.debug) && !self.build_tools_missing
+    }
+
+    /// Whether there is nothing to prepare at all: nothing to install and nothing left to compile.
     pub fn is_empty(&self) -> bool {
-        self.rust == RustAction::Nothing && !self.build_tools && !self.release && !self.debug
+        self.rust == RustAction::Nothing && !self.release && !self.debug
+    }
+
+    /// Whether *Prepare now* would do anything here: install Rust, or compile.
+    pub fn does_something(&self) -> bool {
+        self.rust != RustAction::Nothing || self.compiles()
     }
 }
 
@@ -128,6 +144,9 @@ pub enum Offer {
     AlreadyPrepared,
     /// *Prepare now* is not offered: a volume cannot hold it (R4).
     DiskLow(Vec<Shortfall>),
+    /// There is something to prepare but nothing this setup can do: Rust is there and the C++ build tools, which
+    /// the compile needs and this setup does not install, are not. The page says so and where to get them.
+    BuildToolsNeeded,
 }
 
 /// The decision.
@@ -147,7 +166,7 @@ impl Plan {
     /// A silent install prepares only with the opt-in and only where *Prepare now* would have been offered; a
     /// wizard prepares only on a yes. Nothing is ever downloaded or compiled otherwise (R2, R5, AC2).
     pub fn runs(&self, mode: Mode, chose_prepare_now: Option<bool>) -> bool {
-        if self.offer != Offer::PrepareNow || self.steps.is_empty() {
+        if self.offer != Offer::PrepareNow || !self.steps.does_something() {
             return false;
         }
         match mode {
@@ -165,7 +184,7 @@ pub fn steps_for(facts: &Facts) -> Steps {
     if prepared {
         return Steps {
             rust: RustAction::Nothing,
-            build_tools: false,
+            build_tools_missing: false,
             release: false,
             debug: false,
         };
@@ -176,29 +195,27 @@ pub fn steps_for(facts: &Facts) -> Steps {
             RustState::RustupWithoutPinned => RustAction::InstallBeside,
             RustState::NoRustup => RustAction::InstallFresh,
         },
-        build_tools: facts.linker == Linker::Missing,
+        build_tools_missing: facts.linker == Linker::Missing,
         release: !facts.release_ready,
         debug: !facts.debug_ready,
     }
 }
 
-/// How much each volume must hold for these steps.
+/// How much each volume must hold for these steps. The Build Tools are not one of them, so the system volume is
+/// asked for nothing.
 pub fn needs_for(steps: &Steps, figures: &Figures) -> Needs {
     let mut build = 0u64;
     if steps.rust != RustAction::Nothing {
         build += figures.rust_download_bytes + figures.rust_installed_bytes;
     }
-    // Both profiles in the cache: a single profile takes its share of it.
-    let profiles = u64::from(steps.release) + u64::from(steps.debug);
-    build += figures.cache_bytes / 2 * profiles;
-    let system = if steps.build_tools {
-        figures.build_tools_download_bytes + figures.build_tools_installed_bytes
-    } else {
-        0
-    };
+    // Both profiles in the cache: a single profile takes its share of it. Without a linker nothing is compiled.
+    if steps.compiles() {
+        let profiles = u64::from(steps.release) + u64::from(steps.debug);
+        build += figures.cache_bytes / 2 * profiles;
+    }
     Needs {
         build_bytes: build,
-        system_bytes: system,
+        system_bytes: 0,
     }
 }
 
@@ -208,6 +225,8 @@ pub fn decide(facts: &Facts, figures: &Figures) -> Plan {
     let shortfalls = disk::check(figures, &facts.free, &needs_for(&steps, figures));
     let offer = if steps.is_empty() {
         Offer::AlreadyPrepared
+    } else if !steps.does_something() {
+        Offer::BuildToolsNeeded
     } else if !shortfalls.is_empty() {
         Offer::DiskLow(shortfalls)
     } else {
@@ -215,6 +234,14 @@ pub fn decide(facts: &Facts, figures: &Figures) -> Plan {
     };
     let text = page_text(facts, figures, &steps, &offer);
     Plan { offer, steps, text }
+}
+
+/// What the page says about the Build Tools when they are missing: this setup does not install them (decision
+/// D12), so it names them, where they are and what then happens.
+fn build_tools_missing_text() -> String {
+    format!(
+        "The Visual Studio Build Tools (the \"Desktop development with C++\" part) are not installed, and this setup does not install them. Install them from Microsoft ({BUILD_TOOLS_URL}); Microsoft's installer asks you to accept its licence terms ({MICROSOFT_TERMS_URL}). After that, the first Debug or EXEC RUST Build asks first and then compiles PowerRustCOBOL AI's own parts."
+    )
 }
 
 fn page_text(facts: &Facts, figures: &Figures, steps: &Steps, offer: &Offer) -> String {
@@ -245,11 +272,29 @@ fn page_text(facts: &Facts, figures: &Figures, steps: &Steps, offer: &Offer) -> 
         return t;
     }
 
-    t.push_str(&format!(
-        "Take a seat and get a coffee. PowerRustCOBOL AI can get everything ready now, so that Debug and EXEC RUST Builds start at once and run at full speed. It takes {} on a modest machine and about {} of disk.{estimate}\r\n\r\n",
-        duration_words(figures.compile_minutes),
-        human(disk_total(steps, figures)),
-    ));
+    if *offer == Offer::BuildToolsNeeded {
+        t.push_str(&format!(
+            "Rust {} is already installed, and the platform's compile needs the Visual Studio Build Tools, so there is nothing this setup can prepare now.\r\n\r\n",
+            facts.pinned_rust
+        ));
+        t.push_str(&build_tools_missing_text());
+        t.push_str("\r\n");
+        return t;
+    }
+
+    if steps.compiles() {
+        t.push_str(&format!(
+            "Take a seat and get a coffee. PowerRustCOBOL AI can get everything ready now, so that Debug and EXEC RUST Builds start at once and run at full speed. It takes {} on a modest machine and about {} of disk.{estimate}\r\n\r\n",
+            duration_words(figures.compile_minutes),
+            human(disk_total(steps, figures)),
+        ));
+    } else {
+        t.push_str(&format!(
+            "PowerRustCOBOL AI can install Rust {} now. It needs about {} of disk.{estimate} The platform itself is not compiled now, for the reason below.\r\n\r\n",
+            facts.pinned_rust,
+            human(disk_total(steps, figures)),
+        ));
+    }
     t.push_str(
         "If you choose Skip, nothing is lost: the first Debug or EXEC RUST Build asks first and then does the same work.\r\n\r\n",
     );
@@ -292,32 +337,29 @@ fn page_text(facts: &Facts, figures: &Figures, steps: &Steps, offer: &Offer) -> 
             ),
         ),
     }
-    if steps.build_tools {
-        item(
-            &mut t,
-            format!(
-                "Installs the Visual Studio Build Tools, the \"Desktop development with C++\" part, from Microsoft ({BUILD_TOOLS_URL}). About {} to download and {} on disk. Choosing Prepare now means you accept Microsoft's licence terms for them ({MICROSOFT_TERMS_URL}).",
-                human(figures.build_tools_download_bytes),
-                human(figures.build_tools_installed_bytes)
-            ),
-        );
+    if steps.build_tools_missing {
+        item(&mut t, build_tools_missing_text());
     } else {
         item(
             &mut t,
             "The Visual Studio Build Tools (C++) are already installed.".to_owned(),
         );
+        let compile = match (steps.release, steps.debug) {
+            (true, true) => "Compiles PowerRustCOBOL AI's own parts for Release and for Debug, on this computer, at full speed.",
+            (true, false) => "Compiles PowerRustCOBOL AI's own parts for Release, on this computer, at full speed. Debug is already compiled.",
+            (false, true) => "Compiles PowerRustCOBOL AI's own parts for Debug, on this computer, at full speed. Release is already compiled.",
+            (false, false) => "The compile is already done.",
+        };
+        item(&mut t, compile.to_owned());
     }
-    let compile = match (steps.release, steps.debug) {
-        (true, true) => "Compiles PowerRustCOBOL AI's own parts for Release and for Debug, on this computer, at full speed.",
-        (true, false) => "Compiles PowerRustCOBOL AI's own parts for Release, on this computer, at full speed. Debug is already compiled.",
-        (false, true) => "Compiles PowerRustCOBOL AI's own parts for Debug, on this computer, at full speed. Release is already compiled.",
-        (false, false) => "The compile is already done.",
-    };
-    item(&mut t, compile.to_owned());
 
     t.push_str(
-        "\r\nYou can press Cancel while this runs. Cancelling cancels the installation, and you are asked first. Rust and the Build Tools, if this setup already installed them, stay installed.\r\n",
+        "\r\nYou can press Cancel while this runs. Cancelling cancels the installation, and you are asked first.",
     );
+    if steps.rust != RustAction::Nothing {
+        t.push_str(" Rust stays installed if this setup has already installed it.");
+    }
+    t.push_str("\r\n");
     t
 }
 
@@ -375,7 +417,7 @@ mod tests {
             (500, 3, false),
             (500, 500, false),
         ];
-        let (mut cases, mut offered, mut prepared, mut low) = (0, 0, 0, 0);
+        let (mut cases, mut offered, mut prepared, mut low, mut tools) = (0, 0, 0, 0, 0);
 
         for rust in rusts {
             for linker in linkers {
@@ -397,7 +439,9 @@ mod tests {
                             prepared += 1;
                             continue;
                         }
-                        assert_eq!(plan.steps.build_tools, linker == Linker::Missing);
+                        // The Build Tools are never installed by this setup: a missing one only stops the compile.
+                        assert_eq!(plan.steps.build_tools_missing, linker == Linker::Missing);
+                        assert_eq!(plan.steps.compiles(), linker == Linker::Present);
                         assert_eq!(plan.steps.release, !rel);
                         assert_eq!(plan.steps.debug, !dbg);
                         assert_eq!(
@@ -431,16 +475,41 @@ mod tests {
                                     );
                                 }
                             }
+                            Offer::BuildToolsNeeded => {
+                                tools += 1;
+                                // Only when there is nothing else to do: Rust is there, the linker is not.
+                                assert_eq!((rust, linker), (RustState::Pinned, Linker::Missing));
+                                assert!(!plan.steps.does_something());
+                                assert!(
+                                    plan.text.contains("nothing this setup can prepare now"),
+                                    "{}",
+                                    plan.text
+                                );
+                                assert!(!plan.text.contains("What Prepare now does"));
+                            }
                             Offer::AlreadyPrepared => panic!("not stamped, yet AlreadyPrepared"),
                         }
-                        // What the page says matches what will be done.
+                        // What the page says matches what will be done: the Build Tools are never installed
+                        // here, a missing one is named, and a present one is said to be there.
+                        assert!(!plan.text.contains("Installs the Visual Studio Build Tools"));
                         assert_eq!(
-                            plan.text.contains("Installs the Visual Studio Build Tools"),
-                            plan.steps.build_tools
+                            plan.text.contains("this setup does not install them"),
+                            linker == Linker::Missing,
+                            "{}",
+                            plan.text
                         );
                         assert_eq!(
-                            plan.text.contains("already installed."),
-                            plan.steps.rust == RustAction::Nothing || !plan.steps.build_tools
+                            plan.text.contains("Build Tools (C++) are already installed"),
+                            linker == Linker::Present,
+                            "{}",
+                            plan.text
+                        );
+                        // A compile is promised only where it will happen.
+                        assert_eq!(
+                            plan.text.contains("get a coffee"),
+                            plan.steps.compiles(),
+                            "{}",
+                            plan.text
                         );
                     }
                 }
@@ -448,10 +517,10 @@ mod tests {
         }
         println!(
             "preparation decision: {cases} combinations (3 Rust x 2 linker x 4 stamps x 4 disks); \
-             {offered} offered Prepare now, {low} found a volume short, {prepared} already prepared; all consistent"
+             {offered} offered Prepare now, {low} found a volume short, {tools} waiting for the Build Tools, {prepared} already prepared; all consistent"
         );
         assert_eq!(cases, 96);
-        assert_eq!(offered + low + prepared, cases);
+        assert_eq!(offered + low + tools + prepared, cases);
     }
 
     #[test]
@@ -571,7 +640,28 @@ mod tests {
 
     #[test]
     fn the_page_names_every_source_size_and_term_before_anything_is_downloaded() {
-        let plan = decide(
+        // With a linker: the compile happens, so the page promises the wait, and the Rust download is named.
+        let compiling = decide(
+            &facts(RustState::NoRustup, Linker::Present, false, false),
+            &FIGURES,
+        );
+        for needle in [
+            RUSTUP_URL,
+            "Take a seat and get a coffee",
+            "about an hour",
+            "Cancelling cancels the installation",
+            "stays installed",
+            &human(FIGURES.rust_download_bytes),
+        ] {
+            assert!(
+                compiling.text.contains(needle),
+                "the page does not say '{needle}':\n{}",
+                compiling.text
+            );
+        }
+        // Without one: Rust is installed, the compile is not promised, and the Build Tools are named with
+        // their page and Microsoft's terms, because Microsoft's installer is where those terms are accepted.
+        let waiting = decide(
             &facts(RustState::NoRustup, Linker::Missing, false, false),
             &FIGURES,
         );
@@ -580,24 +670,26 @@ mod tests {
             BUILD_TOOLS_URL,
             MICROSOFT_TERMS_URL,
             "licence terms",
-            "Take a seat and get a coffee",
-            "about an hour",
-            "Cancelling cancels the installation",
-            "stay installed",
-            &human(FIGURES.rust_download_bytes),
-            &human(FIGURES.build_tools_download_bytes),
-            &human(FIGURES.build_tools_installed_bytes),
+            "this setup does not install them",
+            "the first Debug or EXEC RUST Build asks first",
         ] {
             assert!(
-                plan.text.contains(needle),
+                waiting.text.contains(needle),
                 "the page does not say '{needle}':\n{}",
-                plan.text
+                waiting.text
             );
         }
         assert!(
-            plan.text.is_ascii(),
-            "the setup's text is ASCII, like the rest of the installer"
+            !waiting.text.contains("get a coffee") && !waiting.text.contains("about an hour"),
+            "no compile is promised without a linker:\n{}",
+            waiting.text
         );
+        for text in [&compiling.text, &waiting.text] {
+            assert!(
+                text.is_ascii(),
+                "the setup's text is ASCII, like the rest of the installer"
+            );
+        }
     }
 
     #[test]
@@ -623,28 +715,57 @@ mod tests {
 
     #[test]
     fn the_disk_the_page_mentions_is_the_disk_the_rule_checks() {
-        let f = facts(RustState::NoRustup, Linker::Missing, false, false);
-        let steps = steps_for(&f);
-        let needs = needs_for(&steps, &FIGURES);
-        // Rust and the whole cache on the build volume; the Build Tools on the system volume.
+        let f = facts(RustState::NoRustup, Linker::Present, false, false);
+        let needs = needs_for(&steps_for(&f), &FIGURES);
+        // Rust and the whole cache on the build volume; nothing on the system volume (no Build Tools here).
         assert_eq!(
             needs.build_bytes,
             FIGURES.rust_download_bytes + FIGURES.rust_installed_bytes + FIGURES.cache_bytes
         );
+        assert_eq!(needs.system_bytes, 0);
+        // Without a linker nothing is compiled, so no cache is asked for.
+        let f = facts(RustState::NoRustup, Linker::Missing, false, false);
+        let needs = needs_for(&steps_for(&f), &FIGURES);
         assert_eq!(
-            needs.system_bytes,
-            FIGURES.build_tools_download_bytes + FIGURES.build_tools_installed_bytes
+            needs.build_bytes,
+            FIGURES.rust_download_bytes + FIGURES.rust_installed_bytes
         );
         // One profile is half the cache.
         let half = needs_for(
             &Steps {
                 rust: RustAction::Nothing,
-                build_tools: false,
+                build_tools_missing: false,
                 release: true,
                 debug: false,
             },
             &FIGURES,
         );
         assert_eq!(half.build_bytes, FIGURES.cache_bytes / 2);
+    }
+
+    #[test]
+    fn rust_is_there_and_the_linker_is_not_so_the_page_only_says_where_the_tools_are() {
+        let plan = decide(
+            &facts(RustState::Pinned, Linker::Missing, false, false),
+            &FIGURES,
+        );
+        assert_eq!(plan.offer, Offer::BuildToolsNeeded);
+        assert!(!plan.steps.does_something() && !plan.steps.is_empty());
+        for needle in [
+            "nothing this setup can prepare now",
+            BUILD_TOOLS_URL,
+            MICROSOFT_TERMS_URL,
+            "1.95.0",
+        ] {
+            assert!(plan.text.contains(needle), "'{needle}' in:\n{}", plan.text);
+        }
+        // Nothing runs, whatever the mode: there is nothing to run.
+        for mode in [
+            Mode::Interactive,
+            Mode::Silent { opt_in: true },
+            Mode::Silent { opt_in: false },
+        ] {
+            assert!(!plan.runs(mode, Some(true)), "{mode:?}");
+        }
     }
 }

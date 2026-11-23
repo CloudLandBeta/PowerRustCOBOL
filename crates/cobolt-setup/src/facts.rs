@@ -206,6 +206,37 @@ fn volume(probe: &mut dyn Probe, path: &str) -> Volume {
     })
 }
 
+/// The installing user's local application-data folder.
+fn local_app_data(probe: &mut dyn Probe) -> String {
+    probe
+        .var("LOCALAPPDATA")
+        .or_else(|| {
+            probe
+                .var("USERPROFILE")
+                .map(|u| join(&u, &["AppData", "Local"]))
+        })
+        .unwrap_or_else(|| "C:\\".to_owned())
+}
+
+/// The build folder the preparation is about, for the installing user: the one the page's disk check judges, the
+/// compile writes into and a cancelled install cleans (the installer passes it, so the three name one folder).
+pub fn user_build_folder(probe: &mut dyn Probe) -> String {
+    build_folder(&local_app_data(probe))
+}
+
+/// The two files the steps share with the installer, in the installing user's temporary folder: the **result
+/// file** the steps write their outcomes to and the finish page reads, and the **cancel file** whose appearance
+/// asks a step to stop.
+pub fn step_files(probe: &mut dyn Probe) -> (String, String) {
+    let temp = probe
+        .var("TEMP")
+        .unwrap_or_else(|| join(&local_app_data(probe), &["Temp"]));
+    (
+        join(&temp, &["prc-prepare-result.txt"]),
+        join(&temp, &["prc-prepare-cancel.txt"]),
+    )
+}
+
 // ── Gathering ────────────────────────────────────────────────────────────────
 
 /// Ask the machine what the decision needs.
@@ -213,15 +244,7 @@ pub fn gather(probe: &mut dyn Probe, inputs: &Inputs) -> Facts {
     let rust = rust_state(rustup_toolchains(probe).as_deref(), &inputs.pinned_rust);
     let linker = linker(probe);
 
-    let local = probe
-        .var("LOCALAPPDATA")
-        .or_else(|| {
-            probe
-                .var("USERPROFILE")
-                .map(|u| join(&u, &["AppData", "Local"]))
-        })
-        .unwrap_or_else(|| "C:\\".to_owned());
-    let build = build_folder(&local);
+    let build = user_build_folder(probe);
     let (release_ready, debug_ready) = probe
         .files_in(&stamp_folder(&build))
         .map_or((false, false), |names| stamps(&inputs.version, &names));
@@ -257,14 +280,13 @@ fn msi_safe(text: &str) -> String {
 }
 
 /// The sentence the cancel confirmation gets when *Prepare now* is chosen: what a Cancel leaves installed (R14).
-/// Empty when the setup would only compile, because then there is nothing of its own to leave.
+/// Empty when the setup would only compile, because then there is nothing of its own to leave. The Build Tools are
+/// never this setup's to leave: the bundle installs them, outside this package's transaction (decision D12).
 pub fn cancel_note(steps: &Steps) -> String {
-    let rust = steps.rust != RustAction::Nothing;
-    match (rust, steps.build_tools) {
-        (true, true) => "Rust and the Visual Studio Build Tools stay installed if this setup has already installed them.".to_owned(),
-        (true, false) => "Rust stays installed if this setup has already installed it.".to_owned(),
-        (false, true) => "The Visual Studio Build Tools stay installed if this setup has already installed them.".to_owned(),
-        (false, false) => String::new(),
+    if steps.rust != RustAction::Nothing {
+        "Rust stays installed if this setup has already installed it.".to_owned()
+    } else {
+        String::new()
     }
 }
 
@@ -276,6 +298,8 @@ pub fn cancel_note(steps: &Steps) -> String {
 /// * `PRC_DISK_OK`: *Prepare now* is offered; empty when a volume falls short.
 /// * `PRC_ALREADY`: this version is already prepared for this user.
 /// * `PRC_CANCEL_TEXT`: the sentence the page copies into `PRC_CANCEL_NOTE` when *Prepare now* is chosen.
+/// * `PRC_LINKER`: this run can compile (the C++ build tools are there, or nothing is left to compile); empty when
+///   the compile cannot run because they are missing, which the compile action and the finish page both read.
 pub fn properties(plan: &Plan) -> Vec<(&'static str, String)> {
     let flag = |on: bool| if on { "1".to_owned() } else { String::new() };
     vec![
@@ -284,20 +308,22 @@ pub fn properties(plan: &Plan) -> Vec<(&'static str, String)> {
         ("PRC_DISK_OK", flag(plan.offer == Offer::PrepareNow)),
         ("PRC_ALREADY", flag(plan.offer == Offer::AlreadyPrepared)),
         ("PRC_CANCEL_TEXT", msi_safe(&cancel_note(&plan.steps))),
+        ("PRC_LINKER", flag(!plan.steps.build_tools_missing)),
     ]
 }
 
-/// The property a silent install sets for the three actions (R5, AC2): `PRC_PREPARE` is `1` only with the opt-in
-/// (`PREPARE_PLATFORM=1`) and only where *Prepare now* would have been offered. A wizard sets it from the page's
-/// radio button instead, so nothing is returned for it.
-pub fn prepare_property(plan: &Plan, mode: Mode) -> Option<(&'static str, String)> {
-    match mode {
-        Mode::Interactive => None,
-        Mode::Silent { .. } => Some((
-            "PRC_PREPARE",
-            if plan.runs(mode, None) { "1".to_owned() } else { String::new() },
-        )),
-    }
+/// The property that says whether the setup prepares (`PRC_PREPARE`, `1` or empty).
+///
+/// * A **silent** install (R5, AC2) prepares only with the opt-in (`PREPARE_PLATFORM=1`) and only where *Prepare now*
+///   would have been offered.
+/// * A **wizard** gets the page's default: *Prepare now* where it is offered and *Skip* where it is not. The radio
+///   buttons then change it, and nothing here runs again to put it back.
+pub fn prepare_property(plan: &Plan, mode: Mode) -> (&'static str, String) {
+    let on = match mode {
+        Mode::Interactive => plan.offer == Offer::PrepareNow,
+        Mode::Silent { .. } => plan.runs(mode, None),
+    };
+    ("PRC_PREPARE", if on { "1".to_owned() } else { String::new() })
 }
 
 // ── The real machine ─────────────────────────────────────────────────────────
@@ -549,7 +575,7 @@ mod tests {
             (500, 3, false),
             (500, 500, false),
         ];
-        let (mut worlds, mut offered, mut low, mut already) = (0, 0, 0, 0);
+        let (mut worlds, mut offered, mut low, mut waiting, mut already) = (0, 0, 0, 0, 0);
         for rust in rusts {
             for linker in linkers {
                 for stamps in stamp_sets {
@@ -577,18 +603,30 @@ mod tests {
                                 low += 1;
                                 assert_eq!((props["PRC_NEED"].as_str(), props["PRC_DISK_OK"].as_str(), props["PRC_ALREADY"].as_str()), ("1", "", ""));
                             }
+                            Offer::BuildToolsNeeded => {
+                                waiting += 1;
+                                // The page is shown to say where the tools are; nothing can be chosen.
+                                assert_eq!((props["PRC_NEED"].as_str(), props["PRC_DISK_OK"].as_str(), props["PRC_ALREADY"].as_str()), ("1", "", ""));
+                            }
                             Offer::AlreadyPrepared => {
                                 already += 1;
                                 assert_eq!((props["PRC_NEED"].as_str(), props["PRC_DISK_OK"].as_str(), props["PRC_ALREADY"].as_str()), ("", "", "1"));
                             }
                         }
+                        // The compile action runs only where there is a linker (or nothing is left to compile).
+                        assert_eq!(props["PRC_LINKER"].is_empty(), plan.steps.build_tools_missing);
+                        // The wizard's radio starts on what would be offered; a silent install, on its opt-in.
+                        let (name, wizard) = prepare_property(&plan, Mode::Interactive);
+                        assert_eq!(name, "PRC_PREPARE");
+                        assert_eq!(wizard == "1", plan.offer == Offer::PrepareNow);
                     }
                 }
             }
         }
         assert_eq!(worlds, 96);
+        assert_eq!(offered + low + waiting + already, worlds);
         println!(
-            "facts gathered from recorded machines: {worlds} worlds equal the decision's own table ({offered} offered Prepare now, {low} found a volume short, {already} already prepared)"
+            "facts gathered from recorded machines: {worlds} worlds equal the decision's own table ({offered} offered Prepare now, {low} found a volume short, {waiting} waiting for the Build Tools, {already} already prepared)"
         );
     }
 
@@ -651,7 +689,8 @@ mod tests {
 
     #[test]
     fn the_build_folder_on_another_volume_is_judged_on_its_own_room() {
-        let mut f = world(RustState::NoRustup, Linker::Missing, (false, false), (500, 500, false));
+        // With a linker, so that a compile is asked for (without one only Rust is installed, which fits in 3 GB).
+        let mut f = world(RustState::NoRustup, Linker::Present, (false, false), (500, 500, false));
         // The local application-data folder moved to D: (a redirected profile); the system drive is still C:.
         f.vars.insert("LOCALAPPDATA", "D:\\Profiles\\dev\\AppData\\Local".into());
         let d_build = build_folder("D:\\Profiles\\dev\\AppData\\Local");
@@ -669,16 +708,18 @@ mod tests {
     #[test]
     fn the_sentence_a_cancel_adds_names_only_what_this_setup_would_install() {
         use crate::prepare::Steps;
-        let steps = |rust, build_tools| Steps { rust, build_tools, release: true, debug: true };
-        let both = cancel_note(&steps(RustAction::InstallFresh, true));
-        assert!(both.contains("Rust") && both.contains("Build Tools") && both.contains("has already installed"), "{both}");
-        let rust = cancel_note(&steps(RustAction::InstallBeside, false));
-        assert!(rust.contains("Rust") && !rust.contains("Build Tools"), "{rust}");
-        let tools = cancel_note(&steps(RustAction::Nothing, true));
-        assert!(tools.contains("Build Tools") && !tools.contains("Rust"), "{tools}");
-        assert_eq!(cancel_note(&steps(RustAction::Nothing, false)), "", "only a compile: nothing of its own to leave");
-        for note in [both, rust, tools] {
+        let steps = |rust, build_tools_missing| Steps { rust, build_tools_missing, release: true, debug: true };
+        let fresh = cancel_note(&steps(RustAction::InstallFresh, false));
+        assert!(fresh.contains("Rust") && fresh.contains("has already installed"), "{fresh}");
+        let beside = cancel_note(&steps(RustAction::InstallBeside, true));
+        assert!(beside.contains("Rust"), "{beside}");
+        // The Build Tools are never this setup's to leave, present or missing.
+        for note in [&fresh, &beside] {
+            assert!(!note.contains("Build Tools"), "{note}");
             assert!(note.is_ascii() && !note.contains(['[', ']', '\r', '\n']), "{note}");
+        }
+        for missing in [false, true] {
+            assert_eq!(cancel_note(&steps(RustAction::Nothing, missing)), "", "only a compile: nothing of its own to leave");
         }
     }
 
@@ -688,20 +729,56 @@ mod tests {
             decide(&gather(&mut world(RustState::NoRustup, Linker::Missing, stamps, disk), &inputs()), &FIGURES)
         };
         let offered = plan_for((500, 500, true), (false, false));
-        let low = plan_for((3, 500, true), (false, false));
+        let low = plan_for((1, 500, true), (false, false));
         let done = plan_for((500, 500, true), (true, true));
         assert_eq!(offered.offer, Offer::PrepareNow);
+        assert!(matches!(low.offer, Offer::DiskLow(_)), "{:?}", low.offer);
         let value = |plan: &Plan, mode| prepare_property(plan, mode);
+        let on = ("PRC_PREPARE", "1".to_owned());
+        let off = ("PRC_PREPARE", String::new());
 
-        // A wizard sets the property from the page: nothing is set here.
-        assert_eq!(value(&offered, Mode::Interactive), None);
+        // A wizard's radio starts on Prepare now where it is offered, and on Skip where it is not.
+        assert_eq!(value(&offered, Mode::Interactive), on);
+        assert_eq!(value(&low, Mode::Interactive), off);
+        assert_eq!(value(&done, Mode::Interactive), off);
         // Without the opt-in a silent install downloads and compiles nothing (R5, AC2).
-        assert_eq!(value(&offered, Mode::Silent { opt_in: false }), Some(("PRC_PREPARE", String::new())));
+        assert_eq!(value(&offered, Mode::Silent { opt_in: false }), off);
         // With it, where Prepare now is offered, it prepares.
-        assert_eq!(value(&offered, Mode::Silent { opt_in: true }), Some(("PRC_PREPARE", "1".to_owned())));
+        assert_eq!(value(&offered, Mode::Silent { opt_in: true }), on);
         // The opt-in does not override a full disk, and there is nothing to do for a version already prepared.
-        assert_eq!(value(&low, Mode::Silent { opt_in: true }), Some(("PRC_PREPARE", String::new())));
-        assert_eq!(value(&done, Mode::Silent { opt_in: true }), Some(("PRC_PREPARE", String::new())));
+        assert_eq!(value(&low, Mode::Silent { opt_in: true }), off);
+        assert_eq!(value(&done, Mode::Silent { opt_in: true }), off);
+    }
+
+    #[test]
+    fn the_build_folder_and_the_files_the_steps_share_are_the_installing_users() {
+        // The build folder, with LOCALAPPDATA or, without it, the profile's AppData\Local.
+        let mut f = Fake::default();
+        f.vars.insert("LOCALAPPDATA", "D:\\Profiles\\dev\\AppData\\Local\\".into());
+        f.vars.insert("TEMP", "D:\\Profiles\\dev\\AppData\\Local\\Temp".into());
+        assert_eq!(user_build_folder(&mut f), "D:\\Profiles\\dev\\AppData\\Local\\PowerRustCOBOL\\builds");
+        assert_eq!(
+            step_files(&mut f),
+            (
+                "D:\\Profiles\\dev\\AppData\\Local\\Temp\\prc-prepare-result.txt".to_owned(),
+                "D:\\Profiles\\dev\\AppData\\Local\\Temp\\prc-prepare-cancel.txt".to_owned()
+            )
+        );
+        let mut f = Fake::default();
+        f.vars.insert("USERPROFILE", "C:\\Users\\dev".into());
+        assert_eq!(user_build_folder(&mut f), "C:\\Users\\dev\\AppData\\Local\\PowerRustCOBOL\\builds");
+        assert_eq!(step_files(&mut f).0, "C:\\Users\\dev\\AppData\\Local\\Temp\\prc-prepare-result.txt");
+
+        // The page's disk check, the compile and a cancel's cleaning all name the folder `gather` judged.
+        let mut f = Fake::default();
+        f.vars.insert("LOCALAPPDATA", "C:\\Users\\dev\\AppData\\Local".into());
+        let build = user_build_folder(&mut f);
+        assert_eq!(stamp_folder(&build), "C:\\Users\\dev\\AppData\\Local\\PowerRustCOBOL\\builds\\shared-target\\warm");
+        // And no property carries a square bracket (Windows Installer reads `[Name]` as a reference).
+        let (result, cancel) = step_files(&mut f);
+        for path in [build, result, cancel] {
+            assert!(!path.contains(['[', ']']), "{path}");
+        }
     }
 
     #[test]

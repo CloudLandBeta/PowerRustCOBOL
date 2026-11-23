@@ -9,7 +9,10 @@
 //! properties the page reads. It never fails the install: a panic or a missing property is written to the log and
 //! the page simply is not offered.
 
-use super::{gather, prepare_property, properties, volume_name, Inputs, Probe};
+use super::{
+    gather, prepare_property, properties, step_files, user_build_folder, volume_name, Inputs,
+    Probe,
+};
 use crate::disk::Volume;
 use crate::figures::FIGURES;
 use crate::prepare::{decide, Mode};
@@ -153,9 +156,15 @@ pub extern "system" fn PrcFacts(handle: MSIHANDLE) -> u32 {
         for (name, value) in properties(&plan) {
             set_property(session, name, &value);
         }
-        if let Some((name, value)) = prepare_property(&plan, inputs.mode) {
-            set_property(session, name, &value);
-        }
+        let (name, value) = prepare_property(&plan, inputs.mode);
+        set_property(session, name, &value);
+
+        // Where the steps work: one build folder for the page's disk check, the compile and a cancel's cleaning,
+        // and the two files the steps share with the installer.
+        let (result_file, cancel_file) = step_files(&mut Here);
+        set_property(session, "PRC_BUILD_FOLDER", &user_build_folder(&mut Here));
+        set_property(session, "PRC_RESULT_FILE", &result_file);
+        set_property(session, "PRC_CANCEL_FILE", &cancel_file);
         ERROR_SUCCESS
     })
 }
