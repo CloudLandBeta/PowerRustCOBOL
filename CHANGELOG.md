@@ -2,6 +2,10 @@
 
 
 
+## 2.1.28 — 2026-11-23
+
+**Feature (spec 112, tasks only): what T7 and T11 found, carried to T12 and T13.** `specs/112-windows-install-time-preparation/tasks.md`: five points written under T12 so they are not lost before the installer is shaped. One build folder for the page's disk check, the compile and the rollback (the installer passes one explicit `--build-root`, the folder the facts judged); the result file's path as a new field of the supervisor's `CustomActionData`; `PRC_PREVIOUS_VERSION` from an `<UpgradeVersion>`; the tick weights as estimates until T16; the Build Tools part of the supervisor waiting for amendment A4 and the F1/F2/F3 decision. No code changed.
+
 ## 2.1.27 — 2026-11-23
 
 **Feature (spec 112, task T11): the facts of the Windows setup's preparation page — what only the machine knows, gathered for the decision, and the installer properties the page reads.** Nothing in the shipped installer calls it yet (the wizard page and the sequence are T13, shaped by the Windows spike, T2).
