@@ -104,7 +104,7 @@ impl Probe for Here {
 }
 
 /// Set (or, for an empty value, remove) a property of the install.
-fn set_property(session: &Session, name: &str, value: &str) {
+pub(crate) fn set_property(session: &Session, name: &str, value: &str) {
     let (name, value) = (wide(name), wide(value));
     // SAFETY: both strings are NUL-terminated; an empty value removes the property.
     unsafe {

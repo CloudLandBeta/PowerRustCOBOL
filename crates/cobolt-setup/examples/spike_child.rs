@@ -70,6 +70,33 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
+        // The ways a real step ends that its own result file does not say (task T12): it exits with an error,
+        // it goes quiet, it prints the progress lines of the real step.
+        Some("exit") => {
+            let code: u8 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+            say(&format!("exit: ending with code {code}"));
+            ExitCode::from(code)
+        }
+        Some("silent") => {
+            let seconds: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(60);
+            std::thread::sleep(Duration::from_secs(seconds));
+            ExitCode::SUCCESS
+        }
+        Some("lines") => {
+            let begun = Instant::now();
+            for part in ["release", "debug"] {
+                for unit in ["forms", "forms-sql", "forms-graphics"] {
+                    for crates in [0, 10] {
+                        std::thread::sleep(Duration::from_millis(600));
+                        println!(
+                            "PRC step={part} unit={unit} crates={crates} elapsed={}",
+                            begun.elapsed().as_secs()
+                        );
+                    }
+                }
+            }
+            ExitCode::SUCCESS
+        }
         Some("run") if args.len() >= 2 => {
             say(&format!("run: {}", args[1..].join(" ")));
             let begun = Instant::now();
@@ -92,7 +119,7 @@ fn main() -> ExitCode {
             }
         }
         _ => {
-            say("usage: spike_child env | beat <seconds> | run <program> [args...]");
+            say("usage: spike_child env | beat <seconds> | exit <code> | silent <seconds> | lines | run <program> [args...]");
             ExitCode::from(64)
         }
     }

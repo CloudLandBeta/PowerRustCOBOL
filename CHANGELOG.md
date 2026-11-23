@@ -2,6 +2,19 @@
 
 
 
+## 2.1.31 — 2026-11-23
+
+**Feature (spec 112, task T12): the supervisor is hardened, and the three small actions around it exist.** `crates/cobolt-setup`: `data.rs`, `supervisor.rs`, `ticks.rs` (new), `watch.rs` (new), `rollback.rs` (new), `entries.rs` (new, Windows), `result.rs`, `lib.rs`, the spike (`spike.wxs`, `spike_child.rs`, `spike-msi-prepare.yml`). Nothing the developer sees changes yet: the page and the actions that call this code are T13.
+
+- **What a step ends with is now a result, never a failed install (R12).** The supervisor reads the exit code of the program it runs: anything but 0 (the program reported in its result file), the watchdog giving up (no line for the limit, 15 minutes in the real action) and a step that cannot start are each written into the result file as a named failure (`Failure::Ended`, `TimedOut`, `Refused`) that says what was not done and that the first Debug or EXEC RUST Build does it. The spike's toy child had hidden this: it exited 0 although its child exited 1618. The only answer to the installer that is not success is still `IDCANCEL`, which returns `ERROR_INSTALL_USEREXIT`.
+- **Cancel asks before it kills.** With the kill flag, the supervisor first creates the step's cancel file, gives the step five seconds to stop its own `cargo`, and only then ends the whole job. A stale cancel file from an earlier run is removed before the step starts.
+- **The page shows the step's own lines.** Each line of ours (`PRC step=release unit=forms-sql crates=40 elapsed=312`) becomes the progress text (`Compiling the platform for Release (forms-sql): 40 crates compiled, 5 min 12 s so far`); the child's other output is logged, not shown. Any line at all counts as a sign of life for the watchdog.
+- **The bar (`ticks.rs`).** `PrcTicks` adds 1000 ticks to the bar (Rust 50, compile 950); the compile reports a unit's share when the step moves on to the next one, and the rest of the allotment when the step ends however it ends, so the bar neither stops short nor runs past its end. The weights are equal until T16 measures them.
+- **`PrcRollback`** removes `<build folder>\shared-target` only when it carries `.prepared-by-setup`, which the compile writes when its own run created that cache. A cache the developer already had stays. It acts only on a full path. **`PrcReadResult`** turns the result file into `PRC_RESULT`, with no square bracket in it, and when the preparation was asked for and there is no linker it says the platform was not compiled and where the Build Tools are.
+- **`CustomActionData` is now eight fields**: `who|watchdog|kill|part|ticks|result file|cancel file|command`. The spike's data was converted; every empty field means off.
+- **The spike has a case F** that runs the real supervisor at these ends on a hosted Windows runner: a step that exits with 7, a step that goes quiet for 60 s under a 5 s watchdog, and a step that prints the real progress lines; the install must return 0, the two result files must name the failures, no `spike_child.exe` may be left.
+- **Verified here:** `cargo test -p cobolt-setup` 62 passed, 0 failed, 1 ignored (the T16 gate); was 41. The compile of 19 lines moves the bar `[158, 158, 159, 158, 158]` then 159 at the end = 950. `cargo test -p cobolt-ide --bin cobolt-ide prepare::` 16 passed. Clippy `-D warnings` clean for the host and for `x86_64-pc-windows-gnu` (type-checked; the DLL itself cannot be linked on this Mac, the runner builds it). **Not run on Windows by me:** the supervisor, `PrcTicks`, `PrcRollback` and `PrcReadResult` have run nowhere yet; case F is the first run.
+
 ## 2.1.30 — 2026-11-23
 
 **Feature (spec 112, task T2 done): the Windows spike's results and the decision they force — Microsoft's Build Tools cannot be installed from inside the `.msi`; a bootstrapper bundle installs them, the `.msi` detects and names them.** `specs/112-windows-install-time-preparation/plan.md` §9 (new), `spec.md` R6, `tasks.md`. No code changed.

@@ -311,6 +311,56 @@ pub fn read(file: &str) -> Vec<Outcome> {
     out
 }
 
+/// Add one line to a result file, creating the file and its folder when they are not there. The supervisor writes
+/// what a step that could not report ended with (a watchdog, a crash, a step that never started).
+pub fn append(path: &std::path::Path, outcome: &Outcome) -> std::io::Result<()> {
+    use std::io::Write as _;
+    if let Some(folder) = path.parent().filter(|f| !f.as_os_str().is_empty()) {
+        std::fs::create_dir_all(folder)?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    write!(file, "{}\r\n", format(outcome))
+}
+
+/// What the compile that did not run says: the platform is compiled with the C++ linker, and the machine has none
+/// (the Build Tools are installed by the bundle, outside this `.msi`; spec 112, decision D12).
+pub fn missing_linker() -> Outcome {
+    Outcome::failed(&Failure::Refused {
+        part: Part::Release,
+        why: format!(
+            "The platform was not compiled: the Visual Studio Build Tools (the C++ linker) are missing. Install them from {}.",
+            crate::prepare::BUILD_TOOLS_URL
+        ),
+    })
+}
+
+/// What the finish page says, read from the result file the steps wrote (`None`, or a file that is not there, is a
+/// run that wrote nothing). `linker_present` is the property the preparation was decided with: when the preparation
+/// was asked for and there was no linker, the compile never ran, and the page says so.
+///
+/// Safe for an installer property: Windows Installer reads `[Name]` in one as a reference, and the text comes from
+/// a file anyone could have edited.
+pub fn finish_text_from_file(
+    asked: bool,
+    path: Option<&std::path::Path>,
+    linker_present: bool,
+) -> String {
+    let file = path
+        .and_then(|p| std::fs::read(p).ok())
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default();
+    let mut outcomes = read(&file);
+    if asked && !linker_present {
+        outcomes.push(missing_linker());
+    }
+    finish_text(asked, &outcomes)
+        .replace('[', "(")
+        .replace(']', ")")
+}
+
 /// What the finish page says (R12). `asked` is whether the developer chose *Prepare now*: when nothing was asked,
 /// nothing is said.
 pub fn finish_text(asked: bool, outcomes: &[Outcome]) -> String {
@@ -551,5 +601,80 @@ mod tests {
         // 0 is what every process that did what it was asked ends with; the two others must differ from it and from each other.
         let codes = [exit::REPORTED, exit::BAD_ARGUMENTS, exit::CANCELLED];
         assert_eq!(codes, [0, 2, 3]);
+    }
+
+    fn scratch_file(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("prc-result-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir.join("nested").join("result.txt")
+    }
+
+    #[test]
+    fn the_supervisor_appends_lines_a_reader_finds_in_order() {
+        let file = scratch_file("append");
+        assert!(!file.exists());
+        let lines = [
+            Outcome::ok(Part::Rust, "Rust 1.95.0 is installed."),
+            Outcome::failed(&Failure::TimedOut {
+                part: Part::Release,
+                minutes: 15,
+            }),
+        ];
+        for line in &lines {
+            append(&file, line).unwrap();
+        }
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.ends_with("\r\n") && text.lines().count() == 2, "{text:?}");
+        assert_eq!(read(&text), lines.to_vec());
+        let _ = std::fs::remove_dir_all(file.parent().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn the_finish_page_is_read_from_the_file_and_is_safe_for_a_property() {
+        let file = scratch_file("finish");
+        // Edited by hand to carry what an installer property must not.
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(
+            &file,
+            "step=rust status=ok text=Rust is installed.\r\nstep=release status=failed text=It said [ProductName] here.\r\n",
+        )
+        .unwrap();
+        let page = finish_text_from_file(true, Some(&file), true);
+        assert!(page.contains("(ProductName)") && !page.contains(['[', ']']), "{page}");
+        assert!(page.contains("is installed, but the preparation did not finish"));
+
+        // Not asked: nothing, whatever the file says. A file that is not there: nothing was reported.
+        assert_eq!(finish_text_from_file(false, Some(&file), true), "");
+        assert!(finish_text_from_file(true, Some(&file.with_file_name("none.txt")), true)
+            .contains("nothing to prepare"));
+        assert!(finish_text_from_file(true, None, true).contains("nothing to prepare"));
+        let _ = std::fs::remove_dir_all(file.parent().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn without_a_linker_the_page_says_the_platform_was_not_compiled_and_where_the_tools_are() {
+        let outcome = missing_linker();
+        assert_eq!(
+            (outcome.part, outcome.status),
+            (Part::Release, Status::Failed)
+        );
+        assert!(
+            outcome.text.is_ascii() && outcome.text.len() <= MAX_TEXT,
+            "{} ({} characters)",
+            outcome.text,
+            outcome.text.len()
+        );
+        assert!(outcome.text.contains(crate::prepare::BUILD_TOOLS_URL));
+        assert!(outcome.text.contains("first Debug or EXEC RUST Build"));
+
+        let page = finish_text_from_file(true, None, false);
+        assert!(
+            page.contains("is installed, but the preparation did not finish")
+                && page.contains("Build Tools"),
+            "{page}"
+        );
+        assert!(!page.contains("is prepared"));
+        // Nothing asked, nothing said, even without a linker.
+        assert_eq!(finish_text_from_file(false, None, false), "");
     }
 }

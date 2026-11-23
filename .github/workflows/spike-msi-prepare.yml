@@ -197,6 +197,35 @@ jobs:
           ls "/c/Program Files/PrcSpike" 2>&1 | head -3
           tasklist | grep -i spike_child || echo "no spike_child.exe still running"
 
+      # F (task T12) is the REAL supervisor at the ends the unit tests cannot reach: the
+      # exit code of the program it runs, a program that goes quiet, and the progress
+      # lines of the real step. Each is an end the finish page must name, and none may
+      # fail the install (R12): the install returns 0 and the result file says so.
+      - name: "F. A step that exits with an error, one that goes quiet, and the real progress lines"
+        if: ${{ !cancelled() }}
+        run: |
+          set +e
+          msi=$(cygpath -aw spike-work/spike.msi)
+          drive=spike-target/release/examples/drive_msi.exe
+          "$drive" "$msi" "$(cygpath -aw spike-work/F.log)" never - SPIKE_EXIT=7 SPIKE_SILENT=60 SPIKE_LINES=1 > spike-work/F.out 2>&1
+          echo "---- what the driver saw (the supervisor's own lines are in the install log, F.log, an artifact)"
+          grep -a -v -F -e 'Property(S)' -e 'Action start' -e 'Action ended' spike-work/F.out | cut -c1-200 | head -80
+          folder="/c/Program Files/PrcSpike"
+          fail=0
+          for f in exit-result silent-result lines-result; do
+            echo "---- $f.txt"
+            cat "$folder/$f.txt" 2>&1 | head -5
+          done
+          check() { if grep -a -q -F -- "$2" "$1"; then echo "PASS  $3"; else echo "FAIL  $3"; fail=1; fi; }
+          check spike-work/F.out "MsiInstallProductW returned 0 " "the install returned 0 although two steps ended badly"
+          check "$folder/exit-result.txt" "step=release status=failed text=Compiling the platform for Release ended without saying how (code 7)" "a non-zero exit is a failure the page names"
+          check "$folder/silent-result.txt" "step=debug status=failed text=Compiling the platform for Debug stopped answering" "a silent step is given up and named"
+          check spike-work/F.out "Compiling the platform for Release (forms-sql)" "the page text names the unit the step is in"
+          check spike-work/F.out "Compiling the platform for Debug (forms-graphics)" "the page text reaches the last unit"
+          tasklist | grep -i spike_child && { echo "FAIL  a spike_child.exe is still running"; fail=1; } || echo "PASS  no spike_child.exe left running"
+          msiexec //x "$msi" //qn //norestart; echo "uninstall exit: $?"
+          exit $fail
+
       # The first run's D ended after 24.2 s with the install returning 0, 0
       # Cancel answers (the Cancel was due at 120 s) and no install folder, and the
       # log showed only its last 12 lines: the bootstrapper's own exit code was

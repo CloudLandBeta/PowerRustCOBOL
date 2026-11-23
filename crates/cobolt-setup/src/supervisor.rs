@@ -23,8 +23,13 @@
 use crate::data::{RunData, Spawn};
 use crate::ident;
 use crate::lines::LineBuffer;
+use crate::progress::Part;
+use crate::result;
+use crate::ticks::Tracker;
+use crate::watch::{outcome_for, End, Watchdog};
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::Path;
 use std::ptr::{null, null_mut};
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{
@@ -58,12 +63,20 @@ use windows_sys::Win32::System::Threading::{
 };
 
 /// `IDCANCEL`, which `MsiProcessMessage` answers when the developer has cancelled.
-const IDCANCEL: i32 = 2;
+pub(crate) const IDCANCEL: i32 = 2;
+/// The kinds of `INSTALLMESSAGE_PROGRESS` (field 1 of its record): how this action's text moves the bar, a report
+/// of ticks done, and an addition to the bar's total.
+const PROGRESS_ACTION_INFO: i32 = 1;
+const PROGRESS_REPORT: i32 = 2;
+const PROGRESS_ADDITION: i32 = 3;
 /// `MAXIMUM_ALLOWED`: duplicate the token with every right its security descriptor grants (declared here so the
 /// crate does not pull in a whole feature of `windows-sys` for one number).
 const MAXIMUM_ALLOWED: u32 = 0x0200_0000;
 /// How often the installer is asked about Cancel.
 const CANCEL_POLL: Duration = Duration::from_millis(500);
+/// How long a step that was asked to stop (its cancel file) is given to stop its own children before the whole job
+/// is ended.
+const CANCEL_GRACE: Duration = Duration::from_secs(5);
 /// The most often a line becomes progress text; a child that prints a thousand lines a second must not flood the page.
 const TEXT_EVERY: Duration = Duration::from_millis(250);
 /// How many of a step's lines are copied into the install log one by one.
@@ -102,21 +115,37 @@ impl Session {
         self.send_text(INSTALLMESSAGE_ACTIONDATA, text) == IDCANCEL
     }
 
-    /// Ask whether the developer has cancelled, moving the progress bar by nothing.
-    pub(crate) fn poll_cancel(&self) -> bool {
-        // A progress-report record is [1] = 2 (report), [2] = ticks to move, [3] = 0.
+    /// Move the progress bar by `ticks`; `0` only asks whether the developer has cancelled. `true` when they have.
+    pub(crate) fn progress(&self, ticks: u32) -> bool {
+        self.progress_message(PROGRESS_REPORT, ticks) == IDCANCEL
+    }
+
+    /// Tell the installer that this action's text messages move the bar by nothing: the ticks are reported by
+    /// [`Session::progress`], from the step's lines.
+    pub(crate) fn action_info(&self) {
+        let _ = self.progress_message(PROGRESS_ACTION_INFO, 0);
+    }
+
+    /// Add `ticks` to the bar's total. Sent by an immediate action while the install's script is being made.
+    /// Answers what the installer answered (`IDCANCEL` when the developer has cancelled).
+    pub(crate) fn add_total(&self, ticks: u32) -> i32 {
+        self.progress_message(PROGRESS_ADDITION, ticks)
+    }
+
+    /// One `INSTALLMESSAGE_PROGRESS`: field 1 is what kind, field 2 the ticks, field 3 stays 0.
+    fn progress_message(&self, kind: i32, ticks: u32) -> i32 {
         // SAFETY: the record is closed before returning.
         unsafe {
             let rec = MsiCreateRecord(3);
             if rec == 0 {
-                return false;
+                return 0;
             }
-            MsiRecordSetInteger(rec, 1, 2);
-            MsiRecordSetInteger(rec, 2, 0);
+            MsiRecordSetInteger(rec, 1, kind);
+            MsiRecordSetInteger(rec, 2, i32::try_from(ticks).unwrap_or(i32::MAX));
             MsiRecordSetInteger(rec, 3, 0);
             let answer = MsiProcessMessage(self.0, INSTALLMESSAGE_PROGRESS, rec);
             MsiCloseHandle(rec);
-            answer == IDCANCEL
+            answer
         }
     }
 
@@ -477,91 +506,167 @@ fn kill(step: &Step) {
     }
 }
 
+/// What the lines of a step do to the install log, the progress page and the bar, and how long the step has been
+/// quiet.
+struct Feed {
+    tracker: Tracker,
+    watchdog: Watchdog,
+    last_text: Option<Instant>,
+    logged: usize,
+}
+
+impl Feed {
+    /// Take a batch of lines. `true` when the installer answered Cancel to one of the messages this caused.
+    fn take(&mut self, session: &Session, lines: &[String]) -> bool {
+        if lines.is_empty() {
+            return false;
+        }
+        // Any line at all, the child's own included, is a step that is alive.
+        self.watchdog.heard(Instant::now());
+        for line in lines {
+            if self.logged < LOGGED_LINES {
+                session.info(&format!("PRC: > {line}"));
+                self.logged += 1;
+                if self.logged == LOGGED_LINES {
+                    session
+                        .info("PRC: (the rest of the step's lines are not copied into this log)");
+                }
+            }
+        }
+        let seen = self.tracker.see(lines);
+        let mut cancel = false;
+        if seen.ticks > 0 {
+            cancel |= session.progress(seen.ticks);
+        }
+        if let Some(text) = seen.text {
+            if self.last_text.is_none_or(|t| t.elapsed() >= TEXT_EVERY) {
+                self.last_text = Some(Instant::now());
+                cancel |= session.action_data(&text);
+            }
+        }
+        cancel
+    }
+}
+
+/// Stop the step on a Cancel: ask it to stop (its cancel file), give it a few seconds to do so and to stop its own
+/// `cargo`, then end the whole job whatever is left.
+fn stop(session: &Session, data: &RunData, step: &Step, buffer: &mut LineBuffer, begun: Instant) {
+    let mut asked = false;
+    if let Some(file) = &data.cancel_file {
+        match std::fs::write(file, b"cancel") {
+            Ok(()) => asked = true,
+            Err(e) => session.info(&format!(
+                "PRC: the cancel file {file} could not be written ({e}); the step is stopped without being asked"
+            )),
+        }
+    }
+    if asked {
+        let until = Instant::now() + CANCEL_GRACE;
+        while Instant::now() < until && !exited(step) {
+            // Keep the pipe empty, or a step that is writing its last lines cannot end.
+            let _ = drain(&step.output, buffer);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    let by_itself = exited(step);
+    if !by_itself {
+        kill(step);
+    }
+    session.info(&format!(
+        "PRC: Cancel after {:.1}s: the step {}",
+        begun.elapsed().as_secs_f64(),
+        if by_itself {
+            "stopped when asked"
+        } else {
+            "and everything it started were stopped"
+        }
+    ));
+    // SAFETY: the process handle is valid; the wait is bounded.
+    unsafe { WaitForSingleObject(step.process.0, 10_000) };
+}
+
+/// A step that ended without saying how is a result for the finish page, never a failed install (R12): write it
+/// into the result file the step would have written to.
+fn report(session: &Session, data: &RunData, end: &End, part: Option<Part>) {
+    let part = part.or(data.part).unwrap_or(Part::Check);
+    let Some(outcome) = outcome_for(end, part) else {
+        return;
+    };
+    session.info(&format!("PRC: result: {}", result::format(&outcome)));
+    match &data.result_file {
+        Some(file) => {
+            if let Err(e) = result::append(Path::new(file), &outcome) {
+                session.info(&format!(
+                    "PRC: the result file {file} could not be written ({e})"
+                ));
+            }
+        }
+        None => session.info("PRC: no result file was named, so the finish page will not say so"),
+    }
+}
+
 /// Run one step to its end, a Cancel or the watchdog. Returns the action's result for the installer.
 fn run(session: &Session, data: &RunData) -> u32 {
     session.info(&format!("PRC: supervisor: {}", ident::describe()));
     session.info(&format!("PRC: command: {}", data.command));
+    // A cancel file left by an earlier run would stop this step at once.
+    if let Some(file) = &data.cancel_file {
+        let _ = std::fs::remove_file(file);
+    }
+    // The text of this action moves the bar by nothing: the ticks are reported by the supervisor, from the lines.
+    session.action_info();
 
     let step = match start(session, data) {
         Ok(step) => step,
         Err(why) => {
             // A step that cannot start is a result for the finish page, not a failed install (R12).
             session.info(&format!("PRC: the step could not start: {why}"));
+            report(session, data, &End::CouldNotStart(why), None);
             return ERROR_SUCCESS;
         }
     };
 
     let begun = Instant::now();
-    let mut last_line = begun;
-    let mut last_poll = begun;
-    let mut last_text: Option<Instant> = None;
+    let mut feed = Feed {
+        tracker: Tracker::new(data.part, data.ticks),
+        watchdog: Watchdog::new(data.watchdog_secs, begun),
+        last_text: None,
+        logged: 0,
+    };
     let mut buffer = LineBuffer::default();
-    let mut logged = 0usize;
+    let mut last_poll = begun;
     let mut cancelled = false;
     let mut gave_up = false;
 
-    let mut show = |session: &Session,
-                    lines: &[String],
-                    last_line: &mut Instant,
-                    last_text: &mut Option<Instant>|
-     -> bool {
-        let mut asked_to_cancel = false;
-        if lines.is_empty() {
-            return false;
-        }
-        *last_line = Instant::now();
-        for line in lines {
-            if logged < LOGGED_LINES {
-                session.info(&format!("PRC: > {line}"));
-                logged += 1;
-                if logged == LOGGED_LINES {
-                    session
-                        .info("PRC: (the rest of the step's lines are not copied into this log)");
-                }
-            }
-        }
-        if last_text.is_none_or(|t| t.elapsed() >= TEXT_EVERY) {
-            *last_text = Some(Instant::now());
-            asked_to_cancel = session.action_data(lines.last().map(String::as_str).unwrap_or(""));
-        }
-        asked_to_cancel
-    };
-
     loop {
         let (lines, closed) = drain(&step.output, &mut buffer);
-        let mut asked_to_cancel = show(session, &lines, &mut last_line, &mut last_text);
+        let mut asked_to_cancel = feed.take(session, &lines);
 
         if !cancelled && !asked_to_cancel && last_poll.elapsed() >= CANCEL_POLL {
             last_poll = Instant::now();
-            asked_to_cancel = session.poll_cancel();
+            asked_to_cancel = session.progress(0);
         }
         if asked_to_cancel && !cancelled {
             cancelled = true;
             if data.kill_on_cancel {
-                kill(&step);
-                session.info(&format!(
-                    "PRC: Cancel after {:.1}s: the step and everything it started were stopped",
-                    begun.elapsed().as_secs_f64()
-                ));
-                // SAFETY: the process handle is valid; the wait is bounded.
-                unsafe { WaitForSingleObject(step.process.0, 10_000) };
+                session.action_data("Cancelling: stopping the step that is running");
+                stop(session, data, &step, &mut buffer, begun);
                 break;
             }
             session.info(&format!(
                 "PRC: Cancel after {:.1}s: the step is NOT stopped; waiting for it to finish",
                 begun.elapsed().as_secs_f64()
             ));
-            session.action_data("Cancelling: waiting for the installer that is running to finish");
+            session.action_data("Cancelling: waiting for the step that is running to finish");
         }
 
         if closed || exited(&step) {
             let (rest, _) = drain(&step.output, &mut buffer);
             let tail: Vec<String> = rest.into_iter().chain(buffer.finish()).collect();
-            show(session, &tail, &mut last_line, &mut last_text);
+            feed.take(session, &tail);
             break;
         }
-        if data.watchdog_secs > 0 && last_line.elapsed() >= Duration::from_secs(data.watchdog_secs)
-        {
+        if feed.watchdog.expired(Instant::now()) {
             session.info(&format!(
                 "PRC: no output for {} s: the step is given up and stopped",
                 data.watchdog_secs
@@ -573,13 +678,33 @@ fn run(session: &Session, data: &RunData) -> u32 {
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    let code = exit_code(&step).map_or_else(|| "unknown".to_owned(), |c| c.to_string());
+    let code = exit_code(&step);
     session.info(&format!(
-        "PRC: the step ended after {:.1}s with exit code {code}{}{}",
+        "PRC: the step ended after {:.1}s with exit code {}{}{}",
         begun.elapsed().as_secs_f64(),
+        code.map_or_else(|| "unknown".to_owned(), |c| c.to_string()),
         if cancelled { " (cancelled)" } else { "" },
         if gave_up { " (watchdog)" } else { "" },
     ));
+    if let Some(file) = &data.cancel_file {
+        let _ = std::fs::remove_file(file);
+    }
+    if !cancelled {
+        // Whatever happened, what is left of the step's share of the bar is reported, so the bar is where the
+        // install expects it. A Cancel that arrives with it is still a Cancel.
+        cancelled = session.progress(feed.tracker.finish());
+    }
+
+    let end = if cancelled {
+        End::Cancelled
+    } else if gave_up {
+        End::GaveUp {
+            secs: data.watchdog_secs,
+        }
+    } else {
+        End::Exited(code)
+    };
+    report(session, data, &end, feed.tracker.part());
     if cancelled {
         ERROR_INSTALL_USEREXIT
     } else {

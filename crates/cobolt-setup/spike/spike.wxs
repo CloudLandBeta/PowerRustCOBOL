@@ -46,40 +46,63 @@
     <Property Id="SPIKE_BEAT" Secure="yes" />
     <Property Id="SPIKE_BEAT_KILL" Secure="yes" />
     <Property Id="SPIKE_KILL" Secure="yes" />
+    <Property Id="SPIKE_EXIT" Secure="yes" />
+    <Property Id="SPIKE_SILENT" Secure="yes" />
+    <Property Id="SPIKE_LINES" Secure="yes" />
     <Property Id="NESTED_MSI" Secure="yes" />
     <Property Id="BT_EXE" Secure="yes" />
     <Property Id="BT_PATH" Secure="yes" />
 
     <!-- The data of each step: identity | seconds without a line before giving up |
-         kill on Cancel | command line. See crates/cobolt-setup/src/data.rs. -->
+         kill on Cancel | part | ticks | result file | cancel file | command line (the
+         four in the middle are empty here: the spike reports no progress and no result).
+         See crates/cobolt-setup/src/data.rs. -->
     <CustomAction Id="SetSpikeEnvAsUser" Property="SpikeEnvAsUser"
-                  Value="asuser|60|0|&quot;[INSTALLFOLDER]spike_child.exe&quot; env" />
+                  Value="asuser|60|0|||||&quot;[INSTALLFOLDER]spike_child.exe&quot; env" />
     <CustomAction Id="SpikeEnvAsUser" BinaryKey="PrcCA" DllEntry="PrcRun"
                   Execute="deferred" Impersonate="yes" Return="check" />
 
     <CustomAction Id="SetSpikeEnvPlain" Property="SpikeEnvPlain"
-                  Value="plain|60|0|&quot;[INSTALLFOLDER]spike_child.exe&quot; env" />
+                  Value="plain|60|0|||||&quot;[INSTALLFOLDER]spike_child.exe&quot; env" />
     <CustomAction Id="SpikeEnvPlain" BinaryKey="PrcCA" DllEntry="PrcRun"
                   Execute="deferred" Impersonate="yes" Return="check" />
 
     <CustomAction Id="SetSpikeEnvSystem" Property="SpikeEnvSystem"
-                  Value="plain|60|0|&quot;[INSTALLFOLDER]spike_child.exe&quot; env" />
+                  Value="plain|60|0|||||&quot;[INSTALLFOLDER]spike_child.exe&quot; env" />
     <CustomAction Id="SpikeEnvSystem" BinaryKey="PrcCA" DllEntry="PrcRun"
                   Execute="deferred" Impersonate="no" Return="check" />
 
     <CustomAction Id="SetSpikeNestedMsi" Property="SpikeNestedMsi"
-                  Value="plain|300|0|&quot;[INSTALLFOLDER]spike_child.exe&quot; run msiexec.exe /i &quot;[NESTED_MSI]&quot; /qn /l*v &quot;[INSTALLFOLDER]nested-msi.log&quot;" />
+                  Value="plain|300|0|||||&quot;[INSTALLFOLDER]spike_child.exe&quot; run msiexec.exe /i &quot;[NESTED_MSI]&quot; /qn /l*v &quot;[INSTALLFOLDER]nested-msi.log&quot;" />
     <CustomAction Id="SpikeNestedMsi" BinaryKey="PrcCA" DllEntry="PrcRun"
                   Execute="deferred" Impersonate="no" Return="check" />
 
     <CustomAction Id="SetSpikeNestedBt" Property="SpikeNestedBt"
-                  Value="plain|1800|[SPIKE_KILL]|&quot;[INSTALLFOLDER]spike_child.exe&quot; run &quot;[BT_EXE]&quot; --installPath &quot;[BT_PATH]&quot; --quiet --wait --norestart --nocache --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" />
+                  Value="plain|1800|[SPIKE_KILL]|||||&quot;[INSTALLFOLDER]spike_child.exe&quot; run &quot;[BT_EXE]&quot; --installPath &quot;[BT_PATH]&quot; --quiet --wait --norestart --nocache --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" />
     <CustomAction Id="SpikeNestedBt" BinaryKey="PrcCA" DllEntry="PrcRun"
                   Execute="deferred" Impersonate="no" Return="check" />
 
     <CustomAction Id="SetSpikeBeat" Property="SpikeBeat"
-                  Value="asuser|600|[SPIKE_BEAT_KILL]|&quot;[INSTALLFOLDER]spike_child.exe&quot; beat [SPIKE_BEAT]" />
+                  Value="asuser|600|[SPIKE_BEAT_KILL]|||||&quot;[INSTALLFOLDER]spike_child.exe&quot; beat [SPIKE_BEAT]" />
     <CustomAction Id="SpikeBeat" BinaryKey="PrcCA" DllEntry="PrcRun"
+                  Execute="deferred" Impersonate="yes" Return="check" />
+
+    <!-- Task T12: the real supervisor's ends, with a result file. A step that exits with an error and one that
+         goes quiet are written into the result file by the supervisor, and the install still returns 0. A
+         step that prints the real progress lines moves the bar and shows each unit's text. -->
+    <CustomAction Id="SetSpikeExit" Property="SpikeExit"
+                  Value="asuser|0|0|release|0|[INSTALLFOLDER]exit-result.txt||&quot;[INSTALLFOLDER]spike_child.exe&quot; exit [SPIKE_EXIT]" />
+    <CustomAction Id="SpikeExit" BinaryKey="PrcCA" DllEntry="PrcRun"
+                  Execute="deferred" Impersonate="yes" Return="check" />
+
+    <CustomAction Id="SetSpikeSilent" Property="SpikeSilent"
+                  Value="asuser|5|0|debug|0|[INSTALLFOLDER]silent-result.txt||&quot;[INSTALLFOLDER]spike_child.exe&quot; silent [SPIKE_SILENT]" />
+    <CustomAction Id="SpikeSilent" BinaryKey="PrcCA" DllEntry="PrcRun"
+                  Execute="deferred" Impersonate="yes" Return="check" />
+
+    <CustomAction Id="SetSpikeLines" Property="SpikeLines"
+                  Value="asuser|60|0|release|950|[INSTALLFOLDER]lines-result.txt||&quot;[INSTALLFOLDER]spike_child.exe&quot; lines" />
+    <CustomAction Id="SpikeLines" BinaryKey="PrcCA" DllEntry="PrcRun"
                   Execute="deferred" Impersonate="yes" Return="check" />
 
     <UI>
@@ -104,6 +127,12 @@
       <Custom Action="SpikeNestedBt" After="SpikeNestedMsi">SPIKE_BT AND NOT REMOVE</Custom>
       <Custom Action="SetSpikeBeat" Before="SpikeBeat">SPIKE_BEAT AND NOT REMOVE</Custom>
       <Custom Action="SpikeBeat" After="SpikeNestedBt">SPIKE_BEAT AND NOT REMOVE</Custom>
+      <Custom Action="SetSpikeExit" Before="SpikeExit">SPIKE_EXIT AND NOT REMOVE</Custom>
+      <Custom Action="SpikeExit" After="SpikeBeat">SPIKE_EXIT AND NOT REMOVE</Custom>
+      <Custom Action="SetSpikeSilent" Before="SpikeSilent">SPIKE_SILENT AND NOT REMOVE</Custom>
+      <Custom Action="SpikeSilent" After="SpikeExit">SPIKE_SILENT AND NOT REMOVE</Custom>
+      <Custom Action="SetSpikeLines" Before="SpikeLines">SPIKE_LINES AND NOT REMOVE</Custom>
+      <Custom Action="SpikeLines" After="SpikeSilent">SPIKE_LINES AND NOT REMOVE</Custom>
     </InstallExecuteSequence>
   </Product>
 </Wix>
