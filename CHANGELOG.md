@@ -2,6 +2,14 @@
 
 
 
+## 2.1.38 — 2026-11-25
+
+**Feature (spec 112, tasks T13, T15, T19, T20): the Windows installer is proven on a runner, and the on-demand smoke workflow exists.** `.github/workflows/prepare-platform-smoke.yml` (new), `specs/112-windows-install-time-preparation/tasks.md`.
+
+- **The runner proof.** The run of 2.1.37 (`installer-check.yml`, 45707161700) passed every check: 38 passed, 0 failed. The real WiX links the whole installer source and the bundle (`light`, `candle`), and the real `msiexec` ran scenarios A to E2 of the `.msi` (no opt-in; `PREPARE_PLATFORM=1`; the same version again; a newer version; Cancel in the middle of the compile; Cancel with a cache the developer already had) and F, the bundle on a machine that has the C++ build tools (returns 0, downloads nothing, chains the `.msi` with the opt-in). T13 is ticked; T19 and T20 keep what a runner cannot show (the bundle's page, the branch where the tools are absent).
+- **`prepare-platform-smoke.yml` (T15, T20).** Started by hand with the run id of a "Build PowerRustCOBOL (all platforms)" run, it installs that run's `-setup.exe` silently with `PREPARE_PLATFORM=1` on a hosted Windows runner (the real Rust step and the real compile of the platform for both profiles), checks both stamps, the cache mark and the result file, then makes a Debug Build and an `EXEC RUST` Build of two small console programs with the installed `rcrun` and counts the crates each compiled, printing every time. An optional second job hides `vswhere` so the Build Tools program downloads Microsoft's installer, checks its signature and runs it. Nothing is added to the release's CI time.
+- **Not run:** the smoke workflow itself (it needs a release run at this commit), the bundle's page and the wizard (the operator's T16), the clean-machine installs of Rust and the Build Tools.
+
 ## 2.1.37 — 2026-11-25
 
 **Feature (spec 112, tasks T13 and T19): the installer check names its bundle like a bundle and no longer fails a check that passed.** `.github/workflows/installer-check.yml`.

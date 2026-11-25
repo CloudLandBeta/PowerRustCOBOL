@@ -1,0 +1,239 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# The released Windows setup, installed for real with the preparation turned on (spec 112, tasks T15 and T20).
+#   Actions -> "Prepare-platform smoke: the released setup, then Debug and EXEC RUST builds" -> Run workflow
+#   Give it the run id of a "Build PowerRustCOBOL (all platforms)" run made at the commit to test (the number at the
+#   end of that run's address). It installs that run's Windows files; it builds nothing itself.
+#
+# WHAT IT PROVES (job `prepared`)
+#
+# The setup the release publishes (`...-windows-x86_64-setup.exe`, the bundle around the .msi) is run silently with
+# PREPARE_PLATFORM=1. A hosted runner already has the C++ build tools, so this is the bundle's "present" branch
+# (T20: it finds them, downloads nothing and chains the .msi); the .msi then really installs Rust 1.95.0, compiles the
+# platform for both profiles into the installing user's cache and writes the two stamps (T15). Afterwards a Debug
+# Build and an EXEC RUST Build of two small console programs are made with the installed `rcrun`, and the crates each
+# one compiled are counted: with the platform prepared a Build compiles the program and the few platform crates its
+# features add beyond the three prepared variants, not the platform. Every step prints its time.
+#
+# WHAT IT DOES NOT PROVE
+#
+# The installing paths on a machine with no Rust and no C++ tools: a hosted runner has both. Job `absent` goes as far
+# as a hosted runner can (T20, optional): it hides `vswhere` so the Build Tools program sees the tools as missing,
+# and lets it download Microsoft's installer, check its signature and run it. The clean-machine run is the
+# operator's (T16).
+#
+# NO CI TIME IS ADDED TO THE RELEASE: this runs only when someone starts it.
+
+name: "Prepare-platform smoke: the released setup, then Debug and EXEC RUST builds"
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Run id of a "Build PowerRustCOBOL (all platforms)" run whose Windows files are installed'
+        type: string
+        required: true
+      absent_branch:
+        description: "Also run the bundle with the C++ tools hidden, so it downloads and installs Microsoft's Build Tools (T20)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  RELEASE_RUST: "1.95.0"
+
+jobs:
+  prepared:
+    name: The setup with PREPARE_PLATFORM=1, then the builds
+    runs-on: windows-latest
+    # The compile of the platform for both profiles is the long part: the spike measured the stand-in's, the real one
+    # is read from this run's log (the "install returned after" line), and the limit is well above any plausible one.
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          pattern: PowerRustCOBOL-*-windows-x86_64
+          merge-multiple: true
+          path: pkg
+
+      - name: What was downloaded
+        run: |
+          set -euo pipefail
+          ls -l pkg
+          setup=$(ls pkg/PowerRustCOBOL-*-windows-x86_64-setup.exe)
+          version=$(basename "$setup" | sed -E 's/^PowerRustCOBOL-(.*)-windows-x86_64-setup\.exe$/\1/')
+          echo "SETUP=$setup" >> "$GITHUB_ENV"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "the setup is $setup, version $version"
+
+      - name: Install with PREPARE_PLATFORM=1 (the bundle, silently)
+        run: |
+          set -uo pipefail
+          # Nothing here is a path for the shell to rewrite (switches such as /quiet would be).
+          export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+          started=$(date +%s)
+          rc=0
+          "$SETUP" /quiet /norestart /log "$(cygpath -aw install.log)" PREPARE_PLATFORM=1 || rc=$?
+          echo "TIME_INSTALL=$(( $(date +%s) - started ))" >> "$GITHUB_ENV"
+          echo "the setup returned $rc after $(( $(date +%s) - started )) s"
+          echo "---- the Build Tools program's log"; tr -d '\r' < "$TEMP/prc-buildtools.log" 2>/dev/null | cut -c1-240 || echo "(none)"
+          echo "---- the result file the steps wrote"; tr -d '\r' < "$TEMP/prc-prepare-result.txt" 2>/dev/null | cut -c1-240 || echo "(none)"
+          echo "---- the setup's own lines in the install log"
+          tr -d '\r\0' < install.log | grep -a 'PRC' | cut -c1-240 | tail -40 || true
+          test "$rc" = 0
+
+      - name: The stamps and what the install left
+        run: |
+          set -uo pipefail
+          failed=0
+          check() { local d="$1"; shift; if "$@"; then echo "PASS  $d"; else echo "FAIL  $d"; failed=$((failed + 1)); fi; }
+          warm="$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target/warm"
+          echo "---- the stamps folder"; ls -l "$warm" 2>/dev/null || echo "(none)"
+          check "the installed program is there" test -f "/c/Program Files/PowerRustCOBOL/PowerRustCOBOL.exe"
+          check "rcrun is there" test -f "/c/Program Files/PowerRustCOBOL/rcrun.exe"
+          check "the Release stamp for $VERSION is there" test -e "$warm/$VERSION"
+          check "the Debug stamp for $VERSION is there" test -e "$warm/$VERSION-debug"
+          check "the cache is marked as the setup's" test -f "$LOCALAPPDATA/PowerRustCOBOL/builds/shared-target/.prepared-by-setup"
+          check "the result file says Rust, Release and Debug are done" bash -c "tr -d '\r' < \"$TEMP/prc-prepare-result.txt\" | grep -c -E 'step=(rust|release|debug) status=ok' | grep -x 3"
+          echo "TIME_INSTALL_SECONDS=$TIME_INSTALL"
+          exit $failed
+
+      - name: Debug Build and EXEC RUST Build of two small programs
+        run: |
+          set -uo pipefail
+          export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+          failed=0
+          check() { local d="$1"; shift; if "$@"; then echo "PASS  $d"; else echo "FAIL  $d"; failed=$((failed + 1)); fi; }
+          rcrun="/c/Program Files/PowerRustCOBOL/rcrun.exe"
+          mkdir -p smoke/dbg/src smoke/exr/src
+          cat > smoke/dbg/src/main.cbl <<'COBOL'
+                 IDENTIFICATION DIVISION.
+                 PROGRAM-ID. SMOKEDBG.
+                 DATA DIVISION.
+                 WORKING-STORAGE SECTION.
+                 01 WS-A       PIC 9(4) VALUE 21.
+                 01 WS-TOTAL   PIC 9(6) VALUE 0.
+                 PROCEDURE DIVISION.
+                     COMPUTE WS-TOTAL = WS-A * 2
+                     DISPLAY "SMOKE TOTAL " WS-TOTAL
+                     STOP RUN.
+          COBOL
+          cat > smoke/exr/src/main.cbl <<'COBOL'
+                 IDENTIFICATION DIVISION.
+                 PROGRAM-ID. SMOKEEXR.
+                 PROCEDURE DIVISION.
+                     DISPLAY "before"
+                     EXEC RUST
+                         println!("from rust");
+                     END-EXEC
+                     STOP RUN.
+          COBOL
+          for name in dbg exr; do
+            printf '[project]\nname = "%s"\nversion = "0.1.0"\nmain = "src/main.cbl"\n\n[files]\nsources = ["src/main.cbl"]\n' "$name" > "smoke/$name/$name.project.toml"
+          done
+
+          # One Build, its time and the crates cargo says it compiled.
+          build() {
+            local label="$1"; shift
+            local t0 rc=0
+            t0=$(date +%s)
+            "$rcrun" build "$@" > "smoke/$label.out" 2>&1 || rc=$?
+            local secs=$(( $(date +%s) - t0 ))
+            local crates
+            crates=$(tr -d '\r' < "smoke/$label.out" | grep -c -E '^ *Compiling ' || true)
+            echo "$label: exit $rc, $secs s, $crates crate(s) compiled"
+            eval "${label}_rc=$rc ${label}_secs=$secs ${label}_crates=$crates"
+          }
+          build debug --debug smoke/dbg/dbg.project.toml
+          build execrust smoke/exr/exr.project.toml
+          echo "---- the Debug Build's output (tail)"; tr -d '\r' < smoke/debug.out | tail -12 | cut -c1-200
+          echo "---- the EXEC RUST Build's output (tail)"; tr -d '\r' < smoke/execrust.out | tail -12 | cut -c1-200
+
+          # A cold platform compile is hundreds of crates (541 for one variant of the stand-in on a laptop); a
+          # Build on a prepared machine compiles the program and a handful of platform crates. 40 is far from both.
+          limit=40
+          check "the Debug Build's output names the crates it compiled (the program at least)" test "$debug_crates" -ge 1
+          check "the EXEC RUST Build's output names the crates it compiled (the program at least)" test "$execrust_crates" -ge 1
+          check "the Debug Build succeeded" test "$debug_rc" = 0
+          check "the Debug Build compiled $debug_crates crate(s), under $limit" test "$debug_crates" -lt "$limit"
+          check "the EXEC RUST Build succeeded" test "$execrust_rc" = 0
+          check "the EXEC RUST Build compiled $execrust_crates crate(s), under $limit" test "$execrust_crates" -lt "$limit"
+          echo "---- the programs run"
+          for name in dbg exr; do
+            exe=$(ls smoke/$name/bin/*.exe 2>/dev/null | head -1)
+            echo "$name: ${exe:-no program}"; test -n "$exe" && "$exe" | tr -d '\r' | head -3
+          done
+          echo "---- the times"
+          echo "install (bundle, with the compile): $TIME_INSTALL s; debug build: $debug_secs s; exec rust build: $execrust_secs s"
+          exit $failed
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: prepare-platform-smoke-logs
+          path: |
+            install.log
+            smoke/*.out
+
+  absent:
+    name: The bundle with the C++ build tools hidden
+    if: ${{ inputs.absent_branch }}
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          pattern: PowerRustCOBOL-*-windows-x86_64
+          merge-multiple: true
+          path: pkg
+
+      # The program asks `vswhere` whether the C++ tools are there. Hiding that one file makes the answer "no", and the
+      # real Microsoft installer is then downloaded, its signature and publisher checked, and run. No opt-in is given,
+      # so the .msi prepares nothing and this takes minutes, not an hour.
+      - name: Hide vswhere and run the bundle silently
+        run: |
+          set -uo pipefail
+          export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+          vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+          test -f "$vswhere" && mv "$vswhere" "$vswhere.hidden"
+          setup=$(ls pkg/PowerRustCOBOL-*-windows-x86_64-setup.exe)
+          started=$(date +%s)
+          rc=0
+          timeout 5400 "$setup" /quiet /norestart /log "$(cygpath -aw bundle.log)" || rc=$?
+          echo "the bundle returned $rc after $(( $(date +%s) - started )) s"
+          [ -f "$vswhere.hidden" ] && mv "$vswhere.hidden" "$vswhere"
+          echo "---- the Build Tools program's log"; tr -d '\r' < "$TEMP/prc-buildtools.log" 2>/dev/null | cut -c1-260 || echo "(none)"
+          failed=0
+          check() { local d="$1"; shift; if "$@"; then echo "PASS  $d"; else echo "FAIL  $d"; failed=$((failed + 1)); fi; }
+          check "the program found the tools missing and downloaded Microsoft's installer" grep -aq 'downloading' "$TEMP/prc-buildtools.log"
+          check "the signature was checked" grep -aq 'signature:' "$TEMP/prc-buildtools.log"
+          check "Microsoft's installer was run" grep -aq 'running it:' "$TEMP/prc-buildtools.log"
+          check "the .msi was installed after it" test -f "/c/Program Files/PowerRustCOBOL/PowerRustCOBOL.exe"
+          exit $failed
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: prepare-platform-smoke-absent-logs
+          path: bundle.log
