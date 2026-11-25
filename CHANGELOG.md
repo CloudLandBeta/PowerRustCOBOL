@@ -2,6 +2,13 @@
 
 
 
+## 2.1.37 — 2026-11-25
+
+**Feature (spec 112, tasks T13 and T19): the installer check names its bundle like a bundle and no longer fails a check that passed.** `.github/workflows/installer-check.yml`.
+
+- **What the run of 2.1.36 on a Windows runner showed.** `light` now accepts the bundle's text file, and stops at the next thing: `LGHT0388`, a bundle may not be called `setup.exe` (Windows loads compatibility shims into a file of that name). The check builds and runs it as `PowerRustCOBOL-9.9.1-setup.exe`, as the release names it (`PowerRustCOBOL-<version>-windows-x86_64-setup.exe`). Of the `.msi` scenarios, **B** (the opt-in prepares: Rust, then the compile with the build folder told, then the example copy; the cache is made and marked; both steps end 0; the result file reports Rust, Release and Debug done), **C** (the same version again prepares nothing), **E** (Cancel during the compile ends the install with 1602, the setup's cache is removed by the rollback, the program is rolled back, the example copy never ran) and **E2** (Cancel with a cache the developer already had leaves it) all passed on the runner. The three that failed (the facts gathered, the bar's 1000 ticks, the older version named) failed on the check, not on the setup: each line they look for was in the log, and `grep -q` ends at the first match, which kills the writer of the pipe with SIGPIPE and, under `pipefail`, fails the check. No check that reads a pipe uses `-q` any more.
+- **Still not run:** the bundle's `light` past this name, scenario F, the bundle's page (interactive), and the branch where the tools are absent.
+
 ## 2.1.36 — 2026-11-23
 
 **Feature (spec 112, tasks T13, T17 and T19): the bundle's text file is written the way WiX 3 reads it, the installer check stops tripping on its own shell, and the Developer's Guide says what the Windows setup now does.** `crates/cobolt-setup/wix/bundle.wxl`, `crates/cobolt-setup/src/installer.rs`, `crates/cobolt-setup/examples/drive_msi.rs`, `.github/workflows/installer-check.yml`, `docs/developers-guide-en.md`, `.claude/skills/installer-look/SKILL.md`.

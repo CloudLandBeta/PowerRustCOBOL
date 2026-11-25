@@ -161,7 +161,7 @@ jobs:
           check() { local d="$1"; shift; if "$@"; then pass "$d"; else fail "$d"; fi; }
           not() { ! "$@"; }
           # is a program of this name running?
-          running() { tasklist /FI "IMAGENAME eq $1" | grep -qi "$1"; }
+          running() { tasklist /FI "IMAGENAME eq $1" | grep -i "$1" > /dev/null; }
           STUB_LOG="/c/Program Files/PowerRustCOBOL/prepare_stub.log"
           RESULT="$TEMP/prc-prepare-result.txt"
           # what the stand-in step recorded, one line per run, and how many lines that is
@@ -170,8 +170,8 @@ jobs:
           # ...and how many of them are preparation steps (the example copy is not one: it runs on every execution)
           steps_of() { local n; n=$(stub_log | grep -c -- '--step' || true); echo "${n:-0}"; }
           # does line <n> of the stand-in step's log contain <text>?
-          line_has() { stub_log | sed -n "$1p" | grep -q -- "$2"; }
-          result_has() { tr -d '\r' < "$RESULT" 2>/dev/null | grep -q -- "$1"; }
+          line_has() { stub_log | sed -n "$1p" | grep -- "$2" > /dev/null; }
+          result_has() { tr -d '\r' < "$RESULT" 2>/dev/null | grep -- "$1" > /dev/null; }
           # install <msi> <log> <cancel after seconds | never> <text to count from | -> [PROP=value ...]: prints the exit code
           install() {
             local msi="$1" log="$2" after="$3" marker="$4"; shift 4
@@ -201,7 +201,9 @@ jobs:
           # (the setup's own lines reach the driver's handler for certain; whether the installer also writes them
           # to the log is what the first runs did not show, so a check reads both, and the report names both)
           heard() { cat "work/$1" "work/$1.out" 2>/dev/null | tr -d '\r\0'; }
-          said() { heard "$2" | grep -aq -- "$1"; }
+          # (no -q: grep -q stops at the first match, the writer is then killed by SIGPIPE and pipefail fails a check
+          # that passed)
+          said() { heard "$2" | grep -a -- "$1" > /dev/null; }
           said_count() { heard "$2" | grep -a -c -- "$1" || true; }
           what_the_log_said() {
             echo "(in the log)"; tr -d '\r\0' < "work/$1" | grep -a 'PRC:' | cut -c1-240 || true
@@ -221,13 +223,9 @@ jobs:
           "$wix/candle.exe" -arch x64 -ext WixBalExtension \
             -dVer=9.9.1 -dMsiFile=work/v1.msi -dBuildToolsExe=work/prc-buildtools.exe \
             -out wixobj/bundle/ crates/cobolt-setup/wix/bundle.wxs
-          # Are the two strings bundle.wxl replaces ones WixStdBA has? (How many times its own file names each.)
-          for id in InstallLicenseLinkText InstallAcceptCheckbox; do
-            echo "$id is named $(tr -d '\0' < "$wix/WixBalExtension.dll" | grep -a -c "$id" || true) time(s) by the extension"
-          done
           "$wix/light.exe" -ext WixBalExtension -cultures:en-us -loc crates/cobolt-setup/wix/bundle.wxl \
-            wixobj/bundle/bundle.wixobj -o work/setup.exe
-          ls -l work/setup.exe
+            wixobj/bundle/bundle.wixobj -o work/PowerRustCOBOL-9.9.1-setup.exe
+          ls -l work/PowerRustCOBOL-9.9.1-setup.exe
 
       - name: "A. Silent install without the opt-in: the staged files, and no step"
         if: always()
@@ -345,7 +343,7 @@ jobs:
           clean_machine
           rm -f "$TEMP/prc-buildtools.log"
           rc=0
-          timeout 600 work/setup.exe /quiet /norestart /log "$(cygpath -aw work/F.log)" PREPARE_PLATFORM=1 || rc=$?
+          timeout 600 work/PowerRustCOBOL-9.9.1-setup.exe /quiet /norestart /log "$(cygpath -aw work/F.log)" PREPARE_PLATFORM=1 || rc=$?
           echo "the bundle returned $rc"
           echo "---- the Build Tools program's log"; tr -d '\r' < "$TEMP/prc-buildtools.log" 2>/dev/null | cut -c1-240 || echo "(none)"
           echo "---- what the stand-in step was run with"; stub_log | cut -c1-260
