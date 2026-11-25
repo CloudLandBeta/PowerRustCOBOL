@@ -2,6 +2,13 @@
 
 
 
+## 2.1.39 — 2026-11-25
+
+**Feature (spec 112, task T18 begun): the test sweeps of the touched crates are run and recorded, and the installer reference names two traps of the bundle.** `specs/112-windows-install-time-preparation/tasks.md`, `.claude/skills/installer-look/SKILL.md`.
+
+- **Sweeps, every `test result:` line read** (`--no-fail-fast`): `cobolt-setup` 91 passed, 0 failed; `cobolt-forms --features render` 1884 passed, 0 failed (103 result lines); `cobolt-compiler` 320 passed, 1 failed, 22 result lines (the failure is `reference_projects`, where PowerChat's `KnowledgeBase` control forces the Cargo path that test forbids, in nothing this branch touches); `cobolt-ide --bin` 2062 passed, 11 failed (the translation-cycle doc check, a stale knowledge-base file `form_designer_controls.md`, one English-only completion text, one retrieval ranking, and seven that need `rcrun` in a fresh worktree; none in a file this branch changes, none checked on a clean `main`).
+- **The installer reference** (`installer-look`) says that a bundle's text file holds each string as element text, never a `Value` attribute, and that a bundle may not be called `setup.exe`.
+
 ## 2.1.38 — 2026-11-25
 
 **Feature (spec 112, tasks T13, T15, T19, T20): the Windows installer is proven on a runner, and the on-demand smoke workflow exists.** `.github/workflows/prepare-platform-smoke.yml` (new), `specs/112-windows-install-time-preparation/tasks.md`.

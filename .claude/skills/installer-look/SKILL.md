@@ -138,6 +138,10 @@ Details that matter:
   `CancelDlgText`, which WixUI marks overridable). `candle` with several sources
   and one `-out` fails (`CNDL0001`): give `-out` a folder ending in a slash.
   The bundle takes `-ext WixBalExtension` and `-loc bundle.wxl`.
+- **Two things the first runner builds of the bundle taught** (2.1.36, 2.1.37): a `.wxl` string is
+  the element's text, `<String Id="X">words</String>`, never a `Value` attribute (that is WiX 2's;
+  `light` stops with `LGHT0107`), and a bundle may not be called `setup.exe` (or any name Windows
+  treats as an installer, `LGHT0388`): the release's is `PowerRustCOBOL-<version>-windows-x86_64-setup.exe`.
 - The licence screen needs an **RTF**, generated from the repository's own
   `LICENSE` at build time. Apache-2.0 is pure ASCII, so the only escaping is
   RTF's own three metacharacters.
