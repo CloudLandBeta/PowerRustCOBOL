@@ -38,6 +38,26 @@ fn closure(args: &[&str]) -> BTreeSet<String> {
         .collect()
 }
 
+/// The packages that depend directly on the one `-i <package>` names (normal edges only).
+fn dependents(args: &[&str]) -> BTreeSet<String> {
+    let cargo = option_env!("CARGO").unwrap_or("cargo");
+    let out = Command::new(cargo)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args(["tree", "--offline", "-e", "normal", "--prefix", "depth"])
+        .args(args)
+        .output()
+        .expect("cargo tree runs");
+    assert!(out.status.success(), "cargo tree {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| {
+            let digits = l.find(|c: char| !c.is_ascii_digit())?;
+            (&l[..digits] == "1").then(|| l[digits..].split(' ').next().unwrap_or("").to_owned())
+        })
+        .filter(|n| !n.is_empty())
+        .collect()
+}
+
 fn present<'a>(set: &BTreeSet<String>, names: &'a [&'a str]) -> Vec<&'a str> {
     names.iter().copied().filter(|n| set.contains(*n)).collect()
 }
@@ -108,8 +128,13 @@ fn the_ide_runs_the_backend_as_a_child_and_links_none_of_the_server() {
     // child process, so the server, its front and its token code stay out of it.
     let ide = closure(&["-p", "cobolt-ide"]);
     assert!(ide.contains("cobolt-compiler") && ide.contains("eframe"), "the guard looks at the real closure");
-    let server_only = ["leptos", "leptos_axum", "server_fn", "axum", "axum-core", "jsonwebtoken", "tokio-tungstenite", "tungstenite"];
+    let server_only = ["leptos", "leptos_axum", "server_fn", "axum", "axum-core", "jsonwebtoken", "tokio-tungstenite"];
     assert_eq!(present(&ide, &server_only), Vec::<&str>::new(), "the IDE links no HTTP front, no WebSocket server and no token code");
+    // The synchronous `tungstenite` library is in the IDE since the Backend inspector (2.0.328): a loopback
+    // proxy between the Preview's page and the Backend, in `cobolt-project-tools` and nowhere else. The
+    // server's channel is `tokio-tungstenite` (barred above); nothing else of the IDE may reach the library.
+    let users = dependents(&["-p", "cobolt-ide", "-i", "tungstenite"]);
+    assert_eq!(users, BTreeSet::from(["cobolt-project-tools".to_owned()]), "only the Backend inspector's proxy links the WebSocket library");
     // `cobolt-server` reaches the IDE only through the compiler, as the loader.
     let cargo = option_env!("CARGO").unwrap_or("cargo");
     let out = Command::new(cargo)
