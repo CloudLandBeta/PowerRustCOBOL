@@ -445,9 +445,9 @@ impl Shared {
     // ── the program's verbs ──────────────────────────────────────────────────
 
     /// `PlayAnimation(name)` / `Play`, `StopAnimation`, `Pause` on control `ctl` (`methods.rs` records them as commands; the
-    /// desktop host routes the same three verbs to `AnimRuntime::play_programmatic`, `stop_all` and `pause_all`). Answers the
-    /// control, whose plan must be made again. An Animator's verbs are its media's, not these.
-    pub(super) fn motion_command(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, name: &str, args: &[String]) -> Option<usize> {
+    /// desktop host routes the same three verbs to `AnimRuntime::play_programmatic`, `stop_all` and `pause_all`), at page time
+    /// `t`. Answers the control, whose plan must be made again. An Animator's verbs are its media's, not these.
+    pub(super) fn motion_command(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, name: &str, args: &[String], t: f64) -> Option<usize> {
         let anims = {
             let host = inner.host.try_borrow().ok()?;
             let tree = host.trees.get(&inst)?;
@@ -457,7 +457,6 @@ impl Shared {
             }
             c.anims.clone()
         };
-        let t = now();
         self.motion_inst(inst, |mi| match name {
             "playanimation" | "play" => {
                 let which = args.first().map(String::as_str).unwrap_or("");
@@ -821,8 +820,13 @@ impl Shared {
     /// hidden control is now shown, and the charts' motion.
     pub(super) fn motion_after_render(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, verbs: Vec<(usize, String, Vec<String>)>) {
         let mut changed = Vec::new();
+        // One instant for every verb of the pass: the desktop starts the clocks of animations played together at zero and
+        // advances them all by the same step, so two `PlayAnimation`s of one handler stay in lockstep (each at its own
+        // `now()`, a label playing its card's intro started a fraction of a millisecond later and was drawn at up to 1.001
+        // times the card's scale on the intro's Elastic).
+        let t = now();
         for (ctl, name, args) in verbs {
-            if let Some(c) = self.motion_command(inner, inst, ctl, &name, &args) {
+            if let Some(c) = self.motion_command(inner, inst, ctl, &name, &args, t) {
                 changed.push(c);
             }
         }

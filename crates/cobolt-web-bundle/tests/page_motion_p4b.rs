@@ -12,6 +12,8 @@
 //! * **A plan made again is on the desktop's curve in the frame that makes it** (judgement P4B-1): the re-flow's frame and
 //!   a window resized mid-intro (made in that frame's resize step, after 12 ms of the frame's script) are within 0.003 of
 //!   ZoomOut on Elastic; a plan started at `performance.now()` there was held 0.066 ahead.
+//! * **Animations one handler plays run in lockstep** (`anim.rs`: each clock starts at zero and every frame advances all of
+//!   them by the same step): the label playing the card's intro carries no scale of its own at any of the card's frames.
 //! * **Area, Scatter and Monochrome charts grow** on `AnimateOnLoad` (`render.rs` moves every chart kind; the page moved
 //!   five, and none in their Monochrome look).
 //! * **A fading container does not fade what is inside it** (`render.rs`: a control's alpha is its ancestors' static
@@ -194,18 +196,22 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
     // same rendering step, after layout and before paint); a requestAnimationFrame callback runs BEFORE that frame's layout, so the
     // first one after the re-flow still sees the plan made for the old layout.
     // Each sample also notes the frame's time and the drawn scale of the card and its label (drawn width / laid-out width), to put
-    // the frame of the re-flow on the desktop's curve: ZoomOut on Elastic over 1800 ms, the same for both.
-    page.eval(&js("window.__ro = []; window.__rok = []; new ResizeObserver(() => { window.__ro.push(Math.max(drift('LBL-C1'), drift('C1'))); window.__rok.push([document.timeline.currentTime, el('C1').getBoundingClientRect().width / el('C1').offsetWidth, el('LBL-C1').getBoundingClientRect().width / el('LBL-C1').offsetWidth]); }).observe(el('C1')); return true;")).unwrap();
+    // the frame of the re-flow on the desktop's curve: ZoomOut on Elastic over 1800 ms, the same for both. The observer's first
+    // report (a frame early in the intro, before the second card is shown) is not the re-flow's: only a report with the card at a
+    // new width is put on the curve.
+    page.eval(&js("window.__ro = []; window.__rok = []; const w0 = el('C1').offsetWidth; new ResizeObserver(() => { window.__ro.push(Math.max(drift('LBL-C1'), drift('C1'))); if (el('C1').offsetWidth !== w0) window.__rok.push([document.timeline.currentTime, el('C1').getBoundingClientRect().width / el('C1').offsetWidth, el('LBL-C1').getBoundingClientRect().width / el('LBL-C1').offsetWidth]); }).observe(el('C1')); return true;")).unwrap();
     click(&mut page, "BTN-SHOW2");
     wait_text(&mut page, "LBL-OUT", "shown2");
     let worst = page
         .eval(&js(
-            "const t0 = performance.now(); let worst = 0, first = null, frames = 0, moving = 0; const ks = []; while (performance.now() - t0 < 1400) { const ts = await new Promise(r => requestAnimationFrame(r)); frames++; if (el('LBL-C1').getAnimations().length) moving++; const d = Math.max(drift('LBL-C1'), drift('C1')); if (first === null) first = d; else worst = Math.max(worst, d); ks.push([ts, el('C1').getBoundingClientRect().width / el('C1').offsetWidth]); }
+            "const t0 = performance.now(); let worst = 0, first = null, frames = 0, moving = 0; const ks = [], got = new Set(), plans = []; while (performance.now() - t0 < 1400) { const ts = await new Promise(r => requestAnimationFrame(r)); frames++; if (el('LBL-C1').getAnimations().length) moving++; const d = Math.max(drift('LBL-C1'), drift('C1')); if (first === null) first = d; else worst = Math.max(worst, d); ks.push([ts, el('C1').getBoundingClientRect().width / el('C1').offsetWidth, el('LBL-C1').getBoundingClientRect().width / el('LBL-C1').offsetWidth]); for (const id of ['C1', 'LBL-C1']) for (const a of el(id).getAnimations()) { if (got.has(a)) continue; got.add(a); const kf = a.effect.getKeyframes().filter(f => f.transform); if (kf.length) plans.push({ id, start: a.startTime, d: a.effect.getComputedTiming().duration, kf: kf.map(f => [f.computedOffset, Number((f.transform.match(/scale[(]([^)]+)[)]/) || [0, 1])[1])]) }); } }
              const Z = t => (t <= 0 || t >= 1) ? 1 : Math.max(1 - 1.06 * Math.exp(-3.5 * t) * Math.sin(5 * Math.PI * t), 0.02);
              const moved = ks.filter(([, k]) => Math.abs(k - 1) > 0.0005);
              let best = 1e9, start = 0; for (let s = moved[0][0] - 1800; s <= moved[0][0]; s += 0.25) { const e = Math.max(...moved.map(([t, k]) => Math.abs(k - Z((t - s) / 1800)))); if (e < best) { best = e; start = s; } }
              const off = window.__rok.map(([t, k, kl]) => Math.max(Math.abs(k - Z((t - start) / 1800)), Math.abs(kl - Z((t - start) / 1800))));
-             return { worst, first, frames, moving, w: el('C1').offsetWidth, painted: window.__ro, fit: best, n_fit: moved.length, curve_off: off, painted_k: window.__rok };",
+             let gap = 0; for (const [, k, kl] of ks) gap = Math.max(gap, Math.abs(kl - k));
+             let lock = 0, lock_at = null, pairs = 0; for (const c of plans.filter(p => p.id === 'C1')) { const l = plans.find(p => p.id === 'LBL-C1' && Math.abs(p.start - c.start) < 0.01 && Math.abs(p.d - c.d) < 0.01); if (!l) continue; for (const [o, k] of c.kf) { const m = l.kf.find(([ol]) => Math.abs(ol - o) * c.d < 0.01); if (!m) continue; pairs++; if (Math.abs(m[1] - 1) > lock) { lock = Math.abs(m[1] - 1); lock_at = [c.start + o * c.d, k, m[1]]; } } }
+             return { worst, first, frames, moving, w: el('C1').offsetWidth, painted: window.__ro, fit: best, n_fit: moved.length, curve_off: off, painted_k: window.__rok, gap, lock, lock_at, pairs, plans: plans.length };",
         ))
         .unwrap();
     let w_after = worst["w"].as_f64().unwrap();
@@ -229,8 +235,16 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
     assert!(!curve_off.is_empty() && curve_off.iter().all(|e| *e < 0.03), "the frame of the re-flow is on that curve: {worst}");
     let off = curve_off.iter().cloned().fold(0.0, f64::max);
     support::assert_timing(off < 0.003, || format!("the frame of the re-flow is within 0.003 of ZoomOut on Elastic: {off:.4}"));
+    // The card and its label were started by one handler: the desktop starts both clocks together and advances them by the same
+    // step, so the label is drawn at the card's scale at every instant. Checked at the card's own key frames, the instants it is
+    // drawn exactly on its curve: the label's frame there must carry no scale of its own. (Between two of the card's frames the
+    // browser draws the card on a straight line, within 0.3 % of the curve, while the label's extra frames keep it on the curve,
+    // so a frame drawn there shows the two apart by that much whether their clocks agree or not.)
+    let (lock, pairs, gap) = (worst["lock"].as_f64().unwrap(), worst["pairs"].as_u64().unwrap(), worst["gap"].as_f64().unwrap());
+    assert!(pairs >= 10, "the label has frames at the card's frames to compare (the card and the label are planned together): {pairs} found in {} plans", worst["plans"]);
+    assert!(lock < 0.0005, "at the card's frames the label carries no scale of its own (their intros started together): {lock:.5} off at [time, card, label's own] {}", worst["lock_at"]);
     println!(
-        "re-flow mid-intro, scale: the requestAnimationFrame samples within {fit:.4} of ZoomOut on Elastic; the painted frame(s) of the re-flow within {:.4}",
+        "re-flow mid-intro, scale: the requestAnimationFrame samples within {fit:.4} of ZoomOut on Elastic; the painted frame(s) of the re-flow within {:.4}; at {pairs} of the card's frames the label's own scale within {lock:.6} of 1 (drawn, label and card at most {gap:.4} apart between those frames)",
         curve_off.iter().cloned().fold(0.0, f64::max)
     );
     println!(
