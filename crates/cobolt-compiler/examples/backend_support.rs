@@ -68,6 +68,12 @@ fn main() {
                     accepted += 1;
                     ms_total += t.elapsed().as_millis();
                     bytes_total += module.wasm.len();
+                    // The spikes of task T2 measure real modules: `PRC_BACKEND_SUPPORT_WRITE=<folder>` keeps them.
+                    if let Some(out) = std::env::var_os("PRC_BACKEND_SUPPORT_WRITE") {
+                        let out = PathBuf::from(out);
+                        std::fs::create_dir_all(&out).expect("the folder for the modules");
+                        std::fs::write(out.join(format!("{name}-{}.wasm", p.sig.name.to_ascii_lowercase())), &module.wasm).expect("a module is written");
+                    }
                     if let Some(caps) = module.manifest.get("capabilities").and_then(|c| c.as_array()) {
                         for c in caps.iter().filter_map(|c| c.as_str()) {
                             *capabilities.entry(c.to_string()).or_default() += 1;

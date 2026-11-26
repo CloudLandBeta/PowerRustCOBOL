@@ -23,6 +23,11 @@ target-lexicon = "0.13"
 # The machine code's checksum and the cache's keys.
 sha2 = { workspace = true }
 
+[features]
+# Off by default, for the spike of spec 114 T2 only: wasmtime's pooling allocator, to measure what a call's
+# instance costs on it against the plain allocator. Nothing in the product turns it on.
+pooling = ["wasmtime/pooling-allocator"]
+
 [dev-dependencies]
 # A test module assembled by hand: nothing COBOL, so the engine is tested on its own.
 wasm-encoder = "0.244"

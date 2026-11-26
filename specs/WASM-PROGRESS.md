@@ -72,6 +72,69 @@ Spec 114 builds a Web or Mobile Backend as a WebAssembly module run by a prebuil
 
 The accepted figures: PowerOficina is files-only (INDEXED, PARTIQL, SORT; no `EXEC SQL`) and the generator takes all 20 of its programs, so M2's first parity target is PowerOficina.
 
+### T2 — the spikes (measured 2026-11-26, Apple M3 Pro, 11 cores, `--release`, wasmtime 44.0.3)
+
+`cargo run --release -p cobolt-runner-engine --example backend_spikes --features pooling -- <module.wasm>...` (new; the modules are real ones T1 produced, kept with `PRC_BACKEND_SUPPORT_WRITE=<folder>`, each with two memories) and `cargo run --release -p cobolt-compiler --example backend_interp_cost` (new). The feature `pooling` of `cobolt-runner-engine` is off by default and nothing in the product turns it on.
+
+**(a) What one call costs to set up: a `Store` and an instance, the module compiled once outside the timing, 10,000 calls each (microseconds, median / 99th percentile):**
+
+| Module | Plain allocator | Pooling allocator | Plain, 8 threads at once | Pooling, 8 threads at once |
+|---|---|---|---|---|
+| `PowerOficina-quote-save` (545,116 bytes) | 78.7 / 97.6 | 70.9 / 85.5 | 15,743 calls/s | 37,692 calls/s |
+| `PowerOficina-health` (430,385 bytes) | 77.2 / 93.3 | 69.6 / 82.0 | not run | not run |
+| `PowerWebHello-hello` (95,415 bytes) | 67.0 / 78.1 | 60.3 / 71.9 | 16,520 calls/s | 42,953 calls/s |
+
+Touching 256 KiB of the instance's memory adds at most 2 µs in every case. One call alone is 10–11% cheaper pooled (about 8 µs); **eight calls at once are 2.4 to 2.6 times as many per second pooled** (the plain allocator maps and unmaps memory for each instance, and eight threads meet there: 15,743 calls/s against one thread's 12,700). Either is far more than a Backend answers, since a call that reads a file or asks a database costs milliseconds.
+
+**The pooling allocator changes nothing the dependency guard looks at.** `cargo tree -p cobolt-wasm --features host,cobolt-runner-engine/pooling` against `--features host`, normal and build edges, every target, with licences: the same 207 packages and the same licences (diff empty); wasmtime's `pooling-allocator` feature adds no package. `cargo test -p cobolt-wasm --test dependency_guard`: 3 passed.
+
+**(b) What epoch interruption costs, on a 10^8-iteration loop whose body is one decrement and one branch (the worst case: the check is one load and compare per back-edge):**
+
+| | Time | Per iteration |
+|---|---|---|
+| epoch check off | 26.6 ms | 0.27 ns |
+| on, deadline never due | 53.1 ms (+99.8%) | 0.53 ns |
+| on, with a 10 ms ticker thread running | 53.3 ms (+100.6%) | 0.53 ns |
+
+So the check costs about 0.26 ns per loop iteration, one cycle; a COBOL statement is dozens of instructions and the check is at loop back-edges and function entries, so the cost in a generated module is a few per cent, **estimated from this figure and not measured on a generated module** (T22 and AC5 measure it with the runner). **A stopped call returns 0.62 µs (median), 8.0 µs (99th percentile), 8.7 µs (maximum) after the epoch is incremented** (200 trials).
+
+**A time budget kept by counting ticks is wrong, and kept by the clock it is right.** A 10 ms ticker thread, a deadline of `budget / 10` ticks: a 50 ms budget ran 22.3 ms over (median; 25.1 ms at most), a 200 ms budget ran 84.9 ms over (98.2 ms at most), because on this Mac the thread's `sleep(10 ms)` wakes about every 15 ms. The same ticker with a callback at each tick that asks `Instant::now()` and lets the call go on for one more tick until the budget is spent: 5.9 ms over (median; 10.6 ms at most) for 50 ms, 7.9 ms over (13.2 ms at most) for 200 ms, which is a tick and the trap's latency, whatever the ticker's real period.
+
+**(c) What one call costs on the interpreter** (`exec::execute`, a fresh `ExecOptions` each call, 1,000 to 10,000 calls):
+
+| Export of PowerOficina | Whole call, median / 99th percentile | The copy of the program's tree alone |
+|---|---|---|
+| `HEALTH` (moves "OK" to one item) | 9,547 µs / 10,915 µs | 661 µs (7%) |
+| `CATALOG-LIST`, invalid request (refused at once) | 9,674 µs / 10,775 µs | 662 µs (7%) |
+| `CATALOG-LIST`, `BRL`/`P` (21 rows read from an indexed file) | 11,146 µs / 12,314 µs | 662 µs (6%) |
+
+**About 9.5 ms is spent before a program does anything, whatever the program**, of which the copy of the tree is 0.66 ms. The module's equivalent is the 60–79 µs of (a), which is one hundredth of it; the module's own run (decoding the request, the program, encoding the answer) is what T14 and AC5 compare.
+
+**Machine code made ahead (what a build adds after the generator, `cobolt_runner_engine::precompile` for this machine's target, 11 cores):** `PowerOficina-quote-save` 545,116 bytes of module → 2,392,816 bytes of machine code in 51 ms; `PowerOficina-health` 430,385 → 1,796,848 in 21 ms; `PowerOficina-dash-summary` 542,315 → 2,383,504 in 34 ms; `PowerWebHello-hello` 95,415 → 1,317,656 in 9 ms.
+
+**Decisions (D3, D4), for T4.** D4: **pooled**. It adds no package, passes the guard, and takes the same call 2.4 to 2.6 times as many times per second at eight at once; it needs a pool sized for the most calls in flight (T18 reads the server's limit; a limit it cannot give means plain, one line to change). D3: **a deadline callback that reads the clock at each 10 ms tick**, never a count of ticks.
+
+### T3 — sizes and build times today (2026-11-26, Apple M3 Pro, 11 cores, aarch64-apple-darwin, release, `features` at 2.1.48)
+
+| What | Figure |
+|---|---|
+| `prc-runner` (the Desktop runner, `cargo build --release -p cobolt-runner`) | **88,808,432 bytes** (the CHANGELOG's 80,059,136 was macOS arm64 at 2.0.627) |
+| `rcrun` (`cargo build --release -p cobolt-cli`) | 111,920,576 bytes |
+| Release build of those two, with the workspace's release dependencies partly built by the spikes before it | 218 s |
+| `bin/poweroficina-backend`, the Cargo-built Backend (`rcrun backend build`) | **19,960,208 bytes**, plus an SBOM |
+| That build with an empty per-project target (**cold**; the folder did not exist) | **86 s**; its `target/` is then 1.1 GB |
+| The same after one literal in one program changed (**warm**; the binary's hash changed) | **0.9 s** |
+
+The shared platform cache of the IDE's Build (`~/Library/Caches/PowerRustCOBOL/builds/shared-target`, 10 GB) was repopulated by the baseline sweep's tests, so the cold figure is the project's own target from nothing, which is what a first Backend build costs; the registry was in the local cache (`--offline`). The module path's two steps measured so far: the generator took 2,072 ms for all 20 exported programs of PowerOficina (T1), and machine code takes 9 to 51 ms per module (T2): **about 3 s for what takes 86 s on the Cargo path**, before the packaging and the runner's copy, which T26 and T28 measure.
+
+### T4 — gate G0 (2026-11-26): M0 closed
+
+1. **Order of M2.** PowerOficina (20 of 20 accepted, files and `PARTIQL` only) is the first parity target; PowerWebHello and PowerMobileHello are accepted. PowerAnalyticsWeb is refused by one size limit that is a **fix on the Desktop path too**: **T13a (the SQL scratch area, 68 KiB) is done first, before M1**, on `fixes` and merged before the feature commits, because it moves the workspace layout and changes the bytes of every module, and the goldens of M2 should be written once, after it. M1 (the seam) follows, then M2 as tasked, then T14's parity run on PowerOficina; PowerAnalyticsWeb's follows T13a.
+2. **D4: the pooling allocator** (2.4 to 2.6 times the calls per second at eight at once; no new package; the guard passes). **D3: the deadline callback reads the clock at each 10 ms tick.**
+3. **The 30 s goal is plausible:** the generator (2.1 s for 20 programs) and machine code (9 to 51 ms a module) come to about 3 s for PowerOficina against 86 s cold on the Cargo path, on this Mac.
+
+Nothing in the plan's architecture changes. M0 closed.
+
 ### Baseline (T0)
 
 The twelve crates of the task list: 266 test binaries, 1,647 passed, 2 failed, 22 ignored; `cobolt-ide --bin`: 2,072 passed, 4 failed, 6 ignored. The six reds are named and explained in `specs/114-backend-as-wasm-module/tasks.md` ("Baseline"); two were fixed on `fixes` (2.1.46, 2.1.47), one is load-dependent and passes alone, one is intentional (GOLDEN RULE #8), two stay open (the System KB's `chunked.data` needs the semantic model this Mac does not have; a menu-reorder retrieval test, not investigated).
