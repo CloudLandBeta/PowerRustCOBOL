@@ -29,14 +29,14 @@ Ordered, small, independently-verifiable tasks. Each names the files it touches,
 - [x] **T0a — Spec 112 is on `main`** (plan P4)
   - Done 2026-11-26 07:39 São Paulo: the spec 112 branch was merged with `main` in a temporary worktree (`87be59ff`) and pushed; spec 113's Package (2.1.41), this plan (2.1.42) and two player fixes (2.1.43, 2.1.44, `68450ab5`) are on `origin/main`. Workflow edits of this work now start from that base.
 
-- [ ] **T0 — Baseline** (all)
+- [x] **T0 — Baseline** (all) — done 2026-11-26; the numbers are under "Baseline" at the end of this file.
   - Files: none. Run, from a clean checkout of `features` (a worktree if the primary tree is dirty): `cargo test --no-fail-fast -p cobolt-server -p cobolt-wasm -p cobolt-wasm-abi -p cobolt-wire -p cobolt-runner-engine -p cobolt-program-package -p cobolt-abi-host -p cobolt-runner -p cobolt-compiler -p cobolt-cli -p cobolt-project-tools -p cobolt-web-bundle`, then `cargo test --no-fail-fast -p cobolt-ide --bin cobolt-ide`. Read every `test result:` line.
   - Do: write the numbers under "Baseline" at the top of this file, with the known reds named, not hidden (memory "Known reds": `dependency_guard` of the player at 1.92 against 1.95; the stale-KB test until `build_chunked_kb` is run; seven `cobolt-ide` tests that need `rcrun` in a fresh worktree; the live crates.io pair). Also record `df -h /` and the wall time.
   - Verify: the table is in this file; "stays green" later means "the same numbers or better, and every difference explained".
 
 ## B. M0 — Measure (R15, R16, AC10 baseline). Nothing in the product changes.
 
-- [ ] **T1 — `backend_support`: what the generator accepts of the four shipped Backends** (R15, C9)
+- [x] **T1 — `backend_support`: what the generator accepts of the four shipped Backends** (R15, C9) — done 2026-11-26. **34 exported programs tried, 23 accepted, 11 refused (99 diagnostics, all one reason).** PowerOficina 20 of 20 (10,546,497 bytes in all, 2,072 ms; capabilities `env`, `files.indexed`, `partiql.files`), PowerWebHello 2 of 2, PowerMobileHello 1 of 1, **PowerAnalyticsWeb 0 of 11: every program is refused for one statement, `EXEC SQL … CAST(:FLT-NAME-FLAGS AS BLOB) …` in `p-filter`, whose host variable `FLT-NAME-FLAGS` is `PIC X(50000)` and the module's SQL scratch area is 32 KiB** (`lower_sql.rs` 191, `SCRATCH_SIZE` in `cobolt-wasm-rt/src/state.rs`). The plan's §0.1 expected this Backend to need only the SQL capability; it is a size limit of the generator, the same on the Desktop path, and **it changes M2's order: T13a (below) comes before T14 and before any AC3 run on PowerAnalyticsWeb.** The numbers are in `specs/WASM-PROGRESS.md`.
   - Files: `crates/cobolt-compiler/examples/backend_support.rs` (new).
   - Do: for each of `examples/PowerOficina`, `PowerAnalyticsWeb`, `PowerWebHello`, `PowerMobileHello`: `cobolt_server::backend::Backend::load(<project>/backend)`, then for each exported program `cobolt_wasm::module::compile_program(&prog, &Options { native: true, … })` (set the fields the Desktop path sets, `backend_build`-style; read how `wasm_build` in `cobolt-compiler/src/lib.rs` 4036–4110 fills `Options`), and list `GenError::all_kinded()` (`error.rs` 71) with line and subject, grouped by reason. Print one result block: Backend, programs tried, programs accepted, refusals by reason, the capabilities the accepted modules would declare.
   - Verify: `cargo run -p cobolt-compiler --example backend_support` prints the block for the four. **The numbers go into `specs/WASM-PROGRESS.md` (a dated "Backend as a module, M0" section) and, later, into the CHANGELOG.** If a shipped Backend is refused for a reason the plan's §0.1 did not expect, stop and surface it: it changes M2's order (R15's purpose).
@@ -59,7 +59,7 @@ Ordered, small, independently-verifiable tasks. Each names the files it touches,
 
 - [ ] **T5 — The `Engine` and `EngineSession` traits** (R5, D1)
   - Files: `crates/cobolt-server/src/engine.rs` (new), `lib.rs` (declare it under `server`).
-  - Do: define the traits from what the eight call sites need (`serve.rs` 61, 707, 816, 1453, 1705, 1467–1471, 1472, 1717; `identity/routes.rs` 167–177): `Engine::execute(program, args: Vec<String>, opts) -> Result<ExecResult, CallError>`, a per-connection session (`EngineSession`) that keeps one run unit per exported program and takes calls in turn, a stream entry, and a neutral identity-operations trait that replaces the interpreter-typed `IdentityHook` in `ExecOptions.identity` (`exec.rs` 75). `ExecResult` keeps `args`, `returning`, `display`. Read each site first; the traits are the union of what they do, not a design from outside.
+  - Do: define the traits from what the eight call sites need (`serve.rs` 61, 707, 816, 1453, 1705, 1467–1471, 1472, 1717; `identity/routes.rs` 167–177): `Engine::execute(program, args: Vec<String>, opts) -> Result<ExecResult, CallError>`, a per-connection session (`EngineSession`) that keeps one run unit per exported program and takes calls in turn, a stream entry, and a neutral identity-operations trait that replaces the interpreter-typed `IdentityHook` in `ExecOptions.identity` (`exec.rs` 75). `ExecResult` keeps `args`, `returning`, `display`. Read each site first; the traits are the union of what they do, not a design from outside. **Found reading `exec.rs` (2026-11-26):** (a) `status_failure` (the declared `status` group of `RETURNING`, WASM-014 R8) reads the answer through `interp.group_to_json`; it is engine-neutral once it takes the JSON text, so it moves into `engine.rs` and both engines call it (otherwise the module path would silently lack it); (b) the interpreter ends a per-connection run unit after a cut-off, a cancel or a fault (`sound` false), so its next call starts fresh: the session trait carries that rule; (c) a declared control (`prog.control`, `seed_control`, the answer's `PROPS`) is interpreter-only, and a program that has one is a `D_FORMS` reason (T27).
   - Verify: `cargo build -p cobolt-server` and `cargo test -p cobolt-server` unchanged (nothing uses the traits yet).
 
 - [ ] **T6 — The interpreter engine behind the `interpreter` feature** (R5, divergences 3 and 4)
@@ -104,6 +104,11 @@ Ordered, small, independently-verifiable tasks. Each names the files it touches,
   - Do: in Backend mode a refused construct is refused at its line with the reason T1 grouped; the nine Backend-side verbs and `AUTH-OP` are `Refused(Cargo, "needs the backend capability")` **until T35** (the Backend-mode table says so, not silence); `subset_table` fails on a Backend-side verb with no row.
   - Verify: `cargo test -p cobolt-wasm --test subset_table`; the Desktop and browser columns are unchanged (the test prints the rows compared).
 
+- [ ] **T13a — An `EXEC SQL` host variable may be as large as an item can be** (R15; found by T1; a **fix**, committed on `fixes` and merged first, rule #5)
+  - Files: `crates/cobolt-wasm-rt/src/state.rs` (`SCRATCH_SIZE`, the layout that follows it), `crates/cobolt-wasm/src/lower_sql.rs` (the check at 189–193), `crates/cobolt-wasm/assets/rt.wasm` (rebuilt with `cargo run -p cobolt-wasm --example build_rt` in the same change), the goldens that pin module bytes.
+  - Do: today the values and the answer of one statement cross in the 32 KiB scratch area, so a statement whose host variables hold more than that is refused at generation time (T1: 50,717 bytes against 32,768) while the Desktop interpreter takes any item up to 65,535 bytes. Read first how the runner and the browser player use the `buf`/`cap` they are given (`host::sql_exec`, `sql.rs` 193–303: the answer is written back into the same area, so it needs `5 + lens + 4 × cells` as well), then make the area large enough for the largest item plus the status items (`SQLSTATE`, `SQLCODE`, `SQLCA-MESSAGE` … about 600 bytes) and the answer's own header: **68 KiB**. State in the CHANGELOG that every later region of the workspace moves, that the bytes of every module change (the goldens are regenerated, nothing else), and the cost (one more page of memory per module).
+  - Verify: a Desktop-path test with an `EXEC SQL` whose host variable is a `PIC X(65535)` runs and round-trips its bytes; `cargo test -p cobolt-wasm -p cobolt-wasm-rt -p cobolt-runner -p cobolt-web-player` the same numbers as T0 plus the new test; `cargo run -p cobolt-compiler --example backend_support` shows **PowerAnalyticsWeb accepted** or, if a second reason was hiding behind this one, names it. The desktop-WASM runner integration tests are run whole (memory "Desktop-WASM regressions"), not only lib and bins.
+
 - [ ] **T14 — Differential tests: the module against `exec::execute`** (R9, R20, AC3's engine half)
   - Files: `crates/cobolt-wasm/tests/backend_entry.rs` (new). **If `cobolt-wasm`'s dependency guard refuses a dev-dependency on `cobolt-server`, the test lives in `crates/cobolt-compiler/tests/backend_entry_parity.rs`** (the compiler already depends on both).
   - Do: a table of small programs covering each `PIC` kind, `OCCURS`, `OCCURS DEPENDING ON`, a group, `RETURNING`, and a program that ends early with `GOBACK`/`STOP RUN`; at least five calls each (ordinary, empty, at each limit, over-limit refused, ends early); run each through `cobolt_server::exec::execute` and through the module (instantiated with `cobolt-runner-engine`), compare JSON byte for byte and the error code. One result block: programs, calls, equal, different; a difference fails the test and is also written to `WASM-PARITY.md` if it is the interpreter that is wrong (who is right is decided, not assumed).
@@ -142,7 +147,7 @@ Ordered, small, independently-verifiable tasks. Each names the files it touches,
 
 - [ ] **T21 — `WasmEngine`: one call** (R8 per-call, R9, R11, D1, D4)
   - Files: `crates/cobolt-backend-runner/src/engine.rs` (new).
-  - Do: implement `Engine`: per call a new `Store` + instance (pooled if adopted), the request JSON written to the entry's scratch area, `pr_backend_call`, the response JSON read back into `ExecResult { args, returning }`; a trap or a non-zero status maps to the same `CallError`/code the interpreter path gives (`PROGRAM_FAULT` 9001 for a fault, the wire mapping's code for a refused request); `StoreLimits` set to the module's declared memory as a second guard. `display` is discarded (recorded in `WASM-PARITY.md`, T47). Each call owns its own provider `State` on its own blocking thread (nothing shared across threads).
+  - Do: implement `Engine`: per call a new `Store` + instance (pooled if adopted), the request JSON written to the entry's scratch area, `pr_backend_call`, the response JSON read back into `ExecResult { args, returning }`; a trap or a non-zero status maps to the same `CallError`/code the interpreter path gives (`PROGRAM_FAULT` 9001 for a fault, the wire mapping's code for a refused request); `StoreLimits` set to the module's declared memory as a second guard. `display` is discarded (recorded in `WASM-PARITY.md`, T47). After the answer is read, the declared `status` group of `RETURNING` is applied with the **same function** the interpreter engine uses (T5(a)): a code 1–7999 is the program's own failure with that code, any other non-zero code is `PROGRAM_FAULT` 9001. Each call owns its own provider `State` on its own blocking thread (nothing shared across threads).
   - Verify: a unit test serves a made-up module over a loopback rig with `rig_on(WasmEngine, …)` (T8) and answers the same JSON as T14's table for three of its programs; `cargo test -p cobolt-backend-runner`.
 
 - [ ] **T22 — Time and cancel: the epoch ticker** (R10, AC6, D3)
@@ -174,7 +179,7 @@ Ordered, small, independently-verifiable tasks. Each names the files it touches,
 
 - [ ] **T27 — `classify_backend`** (R13, AC7, D8)
   - Files: `crates/cobolt-compiler/src/backend_build.rs` (a new function and `BackendClass { engine, reasons: Vec<Reason> }`).
-  - Do: apply D8 in its order: `build_path = "cargo"` or `--cargo`; `[[crates]]`; `EXEC RUST`; a program with a control (`D_FORMS`) or a named-item object (`D_SQL_ITEMS`, `D_REST_ITEMS`, `D_AGENT_ITEMS`); `[identity]` or `AUTH-OP`; a client-side verb; any construct the generator refuses (all of them, from `GenError::all_kinded()`, with file and line); then a runner variant that provides every declared capability, and its SBOM. Each reason carries construct, file, line and the text the Desktop Build gives. Until T35 the nine Backend-side verbs are reasons too.
+  - Do: apply D8 in its order: `build_path = "cargo"` or `--cargo`; `[[crates]]`; `EXEC RUST`; a program with a control (`D_FORMS`) or a named-item object (`D_SQL_ITEMS`, `D_REST_ITEMS`, `D_AGENT_ITEMS`); `[identity]` or `AUTH-OP`; a client-side verb; any construct the generator refuses (all of them, from `GenError::all_kinded()`, with file and line); then a runner variant that provides every declared capability, and its SBOM. **Also a reason: `[backend] state = "per-connection"` together with an `EXTERNAL` item** (the interpreter's session shares one copy of every `EXTERNAL` item across the programs a connection calls, `exec.rs` `Session.external`; the module path keeps one instance per `(connection, exported program)` and cannot share them: found reading `exec.rs`; a difference that is recorded in `WASM-PARITY.md` at T47 and takes the Cargo path until a host-held `EXTERNAL` is designed). Each reason carries construct, file, line and the text the Desktop Build gives. Until T35 the nine Backend-side verbs are reasons too.
   - Verify: one test per rule in D8's order (each rule alone makes the Cargo class and names itself), one with several (all listed), and one with none (the module class); `cargo test -p cobolt-compiler`.
 
 - [ ] **T28 — The module path in `build_backend`** (R1, R7, R14, R16, R22; AC1)
@@ -316,7 +321,7 @@ Ordered, small, independently-verifiable tasks. Each names the files it touches,
 | R12 engine line, hash | T20, T24 | | AC12 documented | T46, T47, T48, T49 |
 | R13 choose + name | T26, T27, T28, T30, T33 | | | |
 | R14 no toolchain | T28, T43 | | | |
-| R15 measure first | T1, T4 | | | |
+| R15 measure first | T1, T4, T13a | | | |
 | R16 phases, 30 s | T2, T3, T28, T45 | | | |
 | R17 SBOM | T29 | | | |
 | R18 `--engine wasm` | T41 | | | |
@@ -331,4 +336,22 @@ All acceptance criteria in `spec.md` are checked with their numbers, the tests p
 
 ## Baseline
 
-*(Filled in by T0.)*
+Taken 2026-11-26 on `features` at `d81df0fc` (2.1.45), Mac arm64, cold `target` (the workspace had just been cleared for the backup), `df`: 73 GB free after both sweeps. The sweeps were not timed as a whole; the longest single test was `aws_hosts` (138–210 s).
+
+| Sweep | Binaries | Passed | Failed | Ignored |
+|---|---|---|---|---|
+| The twelve crates of T0 (`cargo test --no-fail-fast`) | 266 | 1,647 | 2 | 22 |
+| `cobolt-ide --bin cobolt-ide` | 1 | 2,072 | 4 | 6 |
+
+The six reds, named, with what became of each:
+
+| Red | Cause | State |
+|---|---|---|
+| `cobolt-server` `dependency_guards::the_ide_runs_the_backend_as_a_child_and_links_none_of_the_server` | the guard barred `tungstenite`, which the IDE's Backend inspector has linked since 2.0.328 | **Fixed in 2.1.46** (`fixes`): `tungstenite` is allowed through `cobolt-project-tools` only; 7 passed |
+| `cobolt-ide` `completion_text_tests::every_completion_description_exists_in_six_languages` | 2.0.644 lengthened the Viewer `LoadBytes` description; the IDE table, keyed by the English text, stopped matching | **Fixed in 2.1.47** (`fixes`); passes, `i18n` 22 passed |
+| `cobolt-cli` `aws_hosts::the_hosted_demos_pass_over_https_with_nothing_on_the_path` | `PASS 009 FAIL 001` in the sweep; **run alone it passes** (`cargo test -p cobolt-cli --test aws_hosts`: 4 passed, 0 failed, 1 ignored, 138.6 s) | load-dependent, not a product red; left as it is |
+| `cobolt-ide` `docs_embed::tests::every_document_ships_in_every_language` | eleven English documents have no translation (GOLDEN RULE #8: a document change deletes its five translations until the operator raises x or y) | intentional; stays red until the regeneration |
+| `cobolt-ide` `grace_host::tests::prebuilt_chunked_kb_matches_the_published_documentation` | `chunked.data` is stale for `Knowledge Base/form_designer_controls.md` since 2.0.644 | open: `build_chunked_kb` needs the semantic model, which this Mac does not have (`~/PowerRustCOBOL/data/models` is absent; the IDE's Models Manager downloads it) |
+| `cobolt-ide` `grace_host::tests::a_menu_reorder_request_retrieves_the_sidemenu_structure` | retrieval returns no hit that explains the menu tree | open, not investigated; it was red before this work |
+
+"Stays green" later means these numbers or better, with every difference explained. After the two fixes the twelve-crate sweep has one red (the load-dependent one, which passes alone) and the IDE sweep three.
