@@ -247,6 +247,12 @@ pub fn bundle_problems(bytes: &[u8], single_memory: bool) -> Vec<String> {
             problems.push(format!("the multi-memory variant does not validate: {e}"));
         }
     }
+    // A Backend module runs on the Backend runner, never on a page (ABI A59).
+    if let Some(text) = scan.custom(MANIFEST_SECTION).and_then(|b| core::str::from_utf8(b).ok()) {
+        if matches!(crate::backend::BackendSection::from_manifest(text), Ok(Some(_))) {
+            problems.push("the manifest has a `backend` section: a Backend module runs on the Backend runner and is never bundled for a page (ABI A59)".into());
+        }
+    }
     match scan.embedded_manifest() {
         Ok(m) => {
             if m.variant.conformance {

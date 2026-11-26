@@ -6,6 +6,7 @@
 
 //! The WebAssembly generator (spec WASM-010).
 
+pub mod backend_entry;
 pub mod collate;
 pub mod error;
 pub mod image;
@@ -35,4 +36,4 @@ pub mod support;
 pub mod host;
 
 pub use error::{ErrorKind, GenError, GenWarning, WarningKind};
-pub use module::{compile_program, compile_project, compile_web_project, Compiled, FormSpec, Options, WebModules};
+pub use module::{compile_backend, compile_program, compile_project, compile_web_project, BackendOptions, BackendProgram, Compiled, FormSpec, Options, WebModules};

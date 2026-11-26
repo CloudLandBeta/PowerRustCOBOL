@@ -95,11 +95,32 @@ pub struct Options {
     /// (`StatusDataItem`, `CurrentRecordDataItem`), as `FORM/CONTROL` in upper case (DESKTOP-WASM-001
     /// T48): the Build knows the designs, the generator does not. A statement run on one is refused.
     pub partiql_items: Vec<String>,
+    /// A Backend module (ABI A59, spec 114): the exported programs get the entry `pr_backend_call` and the
+    /// manifest's `backend` section. Only [`compile_backend`] reads it; any other entry point ignores it.
+    pub backend: Option<BackendOptions>,
+}
+
+/// The frames of a Backend module's entry (ABI A59): the areas of memory 0 the host writes a request in and
+/// reads a response from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackendOptions {
+    pub request_cap: u32,
+    pub response_cap: u32,
+}
+
+/// Bytes of one frame unless the Build says otherwise: the interpreter's largest text
+/// (`cobolt_wire::mapping::DEFAULT_MAX_BYTES`) and room for the frame's own words and every other text.
+pub const DEFAULT_FRAME_CAP: u32 = cobolt_wire::mapping::DEFAULT_MAX_BYTES as u32 + 64 * 1024;
+
+impl Default for BackendOptions {
+    fn default() -> Self {
+        BackendOptions { request_cap: DEFAULT_FRAME_CAP, response_cap: DEFAULT_FRAME_CAP }
+    }
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None, file_heap: DEFAULT_FILE_HEAP, contract: None, remote: Vec::new(), mobile: false, native: false, partiql_items: Vec::new() }
+        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None, file_heap: DEFAULT_FILE_HEAP, contract: None, remote: Vec::new(), mobile: false, native: false, partiql_items: Vec::new(), backend: None }
     }
 }
 
@@ -376,6 +397,33 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     compile_forms(std::slice::from_ref(&spec), opts, false)
 }
 
+/// One program a Backend exports (ABI A59): its upper-case `PROGRAM-ID` and the program, with the programs it
+/// can `CALL` nested in it as `cobolt_server::Backend::build` nests them.
+pub struct BackendProgram<'a> {
+    pub name: String,
+    pub program: &'a Program,
+}
+
+/// Compile the programs a Backend exports into one Backend module (ABI A59): each program has a region and an
+/// initial image of its own, and the module exports `pr_backend_call(export)`, `export` being the program's
+/// place in `programs`. `opts.backend` sets the frames' areas (default [`BackendOptions::default`]); the
+/// module is a desktop module in every other way, so `opts.native` should be set.
+pub fn compile_backend(programs: &[BackendProgram<'_>], opts: &Options) -> GenResult<Compiled> {
+    if programs.is_empty() {
+        return Err(GenError::new(0, "a Backend module needs at least one exported program"));
+    }
+    let specs: Vec<FormSpec<'_>> = programs
+        .iter()
+        .enumerate()
+        .map(|(i, p)| FormSpec { name: p.name.clone(), main: i == 0, instances: 1, program: p.program, controls: vec![], bindings: vec![], layers: vec![], lines: vec![] })
+        .collect();
+    let mut o = opts.clone();
+    if o.backend.is_none() {
+        o.backend = Some(BackendOptions::default());
+    }
+    compile_forms(&specs, &o, false)
+}
+
 /// Compile the forms of a project into one module with the form exports of
 /// ABI v1 §4 (`pr_open_form`, `pr_event`, …).
 pub fn compile_project(forms: &[FormSpec<'_>], opts: &Options) -> GenResult<Compiled> {
@@ -425,6 +473,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     }
     let opts = &owned;
     let blob = Blob::load(RT_WASM).map_err(|e| GenError::new(0, e.to_string()))?;
+    // A Backend module (ABI A59): every program gets the entry's records, and the module the frames' areas.
+    let backend = !project && opts.backend.is_some();
 
     // ── memory map ───────────────────────────────────────────────────────
     let rt_ws = align(blob.data_end, 16);
@@ -501,8 +551,9 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             opts.mobile,
             opts.native,
             when_compiled.clone(),
+            backend,
         )
-        .map_err(|e| if project { e.in_form(lowered_forms.len()) } else { e })?;
+        .map_err(|e| if project || backend { e.in_form(lowered_forms.len()) } else { e })?;
         let first = unit_base;
         unit_base += l.units;
         lowered_forms.push((l, first));
@@ -668,6 +719,24 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let total_instances: u32 = forms.iter().map(|f| f.instances.max(1)).sum();
     let inst_tbl_base = align(cursor, 16);
     let mut end = inst_tbl_base + total_instances * INST_ROW;
+    // A Backend module's frames (ABI A59): the request the host writes, then the response it reads.
+    let backend_areas = match opts.backend.filter(|_| backend) {
+        Some(b) => {
+            if b.request_cap < 4 || b.response_cap < 8 + cobolt_wasm_rt::state::JSON_PATH_SIZE {
+                return Err(GenError::new(0, "a Backend module's request area holds at least 4 bytes and its response area at least 1,032"));
+            }
+            let request_at = align(end, 16);
+            let response_at = align(request_at + b.request_cap, 16);
+            end = response_at + b.response_cap;
+            Some(cobolt_wasm_abi::backend::BackendSection {
+                request: cobolt_wasm_abi::backend::Area { at: request_at, cap: b.request_cap },
+                response: cobolt_wasm_abi::backend::Area { at: response_at, cap: b.response_cap },
+                state: cobolt_wasm_abi::backend::STATE_PER_CALL.into(),
+                exports: Vec::new(),
+            })
+        }
+        None => None,
+    };
     // The file heap (in-memory files, SORT) closes memory 0.
     let uses_heap = lowered_forms.iter().any(|(l, _)| l.uses_heap);
     let heap_base = align(end, 16);
@@ -711,6 +780,12 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     }
     if project {
         for r in ["rt_set_instance", "rt_deliver", "rt_cancel_run", "rt_move", "rt_event_args"] {
+            roots.insert(r);
+        }
+    }
+    if backend {
+        // The entry's own calls (ABI A59): the group ⇄ JSON mapping and the records' initial state.
+        for r in ["rt_json_decode", "rt_json_encode", "rt_json_error_path", "rt_initialize"] {
             roots.insert(r);
         }
     }
@@ -1441,6 +1516,48 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         f.instruction(&I::End);
         defs.push(Def { name: "pr_run".into(), ty: ty_i32_ret, body: Body::Encoded(f) });
     }
+    // A Backend module's entry (ABI A59): `pr_backend_call(export) -> i32`.
+    let mut backend_section = backend_areas;
+    let backend_call_idx = match backend_section.as_mut() {
+        Some(section) => {
+            let mut entry_programs: Vec<crate::backend_entry::EntryProgram<'_>> = Vec::new();
+            for (k, b) in built.iter().enumerate() {
+                let Some(records) = b.lowered.backend.as_ref() else {
+                    return Err(GenError::new(0, format!("internal error: the program {} has no Backend records", forms[k].name)));
+                };
+                entry_programs.push(crate::backend_entry::EntryProgram {
+                    region_start: b.region_start,
+                    stack_off: b.lowered.stack_off,
+                    entry_pc: entry_pcs[k],
+                    init_fn: init_form_base + k as u32,
+                    records,
+                });
+                section.exports.push(cobolt_wasm_abi::backend::BackendExport {
+                    index: k as u32,
+                    name: forms[k].name.to_ascii_uppercase(),
+                    params: records.params.len() as u32,
+                    returning: records.returning.is_some(),
+                });
+            }
+            let rt_fn = |n: &str| rt_index_by_name[n];
+            let ctx = crate::backend_entry::EntryCtx {
+                rt: &rt_fn,
+                pr_init: init_idx,
+                run: run_idx,
+                g_pc,
+                budget: opts.budget,
+                request_at: section.request.at,
+                request_cap: section.request.cap,
+                response_at: section.response.at,
+                response_cap: section.response.cap,
+            };
+            let f = crate::backend_entry::emit(&ctx, &entry_programs);
+            let idx = n_imports + defs.len() as u32;
+            defs.push(Def { name: "pr_backend_call".into(), ty: ty_i32_ret1, body: Body::Encoded(f) });
+            Some(idx)
+        }
+        None => None,
+    };
     let form_exports = if project {
         let ft_rows: Vec<FormRow> = built
             .iter()
@@ -1568,9 +1685,14 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
                 exports.export(name, ExportKind::Func, *idx);
             }
         }
+        // A Backend module is not a program module: it has the entry, not `pr_run` (ABI A59).
+        None if backend_call_idx.is_some() => {}
         None => {
             exports.export("pr_run", ExportKind::Func, run_prog_idx);
         }
+    }
+    if let Some(idx) = backend_call_idx {
+        exports.export("pr_backend_call", ExportKind::Func, idx);
     }
     module.section(&exports);
 
@@ -1690,6 +1812,10 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let mut manifest = serde_json::to_value(&abi_manifest).expect("the manifest serialises");
     // Where the generator put things, for diagnostics; hosts ignore it.
     manifest["regions"] = serde_json::json!({ "rt_workspace": rt_ws, "perform_stack": region_base + stack_off, "constants": consts_base, "template": template_base, "region": region_base });
+    // A Backend module's entry (ABI A59): present only in a Backend module, so no other manifest changes.
+    if let Some(section) = &backend_section {
+        manifest[cobolt_wasm_abi::backend::SECTION] = section.to_value();
+    }
     let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
     module.section(&CustomSection { name: std::borrow::Cow::Borrowed("prmanifest"), data: std::borrow::Cow::Borrowed(&manifest_bytes) });
     let lines_bytes = serde_json::to_vec(&line_table).unwrap();

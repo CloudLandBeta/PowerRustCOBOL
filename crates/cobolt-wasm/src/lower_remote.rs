@@ -175,7 +175,7 @@ impl Lower<'_, '_> {
     /// The group ⇄ JSON descriptor of the item `e` names (in the constants),
     /// and its operand. The layout is accepted or refused by
     /// `cobolt_wire::from_decl`, as on the desktop and the backend.
-    fn json_group(&mut self, e: &Expr, line: u32) -> GenResult<(u32, u32)> {
+    pub(crate) fn json_group(&mut self, e: &Expr, line: u32) -> GenResult<(u32, u32)> {
         if !matches!(e, Expr::Identifier(..) | Expr::Qualified { .. }) {
             return self.err(line, "an argument of a WEBSOCKET call must be a data item, written as its name (no subscript, reference modification, literal or expression)");
         }

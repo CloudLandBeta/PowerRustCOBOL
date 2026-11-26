@@ -143,6 +143,18 @@ An `EXEC SQL` statement has a 72 KiB region of its own, `WS_SQL`, at the end of 
 
 The twelve crates of the task list: 266 test binaries, 1,647 passed, 2 failed, 22 ignored; `cobolt-ide --bin`: 2,072 passed, 4 failed, 6 ignored. The six reds are named and explained in `specs/114-backend-as-wasm-module/tasks.md` ("Baseline"); two were fixed on `fixes` (2.1.46, 2.1.47), one is load-dependent and passes alone, one is intentional (GOLDEN RULE #8), two stay open (the System KB's `chunked.data` needs the semantic model this Mac does not have; a menu-reorder retrieval test, not investigated).
 
+### M2 — the generator's Backend mode (T10–T14, 2026-11-26, version 2.1.55)
+
+A Backend is now compiled to **one module that holds every program it exports** and answers `pr_backend_call(export)` (ABI A59). Measured on the seven programs of the differential test (a debug build): module 165,291 bytes, compiled in 25 ms; **34 calls through the interpreter's `exec::execute` and through the module: equal 34, different 0** (20 answered, 12 refused, 2 refused for arity). Nothing runs it yet outside the tests: the runner, the pooled instances and the Build switch are M3 to M6.
+
+| What | Result |
+|---|---|
+| The amendment | A59: the export, the manifest's `backend` section (request and response areas, state mode, exports), the frames and the four results; no custom section (the descriptors are the module's constants); a run-time error traps |
+| Modules that moved | **none**: the runtime gained one routine (`rt_json_error_path`, `rt.wasm` 309,868 to 310,085 bytes) whose addition left the runtime's data byte-identical, so the player's 8 committed fixtures and the AC16 pin of PowerAnalyticsWeb pass as committed |
+| Backend column of the support table | 19 entries refused at their line with the Backend's reason (9 Backend-side verbs, `AUTH-OP`, 9 client-side verbs, the remote `CALL`); the Desktop column unchanged |
+| Determinism | a Backend module compiled 20 times in each memory variant: 40 compiles, identical bytes |
+| What the time column is not | the interpreter's 13 ms against the module's 6,491 ms for the 34 calls compares an interpreter with a debug build that compiles the module on every call; the real numbers are M3's (pooled instances, `--release`) |
+
 ## DESKTOP-WASM-001 — the M6 close and the acceptance audit (measured 2026-11-21, versions 2.0.640 to 2.0.643)
 
 The Desktop Build's default is the WebAssembly path, and **every reference project takes it with no Rust toolchain on the machine.** Measured on an 11-core Apple M3 Pro with 18 GB (not the reference box), macOS arm64, at `4db4e98f` (2.0.639) with the M6-close changes in the tree. The commands are in `specs/DESKTOP-WASM-001-portable-program-format-and-native-runner/tasks.md`, T51.

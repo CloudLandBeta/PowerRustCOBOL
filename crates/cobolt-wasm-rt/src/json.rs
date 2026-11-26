@@ -1354,6 +1354,21 @@ fn check_base(d: &Desc, n: &Node, addr: u32, frames: &mut Frames) -> Result<(), 
     Ok(())
 }
 
+/// Copy the path of the item the last error names to `out`, at most `cap` bytes: the length written
+/// (the Backend entry of ABI A59 sends it with a refused request).
+#[inline(never)]
+pub fn error_path_into(out: u32, cap: u32) -> u32 {
+    // No indexing and no `copy_from_slice`: either would add a panic location to the runtime's data, which moves
+    // the address of every constant of every module (the player's fixtures, the AC16 pin).
+    let n = (error_path().len() as u32).min(cap);
+    let mut copied = 0;
+    for (to, from) in mem::bytes_mut(out, n).iter_mut().zip(error_path()) {
+        *to = *from;
+        copied += 1;
+    }
+    copied
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

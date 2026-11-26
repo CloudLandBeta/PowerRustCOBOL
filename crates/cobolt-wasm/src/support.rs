@@ -464,6 +464,47 @@ pub fn desktop_refusal(s: &Stmt, in_form: bool) -> Option<&'static str> {
     }
 }
 
+// ── The Backend column (spec 114 T13) ─────────────────────────────────────────────────────────────
+
+/// The verbs of a Backend program that act on the call it is answering (spec 114 R4): the runner serves them
+/// through its `backend` capability, which a later milestone adds (M5, T35); until then a Backend module refuses
+/// each at its line and the Build takes the Cargo path. `AUTH-OP` is the tenth entry of the plan's list and has
+/// a reason of its own ([`B_IDENTITY`]). A test holds this list and [`CLIENT_SIDE_VERBS`] equal to the `WS-…`
+/// rows of [`BUILTIN_TABLE`] (and `AUTH-OP`), so a new verb is classified the day it is added.
+pub const BACKEND_SIDE_VERBS: &[&str] = &["AUTH-OP", "WS-CANCELLED", "WS-CLAIM", "WS-EMIT", "WS-FAIL", "WS-FILE-PATH", "WS-FILE-PUBLISH", "WS-PAUSE", "WS-PROGRESS"];
+/// The verbs a page calls to talk to a Backend. In a Backend program they have no page to act on: the interpreter
+/// answers them inertly or with `NOBACKEND`, and a module that built them in would diverge from it, so a Backend
+/// module refuses them (spec 114 C1).
+pub const CLIENT_SIDE_VERBS: &[&str] = &["WS-DOWNLOAD", "WS-LAST-ERROR", "WS-SHOW-PROGRESS", "WS-STREAM-ITEM", "WS-SUBSCRIBE", "WS-UNSUBSCRIBE", "WS-UPLOAD", "WS-VERSION", "WS-WARNING"];
+
+/// Why a Backend module refuses a verb of [`BACKEND_SIDE_VERBS`] today.
+pub const B_NEEDS_CAPABILITY: &str = "a Backend verb is served by the runner's `backend` capability, which is not built yet (spec 114 M5, T35), so the Build takes the Cargo path for this program";
+/// Why a Backend module refuses `AUTH-OP`.
+pub const B_IDENTITY: &str = "an identity operation runs in an identity program, which a Backend module does not hold in its first release (spec 114 D8), so the Build takes the Cargo path for this program";
+/// Why a Backend module refuses a verb of [`CLIENT_SIDE_VERBS`].
+pub const B_CLIENT_SIDE: &str = "this is a verb a page calls to talk to a Backend; a Backend program has no page, so it takes the Cargo path, which answers it as the interpreter does (spec 114 C1)";
+/// Why a Backend module refuses `CALL … WITH WEBSOCKET LINKAGE`.
+pub const B_REMOTE_CALL: &str = "a Backend program does not call another Backend over a WebSocket; call the program with CALL \"NAME\" USING, which a Backend module holds, so the Build takes the Cargo path for this program";
+
+/// Why a Backend module cannot hold the built-in `name` (as [`BUILTIN_TABLE`] spells it) when the Desktop class would
+/// let it in, or `None` when the Desktop class decides (spec 114 R1, T13): a Backend module is a Desktop module
+/// without a form, so its column differs only for the verbs a Backend answers a call with.
+pub fn backend_builtin_refusal(name: &str) -> Option<&'static str> {
+    let n = name.to_ascii_uppercase();
+    if n == "AUTH-OP" {
+        return Some(B_IDENTITY);
+    }
+    if BACKEND_SIDE_VERBS.contains(&n.as_str()) {
+        return Some(B_NEEDS_CAPABILITY);
+    }
+    CLIENT_SIDE_VERBS.contains(&n.as_str()).then_some(B_CLIENT_SIDE)
+}
+
+/// The same for a statement, by the name [`stmt_name`] gives it.
+pub fn backend_statement_refusal(name: &str) -> Option<&'static str> {
+    (name == "CALL … WITH WEBSOCKET LINKAGE").then_some(B_REMOTE_CALL)
+}
+
 // ── The controls of a desktop form (DESKTOP-WASM-001 T33, plan §4.3) ─────────────────────────────
 
 const D_SERVICE: &str = "the sign-in control is not on the WebAssembly path yet (DESKTOP-WASM-001 M6)";

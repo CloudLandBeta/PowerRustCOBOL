@@ -1028,6 +1028,16 @@ impl Lower<'_, '_> {
     // ── INITIALIZE ────────────────────────────────────────────────────────
 
     pub(crate) fn initialize_(&mut self, items: &[Expr], replacing: &[(InitCategory, Expr)], line: u32) -> GenResult<()> {
+        let spec = self.initialize_spec(items, replacing, line)?;
+        self.base();
+        self.i32c(spec as i32);
+        self.call_rt("rt_initialize");
+        Ok(())
+    }
+
+    /// The constant `rt_initialize` takes for `INITIALIZE items [REPLACING …]`: the address of its entries
+    /// in the pool. A Backend module's entry resets a `LINKAGE` record with the same spec (ABI A59).
+    pub(crate) fn initialize_spec(&mut self, items: &[Expr], replacing: &[(InitCategory, Expr)], line: u32) -> GenResult<u32> {
         let mut entries: Vec<[u32; 11]> = Vec::new();
         for target in items {
             let (b, ix): (&Expr, &[Expr]) = match target {
@@ -1103,11 +1113,7 @@ impl Lower<'_, '_> {
         for e in &entries {
             words.extend_from_slice(e);
         }
-        let spec = self.pool.spec(&words);
-        self.base();
-        self.i32c(spec as i32);
-        self.call_rt("rt_initialize");
-        Ok(())
+        Ok(self.pool.spec(&words))
     }
 
     /// A desktop module's `INITIALIZE … REPLACING` value (T44): national or UTF-8 data replace

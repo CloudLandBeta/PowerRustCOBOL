@@ -700,6 +700,71 @@ fn run_with(wasm: &[u8], conformance: Option<Conformance>, keep_memory: bool, na
     Ok((outcome, memory))
 }
 
+// ── calling a Backend module's entry (ABI A59) ─────────────────────────────
+
+/// What `pr_backend_call` answered (ABI A59).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackendReply {
+    /// The program ran: every parameter as it left them, and the `RETURNING` record.
+    Answered(cobolt_wasm_abi::backend::Answer),
+    /// The request was refused before the program ran.
+    Refused(cobolt_wasm_abi::backend::Refusal),
+    /// The answer did not fit the response area.
+    TooLarge,
+    /// The request frame was malformed, or the export is not in the manifest.
+    BadRequest,
+    /// The module trapped: a run-time error (§9 `-10`), with its trap text and the `ERROR` commands it flushed.
+    Trapped { text: String, errors: Vec<RtError> },
+}
+
+/// Call the exported program `export` of a Backend module on a fresh instance, with one JSON text per
+/// `USING` parameter, as a Backend runner does (ABI A59).
+pub fn run_backend(wasm: &[u8], export: &str, args: &[&str]) -> Result<BackendReply, String> {
+    use cobolt_wasm_abi::backend::{self, result, BackendSection};
+    let engine = engine()?;
+    let module = Module::new(&engine, wasm).map_err(|e| format!("invalid module: {e}"))?;
+    let scan = cobolt_wasm_abi::scan::scan_module(wasm)?;
+    let manifest_text = scan
+        .custom(cobolt_wasm_abi::manifest::MANIFEST_SECTION)
+        .and_then(|b| core::str::from_utf8(b).ok())
+        .ok_or("no manifest")?;
+    let section = BackendSection::from_manifest(manifest_text)?.ok_or("the module has no `backend` section")?;
+    let limits = scan.embedded_manifest().map(|m| (m.limits.batch_size, m.limits.answer_size, gfx_start(&m.limits)))?;
+    let index = section.export(&export.to_ascii_uppercase()).ok_or_else(|| format!("the module exports no program {export}"))?.index;
+    let out = Rc::new(RefCell::new(Outcome::default()));
+    let mut store = Store::new(&engine, new_state(out.clone(), None, limits));
+    let linker = linker(&engine, &[])?;
+    let instance = linker.instantiate(&mut store, &module).map_err(|e| format!("cannot instantiate: {e}"))?;
+    let arena = instance.get_memory(&mut store, "arena").ok_or("no arena export")?;
+    let base = instance.get_typed_func::<(), i32>(&mut store, "pr_arena_base").map_err(|e| e.to_string())?.call(&mut store, ()).map_err(|e| e.to_string())?;
+    store.data_mut().arena = Some(arena);
+    store.data_mut().arena_base = base as u32;
+    let memory = instance.get_memory(&mut store, "memory").ok_or("no memory export")?;
+    let frame = backend::encode_request(args);
+    if frame.len() as u32 > section.request.cap {
+        return Err(format!("the request frame is {} bytes, the area {}", frame.len(), section.request.cap));
+    }
+    memory.write(&mut store, section.request.at as usize, &frame).map_err(|e| e.to_string())?;
+    let call = instance.get_typed_func::<i32, i32>(&mut store, "pr_backend_call").map_err(|e| e.to_string())?;
+    let status = match call.call(&mut store, index as i32) {
+        Ok(s) => s,
+        Err(e) => {
+            let errors = out.borrow().errors.clone();
+            return Ok(BackendReply::Trapped { text: format!("{e:#}"), errors });
+        }
+    };
+    let data = memory.data(&store);
+    let at = section.response.at as usize;
+    let area = &data[at..at + section.response.cap as usize];
+    match status {
+        result::ANSWERED => Ok(BackendReply::Answered(backend::decode_answer(area)?)),
+        result::REFUSED => Ok(BackendReply::Refused(backend::decode_refusal(area)?)),
+        result::TOO_LARGE => Ok(BackendReply::TooLarge),
+        result::BAD_REQUEST => Ok(BackendReply::BadRequest),
+        other => Err(format!("pr_backend_call answered {other}, which ABI A59 does not define")),
+    }
+}
+
 // ── driving a project module's forms (ABI v1 §4) ────────────────────────────
 
 /// What a [`FormHost`] answers and lacks.

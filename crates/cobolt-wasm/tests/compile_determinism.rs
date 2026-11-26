@@ -335,3 +335,52 @@ fn source_date_epoch_and_separators_are_build_inputs() {
     println!("result: {}", if passed == checks.len() { "PASS" } else { "FAIL" });
     assert_eq!(passed, checks.len(), "{checks:#?}\nmalformed: {malformed}\nabsolute: {absolute:?}\nyear 9999: {year_9999}");
 }
+
+/// Spec 114 T14: a Backend module is built from the same walks, so the same programs and options give the same
+/// bytes on every compile, in both memory variants. Three programs, each nested in the others as
+/// `cobolt_server::Backend::build` nests them: a record with a table that depends on a count, a plain adder and a
+/// caller, so the entry glue, the descriptors and the nested copies all have an order a map could disturb.
+#[test]
+fn a_backend_module_has_the_same_bytes_every_compile() {
+    use cobolt_wasm::{compile_backend, BackendProgram};
+    const SOURCES: [&str; 3] = [
+        "IDENTIFICATION DIVISION.\nPROGRAM-ID. ORDERS.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-I PIC 9(2).\nLINKAGE SECTION.\n01 REQ.\n    05 CNT PIC 9(2).\n    05 LINE-ITEM OCCURS 1 TO 5 DEPENDING ON CNT.\n        10 SKU PIC X(6).\n        10 QTY PIC 9(3).\n01 RES.\n    05 TOTAL PIC 9(5).\nPROCEDURE DIVISION USING REQ RETURNING RES.\nMAIN-PARA.\n    MOVE 0 TO TOTAL\n    PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > CNT\n        ADD QTY (WS-I) TO TOTAL\n    END-PERFORM\n    GOBACK.\n",
+        "IDENTIFICATION DIVISION.\nPROGRAM-ID. ADDER.\nDATA DIVISION.\nLINKAGE SECTION.\n01 A PIC 9(4).\n01 B PIC 9(4).\n01 S PIC 9(5).\nPROCEDURE DIVISION USING A B S.\nMAIN-PARA.\n    COMPUTE S = A + B.\n    GOBACK.\n",
+        "IDENTIFICATION DIVISION.\nPROGRAM-ID. CALLER.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 W PIC 9(5).\nLINKAGE SECTION.\n01 X PIC 9(4).\n01 Y PIC 9(5).\nPROCEDURE DIVISION USING X Y.\nMAIN-PARA.\n    CALL \"ADDER\" USING X X W.\n    MOVE W TO Y.\n    GOBACK.\n",
+    ];
+    let started = Instant::now();
+    let programs: Vec<cobolt_ast::program::Program> = SOURCES.iter().map(|s| parse(s, None).expect("the Backend fixture parses")).collect();
+    let tops: Vec<cobolt_ast::program::Program> = programs
+        .iter()
+        .map(|p| {
+            let mut top = p.clone();
+            for other in &programs {
+                if other.identification.program_id != p.identification.program_id {
+                    top.nested_programs.push(other.clone());
+                }
+            }
+            top
+        })
+        .collect();
+    let list: Vec<BackendProgram<'_>> = tops.iter().map(|t| BackendProgram { name: t.identification.program_id.to_ascii_uppercase(), program: t }).collect();
+    let mut sizes = Vec::new();
+    let mut compiles = 0usize;
+    for multi_memory in [true, false] {
+        let opts = Options { multi_memory, native: true, when_compiled: Some(WHEN.into()), ..Options::default() };
+        let first = compile_backend(&list, &opts).unwrap_or_else(|e| panic!("the Backend fixture compiles: {e}")).wasm;
+        for n in 2..=COMPILES {
+            let again = compile_backend(&list, &opts).unwrap_or_else(|e| panic!("compile {n}: {e}")).wasm;
+            assert!(again == first, "compile {n} of {COMPILES} differs from the first ({} vs {} bytes), multi_memory={multi_memory}", again.len(), first.len());
+        }
+        compiles += COMPILES;
+        sizes.push((multi_memory, first.len(), fnv(&first)));
+    }
+    let ms = started.elapsed().as_millis();
+    println!("== a_backend_module_has_the_same_bytes_every_compile (spec 114 T14) ==");
+    println!("programs: {} nested in each other; variants: two memories and one memory; {COMPILES} compiles each", programs.len());
+    for (m, n, h) in &sizes {
+        println!("  {}: {n} bytes, FNV-1a {h:016x}", if *m { "two memories" } else { "one memory" });
+    }
+    println!("compiles: {compiles} in {ms} ms ({:.0} compiles/second); differing 0", compiles as f64 / (ms.max(1) as f64 / 1000.0));
+    println!("result: PASS");
+}

@@ -975,4 +975,11 @@ pub extern "C" fn rt_partiql(base: u32, spec: u32) {
     pq::partiql(base, spec);
 }
 
+/// The path of the item the last `rt_json_decode` or `rt_json_encode` error names: at most `cap` bytes at
+/// `out`, the length written (ABI A59: a refused Backend request carries it).
+#[no_mangle]
+pub extern "C" fn rt_json_error_path(out: u32, cap: u32) -> u32 {
+    json::error_path_into(out, cap)
+}
+
 pub mod pq;

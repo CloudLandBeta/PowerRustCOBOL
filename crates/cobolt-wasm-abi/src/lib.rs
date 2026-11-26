@@ -23,6 +23,8 @@
 //! (`wasm32`), the bundle assembler and the generator can all link it.
 
 pub mod batch;
+/// The Backend entry: the manifest's `backend` section and the frames of `pr_backend_call` (A59).
+pub mod backend;
 pub mod codes;
 /// The `prfiles` section: a desktop module's files (A34).
 pub mod files;

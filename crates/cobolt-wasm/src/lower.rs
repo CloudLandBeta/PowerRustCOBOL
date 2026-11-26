@@ -218,6 +218,30 @@ pub struct Lowered {
     /// "<FORM>--ONLOAD"`. The desktop abandons the handler and the form opens
     /// and serves its events; `pr_cancel(-1)` continues the start-up here.
     pub startup_resume: Option<BlockId>,
+    /// A Backend module's program (ABI A59): the records its entry fills and reads. `None` for any other.
+    pub backend: Option<BackendLowered>,
+}
+
+/// One `LINKAGE` record of an exported program, as a Backend module's entry (ABI A59) fills and reads it. Every
+/// offset is from the region base, except the two addresses in the constants.
+#[derive(Debug, Clone)]
+pub struct BackendRecord {
+    /// The record's four-byte slot, which the entry points at [`BackendRecord::store`].
+    pub slot: u32,
+    /// The storage the record lives in for the call.
+    pub store: u32,
+    /// The group ⇄ JSON descriptor (an address in the constants).
+    pub desc: u32,
+    /// The `rt_initialize` entries that put the record in its initial state (an address in the constants).
+    pub init: u32,
+}
+
+/// What a Backend module's entry needs of one exported program: its `USING` records in order, and its
+/// `RETURNING` record when it has one (the same record as a parameter, when the program names it in both).
+#[derive(Debug, Clone, Default)]
+pub struct BackendLowered {
+    pub params: Vec<BackendRecord>,
+    pub returning: Option<BackendRecord>,
 }
 
 /// A parameter of a called program: the LINKAGE record it names.
@@ -413,6 +437,9 @@ pub struct Lower<'a, 'b> {
     pub(crate) native_assigns: HashMap<String, String>,
     /// A desktop module's files the runner cannot keep yet: name -> why, said at the verb.
     pub(crate) native_refusals: HashMap<String, String>,
+    /// The module is a Backend module (spec 114): a desktop module with no form whose support column differs
+    /// for the verbs a Backend answers a call with ([`crate::support::backend_builtin_refusal`]).
+    pub(crate) backend_mode: bool,
     /// What the in-memory and SORT files of every unit are (`FileInfo::meta`).
     pub(crate) file_meta: Vec<crate::lower_idx::FileMeta>,
     /// The program holds records in the file heap (in-memory files, SORT).
@@ -538,6 +565,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         mobile: bool,
         native: bool,
         when_compiled: String,
+        backend: bool,
     ) -> GenResult<Lowered> {
         // The units: the main program, then every program nested in it or
         // written after it, depth first. A name is visible to its own unit and
@@ -680,6 +708,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             native_ids: HashMap::new(),
             native_assigns: HashMap::new(),
             native_refusals: HashMap::new(),
+            backend_mode: backend,
             file_meta: Vec::new(),
             uses_heap: false,
             programs: order.iter().map(|(p, _)| *p).collect(),
@@ -763,6 +792,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
         l.resolve_run_ends()?;
         l.pin_random(main_entry);
+        let backend = if backend { Some(l.backend_entry(order[0].0)?) } else { None };
         let count = order.len();
         let park_slot = l.park_slot.unwrap_or(u32::MAX);
         let quit = if l.form.is_some() {
@@ -787,7 +817,53 @@ impl<'a, 'b> Lower<'a, 'b> {
             lines: l.lines_used,
             uses_heap: l.uses_heap,
             startup_resume: l.startup_resume,
+            backend,
         })
+    }
+
+    /// The records a Backend module's entry fills and reads for this program, the main one (ABI A59): each
+    /// `USING` record and the `RETURNING` record gets storage of its own, a group ⇄ JSON descriptor and the
+    /// `INITIALIZE` a call that sends no text for it starts from.
+    fn backend_entry(&mut self, main: &'a Program) -> GenResult<BackendLowered> {
+        self.enter_unit(0, main);
+        let params: Vec<ParamInfo> = self.units[0].params.clone();
+        let mut records: Vec<BackendRecord> = Vec::new();
+        for p in &params {
+            records.push(self.backend_record(p.item, p.slot)?);
+        }
+        let returning = match self.units[0].returning {
+            Some(item) => {
+                let mut root = item;
+                while let Some(up) = self.layout.items[root].parent {
+                    root = up;
+                }
+                match params.iter().position(|p| p.item == root) {
+                    Some(k) => Some(records[k].clone()),
+                    None => {
+                        let Some(slot) = self.layout.items[root].link else {
+                            return Err(GenError::new(self.layout.items[root].span_line, "RETURNING: it is not a LINKAGE SECTION record"));
+                        };
+                        Some(self.backend_record(root, slot)?)
+                    }
+                }
+            }
+            None => None,
+        };
+        Ok(BackendLowered { params: records, returning })
+    }
+
+    fn backend_record(&mut self, root: usize, slot: u32) -> GenResult<BackendRecord> {
+        let line = self.layout.items[root].span_line;
+        let Some(name) = self.layout.items[root].name.clone() else {
+            return Err(GenError::new(line, "a parameter of an exported program must be named"));
+        };
+        let e = Expr::Identifier(name, cobolt_lexer::Span::new(0, 0, line, 0));
+        let (desc, _) = self.json_group(&e, line)?;
+        let init = self.initialize_spec(std::slice::from_ref(&e), &[], line)?;
+        let it = &self.layout.items[root];
+        let size = (it.size * it.occurs.as_ref().map_or(1, |o| o.0)).max(1);
+        let store = self.layout.alloc_hidden(size);
+        Ok(BackendRecord { slot, store, desc, init })
     }
 
     /// Make unit `u` (program `p`) the one being lowered.
@@ -2486,7 +2562,9 @@ impl<'a, 'b> Lower<'a, 'b> {
             // A module with forms has its controls and the application object (M2, T30, T33); every
             // desktop module has the program-level database (T41d).
             let served = self.form.is_some() || self.on_sql_object(s);
-            if let Some(why) = crate::support::desktop_refusal(s, served) {
+            // A Backend module reads some rows differently (spec 114 T13).
+            let backend_why = if self.backend_mode { crate::support::backend_statement_refusal(crate::support::stmt_name(s)) } else { None };
+            if let Some(why) = backend_why.or_else(|| crate::support::desktop_refusal(s, served)) {
                 let name = crate::support::stmt_name(s);
                 return self.err_kind(line, crate::error::ErrorKind::Other, name, format!("{name}: {why}"));
             }

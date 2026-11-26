@@ -368,11 +368,13 @@ impl Lower<'_, '_> {
         };
         if ctrl == CTRL_APP {
             if let Some(b) = first.and_then(|n| crate::support::builtin_entry(&n.to_ascii_uppercase())) {
-                let why = match b.native {
+                // A Backend module reads the Backend's own verbs differently (spec 114 T13).
+                let backend_why = if self.backend_mode { crate::support::backend_builtin_refusal(b.name) } else { None };
+                let why = backend_why.or(match b.native {
                     crate::support::Native::Cargo(why) => Some(why),
                     crate::support::Native::Form => (!forms_served).then_some(crate::support::D_FORMS),
                     crate::support::Native::Module | crate::support::Native::Host(_) | crate::support::Native::Files => None,
-                };
+                });
                 return match why {
                     Some(why) => {
                         let subject = format!("COBOL::\"{}\"", b.name);
