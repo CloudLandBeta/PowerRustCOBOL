@@ -135,6 +135,10 @@ The shared platform cache of the IDE's Build (`~/Library/Caches/PowerRustCOBOL/b
 
 Nothing in the plan's architecture changes. M0 closed.
 
+### T13a (2026-11-26, version 2.1.50): the fix that T1 asked for
+
+An `EXEC SQL` statement has a 72 KiB region of its own, `WS_SQL`, at the end of the workspace (`cobolt-wasm-rt/src/state.rs`), instead of the 32 KiB scratch area it shared; the 68 KiB written above as the plan became a dedicated 72 KiB region so that no other address moves. `backend_support` again: **34 exported programs tried, 34 accepted, 0 refused** (PowerOficina 20/20, PowerAnalyticsWeb 11/11 with `files.line-sequential` and `sql`, PowerWebHello 2/2, PowerMobileHello 1/1), 3,709 ms for the four; no second reason was hiding behind the first. New parity program `ac19_large_host_variable` (50,000- and 65,535-byte host variables): interpreter PASS 004 FAIL 000, packaged runner equal. Wide run over nine crates: 1,144 passed, 0 failed, 19 ignored. Not run: the web player's own tests on the regenerated fixtures.
+
 ### Baseline (T0)
 
 The twelve crates of the task list: 266 test binaries, 1,647 passed, 2 failed, 22 ignored; `cobolt-ide --bin`: 2,072 passed, 4 failed, 6 ignored. The six reds are named and explained in `specs/114-backend-as-wasm-module/tasks.md` ("Baseline"); two were fixed on `fixes` (2.1.46, 2.1.47), one is load-dependent and passes alone, one is intentional (GOLDEN RULE #8), two stay open (the System KB's `chunked.data` needs the semantic model this Mac does not have; a menu-reorder retrieval test, not investigated).
