@@ -24,8 +24,10 @@ target-lexicon = "0.13"
 sha2 = { workspace = true }
 
 [features]
-# Off by default, for the spike of spec 114 T2 only: wasmtime's pooling allocator, to measure what a call's
-# instance costs on it against the plain allocator. Nothing in the product turns it on.
+# wasmtime's pooling allocator, for the Backend runner (spec 114 D4): a call's instance comes from a pool made once,
+# 2.4 to 2.6 times as many calls a second at eight at once as the plain allocator (the spike of T2). It adds no package
+# (the dependency guard of `cobolt-wasm` is unchanged) and is off unless a crate asks, so the Desktop runner does not
+# link it.
 pooling = ["wasmtime/pooling-allocator"]
 
 [dev-dependencies]

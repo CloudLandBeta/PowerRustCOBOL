@@ -14,6 +14,10 @@
 //! A call blocks the program's thread while it waits, as it blocks the form's interpreter; the other
 //! windows' events wait with it, where each form's interpreter would go on (WASM-PARITY row 76).
 
+// The ports the form host reaches (a control's own copy of this state) serve windows: a runner built without `forms`
+// has none, and its Backend uses only the program's own.
+#![cfg_attr(not(feature = "forms"), allow(dead_code))]
+
 use std::collections::HashMap;
 use std::path::Path;
 

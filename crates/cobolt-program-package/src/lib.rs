@@ -23,6 +23,7 @@
 //! * **[`DesktopSections`]** (T28, C1): the settings, the forms as code-free descriptions, the
 //!   menus and the theme art, as custom sections of the program's module.
 
+pub mod backend;
 mod codesign;
 mod macho;
 mod overlay;
@@ -34,6 +35,7 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
+pub use backend::BackendContainer;
 pub use sections::{
     DesktopSections, MenuSource, SectionError, ThemeArt, ART_SECTION, FORMS_SECTION, MENUS_SECTION, SETTINGS_SECTION,
 };
@@ -58,6 +60,9 @@ pub enum Kind {
     MachineCode,
     /// The compatibility hash of the engine that made the machine code (32 bytes).
     MachineCodeEngine,
+    /// A built Backend (spec 114 R3): its [`BackendContainer`], interface, exports and module. Its machine code is
+    /// kinds 2 and 3, as a Desktop program's is. A runner that predates it reads the code 4 as `Other(4)` and passes it by.
+    Backend,
     /// A kind added after this reader.
     Other(u32),
 }
@@ -68,6 +73,7 @@ impl Kind {
             Kind::Module => 1,
             Kind::MachineCode => 2,
             Kind::MachineCodeEngine => 3,
+            Kind::Backend => 4,
             Kind::Other(n) => n,
         }
     }
@@ -77,6 +83,7 @@ impl Kind {
             1 => Kind::Module,
             2 => Kind::MachineCode,
             3 => Kind::MachineCodeEngine,
+            4 => Kind::Backend,
             n => Kind::Other(n),
         }
     }
@@ -88,6 +95,7 @@ impl fmt::Display for Kind {
             Kind::Module => f.write_str("MODULE"),
             Kind::MachineCode => f.write_str("MACHINE_CODE"),
             Kind::MachineCodeEngine => f.write_str("MACHINE_CODE_ENGINE"),
+            Kind::Backend => f.write_str("BACKEND"),
             Kind::Other(n) => write!(f, "kind {n}"),
         }
     }
@@ -173,6 +181,12 @@ impl<'a> Payload<'a> {
     /// The module, checked: a program whose module is damaged cannot run.
     pub fn module(&self) -> Result<&'a [u8], PackageError> {
         self.part(Kind::Module).ok_or_else(|| PackageError::Damaged("no MODULE part".into()))?.verified()
+    }
+
+    /// The Backend, checked and read: a payload that carries none is a Desktop program, not a Backend.
+    pub fn backend(&self) -> Result<BackendContainer, PackageError> {
+        let part = self.part(Kind::Backend).ok_or_else(|| PackageError::Damaged("no BACKEND part".into()))?;
+        BackendContainer::decode(part.verified()?)
     }
 }
 

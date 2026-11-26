@@ -27,8 +27,10 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::backend::Backend;
 use crate::bundle::Bundle;
 use crate::config::{RunMode, ServerConfig};
+use crate::engine::Engine;
 use crate::log::{LogSink, StdoutSink};
 use crate::logfile::{LogWriter, RotatingLog};
 use crate::serve::Options;
@@ -130,8 +132,29 @@ pub(crate) struct Hooks<'a> {
     pub stopping: Box<dyn Fn() + 'a>,
 }
 
+/// What a run starts: the Backend and, when the interpreter is not what runs its programs, the engine that does
+/// (spec 114: a Backend built as a module is run by the Backend runner's engine).
+pub struct Loaded {
+    pub backend: Backend,
+    pub engine: Option<Arc<dyn Engine>>,
+    /// A line for the operator, said where the other lines of the run are said (standard error, and the log file when
+    /// there is one) and never on standard output: which engine runs the programs and the module's identity (spec 114 R12).
+    pub notice: Option<String>,
+}
+
+/// How a run gets its [`Loaded`]: the lines of what is wrong when it cannot.
+pub type Loader<'a> = dyn Fn() -> Result<Loaded, Vec<String>> + 'a;
+
 /// Run the packed backend with the process arguments. Returns the exit code.
 pub fn main(bundle: &[u8], args: Vec<String>) -> i32 {
+    let load =
+        move || Bundle::from_bytes(bundle).map_err(|e| vec![e]).and_then(|b| b.into_backend()).map(|backend| Loaded { backend, engine: None, notice: None });
+    main_with(&load, args)
+}
+
+/// [`main`] for a Backend that is not packed as programs: the arguments, the options, the service and the exit codes are
+/// the same, and only the loading differs.
+pub fn main_with(load: &Loader<'_>, args: Vec<String>) -> i32 {
     let a = match parse(&args) {
         Parsed::Run(a) => a,
         Parsed::Leave(code) => return code,
@@ -168,7 +191,7 @@ pub fn main(bundle: &[u8], args: Vec<String>) -> i32 {
     if a.service {
         #[cfg(windows)]
         {
-            return crate::service_windows::run(&a.service_name, |hooks| run(&a, bundle, &out, sink.clone(), hooks));
+            return crate::service_windows::run(&a.service_name, |hooks| run(&a, load, &out, sink.clone(), hooks));
         }
         #[cfg(not(windows))]
         {
@@ -190,18 +213,21 @@ pub fn main(bundle: &[u8], args: Vec<String>) -> i32 {
             crate::service::notify_stopping();
         }),
     };
-    run(&a, bundle, &out, sink, hooks)
+    run(&a, load, &out, sink, hooks)
 }
 
 /// Load, check, start, wait, stop. The exit code: 0 clean, 1 could not load or start, 2 refused configuration.
-pub(crate) fn run(a: &Args, bundle: &[u8], out: &Out, sink: Arc<dyn LogSink>, hooks: Hooks<'_>) -> i32 {
-    let backend = match Bundle::from_bytes(bundle).and_then(|b| b.into_backend().map_err(|e| e.join("\n"))) {
-        Ok(b) => b,
+pub(crate) fn run(a: &Args, load: &Loader<'_>, out: &Out, sink: Arc<dyn LogSink>, hooks: Hooks<'_>) -> i32 {
+    let Loaded { backend, engine, notice } = match load() {
+        Ok(l) => l,
         Err(e) => {
-            out.line(&e);
+            out.line(&e.join("\n"));
             return 1;
         }
     };
+    if let Some(n) = &notice {
+        out.line(n);
+    }
     if a.describe {
         println!("{}", backend.interface.to_json());
         return 0;
@@ -228,7 +254,7 @@ pub(crate) fn run(a: &Args, bundle: &[u8], out: &Out, sink: Arc<dyn LogSink>, ho
         println!("configuration ok: contract {} on {} ({} exported program(s))", backend.interface.contract, resolved.listen, backend.interface.programs.len());
         return 0;
     }
-    let handle = match crate::serve::start(resolved, backend, Options { sink: Some(sink), fetcher: None, identity_http: None, engine: None }) {
+    let handle = match crate::serve::start(resolved, backend, Options { sink: Some(sink), fetcher: None, identity_http: None, engine }) {
         Ok(h) => h,
         Err(e) => {
             out.line(&format!("error: {e}"));

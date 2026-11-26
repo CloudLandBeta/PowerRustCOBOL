@@ -14,6 +14,10 @@
 //! them in the program's interpreter, runs the statement there, and answers the condition it ended
 //! in and the cells whose value changed (`cobolt_wasm_abi::sql::wire`).
 
+// The ports the form host reaches (a control's own copy of this state) serve windows: a runner built without `forms`
+// has none, and its Backend uses only the program's own.
+#![cfg_attr(not(feature = "forms"), allow(dead_code))]
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;

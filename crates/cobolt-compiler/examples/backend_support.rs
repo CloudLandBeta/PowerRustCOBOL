@@ -63,7 +63,7 @@ fn main() {
             tried += 1;
             let opts = Options { native: true, name: p.sig.name.to_ascii_lowercase(), ..Options::default() };
             let t = Instant::now();
-            match compile_program(&p.program, &opts) {
+            match compile_program(p.program.as_ref().expect("a Backend built from sources"), &opts) {
                 Ok(module) => {
                     accepted += 1;
                     ms_total += t.elapsed().as_millis();

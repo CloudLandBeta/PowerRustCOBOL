@@ -30,20 +30,30 @@
 //!
 //! The runner never names itself after its crate: its words are "the PowerRustCOBOL runner".
 
+#[cfg(feature = "forms")]
 mod agent;
+#[cfg(feature = "forms")]
 pub mod app;
+#[cfg(feature = "forms")]
 mod audio;
+#[cfg(feature = "forms")]
 mod aws;
+pub mod backend;
 pub mod files;
+#[cfg(feature = "forms")]
 pub mod forms;
+#[cfg(feature = "forms")]
 mod gfx;
 mod http;
+#[cfg(feature = "forms")]
 mod kb;
+#[cfg(feature = "forms")]
 mod rest;
 pub mod messages;
 pub mod pins;
 mod partiql;
 mod sql;
+#[cfg(feature = "forms")]
 mod viewer;
 
 use std::io::{BufRead, Write};
@@ -65,6 +75,7 @@ pub use pins::Pins;
 /// T42: the HTTP built-ins (A45); T47b: the KnowledgeBase control (A49); T47c: the AgentObject (A50);
 /// T48: the PartiQL built-ins on the program's own files (A56); T49: the animation sequences and the
 /// layout scripts (A57).
+#[cfg(feature = "forms")]
 pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::CONSOLE,
     cap::ENV,
@@ -91,6 +102,33 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::LAYOUTS,
     cap::VIEWER,
 ];
+
+/// Without the `forms` feature this runner is the console and the data capabilities.
+#[cfg(not(feature = "forms"))]
+pub const PROVIDED_CAPABILITIES: &[&str] = HEADLESS_CAPABILITIES;
+
+/// What a program with no window can use (spec 114 R5, R6): the console, the environment, the files of every organisation,
+/// the text files and pictures a built-in names, `EXEC SQL` and the database objects, the HTTP built-ins and the PartiQL
+/// built-ins on the program's own files. A Backend runner provides these, or a subset by variant (T17).
+pub const HEADLESS_CAPABILITIES: &[&str] = &[
+    cap::CONSOLE,
+    cap::ENV,
+    cap::FILES_SEQUENTIAL,
+    cap::FILES_LINE_SEQUENTIAL,
+    cap::FILES_RELATIVE,
+    cap::FILES_INDEXED,
+    cap::FILES_TEXT,
+    cap::IMAGES,
+    cap::SQL,
+    cap::HTTP,
+    cap::PARTIQL,
+    cap::PARTIQL_FILES,
+];
+
+/// [`HEADLESS_CAPABILITIES`] as a list.
+pub fn headless_capabilities() -> Vec<&'static str> {
+    HEADLESS_CAPABILITIES.to_vec()
+}
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row
 /// is never removed, so a module of any earlier ABI finds every import it was built with (R5).
@@ -196,11 +234,17 @@ pub fn run_module(module: &[u8], code: Option<&MachineCode>, lang: Lang) -> i32 
     }
     // A module with forms is a form application: its windows, and its programs on one thread (T30).
     if !checked.sections.forms.is_empty() {
-        let Checked { abi, imports, manifest, sections, files, sql } = checked;
-        return match app::run(engine, loaded.module, abi, imports, manifest, sections, files, sql, lang, pins) {
-            Ok(code) => code,
-            Err(msg) => refuse(lang, msg),
-        };
+        #[cfg(feature = "forms")]
+        {
+            let Checked { abi, imports, manifest, sections, files, sql } = checked;
+            return match app::run(engine, loaded.module, abi, imports, manifest, sections, files, sql, lang, pins) {
+                Ok(code) => code,
+                Err(msg) => refuse(lang, msg),
+            };
+        }
+        // A runner built without windows names what it lacks, as it names a capability.
+        #[cfg(not(feature = "forms"))]
+        return refuse(lang, Msg::Capabilities(vec!["forms".to_string()]));
     }
     let linker = match linker_for(&engine, checked.abi, &checked.imports) {
         Ok(l) => l,
@@ -268,6 +312,12 @@ struct Checked {
 /// Read the module's manifest and imports: the ABI must be one this runner runs (1 to
 /// [`ABI_VERSION`](cobolt_wasm_abi::codes::ABI_VERSION)), and every capability and import one it provides.
 fn check(module: &[u8]) -> Result<Checked, Msg> {
+    check_with(module, PROVIDED_CAPABILITIES, true)
+}
+
+/// [`check`] against the capabilities `provided` (a Backend runner provides a subset, by variant). `connections` installs
+/// the SQL connections the Build wrote beside a Desktop executable; a Backend reads its own from its configuration.
+fn check_with(module: &[u8], provided: &[&str], connections: bool) -> Result<Checked, Msg> {
     let scan = cobolt_wasm_abi::scan::scan_module(module).map_err(Msg::Damaged)?;
     let text = scan.custom(MANIFEST_SECTION).ok_or_else(|| Msg::Damaged(format!("the module has no `{MANIFEST_SECTION}` section")))?;
     let manifest: Manifest = std::str::from_utf8(text)
@@ -280,7 +330,7 @@ fn check(module: &[u8]) -> Result<Checked, Msg> {
         Err(e) => return Err(Msg::Damaged(e.to_string())),
     }
     let missing: Vec<String> =
-        manifest.capabilities.iter().filter(|c| !PROVIDED_CAPABILITIES.contains(&c.as_str())).cloned().collect();
+        manifest.capabilities.iter().filter(|c| !provided.contains(&c.as_str())).cloned().collect();
     if !missing.is_empty() {
         return Err(Msg::Capabilities(missing));
     }
@@ -296,7 +346,7 @@ fn check(module: &[u8]) -> Result<Checked, Msg> {
     // The SQL connections the Build wrote beside the executable, read as a Cargo-built program reads
     // them at start, for `EXEC SQL` (T41), the SQL built-ins (T41b), the SqlDatabase controls (T41c)
     // and `COBOL::SqlDatabase` (T41d): the capability `sql` says the program has one of them.
-    if manifest.capabilities.iter().any(|c| c == cap::SQL) {
+    if connections && manifest.capabilities.iter().any(|c| c == cap::SQL) {
         sql::install_connections(&sections.settings.app_name);
     }
     Ok(Checked { abi: manifest.abi, imports, manifest, sections, files, sql })
@@ -325,7 +375,7 @@ fn refuse(lang: Lang, msg: Msg) -> i32 {
 
 /// Where machine code compiled at load is kept: `PRC_RUNNER_CACHE` when it is set, else the
 /// user's cache folder; `None` when there is none.
-fn cache_dir() -> Option<PathBuf> {
+pub fn cache_dir() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("PRC_RUNNER_CACHE") {
         return Some(PathBuf::from(d));
     }
@@ -353,6 +403,7 @@ pub struct State {
     /// What ended the run, when the module aborted.
     fatal: Option<Msg>,
     /// A form module's ABI host and the regions of its arena (T30); `None` for a console program.
+    #[cfg(feature = "forms")]
     pub(crate) forms: Option<forms::FormRun>,
     /// The program's files on disk (T38).
     /// The program's files, shared with the IndexedFile controls' port (T48).
@@ -365,6 +416,9 @@ pub struct State {
     pub(crate) http: std::rc::Rc<std::cell::RefCell<http::Clients>>,
     /// `COBOL::"PARTIQL"`'s results, one set per window (T48).
     pub(crate) pq: std::rc::Rc<std::cell::RefCell<partiql::Builtins>>,
+    /// When set, what `DISPLAY` writes is kept here, a line each, instead of going to standard output: a Backend's
+    /// `DISPLAY` is for its debug log and is never sent to the caller (spec 114 T21).
+    pub(crate) display: Option<Vec<String>>,
 }
 
 impl State {
@@ -377,12 +431,14 @@ impl State {
             arena_base: 0,
             exit_code: None,
             fatal: None,
+            #[cfg(feature = "forms")]
             forms: None,
             files: std::rc::Rc::default(),
             sql: None,
             db: std::rc::Rc::default(),
             http: std::rc::Rc::default(),
             pq: std::rc::Rc::default(),
+            display: None,
         }
     }
 }
@@ -390,7 +446,10 @@ impl State {
 /// The batch the module staged in its arena's batch region (at its start, in a console module).
 fn read_batch(caller: &Caller<'_, State>, len: i32) -> Vec<u8> {
     let st = caller.data();
+    #[cfg(feature = "forms")]
     let at = st.arena_base + st.forms.as_ref().map_or(0, |f| f.layout.batch_off);
+    #[cfg(not(feature = "forms"))]
+    let at = st.arena_base;
     let mut buf = vec![0u8; len.max(0) as usize];
     if let Some(mem) = st.arena {
         let _ = mem.read(caller, at as usize, &mut buf);
@@ -400,6 +459,7 @@ fn read_batch(caller: &Caller<'_, State>, len: i32) -> Vec<u8> {
 
 /// The display lists a batch's `DRAW`s name (ABI A23): the start of the graphics region, as far as the
 /// furthest of them reaches. `None` when the batch draws nothing or the module has no region.
+#[cfg(feature = "forms")]
 fn read_gfx(caller: &Caller<'_, State>, batch: &[u8]) -> Option<Vec<u8>> {
     let st = caller.data();
     let (at, size) = st.forms.as_ref()?.gfx?;
@@ -425,10 +485,13 @@ fn apply(batch: &[u8], st: &mut State, abort: bool) {
         Ok(cmds) => {
             for c in cmds {
                 match c {
-                    Command::Display(t) => {
-                        let _ = out.write_all(t.as_bytes());
-                        let _ = out.write_all(b"\n");
-                    }
+                    Command::Display(t) => match st.display.as_mut() {
+                        Some(lines) => lines.push(t.to_string()),
+                        None => {
+                            let _ = out.write_all(t.as_bytes());
+                            let _ = out.write_all(b"\n");
+                        }
+                    },
                     Command::Error { code, line, message, .. } => {
                         let msg = Msg::RuntimeError { code, line, text: message.to_string() };
                         if abort {
@@ -494,22 +557,23 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                 linker
                     .func_wrap(IMPORT_MODULE, "flush", |mut caller: Caller<'_, State>, len: i32| -> wasmtime::Result<()> {
                         let batch = read_batch(&caller, len);
+                        #[cfg(feature = "forms")]
                         let list = read_gfx(&caller, &batch);
                         let st = caller.data_mut();
-                        match st.forms.as_mut() {
-                            Some(f) => {
-                                if let Some(list) = list {
-                                    f.host.set_gfx(list);
-                                }
-                                f.host.flush(&batch);
-                                // A command of the handler failed: its run ends there, as the interpreter's does,
-                                // and the ABI host makes the failure the form's unhandled exception.
-                                if f.host.halted() {
-                                    return Err(wasmtime::Error::msg("run-time error"));
-                                }
+                        #[cfg(feature = "forms")]
+                        if let Some(f) = st.forms.as_mut() {
+                            if let Some(list) = list {
+                                f.host.set_gfx(list);
                             }
-                            None => apply(&batch, st, false),
+                            f.host.flush(&batch);
+                            // A command of the handler failed: its run ends there, as the interpreter's does,
+                            // and the ABI host makes the failure the form's unhandled exception.
+                            if f.host.halted() {
+                                return Err(wasmtime::Error::msg("run-time error"));
+                            }
+                            return Ok(());
                         }
+                        apply(&batch, st, false);
                         Ok(())
                     })
                     .map_err(fail)?;
@@ -519,11 +583,13 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                     .func_wrap(IMPORT_MODULE, "abort", |mut caller: Caller<'_, State>, len: i32| -> wasmtime::Result<()> {
                         let batch = read_batch(&caller, len);
                         let st = caller.data_mut();
-                        match st.forms.as_mut() {
-                            // The ABI host reports the error to the form, and the trap ends the run.
-                            Some(f) => f.host.abort(&batch),
-                            None => apply(&batch, st, true),
+                        // The ABI host reports the error to the form, and the trap ends the run.
+                        #[cfg(feature = "forms")]
+                        if let Some(f) = st.forms.as_mut() {
+                            f.host.abort(&batch);
+                            return Err(wasmtime::Error::msg("run-time error"));
                         }
+                        apply(&batch, st, true);
                         Err(wasmtime::Error::msg("run-time error"))
                     })
                     .map_err(fail)?;
@@ -532,23 +598,32 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                 linker
                     .func_wrap(IMPORT_MODULE, "query", |mut caller: Caller<'_, State>, len: i32| -> i32 {
                         let bad = cobolt_wasm_abi::codes::err::BAD_ARGUMENT;
-                        let batch = read_batch(&caller, len);
-                        let list = read_gfx(&caller, &batch);
-                        let (at, mem, answer) = {
-                            let st = caller.data_mut();
-                            let Some(f) = st.forms.as_mut() else { return bad };
-                            if let Some(list) = list {
-                                f.host.set_gfx(list);
+                        // The ABI host answers a query; a runner with no windows has none, and a console program asks nothing.
+                        #[cfg(not(feature = "forms"))]
+                        {
+                            let _ = (&mut caller, len);
+                            bad
+                        }
+                        #[cfg(feature = "forms")]
+                        {
+                            let batch = read_batch(&caller, len);
+                            let list = read_gfx(&caller, &batch);
+                            let (at, mem, answer) = {
+                                let st = caller.data_mut();
+                                let Some(f) = st.forms.as_mut() else { return bad };
+                                if let Some(list) = list {
+                                    f.host.set_gfx(list);
+                                }
+                                (st.arena_base + f.layout.answer_off, st.arena, f.host.query(&batch))
+                            };
+                            match (answer, mem) {
+                                (Ok(answer), Some(mem)) => match mem.write(&mut caller, at as usize, &answer) {
+                                    Ok(()) => answer.len() as i32,
+                                    Err(_) => bad,
+                                },
+                                (Ok(_), None) => bad,
+                                (Err(code), _) => code,
                             }
-                            (st.arena_base + f.layout.answer_off, st.arena, f.host.query(&batch))
-                        };
-                        match (answer, mem) {
-                            (Ok(answer), Some(mem)) => match mem.write(&mut caller, at as usize, &answer) {
-                                Ok(()) => answer.len() as i32,
-                                Err(_) => bad,
-                            },
-                            (Ok(_), None) => bad,
-                            (Err(code), _) => code,
                         }
                     })
                     .map_err(fail)?;
@@ -559,11 +634,11 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                 linker
                     .func_wrap(IMPORT_MODULE, "now", |caller: Caller<'_, State>| -> f64 {
                         let st = caller.data();
+                        #[cfg(feature = "forms")]
                         if st.forms.is_some() {
-                            forms::now_ms()
-                        } else {
-                            st.pins.now_ms()
+                            return forms::now_ms();
                         }
+                        st.pins.now_ms()
                     })
                     .map_err(fail)?;
             }
@@ -623,11 +698,11 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                 linker
                     .func_wrap(NATIVE_IMPORT_MODULE, "tz_offset", |caller: Caller<'_, State>| -> i32 {
                         let st = caller.data();
+                        #[cfg(feature = "forms")]
                         if st.forms.is_some() {
-                            forms::offset_minutes()
-                        } else {
-                            st.pins.offset_minutes()
+                            return forms::offset_minutes();
                         }
+                        st.pins.offset_minutes()
                     })
                     .map_err(fail)?;
             }

@@ -18,6 +18,22 @@ build                  = "build.rs"
 name = "prc-runner"
 path = "src/main.rs"
 
+# The Desktop CI's example opens windows and builds form fixtures: it needs the window side.
+[[example]]
+name = "desktop_wasm_ci"
+required-features = ["forms"]
+
+[features]
+# `forms` is what makes this the Desktop's runner: windows, controls, sound, pictures, the controls' data services. Without it
+# the crate is the data capabilities and the console, which is what the Backend runner (`cobolt-backend-runner`) links:
+# no `egui`, `eframe`, `winit` or `wgpu` in its tree (spec 114 R5).
+default = ["forms"]
+forms = [
+    "dep:cobolt-form-host", "dep:cobolt-forms", "dep:cobolt-graphics",
+    "cobolt-runtime/audio", "cobolt-runtime/graphics", "cobolt-runtime/aws", "cobolt-runtime/kb",
+    "cobolt-runtime/maps", "cobolt-runtime/pdf", "cobolt-runtime/office",
+]
+
 [dependencies]
 # The one engine, the machine code's load order and the local cache (T13).
 cobolt-runner-engine   = { path = "../cobolt-runner-engine" }
@@ -31,24 +47,23 @@ serde_json = { workspace = true }
 wasmtime = { version = "=44.0.3", default-features = false, features = ["cranelift", "runtime", "std"] }
 # The pinned clock (`PRC_TEST_CLOCK`, RFC 3339) and the local offset, read as the interpreter reads them.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-# A module with forms (T30): the ABI host drives its programs, as the browser's player does, and
-# the form host shows its windows, the very windows a program built on the Cargo path shows. The
-# runtime's optional parts (SQL, HTTP, maps, …) stay off until a milestone provides their capability:
-# `audio` is on since T49 (the capability `audio`, ABI A36), `graphics` since T50 (the canvases and the
-# graphics objects, drawn by the interpreter's registry, and the windows that show their pictures),
-# `aws` since T48 (the AWS controls and keys, ABI A38: the interpreter's connections, route table and
-# operations; the form host publishes the project's connections to them), `images` since T39c (IMAGE-FIT and
-# IMAGE-INFO, ABI A39: the interpreter's own picture code), `kb` since T47b (the KnowledgeBase control, ABI A49:
-# the interpreter's own workers; without the built-in semantic model, so a project that links it takes the
-# Cargo path), `maps` since T48 (the Maps control's places and directions: Google's client), `pdf` and
-# `office` since T50 (the Viewer: Save As PDF, and the Office documents it reads, as a Cargo build links them for
-# a form with a Viewer).
+# The data capabilities every runner has: the interpreter's own file, SQL, HTTP, PartiQL and picture code, reached through
+# the ABI host's ports (egui-free). `images` since T39c (IMAGE-FIT and IMAGE-INFO, ABI A39), `sql` since T41, `http`
+# since T42. Which of the interpreter's optional parts a runner links is spec 114's T17 (provider groups).
 cobolt-abi-host  = { path = "../cobolt-abi-host" }
-cobolt-form-host = { path = "../cobolt-form-host", default-features = false, features = ["graphics", "aws"] }
-cobolt-forms     = { path = "../cobolt-forms", features = ["render"] }
-cobolt-runtime   = { path = "../cobolt-runtime", default-features = false, features = ["audio", "graphics", "aws", "images", "sql", "http", "kb", "maps", "pdf", "office"] }
+cobolt-runtime   = { path = "../cobolt-runtime", default-features = false, features = ["images", "sql", "http"] }
+# A module with forms (T30), behind the feature `forms` (spec 114 T16): the ABI host drives its programs, as the
+# browser's player does, and the form host shows its windows, the very windows a program built on the Cargo path
+# shows. `audio` is on since T49 (the capability `audio`, ABI A36), `graphics` since T50 (the canvases and the
+# graphics objects, drawn by the interpreter's registry, and the windows that show their pictures), `aws` since T48
+# (the AWS controls and keys, ABI A38), `kb` since T47b (the KnowledgeBase control, ABI A49: the interpreter's own
+# workers; without the built-in semantic model, so a project that links it takes the Cargo path), `maps` since T48
+# (the Maps control's places and directions: Google's client), `pdf` and `office` since T50 (the Viewer: Save As PDF,
+# and the Office documents it reads, as a Cargo build links them for a form with a Viewer).
+cobolt-form-host = { path = "../cobolt-form-host", default-features = false, features = ["graphics", "aws"], optional = true }
+cobolt-forms     = { path = "../cobolt-forms", features = ["render"], optional = true }
 # The graphics library the interpreter draws with (T50); the form host already links it.
-cobolt-graphics  = { path = "../cobolt-graphics" }
+cobolt-graphics  = { path = "../cobolt-graphics", optional = true }
 # The file declarations name an INDEXED file's engine choice as the parser does (T38).
 cobolt-ast       = { path = "../cobolt-ast" }
 

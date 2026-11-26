@@ -322,7 +322,8 @@ fn the_backend_module_answers_every_call_as_the_interpreter_does() {
     let exported: Vec<_> = CASES.iter().map(|c| backend.program(c.name).expect("exported").clone()).collect();
 
     let started = Instant::now();
-    let list: Vec<BackendProgram<'_>> = exported.iter().map(|e| BackendProgram { name: e.sig.name.clone(), program: &e.program }).collect();
+    let list: Vec<BackendProgram<'_>> =
+        exported.iter().map(|e| BackendProgram { name: e.sig.name.clone(), program: e.program.as_ref().expect("the interpreter's source") }).collect();
     let compiled = compile_backend(&list, &Options { native: true, ..Options::default() }).unwrap_or_else(|e| panic!("the module does not compile: {e}"));
     let compile_ms = started.elapsed().as_millis();
 

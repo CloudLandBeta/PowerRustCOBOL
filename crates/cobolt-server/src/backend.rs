@@ -254,7 +254,7 @@ pub struct ExportDecl {
 /// control takes — its `AllowedExtensions`, its `MaximumFileSizeKB` — so the
 /// backend refuses on its own what the control would refuse. The backend names
 /// the stored files, as for every slot.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SlotDecl {
     pub name: String,
@@ -273,7 +273,7 @@ pub struct SlotDecl {
 /// operator 2026-10-24, point 2): a program cannot create a typed object, so
 /// the Build declares it here — its class, its design-time properties and the
 /// name of the `[[configuration]]` of `backend.toml` laid over them.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ControlDecl {
     /// The control's name, as the program calls it.
@@ -343,13 +343,39 @@ pub fn parse_semver(v: &str) -> Option<(u64, u64, u64)> {
 /// One exported program, ready to run.
 pub struct ExportedProgram {
     pub sig: ProgramSig,
-    /// The top-level program, with every other backend program nested in it.
-    pub program: Program,
+    /// The top-level program, with every other backend program nested in it. `None` for a Backend that runs as a
+    /// module (spec 114): its programs are in the module, and the interpreter engine, which needs this, refuses it.
+    pub program: Option<Program>,
     /// The names of the `USING` parameters, in order.
     pub params: Vec<String>,
     pub returning: Option<String>,
     /// The control the backend seeds before the program runs (WASM-005 T11).
     pub control: Option<ControlDecl>,
+}
+
+/// One exported program as a Backend that runs as a module carries it (spec 114 R3): everything the server needs
+/// to call it except its source, which is in the module. The signature of a contract program is in the
+/// interface description; an identity program (WASM-009) is in no contract, so only its entry stands for it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExportEntry {
+    /// The PROGRAM-ID, upper case.
+    pub name: String,
+    /// Run only by the `/auth/*` routes, in no contract.
+    #[serde(default)]
+    pub identity: bool,
+    /// The names of the `USING` parameters, in order.
+    pub params: Vec<String>,
+    #[serde(default)]
+    pub returning: Option<String>,
+    /// The control the Build declared for a generated program.
+    #[serde(default)]
+    pub control: Option<ControlDecl>,
+}
+
+impl PartialEq for ControlDecl {
+    fn eq(&self, other: &ControlDecl) -> bool {
+        self.id == other.id && self.class == other.class && self.configuration == other.configuration && self.properties == other.properties
+    }
 }
 
 /// Everything the server runs.
@@ -394,6 +420,72 @@ impl Backend {
             .filter(|(s, _)| s.0 == want.0 && *s <= want)
             .max_by_key(|(s, _)| *s)
             .map(|(_, h)| h)
+    }
+
+    /// The export table of a Backend that runs as a module: what [`Backend::from_parts`] takes back.
+    pub fn export_entries(&self) -> Vec<ExportEntry> {
+        let mut entries: Vec<ExportEntry> = self
+            .exports
+            .values()
+            .chain(self.identity.values())
+            .map(|p| ExportEntry {
+                name: p.sig.name.clone(),
+                identity: self.identity.contains_key(&p.sig.name),
+                params: p.params.clone(),
+                returning: p.returning.clone(),
+                control: p.control.clone(),
+            })
+            .collect();
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        entries
+    }
+
+    /// A Backend whose programs run elsewhere (a module, spec 114): its interface, the released ones, the export table,
+    /// the state mode and the upload slots, with no source. Every program of the interface has an entry and every entry
+    /// of a contract program is in the interface: a table that does not hold together is refused, in words.
+    pub fn from_parts(
+        interface: InterfaceDescription,
+        history: Vec<InterfaceDescription>,
+        entries: Vec<ExportEntry>,
+        state: StateMode,
+        slots: Vec<SlotDecl>,
+    ) -> Result<Backend, Vec<String>> {
+        let mut errs = Vec::new();
+        let mut map: HashMap<String, Arc<ExportedProgram>> = HashMap::new();
+        let mut identity: HashMap<String, Arc<ExportedProgram>> = HashMap::new();
+        for e in entries {
+            let name = e.name.to_ascii_uppercase();
+            let sig = if e.identity {
+                ProgramSig::new(&name)
+            } else {
+                match interface.program(&name) {
+                    Some(sig) => sig.clone(),
+                    None => {
+                        errs.push(format!("the export table names {name}, which the interface does not describe"));
+                        continue;
+                    }
+                }
+            };
+            if map.contains_key(&name) || identity.contains_key(&name) {
+                errs.push(format!("the export table names {name} twice"));
+                continue;
+            }
+            let exported = Arc::new(ExportedProgram { sig, program: None, params: e.params, returning: e.returning, control: e.control });
+            if e.identity {
+                identity.insert(name, exported);
+            } else {
+                map.insert(name, exported);
+            }
+        }
+        for sig in &interface.programs {
+            if !map.contains_key(&sig.name.to_ascii_uppercase()) {
+                errs.push(format!("the interface describes {}, which the export table does not list", sig.name));
+            }
+        }
+        if !errs.is_empty() {
+            return Err(errs);
+        }
+        Ok(Backend { interface, history, exports: map, identity, state, slots })
     }
 
     /// Build from parsed programs and the exports declaration.
@@ -484,7 +576,7 @@ impl Backend {
             }
             let exported = Arc::new(ExportedProgram {
                 sig: sig.clone(),
-                program: top,
+                program: Some(top),
                 params: params_names,
                 returning: prog.procedure.returning.clone(),
                 control: decl.control.clone(),

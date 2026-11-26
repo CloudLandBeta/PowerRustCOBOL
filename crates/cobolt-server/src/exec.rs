@@ -176,12 +176,15 @@ struct Unit {
 }
 
 impl Unit {
-    fn new(prog: &ExportedProgram, external: ExternalStore) -> Unit {
+    fn new(prog: &ExportedProgram, external: ExternalStore) -> Result<Unit, CallError> {
+        let Some(program) = prog.program.clone() else {
+            return Err(CallError::new(ErrorClass::Server, codes::PROGRAM_FAULT, "this Backend carries no source for the interpreter: its programs run in a module"));
+        };
         let (event_tx, event_rx) = mpsc::channel();
         let (state_tx, state_rx) = mpsc::channel();
         let (display_tx, display_rx) = mpsc::channel();
-        let interp = Interpreter::new_with_channels_and_store(prog.program.clone(), event_rx, state_tx, display_tx, external);
-        Unit { interp, display_rx, event_tx, _state_rx: state_rx }
+        let interp = Interpreter::new_with_channels_and_store(program, event_rx, state_tx, display_tx, external);
+        Ok(Unit { interp, display_rx, event_tx, _state_rx: state_rx })
     }
 }
 
@@ -189,7 +192,7 @@ impl Unit {
 /// no answer to read back: it ends when it ends or is cancelled.
 pub fn execute(prog: &ExportedProgram, args: &[String], opts: ExecOptions) -> Result<ExecResult, CallError> {
     check_arity(prog, args)?;
-    let mut unit = Unit::new(prog, cobolt_runtime::new_external_store());
+    let mut unit = Unit::new(prog, cobolt_runtime::new_external_store())?;
     let mut sound = false;
     run_call(&mut unit, prog, args, opts, &mut sound)
 }
@@ -225,7 +228,10 @@ impl Session {
     pub fn execute(&mut self, prog: &ExportedProgram, args: &[String], opts: ExecOptions) -> Result<ExecResult, CallError> {
         check_arity(prog, args)?;
         let external = self.external.get_or_insert_with(cobolt_runtime::new_external_store).clone();
-        let mut unit = self.units.remove(&prog.sig.name).unwrap_or_else(|| Unit::new(prog, external));
+        let mut unit = match self.units.remove(&prog.sig.name) {
+            Some(unit) => unit,
+            None => Unit::new(prog, external)?,
+        };
         let mut sound = false;
         let result = run_call(&mut unit, prog, args, opts, &mut sound);
         if sound {

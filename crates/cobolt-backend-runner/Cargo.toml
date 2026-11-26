@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-backend-runner"
+description = "prc-backend-runner (spec 114): the prebuilt runner of a Backend built as a WebAssembly module. A Build puts the Backend inside a copy of it; the copy is the server, with the same arguments and answers as a Cargo-built Backend, and runs the programs as a module on the Backend engine"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+build                  = "build.rs"
+
+[lib]
+name = "cobolt_backend_runner"
+path = "src/lib.rs"
+
+[[bin]]
+name = "prc-backend-runner"
+path = "src/main.rs"
+
+[dependencies]
+# The server: the wire, the tokens, the limits, the log, `standalone::main_with`. Headless; no interpreter.
+cobolt-server = { path = "../cobolt-server", default-features = false, features = ["server"] }
+cobolt-wire   = { path = "../cobolt-wire" }
+# What a call is run on: the module, its imports (the Desktop runner's data capabilities), the engine and its cache.
+cobolt-runner        = { path = "../cobolt-runner", default-features = false }
+cobolt-runner-engine = { path = "../cobolt-runner-engine" }
+# The payload inside the executable, and the ABI the module speaks.
+cobolt-program-package = { path = "../cobolt-program-package" }
+cobolt-wasm-abi        = { path = "../cobolt-wasm-abi", features = ["scan"] }
+serde_json = { workspace = true }
+sha2       = { workspace = true }
+tracing    = { workspace = true }
+
+[dev-dependencies]
+# The loopback rig, with a real TLS socket and a one-key identity provider.
+cobolt-server = { path = "../cobolt-server", features = ["testkit"] }
+# The tests compile the programs to a Backend module as the Build will.
+cobolt-wasm   = { path = "../cobolt-wasm", default-features = false }
+cobolt-ast    = { path = "../cobolt-ast" }
+cobolt-lexer  = { path = "../cobolt-lexer" }
+cobolt-parser = { path = "../cobolt-parser" }
+# The names the module and the interpreter give a refused request, held equal.
+cobolt-wasm-rt = { path = "../cobolt-wasm-rt" }
+tokio     = { workspace = true }

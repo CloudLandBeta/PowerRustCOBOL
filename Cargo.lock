@@ -2083,6 +2083,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-backend-runner"
+version = "0.2.0"
+dependencies = [
+ "cobolt-ast",
+ "cobolt-lexer",
+ "cobolt-parser",
+ "cobolt-program-package",
+ "cobolt-runner",
+ "cobolt-runner-engine",
+ "cobolt-server",
+ "cobolt-wasm",
+ "cobolt-wasm-abi",
+ "cobolt-wasm-rt",
+ "cobolt-wire",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "cobolt-bench"
 version = "0.2.0"
 dependencies = [

@@ -63,7 +63,7 @@ fn the_identity_programs_join_the_backend_apart_from_its_exports() {
     assert_eq!(exported_names(&dir), vec!["HELLO".to_string()]);
     let hello = b.program("HELLO").expect("HELLO");
     assert!(
-        hello.program.nested_programs.iter().all(|p| !p.identification.program_id.starts_with("AUTH-")),
+        hello.program.as_ref().expect("the source").nested_programs.iter().all(|p| !p.identification.program_id.starts_with("AUTH-")),
         "a developer program does not carry the identity programs"
     );
 
@@ -73,7 +73,7 @@ fn the_identity_programs_join_the_backend_apart_from_its_exports() {
         assert!(p.sig.public, "{name}: a person signing in has no token yet");
         assert_eq!(p.params, vec!["AUTH-REQUEST".to_string()]);
         assert_eq!(p.returning.as_deref(), Some("AUTH-RESULT"));
-        assert!(p.program.nested_programs.is_empty(), "{name} carries no other program");
+        assert!(p.program.as_ref().expect("the source").nested_programs.is_empty(), "{name} carries no other program");
     }
 
     // The packed backend (the built binary) reads the same.

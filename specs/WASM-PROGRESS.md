@@ -157,6 +157,22 @@ A Backend is now compiled to **one module that holds every program it exports** 
 | Gate G2 | the five groups green except `cobolt-web-tests`' `examples` (the operator's untracked `agentic_ai` files); the wasm family 102 binaries, 749 passed, 0 failed, 3 ignored; no Desktop or browser module moved |
 | What the time column is not | the interpreter's 13 ms against the module's 6,491 ms for the 34 calls compares an interpreter with a debug build that compiles the module on every call; the real numbers are M3's (pooled instances, `--release`) |
 
+### M3 — the headless runner (T16, T18–T24, 2026-11-26, version 2.1.57)
+
+A Backend module is now served by `prc-backend-runner` (crate `cobolt-backend-runner`) through the server's `Engine` seam, with the interface of a Cargo-built Backend. The provider groups and the parity run on the four shipped Backends (T17, T25) are still to do, so gate G3 is not closed and no variant size is recorded yet. Measured on an 11-core Apple M3 Pro, debug builds.
+
+| What | Result |
+|---|---|
+| The window side behind `forms` | `cobolt-runner` without `forms`: **337 crates** in `cargo tree`; with it (the default) **602**; the window side is **265** crates; none of `egui`, `eframe`, `winit`, `wgpu`, `epaint`, the IDE, the form host, sound or graphics library in the headless tree (`dependency_guard`, PASS 5 FAIL 0) |
+| The Backend runner's own tree | **494 crates**, no window system; it links `cobolt-runtime` for the providers (files, SQL, HTTP, PartiQL, pictures), which brings `image`, `resvg`, `lopdf`, `rusqlite`, `postgres`, `mysql`, `ureq` (T17 decides which a variant leaves out) |
+| The engines | the Backend engine has epoch interruption and the Desktop's does not; machine code of one module is 50,752 bytes (Backend) against 50,688 (Desktop); each loads its own and passes the other's by (41 ms); the pooled allocator (`pooling` feature) takes the plain engine's machine code and holds 8 instances at once (27 ms) but is not adopted |
+| The container | `Kind::Backend = 4`; PASS 071 FAIL 000 (a literal v1 byte string, all 65 cuts of a 65-byte container, a newer version, a damaged part) |
+| Through the whole server | 19 calls on the interpreter and on the module over a real socket: **19 equal, 0 different** (9 refused or failed); the two rigs started in 487 ms |
+| Many callers | 8 connections x 25 iterations (400 calls) on one module in 1,648 ms (242 calls/sec); none saw another's WORKING-STORAGE; 8 threads x 40 iterations on the host (640 calls, 962 calls/sec) |
+| AC6 (a loop with no exit) | the server's limit 700 ms: the caller answered at 703 ms, the thread returned 7 ms later, the next call served (1,426 ms); at the host, 5 ms from the epoch's advance to the end of the call |
+| The executable | 6 invocations the same standard output and exit code as the Cargo-built stand-in; served 114 ms after start; SIGTERM ends it with 0; the engine line only in the log and on standard error |
+| Suites | `cobolt-runner` (forms on) 17 binaries, 29 passed, 0 failed, 2 ignored; `cobolt-backend-runner` 8 passed; `cobolt-server` 195 passed in 29 binaries; `cobolt-program-package` and `cobolt-runner-engine` 21 passed in 8 |
+
 ## DESKTOP-WASM-001 — the M6 close and the acceptance audit (measured 2026-11-21, versions 2.0.640 to 2.0.643)
 
 The Desktop Build's default is the WebAssembly path, and **every reference project takes it with no Rust toolchain on the machine.** Measured on an 11-core Apple M3 Pro with 18 GB (not the reference box), macOS arm64, at `4db4e98f` (2.0.639) with the M6-close changes in the tree. The commands are in `specs/DESKTOP-WASM-001-portable-program-format-and-native-runner/tasks.md`, T51.

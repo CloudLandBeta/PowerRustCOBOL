@@ -9,6 +9,8 @@
 //! * [`config`] — the settings every engine is made with, for the generator's tests and for the
 //!   runner alike: multi-memory, NaN canonicalisation, an explicit target at a fixed CPU level,
 //!   parallel compilation.
+//! * [`backend_config`] — the Backend runner's settings (spec 114 D3, D4): [`config`] plus epoch interruption, so a
+//!   call that must end can be stopped from outside, and, with the `pooling` feature, an instance pool.
 //! * [`precompile`] — the Build's machine code for a [`Target`]: x86-64-v2 on x86-64, the Apple
 //!   M1's features on aarch64. It depends on the target only, never on the machine that builds.
 //! * [`load`] — the runner's one way in, in a fixed order: the code's sha256, then the engine's
@@ -127,6 +129,65 @@ pub fn config(target: &Target) -> Result<wasmtime::Config, String> {
             config.cranelift_flag_enable(flag);
         }
     }
+    Ok(config)
+}
+
+/// The Backend runner's settings (spec 114 D3): [`config`] plus **epoch interruption**, so a call that must end (the
+/// caller gave up, its time is up) is stopped from outside by advancing the engine's epoch, whatever the program is
+/// doing. The checks are in the machine code, so code made for this configuration and code made for [`config`] are not
+/// each other's: their compatibility hashes differ and [`load`] passes by the one it cannot use. [`config`] is not
+/// edited, so no Desktop module's machine code moves. **A store of this engine starts with its epoch deadline at
+/// zero, so a call traps at its first check until the caller sets one** (`Store::set_epoch_deadline`).
+pub fn backend_config(target: &Target) -> Result<wasmtime::Config, String> {
+    let mut config = config(target)?;
+    config.epoch_interruption(true);
+    Ok(config)
+}
+
+/// An engine for `target` with [`backend_config`].
+pub fn backend_engine_for(target: &Target) -> Result<Engine, String> {
+    Engine::new(&backend_config(target)?).map_err(|e| e.to_string())
+}
+
+/// The engine a Backend's calls run on here: [`Target::host`].
+pub fn backend_engine() -> Result<Engine, String> {
+    backend_engine_for(&Target::host())
+}
+
+/// The Build's machine code for a Backend's `module` on `target`: made by [`backend_engine_for`], so only a Backend
+/// engine loads it.
+pub fn precompile_backend(module: &[u8], target: &Target) -> Result<MachineCode, String> {
+    let engine = backend_engine_for(target)?;
+    let bytes = engine.precompile_module(module).map_err(|e| e.to_string())?;
+    Ok(MachineCode { sha256: sha256(&bytes), compat: compatibility_hash(&engine), bytes })
+}
+
+/// How large the instance pool of a Backend runner is: instances held ready, and what one of them may have.
+#[cfg(feature = "pooling")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pool {
+    /// The most instances alive at once (the calls in flight).
+    pub instances: u32,
+    /// The memories one module declares (the generated modules have two: the workspace and the arena).
+    pub memories_per_module: u32,
+    /// The most bytes one memory may reach.
+    pub max_memory_bytes: usize,
+}
+
+/// [`backend_config`] with a pooling allocator sized by `pool`: an instance is taken from a pool made once, not mapped
+/// and unmapped for each call. The code it runs is the same, so machine code made by [`precompile_backend`] loads in
+/// the pooled engine too (the compatibility hashes are equal; a test holds it).
+#[cfg(feature = "pooling")]
+pub fn backend_pooled_config(target: &Target, pool: &Pool) -> Result<wasmtime::Config, String> {
+    let mut config = backend_config(target)?;
+    let mut sizing = wasmtime::PoolingAllocationConfig::default();
+    sizing
+        .total_core_instances(pool.instances)
+        .total_memories(pool.instances.saturating_mul(pool.memories_per_module))
+        .max_memories_per_module(pool.memories_per_module)
+        .total_tables(pool.instances)
+        .max_memory_size(pool.max_memory_bytes);
+    config.allocation_strategy(wasmtime::InstanceAllocationStrategy::Pooling(sizing));
     Ok(config)
 }
 
