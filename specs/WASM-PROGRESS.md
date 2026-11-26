@@ -153,6 +153,8 @@ A Backend is now compiled to **one module that holds every program it exports** 
 | Modules that moved | **none**: the runtime gained one routine (`rt_json_error_path`, `rt.wasm` 309,868 to 310,085 bytes) whose addition left the runtime's data byte-identical, so the player's 8 committed fixtures and the AC16 pin of PowerAnalyticsWeb pass as committed |
 | Backend column of the support table | 19 entries refused at their line with the Backend's reason (9 Backend-side verbs, `AUTH-OP`, 9 client-side verbs, the remote `CALL`); the Desktop column unchanged |
 | Determinism | a Backend module compiled 20 times in each memory variant: 40 compiles, identical bytes |
+| Review (2.1.56) | an answer the program leaves unwritable is result 4 with the member's path (37 calls equal, 0 different); a `LINKAGE` record beyond the runtime's 512 KiB or 32 `OCCURS DEPENDING ON` occurrences is refused at generation (the limits read from the runtime's own constants; a module with 32 tables each filled is answered); `rt.wasm` bytes unchanged |
+| Gate G2 | the five groups green except `cobolt-web-tests`' `examples` (the operator's untracked `agentic_ai` files); the wasm family 102 binaries, 749 passed, 0 failed, 3 ignored; no Desktop or browser module moved |
 | What the time column is not | the interpreter's 13 ms against the module's 6,491 ms for the 34 calls compares an interpreter with a debug build that compiles the module on every call; the real numbers are M3's (pooled instances, `--release`) |
 
 ## DESKTOP-WASM-001 — the M6 close and the acceptance audit (measured 2026-11-21, versions 2.0.640 to 2.0.643)

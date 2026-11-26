@@ -407,7 +407,8 @@ pub struct BackendProgram<'a> {
 /// Compile the programs a Backend exports into one Backend module (ABI A59): each program has a region and an
 /// initial image of its own, and the module exports `pr_backend_call(export)`, `export` being the program's
 /// place in `programs`. `opts.backend` sets the frames' areas (default [`BackendOptions::default`]); the
-/// module is a desktop module in every other way, so `opts.native` should be set.
+/// module is a desktop module in every other way, so `native` is always on: a Backend module that took the
+/// browser's rules would turn a remote `CALL` into a suspension nothing resumes.
 pub fn compile_backend(programs: &[BackendProgram<'_>], opts: &Options) -> GenResult<Compiled> {
     if programs.is_empty() {
         return Err(GenError::new(0, "a Backend module needs at least one exported program"));
@@ -418,6 +419,7 @@ pub fn compile_backend(programs: &[BackendProgram<'_>], opts: &Options) -> GenRe
         .map(|(i, p)| FormSpec { name: p.name.clone(), main: i == 0, instances: 1, program: p.program, controls: vec![], bindings: vec![], layers: vec![], lines: vec![] })
         .collect();
     let mut o = opts.clone();
+    o.native = true;
     if o.backend.is_none() {
         o.backend = Some(BackendOptions::default());
     }
@@ -725,9 +727,10 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             if b.request_cap < 4 || b.response_cap < 8 + cobolt_wasm_rt::state::JSON_PATH_SIZE {
                 return Err(GenError::new(0, "a Backend module's request area holds at least 4 bytes and its response area at least 1,032"));
             }
+            let too_big = || GenError::new(0, "a Backend module's request and response areas do not fit its 32-bit address space");
             let request_at = align(end, 16);
-            let response_at = align(request_at + b.request_cap, 16);
-            end = response_at + b.response_cap;
+            let response_at = align(request_at.checked_add(b.request_cap).ok_or_else(too_big)?, 16);
+            end = response_at.checked_add(b.response_cap).ok_or_else(too_big)?;
             Some(cobolt_wasm_abi::backend::BackendSection {
                 request: cobolt_wasm_abi::backend::Area { at: request_at, cap: b.request_cap },
                 response: cobolt_wasm_abi::backend::Area { at: response_at, cap: b.response_cap },

@@ -15,7 +15,8 @@
 //! ```text
 //! request    count, then count × (len, len bytes of JSON)   one text per USING parameter
 //! response   0 answered   count, count × (len, JSON), has_returning, [len, JSON]
-//!            1 refused    code, path_len, path
+//!            1 refused    code, path_len, path        (nothing ran)
+//!            4 unwritable code, path_len, path        (the program ran; a record it holds is not JSON-able)
 //! ```
 //!
 //! The section is **not a field of [`crate::Manifest`]**: a module without it has the manifest it always
@@ -41,6 +42,11 @@ pub mod result {
     pub const TOO_LARGE: i32 = 2;
     /// The request frame is malformed, or the export is not in the manifest.
     pub const BAD_REQUEST: i32 = 3;
+    /// The program ran, but a record it holds cannot be written as JSON (an `OCCURS DEPENDING ON` count out of
+    /// its range, bytes that are not UTF-8, a number its picture cannot hold): the response frame is the code
+    /// and the path of the member, as for [`REFUSED`]. The interpreter answers such a call with a validation
+    /// error that names the same member.
+    pub const UNWRITABLE: i32 = 4;
     // A run-time error is not a result: it traps (ABI §9 `-10`), the `ERROR` command of §5 having been flushed first.
 }
 
@@ -168,6 +174,13 @@ impl<'a> Reader<'a> {
         self.at += n;
         String::from_utf8(s.to_vec()).map_err(|_| "a text of the frame is not UTF-8".to_owned())
     }
+    /// A text that may have been cut in the middle of a character (the runtime keeps a path to 1,024 bytes).
+    fn text_lossy(&mut self) -> Result<String, String> {
+        let n = self.word()? as usize;
+        let s = self.b.get(self.at..self.at.checked_add(n).ok_or("a length overflows")?).ok_or("the frame ends inside a text")?;
+        self.at += n;
+        Ok(String::from_utf8_lossy(s).into_owned())
+    }
 }
 
 /// Read an answered response frame.
@@ -190,7 +203,9 @@ pub fn decode_answer(frame: &[u8]) -> Result<Answer, String> {
 pub fn decode_refusal(frame: &[u8]) -> Result<Refusal, String> {
     let mut r = Reader { b: frame, at: 0 };
     let code = r.word()? as i32;
-    let path = r.text()?;
+    // The runtime keeps a member's path to 1,024 bytes, which can end inside a character: the path is read as
+    // it is, with the broken character replaced, rather than the whole refusal being lost.
+    let path = r.text_lossy()?;
     Ok(Refusal { code, path })
 }
 

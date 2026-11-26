@@ -9,8 +9,8 @@
 
 mod common;
 
-use cobolt_wasm::host::{run_backend, BackendReply};
-use cobolt_wasm::{compile_backend, BackendProgram, Options};
+use cobolt_wasm::host::{run_backend, run_backend_index, BackendReply};
+use cobolt_wasm::{compile_backend, BackendOptions, BackendProgram, Options};
 use cobolt_wasm_abi::backend::{BackendSection, Refusal};
 use std::time::Instant;
 
@@ -49,6 +49,10 @@ fn backend_options() -> Options {
 
 /// Every program nested in each of the others, as `cobolt_server::Backend::build` nests them.
 fn module(sources: &[&str]) -> cobolt_wasm::Compiled {
+    module_with(sources, &backend_options())
+}
+
+fn module_with(sources: &[&str], options: &Options) -> cobolt_wasm::Compiled {
     let programs: Vec<cobolt_ast::program::Program> = sources.iter().map(|s| common::parse(s)).collect();
     let tops: Vec<cobolt_ast::program::Program> = programs
         .iter()
@@ -63,7 +67,7 @@ fn module(sources: &[&str]) -> cobolt_wasm::Compiled {
         })
         .collect();
     let list: Vec<BackendProgram<'_>> = tops.iter().map(|t| BackendProgram { name: t.identification.program_id.to_ascii_uppercase(), program: t }).collect();
-    compile_backend(&list, &backend_options()).unwrap_or_else(|e| panic!("compile failed: {e}"))
+    compile_backend(&list, options).unwrap_or_else(|e| panic!("compile failed: {e}"))
 }
 
 #[test]
@@ -124,3 +128,139 @@ fn a_valid_request_runs_and_an_over_limit_one_is_refused_before_the_program_runs
     assert_eq!(extra, BackendReply::BadRequest);
     println!("valid request answered, over-limit refused (6), unknown member refused (3), extra text bad request ({} ms)", started.elapsed().as_millis());
 }
+
+const NO_PARAMS: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. NO-PARAMS.
+DATA DIVISION.
+LINKAGE SECTION.
+01 RES.
+   05 V PIC 9(3).
+PROCEDURE DIVISION RETURNING RES.
+MAIN-PARA.
+    MOVE 123 TO V.
+    GOBACK.
+"#;
+
+const SAME: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SAME-ONE.
+DATA DIVISION.
+LINKAGE SECTION.
+01 REQ.
+   05 A PIC 9(4).
+PROCEDURE DIVISION USING REQ RETURNING REQ.
+MAIN-PARA.
+    ADD 1 TO A.
+    GOBACK.
+"#;
+
+const BOOM: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. BOOM.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 ZED PIC 9 VALUE 0.
+01 R PIC 9(2).
+LINKAGE SECTION.
+01 P PIC 9(2).
+PROCEDURE DIVISION USING P.
+MAIN-PARA.
+    COMPUTE R = FUNCTION MOD(7, ZED).
+    GOBACK.
+"#;
+
+const UNSET: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. UNSET.
+DATA DIVISION.
+LINKAGE SECTION.
+01 REQ PIC 9(2).
+01 RES.
+   05 M PIC 9(2).
+   05 CELL PIC X OCCURS 1 TO 5 TIMES DEPENDING ON M.
+PROCEDURE DIVISION USING REQ RETURNING RES.
+MAIN-PARA.
+    GOBACK.
+"#;
+
+#[test]
+fn the_paths_of_the_entry_that_a_server_does_not_reach() {
+    let started = Instant::now();
+    let c = module(&[ADD, NO_PARAMS, SAME, BOOM, UNSET]);
+
+    // A program with no parameter: the request is an empty frame, and RETURNING is still answered.
+    let BackendReply::Answered(n) = run_backend(&c.wasm, "NO-PARAMS", &[]).unwrap() else { panic!("NO-PARAMS not answered") };
+    assert!(n.args.is_empty(), "{:?}", n.args);
+    assert!(n.returning.as_deref().is_some_and(|r| r.contains("123")), "{:?}", n.returning);
+
+    // RETURNING the very record a parameter is: both are answered, with the same text.
+    let BackendReply::Answered(s) = run_backend(&c.wasm, "SAME-ONE", &[r#"{"A":41}"#]).unwrap() else { panic!("SAME-ONE not answered") };
+    assert_eq!(s.args.len(), 1);
+    assert_eq!(s.returning.as_deref(), Some(s.args[0].as_str()));
+    assert!(s.args[0].contains("42"), "{:?}", s.args);
+
+    // An export index the manifest does not hold, and a negative one: a bad request, nothing runs.
+    let past = run_backend_index(&c.wasm, 5, &[r#"{"A":1,"B":2}"#]).unwrap();
+    let negative = run_backend_index(&c.wasm, -1, &[]).unwrap();
+    assert_eq!((&past, &negative), (&BackendReply::BadRequest, &BackendReply::BadRequest));
+
+    // A run-time error of the program is a trap (ABI §9), not a result.
+    let trapped = run_backend(&c.wasm, "BOOM", &["7"]).unwrap();
+    assert!(matches!(trapped, BackendReply::Trapped { .. }), "{trapped:?}");
+
+    // A record the program leaves out of its range cannot be written back: result 4, with the member's path.
+    let unwritable = run_backend(&c.wasm, "UNSET", &["5"]).unwrap();
+    println!("UNSET answered {unwritable:?}");
+    let BackendReply::Unwritable(u) = unwritable else { panic!("not unwritable") };
+    assert!(u.path.contains("CELL") || u.path.contains("RES"), "{u:?}");
+    println!(
+        "no parameter answered, RETURNING a parameter answered, index 5 and -1 bad requests, a run-time error trapped, an unset count unwritable (code {}, {}) in {} ms",
+        u.code,
+        u.path,
+        started.elapsed().as_millis()
+    );
+}
+
+#[test]
+fn an_answer_that_does_not_fit_the_response_area_is_too_large_and_a_short_call_is_filled_in() {
+    let started = Instant::now();
+    // The smallest response area (1,032 bytes): a request this small fits, an answer carrying a 2,000-byte text does not.
+    let tight = Options { native: true, backend: Some(BackendOptions { request_cap: 4096, response_cap: 1032 }), ..Options::default() };
+    let wide = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. WIDE.
+DATA DIVISION.
+LINKAGE SECTION.
+01 WHO PIC X(10).
+01 OUT PIC X(2000).
+PROCEDURE DIVISION USING WHO OUT.
+MAIN-PARA.
+    MOVE ALL "X" TO OUT.
+    GOBACK.
+"#;
+    let c = module_with(&[wide], &tight);
+    let reply = run_backend(&c.wasm, "WIDE", &[r#""A""#, r#""""#]).unwrap();
+    assert_eq!(reply, BackendReply::TooLarge, "{reply:?}");
+
+    // One text for two parameters: the second is initialised, as `INITIALIZE` leaves a record (a server rejects such a
+    // call by its arity rule before an engine runs; only a direct caller of the module gets here).
+    let c = module(&[GREET_SHORT]);
+    let BackendReply::Answered(a) = run_backend(&c.wasm, "GREET-SHORT", &[r#""BOB""#]).unwrap() else { panic!("not answered") };
+    assert_eq!(a.args.len(), 2);
+    assert!(a.args[1].contains("HELLO BOB"), "{:?}", a.args);
+    println!("an answer over a 1,032-byte area: too large; one text for two parameters: the second initialised ({} ms)", started.elapsed().as_millis());
+}
+
+const GREET_SHORT: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. GREET-SHORT.
+DATA DIVISION.
+LINKAGE SECTION.
+01 WHO PIC X(10).
+01 MSG PIC X(20).
+PROCEDURE DIVISION USING WHO MSG.
+MAIN-PARA.
+    STRING "HELLO " DELIMITED BY SIZE WHO DELIMITED BY SPACE INTO MSG.
+    GOBACK.
+"#;

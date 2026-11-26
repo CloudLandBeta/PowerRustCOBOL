@@ -34,6 +34,42 @@ struct Blob {
     bytes: Vec<u8>,
     /// Layout item -> its node's offset.
     node_of: HashMap<usize, u32>,
+    /// Layout item -> how many occurrences of it a record can hold (the product of the `OCCURS` maxima above it).
+    mult_of: HashMap<usize, u64>,
+    /// How many `OCCURS DEPENDING ON` table occurrences a record can hold.
+    odo_tables: u64,
+    /// How many occurrences of the items the tables depend on a record can hold.
+    supplied: u64,
+}
+
+/// What the group's descriptor asks of the runtime's decoder at its largest, which the decoder holds in fixed
+/// areas (`cobolt_wasm_rt::json`): a record that exceeds one is answered with an internal error whatever it
+/// carries, where the interpreter would take it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits {
+    /// The group's size in bytes, all its occurrences included (the decoder works on a copy of it).
+    pub bytes: u64,
+    /// `OCCURS DEPENDING ON` table occurrences.
+    pub odo_tables: u64,
+    /// Occurrences of the items those tables depend on.
+    pub supplied: u64,
+}
+
+impl Limits {
+    /// Why the runtime's decoder cannot hold the group, if it cannot.
+    pub fn refusal(&self, name: &str) -> Option<String> {
+        use cobolt_wasm_rt::{json, state};
+        if self.bytes > u64::from(state::JSON_SHADOW_SIZE) {
+            return Some(format!("{name} is {} bytes: the JSON routines of a module hold a record of at most {} bytes", self.bytes, state::JSON_SHADOW_SIZE));
+        }
+        if self.odo_tables > json::MAX_ODO as u64 {
+            return Some(format!("{name} can hold {} OCCURS DEPENDING ON table occurrences: the JSON routines of a module hold at most {}", self.odo_tables, json::MAX_ODO));
+        }
+        if self.supplied > json::MAX_SUPPLIED as u64 {
+            return Some(format!("{name} can hold {} counts its tables depend on: the JSON routines of a module hold at most {}", self.supplied, json::MAX_SUPPLIED));
+        }
+        None
+    }
 }
 
 impl Blob {
@@ -63,14 +99,33 @@ struct Frame<'a> {
 
 /// The descriptor of the group `item` whose storage is layout item `root`.
 pub fn build(layout: &Layout, root: usize, item: &Item) -> Result<Vec<u8>, String> {
+    build_with_limits(layout, root, item).map(|(bytes, _)| bytes)
+}
+
+/// [`build`], and what the group asks of the runtime's decoder.
+pub fn build_with_limits(
+    layout: &Layout,
+    root: usize,
+    item: &Item,
+) -> Result<(Vec<u8>, Limits), String> {
     let mut b = Blob {
         bytes: vec![0; 4],
         node_of: HashMap::new(),
+        mult_of: HashMap::new(),
+        odo_tables: 0,
+        supplied: 0,
     };
     let mut frames: Vec<Frame<'_>> = Vec::new();
-    let r = node(layout, root, item, root, &mut b, &mut frames)?;
+    let r = node(layout, root, item, root, 1, &mut b, &mut frames)?;
     b.set_word(0, r);
-    Ok(b.bytes)
+    let bytes = u64::from(layout.items[root].size)
+        .saturating_mul(item.occurs.as_ref().map_or(1, |o| o.max as u64));
+    let limits = Limits {
+        bytes,
+        odo_tables: b.odo_tables,
+        supplied: b.supplied,
+    };
+    Ok((b.bytes, limits))
 }
 
 fn node<'a>(
@@ -78,10 +133,12 @@ fn node<'a>(
     idx: usize,
     item: &'a Item,
     parent: usize,
+    mult: u64,
     b: &mut Blob,
     frames: &mut Vec<Frame<'a>>,
 ) -> Result<u32, String> {
     let it = &layout.items[idx];
+    b.mult_of.insert(idx, mult);
     let mut w = [0u32; NODE_WORDS as usize];
     let member = item.is_member();
     w[1] = if member { NF_MEMBER } else { 0 };
@@ -99,6 +156,7 @@ fn node<'a>(
         w[7] = o.max as u32;
         if let Some(dep) = &o.depending_on {
             w[1] |= NF_ODO;
+            b.odo_tables = b.odo_tables.saturating_add(mult);
             // Innermost group first, then outward (`mapping::odo_value`).
             let mut found = None;
             for (up, f) in frames.iter().rev().enumerate() {
@@ -125,6 +183,10 @@ fn node<'a>(
                 .get(&count_item)
                 .ok_or("the count item follows its table")?;
             let flags = b.word(count_node + 4);
+            if flags & NF_ODO_OBJECT == 0 {
+                let there = b.mult_of.get(&count_item).copied().unwrap_or(1);
+                b.supplied = b.supplied.saturating_add(there);
+            }
             b.set_word(count_node + 4, flags | NF_ODO_OBJECT);
             w[8] = up;
             w[9] = rel;
@@ -183,10 +245,11 @@ fn node<'a>(
             at: 0,
             item: idx,
         });
+        let inside = mult.saturating_mul(item.occurs.as_ref().map_or(1, |o| o.max as u64));
         let mut offs = Vec::with_capacity(children.len());
         for (k, (c, &ci)) in children.iter().zip(&lc).enumerate() {
             frames.last_mut().unwrap().at = k;
-            offs.push(node(layout, ci, c, idx, b, frames)?);
+            offs.push(node(layout, ci, c, idx, inside, b, frames)?);
         }
         frames.pop();
         let list: Vec<u8> = offs.iter().flat_map(|x| x.to_le_bytes()).collect();

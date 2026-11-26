@@ -1020,8 +1020,8 @@ struct OdoRec {
     path_len: u32,
 }
 
-const MAX_ODO: usize = 32;
-const MAX_SUPPLIED: usize = 64;
+pub const MAX_ODO: usize = 32;
+pub const MAX_SUPPLIED: usize = 64;
 
 struct Ctx {
     odo: [OdoRec; MAX_ODO],

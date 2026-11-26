@@ -210,7 +210,7 @@ fn program(f: &mut Function, ctx: &EntryCtx<'_>, p: &EntryProgram<'_>) {
         f.instruction(&I::LocalSet(RC));
         f.instruction(&I::LocalGet(RC));
         f.instruction(&I::If(BlockType::Empty));
-        refusal(f, ctx);
+        refusal(f, ctx, result::REFUSED);
         f.instruction(&I::End);
         // the next text
         f.instruction(&I::LocalGet(CURSOR));
@@ -270,7 +270,7 @@ fn program(f: &mut Function, ctx: &EntryCtx<'_>, p: &EntryProgram<'_>) {
 /// The request was refused: the rt's code, the member's path, and the result. The path is what the rt
 /// kept of the item the error names (`rt_json_error_path`), at most `PATH_CAP` bytes and what the response
 /// area can hold after the two words.
-fn refusal(f: &mut Function, ctx: &EntryCtx<'_>) {
+fn refusal(f: &mut Function, ctx: &EntryCtx<'_>, status: i32) {
     c(f, ctx.response_at);
     ci(f, 0);
     f.instruction(&I::LocalGet(RC));
@@ -284,7 +284,7 @@ fn refusal(f: &mut Function, ctx: &EntryCtx<'_>) {
     c(f, ctx.response_at + 4);
     f.instruction(&I::LocalGet(LEN));
     store(f);
-    ret_const(f, result::REFUSED);
+    ret_const(f, status);
 }
 
 /// Write `len` and the JSON of `r` at the cursor, and move the cursor past them; an answer that does not
@@ -320,8 +320,10 @@ fn encode(f: &mut Function, ctx: &EntryCtx<'_>, r: &BackendRecord, resp_end: u32
     ci(f, -E_NO_ROOM);
     f.instruction(&I::I32Eq);
     return_if(f, result::TOO_LARGE);
-    // Any other refusal to write what the program's own records hold is a defect of the module: it traps.
-    f.instruction(&I::Unreachable);
+    // Any other refusal to write what the program's own records hold is the program's data, not a defect of the
+    // module (a count the program left out of its range, bytes that are not text): the interpreter answers it
+    // with a validation error naming the member, and so does this, with the member's path.
+    refusal(f, ctx, result::UNWRITABLE);
     f.instruction(&I::End);
     f.instruction(&I::LocalGet(CURSOR));
     f.instruction(&I::LocalGet(RC));

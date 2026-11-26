@@ -199,8 +199,15 @@ impl Lower<'_, '_> {
                 ),
             )
         })?;
-        let blob = crate::json_layout::build(&self.layout, idx, &item)
-            .map_err(|m| GenError::new(line, m))?;
+        let (blob, limits) = crate::json_layout::build_with_limits(&self.layout, idx, &item).map_err(|m| GenError::new(line, m))?;
+        // A Backend's parameter is decoded on every call, so a record the runtime cannot hold is refused here, and the
+        // Build takes the Cargo path for that Backend (the interpreter takes records the routines cannot).
+        if self.backend_mode {
+            let name = decl.name.clone().unwrap_or_default();
+            if let Some(why) = limits.refusal(&name) {
+                return Err(GenError::new(line, why));
+            }
+        }
         let desc = self.pool.intern(&blob);
         let opd = self.item_operand(idx, &[], None, line)?;
         Ok((desc, opd))

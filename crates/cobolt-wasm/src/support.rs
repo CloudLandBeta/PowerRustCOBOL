@@ -468,7 +468,7 @@ pub fn desktop_refusal(s: &Stmt, in_form: bool) -> Option<&'static str> {
 
 /// The verbs of a Backend program that act on the call it is answering (spec 114 R4): the runner serves them
 /// through its `backend` capability, which a later milestone adds (M5, T35); until then a Backend module refuses
-/// each at its line and the Build takes the Cargo path. `AUTH-OP` is the tenth entry of the plan's list and has
+/// each at its line and the Build takes the Cargo path. `AUTH-OP` is the ninth of the plan's list and has
 /// a reason of its own ([`B_IDENTITY`]). A test holds this list and [`CLIENT_SIDE_VERBS`] equal to the `WS-…`
 /// rows of [`BUILTIN_TABLE`] (and `AUTH-OP`), so a new verb is classified the day it is added.
 pub const BACKEND_SIDE_VERBS: &[&str] = &["AUTH-OP", "WS-CANCELLED", "WS-CLAIM", "WS-EMIT", "WS-FAIL", "WS-FILE-PATH", "WS-FILE-PUBLISH", "WS-PAUSE", "WS-PROGRESS"];

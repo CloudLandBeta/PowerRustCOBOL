@@ -216,7 +216,32 @@ MAIN-PARA.
     ],
 };
 
-const CASES: [&Case; 7] = [&KINDS, &TABLE, &ODO, &EARLY, &ADDER, &CALLER, &GREET];
+const UNSET: Case = Case {
+    name: "UNSET",
+    source: r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. UNSET.
+DATA DIVISION.
+LINKAGE SECTION.
+01 REQ PIC 9(2).
+01 RES.
+    05 M PIC 9(2).
+    05 CELL PIC X OCCURS 1 TO 5 TIMES DEPENDING ON M.
+PROCEDURE DIVISION USING REQ RETURNING RES.
+MAIN-PARA.
+    IF REQ > 80
+        MOVE 9 TO M
+    ELSE
+        IF REQ > 50
+            MOVE 3 TO M
+        END-IF
+    END-IF.
+    GOBACK.
+"#,
+    calls: &[("a count the program sets", &["60"]), ("a count the program never sets", &["5"]), ("a count over the maximum", &["90"])],
+};
+
+const CASES: [&Case; 8] = [&KINDS, &TABLE, &ODO, &EARLY, &ADDER, &CALLER, &GREET, &UNSET];
 
 fn folder() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("prc-backend-entry-parity-{}", std::process::id()));
@@ -283,6 +308,9 @@ fn module(wasm: &[u8], name: &str, params: usize, args: &[&str]) -> Said {
     match run_backend(wasm, name, args).unwrap_or_else(|e| panic!("the module could not be called: {e}")) {
         BackendReply::Answered(a) => Said::Answered { args: a.args, returning: a.returning },
         BackendReply::Refused(r) => Said::Refused { path: r.path, note: format!("rt code {}", r.code) },
+        // The program ran and a record it holds cannot be written: the interpreter answers it with the same validation
+        // error, naming the member.
+        BackendReply::Unwritable(r) => Said::Refused { path: r.path, note: format!("rt code {} (written back)", r.code) },
         other => panic!("the module answered {other:?} where the interpreter ran the program"),
     }
 }

@@ -709,6 +709,8 @@ pub enum BackendReply {
     Answered(cobolt_wasm_abi::backend::Answer),
     /// The request was refused before the program ran.
     Refused(cobolt_wasm_abi::backend::Refusal),
+    /// The program ran, but a record it holds cannot be written as JSON (A59 result 4).
+    Unwritable(cobolt_wasm_abi::backend::Refusal),
     /// The answer did not fit the response area.
     TooLarge,
     /// The request frame was malformed, or the export is not in the manifest.
@@ -720,6 +722,16 @@ pub enum BackendReply {
 /// Call the exported program `export` of a Backend module on a fresh instance, with one JSON text per
 /// `USING` parameter, as a Backend runner does (ABI A59).
 pub fn run_backend(wasm: &[u8], export: &str, args: &[&str]) -> Result<BackendReply, String> {
+    let scan = cobolt_wasm_abi::scan::scan_module(wasm)?;
+    let manifest_text = scan.custom(cobolt_wasm_abi::manifest::MANIFEST_SECTION).and_then(|b| core::str::from_utf8(b).ok()).ok_or("no manifest")?;
+    let section = cobolt_wasm_abi::backend::BackendSection::from_manifest(manifest_text)?.ok_or("the module has no `backend` section")?;
+    let index = section.export(&export.to_ascii_uppercase()).ok_or_else(|| format!("the module exports no program {export}"))?.index;
+    run_backend_index(wasm, index as i32, args)
+}
+
+/// [`run_backend`] by the export's index in the manifest, as `pr_backend_call` takes it: an index the manifest does
+/// not hold is the module's to refuse (A59 result 3), which only a caller that skips the manifest can send.
+pub fn run_backend_index(wasm: &[u8], index: i32, args: &[&str]) -> Result<BackendReply, String> {
     use cobolt_wasm_abi::backend::{self, result, BackendSection};
     let engine = engine()?;
     let module = Module::new(&engine, wasm).map_err(|e| format!("invalid module: {e}"))?;
@@ -730,7 +742,6 @@ pub fn run_backend(wasm: &[u8], export: &str, args: &[&str]) -> Result<BackendRe
         .ok_or("no manifest")?;
     let section = BackendSection::from_manifest(manifest_text)?.ok_or("the module has no `backend` section")?;
     let limits = scan.embedded_manifest().map(|m| (m.limits.batch_size, m.limits.answer_size, gfx_start(&m.limits)))?;
-    let index = section.export(&export.to_ascii_uppercase()).ok_or_else(|| format!("the module exports no program {export}"))?.index;
     let out = Rc::new(RefCell::new(Outcome::default()));
     let mut store = Store::new(&engine, new_state(out.clone(), None, limits));
     let linker = linker(&engine, &[])?;
@@ -746,7 +757,7 @@ pub fn run_backend(wasm: &[u8], export: &str, args: &[&str]) -> Result<BackendRe
     }
     memory.write(&mut store, section.request.at as usize, &frame).map_err(|e| e.to_string())?;
     let call = instance.get_typed_func::<i32, i32>(&mut store, "pr_backend_call").map_err(|e| e.to_string())?;
-    let status = match call.call(&mut store, index as i32) {
+    let status = match call.call(&mut store, index) {
         Ok(s) => s,
         Err(e) => {
             let errors = out.borrow().errors.clone();
@@ -759,6 +770,7 @@ pub fn run_backend(wasm: &[u8], export: &str, args: &[&str]) -> Result<BackendRe
     match status {
         result::ANSWERED => Ok(BackendReply::Answered(backend::decode_answer(area)?)),
         result::REFUSED => Ok(BackendReply::Refused(backend::decode_refusal(area)?)),
+        result::UNWRITABLE => Ok(BackendReply::Unwritable(backend::decode_refusal(area)?)),
         result::TOO_LARGE => Ok(BackendReply::TooLarge),
         result::BAD_REQUEST => Ok(BackendReply::BadRequest),
         other => Err(format!("pr_backend_call answered {other}, which ABI A59 does not define")),
