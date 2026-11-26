@@ -103,14 +103,10 @@ pub const PROVIDED_CAPABILITIES: &[&str] = &[
     cap::VIEWER,
 ];
 
-/// Without the `forms` feature this runner is the console and the data capabilities.
-#[cfg(not(feature = "forms"))]
-pub const PROVIDED_CAPABILITIES: &[&str] = HEADLESS_CAPABILITIES;
-
-/// What a program with no window can use (spec 114 R5, R6): the console, the environment, the files of every organisation,
-/// the text files and pictures a built-in names, `EXEC SQL` and the database objects, the HTTP built-ins and the PartiQL
-/// built-ins on the program's own files. A Backend runner provides these, or a subset by variant (T17).
-pub const HEADLESS_CAPABILITIES: &[&str] = &[
+/// What a runner with no windows always provides (spec 114 R5, R6, T17), the **core** group: the console, the environment,
+/// the files of every organisation, the text files and pictures a built-in names, the HTTP built-ins and the PartiQL
+/// built-ins on the program's own files.
+pub const CORE_CAPABILITIES: &[&str] = &[
     cap::CONSOLE,
     cap::ENV,
     cap::FILES_SEQUENTIAL,
@@ -119,15 +115,31 @@ pub const HEADLESS_CAPABILITIES: &[&str] = &[
     cap::FILES_INDEXED,
     cap::FILES_TEXT,
     cap::IMAGES,
-    cap::SQL,
     cap::HTTP,
     cap::PARTIQL,
     cap::PARTIQL_FILES,
 ];
 
-/// [`HEADLESS_CAPABILITIES`] as a list.
+/// What a program with no window can use, by the groups this build has: [`CORE_CAPABILITIES`], plus `EXEC SQL` and the
+/// database objects with the feature `sql`. A module that declares another capability is refused when it starts, naming it.
 pub fn headless_capabilities() -> Vec<&'static str> {
-    HEADLESS_CAPABILITIES.to_vec()
+    let mut list = CORE_CAPABILITIES.to_vec();
+    if cfg!(feature = "sql") {
+        list.push(cap::SQL);
+    }
+    list
+}
+
+/// Publish the SQL connections of the `sql-connections.toml` beside the running executable, as a Cargo-built program does
+/// when it starts (the `<APP>_SQL_<NAME>_*` variables override them, `app_name` being the application's name). A Backend
+/// runner calls this before it serves, so that `CONNECT TO 'NAME'` and `sql-connection:NAME` resolve (spec 114 T23).
+pub fn install_sql_connections(app_name: &str) {
+    sql::install_connections(app_name);
+}
+
+/// [`install_sql_connections`] for the `sql-connections.toml` in `dir`.
+pub fn install_sql_connections_in(dir: &std::path::Path, app_name: &str) {
+    sql::install_connections_in(dir, app_name);
 }
 
 /// Every import this runner provides, with the ABI that introduced it: `(abi, module, name)`. A row
@@ -312,7 +324,11 @@ struct Checked {
 /// Read the module's manifest and imports: the ABI must be one this runner runs (1 to
 /// [`ABI_VERSION`](cobolt_wasm_abi::codes::ABI_VERSION)), and every capability and import one it provides.
 fn check(module: &[u8]) -> Result<Checked, Msg> {
-    check_with(module, PROVIDED_CAPABILITIES, true)
+    #[cfg(feature = "forms")]
+    let provided = PROVIDED_CAPABILITIES.to_vec();
+    #[cfg(not(feature = "forms"))]
+    let provided = headless_capabilities();
+    check_with(module, &provided, true)
 }
 
 /// [`check`] against the capabilities `provided` (a Backend runner provides a subset, by variant). `connections` installs

@@ -88,6 +88,7 @@ fn container(dir: &Path, module: Vec<u8>) -> BackendContainer {
         history: b"[]".to_vec(),
         slots: b"[]".to_vec(),
         module,
+        name: "PowerTest".into(),
     }
 }
 
@@ -304,6 +305,8 @@ MAIN-PARA.
     };
     let all = cobolt_backend_runner::provided();
     let without: Vec<&str> = all.iter().copied().filter(|c| *c != "sql").collect();
+    // The two lists are explicit, so the test holds for every variant the runner is built as.
+    let with: Vec<&str> = without.iter().copied().chain(["sql"]).collect();
     let source = Backend::load(&dir).unwrap();
     let make = |wasm: &Vec<u8>| {
         // The table of the one program the module holds.
@@ -318,7 +321,7 @@ MAIN-PARA.
     let refused = load(make(&wasm), &without).err().expect("a runner without `sql` must refuse a module that declares it");
     let said = refused.join("\n");
     assert!(said.contains("sql"), "the capability is named: {said}");
-    let started_ok = load(make(&wasm), &all).unwrap_or_else(|e| panic!("a runner with `sql` serves it: {e:?}"));
+    let started_ok = load(make(&wasm), &with).unwrap_or_else(|e| panic!("a runner with `sql` serves it: {e:?}"));
     assert!(started_ok.notice.as_deref().is_some_and(|n| n.starts_with("engine: WebAssembly module")));
     println!(
         "a Backend declaring `sql` refused by a runner without it, naming it ({said:?}), and started by one with it ({} ms)",

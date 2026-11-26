@@ -6,9 +6,9 @@
 
 //! Spec 114 T19 (R3, AC9 groundwork): the Backend container and its payload kind.
 //!
-//! The container's format is permanent, so the first version is held here as a literal byte string, written by hand
-//! from the format's description in `backend.rs` and not made by the encoder: a later change that moved a byte of
-//! version 1 would fail this test, which is its whole purpose.
+//! The container's format is permanent, so each version is held here as a literal byte string, written by hand from the
+//! format's description in `backend.rs` and not made by the encoder: a later change that moved a byte of a version would
+//! fail this test, which is its whole purpose. Version 2 appended the application's name; version 1 is still read.
 
 use cobolt_program_package::{self as pp, BackendContainer, Kind, PackageError};
 use std::time::Instant;
@@ -27,6 +27,14 @@ fn v1_literal() -> Vec<u8> {
     b
 }
 
+/// A version 2 container, byte for byte: version 1's fields, the version number 2, and the name after the module.
+fn v2_literal() -> Vec<u8> {
+    let mut b = v1_literal();
+    b[8] = 2;
+    b.extend_from_slice(b"\x11\0\0\0PowerAnalyticsWeb");
+    b
+}
+
 fn v1_value() -> BackendContainer {
     BackendContainer {
         state: "per-call".into(),
@@ -35,15 +43,21 @@ fn v1_value() -> BackendContainer {
         history: b"[]".to_vec(),
         slots: b"[]".to_vec(),
         module: b"\0asm\x01\0\0\0".to_vec(),
+        name: String::new(),
     }
 }
 
+fn v2_value() -> BackendContainer {
+    BackendContainer { name: "PowerAnalyticsWeb".into(), ..v1_value() }
+}
+
 #[test]
-fn version_one_of_the_container_reads_as_written_and_is_written_as_read() {
-    let literal = v1_literal();
-    assert_eq!(BackendContainer::decode(&literal).unwrap(), v1_value(), "the literal reads as its fields");
-    assert_eq!(v1_value().encode(), literal, "the encoder writes version 1 as the literal");
-    assert_eq!(BackendContainer::default().encode().len(), 12 + 6 * 4, "an empty container: the header and six empty fields");
+fn each_version_of_the_container_reads_as_written_and_the_current_one_is_written_as_read() {
+    assert_eq!(BackendContainer::decode(&v1_literal()).unwrap(), v1_value(), "version 1 still reads, with no name");
+    let literal = v2_literal();
+    assert_eq!(BackendContainer::decode(&literal).unwrap(), v2_value(), "the version 2 literal reads as its fields");
+    assert_eq!(v2_value().encode(), literal, "the encoder writes version 2 as the literal");
+    assert_eq!(BackendContainer::default().encode().len(), 12 + 7 * 4, "an empty container: the header and seven empty fields");
     assert_eq!(BackendContainer::decode(&BackendContainer::default().encode()).unwrap(), BackendContainer::default());
 }
 
@@ -77,7 +91,11 @@ fn a_backend_travels_in_a_payload_beside_its_machine_code_and_a_kind_nobody_know
 #[test]
 fn a_container_that_does_not_hold_together_is_refused_in_words() {
     let started = Instant::now();
-    let good = v1_literal();
+    let good = v2_literal();
+    // Every cut of a version 1 container too.
+    for n in 0..v1_literal().len() {
+        assert!(BackendContainer::decode(&v1_literal()[..n]).is_err(), "a version 1 container cut at {n} is read");
+    }
     // Every cut of a container is refused, never read as something else.
     let mut cuts = 0u32;
     for n in 0..good.len() {
@@ -96,8 +114,13 @@ fn a_container_that_does_not_hold_together_is_refused_in_words() {
     zero[8] = 0;
     assert!(matches!(BackendContainer::decode(&zero), Err(PackageError::Damaged(w)) if w.contains("version 0")));
     let mut newer = good.clone();
-    newer[8] = 2;
-    assert_eq!(BackendContainer::decode(&newer), Err(PackageError::NewerFormat(2)));
+    newer[8] = 3;
+    assert_eq!(BackendContainer::decode(&newer), Err(PackageError::NewerFormat(3)));
+    // A name that is not text.
+    let mut nameless = good.clone();
+    let at = good.len() - 1;
+    nameless[at] = 0xff;
+    assert!(matches!(BackendContainer::decode(&nameless), Err(PackageError::Damaged(w)) if w.contains("name that is not text")));
     let mut binary = good.clone();
     binary[16] = 0xff;
     assert!(matches!(BackendContainer::decode(&binary), Err(PackageError::Damaged(w)) if w.contains("not text")));
@@ -106,5 +129,5 @@ fn a_container_that_does_not_hold_together_is_refused_in_words() {
     huge[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(matches!(BackendContainer::decode(&huge), Err(PackageError::Damaged(w)) if w.contains("inside its state")));
     println!("{cuts} cuts of a {}-byte container refused, plus trailing bytes, wrong magic, version 0, a newer version, a state that is not text and a length past the end ({} ms)", good.len(), started.elapsed().as_millis());
-    println!("PASS {:03} FAIL 000", cuts + 6);
+    println!("PASS {:03} FAIL 000", cuts + 7);
 }

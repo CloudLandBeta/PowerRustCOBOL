@@ -646,6 +646,11 @@ fn put(env: &CobolEnvironment, key: &str, out: &mut Vec<u8>) {
 /// store supplying credentials. Without the file a program can still connect by a connection string.
 pub(crate) fn install_connections(app_name: &str) {
     let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) else { return };
+    install_connections_in(&dir, app_name);
+}
+
+/// [`install_connections`] for the `sql-connections.toml` in `dir`.
+pub(crate) fn install_connections_in(dir: &std::path::Path, app_name: &str) {
     let file = dir.join("sql-connections.toml");
     if !file.is_file() {
         return;

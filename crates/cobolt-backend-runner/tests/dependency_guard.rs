@@ -68,3 +68,32 @@ fn the_backend_runner_links_no_window_system_and_the_desktop_runner_still_does()
     );
     println!("PASS 005 FAIL 000");
 }
+
+/// The database drivers: the SQL group's whole cost.
+const SQL_DRIVERS: &[&str] = &["rusqlite", "libsqlite3-sys", "postgres", "tokio-postgres", "mysql", "mysql_common"];
+
+/// Spec 114 T17: the variants of the runner. `core` has no database driver in its tree; `sql` (the default) has them; neither has
+/// a window system. HTTP is in `core` because the server links the HTTP client and TLS for its own sign-in checks.
+#[test]
+fn the_core_variant_links_no_database_driver_and_the_sql_variant_does() {
+    let core = closure(&["-p", "cobolt-backend-runner", "--no-default-features"]);
+    let sql = closure(&["-p", "cobolt-backend-runner", "--no-default-features", "--features", "sql"]);
+    let default = closure(&["-p", "cobolt-backend-runner"]);
+    assert_eq!(present(&core, SQL_DRIVERS), Vec::<&str>::new(), "the core variant links no database driver");
+    assert!(present(&sql, SQL_DRIVERS).len() >= 4, "the sql variant links the drivers: {:?}", present(&sql, SQL_DRIVERS));
+    assert_eq!(sql, default, "the default variant is the one with the sql group");
+    for (name, tree) in [("core", &core), ("sql", &sql)] {
+        assert_eq!(present(tree, WINDOWS), Vec::<&str>::new(), "the {name} variant links no window system");
+        assert_eq!(present(tree, CONTROL_SERVICES), Vec::<&str>::new(), "the {name} variant links no control service");
+        assert!(tree.contains("ureq") && tree.contains("native-tls"), "the {name} variant has the HTTP client the server and the HTTP built-ins share");
+    }
+    assert!(core.is_subset(&sql), "the sql variant adds to the core one and takes nothing away");
+    println!(
+        "variants: core {} crates, sql {} crates (the SQL group is {} crates: {}); neither has a window system, both have the HTTP client",
+        core.len(),
+        sql.len(),
+        sql.difference(&core).count(),
+        present(&sql, SQL_DRIVERS).join(", ")
+    );
+    println!("PASS 010 FAIL 000");
+}

@@ -17,14 +17,15 @@
 //! reader reads every version ever written and refuses a newer one by name. Version 1 is the magic, the version, and six
 //! fields in this order, each a little-endian `u32` length and that many bytes: `state` (UTF-8), `interface`,
 //! `exports`, `history`, `slots` and `module`. A later version appends fields; a version 1 container read by a later
-//! reader has them empty.
+//! reader has them empty. Version 2 appends `name` (UTF-8): the application's name, which the SQL connection
+//! overrides (`<NAME>_SQL_<CONNECTION>_URL`) are named after.
 
 use crate::PackageError;
 
 /// The container's magic, at its first byte.
 pub const CONTAINER_MAGIC: [u8; 8] = *b"PRBCNTR\0";
 /// The version this crate writes. A reader accepts every version up to its own.
-pub const CONTAINER_VERSION: u32 = 1;
+pub const CONTAINER_VERSION: u32 = 2;
 
 /// The Backend a payload carries.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -41,12 +42,14 @@ pub struct BackendContainer {
     pub slots: Vec<u8>,
     /// The WebAssembly module (spec 114 A59).
     pub module: Vec<u8>,
+    /// The application's name (version 2; empty in a version 1 container): the name the SQL connection overrides use.
+    pub name: String,
 }
 
 impl BackendContainer {
     /// The container as bytes.
     pub fn encode(&self) -> Vec<u8> {
-        let fields: [&[u8]; 6] = [self.state.as_bytes(), &self.interface, &self.exports, &self.history, &self.slots, &self.module];
+        let fields: [&[u8]; 7] = [self.state.as_bytes(), &self.interface, &self.exports, &self.history, &self.slots, &self.module, self.name.as_bytes()];
         let mut out = Vec::with_capacity(12 + fields.iter().map(|f| 4 + f.len()).sum::<usize>());
         out.extend_from_slice(&CONTAINER_MAGIC);
         out.extend_from_slice(&CONTAINER_VERSION.to_le_bytes());
@@ -86,10 +89,13 @@ impl BackendContainer {
         let history = field("history")?;
         let slots = field("slots")?;
         let module = field("module")?;
+        // Version 2 appended the application's name; a version 1 container has none.
+        let name = if version >= 2 { field("name")? } else { Vec::new() };
         if at != bytes.len() {
             return Err(damaged("has bytes after its last field"));
         }
         let state = String::from_utf8(state).map_err(|_| damaged("has a state that is not text"))?;
-        Ok(BackendContainer { state, interface, exports, history, slots, module })
+        let name = String::from_utf8(name).map_err(|_| damaged("has a name that is not text"))?;
+        Ok(BackendContainer { state, interface, exports, history, slots, module, name })
     }
 }

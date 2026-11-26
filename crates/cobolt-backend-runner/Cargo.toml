@@ -22,6 +22,17 @@ path = "src/lib.rs"
 name = "prc-backend-runner"
 path = "src/main.rs"
 
+[features]
+# The variants of the runner (spec 114 T17, D6): a Build picks the smallest one that provides the Backend's capabilities.
+# `core` (`--no-default-features`): the console, the environment, the files of every organisation, the text files and
+# pictures, the HTTP built-ins and the PartiQL built-ins on the program's own files. `sql` (the default) adds `EXEC SQL`
+# and the database objects (SQLite with its bundled C library, PostgreSQL, MySQL): 32 more crates. A module declaring a
+# capability the variant leaves out is refused at start, naming it. There is no `net` group: the server links the HTTP
+# client and the operating system's TLS for its own sign-in checks, so the HTTP built-ins cost no crate (measured, T17).
+# The sizes are recorded at gate G3.
+default = ["sql"]
+sql = ["cobolt-runner/sql"]
+
 [dependencies]
 # The server: the wire, the tokens, the limits, the log, `standalone::main_with`. Headless; no interpreter.
 cobolt-server = { path = "../cobolt-server", default-features = false, features = ["server"] }
@@ -46,4 +57,7 @@ cobolt-lexer  = { path = "../cobolt-lexer" }
 cobolt-parser = { path = "../cobolt-parser" }
 # The names the module and the interpreter give a refused request, held equal.
 cobolt-wasm-rt = { path = "../cobolt-wasm-rt" }
+# The parity run (T25) points both engines at a folder and at the project's SQL connections, as a started Backend does.
+cobolt-forms   = { path = "../cobolt-forms", default-features = false }
+cobolt-runtime = { path = "../cobolt-runtime", default-features = false }
 tokio     = { workspace = true }

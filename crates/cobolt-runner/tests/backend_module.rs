@@ -151,7 +151,7 @@ fn module(sources: &[&str]) -> Vec<u8> {
 
 /// What a Backend runner provides: everything a desktop console program does, as the data variants name it.
 fn provided() -> Vec<&'static str> {
-    cobolt_runner::PROVIDED_CAPABILITIES.to_vec()
+    cobolt_runner::headless_capabilities()
 }
 
 fn load(wasm: &[u8]) -> BackendModule {
@@ -249,12 +249,48 @@ fn a_capability_the_runner_does_not_provide_is_refused_by_name_before_anything_r
         Err(other) => panic!("another refusal: {other:?}"),
         Ok(_) => panic!("loaded without the capability it declares"),
     }
-    assert!(BackendModule::load(&wasm, None, &provided(), None).is_ok());
+    let mut with = without.clone();
+    with.push("sql");
+    assert!(BackendModule::load(&wasm, None, &with, None).is_ok());
     assert!(!std::path::Path::new("/tmp/never-opened.db").exists(), "nothing ran");
     println!("a Backend declaring `sql` refused by name when `sql` is not provided, loaded when it is ({} ms)", started.elapsed().as_millis());
     println!("PASS 002 FAIL 000");
 }
 
+/// The variant this test was built as (spec 114 T17): `sql` is provided exactly when the runner has the feature, and a
+/// module that declares it is refused by name by a runner that has not.
+#[test]
+fn the_capabilities_a_variant_provides_follow_its_features() {
+    let started = Instant::now();
+    let got = provided();
+    assert_eq!(got.contains(&"sql"), cfg!(feature = "sql"), "{got:?}");
+    for core in cobolt_runner::CORE_CAPABILITIES {
+        assert!(got.contains(core), "the core group's {core} is always provided");
+    }
+    let wasm = module(&[&database("/tmp/never-opened-variant.db")]);
+    let loaded = BackendModule::load(&wasm, None, &got, None);
+    if cfg!(feature = "sql") {
+        assert!(loaded.is_ok(), "a runner with the `sql` group loads a Backend that declares it");
+    } else {
+        match loaded {
+            Err(Msg::Capabilities(names)) => assert_eq!(names, vec!["sql".to_string()]),
+            Err(other) => panic!("another refusal: {other:?}"),
+            Ok(_) => panic!("a core runner loaded a module that declares `sql`"),
+        }
+    }
+    assert!(!std::path::Path::new("/tmp/never-opened-variant.db").exists(), "nothing ran");
+    println!(
+        "{} variant: {} capabilities ({} core); a module declaring `sql` is {} ({} ms)",
+        if cfg!(feature = "sql") { "sql" } else { "core" },
+        got.len(),
+        cobolt_runner::CORE_CAPABILITIES.len(),
+        if cfg!(feature = "sql") { "loaded" } else { "refused by name" },
+        started.elapsed().as_millis()
+    );
+    println!("PASS {:03} FAIL 000", 3 + cobolt_runner::CORE_CAPABILITIES.len());
+}
+
+#[cfg(feature = "sql")]
 #[test]
 fn what_a_call_writes_to_a_database_is_there_for_the_next_one() {
     let started = Instant::now();

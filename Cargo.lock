@@ -2087,11 +2087,13 @@ name = "cobolt-backend-runner"
 version = "0.2.0"
 dependencies = [
  "cobolt-ast",
+ "cobolt-forms",
  "cobolt-lexer",
  "cobolt-parser",
  "cobolt-program-package",
  "cobolt-runner",
  "cobolt-runner-engine",
+ "cobolt-runtime",
  "cobolt-server",
  "cobolt-wasm",
  "cobolt-wasm-abi",

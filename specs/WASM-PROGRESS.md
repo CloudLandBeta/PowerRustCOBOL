@@ -173,6 +173,22 @@ A Backend module is now served by `prc-backend-runner` (crate `cobolt-backend-ru
 | The executable | 6 invocations the same standard output and exit code as the Cargo-built stand-in; served 114 ms after start; SIGTERM ends it with 0; the engine line only in the log and on standard error |
 | Suites | `cobolt-runner` (forms on) 17 binaries, 29 passed, 0 failed, 2 ignored; `cobolt-backend-runner` 8 passed; `cobolt-server` 195 passed in 29 binaries; `cobolt-program-package` and `cobolt-runner-engine` 21 passed in 8 |
 
+### M3 closed — the variants, the SQL connections and the parity run (T17, T20, T23, T25, gate G3; 2026-11-26, version 2.1.58)
+
+The headless runner is complete for what a per-call Backend needs. **The four shipped Backends answer the same on the interpreter and on the module: 4 Backends, 34 exports, 176 calls, 176 equal, 0 different; 19 data files left behind, 19 byte-identical (7 made or changed by the calls); 48 parallel calls, 48 equal.** The Build does not use the runner yet: the switch is M4 to M6.
+
+| What | Result |
+|---|---|
+| Variants (release builds) | `prc-backend-runner` core **27,881,648 bytes (26.6 MiB)**, with the SQL group **31,904,176 bytes (30.4 MiB)**: the group is 4,022,528 bytes (3.8 MiB) and 32 crates (core 462 crates, with `sql` 494) |
+| Decision (D6, divergence 2) | the two are within a few MB, so **one runner ships, the `sql` one**; `--no-default-features` still builds and is tested. Both groups the spec proposed beyond `core` and `sql` (`net`, `full`) are gone: the server links the HTTP client and TLS for its own sign-in checks, so HTTP costs no crate, and no other capability is one a program with no window declares |
+| What the 26.6 MiB is | `wasmtime` with its compiler, `cobolt-runtime` for the providers, and what the runtime's formats pull in (`image`, `lopdf`, `resvg` through `cobolt-forms` without `render`); a later size job |
+| The Desktop runner | unchanged: with `forms` (default, implies `sql`) 17 binaries, 30 passed, 0 failed, 2 ignored; without `forms` 287 crates against 602 |
+| The container | version 2 appends the application's name; version 1 is still read (PASS 093 FAIL 000) |
+| SQL connections | the runner reads `sql-connections.toml` beside its file, as a Cargo-built Backend does: a call opening `sql-connection:LEDGER` read rows 0, 1, 2, 2 over 4 calls in the database the file names |
+| PowerOficina | 106 calls; the interpreter 5,093 ms (21 calls/sec), the module 793 ms (134 calls/sec); the module is 5,946,963 bytes, compiled in 1,428 ms |
+| PowerAnalyticsWeb | 55 calls over the real 18 MB SQLite database; 1,340 ms against 1,314 ms (41 and 42 calls/sec); the module is 17,324,365 bytes, compiled in 1,289 ms |
+| Not covered | per-connection state (T37), `WS-FAIL` (T38), stream, control and identity programs (the runner refuses them at start); `MOD(x, 0)` differs (WASM-PARITY row 70, open) |
+
 ## DESKTOP-WASM-001 — the M6 close and the acceptance audit (measured 2026-11-21, versions 2.0.640 to 2.0.643)
 
 The Desktop Build's default is the WebAssembly path, and **every reference project takes it with no Rust toolchain on the machine.** Measured on an 11-core Apple M3 Pro with 18 GB (not the reference box), macOS arm64, at `4db4e98f` (2.0.639) with the M6-close changes in the tree. The commands are in `specs/DESKTOP-WASM-001-portable-program-format-and-native-runner/tasks.md`, T51.

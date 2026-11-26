@@ -70,6 +70,8 @@ fn corpus_runs_on_this_runner() {
     let mut rows = Vec::new();
     let mut failures = Vec::new();
     let (mut modules, mut identical, mut compressed, mut raw) = (0, 0, 0u64, 0u64);
+    // A runner built without the `sql` group (spec 114 T17) refuses the corpus modules that declare it, by name, and exits 1.
+    let mut refused_sql = 0;
     for entry in &index.entries {
         for (module_path, run_path) in corpus::modules(entry) {
             modules += 1;
@@ -82,6 +84,11 @@ fn corpus_runs_on_this_runner() {
             let got = corpus::run_module(&runner, &module, &run, &scratch.0, &name).unwrap_or_else(|e| panic!("{module_path}: {e}"));
             // A Windows console ends its lines with CR LF; the recorded output ends them with LF.
             let stdout = String::from_utf8_lossy(&got.stdout).replace("\r\n", "\n");
+            if !cfg!(feature = "sql") && got.code == Some(1) && got.stderr.contains("does not provide: sql") {
+                refused_sql += 1;
+                rows.push(format!("  sql  {:<34} {:>7} bytes: refused by name, the runner has no `sql` group", module_path, module.len()));
+                continue;
+            }
             let same = stdout == run.stdout && got.code == Some(run.exit);
             if same {
                 identical += 1;
@@ -115,7 +122,12 @@ fn corpus_runs_on_this_runner() {
     for r in &rows {
         println!("{r}");
     }
-    println!("identical output and exit code: {identical} of {modules}, in {:.0} ms", t.elapsed().as_secs_f64() * 1000.0);
+    println!(
+        "identical output and exit code: {identical} of {modules}{}, in {:.0} ms",
+        if refused_sql > 0 { format!(" ({refused_sql} more refused by name for want of the `sql` group)") } else { String::new() },
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    assert_eq!(identical + refused_sql, modules - failures.len(), "every module is identical, refused for `sql`, or a failure");
     assert!(modules > 0, "the corpus has no module");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

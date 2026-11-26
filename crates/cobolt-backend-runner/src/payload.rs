@@ -106,5 +106,12 @@ pub fn load(package: Package, provided: &[&str]) -> Result<Loaded, Vec<String>> 
 pub fn load_self(provided: &[&str]) -> Result<Loaded, Vec<String>> {
     let exe = std::env::current_exe().and_then(std::fs::read).map_err(|e| vec![format!("the runner cannot read its own file: {e}")])?;
     let package = read(&exe).map_err(|e| vec![e])?;
+    // The SQL connections the Build wrote beside the file, named after the application, as a Cargo-built Backend reads them.
+    let app = if package.container.name.is_empty() {
+        std::env::current_exe().ok().and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned())).unwrap_or_default()
+    } else {
+        package.container.name.clone()
+    };
+    cobolt_runner::install_sql_connections(&app);
     load(package, provided)
 }

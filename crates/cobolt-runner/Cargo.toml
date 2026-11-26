@@ -18,6 +18,19 @@ build                  = "build.rs"
 name = "prc-runner"
 path = "src/main.rs"
 
+# The suites of the SQL group run only when the runner has it (spec 114 T17).
+[[test]]
+name = "esql"
+required-features = ["sql"]
+
+[[test]]
+name = "sql_builtins"
+required-features = ["sql"]
+
+[[test]]
+name = "sql_object"
+required-features = ["sql"]
+
 # The Desktop CI's example opens windows and builds form fixtures: it needs the window side.
 [[example]]
 name = "desktop_wasm_ci"
@@ -29,10 +42,18 @@ required-features = ["forms"]
 # no `egui`, `eframe`, `winit` or `wgpu` in its tree (spec 114 R5).
 default = ["forms"]
 forms = [
+    "sql",
     "dep:cobolt-form-host", "dep:cobolt-forms", "dep:cobolt-graphics",
     "cobolt-runtime/audio", "cobolt-runtime/graphics", "cobolt-runtime/aws", "cobolt-runtime/kb",
     "cobolt-runtime/maps", "cobolt-runtime/pdf", "cobolt-runtime/office",
 ]
+# The provider groups of a runner with no windows (spec 114 T17, D6). The crate always provides the core group: the console,
+# the environment, the files of every organisation, the text files and pictures a built-in names, the HTTP built-ins and the
+# PartiQL built-ins on the program's own files. A module that declares a capability of a group that is off is refused at
+# start, naming it (`headless_capabilities`).
+# `sql`: `EXEC SQL` and the database objects, over SQLite, PostgreSQL and MySQL (the interpreter's `rusqlite` with its bundled
+# C library, `postgres` and `mysql`: 32 crates of a headless tree of 494).
+sql = ["cobolt-runtime/sql"]
 
 [dependencies]
 # The one engine, the machine code's load order and the local cache (T13).
@@ -47,11 +68,12 @@ serde_json = { workspace = true }
 wasmtime = { version = "=44.0.3", default-features = false, features = ["cranelift", "runtime", "std"] }
 # The pinned clock (`PRC_TEST_CLOCK`, RFC 3339) and the local offset, read as the interpreter reads them.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-# The data capabilities every runner has: the interpreter's own file, SQL, HTTP, PartiQL and picture code, reached through
-# the ABI host's ports (egui-free). `images` since T39c (IMAGE-FIT and IMAGE-INFO, ABI A39), `sql` since T41, `http`
-# since T42. Which of the interpreter's optional parts a runner links is spec 114's T17 (provider groups).
+# The data capabilities every runner has: the interpreter's own file, HTTP, PartiQL and picture code, reached through the
+# ABI host's ports (egui-free). `images` since T39c (IMAGE-FIT and IMAGE-INFO, ABI A39), `http` since T42 (the HTTP client and
+# the operating system's TLS, which `cobolt-server` links for its own sign-in checks, so the group costs no crate). The
+# interpreter's SQL part (since T41) is the feature `sql` above (spec 114 T17).
 cobolt-abi-host  = { path = "../cobolt-abi-host" }
-cobolt-runtime   = { path = "../cobolt-runtime", default-features = false, features = ["images", "sql", "http"] }
+cobolt-runtime   = { path = "../cobolt-runtime", default-features = false, features = ["images", "http"] }
 # A module with forms (T30), behind the feature `forms` (spec 114 T16): the ABI host drives its programs, as the
 # browser's player does, and the form host shows its windows, the very windows a program built on the Cargo path
 # shows. `audio` is on since T49 (the capability `audio`, ABI A36), `graphics` since T50 (the canvases and the
