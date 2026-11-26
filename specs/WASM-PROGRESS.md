@@ -189,6 +189,21 @@ The headless runner is complete for what a per-call Backend needs. **The four sh
 | PowerAnalyticsWeb | 55 calls over the real 18 MB SQLite database; 1,340 ms against 1,314 ms (41 and 42 calls/sec); the module is 17,324,365 bytes, compiled in 1,289 ms |
 | Not covered | per-connection state (T37), `WS-FAIL` (T38), stream, control and identity programs (the runner refuses them at start); `MOD(x, 0)` differs (WASM-PARITY row 70, open) |
 
+### M4 — the Build produces the module (T26–T33, 2026-11-26, version 2.1.59)
+
+**The operator's instruction of the evening ("the build must produce wasm, and the packaging must make it ready for deployment in a remote server as a zip and a simple command-line script that would configure nginx, copy the files and start the binary as a service — Linux, macOS and Windows") moved the default flip from the end of M5 to the end of M4** (plan D9 and P2, tasks T26/T33b/T40 amended). `[backend] build_path` is `auto` unless the project says otherwise: the module when `classify_backend` finds nothing the module does not serve and the runner is installed with its bill of materials, Cargo otherwise with every reason named. The zip and the script are spec 113 and did not change.
+
+| What | Result |
+|---|---|
+| AC1, no Rust on the machine | `PATH` an empty folder, `CARGO`/`RUSTC` unset, both proved unstartable first: PowerWebHello (2 programs, 9,722 ms) and PowerOficina (20 programs, 17,063 ms) build on the module path, and each file starts and describes itself (PASS 010 FAIL 000) |
+| The four shipped Backends, `Auto` | all four are modules, none by Cargo, no source changed (R22): PowerOficina 20 programs 17,635 ms, PowerAnalyticsWeb 11 programs 18,721 ms, PowerWebHello 2 programs 9,863 ms, PowerMobileHello 1 program 10,131 ms (PASS 040 FAIL 000); **with the debug runner of the test profile (about 120 MB), which two of the phases copy; the release runner was not timed** |
+| AC2, the same interface | the Build's file answers the checks of the Cargo-built file's black-box test: `--version`, `--describe`, no configuration (exit 2), an unsafe setting refused, a good one accepted, the health probe (PASS 009 FAIL 000; built in 9,693 ms); the runner's `executable` test still compares six invocations with a Cargo-built stand-in |
+| AC7, the fallback named | `--wasm` on a Backend with per-connection state and an `[identity]` section refuses naming both (PASS 002); `rcrun backend build --wasm` on an `EXEC RUST` program exits 1 naming the file; a runner with no bill of materials, or none, is named (PASS 004) |
+| The capability list | the Build checks `cap::BACKEND_RUNNER`, the runner provides `provided()`: the same 12 capabilities, held equal by a test (PASS 012) |
+| AC8, spec 113 on the module path (local half) | PowerOficina's package made in **45.6 s**: Backend 15.6 s (module, 15,327 ms in the Build), page 3.7 s, prove 2.4 s, zip 23.9 s; exactly two files; the zip 46,612,522 bytes, 61 entries, with `bin/sbom.cdx.json`; `bash -n` clean. The Cargo path's time for the same project was not re-measured |
+
+**Not proved:** the three installers and the runner on Windows and macOS (and Linux) with a module-built Backend; the workflow edits (`build-all-platforms.yml`: the runner built alone, its bill of materials written by `runner_sbom`, both staged beside the IDE and `rcrun`, a start check of the packaged runner) were reviewed by reading and parse as YAML, and are not dispatched; the IDE's Output lines were not read through the MCP (the server was not reachable). **Still Cargo until M5:** per-connection state, `[identity]`, a `sort` capability and the agent/KB/AWS built-ins. **Owed by the operator:** a package for another operating system needs that system's runner (plan Q3); the chunked System KB cannot be regenerated on this Mac (no semantic model) and was already stale.
+
 ## DESKTOP-WASM-001 — the M6 close and the acceptance audit (measured 2026-11-21, versions 2.0.640 to 2.0.643)
 
 The Desktop Build's default is the WebAssembly path, and **every reference project takes it with no Rust toolchain on the machine.** Measured on an 11-core Apple M3 Pro with 18 GB (not the reference box), macOS arm64, at `4db4e98f` (2.0.639) with the M6-close changes in the tree. The commands are in `specs/DESKTOP-WASM-001-portable-program-format-and-native-runner/tasks.md`, T51.

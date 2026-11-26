@@ -34,6 +34,8 @@ cobolt-wasm     = { path = "../cobolt-wasm", default-features = false }
 # copy of the PowerRustCOBOL runner.
 cobolt-runner-engine   = { path = "../cobolt-runner-engine" }
 cobolt-program-package = { path = "../cobolt-program-package" }
+# Spec 114 M4: the capabilities the shipped Backend runner provides, which a Backend module's manifest is checked against.
+cobolt-wasm-abi        = { path = "../cobolt-wasm-abi" }
 
 serde      = { workspace = true }
 serde_json = { workspace = true }

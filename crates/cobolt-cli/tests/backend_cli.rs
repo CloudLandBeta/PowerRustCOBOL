@@ -312,3 +312,38 @@ fn auth_test_prints_its_checks_without_a_value_and_backend_check_regenerates_the
     println!("backend check: 15 identity files written with [identity], removed without it; contract 1 program");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const EXEC_RUST: &str =
+    "IDENTIFICATION DIVISION.\nPROGRAM-ID. RAWRUST.\nPROCEDURE DIVISION.\nMAIN.\n    EXEC RUST\n        let _x = 1;\n    END-EXEC.\n    GOBACK.\n";
+
+/// Spec 114 T30 (R13, AC7): `--cargo` and `--wasm` are exclusive; `--wasm` refuses a Backend the module does not serve,
+/// naming the construct and its file, and builds nothing; `--wasm` on a Backend the module does serve says what is
+/// missing when the runner is not beside `rcrun`. None of this needs `cargo` (the refusals come before any compiler).
+#[test]
+fn backend_build_takes_its_way_by_flag_and_wasm_refuses_what_the_module_does_not_serve() {
+    // Both flags: a usage error, exit 2, before anything is read.
+    let dir = project("flags");
+    let (code, _, err) = rcrun(&["build", "--cargo", "--wasm"], &dir);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("--cargo and --wasm cannot be given together"), "{err}");
+
+    // A program with an EXEC RUST block: `--wasm` refuses and names it; no `bin/` is made.
+    let dir = project("execrust");
+    std::fs::write(dir.join("backend").join("src").join("raw.cbl"), EXEC_RUST).unwrap();
+    let (code, out, err) = rcrun(&["build", "--wasm"], &dir);
+    assert_eq!(code, 1, "{out}{err}");
+    assert!(err.contains("cannot be built as a WebAssembly module"), "{err}");
+    assert!(err.contains("EXEC RUST") && err.contains("raw.cbl"), "the refusal names the construct and the file: {err}");
+    assert!(!dir.join("bin").exists(), "a refused build leaves no bin/");
+
+    // A Backend with nothing the module refuses, and no runner beside `rcrun` (or one with no bill of materials): `--wasm`
+    // refuses naming the runner. A checkout builds `rcrun` with no runner beside it unless the developer built one.
+    let dir = project("norunner");
+    let (code, out, err) = rcrun(&["build", "--wasm"], &dir);
+    let runner_beside = Path::new(env!("CARGO_BIN_EXE_rcrun")).with_file_name("prc-backend-runner").is_file();
+    if !runner_beside {
+        assert_eq!(code, 1, "{out}{err}");
+        assert!(err.contains("Backend runner") && err.contains("was not found"), "{err}");
+    }
+    println!("rcrun backend build: both flags exit 2; --wasm on EXEC RUST exits 1 naming raw.cbl; --wasm with no runner {}; PASS 007 FAIL 000", if runner_beside { "skipped (a runner is beside rcrun)" } else { "exits 1 naming the runner" });
+}

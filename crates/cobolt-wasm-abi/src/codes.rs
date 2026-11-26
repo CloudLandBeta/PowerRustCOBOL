@@ -263,6 +263,25 @@ pub mod cap {
         LAYOUTS,
         VIEWER,
     ];
+
+    /// What the shipped Backend runner provides (spec 114): the capabilities a program with no window can use, with
+    /// the database group. The Build checks a Backend module's manifest against this list before it puts the module in
+    /// a runner, so that a module the runner would refuse at start is sent to the Cargo path with the capability named.
+    /// The runner's own list (`cobolt_runner::headless_capabilities`, built with `sql`) is held equal to this one by a test.
+    pub const BACKEND_RUNNER: &[&str] = &[
+        CONSOLE,
+        ENV,
+        FILES_SEQUENTIAL,
+        FILES_LINE_SEQUENTIAL,
+        FILES_RELATIVE,
+        FILES_INDEXED,
+        FILES_TEXT,
+        IMAGES,
+        HTTP,
+        PARTIQL,
+        PARTIQL_FILES,
+        SQL,
+    ];
 }
 
 /// The imports in [`NATIVE_IMPORT_MODULE`] each capability brings (A27). A capability's set is fixed

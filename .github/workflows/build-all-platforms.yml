@@ -179,6 +179,24 @@ jobs:
           --target ${{ matrix.target }}
           -p cobolt-ide -p cobolt-cli -p cobolt-web-preview -p cobolt-runner
 
+      # prc-backend-runner, the headless Backend runner (spec 114 T42): a Backend Build copies it and puts
+      # the Backend's WebAssembly module inside, so a Web project is built, packaged and installed with no
+      # Rust anywhere. It is built in a command of its own: built together with prc-runner, Cargo would
+      # unify their features and give it the window system it exists to leave out. On Windows the C runtime
+      # is linked in (spec 114 C7), so it starts on a machine without the Visual C++ Redistributable, as
+      # the Cargo-built Backend does. The bill of materials is written beside it for the Build to read.
+      - name: Build the Backend runner and its bill of materials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --locked --target ${{ matrix.target }} -p cobolt-backend-runner
+          else
+            cargo build --release --locked --target ${{ matrix.target }} -p cobolt-backend-runner
+          fi
+          cargo run --release --locked --target ${{ matrix.target }} -p cobolt-compiler --example runner_sbom -- \
+            "target/${{ matrix.target }}/release/prc-backend-runner${{ matrix.ext }}"
+
       # The headless web view helper draws, on every system (WASM-008 T45):
       # PRC_REQUIRE_WEBVIEW=1 turns its tests' "no web view, skipped" into a
       # failure. Linux runs them under Xvfb; WebView2 comes with the runner.
@@ -245,6 +263,8 @@ jobs:
           cp "target/${{ matrix.target }}/release/rcrun${{ matrix.ext }}" "$out/rcrun${{ matrix.ext }}"
           cp "target/${{ matrix.target }}/release/prc-web-preview${{ matrix.ext }}" "$out/prc-web-preview${{ matrix.ext }}"
           cp "target/${{ matrix.target }}/release/prc-runner${{ matrix.ext }}" "$out/prc-runner${{ matrix.ext }}"
+          cp "target/${{ matrix.target }}/release/prc-backend-runner${{ matrix.ext }}" "$out/prc-backend-runner${{ matrix.ext }}"
+          cp "target/${{ matrix.target }}/release/prc-backend-runner.sbom.json" "$out/prc-backend-runner.sbom.json"
           cp -R assets "$out/assets"
           rm -rf "$out/assets/knowledge"
           git archive HEAD examples | tar -x -C "$out"
@@ -313,6 +333,11 @@ jobs:
           cp "target/${{ matrix.target }}/release/rcrun" "$app/Contents/MacOS/rcrun"
           cp "target/${{ matrix.target }}/release/prc-web-preview" "$app/Contents/MacOS/prc-web-preview"
           cp "target/${{ matrix.target }}/release/prc-runner" "$app/Contents/MacOS/prc-runner"
+          cp "target/${{ matrix.target }}/release/prc-backend-runner" "$app/Contents/MacOS/prc-backend-runner"
+          # The bill of materials is a data file: it lives in Resources and is linked from MacOS, where the Build
+          # looks for it beside the runner, as `assets` is (a data file inside MacOS is not sealed as code).
+          cp "target/${{ matrix.target }}/release/prc-backend-runner.sbom.json" "$app/Contents/Resources/prc-backend-runner.sbom.json"
+          ln -s "../Resources/prc-backend-runner.sbom.json" "$app/Contents/MacOS/prc-backend-runner.sbom.json"
           cp -R assets "$app/Contents/Resources/assets"
           # Already inside the binary — see the Linux/Windows staging step.
           rm -rf "$app/Contents/Resources/assets/knowledge"
@@ -365,6 +390,8 @@ jobs:
           # The runner is signed like the others; a Build signs each program it makes from it again,
           # ad hoc, after putting the program inside (cobolt-program-package).
           codesign --force --sign - "$app/Contents/MacOS/prc-runner"
+          # The Backend runner likewise: every Backend a Build makes from it is signed ad hoc again.
+          codesign --force --sign - "$app/Contents/MacOS/prc-backend-runner"
           codesign --force --sign - "$app"
           codesign --verify --strict "$app"
 
@@ -376,16 +403,16 @@ jobs:
           set -euo pipefail
           case "$RUNNER_OS" in
             Linux)
-              ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun" "dist/$PKG/prc-runner"
-              if ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun" "dist/$PKG/prc-runner" | grep -E 'libssl|libcrypto' >/dev/null; then
+              ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun" "dist/$PKG/prc-runner" "dist/$PKG/prc-backend-runner"
+              if ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun" "dist/$PKG/prc-runner" "dist/$PKG/prc-backend-runner" | grep -E 'libssl|libcrypto' >/dev/null; then
                 echo "::error::OpenSSL is still linked dynamically — the package is not self-contained"
                 exit 1
               fi
               ;;
             macOS)
               app="dist/$PKG/PowerRustCOBOL.app/Contents/MacOS"
-              otool -L "$app/PowerRustCOBOL" "$app/rcrun" "$app/prc-runner"
-              if otool -L "$app/PowerRustCOBOL" "$app/rcrun" "$app/prc-runner" | grep -E '/usr/local/|/opt/homebrew/' >/dev/null; then
+              otool -L "$app/PowerRustCOBOL" "$app/rcrun" "$app/prc-runner" "$app/prc-backend-runner"
+              if otool -L "$app/PowerRustCOBOL" "$app/rcrun" "$app/prc-runner" "$app/prc-backend-runner" | grep -E '/usr/local/|/opt/homebrew/' >/dev/null; then
                 echo "::error::a Homebrew library leaked into the binary — it will not run on a clean Mac"
                 exit 1
               fi
@@ -460,6 +487,22 @@ jobs:
           echo "$msg (exit $code)"
           test "$code" = 1 || { echo "::error::prc-runner exited $code, not 1"; exit 1; }
           echo "$msg" | grep -q "carries no program" || { echo "::error::prc-runner did not start"; exit 1; }
+          # The Backend runner the same way (spec 114 T42): bare, it says so and exits 1; and its bill of
+          # materials is beside it, or every Backend Build would fall back to Cargo.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            b="dist/$PKG/PowerRustCOBOL.app/Contents/MacOS/prc-backend-runner"
+          else
+            b="dist/$PKG/prc-backend-runner${{ matrix.ext }}"
+          fi
+          test -f "$b" || { echo "::error::the package has no prc-backend-runner"; exit 1; }
+          test -s "$(dirname "$b")/prc-backend-runner.sbom.json" || { echo "::error::the package has no bill of materials beside prc-backend-runner"; exit 1; }
+          set +e
+          msg=$("$b" 2>&1)
+          code=$?
+          set -e
+          echo "$msg (exit $code)"
+          test "$code" = 1 || { echo "::error::prc-backend-runner exited $code, not 1"; exit 1; }
+          echo "$msg" | grep -q "bare Backend runner" || { echo "::error::prc-backend-runner did not start"; exit 1; }
 
       # ── Installers ──────────────────────────────────────────────────────────
       #
@@ -999,6 +1042,8 @@ jobs:
           grep -q "./opt/powerrustcobol/assets/themes/" dist/_deb-contents.txt
           grep -q "./opt/powerrustcobol/sdk/Cargo.toml" dist/_deb-contents.txt
           grep -q "./opt/powerrustcobol/prc-runner" dist/_deb-contents.txt
+          grep -q "./opt/powerrustcobol/prc-backend-runner" dist/_deb-contents.txt
+          grep -q "./opt/powerrustcobol/prc-backend-runner.sbom.json" dist/_deb-contents.txt
           grep -q "./opt/powerrustcobol/examples/PowerDemo3/" dist/_deb-contents.txt
           rm -f dist/_deb-contents.txt
           # The links have done their job; the .rpm needs the room next.
@@ -1147,6 +1192,8 @@ jobs:
           grep -q "^/opt/powerrustcobol/assets/themes/" dist/_rpm-contents.txt
           grep -q "^/opt/powerrustcobol/sdk/Cargo.toml$" dist/_rpm-contents.txt
           grep -q "^/opt/powerrustcobol/prc-runner$" dist/_rpm-contents.txt
+          grep -q "^/opt/powerrustcobol/prc-backend-runner$" dist/_rpm-contents.txt
+          grep -q "^/opt/powerrustcobol/prc-backend-runner.sbom.json$" dist/_rpm-contents.txt
           grep -q "^/opt/powerrustcobol/examples/PowerDemo3/" dist/_rpm-contents.txt
           rm -f dist/_rpm-contents.txt
           # Nothing below needs the build tree or the staged desktop entry, and

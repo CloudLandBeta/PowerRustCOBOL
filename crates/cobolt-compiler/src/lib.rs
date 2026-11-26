@@ -57,6 +57,7 @@ use thiserror::Error;
 mod build_cache;
 pub mod warmup;
 pub mod backend_build;
+pub mod backend_module;
 pub mod identity_rules;
 pub mod exec_rust;
 pub mod runtime_features;
@@ -827,6 +828,24 @@ pub enum CompilerError {
     )]
     RunnerNotFound { searched: String },
 
+    /// The Backend Build was asked for the module path alone (`--wasm`, or `[backend] build_path = "wasm"`) and the
+    /// module does not serve this Backend (spec 114 R13, AC7). `reasons` is one line per reason, each naming the
+    /// construct, its file and line, and why. Nothing is staged or compiled and `bin/` is left as it was.
+    #[error(
+        "this Backend cannot be built as a WebAssembly module, which was asked for alone:\n{reasons}\n\
+         Build it with `rcrun backend build --cargo`, or leave `[backend] build_path` at \"auto\" to let the Build choose."
+    )]
+    BackendWasmRefused { reasons: String },
+
+    /// The Backend takes the Cargo path, for the `reasons` given (one per line), and the Rust toolchain is missing or
+    /// unusable (spec 114 D8). The module path needs none; this Backend is one it does not serve.
+    #[error(
+        "this Backend is built with Cargo because:\n{reasons}\nand the Rust toolchain is required to build it that way, \
+         but {tool} could not be run: {detail}. Install Rust from https://rustup.rs and make sure {tool} is on PATH. \
+         (Only building needs it — the binary you produce does not.)"
+    )]
+    BackendCargoNeedsToolchain { reasons: String, tool: String, detail: String },
+
     /// A build was asked for a target this host cannot produce (spec 041 R18).
     #[error(
         "cannot build for '{requested}' on this machine ({host}): PowerRustCOBOL builds \
@@ -1286,6 +1305,8 @@ pub struct ManifestView {
     pub backend_exports: Vec<String>,
     /// `[backend] state` as written; `per-call` when absent.
     pub backend_state: String,
+    /// `[backend] build_path` as written (`auto`, `wasm` or `cargo`); empty, which reads as `auto`, when absent.
+    pub backend_build_path: String,
     /// `[[sql-connections]]`, in manifest order.
     pub sql_connections: Vec<cobolt_forms::connections::SqlConnection>,
 }
@@ -1294,6 +1315,11 @@ impl ManifestView {
     /// `[backend] state` as the server reads it; `Err` names the two values.
     pub fn backend_state_mode(&self) -> Result<cobolt_server::backend::StateMode, String> {
         cobolt_server::backend::StateMode::parse(&self.backend_state)
+    }
+
+    /// `[backend] build_path` as the Build reads it; `Err` names the three values.
+    pub fn backend_build_path_choice(&self) -> Result<backend_module::BackendPath, String> {
+        backend_module::BackendPath::parse(&self.backend_build_path)
     }
 }
 
@@ -1343,6 +1369,7 @@ pub fn project_manifest_view(manifest_path: &Path) -> Result<ManifestView, Strin
         Some(dir) if m.project.kind.has_backend() => cobolt_server::backend::exported_names(&dir.join(project_kind::BACKEND_FOLDER)),
         _ => Vec::new(),
     };
+    let backend_settings = m.backend.unwrap_or_default();
     Ok(ManifestView {
         name: m.project.name,
         structure: m.project.structure,
@@ -1360,7 +1387,8 @@ pub fn project_manifest_view(manifest_path: &Path) -> Result<ManifestView, Strin
         mobile: m.mobile,
         security: m.security,
         backend_exports,
-        backend_state: m.backend.unwrap_or_default().state,
+        backend_state: backend_settings.state,
+        backend_build_path: backend_settings.build_path,
         sql_connections: m.sql_connections,
     })
 }
@@ -6470,7 +6498,7 @@ A Web or Mobile project has a backend (the `backend/` folder) that runs on the n
 - **The backend's side.** `backend/exports.toml` names the contract version (`[contract] version = "1.2.0"`) and, in `[[export]]` entries, the programs a caller may reach: `program` (the PROGRAM-ID), `roles` (any one of them is enough; empty means any authenticated caller), `public` (answers with no token), `independent` (not queued behind the caller's other calls), `directions` (`in`, `out` or `inout` per parameter). **Only an exported program can be called**, whatever its name; the others are ordinary procedures the exported ones `CALL`. `backend/exports.toml` is the one list: the IDE's Backend settings edit it, and an older project's `[backend] exports` list in the project file is copied into it once, when the project is opened. **State between calls** is the project's `[backend] state`: `per-call` (the default) runs every call in a fresh interpreter — no WORKING-STORAGE survives from one call to the next, and files and databases are the only shared state; `per-connection` keeps one run unit per exported program for the life of a connection, so WORKING-STORAGE carries over from one call of that connection to the next as for a program `CALL`ed again, the connection's calls run in turn (`independent` is ignored), a connection serves only the user it first served, a call that times out, is cancelled or fails with a fault starts that program afresh, and nothing is kept when the connection ends — a reconnection starts fresh. In `per-connection` a file a program leaves open stays open, and keeps its lock, across that connection's calls. Inside an exported program `COBOL::"WS-CLAIM" ( "sub" WS-USER )` reads a claim of the caller's validated token (`sub`, `email`, `roles`, any scalar claim; a nested one with dotted names such as `realm_access.roles`); it is spaces when the token lacks it.
 - **Files shared between calls** wait for each other: a program that opens an indexed file for output holds it exclusively until its `CLOSE`, readers share it, and an `OPEN` that cannot get the file within `file_lock_wait_ms` (default 5000) answers file status 93. Close a file as soon as the work on it is done — in `per-connection` state a file left open makes every other connection wait for it, or get 93, until a later call closes it or the connection ends.
 - **The contract is versioned** (`major.minor.patch`). Between two releases an old client keeps working only if the new interface still accepts what the old one sent and still carries every member the old one reads: adding a member or a program, or widening an item that only travels to the backend, is compatible; removing or renaming a member (in a request **or** an answer), changing a scale or a sign, narrowing a picture, widening an item the backend also sends back (an old client has no room for it), removing a program, or changing who may call it is breaking and needs a new **major** version. A **release** build is refused when it breaks the last released contract (`backend/contract/released/<version>.json`, written by `rcrun backend release`).
-- **Developing and building the backend.** `rcrun backend run [dir]` serves the backend on a loopback address with a development token printed at start (valid for that run only), and prints each log record as it happens; it publishes the project's `[[sql-connections]]` as `rcrun run` does, so `EXEC SQL CONNECT TO 'NAME'` in a backend program resolves; in the IDE, **Run → Start Backend** runs exactly that for the open Web or Mobile project, shows its output in the Output panel, and **Run → Stop Backend** (or closing the project or the IDE) stops it; `rcrun backend check` compares the contract with the released ones; `rcrun backend describe` writes and prints `interface.json`; `rcrun backend release` records the current contract as released; `rcrun backend build` produces the headless server binary `bin/<name>-backend`. The built backend reads `backend.toml` (address, TLS identity, token issuer, allowed origins, limits; a secret is written as `env:NAME` or `file:PATH`, never in a form) and refuses to start on any setting named `unsafe_…`. Plain `ws://` is served on a loopback address only, in every mode — on a network address give `backend.toml` a `[tls]` section, or put a reverse proxy that terminates TLS in front and listen on loopback. A new Web or Mobile project starts with `backend/exports.toml` (`HEALTH`, public) and a development `backend/backend.toml` (loopback, no secret). Besides the WebSocket the backend answers `GET /health`; every other path is 404.
+- **Developing and building the backend.** `rcrun backend run [dir]` serves the backend on a loopback address with a development token printed at start (valid for that run only), and prints each log record as it happens; it publishes the project's `[[sql-connections]]` as `rcrun run` does, so `EXEC SQL CONNECT TO 'NAME'` in a backend program resolves; in the IDE, **Run → Start Backend** runs exactly that for the open Web or Mobile project, shows its output in the Output panel, and **Run → Stop Backend** (or closing the project or the IDE) stops it; `rcrun backend check` compares the contract with the released ones; `rcrun backend describe` writes and prints `interface.json`; `rcrun backend release` records the current contract as released; `rcrun backend build` produces the headless server binary `bin/<name>-backend` and its bill of materials `bin/sbom.cdx.json`, in one of two ways that give the same file, the same interface and the same answers: as a WebAssembly module inside the prebuilt backend runner (`prc-backend-runner`, which ships beside the IDE and `rcrun`) — the usual way, seconds, no Rust toolchain, no internet — or with Cargo (a generated Rust program built with the Rust toolchain; minutes). The project's `[backend] build_path` (`auto`, the default, `wasm` or `cargo`; set in Project Settings or with `set_project_settings`) and `rcrun backend build --wasm` / `--cargo` choose: `auto` takes the module whenever the backend allows it and Cargo otherwise, `wasm` refuses a backend that needs Cargo and names every reason, `cargo` makes every build take Cargo. The build prints `Engine`, each `Cargo because:` reason and its phases. Reasons for Cargo: the project chose it; it registers External Crates; a program holds an EXEC RUST block; `backend.toml` has an `[identity]` section or the project keeps `state = "per-connection"` (the module does not serve them yet); a program holds a construct the module does not serve yet; a program needs a capability the runner does not provide (`sort`, `agent`, `kb`, `aws`, …); the runner or its bill of materials was not found. `--debug` is a Cargo option and means nothing for a module. The built backend reads `backend.toml` (address, TLS identity, token issuer, allowed origins, limits; a secret is written as `env:NAME` or `file:PATH`, never in a form) and refuses to start on any setting named `unsafe_…`. Plain `ws://` is served on a loopback address only, in every mode — on a network address give `backend.toml` a `[tls]` section, or put a reverse proxy that terminates TLS in front and listen on loopback. A new Web or Mobile project starts with `backend/exports.toml` (`HEALTH`, public) and a development `backend/backend.toml` (loopback, no secret). Besides the WebSocket the backend answers `GET /health`; every other path is 404.
 - **A failure the backend program reports itself.** `COBOL::"WS-FAIL" ( 4201 "card declined" '{"retry":false}' )` ends the call: the caller's `ON EXCEPTION` runs with class `APPLICATION`, the code 4201, the message and the detail (`COBOL::"WS-LAST-ERROR" ( class code message detail )`), and the parameters the program changed are **not** sent back. A program's own codes are 1 to 7999; 8000 is the platform's *cancelled*.
 - **Repeating a call.** The runtime gives every call an idempotency key. After a lost connection a program declared `idempotent = true` in `exports.toml` is sent again once, on a new connection; any other call fails with class `TRANSPORT`, code 1001 and `may_have_run` true, and when the same `CALL` is made again right away it reuses the key, so the backend answers from what it kept for `idempotency_ttl_seconds` (600) **without running the program a second time** (the same key with other data is refused). A timeout, a limit and a cancel are not kept, so they can be tried again. Calls of one connection run in the order they were made unless the program is declared `independent = true`.
 - **Delivery, sessions and `[contract]`.** The working assumption for a repeated call is *at most once per idempotency key*: the backend keeps the answer to a key and returns it, without running the program again, for `idempotency_ttl_seconds`; a call that failed with `may_have_run` true may or may not have run, and the only safe repeat is the same `CALL` (same key, same data). `backend.toml` `[contract]` holds `idempotency_store` (`memory`, the default, or `server`, which also writes each answer to a file the backend keeps before it replies, so a repeat is recognised after a restart) and `session_idle_seconds` (default 900): a connection's state (`state = "per-connection"`) that sees no call for that long ends, with the files it left open, and the next call starts afresh. The IDE edits both in Project Settings, Backend.

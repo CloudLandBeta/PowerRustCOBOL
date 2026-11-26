@@ -19737,8 +19737,10 @@ flowchart LR
 
 **Making the package.** The Output panel names each step as it starts — `Check`, `Page`,
 `Backend`, `Prove`, `Zip`, `Script` — and ends with the two file names, the command to run
-and, when they apply, what still has to be supplied. A Backend build can take minutes the
-first time. Nothing is written into the chosen folder until the whole package is made and
+and, when they apply, what still has to be supplied. The `Backend` step takes seconds when
+the Build makes the Backend as a WebAssembly module, which needs no Rust on the packaging
+machine (section 24.11), and the Output says which way it went and, when it was the other
+way, why. Nothing is written into the chosen folder until the whole package is made and
 proven: a refusal or a failure leaves the folder as it was. The coding agent's
 `package_project` tool and `rcrun package` do the same (`--output FOLDER` chooses the folder,
 `--lang` the language of the installer's messages); the tool answers at once and the steps
@@ -19816,8 +19818,11 @@ on the Backend's port. There is no uninstaller — the folders above are yours t
 > SELinux enforcing, allow nginx to connect to the Backend's loopback port
 > (`httpd_can_network_connect`) before the first start.
 >
-> **Caveat.** The first Backend build on a machine compiles the platform and is slow; later
-> ones reuse it. Spec 113 has been run end to end on Linux. The Windows installer was checked
+> **Caveat.** A Backend the Build makes as a WebAssembly module needs nothing on the packaging
+> machine but the IDE, and nothing on the server but the two files. A Backend that needs the
+> other way (section 24.11 lists when) compiles the platform with the Rust toolchain the
+> first time on a machine, which is slow; later ones reuse it. Spec 113 has been run end to
+> end on Linux. The Windows installer was checked
 > for syntax and usage but not run as a Windows service, and the macOS installer was not run
 > as the administrator on a Mac — try both on a test machine first.
 ---
@@ -20295,7 +20300,7 @@ check, never printing a value.
 | `rcrun backend describe [dir]` | writes and prints `interface.json` |
 | `rcrun backend check [dir]` | checks the Backend and compares its contract with the released ones |
 | `rcrun backend release [dir]` | records the current contract as released |
-| `rcrun backend build [dir]` | builds the headless server binary `bin/<name>-backend` (`--debug`, `--accept-breaking`, `--quiet`) |
+| `rcrun backend build [dir]` | builds the headless server `bin/<name>-backend` and its bill of materials `bin/sbom.cdx.json` — as a WebAssembly module in the prebuilt runner when the Backend allows it, with Cargo when it does not (`--cargo`, `--wasm`, `--debug`, `--accept-breaking`, `--quiet`); see **Two ways a Backend Build makes your server** below |
 | `rcrun backend auth test [dir]` | tests the `[identity]` and reCAPTCHA settings |
 
 In the IDE, **Run ▸ Start Backend** runs the first for the open project, shows its output in the
@@ -20323,6 +20328,79 @@ for you when it makes the Backend a service:
 | `--service` | **Windows only**: runs as a Windows service and answers the Service Control Manager; `--service-name NAME` names it |
 | `--check` | reads the settings, applies the release refusals, prints the result and stops without serving — the **Prove** step of Package Project runs this |
 | `--describe`, `--version` | print the interface description, or the version, and stop |
+
+**Two ways a Backend Build makes your server.** Whichever way the Build takes, the result is
+the same: one file, `bin/<name>-backend`, that answers the same arguments (the table above),
+describes the same interface and answers a call the same way, with `bin/sbom.cdx.json` — its
+software bill of materials — beside it. Your COBOL, your forms, your `exports.toml` and your
+`backend.toml` are not changed by either.
+
+| Way | What the Build does | What it needs |
+|---|---|---|
+| **WebAssembly module** — the usual way | compiles your programs into one module, prepares that module for this machine's processor, and puts both inside a copy of the prebuilt Backend runner, `prc-backend-runner`, that ships with the IDE | the IDE (or `rcrun`) alone: **no Rust, no compiler, no internet**; it takes seconds |
+| **Cargo** | writes a Rust program that holds your programs and builds it with the Rust toolchain | the Rust toolchain; minutes, and the first build on a machine compiles the platform |
+
+```mermaid
+flowchart TD
+    B["Build the Backend"] --> Q{"Asked for Cargo, or does the Backend<br/>hold EXEC RUST, External Crates,<br/>an [identity] section, per-connection state,<br/>or something the module does not serve yet?"}
+    Q -- "no" --> W["WebAssembly module in the<br/>prebuilt runner<br/>seconds, no Rust"]
+    Q -- "yes" --> C["Cargo<br/>the Output names every reason"]
+    W --> F["bin/&lt;name&gt;-backend<br/>and bin/sbom.cdx.json"]
+    C --> F
+```
+
+You choose in **Project Settings**, in the Backend part of the Web (or Mobile) section, with
+**Build path** — *Automatic* (the default),
+*WebAssembly (no Rust needed)* or *Cargo (needs Rust)* — or for one build with
+`rcrun backend build --wasm` or `--cargo` (not both). *Automatic* takes the module whenever the
+Backend allows it and Cargo otherwise; *WebAssembly* **refuses** a Backend that needs Cargo,
+building nothing and naming each reason; *Cargo* makes every build take Cargo. A project that
+never chose has no `[backend] build_path` line in its project file.
+
+What `rcrun backend build` tells you (the Output panel of a Package Project says the same in
+the language of the IDE):
+
+```text
+   Engine   : WebAssembly module
+   Phases   : check 7 ms, generate 12 ms, machine code 164 ms, assemble 4915 ms, install 4759 ms
+```
+
+```text
+   Engine   : Cargo
+   Cargo because: backend.toml has an [identity] section, whose sign-in programs the module path does not serve yet
+```
+
+> 📷 **Screenshot needed — `backend-build-engine-line.png`.** Open PowerWebHello, choose
+> **Build** and wait for it to end: capture the Output panel with the `Engine` line.
+
+The reasons for Cargo, each worded as the Build writes it: the project chose Cargo; it
+registers **External Crates**; a program holds an **EXEC RUST** block (the file and the line);
+`backend.toml` has an **[identity]** section; the project keeps state **per-connection**; a
+program holds a construct the module does not serve yet (the file, the line and the
+construct); a program needs a capability the runner does not provide (the capability is
+named — `sort`, `agent`, `kb` and `aws` among them); the runner was not found; or the runner
+has no bill of materials beside it. An `[identity]` section, per-connection state and some
+constructs are limits of the module way **today**, not of your program: the Backend builds
+with Cargo until the module serves them.
+
+> **Note.** The runner is the file `prc-backend-runner` and, beside it,
+> `prc-backend-runner.sbom.json`, in the folder of the IDE and of `rcrun`. Set the
+> environment variable `PRC_BACKEND_RUNNER` to the runner's file to use another one.
+> A **Package Project** run (section 23.11) takes the same way, so the zip's Backend is a module
+> too, and the server needs nothing of Rust: only the zip and the install script.
+
+> **Caveat.** The Backend is built for the **operating system of the machine that builds**, as
+> before: a package for another system is made on that system. A runner for each system is part
+> of the IDE of that system.
+>
+> **Caveat.** `--debug` asks for a Cargo debug build and means nothing for a module: the Build
+> ignores it on that way. A debug build of the Backend needs the Rust toolchain.
+>
+> **Caveat.** The module way was run here, on a Mac, with the four Backends the examples ship
+> (PowerOficina, PowerAnalyticsWeb, PowerWebHello, PowerMobileHello): each built, started and
+> answered the same checks as a file built with Cargo. The Linux and Windows runners and the
+> installers with a module-built Backend were not run on those systems; try them on a test
+> machine first.
 
 To put a Web application on a server, use **Package Project** (section 23.11) and not these
 commands by hand.

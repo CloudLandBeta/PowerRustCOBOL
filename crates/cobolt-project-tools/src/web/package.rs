@@ -101,6 +101,16 @@ impl std::fmt::Display for PackageError {
 
 impl std::error::Error for PackageError {}
 
+/// How the Backend of a package was made (spec 114 R13, R16): which engine, why Cargo when it was Cargo, and the time of each phase.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackendMade {
+    pub engine: cobolt_compiler::backend_module::BackendEngine,
+    /// Why the Build took the Cargo path, one line per reason, as the Build words them (empty for the module path).
+    pub reasons: Vec<String>,
+    /// The Build's phases with their milliseconds, in order.
+    pub phases: Vec<(String, u128)>,
+}
+
 /// What a package is, once made.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Packaged {
@@ -116,6 +126,8 @@ pub struct Packaged {
     pub wss: bool,
     /// The secrets the Backend reads, by name; the script wants each in its environment file.
     pub required_secrets: Vec<String>,
+    /// How the Backend was made; `None` for a project with no Backend.
+    pub backend: Option<BackendMade>,
     /// Things the developer should know that did not stop the package.
     pub notes: Vec<String>,
     /// Seconds each step took, in order.
@@ -553,15 +565,22 @@ pub fn package_web(manifest: &Path, out_dir: &Path, lang: &str, progress: &mut d
 
     // ── Backend and Prove ──
     let mut exe: Option<PathBuf> = None;
+    let mut made: Option<BackendMade> = None;
     let mut addr = String::new();
     if let Some(production) = &production {
         mark(Step::Backend, progress, &mut clock);
-        if cfg!(windows) {
+        let opts = cobolt_compiler::backend_build::BackendBuildOptions::default();
+        let built = cobolt_compiler::backend_build::build_backend(&project_dir, &opts).map_err(|e| PackageError::Failed(format!("the Backend did not build: {e}")))?;
+        // Only the Cargo path links the C runtime in (spec 113 R13); the module path carries it in the prebuilt runner.
+        if cfg!(windows) && built.engine == cobolt_compiler::backend_module::BackendEngine::Cargo {
             notes.push("The Backend is built with its C runtime inside, so it starts on a Windows that has not installed the Visual C++ Redistributable; the first package compiles the platform for that and takes longer.".into());
         }
-        let opts = cobolt_compiler::backend_build::BackendBuildOptions { debug: false, verbose: false, workspace_root: None, accept_breaking: false };
-        let built = cobolt_compiler::backend_build::build_backend(&project_dir, &opts).map_err(|e| PackageError::Failed(format!("the Backend did not build: {e}")))?;
         notes.extend(built.notes.iter().cloned());
+        made = Some(BackendMade {
+            engine: built.engine,
+            reasons: built.reasons.iter().map(|r| r.to_string()).collect(),
+            phases: built.phases.iter().map(|p| (p.name.to_string(), p.millis)).collect(),
+        });
         mark(Step::Prove, progress, &mut clock);
         addr = prove(production, &built.binary).map_err(PackageError::Refused)?;
         exe = Some(built.binary);
@@ -634,6 +653,7 @@ pub fn package_web(manifest: &Path, out_dir: &Path, lang: &str, progress: &mut d
             has_backend: production.is_some(),
             wss: install.wss,
             required_secrets: production.as_ref().map(|p| p.required_secrets.clone()).unwrap_or_default(),
+            backend: made.clone(),
             notes: Vec::new(),
             timings: Vec::new(),
             seconds: 0.0,

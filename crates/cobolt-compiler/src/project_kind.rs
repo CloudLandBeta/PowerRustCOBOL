@@ -1028,12 +1028,26 @@ pub struct BackendSettings {
     /// so an existing manifest is saved unchanged.
     #[serde(default = "per_call", skip_serializing_if = "is_per_call")]
     pub state: String,
+    /// How a Build makes the Backend (spec 114 R13): `auto`, the default, builds a WebAssembly module inside the
+    /// prebuilt Backend runner when the module serves the whole Backend and needs no Rust toolchain, and Cargo
+    /// otherwise; `wasm` asks for the module alone and refuses what it cannot serve; `cargo` compiles the generated
+    /// Rust, as every Backend was built before. Written only when it is not the default.
+    #[serde(default = "backend_auto", skip_serializing_if = "is_backend_auto")]
+    pub build_path: String,
 }
 
 impl Default for BackendSettings {
     fn default() -> Self {
-        BackendSettings { exports: Vec::new(), state: per_call() }
+        BackendSettings { exports: Vec::new(), state: per_call(), build_path: backend_auto() }
     }
+}
+
+fn backend_auto() -> String {
+    crate::backend_module::BUILD_PATH_AUTO.to_owned()
+}
+
+fn is_backend_auto(path: &String) -> bool {
+    path.trim().is_empty() || path.trim().eq_ignore_ascii_case(crate::backend_module::BUILD_PATH_AUTO)
 }
 
 impl BackendSettings {

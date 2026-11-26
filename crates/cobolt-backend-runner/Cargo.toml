@@ -60,4 +60,6 @@ cobolt-wasm-rt = { path = "../cobolt-wasm-rt" }
 # The parity run (T25) points both engines at a folder and at the project's SQL connections, as a started Backend does.
 cobolt-forms   = { path = "../cobolt-forms", default-features = false }
 cobolt-runtime = { path = "../cobolt-runtime", default-features = false }
+# The module-path Build (T28): `build_backend` is run with this crate's runner and the file it installs is started.
+cobolt-compiler = { path = "../cobolt-compiler" }
 tokio     = { workspace = true }

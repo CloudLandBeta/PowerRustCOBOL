@@ -128,7 +128,7 @@ fn start_sign_in_call_skew_and_teardown_against_the_built_binary() {
     std::env::set_var("POWERRUSTCOBOL_BUILD_DIR", &staging);
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").canonicalize().unwrap();
     let t = Instant::now();
-    let built = build_backend(&project, &BackendBuildOptions { debug: true, verbose: false, workspace_root: Some(workspace), accept_breaking: false });
+    let built = build_backend(&project, &BackendBuildOptions { debug: true, workspace_root: Some(workspace), path: Some(cobolt_compiler::backend_module::BackendPath::Cargo), ..BackendBuildOptions::default() });
     let built = match built {
         Ok(b) => b,
         Err(e) => {

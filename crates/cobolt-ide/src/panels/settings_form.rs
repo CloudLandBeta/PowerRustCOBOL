@@ -65,6 +65,8 @@ pub struct SettingsDraft {
     pub contract: crate::panels::web_settings::ContractDraft,
     /// `[backend] state`: `per-call` or `per-connection` (WASM-003 Q2).
     pub backend_state: String,
+    /// `[backend] build_path`: `auto`, `wasm` or `cargo` (spec 114 R13).
+    pub backend_build_path: String,
     /// The port of the Backend's development run: `[server] listen` of `backend/backend.toml`, as text. The IDE starts
     /// the Backend there and nowhere else.
     pub backend_port: String,
@@ -179,6 +181,7 @@ impl SettingsDraft {
             identity: Default::default(),
             contract: Default::default(),
             backend_state: p.backend.clone().unwrap_or_default().state,
+            backend_build_path: p.backend.clone().unwrap_or_default().build_path,
             backend_port: String::new(),
             license_model: p.project.license_model.clone(),
             // A project that names a license but carries no text (older projects,

@@ -531,6 +531,8 @@ fn cmd_backend(args: &[String]) {
     let mut debug = false;
     let mut quiet = false;
     let mut accept_breaking = false;
+    // `--cargo` / `--wasm` (spec 114 R13): which path the Backend Build takes; neither follows `[backend] build_path`.
+    let mut path: Option<cobolt_compiler::backend_module::BackendPath> = None;
     while i < args.len() {
         match args[i].as_str() {
             "--listen" => {
@@ -556,6 +558,14 @@ fn cmd_backend(args: &[String]) {
             "--debug" => debug = true,
             "--quiet" | "-q" => quiet = true,
             "--accept-breaking" => accept_breaking = true,
+            "--cargo" | "--wasm" => {
+                let asked = if args[i] == "--cargo" { cobolt_compiler::backend_module::BackendPath::Cargo } else { cobolt_compiler::backend_module::BackendPath::Wasm };
+                if path.is_some_and(|p| p != asked) {
+                    eprintln!("rcrun backend: --cargo and --wasm cannot be given together");
+                    process::exit(2);
+                }
+                path = Some(asked);
+            }
             a if !a.starts_with('-') => dir = Some(PathBuf::from(a)),
             other => {
                 eprintln!("rcrun backend: unknown flag '{other}'");
@@ -666,7 +676,7 @@ fn cmd_backend(args: &[String]) {
             server.stop();
         }
         _ => {
-            let opts = cobolt_compiler::backend_build::BackendBuildOptions { debug, verbose: !quiet, workspace_root: None, accept_breaking };
+            let opts = cobolt_compiler::backend_build::BackendBuildOptions { debug, verbose: !quiet, accept_breaking, path, ..Default::default() };
             match cobolt_compiler::backend_build::build_backend(&project_dir, &opts) {
                 Ok(r) => {
                     println!(
@@ -676,6 +686,11 @@ fn cmd_backend(args: &[String]) {
                         r.contract,
                         r.programs
                     );
+                    println!("   Engine   : {}", r.engine.name());
+                    for reason in &r.reasons {
+                        println!("   Cargo because: {reason}");
+                    }
+                    println!("   Phases   : {}", r.phases.iter().map(|p| format!("{} {} ms", p.name, p.millis)).collect::<Vec<_>>().join(", "));
                     for n in &r.notes {
                         println!("   note: {n}");
                     }
@@ -735,6 +750,7 @@ fn cmd_help() {
         "                                         the released ones\n",
         "  rcrun backend release [dir]           Record the current contract as released\n",
         "  rcrun backend build   [dir]           Build the headless backend binary → bin/<name>-backend\n",
+        "                                        (--wasm: a WebAssembly module in the prebuilt runner, no Rust; --cargo: the Cargo path)\n",
         "         [--debug] [--accept-breaking] [--quiet]\n",
         "  rcrun backend auth test [dir]         Test the [identity] provider and reCAPTCHA settings\n",
         "                                         (one line per check; no value is printed)\n",

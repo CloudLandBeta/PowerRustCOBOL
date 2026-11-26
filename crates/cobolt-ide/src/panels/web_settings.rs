@@ -230,9 +230,16 @@ impl SettingsDraft {
         // The exports are not the project file's (WASM-003 D5): `write_exports`
         // writes them to backend/exports.toml. The state is.
         if self.kind.has_backend() && (self.has_backend || p.backend.is_some()) {
+            let had = p.backend.is_some();
             let default = self.backend_state.trim().is_empty() || self.backend_state == STATE_PER_CALL;
-            if !default || p.backend.is_some() {
+            if !default || had {
                 p.backend_settings_mut().state = self.backend_state.clone();
+            }
+            // `[backend] build_path` (spec 114 R13): written only when it is not the default, or when the section is there already.
+            let chosen = self.backend_build_path.trim().to_ascii_lowercase();
+            let auto = chosen.is_empty() || chosen == cobolt_compiler::backend_module::BUILD_PATH_AUTO;
+            if !auto || had {
+                p.backend_settings_mut().build_path = if auto { cobolt_compiler::backend_module::BUILD_PATH_AUTO.to_owned() } else { chosen };
             }
         }
     }
@@ -1073,6 +1080,19 @@ fn build_path_text<'a>(tr: &'a Tr, value: &str) -> &'a str {
     }
 }
 
+/// The label of a Backend Build path value (spec 114 R13): the Desktop's own labels, and `Automatic` for the default.
+fn backend_build_path_text<'a>(tr: &'a Tr, value: &str) -> &'a str {
+    use cobolt_compiler::backend_module::{BUILD_PATH_CARGO, BUILD_PATH_WASM};
+    let value = value.trim();
+    if value.eq_ignore_ascii_case(BUILD_PATH_CARGO) {
+        tr.pk_c_build_path_cargo
+    } else if value.eq_ignore_ascii_case(BUILD_PATH_WASM) {
+        tr.pk_c_build_path_wasm
+    } else {
+        tr.pk_c_build_path_auto
+    }
+}
+
 /// A Desktop project's section: how a Build makes the program (DESKTOP-WASM-001 R7, R15, R24).
 fn desktop_rows(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay: RowLayout) {
     use cobolt_compiler::project_kind::{BUILD_PATH_CARGO, BUILD_PATH_WASM};
@@ -1330,6 +1350,17 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
             });
         });
         note(ui, lay, tr.pk_set_state_hint, dim);
+        row(ui, lay, tr.pk_o_build_path, |ui| {
+            use cobolt_compiler::backend_module::{BUILD_PATH_AUTO, BUILD_PATH_CARGO, BUILD_PATH_WASM};
+            egui::ComboBox::from_id_salt("kind_backend_build_path").selected_text(backend_build_path_text(tr, &draft.backend_build_path)).show_ui(ui, |ui| {
+                for value in [BUILD_PATH_AUTO, BUILD_PATH_WASM, BUILD_PATH_CARGO] {
+                    if ui.selectable_label(draft.backend_build_path.trim().eq_ignore_ascii_case(value), backend_build_path_text(tr, value)).clicked() {
+                        draft.backend_build_path = value.to_owned();
+                    }
+                }
+            });
+        });
+        note(ui, lay, tr.pk_set_backend_build_path_note, dim);
         row(ui, lay, tr.pk_set_backend_port, |ui| {
             let w = ui.available_width();
             ui.add(egui::TextEdit::singleline(&mut draft.backend_port).hint_text("8443").desired_width(w));
@@ -1654,6 +1685,40 @@ mod tests {
         draft.backend_state = STATE_PER_CALL.into();
         draft.apply_kind(&mut p);
         assert_eq!(p.backend.as_ref().unwrap().state, STATE_PER_CALL);
+    }
+
+    /// Spec 114 R13 (T33): `[backend] build_path` is written only when it says something, is read back by the draft, and is the
+    /// same key the MCP `set_project_settings` merges (`{"backend": {"build_path": "cargo"}}`).
+    #[test]
+    fn the_backend_build_path_is_written_only_when_it_is_not_the_default() {
+        let llm = LlmConfig::load_defaults_for_test();
+        let mut p = CoboltProject::new("W.project", "");
+        p.project.kind = ProjectKind::Web;
+        p.files.backend.push("backend/src/health.cbl".into());
+        let mut draft = SettingsDraft::from_project(&p, &llm);
+        assert_eq!(draft.backend_build_path, "auto", "a project that never chose reads Automatic");
+        draft.apply_kind(&mut p);
+        assert!(p.backend.is_none(), "Automatic is the default: no [backend] table");
+        draft.backend_build_path = "cargo".into();
+        draft.apply_kind(&mut p);
+        assert_eq!(p.backend.as_ref().unwrap().build_path, "cargo");
+        assert_eq!(SettingsDraft::from_project(&p, &llm).backend_build_path, "cargo", "the draft reads what was saved");
+        draft.backend_build_path = "AUTO".into();
+        draft.apply_kind(&mut p);
+        assert_eq!(p.backend.as_ref().unwrap().build_path, "auto", "going back to Automatic is saved, spelled as the Build reads it");
+        // The MCP merge: the same field name, the same value, the same project.
+        let mut v = serde_json::to_value(&p).unwrap();
+        assert!(v["backend"].get("build_path").is_none(), "Automatic is not written to the project file");
+        v["backend"]["build_path"] = serde_json::json!("wasm");
+        let next: CoboltProject = serde_json::from_value(v).unwrap();
+        assert_eq!(next.backend.unwrap().build_path, "wasm");
+        for lang in Language::ALL {
+            let tr = lang.tr();
+            for text in [backend_build_path_text(&tr, "auto"), backend_build_path_text(&tr, "wasm"), backend_build_path_text(&tr, "cargo"), tr.pk_set_backend_build_path_note] {
+                assert!(!text.trim().is_empty(), "{lang:?}: an empty label");
+            }
+        }
+        println!("backend build path: default writes no table; cargo/auto saved and read back; MCP merge key backend.build_path; 6 languages × 4 texts non-empty; PASS 009 FAIL 000");
     }
 
     // ── The section never changes the Settings form's size ────────────────

@@ -136,6 +136,14 @@ fn a_real_package_is_exactly_two_files() {
     let mut z = zip::ZipArchive::new(std::fs::File::open(&packaged.zip).unwrap()).unwrap();
     let listing: Vec<String> = (0..z.len()).map(|i| z.by_index(i).unwrap().name().unwrap().into_owned()).collect();
     assert!(listing.iter().any(|n| n.starts_with("bin/") && n.contains("backend") && !n.ends_with(".json")), "{listing:?} has the Backend");
+    // Spec 114 T32 (R19, AC8): the bill of materials is in the zip whichever way the Backend was made, and when the runner is
+    // named (`PRC_BACKEND_RUNNER`) PowerOficina, whose programs the module serves in full, is made as a module.
+    let made = packaged.backend.as_ref().expect("a package with a Backend says how the Backend was made");
+    if std::env::var_os(cobolt_compiler::backend_module::BACKEND_RUNNER_ENV).is_some() {
+        assert_eq!(made.engine, cobolt_compiler::backend_module::BackendEngine::Module, "{:?}", made.reasons);
+        assert!(made.reasons.is_empty(), "{:?}", made.reasons);
+    }
+    assert!(listing.iter().any(|n| n == "bin/sbom.cdx.json"), "the bill of materials is in the zip: {listing:?}");
     for want in ["web/index.html", "backend.toml", "LICENSE", "NOTICE"] {
         assert!(listing.iter().any(|n| n == want), "{want} in {listing:?}");
     }
@@ -172,6 +180,7 @@ fn a_real_package_is_exactly_two_files() {
     for (step, secs) in &packaged.timings {
         println!("  step {:<8}: {:>7.1} s", step.key(), secs);
     }
+    println!("  backend    : {} ({} ms in the Build: {})", made.engine.name(), made.phases.iter().map(|(_, ms)| ms).sum::<u128>(), made.phases.iter().map(|(n, ms)| format!("{n} {ms} ms")).collect::<Vec<_>>().join(", "));
     println!("  total      : {:.1} s", packaged.seconds);
     for n in &packaged.notes {
         println!("  note       : {n}");

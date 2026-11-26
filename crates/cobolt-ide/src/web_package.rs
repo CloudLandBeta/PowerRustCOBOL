@@ -119,6 +119,21 @@ pub fn lines(tr: &Tr, msg: &Msg, dir: &Path) -> Vec<String> {
         Msg::Finished(Err(PackageError::Failed(why))) => vec![fill(tr.webpack_failed, &[("why", why.clone())])],
         Msg::Finished(Ok(p)) => {
             let mut out = vec![fill(tr.webpack_done, &[("dir", dir.display().to_string()), ("secs", format!("{:.0}", p.seconds))])];
+            // How the Backend was made (spec 114 R13, R16): the module path says its time, the Cargo path says why. The reasons stay as
+            // the Build words them, English like every report of the tools.
+            if let Some(made) = &p.backend {
+                match made.engine {
+                    cobolt_compiler::backend_module::BackendEngine::Module => {
+                        let ms: u128 = made.phases.iter().map(|(_, ms)| ms).sum();
+                        out.push(fill(tr.webpack_backend_module, &[("ms", ms.to_string())]));
+                    }
+                    cobolt_compiler::backend_module::BackendEngine::Cargo => {
+                        for why in &made.reasons {
+                            out.push(fill(tr.webpack_backend_cargo, &[("why", why.clone())]));
+                        }
+                    }
+                }
+            }
             let kb = p.zip_bytes.div_ceil(1024);
             out.push(fill(tr.webpack_zip_line, &[("file", file_name(&p.zip)), ("kb", kb.to_string()), ("n", p.files_in_zip.to_string())]));
             out.push(format!("   {}", file_name(&p.script)));
@@ -151,6 +166,7 @@ mod tests {
             has_backend: true,
             wss,
             required_secrets: secrets.iter().map(|s| (*s).to_owned()).collect(),
+            backend: None,
             notes: vec!["a note".into()],
             timings: Vec::new(),
             seconds: 183.4,
@@ -183,6 +199,30 @@ mod tests {
             said += all.len();
         }
         println!("web package: {said} lines across {} languages, none with an unfilled slot", Language::ALL.len());
+    }
+
+    /// Spec 114 R13, R16 (T33): the result says how the Backend was made, in every language: the module path its time, the Cargo
+    /// path each reason (kept as the Build words it), and a project with no Backend nothing.
+    #[test]
+    fn the_result_says_how_the_backend_was_made_in_every_language() {
+        use cobolt_compiler::backend_module::BackendEngine;
+        use cobolt_project_tools::web::package::BackendMade;
+        let mut checked = 0;
+        for lang in Language::ALL {
+            let tr = lang.tr();
+            let mut module = packaged(false, &[]);
+            module.backend = Some(BackendMade { engine: BackendEngine::Module, reasons: vec![], phases: vec![("check".into(), 7), ("assemble".into(), 4915)] });
+            let said = lines(&tr, &Msg::Finished(Ok(module)), Path::new("/out")).join("\n");
+            assert!(said.contains("4922") && !said.contains('{'), "{}: the module line says its time: {said}", lang.code());
+            let mut cargo = packaged(false, &[]);
+            cargo.backend = Some(BackendMade { engine: BackendEngine::Cargo, reasons: vec!["backend.toml has an [identity] section".into(), "backend/src/a.cbl line 3 holds an EXEC RUST block".into()], phases: vec![] });
+            let said = lines(&tr, &Msg::Finished(Ok(cargo)), Path::new("/out")).join("\n");
+            assert!(said.contains("[identity] section") && said.contains("EXEC RUST") && !said.contains('{'), "{}: each Cargo reason is named: {said}", lang.code());
+            let none = lines(&tr, &Msg::Finished(Ok(packaged(false, &[]))), Path::new("/out")).join("\n");
+            assert!(!none.contains("4922") && !none.contains("EXEC RUST"), "{}: no engine line without a Backend: {none}", lang.code());
+            checked += 3;
+        }
+        println!("web package engine lines: {checked} checks across {} languages; PASS {checked:03} FAIL 000", Language::ALL.len());
     }
 
     #[test]

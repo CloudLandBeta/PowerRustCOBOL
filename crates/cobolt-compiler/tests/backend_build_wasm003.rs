@@ -16,6 +16,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use cobolt_compiler::backend_build::{build_backend, BackendBuildOptions};
+use cobolt_compiler::backend_module::{BackendEngine, BackendPath};
 
 const EXPORTS: &str = r#"
 [contract]
@@ -194,7 +195,7 @@ fn a_released_contract_is_protected_before_any_compiler_is_started() {
     // changed so that it breaks the released one is then refused at once — cargo
     // is never run, so this is quick.
     let dir = project("breaking", EXPORTS, PING);
-    let opts = BackendBuildOptions { debug: false, verbose: false, workspace_root: Some(workspace()), accept_breaking: false };
+    let opts = BackendBuildOptions { workspace_root: Some(workspace()), ..BackendBuildOptions::default() };
 
     // Released by hand, as `rcrun backend release` does: the interface is copied
     // under contract/released/<version>.json.
@@ -221,7 +222,7 @@ fn a_released_contract_is_protected_before_any_compiler_is_started() {
 fn a_project_without_a_backend_is_told_what_is_missing() {
     let dir = std::env::temp_dir().join(format!("prc-backend-build-{}-none", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let opts = BackendBuildOptions { debug: true, verbose: false, workspace_root: Some(workspace()), accept_breaking: false };
+    let opts = BackendBuildOptions { debug: true, workspace_root: Some(workspace()), ..BackendBuildOptions::default() };
     let err = build_backend(&dir, &opts).expect_err("no backend");
     assert!(err.to_string().contains("exports.toml"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
@@ -235,11 +236,14 @@ fn the_built_backend_is_a_binary_that_checks_describes_and_answers_its_health_pr
     // test's own, removed at the end (a backend build is some hundreds of MB).
     let staging = std::env::temp_dir().join(format!("prc-backend-e2e-build-{}", std::process::id()));
     std::env::set_var("POWERRUSTCOBOL_BUILD_DIR", &staging);
-    let opts = BackendBuildOptions { debug: true, verbose: false, workspace_root: Some(workspace()), accept_breaking: false };
+    // This test is about the Cargo-built file, so the Cargo path is asked for (the module path is tested with the runner's crate).
+    let opts = BackendBuildOptions { debug: true, workspace_root: Some(workspace()), path: Some(BackendPath::Cargo), ..BackendBuildOptions::default() };
     let t = Instant::now();
     let built = build_backend(&dir, &opts).expect("the backend builds");
     let build_secs = t.elapsed().as_secs_f64();
     assert!(built.binary.is_file(), "{}", built.binary.display());
+    assert_eq!(built.engine, BackendEngine::Cargo);
+    assert_eq!(built.reasons, vec![cobolt_compiler::backend_module::BackendCargoReason::Chosen], "the developer chose Cargo and the Build says that and nothing else");
     assert_eq!(built.contract, "1.0.0");
     assert_eq!(built.programs, 1);
     assert!(built.interface.is_file());

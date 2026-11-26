@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Building a project's backend into a headless server binary (WASM-003 R2, R4).
+//! Building a project's backend into a headless server binary (WASM-003 R2, R4; spec 114).
 //!
 //! The backend is the `backend/` folder of a Web or Mobile project (WASM-001
 //! D13). A build here:
@@ -17,16 +17,23 @@
 //! 3. compares it with the last released one and **fails a release build** on a
 //!    breaking change unless the contract's major version was raised on purpose
 //!    (WASM-014 R5);
-//! 4. generates a small Cargo project — **no forms, no `eframe`, no `egui`**:
-//!    the `cobolt-server` crate and the runtime features the programs reach —
-//!    and builds it;
-//! 5. installs `bin/<name>-backend`.
+//! 4. chooses a path ([`crate::backend_module::classify_backend`]):
+//!    - the **module path** (the default when the module serves the whole Backend): the programs become one
+//!      WebAssembly module, which goes with its machine code into a copy of the prebuilt headless runner. No Rust
+//!      toolchain is used (spec 114 R14);
+//!    - the **Cargo path**: a small Cargo project — **no forms, no `eframe`, no `egui`**: the `cobolt-server` crate
+//!      and the runtime features the programs reach — is generated and built;
+//! 5. installs `bin/<name>-backend` and `bin/sbom.cdx.json`.
 //!
 //! The deliverable is one self-contained executable per host platform; the host
-//! only, as everywhere else in this compiler (spec 041).
+//! only, as everywhere else in this compiler (spec 041). Both paths give a file with the same name, the same arguments
+//! and the same behaviour.
 
 use std::path::{Path, PathBuf};
 
+use std::time::Instant;
+
+use crate::backend_module::{self, BackendCargoReason, BackendEngine, BackendPath, BackendPhase, ClassifyInput, ModuleBuild};
 use crate::{
     build_staging_dir, host_triple, install_executable, resolve_workspace_root, runtime_features, sanitize_package_name, toolchain_error,
     CompilerError, IoContext,
@@ -44,6 +51,11 @@ pub struct BackendBuildOptions {
     /// Let a breaking change to the contract through (the major version was
     /// raised on purpose, or this is a development build).
     pub accept_breaking: bool,
+    /// `rcrun backend build --cargo` or `--wasm`; `None` follows the project's `[backend] build_path` (spec 114 R13).
+    pub path: Option<BackendPath>,
+    /// The Backend runner a module is put into; `None` looks in [`backend_module::BACKEND_RUNNER_ENV`], then beside the
+    /// running program.
+    pub runner: Option<PathBuf>,
 }
 
 /// What a backend build produced.
@@ -57,6 +69,16 @@ pub struct BackendBuildResult {
     pub notes: Vec<String>,
     /// The software bill of materials written beside the binary (`sbom.cdx.json`, WASM-013 R10).
     pub sbom: PathBuf,
+    /// The way the binary was made (spec 114 R13).
+    pub engine: BackendEngine,
+    /// Why the Build took the Cargo path, each reason with its construct, file and line; empty on the module path.
+    pub reasons: Vec<BackendCargoReason>,
+    /// The time of each phase of this Build, in order (R16).
+    pub phases: Vec<BackendPhase>,
+    /// The module's SHA-256 (lower-case hex), size and machine-code size; `None` on the Cargo path.
+    pub module_sha256: Option<String>,
+    pub module_bytes: Option<usize>,
+    pub machine_code_bytes: Option<usize>,
 }
 
 /// The CycloneDX document of a backend build (WASM-013 T17): the binary with its SHA-256, then every
@@ -193,7 +215,27 @@ pub fn check_contract(project_dir: &Path) -> Result<cobolt_wire::evolution::Repo
     Ok(contract_report(&backend.interface, &history))
 }
 
+/// The `[backend]` settings of the project in `project_dir` that choose a path: what the manifest says in `build_path`, and whether it
+/// registers External Crates. A folder with no manifest of its own reads `auto` and no crates.
+fn path_settings(project_dir: &Path) -> Result<(BackendPath, bool), CompilerError> {
+    let Some(manifest) = crate::find_project_manifest(project_dir).filter(|m| m.parent().and_then(|p| p.canonicalize().ok()) == project_dir.canonicalize().ok()) else {
+        return Ok((BackendPath::Auto, false));
+    };
+    let view = crate::project_manifest_view(&manifest).map_err(CompilerError::Workspace)?;
+    let path = view.backend_build_path_choice().map_err(|message| CompilerError::Semantic { file: manifest.display().to_string(), message })?;
+    Ok((path, !view.crates.is_empty()))
+}
+
+/// One line per reason, as a refusal and a toolchain error print them.
+fn reason_lines(reasons: &[BackendCargoReason]) -> String {
+    reasons.iter().map(|r| format!("  - {r}")).collect::<Vec<_>>().join("\n")
+}
+
 /// Build the backend of the project in `project_dir`.
+///
+/// The Build reads and checks the Backend, writes the interface and compares the contract, then chooses a path (spec 114
+/// R13): the module path when the module serves the whole Backend and a runner is installed, the Cargo path otherwise, each
+/// reason named. `opts.path` (`--cargo`, `--wasm`) overrides the project's `[backend] build_path`.
 pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<BackendBuildResult, CompilerError> {
     let log = |m: &str| {
         if opts.verbose {
@@ -207,15 +249,29 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
             backend_dir.display()
         )));
     }
-    let host = host_triple()?;
-    log(&format!("Building the backend of {} for {host}…", project_dir.display()));
+    let mut phases: Vec<BackendPhase> = Vec::new();
+    let began = Instant::now();
 
-    // 1. Read and check.
+    // 1. Read and check. Nothing here touches Rust: the module path needs no toolchain.
     let state = backend_state(project_dir)?;
+    let (project_path, external_crates) = path_settings(project_dir)?;
+    let path = opts.path.unwrap_or(project_path);
+    log(&format!("Building the backend of {}…", project_dir.display()));
     regenerate_identity(&backend_dir)?;
     let mut bundle = cobolt_server::bundle::Bundle::from_dir(&backend_dir).map_err(|errs| CompilerError::Parse { file: "backend".into(), message: errs.join("\n") })?;
     bundle.state = state;
     log(&format!("   state: {}", state.as_str()));
+    let files = backend_module::program_files(project_dir);
+    let exec_rust: Vec<(String, u32)> = bundle
+        .programs
+        .iter()
+        .filter_map(|p| {
+            crate::first_exec_rust_line(p).map(|line| {
+                let id = p.identification.program_id.to_ascii_uppercase();
+                (files.iter().find(|(f, _)| *f == id).map_or("backend".to_string(), |(_, rel)| rel.clone()), line)
+            })
+        })
+        .collect();
     let bytes = bundle.to_bytes().map_err(CompilerError::Serialize)?;
     let mut features = runtime_features::RuntimeFeatures::default();
     for p in &bundle.programs {
@@ -264,6 +320,119 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
             ),
         });
     }
+    phases.push(BackendPhase { name: "check", millis: began.elapsed().as_millis() });
+
+    // 4. Which path (spec 114 R13, plan D8): the reasons that stop the module, in order, each named.
+    let mut reasons = backend_module::classify_backend(&ClassifyInput { path, external_crates, exec_rust, identity: backend_has_identity(&backend_dir), state });
+    let mut module = None;
+    if reasons.is_empty() {
+        let began = Instant::now();
+        match backend_module::generate(&backend, &files) {
+            Ok(m) => module = Some(m),
+            Err(refused) => reasons.extend(refused),
+        }
+        phases.push(BackendPhase { name: "generate", millis: began.elapsed().as_millis() });
+    }
+    let mut runner = None;
+    if let Some(m) = &module {
+        match backend_module::find_runner(opts.runner.as_deref(), m) {
+            Ok(found) => runner = Some(found),
+            Err(missing) => reasons.extend(missing),
+        }
+    }
+    if path == BackendPath::Wasm && !reasons.is_empty() {
+        return Err(CompilerError::BackendWasmRefused { reasons: reason_lines(&reasons) });
+    }
+    let name = sanitize_package_name(&project_dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "app".into()));
+    let bin_name = format!("{name}-backend");
+    let exe = if cfg!(windows) { format!("{bin_name}.exe") } else { bin_name.clone() };
+
+    if let (Some(module), Some(runner), true) = (&module, &runner, reasons.is_empty()) {
+        log(&format!("🧩 WebAssembly module path: {} bytes of module, the Backend runner {}", module.wasm.len(), runner.runner.display()));
+        let staging = build_staging_dir(None, &bin_name).join("module");
+        let made = backend_module::build_module(
+            &ModuleBuild { backend: &backend, module, state, application: &name, runner, exe_name: &exe, bin_dir: &project_dir.join("bin"), staging: &staging },
+            &log,
+        )?;
+        phases.extend(made.phases);
+        notes.extend(made.notes);
+        return Ok(BackendBuildResult {
+            binary: made.binary,
+            interface: interface_path,
+            contract,
+            programs: backend.interface.programs.len(),
+            notes,
+            sbom: made.sbom,
+            engine: BackendEngine::Module,
+            reasons: Vec::new(),
+            phases,
+            module_sha256: Some(made.module_sha256),
+            module_bytes: Some(made.module_bytes),
+            machine_code_bytes: made.machine_code_bytes,
+        });
+    }
+
+    // The Cargo path. A Backend the developer sent to Cargo is not told why; one the module does not serve is.
+    for r in &reasons {
+        log(&format!("   Cargo path: {r}"));
+    }
+    let chosen = reasons == [BackendCargoReason::Chosen];
+    let wrap = |e: CompilerError| match e {
+        CompilerError::Toolchain { tool, detail } if !chosen => CompilerError::BackendCargoNeedsToolchain { reasons: reason_lines(&reasons), tool, detail },
+        other => other,
+    };
+    let began = Instant::now();
+    let built = cargo_build(
+        project_dir,
+        opts,
+        &CargoInputs { bytes: &bytes, features, contract: &contract, bin_name: &bin_name, exe: &exe },
+        &wrap,
+        &log,
+    )?;
+    phases.push(BackendPhase { name: "cargo", millis: began.elapsed().as_millis() });
+    Ok(BackendBuildResult {
+        binary: built.binary,
+        interface: interface_path,
+        contract,
+        programs: backend.interface.programs.len(),
+        notes,
+        sbom: built.sbom,
+        engine: BackendEngine::Cargo,
+        reasons,
+        phases,
+        module_sha256: None,
+        module_bytes: None,
+        machine_code_bytes: None,
+    })
+}
+
+/// What the Cargo path needs from the check: the packed programs, the runtime features they reach, the contract, the names.
+struct CargoInputs<'a> {
+    bytes: &'a [u8],
+    features: runtime_features::RuntimeFeatures,
+    contract: &'a str,
+    bin_name: &'a str,
+    exe: &'a str,
+}
+
+/// What the Cargo path installed.
+struct CargoBuilt {
+    binary: PathBuf,
+    sbom: PathBuf,
+}
+
+/// The Cargo path: a generated Cargo project around the interpreter, built, installed, with its bill of materials.
+fn cargo_build(
+    project_dir: &Path,
+    opts: &BackendBuildOptions,
+    input: &CargoInputs<'_>,
+    wrap: &dyn Fn(CompilerError) -> CompilerError,
+    log: &impl Fn(&str),
+) -> Result<CargoBuilt, CompilerError> {
+    let CargoInputs { bytes, features, contract, bin_name, exe } = input;
+    let (bin_name, exe) = (bin_name.to_string(), exe.to_string());
+    let host = host_triple().map_err(wrap)?;
+    log(&format!("Building the backend with Cargo for {host}…"));
 
     // 4. The generated crate.
     let root = resolve_workspace_root(opts.workspace_root.clone())
@@ -272,17 +441,15 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     if !crates_path.join("cobolt-server").is_dir() {
         return Err(CompilerError::Workspace(format!("{} has no cobolt-server crate", crates_path.display())));
     }
-    let name = sanitize_package_name(&project_dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "app".into()));
-    let bin_name = format!("{name}-backend");
     let build_dir = build_staging_dir(None, &bin_name);
     let src_dir = build_dir.join("src");
     let assets_dir = build_dir.join("assets");
     for d in [&src_dir, &assets_dir] {
         std::fs::create_dir_all(d).ctx(|| format!("create '{}'", d.display()))?;
     }
-    std::fs::write(build_dir.join("Cargo.toml"), cargo_toml(&bin_name, &contract, &crates_path, features)).ctx(|| "write the backend's Cargo.toml".to_string())?;
+    std::fs::write(build_dir.join("Cargo.toml"), cargo_toml(&bin_name, contract, &crates_path, *features)).ctx(|| "write the backend's Cargo.toml".to_string())?;
     std::fs::write(src_dir.join("main.rs"), main_rs()).ctx(|| "write the backend's main.rs".to_string())?;
-    std::fs::write(assets_dir.join("backend.bin"), &bytes).ctx(|| "write the embedded programs".to_string())?;
+    std::fs::write(assets_dir.join("backend.bin"), bytes).ctx(|| "write the embedded programs".to_string())?;
     if let Some(config) = static_crt_config(&host) {
         let cargo_dir = build_dir.join(".cargo");
         std::fs::create_dir_all(&cargo_dir).ctx(|| format!("create '{}'", cargo_dir.display()))?;
@@ -316,7 +483,7 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
             .current_dir(&build_dir)
             .env("CARGO_TARGET_DIR", &target_dir)
             .output()
-            .map_err(|e| toolchain_error("cargo", &e))?;
+            .map_err(|e| wrap(toolchain_error("cargo", &e)))?;
         if out.status.success() {
             break;
         }
@@ -340,7 +507,6 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     }
 
     // 6. Install.
-    let exe = if cfg!(windows) { format!("{bin_name}.exe") } else { bin_name.clone() };
     let src_bin = target_dir.join(if opts.debug { "debug" } else { "release" }).join(&exe);
     let bin_dir = project_dir.join("bin");
     std::fs::create_dir_all(&bin_dir).ctx(|| format!("create '{}'", bin_dir.display()))?;
@@ -359,7 +525,7 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
             .args(metadata_args(Some(&host), metadata_offline))
             .current_dir(&build_dir)
             .output()
-            .map_err(|e| toolchain_error("cargo", &e))?;
+            .map_err(|e| wrap(toolchain_error("cargo", &e)))?;
         if out.status.success() {
             break out;
         }
@@ -375,7 +541,7 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     let sbom_path = bin_dir.join("sbom.cdx.json");
     std::fs::write(&sbom_path, serde_json::to_string_pretty(&bom).expect("sbom")).ctx(|| format!("write '{}'", sbom_path.display()))?;
     log(&format!("   SBOM → {}", sbom_path.display()));
-    Ok(BackendBuildResult { binary: dst, interface: interface_path, contract, programs: backend.interface.programs.len(), notes, sbom: sbom_path })
+    Ok(CargoBuilt { binary: dst, sbom: sbom_path })
 }
 
 /// The arguments of the `cargo metadata` that lists the packages the SBOM names: for `host` when it is known, offline
