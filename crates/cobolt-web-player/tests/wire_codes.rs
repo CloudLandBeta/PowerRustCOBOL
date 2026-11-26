@@ -102,6 +102,11 @@ fn every_code_the_player_emits_is_the_wires() {
                 }
                 for marker in ["code::", "codes::"] {
                     for (at, _) in line.match_indices(marker) {
+                        // `cobolt_wasm_abi::codes::` is the ABI's own table (the model verbs and the versions they were added in),
+                        // not the wire's: a name read from it is not a platform code.
+                        if line[..at].ends_with("cobolt_wasm_abi::") {
+                            continue;
+                        }
                         let word: String = line[at + marker.len()..].chars().take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_').collect();
                         if word.len() > 1 && word.starts_with(|c: char| c.is_ascii_uppercase()) {
                             used.entry(word).or_default().push(format!("{file}:{}", n + 1));
