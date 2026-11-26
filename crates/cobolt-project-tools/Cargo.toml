@@ -49,6 +49,8 @@ serde_json = { workspace = true }
 # Manifest edits that keep every byte the tools do not own (comments, key
 # order, unknown tables). The 0.22 line is the one `toml` 0.8 already pulls.
 toml_edit  = "0.22"
+# The install package of a Web project (spec 113): its zip, with the pin the IDE and `rcrun` use (no C libraries).
+zip        = { version = "9", default-features = false, features = ["deflate-flate2"] }
 # The kind tables of a new project, written by the serializer the IDE saves
 # with, so a manifest made here and one the IDE saves are the same bytes.
 toml       = { workspace = true }

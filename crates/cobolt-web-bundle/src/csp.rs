@@ -190,6 +190,20 @@ pub fn nginx_static(headers: &[(String, String)], indent: &str) -> String {
     s
 }
 
+/// The headers of an nginx snippet that [`nginx_static`] wrote with no indent: the inverse of it, so that what a package
+/// puts in the site it installs is what the Build wrote into `hosting/nginx.conf`, not a policy worked out a second time.
+/// Only the lines at the top level count (the `Cache-Control` of the two locations, and their copies, do not).
+pub fn headers_of_nginx_snippet(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("add_header ")?;
+            let (name, rest) = rest.split_once(' ')?;
+            let value = rest.strip_prefix('"')?.strip_suffix("\" always;")?;
+            Some((name.to_owned(), value.replace("\\\"", "\"")))
+        })
+        .collect()
+}
+
 /// One file per documented static host. `(path, content)`.
 pub fn host_files(headers: &[(String, String)], hashed_globs: &[&str]) -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -336,6 +350,16 @@ mod tests {
         assert!(files[1].1.contains("add_header Cross-Origin-Opener-Policy \"same-origin\" always;"));
         assert!(files[2].1.contains("Header always set Cross-Origin-Opener-Policy \"same-origin\""));
         assert_eq!(nginx_rules_hold(&files[1].1, &h), Ok(2), "the hashed files and index.html each carry every header:\n{}", files[1].1);
+    }
+
+    #[test]
+    fn the_headers_are_read_back_from_the_snippet_the_build_wrote() {
+        let h = security_headers(&policy(), Isolation::RequireCorp);
+        let snippet = nginx_static(&h, "");
+        assert_eq!(headers_of_nginx_snippet(&snippet), h, "what nginx_static wrote at the top level, and only that");
+        let with_quote = vec![("X-Test".to_owned(), "a \"b\" c".to_owned())];
+        assert_eq!(headers_of_nginx_snippet(&nginx_static(&with_quote, "")), with_quote, "an escaped quote is read back");
+        assert!(headers_of_nginx_snippet("# nothing here\n").is_empty());
     }
 
     #[test]

@@ -84,6 +84,7 @@ mod update_offer;
 mod announcement;
 pub mod value_methods;
 pub mod version;
+pub mod web_package;
 pub mod welcome;
 
 use app::CoboltApp;

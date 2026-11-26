@@ -15051,7 +15051,7 @@ So the tools cover what the IDE offers you:
 | The Form Designer | `apply_change_set` — every designer operation, plus deleting and renaming a control, applied whole or not at all; a form open in a designer shows the change at once and **Undo** takes it back in one step |
 | The Indexed File Editor | `edit_indexed` — the record as its text view writes it, the keys by field name, the file's properties; a **Finalized** file keeps its schema unless you agree to change it, and the stored data is never deleted |
 | Project Settings and SQL Connections | `project_settings`, `set_project_settings`, `sql_connections`, `set_sql_connection`, `remove_sql_connection`, `test_sql_connection` — a password or a key goes to the IDE's secret store and is never answered back |
-| Save, package, upgrade | `save_project`, `package_project`, `upgrade_project` |
+| Save, package, upgrade | `save_project`, `package_project` (a Web project: the zip and the install script of section 23.11; the answer comes at once and the steps arrive in the Output), `upgrade_project` |
 | Run, the Backend, the Web Preview, a device | `run_project`, `run_status`, `stop_run`, `start_backend`, `backend_status`, `stop_backend`, `start_web_preview`, `run_mobile`, `create_android_studio_project` |
 | The debugger | `debug_start`, `debug_breakpoints`, `debug_control` (continue, pause, step over, into or out, stop), `debug_state` |
 | Output, problems, Beautify | `read_output`, `read_diagnostics`, `beautify` |
@@ -16718,7 +16718,7 @@ rcrun run-form <form.cfrm> <file.cbl>   # run the project's MAIN form in its own
 rcrun check    <file.cbl>               # parse + semantic analysis only (no run)
 rcrun build    <file.cbl>               # compile a single console program → bin/<name>
 rcrun build    [<name>.project.toml]    # compile a project → one native binary in bin/
-rcrun package  [<name>.project.toml]    # package the project into a .zip
+rcrun package  [<name>.project.toml]    # package the project into a .zip (a Web project: .zip + install script)
 rcrun mcp      [--project <path>]       # serve the coding-agent tools over stdio
 rcrun backend  <run|describe|check|release|build|auth test> [dir]   # the Backend of a Web or Mobile project
 rcrun version                           # print version
@@ -16803,7 +16803,8 @@ today does not have, so they stop with "manifest not found": name the file.
 | `build`        | `--quiet`, `-q`                    | Report only the outcome, not the progress                                                                                                                                                                                       |
 | `build`        | `--cargo`                          | Take the Cargo path instead of the WebAssembly path (needs the Rust toolchain) — see **Two ways a Build makes your program**                                                                                                    |
 | `build`        | `--no-machine-code`                | WebAssembly path: leave the machine code out of the file; the program makes it the first time it starts                                                                                                                         |
-| `package`      | `--output <path.zip>`              | Override the output archive path                                                                                                                                                                                                |
+| `package`      | `--output <path.zip>`              | Override the output archive path. On a **Web** project the value is the **folder** that receives the two files (default `dist/install`) — see section 23.11                                                                     |
+| `package`      | `--lang <code>`                    | Web project only: the language (`en es pt ja zh fr`) in which the install script speaks. Default: English                                                                                                                                                                   |
 | `mcp`          | `--project <file\|folder>`         | The project the coding-agent tools act on — its project file, or the folder holding it. Without it, the project in Claude Code's folder (`CLAUDE_PROJECT_DIR`, else the current folder), searched upward. See **Working with a coding agent** |
 
 > **Exit codes.** `rcrun run-form` returns **3** when the application is
@@ -19194,7 +19195,8 @@ to serve it the way the Preview does: `_headers` (Netlify and Cloudflare Pages),
 `server { }` block that serves the folder. A **complete** Build also writes `hosting/deploy/`:
 a whole nginx site that ends TLS in front of the page and of the Backend's secure WebSocket,
 the Docker and AWS scripts, and a README in six languages. Do not copy `hosting/` to the
-server: it is for you, not for the public.
+server: it is for you, not for the public. To put a Web application with a Backend on a server
+that runs nginx, **Package Project** makes the two files that install it (section 23.11).
 
 > **Note.** In every nginx file the Build writes, each block that sets a header of its own
 > repeats the whole list. nginx forgets the headers of the enclosing block as soon as a block
@@ -19582,6 +19584,116 @@ The repository ships four projects of the new kinds, under `examples/`. Open one
 | `PowerMobileHello` | Mobile | the smallest Mobile project |
 | `PowerOficina` | Web | a workshop-management application — queue, quotes, approvals, payments, reports — with a Backend over indexed files |
 | `PowerAnalyticsWeb` | Web | the look of the desktop PowerAnalytics dashboard on the web |
+
+### 23.11 Installing a Web application on a server
+
+On a Web project **Package Project** does not make a folder of loose files: it makes
+**exactly two**, in a folder you choose (`dist/install` when you do not):
+
+| File | What it holds |
+|---|---|
+| `<name>.zip` | the page (the bundle without `hosting/`), the Backend executable and its software bill of materials in `bin/`, the production `backend.toml`, the seed `data/` of your indexed files, `assets/KB/` when the project has one, and `LICENSE`, `NOTICE` and `NOTICE-RUNTIME.txt` |
+| `<name>-install.sh` or `<name>-install.ps1` | the installer for the **operating system of the machine that runs the IDE**: a shell script for Linux and macOS, a PowerShell script for Windows |
+
+The installer takes **one mandatory parameter: the folder where nginx lives** (nginx is the
+only server the package targets). Everything else has a default.
+
+```mermaid
+flowchart LR
+    A["Check the settings<br/>for a server"] --> B["Build the page"]
+    B --> C["Build the Backend"]
+    C --> D["Prove it starts<br/>(--check)"]
+    D --> E["Write the two files"]
+    E --> F["Copy the zip and the script<br/>to the chosen folder"]
+    F -. "on the server" .-> G["Run the script<br/>with the nginx folder"]
+    G --> H["Account, files, service,<br/>nginx site, test, reload"]
+```
+
+**Making the package.** The Output panel names each step as it starts — `Check`, `Page`,
+`Backend`, `Prove`, `Zip`, `Script` — and ends with the two file names, the command to run
+and, when they apply, what still has to be supplied. A Backend build can take minutes the
+first time. Nothing is written into the chosen folder until the whole package is made and
+proven: a refusal or a failure leaves the folder as it was. The coding agent's
+`package_project` tool and `rcrun package` do the same (`--output FOLDER` chooses the folder,
+`--lang` the language of the installer's messages); the tool answers at once and the steps
+arrive in the Output (`read_output`).
+
+> 📷 **Screenshot needed — `web-package-output.png`.** Open PowerOficina, choose **Package
+> Project** and wait for it to end: capture the Output panel with the two file names and the
+> command to run.
+
+**What the Check refuses.** A package is for a server, so the Check stops, naming the setting,
+when `backend_url` is not a `wss://` or `ws://` address of another host, when the Backend's
+`[server] listen` is not a loopback address with a port, when the settings carry a `[tls]`
+table (nginx ends TLS in front of the Backend), or when neither `[auth]` nor `[identity]` is
+set. The page's own address is added once to the Backend's `allowed_origins`. Every other
+rule of a release Build is the Backend's own: the **Prove** step runs it with `--check` on the
+production settings, with harmless values for the secrets, and shows its refusal.
+
+**Running the script on the server.** Copy the two files to the server and run, as the
+administrator:
+
+```bash
+sudo bash ./PowerOficina-install.sh /etc/nginx --cert /path/site.pem --key /path/site.key
+```
+
+```text
+powershell -ExecutionPolicy Bypass -File .\PowerOficina-install.ps1 -NginxDir C:\nginx -Cert C:\certs\site.pem -Key C:\certs\site.key
+```
+
+| Option (shell script) | Option (PowerShell) | Meaning |
+|---|---|---|
+| *nginx folder* (first argument) | `-NginxDir` | **mandatory** — the folder that holds nginx |
+| `--install-dir` | `-InstallDir` | where the application goes |
+| `--server-name` | `-ServerName` | the host name of the nginx site |
+| `--cert`, `--key` | `-Cert`, `-Key` | the certificate and its key (PEM) |
+| `--env-file` | `-EnvFile` | a file of `NAME=value` lines for the secrets the Backend reads from its environment |
+
+The certificate and the key are required **only when the page's Backend address is
+`wss://`**. The Output lists the secrets the Backend needs (every `env:NAME` in its settings)
+when there are any.
+
+The script, in this order: checks the system (that it runs as the administrator, and that the
+nginx folder holds nginx); saves what it is about to change; unpacks the zip; prepares the
+service account; installs the page, the Backend, its settings, the environment file and the
+logs where the system keeps them; installs the Backend as a **native service** — systemd on
+Linux, launchd on macOS, the Service Control Manager on Windows — starts it and waits until
+it answers on its port; writes the nginx site and includes it in nginx's own settings; tests
+nginx's configuration; reloads nginx. Each step prints one line, and a step that fails puts
+back what it saved — the previous state is restored.
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Application | `/opt/<name>` | `/usr/local/<name>` | `%ProgramFiles%\<project>` |
+| Settings and environment file | `/etc/<name>` | `/etc/<name>` | `%ProgramData%\<name>` |
+| Logs | `/var/log/<name>` | `/var/log/<name>` | `%ProgramData%\<name>\logs` |
+| Service | `<name>` | `app.<name>` | `<name>` |
+
+**Updating.** Run the script again with a newer package: it replaces the application and the
+nginx site, restarts the service, and **keeps** the `data/` folder, the environment file, the
+logs and the certificate. What the last run chose — the install folder, the server name, the
+certificate and the key — is the default of the next, so an update needs only the nginx folder;
+an option you give wins. A first install stops, naming the port, when something already listens
+on the Backend's port. There is no uninstaller — the folders above are yours to remove.
+
+> **Note.** The Backend knows how to be a service: `--env-file FILE` reads its secrets from a
+> file only its account can read, `--log-file FILE` writes its log there, and on Windows
+> `--service` (with `--service-name NAME`) makes it answer the Service Control Manager. The
+> script passes them; you rarely need to.
+
+> **Caveat.** Only the system the packaging machine runs gets a script: package on Windows
+> for a Windows server, on a Mac for a macOS server. The Backend executable in the zip is
+> built for that same system.
+>
+> **Caveat.** Only **nginx** is configured. A server already serving other sites keeps them:
+> the script adds one site and includes it, and does not touch the others. On Linux with
+> SELinux enforcing, allow nginx to connect to the Backend's loopback port
+> (`httpd_can_network_connect`) before the first start.
+>
+> **Caveat.** The first Backend build on a machine compiles the platform and is slow; later
+> ones reuse it. Spec 113 has been run end to end on Linux. The Windows installer was checked
+> for syntax and usage but not run as a Windows service, and the macOS installer was not run
+> as the administrator on a Mac — try both on a test machine first.
 ---
 
 ## 24. The Backend and the secure channel
@@ -20073,6 +20185,21 @@ Plain `ws://` is served on a loopback address only, in every mode: on a network 
 `backend.toml` a `[tls]` section, or put a reverse proxy that terminates TLS in front and listen
 on loopback. Name the frontend's origins (`[server] allowed_origins`) and the identity provider
 (`[auth] issuer`, `audiences`, or `[identity]`) before a release.
+
+The built executable takes these arguments, which the install script of section 23.11 passes
+for you when it makes the Backend a service:
+
+| Argument | What it does |
+|---|---|
+| `--config FILE` | the settings file (default `backend.toml` in the working directory) |
+| `--env-file FILE` | reads its secrets — the `env:NAME` values of the settings — from a file that only the service account can read |
+| `--log-file FILE` | writes the log to that file, which rotates, where the system keeps no journal |
+| `--service` | **Windows only**: runs as a Windows service and answers the Service Control Manager; `--service-name NAME` names it |
+| `--check` | reads the settings, applies the release refusals, prints the result and stops without serving — the **Prove** step of Package Project runs this |
+| `--describe`, `--version` | print the interface description, or the version, and stop |
+
+To put a Web application on a server, use **Package Project** (section 23.11) and not these
+commands by hand.
 ---
 
 ## 25. Mobile applications: Android and iOS

@@ -1269,6 +1269,8 @@ pub struct CoboltApp {
     /// Pending binary build result channel (Phase 11).
     pending_build_rx:
         Option<std::sync::mpsc::Receiver<Result<cobolt_compiler::BuildResult, crate::build_path_report::BuildFailure>>>,
+    /// A Web project's package being made on a background thread (spec 113): the zip and the install script.
+    web_package: Option<crate::web_package::Run>,
     /// Set when *Run* started a build because the program contains `EXEC RUST`
     /// (spec 041 T13): the form whose run is waiting for that build.
     ///
@@ -1363,6 +1365,8 @@ enum FileRequest {
     OpenProject,
     SaveProject,
     PackageProject,
+    /// The folder a Web project's package goes into (spec 113): the zip and the install script.
+    PackageWebProject,
     AddFile(FileKind),
     NewForm(Box<cobolt_forms::Form>),
     /// Save the build-details log (payload: the plain-text log).
@@ -2561,6 +2565,7 @@ impl CoboltApp {
             agent_status: None,
             agent_debug_open: false,
             pending_build_rx: None,
+            web_package: None,
             pending_build_then_run: None,
             kb_reindex_rx: None,
             kb_reindex_phase: (0.0, String::new()),
@@ -2919,6 +2924,12 @@ impl CoboltApp {
         self.cobolt_project.as_ref().is_some_and(|p| !p.kind().is_desktop())
     }
 
+    /// Is the open project a Web one, the kind that is installed on a server (spec 113)? A Mobile project is built for
+    /// its platform and keeps the zip of its sources.
+    fn is_server_web_project(&self) -> bool {
+        self.cobolt_project.as_ref().is_some_and(|p| p.kind() == cobolt_compiler::project_kind::ProjectKind::Web)
+    }
+
     /// What the web Preview needs to know about the open project.
     fn web_launch(&self) -> Option<WebLaunch> {
         let p = self.cobolt_project.as_ref()?;
@@ -2979,6 +2990,11 @@ impl CoboltApp {
     /// from disk, so the designers with unsaved edits are saved first, as
     /// Run Form saves the form it runs.
     fn start_web(&mut self, intent: WebIntent) {
+        // The package builds the same page and the same Backend: one at a time (spec 113).
+        if self.web_package.is_some() {
+            self.output.push_status(self.lang.tr().status_build_already_running.to_owned());
+            return;
+        }
         let Some(mut launch) = self.web_launch() else {
             self.output
                 .push_status(crate::ui_text::ide("Open or create a project first (File → New/Open Project)."));
@@ -3685,7 +3701,10 @@ impl CoboltApp {
             || self.debug_runner.is_running()
             || !self.external_runs.is_empty()
             || !self.built_runs.is_empty();
-        let building = self.pending_build_rx.is_some() || self.web_preview.building() || self.web_preview.awaiting_backend();
+        let building = self.pending_build_rx.is_some()
+            || self.web_package.is_some()
+            || self.web_preview.building()
+            || self.web_preview.awaiting_backend();
         crate::panels::toolbar::Activity { running, building, stoppable: running || self.web_preview.active() }
     }
 
@@ -6076,6 +6095,16 @@ impl CoboltApp {
             return;
         }
 
+        // A Web project is packaged to be installed on a server (spec 113): two files, into a folder.
+        if self.is_server_web_project() {
+            if self.web_package.is_some() || self.pending_build_rx.is_some() || self.web_preview.building() {
+                self.output.push_status(self.lang.tr().status_build_already_running.to_owned());
+                return;
+            }
+            self.begin_file_dialog(FileRequest::PackageWebProject, crate::file_dialog::DialogSpec::folder());
+            return;
+        }
+
         let zip_name = format!(
             "{}.zip",
             self.cobolt_project
@@ -6093,6 +6122,47 @@ impl CoboltApp {
                 .filter("Zip archive", &["zip"])
                 .file_name(zip_name),
         );
+    }
+
+    /// Package the open Web project into `dir` once the developer has chosen the folder (spec 113): the page and the Backend
+    /// are built, and the folder gets exactly two files. The work runs on a thread; each step is said in the Output panel
+    /// as it begins, and the result when it ends ([`Self::poll_web_package`]).
+    fn package_web_to(&mut self, dir: PathBuf) {
+        if !self.is_server_web_project() {
+            return;
+        }
+        if self.web_package.is_some() || self.pending_build_rx.is_some() || self.web_preview.building() {
+            self.output.push_status(self.lang.tr().status_build_already_running.to_owned());
+            return;
+        }
+        let (Some(manifest), Some(project)) = (self.project_path.clone(), self.cobolt_project.as_ref()) else { return };
+        let name = project.project.name.clone();
+        // The build reads the forms from disk, so the designers with unsaved edits are saved first.
+        for idx in 0..self.designers.len() {
+            if self.designers[idx].1.dirty {
+                self.do_save_designer(idx);
+            }
+        }
+        self.apply_main_form_invariant();
+        let tr = self.lang.tr();
+        self.output.push_status(crate::web_package::started_line(&tr, &name));
+        self.web_package = Some(crate::web_package::Run::start(manifest, dir, self.lang.code(), self.egui_ctx.clone()));
+    }
+
+    /// Once a frame: what the packaging thread said, into the Output panel.
+    fn poll_web_package(&mut self) {
+        let Some(run) = self.web_package.as_mut() else { return };
+        let msgs = run.drain();
+        let tr = self.lang.tr();
+        let dir = run.dir.clone();
+        for msg in &msgs {
+            for line in crate::web_package::lines(&tr, msg, &dir) {
+                self.output.push_status(line);
+            }
+        }
+        if run.is_over() {
+            self.web_package = None;
+        }
     }
 
     /// Write the project zip once the user has chosen the destination.
@@ -16353,6 +16423,7 @@ impl CoboltApp {
                 self.do_save_project();
             }
             FileRequest::PackageProject => self.package_project_to(path),
+            FileRequest::PackageWebProject => self.package_web_to(path),
             FileRequest::AddFile(kind) => self.add_file_to_project_path(kind, path),
             FileRequest::NewForm(form) => self.save_new_form_to(*form, path),
             FileRequest::PickBackgroundImage => self.set_background_image(path),
@@ -17565,6 +17636,7 @@ impl eframe::App for CoboltApp {
         self.show_new_project_dialog(ctx);
         self.show_native_project_step(ctx);
         self.show_web_preview(ctx);
+        self.poll_web_package();
         self.poll_backend(ctx);
         // Images a property picker copied into Assets/: list them in the project.
         let imported = crate::project_model::take_imported_assets();
