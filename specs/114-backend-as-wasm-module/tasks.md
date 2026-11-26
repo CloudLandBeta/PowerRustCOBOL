@@ -1,0 +1,334 @@
+<!--
+SPDX-License-Identifier: Apache-2.0
+Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+-->
+
+# Tasks — The Backend as a WebAssembly module
+
+- **Status:** draft (2026-11-26) → in progress → done
+- **Plan:** ./plan.md   **Spec:** ./spec.md   **Date:** 2026-11-26
+- **Branch:** `features`, synced with `git merge --ff-only main` before the first edit. A fix found on the way (for example the dead `ExecResult.display`) is its own commit on `fixes`, never in a feature commit or push (rule #5).
+
+Ordered, small, independently-verifiable tasks. Each names the files it touches, the requirement(s) it satisfies, and how to verify it. Check off as completed. **The project stays green after each task**: new code is reachable only from its own tests until T28 (the Build) wires it to a user-visible path, and the default engine does not change until T40 (P2).
+
+**Every task that changes the tree ends with** a `z` bump in `crates/cobolt-ide/src/version.rs`, a top `CHANGELOG.md` entry (absolute date; read only the first 60 lines of that file, it is 4 MB), the credential scan (`credscan.sh && git commit`), and a commit of the named files only (never `git commit -a`; other sessions' edits sit in the shared tree). Pushes follow rule #1 (never 09:00–18:00 Mon–Fri, São Paulo). Nothing is announced on a forum.
+
+**Where each thing can be proven.** *Here* = this Mac (the primary tree or a worktree; `df` first, a sweep links many binaries). *Container* = a Debian container with systemd and nginx through Docker/colima, as spec 113 used (`docker create` + `docker cp`). *Runner* = a GitHub-hosted runner the operator dispatches (T42, T43). A claim not run on a system is written "not verified on <system>" in the CHANGELOG, as spec 113 did for Windows and macOS.
+
+**Divergences from the plan, found while writing these tasks** (each is acted on below, and is the plan's text to be corrected in T47):
+1. **The Backend entry needs its own ABI amendment.** The plan numbers only the `backend` capability (A59). The module's new export (`pr_backend_call`), its custom section (`prbackend`) and the manifest's `backend` section are permanent names too (R3), and they ship in M2, before the capability (M5). So **A59 = the Backend entry** (M2, T10) and **A60 = the `backend` capability** (M5, T34).
+2. **The runner variants cannot be fixed at M0 from measured sizes**, as the plan's D6 says: a variant is a build of the crate this work creates in M3. M0 measures what exists (the Desktop runner's size, the spikes); **the groups are confirmed at the gate after T25**, with each variant's measured size. The four cargo features (core, sql, net, full) are built either way, so nothing waits.
+3. **`cobolt-server`'s `server` feature is what the generated Cargo project of today names** (`backend_build.rs` 124: `features = ["server"]`), and `cobolt-cli`/`cobolt-web-tests` use the defaults. Splitting `interpreter` out of `server` (T6) must update that template, or the Cargo path stops building. T6 does, with a test.
+4. **`cobolt-server`'s `client` feature also pulls `cobolt-runtime`** (`Cargo.toml` 48). The guard of T9 is therefore on `--no-default-features --features server` (the headless runner never enables `client`), not on the crate as a whole.
+5. **The pooling allocator is a wasmtime feature that `cobolt-runner-engine` does not enable today** (`default-features = false`; `cranelift`, `runtime`, `std`, `parallel-compilation`), and `cobolt-wasm/tests/dependency_guard.rs` pins the host tree (wasmtime 44.0.3, one allowed C helper, a licence list). Whether enabling it changes that tree is **unknown until T2 builds it**; if the guard objects, D4 falls back to plain instantiation (the plan's own fallback) and the decision is the operator's to see in the CHANGELOG.
+
+---
+
+## A. Prerequisites and baseline
+
+- [x] **T0a — Spec 112 is on `main`** (plan P4)
+  - Done 2026-11-26 07:39 São Paulo: the spec 112 branch was merged with `main` in a temporary worktree (`87be59ff`) and pushed; spec 113's Package (2.1.41), this plan (2.1.42) and two player fixes (2.1.43, 2.1.44, `68450ab5`) are on `origin/main`. Workflow edits of this work now start from that base.
+
+- [ ] **T0 — Baseline** (all)
+  - Files: none. Run, from a clean checkout of `features` (a worktree if the primary tree is dirty): `cargo test --no-fail-fast -p cobolt-server -p cobolt-wasm -p cobolt-wasm-abi -p cobolt-wire -p cobolt-runner-engine -p cobolt-program-package -p cobolt-abi-host -p cobolt-runner -p cobolt-compiler -p cobolt-cli -p cobolt-project-tools -p cobolt-web-bundle`, then `cargo test --no-fail-fast -p cobolt-ide --bin cobolt-ide`. Read every `test result:` line.
+  - Do: write the numbers under "Baseline" at the top of this file, with the known reds named, not hidden (memory "Known reds": `dependency_guard` of the player at 1.92 against 1.95; the stale-KB test until `build_chunked_kb` is run; seven `cobolt-ide` tests that need `rcrun` in a fresh worktree; the live crates.io pair). Also record `df -h /` and the wall time.
+  - Verify: the table is in this file; "stays green" later means "the same numbers or better, and every difference explained".
+
+## B. M0 — Measure (R15, R16, AC10 baseline). Nothing in the product changes.
+
+- [ ] **T1 — `backend_support`: what the generator accepts of the four shipped Backends** (R15, C9)
+  - Files: `crates/cobolt-compiler/examples/backend_support.rs` (new).
+  - Do: for each of `examples/PowerOficina`, `PowerAnalyticsWeb`, `PowerWebHello`, `PowerMobileHello`: `cobolt_server::backend::Backend::load(<project>/backend)`, then for each exported program `cobolt_wasm::module::compile_program(&prog, &Options { native: true, … })` (set the fields the Desktop path sets, `backend_build`-style; read how `wasm_build` in `cobolt-compiler/src/lib.rs` 4036–4110 fills `Options`), and list `GenError::all_kinded()` (`error.rs` 71) with line and subject, grouped by reason. Print one result block: Backend, programs tried, programs accepted, refusals by reason, the capabilities the accepted modules would declare.
+  - Verify: `cargo run -p cobolt-compiler --example backend_support` prints the block for the four. **The numbers go into `specs/WASM-PROGRESS.md` (a dated "Backend as a module, M0" section) and, later, into the CHANGELOG.** If a shipped Backend is refused for a reason the plan's §0.1 did not expect, stop and surface it: it changes M2's order (R15's purpose).
+
+- [ ] **T2 — The spikes: instance cost, epoch overhead, interpreter cost, pooling feasibility** (R10, R11, R16, D3, D4; divergence 5)
+  - Files: `crates/cobolt-runner-engine/examples/backend_spikes.rs` (new); `crates/cobolt-runner-engine/Cargo.toml` (an optional, off-by-default feature for the pooling allocator, only for the spike).
+  - Do: using a module T1 shows is accepted (or a small hand-made one if none is), measure and print: (a) cost of `Store` + instance per call, plain against pooled (`PoolingAllocationConfig`), median and p99 over ≥10,000 calls; (b) the overhead of epoch interruption on a 10⁸-iteration loop, with and without it, and the time from a deadline to the trap with a 10 ms tick; (c) the same export called through `cobolt_server::exec::execute` (the interpreter, AST clone included) on one shipped export; (d) a cold and a warm `build_backend` of PowerOficina (use the `rcrun backend build` path; record wall time). Then run `cargo test -p cobolt-wasm --test dependency_guard` with the pooling feature on and record whether the host tree changed (divergence 5).
+  - Verify: `cargo run --release -p cobolt-runner-engine --example backend_spikes --features pooling` prints the block; `dependency_guard` result recorded. **Decision recorded in `WASM-PROGRESS.md`:** pooled or plain (D4), with the numbers; if pooling needs a dependency the guard refuses, plain stays and this is said.
+
+- [ ] **T3 — The size and build-time baselines** (R16, AC10 baseline, D6)
+  - Files: none (`specs/WASM-PROGRESS.md` only).
+  - Do: `cargo build --release -p cobolt-runner` and record `prc-runner`'s size on this Mac (the plan has only the CHANGELOG's 80,059,136 bytes for macOS arm64, 2.0.627); record the size of a Cargo-built Backend (`bin/poweroficina-backend` from `rcrun backend build`, and the time of its cold and warm build). These are the numbers the variants and the 30 s goal are compared with.
+  - Verify: the figures are in `WASM-PROGRESS.md` with the commit they were taken at.
+
+- [ ] **T4 — Gate G0: what M0 decides**
+  - Do: read T1–T3 together. Record in `WASM-PROGRESS.md` (a) the order of M2's work from T1's refusals; (b) D4 (T2); (c) whether the 30 s goal is plausible for the module path from the cold Cargo figure and the generator's measured time. If T1 shows the shipped Backends are accepted as §0.1 expects, nothing in the plan changes; if not, **stop and report** before M1.
+  - Verify: the section ends with "M0 closed" and the decisions.
+
+## C. M1 — The seam in `cobolt-server` (R5 part; AC4's harness). Behaviour-preserving.
+
+- [ ] **T5 — The `Engine` and `EngineSession` traits** (R5, D1)
+  - Files: `crates/cobolt-server/src/engine.rs` (new), `lib.rs` (declare it under `server`).
+  - Do: define the traits from what the eight call sites need (`serve.rs` 61, 707, 816, 1453, 1705, 1467–1471, 1472, 1717; `identity/routes.rs` 167–177): `Engine::execute(program, args: Vec<String>, opts) -> Result<ExecResult, CallError>`, a per-connection session (`EngineSession`) that keeps one run unit per exported program and takes calls in turn, a stream entry, and a neutral identity-operations trait that replaces the interpreter-typed `IdentityHook` in `ExecOptions.identity` (`exec.rs` 75). `ExecResult` keeps `args`, `returning`, `display`. Read each site first; the traits are the union of what they do, not a design from outside.
+  - Verify: `cargo build -p cobolt-server` and `cargo test -p cobolt-server` unchanged (nothing uses the traits yet).
+
+- [ ] **T6 — The interpreter engine behind the `interpreter` feature** (R5, divergences 3 and 4)
+  - Files: `crates/cobolt-server/src/exec.rs`, `engine.rs`, `Cargo.toml`; `crates/cobolt-compiler/src/backend_build.rs` (the generated project's dependency line, 124); `crates/cobolt-cli/Cargo.toml`, `crates/cobolt-web-tests/Cargo.toml`, `crates/cobolt-compiler/Cargo.toml`, `crates/cobolt-ide/Cargo.toml` only if the audit finds one that needs it.
+  - Do: new feature `interpreter = ["dep:cobolt-runtime"]`, in `default`; remove `dep:cobolt-runtime` from `server` and make **no** other feature name change. `exec.rs` becomes `InterpreterEngine`/`InterpreterSession` implementing the traits, behind `interpreter`. **Audit every dependent:** `grep -rn cobolt-server crates/*/Cargo.toml` and the Cargo template at `backend_build.rs` 124 (`features = ["server"]` → `["server", "interpreter"]`); the `IdentityHook` impl in `identity/routes.rs` (159) and `client.rs` (595) stay behind the right feature.
+  - Verify: `cargo build -p cobolt-server` (default), `cargo build -p cobolt-server --no-default-features --features server,interpreter`, `cargo test -p cobolt-compiler --test backend_build_wasm003` (the generated project still builds: it builds a Cargo Backend), `cargo build -p cobolt-cli -p cobolt-ide`.
+
+- [ ] **T7 — `serve.rs` and the identity routes call the traits** (R5, AC4's harness)
+  - Files: `crates/cobolt-server/src/serve.rs`, `identity/routes.rs`, `backend.rs`, `standalone.rs`, `dev.rs`.
+  - Do: replace the eight sites; `Conn.state` holds an `EngineSession`; `serve::start` takes an `Arc<dyn Engine>` (the interpreter by default, built where `standalone`/`dev` build it today); `ExportedProgram`'s body stays the AST for now (T12–T21 give it a module entry). **No behaviour change**, no new log line, no new error text.
+  - Verify: `cargo test -p cobolt-server` prints the same counts as T0 (`loopback`, `client_contract`, `fuzz_dispatch`, `identity_routes`, the unit tests); `cargo test -p cobolt-web-tests --test desktop_wasm_unchanged` green.
+
+- [ ] **T8 — The test rig takes an engine** (AC4's harness)
+  - Files: `crates/cobolt-server/src/testkit.rs` (`rig`, `rig_with_state`, `rig_with_identity`, `rig_dev`: a variant `rig_on(engine, …)` each), `tests/loopback.rs`, `client_contract.rs`, `fuzz_dispatch.rs`.
+  - Do: the existing rigs call the new ones with the interpreter; the three suites loop over a list of engines (one entry now) so a second engine is one line later (T38).
+  - Verify: `cargo test -p cobolt-server` same counts; each suite's result block now prints the engine name.
+
+- [ ] **T9 — The guard: `server` without `interpreter` links no `cobolt-runtime`** (R5, divergence 4)
+  - Files: `crates/cobolt-server/tests/dependency_guards.rs`.
+  - Do: with `cargo tree -p cobolt-server --no-default-features --features server -e normal`, assert `cobolt-runtime`, `egui`, `eframe`, `winit` and `wgpu` are absent; assert they are present with `interpreter` (so the guard cannot pass because the tree was empty). Print the package counts.
+  - Verify: `cargo test -p cobolt-server --test dependency_guards`. **Gate G1 (M1 closed):** `cargo test` of every crate in T0's list shows T0's numbers.
+
+## D. M2 — The generator's Backend mode (R1, R2, R3, R9)
+
+- [ ] **T10 — ABI amendment A59: the Backend entry** (R1, R3, divergence 1)
+  - Files: `specs/WASM-ABI-v1.md` (a new row after A58 and the section that lists exports and custom sections).
+  - Do: write, before any code, the permanent names: the export **`pr_backend_call(export_index: i32, …) -> i32`** (the exact signature is fixed here from T12's design: the entry takes the export's index in the manifest's `backend` table; the request JSON for each parameter is in a scratch area whose address and size the module publishes; it answers a status code and the response JSON's length), the custom section **`prbackend`** (the descriptor blob of each parameter and of `RETURNING`, the blob `cobolt-wasm/src/json_layout.rs::build` makes), and the manifest's **`backend`** section (export names and indices, `long_running`, `stream`, `independent`, roles, the state mode, the descriptor offsets, the declared capabilities). Say that the section is serialised only when present, so no other module's bytes change.
+  - Verify: the amendment reads as the existing ones do (name, what it adds, one implementation, "Yes — in a Backend module only"); a reviewer can write T11–T12 from it alone.
+
+- [ ] **T11 — The manifest's `backend` section; `Options.backend`; the bundler refuses it** (R1, R2, R3)
+  - Files: `crates/cobolt-wasm-abi/src/manifest.rs`, `scan.rs`, `crates/cobolt-wasm/src/module.rs` (`Options`, 60–85).
+  - Do: add the section as T10 wrote it, serialised only when present; `Options.backend: Option<BackendOptions>` (state mode, exports); `scan.rs` makes the Web bundler refuse a module that carries it (a browser page never runs a Backend module). Round-trip and golden tests for the section.
+  - Verify: `cargo test -p cobolt-wasm-abi -p cobolt-wasm` — the existing goldens (`layout_golden`, `compile_determinism`, `json_vectors`) have **unchanged bytes** (a module without the section serialises as before: the test prints the count of modules compared).
+
+- [ ] **T12 — The entry glue** (R1, R9, D2)
+  - Files: `crates/cobolt-wasm/src/backend_entry.rs` (new), `module.rs` (Backend mode compiles every program of `backend/src/` and the copybooks into one module), `json_layout.rs` (reused), `crates/cobolt-wasm/assets/rt.wasm` only if a support routine is added (then `cargo run -p cobolt-wasm --example build_rt` in the same change).
+  - Do: for each exported program, emit an entry that reserves the record storage the LINKAGE items need, fills their 4-byte hidden slots as a `CALL … USING BY REFERENCE` does (`rt_bind`, `layout.rs` 318–374), calls `rt_json_decode` for each parameter from the scratch area, jumps to the unit through the machinery `lower_call.rs` has (40–135, 183–296), then `rt_json_encode` for each parameter and `RETURNING`; a refused request (unknown field, wrong kind, string over its `PIC`, table over its `OCCURS`) returns before the program runs, with the code `rt_json_decode` already gives (the same as the interpreter's, held by the golden vectors). Each exported program keeps its own copy of what it can `CALL` (C5): reuse `Backend::build`'s nesting (`backend.rs` 475–486) by compiling the nested copies the same way.
+  - Verify: a unit test compiles a two-program source and shows `pr_backend_call` and the `prbackend` section in the module, and that a call with a valid request runs and an over-limit request is refused with the interpreter's code; `cargo test -p cobolt-wasm` green.
+
+- [ ] **T13 — The support table's Backend column and the gate** (R1, R4 groundwork)
+  - Files: `crates/cobolt-wasm/src/support.rs` (the Backend column; the entry rows), `lower.rs` (2485–2493), `lower_form.rs` (308–382), `tests/subset_table.rs`.
+  - Do: in Backend mode a refused construct is refused at its line with the reason T1 grouped; the nine Backend-side verbs and `AUTH-OP` are `Refused(Cargo, "needs the backend capability")` **until T35** (the Backend-mode table says so, not silence); `subset_table` fails on a Backend-side verb with no row.
+  - Verify: `cargo test -p cobolt-wasm --test subset_table`; the Desktop and browser columns are unchanged (the test prints the rows compared).
+
+- [ ] **T14 — Differential tests: the module against `exec::execute`** (R9, R20, AC3's engine half)
+  - Files: `crates/cobolt-wasm/tests/backend_entry.rs` (new). **If `cobolt-wasm`'s dependency guard refuses a dev-dependency on `cobolt-server`, the test lives in `crates/cobolt-compiler/tests/backend_entry_parity.rs`** (the compiler already depends on both).
+  - Do: a table of small programs covering each `PIC` kind, `OCCURS`, `OCCURS DEPENDING ON`, a group, `RETURNING`, and a program that ends early with `GOBACK`/`STOP RUN`; at least five calls each (ordinary, empty, at each limit, over-limit refused, ends early); run each through `cobolt_server::exec::execute` and through the module (instantiated with `cobolt-runner-engine`), compare JSON byte for byte and the error code. One result block: programs, calls, equal, different; a difference fails the test and is also written to `WASM-PARITY.md` if it is the interpreter that is wrong (who is right is decided, not assumed).
+  - Verify: `cargo test -p cobolt-wasm --test backend_entry` (or the compiler's) prints the block with 0 different. `compile_determinism` now also compiles a Backend-mode source twice and compares bytes.
+
+- [ ] **T15 — Gate G2 (M2 closed)**
+  - Do: run T0's list; the Desktop and browser module bytes are unchanged (the module corpus: `cargo test -p cobolt-runner --test module_corpus` and `-p cobolt-wasm --test corpus`). Update `specs/WASM-PROGRESS.md`.
+  - Verify: numbers equal T0's, plus the new tests.
+
+## E. M3 — The headless runner (R5, R6, R8 per-call, R10, R11, R12; AC3 on the four, AC5 per-call, AC6)
+
+- [ ] **T16 — `cobolt-runner` gets a `forms` feature** (R5, R6, D5)
+  - Files: `crates/cobolt-runner/Cargo.toml` (a `[features]` section: `forms`, default on), `src/lib.rs`, `app.rs`, `forms.rs`, `gfx.rs`, `viewer.rs`, `audio.rs`, and the egui dependencies.
+  - Do: put the window side behind `forms`; the `State` and the data providers (`files.rs`, `sql.rs`, `http.rs`, `partiql.rs`, and the control-free parts of `rest/aws/agent/kb`) stay unconditional. **No code moves between crates.** Split `linker_for` (485–970) so that the registration of the data capabilities can be called by a second runner (a function that takes the linker and the `State`, which both use).
+  - Verify: `cargo build -p cobolt-runner` (default) is unchanged; `cargo build -p cobolt-runner --no-default-features` builds with no `egui`, `eframe`, `winit` or `wgpu` in `cargo tree`; every suite of `crates/cobolt-runner/tests` (`console`, `esql`, `files`, `sql_*`, `http_builtins`, `partiql_builtins`, `module_corpus`, …) passes **with `forms` on** with T0's counts, and the headless ones with it off.
+
+- [ ] **T17 — Provider groups as cargo features of `cobolt-runner`** (R6, D6)
+  - Files: `crates/cobolt-runner/Cargo.toml`, `src/*.rs` where a provider is registered; `cobolt-runtime`'s features it names (audio, graphics, aws, images, sql, http, kb, maps, pdf, office) become reachable per group.
+  - Do: features `core` (the file capabilities, `sort`, `partiql.files`), `sql`, `net` (`http`, REST, AWS), `full` (`kb`, agents, models), each adding the previous as the starting proposal says; the headless build selects one, the Desktop's default enables all. The capability registration refuses (names) a capability whose feature is off, so a module needing it fails at start, not at call time.
+  - Verify: `cargo build -p cobolt-runner --no-default-features --features core` and `… sql`, `… net`, `… full` build; the dependency tree of `core` shows no `rusqlite`/`ureq`/AWS crates (the test prints the package count per variant); Desktop default unchanged.
+
+- [ ] **T18 — `backend_config()`: epoch interruption, and the pooled allocator if T4 chose it** (R10, R11, D3, D4)
+  - Files: `crates/cobolt-runner-engine/src/lib.rs` (`config()` 116–131 untouched; `backend_config()` beside it; `precompile` 179 and `load` 223 take the configuration).
+  - Do: `backend_config()` = `config()` plus epoch interruption (and the pooling allocator when T4 recorded it as adopted). The Desktop's machine code is **unchanged** (`config()` is not edited).
+  - Verify: `cargo test -p cobolt-runner-engine`; `cargo test -p cobolt-runner --test module_corpus` and `-p cobolt-web-tests --test desktop_wasm_unchanged` show the Desktop's hashes unchanged; a test shows machine code made with `backend_config()` is refused by `load(config())` and vice versa (the engine-compatibility hash differs) so one never runs the other's.
+
+- [ ] **T19 — `Kind::Backend = 4` and its container** (R3, R7, AC9 groundwork)
+  - Files: `crates/cobolt-program-package/src/lib.rs` (`Kind`, 54–63).
+  - Do: add `Backend` with a versioned container holding: the interface description JSON, the export table, the released-contract history, the state mode, the module bytes (§3 of the plan). Machine code uses the existing kinds 2 and 3. An older runner reading kind 4 gets `Kind::Other(4)` and tolerates it; **a new reader reads every payload version ever written** (a version number from the first release; a test keeps a literal v1 byte string).
+  - Verify: `cargo test -p cobolt-program-package` — round trip, an unknown kind tolerated, the v1 literal read, a truncated payload refused with a named error; the existing Desktop payload tests unchanged.
+
+- [ ] **T20 — `cobolt-backend-runner`: the crate, the loader, the refusal by name** (R2, R5, R12)
+  - Files: `Cargo.toml` (workspace member), `crates/cobolt-backend-runner/{Cargo.toml,src/lib.rs,src/payload.rs,src/main.rs}` (new).
+  - Do: a library and one binary `prc-backend-runner` whose features select the variant (T17); `payload.rs` reads the overlay/segment of its own executable (the way the Desktop runner does: `cobolt-program-package`), checks the module's declared capabilities against what this variant provides and **refuses to start, naming each missing one** (R2), and exposes the interface, exports, history and state to build a `Backend` (a second constructor beside `Backend::build`, in `backend.rs`, that takes an interface and an export table instead of ASTs). `cargo tree` must pass the headless guard of T9/T16 (no `egui`/`cobolt-runtime`, unless the variant needs a `cobolt-runtime` provider: state it).
+  - Verify: `cargo build -p cobolt-backend-runner --no-default-features --features core`; a test builds a payload with a made-up capability and shows the runner exits 1 naming it; `cargo test -p cobolt-backend-runner`.
+
+- [ ] **T21 — `WasmEngine`: one call** (R8 per-call, R9, R11, D1, D4)
+  - Files: `crates/cobolt-backend-runner/src/engine.rs` (new).
+  - Do: implement `Engine`: per call a new `Store` + instance (pooled if adopted), the request JSON written to the entry's scratch area, `pr_backend_call`, the response JSON read back into `ExecResult { args, returning }`; a trap or a non-zero status maps to the same `CallError`/code the interpreter path gives (`PROGRAM_FAULT` 9001 for a fault, the wire mapping's code for a refused request); `StoreLimits` set to the module's declared memory as a second guard. `display` is discarded (recorded in `WASM-PARITY.md`, T47). Each call owns its own provider `State` on its own blocking thread (nothing shared across threads).
+  - Verify: a unit test serves a made-up module over a loopback rig with `rig_on(WasmEngine, …)` (T8) and answers the same JSON as T14's table for three of its programs; `cargo test -p cobolt-backend-runner`.
+
+- [ ] **T22 — Time and cancel: the epoch ticker** (R10, AC6, D3)
+  - Files: `crates/cobolt-backend-runner/src/epoch.rs` (new), `engine.rs`.
+  - Do: one ticker thread per runner advances the epoch every 10 ms; each call's store has an epoch callback that interrupts when the call's hard flag is set or its wall-clock deadline has passed, and continues otherwise. The call ends as *cancelled* or `CALL_TIMEOUT` as `exec.rs` 355–361 decides today. **Unlike the interpreter, the thread stops** (the permits are released when it has).
+  - Verify: a module with an infinite loop and no statement the interpreter would stop at: the timeout ends the call, the Backend serves the next call, and the test prints the time from the timeout to the end (ms, a few ticks expected: report the real number, AC6).
+
+- [ ] **T23 — The data capabilities of the runner** (R6)
+  - Files: `crates/cobolt-backend-runner/src/providers.rs` (new).
+  - Do: for each call, build the `State` and register the capabilities of the variant with the function T16 made callable (files of all four organisations, `sort`, `partiql.files`; `sql`, `http`, REST, AWS, `kb`, agents by variant); resolve each file's path the way `Backend` config does for the interpreter (the Backend's data directory), and the SQL connection by the Backend's own configuration (no secret in the module or the manifest: R21).
+  - Verify: a test per capability that a variant provides and a variant that does not refuses; `cargo test -p cobolt-backend-runner`.
+
+- [ ] **T24 — The executable's interface** (R7, R12, AC2 groundwork)
+  - Files: `crates/cobolt-backend-runner/src/main.rs`, `crates/cobolt-server/src/standalone.rs` (the start-up takes a loader and an `Arc<dyn Engine>`; its other behaviour is untouched).
+  - Do: `--config --env-file --log-file --service --service-name --check --describe --version` exactly as the Cargo-built file (`standalone.rs`); **stdout of `--check`, `--describe` and `--version` byte for byte the same** (`backend (cobolt-server X)`, the interface JSON, `configuration ok: contract C on ADDR (N exported program(s))`), exit codes 0/1/2 as today; the **engine line and the module hash go to stderr and the log only** (R12, D10).
+  - Verify: a test runs the built runner with a payload and compares the three stdout outputs and the exit codes with a Cargo-built file's for the same Backend (the Cargo file is built once with `rcrun backend build --cargo`; the test is `#[ignore]` where Rust is not available and says so).
+
+- [ ] **T25 — The parity run on the four shipped Backends** (R6, R8, R20, AC3 on the four, AC5 per-call, AC6)
+  - Files: `crates/cobolt-backend-runner/tests/parity.rs` (new).
+  - Do: for the exports of the four Backends that T1 shows accepted, at least five calls each (ordinary, empty, at each `PIC`/`OCCURS` limit, an over-limit refused one) on the runner and on the interpreter, with equal JSON, equal codes and **equal effects on files and databases** (compare the indexed files' contents after the same call sequence; for PowerAnalyticsWeb the SQL connection is SQLite (`PowerAnalyticsWeb.project.toml`: `backend = "sqlite"`), so it runs here; compare the database file's rows). AC5: N parallel calls of one export (N from the Backend's own limits) never see each other's WORKING-STORAGE; AC6: the infinite-loop case of T22 through the whole server. The failing-call case (`WS-FAIL`) is added at T38 (it needs the verb).
+  - Verify: `cargo test -p cobolt-backend-runner --test parity` prints Backends, exports, calls, equal, different (0), parallel calls and the AC6 time. **Gate G3 (M3 closed):** the numbers are in `WASM-PROGRESS.md`; **the runner variants are confirmed here** (divergence 2): build each of `core`, `sql`, `net`, `full` in release, record each size, and fix the groups and their names (a Backend picks the smallest variant that provides its capabilities: D6). If two variants are within a few MB of each other, merge them; the decision and the sizes are written down.
+
+## F. M4 — The Build (R7, R13, R14, R16, R17, R19, R22; AC1, AC2, AC7, AC8)
+
+- [ ] **T26 — The setting and the reasons** (R13, R22, P1)
+  - Files: `crates/cobolt-compiler/src/project_kind.rs` (`BackendSettings.build_path`: `auto` | `wasm` | `cargo`, default `auto`), `src/lib.rs` (`CargoReason`: `Identity`, `BackendVerb { verb }`, `ClientVerb { verb }`; `RunnerUnavailable` reused).
+  - Do: read it with the project manifest (a project without it reads `auto`; **nothing in a `.cfrm`, `.cidx`, `exports.toml`, `backend.toml` or the developer's COBOL changes**; the manifest is never edited by hand: the setting is written only through the IDE's/MCP project settings when T33 exposes it). Until T40, `auto` means `cargo`.
+  - Verify: `cargo test -p cobolt-compiler` — a project with `build_path = "wasm"`, `"cargo"`, absent, and an unknown value (refused with the allowed values named).
+
+- [ ] **T27 — `classify_backend`** (R13, AC7, D8)
+  - Files: `crates/cobolt-compiler/src/backend_build.rs` (a new function and `BackendClass { engine, reasons: Vec<Reason> }`).
+  - Do: apply D8 in its order: `build_path = "cargo"` or `--cargo`; `[[crates]]`; `EXEC RUST`; a program with a control (`D_FORMS`) or a named-item object (`D_SQL_ITEMS`, `D_REST_ITEMS`, `D_AGENT_ITEMS`); `[identity]` or `AUTH-OP`; a client-side verb; any construct the generator refuses (all of them, from `GenError::all_kinded()`, with file and line); then a runner variant that provides every declared capability, and its SBOM. Each reason carries construct, file, line and the text the Desktop Build gives. Until T35 the nine Backend-side verbs are reasons too.
+  - Verify: one test per rule in D8's order (each rule alone makes the Cargo class and names itself), one with several (all listed), and one with none (the module class); `cargo test -p cobolt-compiler`.
+
+- [ ] **T28 — The module path in `build_backend`** (R1, R7, R14, R16, R22; AC1)
+  - Files: `crates/cobolt-compiler/src/backend_build.rs` (`BackendBuildOptions`/`BackendBuildResult` 37–60, the function 197–379), `src/lib.rs` (`BACKEND_RUNNER_ENV` = `PRC_BACKEND_RUNNER` as a folder, else beside the running executable: D7; the lookup of `prc-backend-runner-<variant>`).
+  - Do: **move the first touch of Rust (`host_triple()` runs `rustc -vV`, line 210) behind the Cargo path**, so the module path runs with no `cargo` and no `rustc`; keep `contract/interface.json` written before the contract check (as today); on the module class: generate (T12), precompile with `backend_config()` for the baseline CPU, assemble `{interface, exports, history, state, module, machine code}` as `Kind::Backend`, embed in a copy of the chosen variant, install atomically as `bin/<name>-backend` (`wasm_build` 4036–4110 is the model); report `phases` (check, generate, machine code, assemble, contract) with times and peak memory, and `engine` and `reasons`; a **progress callback** (`BackendBuildOptions`) the IDE and CLI can print. A missing runner variant is a **named fallback** to Cargo (not an error as on the Desktop); with no toolchain either, the existing toolchain error names both. The module path never writes or deletes anything in `backend/src` (R22).
+  - Verify: a test builds PowerWebHello and PowerOficina with `PATH` holding neither `cargo` nor `rustc` (the harness removes them from the child's `PATH`) and the built file starts and answers `--describe` (AC1); the test prints Backends, engine, time per phase against the 30 s goal.
+
+- [ ] **T29 — The SBOM, mandatory** (R17, C4, C8)
+  - Files: `crates/cobolt-compiler/src/backend_build.rs`; `crates/cobolt-backend-runner/` (a build step or a documented release step that writes `prc-backend-runner-<variant>.sbom.json` with `cobolt_wire::sbom`, one per variant).
+  - Do: the Build reads the chosen variant's SBOM from next to the runner, adds the module's hash as a component, and writes `bin/sbom.cdx.json`; **a runner with no SBOM file sends the Build to the Cargo path, named** (C8); the file is always written on the module path (spec 113's zip omits it silently otherwise).
+  - Verify: a test builds on the module path and finds `bin/sbom.cdx.json` listing the runner's components and the module hash; a test with the SBOM removed falls back and says why.
+
+- [ ] **T30 — `rcrun backend build --cargo` / `--wasm`; `rcrun backend run` unchanged** (R13, AC7)
+  - Files: `crates/cobolt-cli/src/main.rs` (`backend` 516–690; `build` 670), `crates/cobolt-cli/tests/backend_cli.rs`.
+  - Do: `--cargo` forces the Cargo path, `--wasm` refuses to fall back (prints each construct, file, line, reason and exits non-zero); no flag follows the project setting. Output names the engine, the reason (when Cargo) and the phases with their times. `rcrun backend run` is untouched here (T41).
+  - Verify: `cargo test -p cobolt-cli --test backend_cli` — a Backend with `EXEC RUST` builds on Cargo with the reason printed, and `--wasm` on it refuses (AC7); `--cargo` on a module-class Backend builds on Cargo.
+
+- [ ] **T31 — The same interface from both paths** (R7, AC2)
+  - Files: `crates/cobolt-compiler/tests/backend_build_wasm003.rs` (the existing black-box test; extend to both paths), `crates/cobolt-cli/tests/…` as needed.
+  - Do: the existing black-box test runs the built file through an arguments × outputs table (`--version`, `--describe`, `--check`, a start with `--config`, `--env-file`, `--log-file`, a refused configuration, a missing file) on the Cargo-built and the module-built file and compares the stdout, exit codes and files written (the engine line, on stderr, excluded).
+  - Verify: the test prints the table size and 0 differences.
+
+- [ ] **T32 — Spec 113's Package on the module path** (R19, AC8 local half)
+  - Files: `crates/cobolt-project-tools/src/web/package.rs` (557–568: the engine in the notes, the SBOM asserted from `zip_entries` 462–499, the Windows C-runtime note only on the Cargo path), `crates/cobolt-project-tools/tests/package_web.rs`.
+  - Do: `package_web` uses `build_backend`'s engine; the zip layout, the install scripts, the service units and the deploy kit do not change; `prove` (336–374) runs `--check` on the module-built file and parses the same line; the zip holds `bin/sbom.cdx.json` (C4).
+  - Verify: `cargo test -p cobolt-project-tools --test package_web` (the one that is `#[ignore]` runs here with `--ignored` on a project whose Backend is module-class): the zip has the same entries as the Cargo-path zip plus the SBOM, the package time is printed against the Cargo path's (AC8), and `prove` passes.
+
+- [ ] **T33 — IDE and MCP surfaces, six languages** (R13, i18n)
+  - Files: `crates/cobolt-ide/src/i18n.rs` (the Build's engine line, the fallback-reason line, the phase line), `src/web_package.rs`, and the IDE's project settings panel for `[backend] build_path` (via the existing settings plumbing; read how `[desktop] build_path` is exposed and follow it).
+  - Do: every new line is a `Tr` field in EN ES PT JA ZH FR; the reasons that name a construct stay as the generator writes them (English); the MCP `set_project_settings`/`project_settings` know the new key.
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide i18n` (no empty translation); the IDE Output of a Web package shows the engine line, read through the MCP tool `read_output`, not by driving the window.
+
+- [ ] **T33b — Gate G4 (M4 closed)**
+  - Do: T0's list; AC1, AC2, AC7 and the local half of AC8 are in the CHANGELOG with their numbers; **the default is still Cargo** (T26).
+  - Verify: numbers equal T0's plus the new tests; `cargo test -p cobolt-ide --bin cobolt-ide` and `-p cobolt-web-bundle` with no new red.
+
+## G. M5 — The Backend verbs, the session and the default (R4, R8, R10, R20; AC3 full, AC4, AC5, AC6)
+
+- [ ] **T34 — ABI amendment A60 and the `backend` capability** (R3, R4, divergence 1)
+  - Files: `specs/WASM-ABI-v1.md` (the amendment row and the import table), `crates/cobolt-wasm-abi/src/codes.rs` (`cap::BACKEND`, its imports in `NATIVE_IMPORTS`), `scan.rs`.
+  - Do: the capability **`backend`** and, in the `prn` namespace, one import per Backend-side verb: `ws_fail`, `ws_progress`, `ws_cancelled`, `ws_pause`, `ws_emit`, `ws_claim`, `ws_file_path`, `ws_file_publish` (and `auth_op` only when identity is served: not in this release). The set is fixed when the capability first ships and a name is never retired. The Web bundler and the Desktop runner **refuse a module that requires it**, naming it.
+  - Verify: `cargo test -p cobolt-wasm-abi -p cobolt-wasm -p cobolt-web-bundle -p cobolt-runner` — the table tests list the new names; a Desktop-runner test refuses a module that requires `backend`.
+
+- [ ] **T35 — The generator lowers the Backend-side verbs** (R4, R10)
+  - Files: `crates/cobolt-wasm/src/support.rs` (the rows from T13 become `Module`/`Host(cap::BACKEND)`), `lower.rs`, `lower_form.rs`, the call lowering for each verb, `tests/subset_table.rs`.
+  - Do: each of the eight verbs lowers to its import with the argument layout `remote.rs` gives the interpreter (read `cobolt-runtime/src/interpreter/remote.rs` and the dispatch at `interpreter.rs` 11134–11164 first; the differences in §0.1 — `WS-FAIL` and `WS-EMIT` refuse without hooks, `WS-CLAIM`, `WS-PAUSE`, `WS-PROGRESS`, `WS-CANCELLED` do not — are kept); `WS-FAIL` records the failure on the call's host state and then ends the run as `STOP RUN` does, so the glue returns "failed" and the host discards the parameters (as `exec.rs` 377–382). `AUTH-OP`, `[identity]` and the nine client-side verbs stay Cargo-path reasons (T27).
+  - Verify: `cargo test -p cobolt-wasm --test subset_table` (every Backend-side verb has a row and an import); a compile test per verb; the NIST/corpus runs unchanged (`corpus.rs`, the module corpus).
+
+- [ ] **T36 — The runner serves the verbs** (R4, R10, R20)
+  - Files: `crates/cobolt-backend-runner/src/verbs.rs` (new), `engine.rs`, `crates/cobolt-server/src/engine.rs` (the hooks the call carries: failure, progress sink, emit/stream sink, claims, soft cancel flag, file publish).
+  - Do: serve each import by the interpreter's own rules, through the same hook types the interpreter engine uses (`ExecOptions` 75, 1453, 1705): `ws_fail` (the call ends with that failure, parameters discarded), `ws_progress`, `ws_cancelled`/`ws_pause` (the soft flag), `ws_emit` (stream frames), `ws_claim`, `ws_file_path`, `ws_file_publish` (the file-transfer path the interpreter uses). One implementation of each rule: reuse, never copy, what `cobolt-server` already does for the interpreter.
+  - Verify: one test per verb on a loopback rig with `rig_on(WasmEngine, …)`, printing the verb, the case, and equal/different against the interpreter run of the same program.
+
+- [ ] **T37 — `per-connection` state and streams** (R8, AC5)
+  - Files: `crates/cobolt-backend-runner/src/session.rs` (new), `engine.rs`; `serve.rs` is unchanged (the trait carries it).
+  - Do: under `per-connection`, one instance per `(connection, exported program)` for the life of the connection, calls taking turns (as `serve.rs` 1404 and `exec.rs` 290–300 ensure today); streams ignore the mode and always run a per-call instance (`serve.rs` 1717); two connections never share an instance.
+  - Verify: AC5's second half: two connections, interleaved calls, each sees only its own WORKING-STORAGE; one connection's concurrent calls take turns; the test prints connections, calls, collisions (0).
+
+- [ ] **T38 — The channel suites on both engines; the failing-call case** (R20, AC3 full, AC4)
+  - Files: `crates/cobolt-server/tests/{loopback,client_contract,fuzz_dispatch}.rs` (the engine list of T8 gains `WasmEngine`, behind a dev-dependency or a feature of the test crate, so `cobolt-server` itself does not depend on the runner crate), `crates/cobolt-backend-runner/tests/parity.rs`.
+  - Do: the three suites run with both engines and print the **same counts**; `parity.rs` gains the `WS-FAIL` case for each program that can fail (parameters discarded, the failure's code equal) and a case per verb.
+  - Verify: `cargo test -p cobolt-server` and `-p cobolt-backend-runner` — per-engine counts printed, 0 different. **Gate G5 (M5 closed):** AC3 (full), AC4, AC5, AC6 are green with their numbers in `WASM-PROGRESS.md`.
+
+- [ ] **T39 — Fuzz and the limits on the new engine** (R11, R21, AC4)
+  - Files: `crates/cobolt-backend-runner/tests/limits.rs` (new).
+  - Do: through the server's limit settings (max concurrent calls, frame size, per-call timeout) with the module engine: the limits hold, a flood of calls does not starve one that is within its limits, a large request is refused by the same code, a module that allocates to its static maximum does not affect another call (memory is static; `StoreLimits` as the second guard).
+  - Verify: `cargo test -p cobolt-backend-runner --test limits` prints the cases and 0 failures.
+
+- [ ] **T40 — The default flips to Auto** (P2, D9) — **only if G5 is green and no open difference is in `WASM-PARITY.md`**
+  - Files: `crates/cobolt-compiler/src/project_kind.rs` (the one line), `CHANGELOG.md`.
+  - Do: `auto` now chooses the module path when the class says so; an existing project's Backend rebuilt picks it up with the engine line printed. The CHANGELOG entry says, per system, what was proved and what was not.
+  - Verify: `cargo test -p cobolt-compiler -p cobolt-cli -p cobolt-project-tools` — the tests that built a Backend by default now assert the module engine for module-class Backends and the Cargo engine for the others (each states which). **If any gate item is red, this task is not done and the default stays Cargo; say so.**
+
+- [ ] **T40b — The permanent fixture** (R3, AC9)
+  - Files: `tests/module-corpus/backend/` (new, append-only, in the corpus's style: `index.toml`, `releases/`; the example `cobolt-compiler/examples/module_corpus_add.rs` is the tool), a test in `crates/cobolt-backend-runner/tests/permanent.rs`.
+  - Do: commit one Backend payload made by this release and a call table; the test runs it on the current runner and compares the answers. Every later release's tests run it again.
+  - Verify: `cargo test -p cobolt-backend-runner --test permanent` prints the fixture's release, the calls, equal. Never edited afterwards.
+
+## H. M6 — Around it (R18, R21; AC8 on CI, AC9–AC12)
+
+- [ ] **T41 — `rcrun backend run --engine wasm`** (R18, Q1)
+  - Files: `crates/cobolt-server/src/dev.rs` (`DevOptions.engine`), `crates/cobolt-cli/src/main.rs` (`--engine interpreter|wasm`), `crates/cobolt-backend-runner/src/lib.rs` (the library `rcrun` links), `crates/cobolt-ide/src/backend_run.rs` only if it must pass the flag through.
+  - Do: without the flag the interpreter runs as today; `--engine wasm` builds the module in memory (no install) and runs `DevServer` on the `WasmEngine`, so what will ship can be tried before it ships.
+  - Verify: `cargo test -p cobolt-cli` — `run` with and without the flag answer the same calls; the dev server prints which engine it uses (stderr).
+
+- [ ] **T42 — The release workflows** (R5, C7, AC8 on CI, AC10)
+  - Files: `.github/workflows/build-all-platforms.yml` (the runner variants get their own `cargo` command with `+crt-static` on Windows; the staging 237–251, the macOS `.app` 315 and signing 367, the checks 379–388 and 446–462, deb 1212, rpm 1360; the runner SBOMs written beside each variant), the installers' harvest of the staged tree (check each harvests a new file by name or by folder).
+  - Do: build each variant for each platform, stage them beside `prc-runner`, check each by name, write each SBOM. The workflows are dispatch-only; nothing is dispatched by the agent.
+  - Verify: reviewed by reading (the repository holds no workflow linter, and no script is added to run one); a **dry reading** against the spec 112 edits already on `main` (T0a) shows no conflict; the operator dispatches. **Until a Windows and a macOS runner have passed, the CHANGELOG says "not verified on Windows / macOS".**
+
+- [ ] **T43 — The no-toolchain Backend job, and the package test on CI** (R14, R19, AC1, AC8)
+  - Files: `.github/workflows/desktop-wasm.yml` (a job on the model of `no-toolchain`: removes `rustc`, `cargo`, `rustup` on four platforms, builds and runs a Backend), `.github/workflows/web-install-package.yml` (the runner beside `rcrun`; the dependents check on the runner copy: Windows 387–394, Linux `ldd`, macOS system libraries only).
+  - Verify: as T42 (dispatched by the operator; "not verified" until then).
+
+- [ ] **T44 — Secure by test** (R21, AC11)
+  - Files: `crates/cobolt-backend-runner/tests/secure.rs` (new), `crates/cobolt-compiler/tests/backend_secret_not_scanned.rs` (existing; extend to the module).
+  - Do: the module and its manifest hold no secret (a project that sets a secret in `backend.toml`/the environment: it never appears in the module or the payload); a release module refuses an `unsafe_*` setting as the Cargo file does; the module's imports equal its declared capabilities (a module that imports more than it declares is refused at load). **Fixtures never copy an example `.cfrm` (they carry live keys).**
+  - Verify: `cargo test -p cobolt-backend-runner --test secure` and the compiler's test; the credential scan on the staged diff.
+
+- [ ] **T45 — The measurements on three systems** (R16, AC10)
+  - Files: `crates/cobolt-backend-runner/tests/measure.rs` (new, `#[ignore]` by default, run on request), `specs/WASM-PROGRESS.md`.
+  - Do: print per platform the Build time per phase against the 30 s goal and the throughput (calls per second of the shipped Backends' commonest call, one connection and N connections) on **both** engines; state the goal met or not met per platform. Real measurements only; the test never gates on them (spec: "measured, not gated").
+  - Verify: run here (macOS) and in the container (Linux); Windows only through the runner (T42/T43): "not verified on Windows" until then. The numbers go into the CHANGELOG.
+
+- [ ] **T46 — The System KB** (AC12, steering)
+  - Files: the `cobolt-compiler` doc tables (`src/lib.rs` `browser_subset_doc` 8170–8300 and the Desktop path text 7640–7760: a Backend column, the nine verbs now served, the new capability, `--engine wasm`, `--cargo`/`--wasm`), then `cargo run -p cobolt-ide --example build_chunked_kb` and commit the regenerated `assets/knowledge/chunked.data`.
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation` green.
+
+- [ ] **T47 — Parity record, plan corrections** (R20, AC3)
+  - Files: `specs/WASM-PARITY.md` (each known difference with who is right: `DISPLAY` goes nowhere in a Backend; the module stops a runaway loop and the interpreter's thread did not; a static memory limit the interpreter has not; anything T14, T25, T38 found), `specs/WASM-PROGRESS.md`, `specs/WASM-INDEX.md` (a row for this work), `specs/114-backend-as-wasm-module/plan.md` (correct §2/§3 for divergences 1, 2 and any T-found change; the plan is a record, so each correction is dated).
+  - Verify: every difference a test printed is in the file; no open difference remains when T40 flips the default.
+
+- [ ] **T48 — The Developer's Guide** (AC12, rule #3, rule #8)
+  - Files: `docs/developers-guide-en.md` (chapter 24 and 24.11, the Rust note of 23.11, spec 113's packaging section).
+  - Do: for COBOL developers coming from Fujitsu PowerCOBOL / Veryant isCOBOL, **in COBOL and prose, never Rust**: what the Build now makes, the engine line and the reasons it prints, when it takes the Cargo path and why, `[backend] build_path`, `--cargo`/`--wasm`/`--engine wasm`, what a built Backend needs on the server (nothing), a mermaid diagram of the two paths, screenshot placeholders for the IDE's Output lines, Notes and Caveats (the runner variants and their size, `DISPLAY` not shown, the loop that is now stopped, "not verified on Windows/macOS" until the runners pass). Original wording. Then delete the five translations of any document changed (rule #8); on this tree only the English guide exists.
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide docs_embed` shows no new red beyond the baseline's; the guide renders (mermaid fence closed, no Rust in the new text: `grep` the new section for `cargo`, `rustc`, `crate` and read each hit: only the Cargo-path explanation may name them, in COBOL-developer words).
+
+- [ ] **T49 — Finalize** (all)
+  - Do: the version `z` and a closing CHANGELOG entry (the numbers of T1, T2, T25, T38, T45 and what was **not** verified, per system); the full sweeps of T0's list and compare with the baseline; `cargo test -p cobolt-ide --bin cobolt-ide`; the credential scan on the staged diff; the quarantine sweep for untracked non-Rust programs (rule: Rust only); check the three Cargo-path projects still build (`rcrun backend build --cargo` on PowerOficina); manual check by the operator: package PowerOficina on a machine with no Rust and install it in the container of spec 113's proof.
+  - Verify: every acceptance criterion in `spec.md` is checked (table below), every red is either in the baseline or explained, nothing is pushed in the work-hours window, nothing is announced on a forum.
+
+---
+
+## Traceability
+
+| Requirement | Tasks | | Acceptance | Tasks |
+|---|---|---|---|---|
+| R1 module + Backend mode | T10, T11, T12, T28 | | AC1 no Rust | T28, T43 |
+| R2 portable, capabilities named | T10, T11, T20 | | AC2 same interface | T24, T31 |
+| R3 permanent names | T10, T19, T34, T40b | | AC3 same answers | T14, T25, T38 |
+| R4 `backend` capability | T13, T34, T35, T36 | | AC4 channel tests | T8, T38, T39 |
+| R5 headless runner | T6–T9, T16, T17, T20, T42 | | AC5 isolation | T21, T25, T37 |
+| R6 providers, one implementation | T16, T17, T23, T25 | | AC6 cancel, timeout | T22, T25 |
+| R7 one file, same interface | T19, T24, T28, T31 | | AC7 fallback named | T27, T30 |
+| R8 state modes | T21, T37 | | AC8 spec 113 unchanged | T32, T42, T43, T49 |
+| R9 refused requests | T12, T14, T21 | | AC9 permanent | T19, T40b |
+| R10 `WS-FAIL`, cancel, runaway | T18, T22, T35, T36 | | AC10 measured, not gated | T2, T3, T45 |
+| R11 isolation, limits | T18, T21, T39 | | AC11 secure | T44 |
+| R12 engine line, hash | T20, T24 | | AC12 documented | T46, T47, T48, T49 |
+| R13 choose + name | T26, T27, T28, T30, T33 | | | |
+| R14 no toolchain | T28, T43 | | | |
+| R15 measure first | T1, T4 | | | |
+| R16 phases, 30 s | T2, T3, T28, T45 | | | |
+| R17 SBOM | T29 | | | |
+| R18 `--engine wasm` | T41 | | | |
+| R19 Package | T32, T43 | | | |
+| R20 held equal | T14, T25, T38, T47 | | | |
+| R21 not weakened | T23, T39, T44 | | | |
+| R22 source never changed | T26, T28 | | | |
+
+## Done criteria
+
+All acceptance criteria in `spec.md` are checked with their numbers, the tests pass (or are the baseline's named reds), the Developer's Guide and the System KB are updated, **the default engine flipped only if T40's conditions held**, and the work is split into feature commits on `features` (and fixes on `fixes`) per the operator's rules. The operator dispatches the workflows for Windows and macOS; until then the CHANGELOG says what is not verified. Do **not** push in the work-hours window, and do not announce on a forum unprompted.
+
+## Baseline
+
+*(Filled in by T0.)*

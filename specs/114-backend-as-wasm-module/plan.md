@@ -6,7 +6,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 # Plan — The Backend as a WebAssembly module: a Backend with no Rust toolchain, run by a prebuilt headless runner
 
 - **Status:** draft (2026-11-26), for the operator's review. The spec's open questions Q1–Q7 are answered here with the spec's own recommendations; each answer is marked **proposed** in §4 and stands until the operator says otherwise. The four questions this plan asked (P1–P4, §8) were **answered by the operator on 2026-11-26**: the setting and the flags as assumed (P1), the default flipping only when M5 closes (P2), **runner variants by capability set** instead of one runner (P3), and spec 112 landing first (P4).
-- **Spec:** ./spec.md   **Date:** 2026-11-26
+- **Spec:** ./spec.md   **Tasks:** ./tasks.md (2026-11-26; it lists five divergences from this plan, to be written back here in its T47)   **Date:** 2026-11-26
 - **Branch:** `features` (the spec is a feature, Q6 proposed), synced from `main` at `f2101e00` (2.1.41).
 - **Ground truth:** read 2026-11-26 at `f2101e00`. File:line references are to that tree. The facts in §0.1 come from three read-only passes over the source; the ones this plan leans on hardest (marked ✔) were read again by hand. Nothing was built or run: **no claim about speed, size or acceptance is made here**; M0 measures them.
 
