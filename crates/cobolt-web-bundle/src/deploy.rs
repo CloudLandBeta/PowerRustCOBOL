@@ -49,14 +49,6 @@ pub fn files(k: &Kit) -> Vec<(String, String)> {
     out
 }
 
-fn add_headers(k: &Kit, indent: &str) -> String {
-    let mut s = String::new();
-    for (key, v) in k.headers {
-        s.push_str(&format!("{indent}add_header {key} \"{}\" always;\n", v.replace('"', "\\\"")));
-    }
-    s
-}
-
 fn nginx_site(k: &Kit, n: &str) -> String {
     format!(
         r#"# {n}: nginx in front of the static bundle and of the Backend (copy to /etc/nginx/conf.d/{n}.conf).
@@ -78,11 +70,7 @@ server {{
 
     root /var/www/{n};
     index index.html;
-    types {{ application/wasm wasm; }}
-{headers}
-    location ~* \.[0-9a-f]{{8}}\.(js|css|wasm|cfrm|json)$ {{ add_header Cache-Control "{cache}"; }}
-    location = /index.html {{ add_header Cache-Control "no-cache"; }}
-
+{assets}
     # The Backend: the page opens wss://app.example.com/ws ([web] backend_url).
     location /ws {{
         proxy_pass http://127.0.0.1:8443;
@@ -100,8 +88,7 @@ server {{
     }}
 }}
 "#,
-        headers = add_headers(k, "    "),
-        cache = crate::csp::IMMUTABLE_CACHE,
+        assets = crate::csp::nginx_static(k.headers, "    "),
     )
 }
 
@@ -113,10 +100,7 @@ server {{
     listen 8080;
     root /usr/share/nginx/html;
     index index.html;
-    types {{ application/wasm wasm; }}
-{headers}
-    location ~* \.[0-9a-f]{{8}}\.(js|css|wasm|cfrm|json)$ {{ add_header Cache-Control "{cache}"; }}
-    location = /index.html {{ add_header Cache-Control "no-cache"; }}
+{assets}
     location = /healthz {{ return 200 "ok"; add_header Content-Type text/plain; }}
     location /ws {{
         proxy_pass http://127.0.0.1:8443;
@@ -133,8 +117,7 @@ server {{
     }}
 }}
 "#,
-        headers = add_headers(k, "    "),
-        cache = crate::csp::IMMUTABLE_CACHE,
+        assets = crate::csp::nginx_static(k.headers, "    "),
     )
 }
 
@@ -474,8 +457,11 @@ mod tests {
     use super::*;
 
     fn kit() -> Vec<(String, String)> {
-        let h = vec![("X-Content-Type-Options".to_owned(), "nosniff".to_owned())];
-        files(&Kit { project: "Power Oficina", headers: &h })
+        files(&Kit { project: "Power Oficina", headers: &headers() })
+    }
+
+    fn headers() -> Vec<(String, String)> {
+        vec![("X-Content-Type-Options".to_owned(), "nosniff".to_owned()), ("Cross-Origin-Opener-Policy".to_owned(), "same-origin".to_owned())]
     }
 
     #[test]
@@ -519,6 +505,17 @@ mod tests {
         assert!(site.contains("add_header X-Content-Type-Options \"nosniff\" always;"));
         assert!(site.contains("proxy_set_header Upgrade $http_upgrade;") && site.contains("proxy_pass http://127.0.0.1:8443;"));
         assert!(site.contains("listen 443 ssl;"));
+    }
+
+    #[test]
+    fn the_nginx_files_keep_the_mime_types_the_headers_and_a_quoted_expression() {
+        let f = kit();
+        for name in ["nginx/site.conf", "docker/nginx-task.conf"] {
+            let text = &f.iter().find(|(k, _)| k.ends_with(name)).unwrap().1;
+            assert_eq!(crate::csp::nginx_rules_hold(text, &headers()), Ok(2), "{name}:\n{text}");
+            assert!(text.contains("location ~* \"\\.[0-9a-f]{8}\\.(js|css|wasm|cfrm|json)$\" {"), "{name}");
+            assert!(text.contains("add_header Cache-Control \"public, max-age=31536000, immutable\";"), "{name}: no `always`, an error is not cached for a year");
+        }
     }
 
     #[test]

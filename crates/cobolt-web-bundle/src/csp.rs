@@ -164,6 +164,32 @@ pub fn security_headers(policy: &Policy, isolation: Isolation) -> Vec<(String, S
 /// The long-cache headers of the content-hashed files.
 pub const IMMUTABLE_CACHE: &str = "public, max-age=31536000, immutable";
 
+/// What an nginx `server { }` that serves the bundle needs: the file types, the headers and the two
+/// cache rules, every line indented by `indent`. Three nginx rules shape it, each of which the
+/// first version broke (checked against a real nginx):
+/// - a lone `types { … }` replaces nginx's whole table, so HTML, CSS and JS came out as
+///   `application/octet-stream`: `include mime.types;` comes first;
+/// - a block with an `add_header` of its own forgets every `add_header` of the level above, so the
+///   two `location` blocks repeat the security headers (without them `index.html` had no policy and
+///   no isolation headers);
+/// - a regular expression holding `{8}` must be quoted, or nginx reads the brace as a block and
+///   refuses to start.
+///
+/// `Cache-Control` is without `always` on purpose: an error answer must not be cached for a year.
+pub fn nginx_static(headers: &[(String, String)], indent: &str) -> String {
+    let lines = |pad: &str| -> String { headers.iter().map(|(k, v)| format!("{indent}{pad}add_header {k} \"{}\" always;\n", v.replace('"', "\\\""))).collect() };
+    let mut s = format!("{indent}# nginx drops the add_header lines of the level above inside a block that has its own,\n{indent}# so the two blocks below repeat them. `include mime.types` keeps HTML, CSS and JS typed;\n{indent}# a recent nginx already knows .wasm and warns \"duplicate extension wasm\" at start: harmless.\n");
+    s.push_str(&format!("{indent}include mime.types;\n{indent}types {{ application/wasm wasm; }}\n"));
+    s.push_str(&lines(""));
+    s.push_str(&format!("{indent}location ~* \"\\.[0-9a-f]{{8}}\\.(js|css|wasm|cfrm|json)$\" {{\n"));
+    s.push_str(&lines("    "));
+    s.push_str(&format!("{indent}    add_header Cache-Control \"{IMMUTABLE_CACHE}\";\n{indent}}}\n"));
+    s.push_str(&format!("{indent}location = /index.html {{\n"));
+    s.push_str(&lines("    "));
+    s.push_str(&format!("{indent}    add_header Cache-Control \"no-cache\";\n{indent}}}\n"));
+    s
+}
+
 /// One file per documented static host. `(path, content)`.
 pub fn host_files(headers: &[(String, String)], hashed_globs: &[&str]) -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -181,13 +207,8 @@ pub fn host_files(headers: &[(String, String)], hashed_globs: &[&str]) -> Vec<(S
     out.push(("_headers".to_owned(), netlify));
 
     // nginx: a snippet to `include` inside the server block.
-    let mut nginx = String::from("# Include inside the `server { ... }` block that serves this folder.\ntypes { application/wasm wasm; }\n");
-    for (k, v) in headers {
-        nginx.push_str(&format!("add_header {k} \"{}\" always;\n", v.replace('"', "\\\"")));
-    }
-    nginx.push_str("location ~* \\.[0-9a-f]{8}\\.(js|css|wasm|cfrm|json)$ { add_header Cache-Control \"" );
-    nginx.push_str(IMMUTABLE_CACHE);
-    nginx.push_str("\"; }\nlocation = /index.html { add_header Cache-Control \"no-cache\"; }\n");
+    let mut nginx = String::from("# Include inside the `server { ... }` block that serves this folder.\n");
+    nginx.push_str(&nginx_static(headers, ""));
     out.push(("hosting/nginx.conf".to_owned(), nginx));
 
     // Apache: `.htaccess` (mod_headers, mod_mime).
@@ -201,6 +222,38 @@ pub fn host_files(headers: &[(String, String)], hashed_globs: &[&str]) -> Vec<(S
     out.push(("hosting/.htaccess".to_owned(), apache));
 
     out
+}
+
+/// The three rules of [`nginx_static`], read from the text of a generated nginx file: `mime.types`
+/// comes before the `types` block, a regular expression location is quoted, and every multi-line
+/// `location` that has an `add_header` of its own carries every header of `headers`. Returns how
+/// many such locations it found.
+#[cfg(test)]
+pub(crate) fn nginx_rules_hold(text: &str, headers: &[(String, String)]) -> Result<usize, String> {
+    let mime = text.find("include mime.types;").ok_or("no `include mime.types;`")?;
+    if text.find("types {").is_some_and(|t| t < mime) {
+        return Err("a `types` block comes before `include mime.types;` and is replaced by nothing".into());
+    }
+    let (mut block, mut found): (Option<(String, String)>, usize) = (None, 0);
+    for line in text.lines().map(str::trim) {
+        if line.starts_with("location ~*") && !line.starts_with("location ~* \"") {
+            return Err(format!("the expression is not quoted: {line}"));
+        }
+        if line.starts_with("location ") && line.ends_with('{') {
+            block = Some((line.to_owned(), String::new()));
+        } else if line == "}" {
+            if let Some((head, body)) = block.take().filter(|(_, b)| b.contains("add_header")) {
+                found += 1;
+                if let Some((k, _)) = headers.iter().find(|(k, _)| !body.contains(&format!("add_header {k} "))) {
+                    return Err(format!("`{head}` has an add_header of its own and lacks {k}"));
+                }
+            }
+        } else if let Some((_, body)) = block.as_mut() {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    Ok(found)
 }
 
 #[cfg(test)]
@@ -282,5 +335,17 @@ mod tests {
         assert!(netlify.contains("Cross-Origin-Embedder-Policy: require-corp") && netlify.contains("/*.wasm\n  Content-Type: application/wasm"));
         assert!(files[1].1.contains("add_header Cross-Origin-Opener-Policy \"same-origin\" always;"));
         assert!(files[2].1.contains("Header always set Cross-Origin-Opener-Policy \"same-origin\""));
+        assert_eq!(nginx_rules_hold(&files[1].1, &h), Ok(2), "the hashed files and index.html each carry every header:\n{}", files[1].1);
+    }
+
+    #[test]
+    fn the_nginx_rules_checker_refuses_the_first_version_of_the_file() {
+        let h = vec![("X-Content-Type-Options".to_owned(), "nosniff".to_owned())];
+        let first = "types { application/wasm wasm; }\nadd_header X-Content-Type-Options \"nosniff\" always;\nlocation ~* \\.[0-9a-f]{8}\\.(js)$ { add_header Cache-Control \"x\"; }\n";
+        assert!(nginx_rules_hold(first, &h).is_err(), "no mime.types");
+        let unquoted = "include mime.types;\ntypes { application/wasm wasm; }\nlocation ~* \\.[0-9a-f]{8}\\.(js)$ {\n    add_header Cache-Control \"x\";\n}\n";
+        assert!(nginx_rules_hold(unquoted, &h).unwrap_err().contains("not quoted"));
+        let bare = "include mime.types;\ntypes { application/wasm wasm; }\nlocation = /index.html {\n    add_header Cache-Control \"no-cache\";\n}\n";
+        assert!(nginx_rules_hold(bare, &h).unwrap_err().contains("lacks X-Content-Type-Options"), "a location with its own add_header forgets the server's");
     }
 }

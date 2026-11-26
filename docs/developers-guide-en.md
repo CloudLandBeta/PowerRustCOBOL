@@ -19188,6 +19188,31 @@ cross-origin-isolation headers (`Cross-Origin-Opener-Policy` and
 `Cross-Origin-Embedder-Policy`; the project's `isolation` setting chooses `require-corp`,
 `credentialless` or `off`). The Preview's own server sends them for you.
 
+**Settings for the common servers.** Beside the bundle the Build writes what each server needs
+to serve it the way the Preview does: `_headers` (Netlify and Cloudflare Pages),
+`hosting/.htaccess` (Apache) and `hosting/nginx.conf`, a snippet to include inside the
+`server { }` block that serves the folder. A **complete** Build also writes `hosting/deploy/`:
+a whole nginx site that ends TLS in front of the page and of the Backend's secure WebSocket,
+the Docker and AWS scripts, and a README in six languages. Do not copy `hosting/` to the
+server: it is for you, not for the public.
+
+> **Note.** In every nginx file the Build writes, each block that sets a header of its own
+> repeats the whole list. nginx forgets the headers of the enclosing block as soon as a block
+> adds one, so without the repeat the page and the program module would be served with no
+> Content-Security-Policy and no isolation headers, and the threaded player could not run.
+
+> **Caveat.** The nginx files written by a version before 2.1.40 do not work: nginx refuses to
+> start on the rule for the hashed files (`unknown directive "8}…"`), and the file types of the
+> server are replaced, so the browser is handed the page as a download. Build again and use the
+> new files. If you write your own nginx settings, put `include mime.types;` before any
+> `types { … }` line, quote the pattern that holds `{8}`, and repeat the headers inside every
+> `location` that adds one. A recent nginx logs `duplicate extension "wasm"` at start: harmless.
+
+> **Caveat.** The Backend is one executable per operating system: for a Windows server, build it
+> on Windows (`bin\<name>-backend.exe`). It reads `backend.toml` and the `data/` folder of your
+> indexed files relative to its **working directory**, so start it (or its service) in the folder
+> that holds both. nginx for Windows reads the same files; write the paths in them with `/`.
+
 The generated module is held equal to the interpreter by conformance runs: the NIST
 CCVS85 NC, IF and IC modules all run to zero failures on the generated code (measured at
 2.0.36). Where the two still differ, `specs/WASM-PARITY.md` lists each difference and says
