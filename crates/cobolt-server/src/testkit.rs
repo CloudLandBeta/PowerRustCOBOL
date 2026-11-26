@@ -32,6 +32,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::backend::Backend;
 use crate::config::{ServerConfig, RunMode};
+use crate::engine::Engine as ProgramEngine;
 use crate::jwks::JwksFetcher;
 use crate::log::MemorySink;
 use crate::serve::{Options, ServerHandle};
@@ -254,6 +255,7 @@ pub struct Rig {
     pub sink: MemorySink,
     pub dir: std::path::PathBuf,
     iface: cobolt_wire::contract::InterfaceDescription,
+    engine_name: &'static str,
     /// Declared last: it is released after the server has shut down.
     _serial: Serial,
 }
@@ -263,44 +265,98 @@ impl Rig {
     pub fn interface(&self) -> cobolt_wire::contract::InterfaceDescription {
         self.iface.clone()
     }
+
+    /// The name of the engine that runs this rig's programs (spec 114): `interpreter`.
+    pub fn engine_name(&self) -> &'static str {
+        self.engine_name
+    }
 }
 
 pub const AUDIENCE: &str = "prc-api";
 pub const ORIGIN: &str = "https://app.example.test";
 
+/// The engines a suite can run on, by name; the first is the default. One today: a second engine is one
+/// line here (spec 114 T38), and the same suites then run against it with `PRC_TEST_ENGINE=<name>`.
+#[cfg(feature = "interpreter")]
+pub fn engines() -> Vec<Arc<dyn ProgramEngine>> {
+    vec![Arc::new(crate::exec::InterpreterEngine)]
+}
+
+/// The engines a suite can run on (see above): none in a build that has no `interpreter`.
+#[cfg(not(feature = "interpreter"))]
+pub fn engines() -> Vec<Arc<dyn ProgramEngine>> {
+    Vec::new()
+}
+
+/// The engine the plain rigs use: the one `PRC_TEST_ENGINE` names, else the first of [`engines`].
+/// A name that is not one of them stops the test, naming the ones that are.
+pub fn test_engine() -> Arc<dyn ProgramEngine> {
+    let all = engines();
+    match std::env::var("PRC_TEST_ENGINE") {
+        Ok(name) if !name.trim().is_empty() => all
+            .iter()
+            .find(|e| e.name() == name.trim())
+            .cloned()
+            .unwrap_or_else(|| panic!("PRC_TEST_ENGINE={name:?} is not an engine of this build; known: {:?}", all.iter().map(|e| e.name()).collect::<Vec<_>>())),
+        _ => all.into_iter().next().expect("this build of the test kit has no engine: build it with the `interpreter` feature"),
+    }
+}
+
 /// Start a TLS server with the backend in `dir`, trusting `issuer`.
 pub fn rig(dir: std::path::PathBuf, extra_toml: &str) -> Rig {
-    rig_with_state(dir, extra_toml, crate::backend::StateMode::PerCall)
+    rig_on(test_engine(), dir, extra_toml)
+}
+
+/// [`rig`] on the engine given.
+pub fn rig_on(engine: Arc<dyn ProgramEngine>, dir: std::path::PathBuf, extra_toml: &str) -> Rig {
+    rig_with_state_on(engine, dir, extra_toml, crate::backend::StateMode::PerCall)
 }
 
 /// [`rig`], with the project's `[backend] state` (WASM-003 Q2).
 pub fn rig_with_state(dir: std::path::PathBuf, extra_toml: &str, state: crate::backend::StateMode) -> Rig {
-    rig_full(dir, extra_toml, state, None)
+    rig_with_state_on(test_engine(), dir, extra_toml, state)
+}
+
+/// [`rig_with_state`] on the engine given.
+pub fn rig_with_state_on(engine: Arc<dyn ProgramEngine>, dir: std::path::PathBuf, extra_toml: &str, state: crate::backend::StateMode) -> Rig {
+    rig_full(engine, dir, extra_toml, state, None)
 }
 
 /// [`rig`] with an `[identity]` section in `extra_toml`, its provider and reCAPTCHA reached through
 /// `http` (WASM-009: the mocks of `idp_mock.rs`).
 pub fn rig_with_identity(dir: std::path::PathBuf, extra_toml: &str, http: Arc<dyn crate::identity::client::Http>) -> Rig {
-    rig_full(dir, extra_toml, crate::backend::StateMode::PerCall, Some(http))
+    rig_with_identity_on(test_engine(), dir, extra_toml, http)
+}
+
+/// [`rig_with_identity`] on the engine given.
+pub fn rig_with_identity_on(engine: Arc<dyn ProgramEngine>, dir: std::path::PathBuf, extra_toml: &str, http: Arc<dyn crate::identity::client::Http>) -> Rig {
+    rig_full(engine, dir, extra_toml, crate::backend::StateMode::PerCall, Some(http))
 }
 
 /// [`rig`] as a **development** run with a development token secret (`unsafe_dev_token_secret`, WASM-013 R11):
 /// the server accepts HS256 tokens minted with [`crate::dev::mint_dev_token`]. A release start refuses the secret.
 pub fn rig_dev(dir: std::path::PathBuf, dev_secret: &str) -> Rig {
-    rig_core(dir, "", &format!("unsafe_dev_token_secret = {dev_secret:?}\n"), crate::backend::StateMode::PerCall, None, RunMode::Development)
+    rig_dev_on(test_engine(), dir, dev_secret)
+}
+
+/// [`rig_dev`] on the engine given.
+pub fn rig_dev_on(engine: Arc<dyn ProgramEngine>, dir: std::path::PathBuf, dev_secret: &str) -> Rig {
+    rig_core(engine, dir, "", &format!("unsafe_dev_token_secret = {dev_secret:?}\n"), crate::backend::StateMode::PerCall, None, RunMode::Development)
 }
 
 fn rig_full(
+    engine: Arc<dyn ProgramEngine>,
     dir: std::path::PathBuf,
     extra_toml: &str,
     state: crate::backend::StateMode,
     identity_http: Option<Arc<dyn crate::identity::client::Http>>,
 ) -> Rig {
-    rig_core(dir, extra_toml, "", state, identity_http, RunMode::Release)
+    rig_core(engine, dir, extra_toml, "", state, identity_http, RunMode::Release)
 }
 
 /// `top_toml` is written before the first table, `extra_toml` after `[auth]`.
 fn rig_core(
+    engine: Arc<dyn ProgramEngine>,
     dir: std::path::PathBuf,
     extra_toml: &str,
     top_toml: &str,
@@ -338,8 +394,9 @@ jwks_uri = "https://idp.example.test/pool/.well-known/jwks.json"
     backend.state = state;
     let iface = backend.interface.clone();
     let sink = MemorySink::new();
-    let server = crate::start(resolved, backend, Options { sink: Some(Arc::new(sink.clone())), fetcher: Some(jwks.clone()), identity_http }).expect("start");
-    Rig { server, cert, issuer, jwks, sink, dir, iface, _serial: serial }
+    let engine_name = engine.name();
+    let server = crate::start(resolved, backend, Options { sink: Some(Arc::new(sink.clone())), fetcher: Some(jwks.clone()), identity_http, engine: Some(engine) }).expect("start");
+    Rig { server, cert, issuer, jwks, sink, dir, iface, engine_name, _serial: serial }
 }
 
 // ── a raw client ──────────────────────────────────────────────────────────────
@@ -620,4 +677,14 @@ pub fn rand_bytes<const N: usize>() -> [u8; N] {
     let mut b = [0u8; N];
     getrandom::fill(&mut b).expect("random");
     b
+}
+
+/// The line a suite prints about its engine (spec 114 T8): which engine ran it, which this build has, and how
+/// long a rig took to start. A suite run with `PRC_TEST_ENGINE=<name>` names that engine here.
+pub fn print_engine_block(suite: &str, rig: &Rig, started: std::time::Duration) {
+    let known: Vec<&'static str> = engines().iter().map(|e| e.name()).collect();
+    println!("=== {suite} ENGINE ===");
+    println!("engine: {} (PRC_TEST_ENGINE: {}; engines of this build: {})", rig.engine_name(), std::env::var("PRC_TEST_ENGINE").unwrap_or_else(|_| "not set".into()), known.join(", "));
+    println!("rig: started in {:.1} ms", started.as_secs_f64() * 1000.0);
+    assert_eq!(rig.engine_name(), test_engine().name(), "the rig runs on the engine the suite selected");
 }

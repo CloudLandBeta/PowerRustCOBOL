@@ -37,6 +37,7 @@ use serde_json::{json, Map, Value};
 use cobolt_wire::error::{CallError, ErrorClass};
 
 use crate::backend::Backend;
+use crate::engine::{Engine, ExecOptions};
 use crate::http::{self, SameSite, SetCookie};
 use crate::identity::client::percent;
 use crate::identity::oidc::random_token;
@@ -156,7 +157,7 @@ struct Hook {
     ctx: OpContext,
 }
 
-impl cobolt_runtime::interpreter::remote::IdentityHook for Hook {
+impl crate::engine::IdentityOps for Hook {
     fn run(&self, operation: &str, request_json: &str) -> Result<String, CallError> {
         self.service.run(operation, request_json, &self.ctx)
     }
@@ -164,14 +165,14 @@ impl cobolt_runtime::interpreter::remote::IdentityHook for Hook {
 
 /// The runner the backend uses: the program from `backend/generated/identity/`, run like any program,
 /// with the identity service as its `AUTH-OP` hook.
-pub fn cobol_runner(backend: Arc<Backend>, service: Arc<IdentityService>, file_lock_wait: Duration) -> Box<Runner> {
+pub fn cobol_runner(backend: Arc<Backend>, service: Arc<IdentityService>, engine: Arc<dyn Engine>, file_lock_wait: Duration) -> Box<Runner> {
     Box::new(move |program: &str, request: &str, ctx: &OpContext| {
         let prog = backend.identity_program(program).ok_or_else(|| {
             CallError::new(ErrorClass::NotFound, cobolt_wire::error::codes::UNKNOWN_PROGRAM, format!("{program} is not generated: build the project"))
         })?;
-        let mut opts = crate::exec::ExecOptions::plain(Arc::new(std::sync::atomic::AtomicBool::new(false)), file_lock_wait);
+        let mut opts = ExecOptions::plain(Arc::new(std::sync::atomic::AtomicBool::new(false)), file_lock_wait);
         opts.identity = Some(Arc::new(Hook { service: service.clone(), ctx: ctx.clone() }));
-        let out = crate::exec::execute(prog, &[request.to_string()], opts)?;
+        let out = engine.execute(prog, &[request.to_string()], opts)?;
         out.returning.ok_or_else(|| CallError::new(ErrorClass::Server, cobolt_wire::error::codes::INTERNAL, format!("{program} returned nothing")))
     })
 }

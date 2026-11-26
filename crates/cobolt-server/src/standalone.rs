@@ -228,7 +228,7 @@ pub(crate) fn run(a: &Args, bundle: &[u8], out: &Out, sink: Arc<dyn LogSink>, ho
         println!("configuration ok: contract {} on {} ({} exported program(s))", backend.interface.contract, resolved.listen, backend.interface.programs.len());
         return 0;
     }
-    let handle = match crate::serve::start(resolved, backend, Options { sink: Some(sink), fetcher: None, identity_http: None }) {
+    let handle = match crate::serve::start(resolved, backend, Options { sink: Some(sink), fetcher: None, identity_http: None, engine: None }) {
         Ok(h) => h,
         Err(e) => {
             out.line(&format!("error: {e}"));

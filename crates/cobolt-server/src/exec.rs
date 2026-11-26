@@ -42,52 +42,56 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 
 use cobolt_runtime::error::RuntimeError;
-use cobolt_runtime::interpreter::remote::BackendHooks;
+use cobolt_runtime::interpreter::remote::{BackendHooks, IdentityHook};
 use cobolt_runtime::{ExternalStore, FormEvent, Interpreter, StateUpdate};
-use cobolt_wire::call::BackendFiles;
 use cobolt_wire::controls;
 use cobolt_wire::error::{codes, CallError, ErrorClass};
 
 use crate::backend::{ControlDecl, ExportedProgram};
 use crate::config::Configurations;
+use crate::engine::{check_arity, status_failure, Admission, Engine, EngineSession, IdentityOps};
+pub use crate::engine::{ExecOptions, ExecResult};
 
-/// What a call needs besides its arguments.
-pub struct ExecOptions {
-    /// The caller's claims, readable by `COBOL::"WS-CLAIM"`.
-    pub claims: HashMap<String, String>,
-    /// Set to stop the program at its next statement (timeout, shutdown, the end
-    /// of the grace period after a cancel).
-    pub cancel: Arc<AtomicBool>,
-    /// Set when the caller asks to cancel; the program sees it and ends at a safe point.
-    pub cancel_requested: Arc<AtomicBool>,
-    /// How long an OPEN waits for a file another call holds (WASM-003 R19).
-    pub file_lock_wait: std::time::Duration,
-    /// `WS-PROGRESS` reports go here.
-    pub progress: Option<Box<dyn Fn(u8, &str) + Send>>,
-    /// `WS-EMIT` items go here; `false` means nobody is listening.
-    pub emit: Option<Box<dyn Fn(&str) -> bool + Send>>,
-    /// The files the caller may reach.
-    pub files: Option<Arc<dyn BackendFiles>>,
-    /// `backend.toml`'s `[[configuration]]` entries, for a declared control.
-    pub configurations: Arc<Configurations>,
-    /// The identity service, for a generated `AUTH-*` program run by the
-    /// `/auth/*` routes (WASM-009 D4); never set for a WebSocket call.
-    pub identity: Option<Arc<dyn cobolt_runtime::interpreter::remote::IdentityHook>>,
+/// The interpreter as the server's engine: each call builds an interpreter from the program's AST
+/// (spec 114 T6). It is what a developer's Backend runs on today, and what the Desktop twin of a
+/// differential test is compared against.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct InterpreterEngine;
+
+impl Engine for InterpreterEngine {
+    fn name(&self) -> &'static str {
+        "interpreter"
+    }
+
+    fn execute(&self, prog: &ExportedProgram, args: &[String], opts: ExecOptions) -> Result<ExecResult, CallError> {
+        execute(prog, args, opts)
+    }
+
+    fn session(&self) -> Box<dyn EngineSession> {
+        Box::new(Session::new())
+    }
 }
 
-impl ExecOptions {
-    pub fn plain(cancel: Arc<AtomicBool>, file_lock_wait: std::time::Duration) -> Self {
-        ExecOptions {
-            claims: HashMap::new(),
-            cancel,
-            cancel_requested: Arc::new(AtomicBool::new(false)),
-            file_lock_wait,
-            progress: None,
-            emit: None,
-            files: None,
-            configurations: Arc::default(),
-            identity: None,
-        }
+impl EngineSession for Session {
+    fn admit(&mut self, subject: Option<&str>) -> Result<(), CallError> {
+        Session::admit(self, subject)
+    }
+
+    fn execute(&mut self, prog: &ExportedProgram, args: &[String], opts: ExecOptions) -> Result<ExecResult, CallError> {
+        Session::execute(self, prog, args, opts)
+    }
+
+    fn programs(&self) -> usize {
+        Session::programs(self)
+    }
+}
+
+/// The identity service the server hands over, as the interpreter's `COBOL::"AUTH-OP"` hook.
+struct IdentityAdapter(Arc<dyn IdentityOps>);
+
+impl IdentityHook for IdentityAdapter {
+    fn run(&self, operation: &str, request_json: &str) -> Result<String, CallError> {
+        self.0.run(operation, request_json)
     }
 }
 
@@ -157,54 +161,8 @@ fn changed_props_json(before: &HashMap<String, String>, after: &HashMap<String, 
     serde_json::json!({ "PROP-COUNT": props.len(), "PROPS": props }).to_string()
 }
 
-/// What a finished call produced.
-#[derive(Debug, Default)]
-pub struct ExecResult {
-    /// The final JSON of each parameter, in order.
-    pub args: Vec<String>,
-    pub returning: Option<String>,
-    /// Lines the program DISPLAYed (debug log only; never sent to the caller).
-    pub display: Vec<String>,
-}
-
 fn cancelled() -> CallError {
     CallError::new(ErrorClass::Application, codes::CANCELLED, "the call was cancelled")
-}
-
-/// Read the declared status group of a program's RETURNING record (WASM-014 R8). A code of `0` is success (`None`); 1 to 7999 is the
-/// program's own failure, answered exactly as `COBOL::"WS-FAIL"` would (class `application`, that code, the message and the detail);
-/// any other code is the program's fault, logged, and the caller is told only `server 9001`.
-fn status_failure(interp: &mut Interpreter, sig: &cobolt_wire::contract::ProgramSig, group: &str, returning: &str) -> Result<Option<CallError>, CallError> {
-    use cobolt_wire::layout::Kind;
-    // The members are found by position in the declared layout (the shape was checked when the backend loaded).
-    let names: Vec<String> = match sig.returning.as_ref().map(|r| &r.layout.kind) {
-        Some(Kind::Group { children }) => match children.iter().find(|c| c.name.eq_ignore_ascii_case(group)).map(|g| &g.kind) {
-            Some(Kind::Group { children }) => children.iter().map(|c| c.name.clone()).collect(),
-            _ => Vec::new(),
-        },
-        _ => Vec::new(),
-    };
-    let [code_name, message_name, detail_name] = names.as_slice() else { return Ok(None) };
-    let json: serde_json::Value = serde_json::from_str(&interp.group_to_json(returning)?).map_err(|_| CallError::new(ErrorClass::Server, codes::PROGRAM_FAULT, "the program's answer could not be read"))?;
-    let Some(g) = json.as_object().and_then(|o| o.iter().find(|(k, _)| k.eq_ignore_ascii_case(group))).map(|(_, v)| v) else { return Ok(None) };
-    let field = |n: &str| g.as_object().and_then(|o| o.iter().find(|(k, _)| k.eq_ignore_ascii_case(n))).map(|(_, v)| v);
-    let code = match field(code_name) {
-        Some(serde_json::Value::Number(n)) => n.as_i64().unwrap_or(-1),
-        Some(serde_json::Value::String(s)) => s.trim().parse().unwrap_or(-1),
-        _ => 0,
-    };
-    if code == 0 {
-        return Ok(None);
-    }
-    let text = |n: &str| field(n).and_then(serde_json::Value::as_str).map(|s| s.trim_end().to_string()).unwrap_or_default();
-    if !(1..=7999).contains(&code) {
-        tracing::error!(target: "exec", program = %sig.name, "the status code {code} is outside 1 to 7999");
-        return Err(CallError::new(ErrorClass::Server, codes::PROGRAM_FAULT, "the program reported a status code outside the range it may use"));
-    }
-    let mut e = CallError::new(ErrorClass::Application, code as u32, text(message_name));
-    let detail = text(detail_name);
-    e.detail = (!detail.is_empty()).then_some(detail);
-    Ok(Some(e))
 }
 
 /// One interpreter and the ends of its channels, alive as long as it is.
@@ -225,17 +183,6 @@ impl Unit {
         let interp = Interpreter::new_with_channels_and_store(prog.program.clone(), event_rx, state_tx, display_tx, external);
         Unit { interp, display_rx, event_tx, _state_rx: state_rx }
     }
-}
-
-fn check_arity(prog: &ExportedProgram, args: &[String]) -> Result<(), CallError> {
-    if args.len() != prog.params.len() {
-        return Err(CallError::new(
-            ErrorClass::Validation,
-            codes::INVALID_PAYLOAD,
-            format!("{} takes {} argument(s), the call carries {}", prog.sig.name, prog.params.len(), args.len()),
-        ));
-    }
-    Ok(())
 }
 
 /// Run `prog` with `args` (one JSON text per parameter). A `stream` program has
@@ -261,7 +208,7 @@ pub fn execute(prog: &ExportedProgram, args: &[String], opts: ExecOptions) -> Re
 pub struct Session {
     units: HashMap<String, Unit>,
     external: Option<ExternalStore>,
-    subject: Option<String>,
+    admission: Admission,
 }
 
 impl Session {
@@ -271,19 +218,7 @@ impl Session {
 
     /// Bind the session to the first caller with a subject; refuse another one.
     pub fn admit(&mut self, subject: Option<&str>) -> Result<(), CallError> {
-        match (subject, &self.subject) {
-            (None, _) => Ok(()),
-            (Some(s), None) => {
-                self.subject = Some(s.to_owned());
-                Ok(())
-            }
-            (Some(s), Some(bound)) if s == bound => Ok(()),
-            (Some(_), Some(_)) => Err(CallError::new(
-                ErrorClass::Authorisation,
-                codes::ROLE_REFUSED,
-                "this connection keeps another user's state: open a new connection to call as another user",
-            )),
-        }
+        self.admission.admit(subject)
     }
 
     /// Run `prog` in this session's run unit for it.
@@ -315,7 +250,8 @@ fn run_call(unit: &mut Unit, prog: &ExportedProgram, args: &[String], opts: Exec
     interp.set_cancel_flag(opts.cancel);
     interp.set_remote_claims(opts.claims);
     interp.set_file_lock_wait(Some(opts.file_lock_wait));
-    interp.set_backend_hooks(BackendHooks { progress: opts.progress, emit: opts.emit, files: opts.files, cancel_requested: opts.cancel_requested, identity: opts.identity });
+    let identity = opts.identity.map(|ops| Arc::new(IdentityAdapter(ops)) as Arc<dyn IdentityHook>);
+    interp.set_backend_hooks(BackendHooks { progress: opts.progress, emit: opts.emit, files: opts.files, cancel_requested: opts.cancel_requested, identity });
 
     // 1. Read the arguments into the parameters, all or nothing each, before anything runs.
     *sound = true;
@@ -386,7 +322,7 @@ fn run_call(unit: &mut Unit, prog: &ExportedProgram, args: &[String], opts: Exec
     *sound = true;
     // The second way to report a business failure (WASM-014 R8): the declared status group of the RETURNING record.
     if let (Some(group), Some(r)) = (prog.sig.status.as_deref(), prog.returning.as_deref()) {
-        if let Some(e) = status_failure(interp, &prog.sig, group, r)? {
+        if let Some(e) = status_failure(&prog.sig, group, || interp.group_to_json(r))? {
             return Err(e);
         }
     }

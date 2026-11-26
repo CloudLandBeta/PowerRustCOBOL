@@ -81,6 +81,35 @@ fn the_backend_is_headless_and_links_no_c_built_crypto() {
 }
 
 #[test]
+fn the_headless_server_links_no_interpreter_and_the_interpreter_feature_is_what_brings_it() {
+    // Spec 114 T9: a server that brings its own engine (a WebAssembly module in a prebuilt runner) is built
+    // with `server` alone. It must not link the interpreter, nor the window system the interpreter's crate
+    // could reach, nor C-built crypto. `client` is left out on purpose: it links the runtime for the
+    // process-wide transport factory (the test above), and the headless runner never turns it on.
+    let headless = closure(&["-p", "cobolt-server", "--no-default-features", "--features", "server"]);
+    assert!(
+        headless.contains("tokio") && headless.contains("native-tls") && headless.contains("jsonwebtoken") && headless.contains("leptos") && headless.contains("cobolt-wire"),
+        "the guard looks at the real tree of the server, not an empty one"
+    );
+    assert_eq!(present(&headless, &["cobolt-runtime"]), Vec::<&str>::new(), "the headless server links no interpreter");
+    assert_eq!(present(&headless, HEADLESS), Vec::<&str>::new(), "the headless server links no window system and none of the IDE");
+    assert_eq!(present(&headless, NO_C_CRYPTO), Vec::<&str>::new(), "no C-built crypto and no second TLS stack");
+
+    // The same tree with the `interpreter` feature has the runtime, so the guard above cannot pass for want of one:
+    // everything the headless server links is still there, and the runtime is the difference.
+    let with_interpreter = closure(&["-p", "cobolt-server", "--no-default-features", "--features", "server,interpreter"]);
+    assert!(with_interpreter.contains("cobolt-runtime"), "`interpreter` is the feature that brings the runtime");
+    assert!(headless.is_subset(&with_interpreter), "the interpreter adds to the headless server and takes nothing from it");
+    assert_eq!(present(&with_interpreter, HEADLESS), Vec::<&str>::new(), "the runtime is linked with none of its window bridges");
+    println!(
+        "headless server: {} crates, no cobolt-runtime; with the interpreter: {} crates; the interpreter brings {}, cobolt-runtime among them",
+        headless.len(),
+        with_interpreter.len(),
+        with_interpreter.difference(&headless).count()
+    );
+}
+
+#[test]
 fn the_server_runs_on_the_native_runtime_without_the_optional_bridges_it_does_not_name() {
     // The headless build names the runtime features its programs reach; with none
     // named, nothing optional comes with the runtime (spec 063 R18).

@@ -15,8 +15,8 @@ repository.workspace   = true
 
 [features]
 # `cobolt_server::testkit`: the loopback tests' certificate, identity provider and raw client. Not in `default`.
-testkit = ["server", "client", "dep:rcgen", "dep:p256", "dep:rand_core", "dep:rsa", "dep:signature", "jsonwebtoken/use_pem"]
-default = ["server", "client"]
+testkit = ["server", "client", "interpreter", "dep:rcgen", "dep:p256", "dep:rand_core", "dep:rsa", "dep:signature", "jsonwebtoken/use_pem"]
+default = ["server", "client", "interpreter"]
 
 # Reading a backend project and packing it: the programs, `exports.toml`, the
 # interface description. The compiler uses this alone — no sockets, no TLS, no
@@ -26,17 +26,23 @@ loader = [
     "dep:toml", "dep:bincode", "dep:flate2",
 ]
 
-# The backend: listens, authenticates, runs the project's exported programs on
-# the native runtime. Headless — nothing here knows egui or eframe.
+# The backend: listens, authenticates, and hands the project's exported programs
+# to an engine (`engine::Engine`). Headless — nothing here knows egui or eframe,
+# and with no `interpreter` nothing here links the interpreter either (spec 114).
 server = [
     "loader", "net",
-    "dep:cobolt-runtime", "dep:jsonwebtoken", "dep:ureq",
+    "dep:jsonwebtoken", "dep:ureq",
     "dep:sha2", "dep:base64", "dep:getrandom", "dep:tracing-subscriber",
     "dep:chacha20poly1305", "dep:hmac",
     "dep:redb", "dep:windows-sys",
     "cobolt-wire/channel",
     "dep:leptos", "dep:leptos_axum", "dep:leptos_router", "dep:axum", "dep:hyper", "dep:hyper-util",
 ]
+
+# The interpreter as the engine that runs the exported programs (`exec::InterpreterEngine`): the
+# native runtime, built from the programs' syntax trees. What a Cargo-built Backend and
+# `rcrun backend` run on; a build of the server that brings another engine leaves it out.
+interpreter = ["server", "dep:cobolt-runtime"]
 
 # The client a desktop or native host links to make `CALL … WITH WEBSOCKET
 # LINKAGE` work: it implements `cobolt_wire::call::Transport` over a secure

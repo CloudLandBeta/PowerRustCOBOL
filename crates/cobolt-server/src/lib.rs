@@ -34,6 +34,8 @@ pub mod config;
 #[cfg(feature = "server")]
 pub mod dev;
 #[cfg(feature = "server")]
+pub mod engine;
+#[cfg(feature = "interpreter")]
 pub mod exec;
 #[cfg(feature = "server")]
 pub mod files;

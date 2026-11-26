@@ -85,7 +85,7 @@ fn rig_with(provider: &str, tag: &str, handle_age: Option<Duration>) -> Rig {
     ));
     let dir = backend_dir(tag);
     let backend = Arc::new(Backend::load(&dir).unwrap_or_else(|e| panic!("{e:#?}")));
-    let run = cobol_runner(backend, service.clone(), Duration::from_secs(1));
+    let run = cobol_runner(backend, service.clone(), std::sync::Arc::new(cobolt_server::exec::InterpreterEngine), Duration::from_secs(1));
     let mut routes = AuthRoutes::new(service, run, identity.origins.clone());
     if let Some(age) = handle_age {
         routes = routes.with_handle_age(age);

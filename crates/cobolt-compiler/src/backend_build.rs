@@ -121,7 +121,7 @@ name = "{bin_name}"
 path = "src/main.rs"
 
 [dependencies]
-cobolt-server  = {{ path = "{cp}/cobolt-server", default-features = false, features = ["server"] }}
+cobolt-server  = {{ path = "{cp}/cobolt-server", default-features = false, features = ["server", "interpreter"] }}
 cobolt-runtime = {{ path = "{cp}/cobolt-runtime", default-features = false, features = [{feats}] }}
 
 [profile.release]

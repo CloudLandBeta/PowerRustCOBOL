@@ -1331,3 +1331,11 @@ async fn the_frame_limit_is_the_plaintext_limit() {
     rig.server.stop();
     println!("\n  frame limit: 4096 plaintext bytes pass (4112 on the wire), 4097 refused with 7000");
 }
+
+/// Which engine this suite ran on (spec 114 T8): the suite runs on the engine `PRC_TEST_ENGINE` names, the interpreter when unset.
+#[test]
+fn the_suite_names_the_engine_it_runs_on() {
+    let t = std::time::Instant::now();
+    let rig = new_rig("engine-name", "");
+    print_engine_block("LOOPBACK", &rig, t.elapsed());
+}

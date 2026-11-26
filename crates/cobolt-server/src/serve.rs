@@ -58,7 +58,7 @@ use cobolt_wire::proto::{self, Accepted, AuthOk, ClientFrame, ErrorMsg, Event, F
 
 use crate::backend::{parse_semver, Backend, ExportedProgram, StateMode};
 use crate::config::Resolved;
-use crate::exec::{self, ExecOptions};
+use crate::engine::{Engine, EngineSession, ExecOptions, ExecResult};
 use crate::files::FileStore;
 use crate::http;
 use crate::idem;
@@ -89,11 +89,26 @@ pub struct Options {
     /// How the identity service reaches the provider and reCAPTCHA (WASM-009); a test's mock, or
     /// `None` for the real HTTPS client.
     pub identity_http: Option<Arc<dyn crate::identity::client::Http>>,
+    /// What runs the exported programs (spec 114). `None` is the interpreter, in a build that has it;
+    /// a build without the `interpreter` feature must pass one.
+    pub engine: Option<Arc<dyn Engine>>,
+}
+
+/// The engine a server uses when its [`Options`] name none.
+#[cfg(feature = "interpreter")]
+fn default_engine() -> Result<Arc<dyn Engine>, String> {
+    Ok(Arc::new(crate::exec::InterpreterEngine))
+}
+
+#[cfg(not(feature = "interpreter"))]
+fn default_engine() -> Result<Arc<dyn Engine>, String> {
+    Err("this build of the server has no engine to run the exported programs: name one in Options::engine".to_string())
 }
 
 pub(crate) struct Shared {
     pub cfg: Arc<Resolved>,
     pub backend: Arc<Backend>,
+    pub engine: Arc<dyn Engine>,
     pub validator: Arc<TokenValidator>,
     pub sink: Arc<dyn LogSink>,
     pub tls: Option<tokio_native_tls::TlsAcceptor>,
@@ -197,8 +212,12 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
     cfg.discover(fetcher.as_ref())?;
     let cfg = Arc::new(cfg);
     let backend = Arc::new(backend);
+    let engine: Arc<dyn Engine> = match options.engine.clone() {
+        Some(e) => e,
+        None => default_engine()?,
+    };
     let auth = match &cfg.identity {
-        Some(identity) => Some(Arc::new(identity_routes(&cfg, identity, &backend, options.identity_http.clone())?)),
+        Some(identity) => Some(Arc::new(identity_routes(&cfg, identity, &backend, engine.clone(), options.identity_http.clone())?)),
         None => None,
     };
     let sink: Arc<dyn LogSink> = options.sink.unwrap_or_else(|| Arc::new(StdoutSink));
@@ -234,6 +253,7 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
         stats: Stats::default(),
         cfg: cfg.clone(),
         backend,
+        engine,
         validator,
         sink,
         tls,
@@ -271,6 +291,7 @@ fn identity_routes(
     cfg: &Resolved,
     identity: &crate::config::ResolvedIdentity,
     backend: &Arc<Backend>,
+    engine: Arc<dyn Engine>,
     http: Option<Arc<dyn crate::identity::client::Http>>,
 ) -> Result<crate::identity::routes::AuthRoutes, String> {
     use crate::identity::{self, routes};
@@ -288,7 +309,7 @@ fn identity_routes(
     let http = http.unwrap_or_else(|| Arc::new(identity::client::UreqHttp));
     let provider = identity::adapter(identity, cfg.discovery.as_ref(), http.clone())?;
     let service = Arc::new(identity::service(identity, provider, http)?);
-    let run = routes::cobol_runner(backend.clone(), service.clone(), Duration::from_millis(cfg.limits.file_lock_wait_ms));
+    let run = routes::cobol_runner(backend.clone(), service.clone(), engine, Duration::from_millis(cfg.limits.file_lock_wait_ms));
     Ok(routes::AuthRoutes::new(service, run, identity.origins.clone()))
 }
 
@@ -704,7 +725,7 @@ struct Conn {
     next_ticket: u64,
     served: Arc<watch::Sender<u64>>,
     /// `per-connection` mode: this connection's run units (WASM-003 Q2).
-    state: Option<Arc<Mutex<exec::Session>>>,
+    state: Option<Arc<Mutex<Box<dyn EngineSession>>>>,
     /// The receiving half of the sealed channel, once the `hello`s agreed it; every later frame is opened with it.
     receiver: Option<cobolt_wire::seal::Receiver>,
     /// Where `on_hello` leaves the sending half for the writer task, which takes it at the `SEAL_ON` marker.
@@ -813,7 +834,7 @@ async fn session<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
         upload: None,
         next_ticket: 0,
         served: Arc::new(served_tx),
-        state: (shared.backend.state == StateMode::PerConnection).then(|| Arc::new(Mutex::new(exec::Session::new()))),
+        state: (shared.backend.state == StateMode::PerConnection).then(|| Arc::new(Mutex::new(shared.engine.session()))),
         receiver: None,
         seal_slot: seal_slot.clone(),
     };
@@ -1418,6 +1439,7 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
     let shared = shared.clone();
     let conn_id = conn.id;
     let file_lock_wait_ms = shared.cfg.limits.file_lock_wait_ms;
+    let engine = shared.engine.clone();
     let configurations = shared.cfg.configurations.clone();
     let files: Option<Arc<dyn BackendFiles>> = subject.clone().map(|s| Arc::new(CallFiles { store: shared.files.clone(), subject: s }) as Arc<dyn BackendFiles>);
     let progress: Option<Box<dyn Fn(u8, &str) + Send>> = if prog.sig.long_running {
@@ -1467,9 +1489,9 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
         let work = tokio::task::spawn_blocking(move || match session {
             // The claims are installed again at every call, so a refreshed token is what the program sees.
             Some(s) => s.lock().unwrap_or_else(|e| e.into_inner()).execute(&prog2, &args2, opts),
-            None => exec::execute(&prog2, &args2, opts),
+            None => engine.execute(&prog2, &args2, opts),
         });
-        let outcome: Result<exec::ExecResult, CallError> = match tokio::time::timeout(Duration::from_millis(timeout_ms), work).await {
+        let outcome: Result<ExecResult, CallError> = match tokio::time::timeout(Duration::from_millis(timeout_ms), work).await {
             Ok(Ok(r)) => r,
             Ok(Err(_)) => Err(CallError::new(ErrorClass::Server, codes::PROGRAM_FAULT, "the program failed unexpectedly")),
             Err(_) => {
@@ -1684,6 +1706,7 @@ async fn on_subscribe(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<M
     let _ = tx.send(Message::text(proto::to_text(&Subscribed { t: "subscribed".into(), id }))).await;
 
     let (tx, shared, subs) = (tx.clone(), shared.clone(), conn.subs.clone());
+    let engine = shared.engine.clone();
     let claim_map: HashMap<String, String> = claims.as_ref().map(|c| c.flat.clone().into_iter().collect()).unwrap_or_default();
     let files: Option<Arc<dyn BackendFiles>> = subject.clone().map(|s| Arc::new(CallFiles { store: shared.files.clone(), subject: s }) as Arc<dyn BackendFiles>);
     let slow = Arc::new(AtomicBool::new(false));
@@ -1714,7 +1737,7 @@ async fn on_subscribe(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<M
             identity: None,
         };
         let prog2 = prog.clone();
-        let outcome = tokio::task::spawn_blocking(move || exec::execute(&prog2, &arg_texts, opts)).await;
+        let outcome = tokio::task::spawn_blocking(move || engine.execute(&prog2, &arg_texts, opts)).await;
         if let Ok(mut m) = subs.lock() {
             m.remove(&id);
         }

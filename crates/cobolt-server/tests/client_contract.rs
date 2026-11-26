@@ -1047,3 +1047,12 @@ fn closing_the_form_unsubscribes() {
     assert_eq!(after, baseline, "a closed form costs the server nothing");
     w.rig.server.stop();
 }
+
+/// Which engine this suite ran on (spec 114 T8): the suite runs on the engine `PRC_TEST_ENGINE` names, the interpreter when unset.
+#[test]
+fn the_suite_names_the_engine_it_runs_on() {
+    let t = std::time::Instant::now();
+    let w = world("engine-name", "");
+    print_engine_block("CLIENT CONTRACT", &w.rig, t.elapsed());
+    w.rig.server.stop();
+}
