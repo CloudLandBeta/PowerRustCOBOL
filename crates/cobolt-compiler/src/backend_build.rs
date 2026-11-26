@@ -93,6 +93,18 @@ fn main_rs() -> &'static str {
      fn main() {\n    std::process::exit(cobolt_server::standalone::main(BUNDLE, std::env::args().skip(1).collect()));\n}\n"
 }
 
+/// What the Backend's own staging folder tells Cargo on Windows (spec 113 R13): the Backend carries its C runtime, so it
+/// starts on a machine that has not installed the Visual C++ Redistributable. Only the MSVC hosts need it (the other
+/// systems link what they have), and only this staging folder says so: no other build of the product is touched.
+fn static_crt_config(host: &str) -> Option<String> {
+    if !host.ends_with("-pc-windows-msvc") {
+        return None;
+    }
+    Some(format!(
+        "# Written by PowerRustCOBOL AI for this Backend only: the C runtime is linked in, not required on the machine that runs it.\n[target.{host}]\nrustflags = [\"-C\", \"target-feature=+crt-static\"]\n"
+    ))
+}
+
 fn cargo_toml(bin_name: &str, version: &str, crates_path: &Path, features: runtime_features::RuntimeFeatures) -> String {
     let cp = crate::external_crates::toml_path(crates_path);
     let feats = features.as_toml_features();
@@ -271,6 +283,12 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     std::fs::write(build_dir.join("Cargo.toml"), cargo_toml(&bin_name, &contract, &crates_path, features)).ctx(|| "write the backend's Cargo.toml".to_string())?;
     std::fs::write(src_dir.join("main.rs"), main_rs()).ctx(|| "write the backend's main.rs".to_string())?;
     std::fs::write(assets_dir.join("backend.bin"), &bytes).ctx(|| "write the embedded programs".to_string())?;
+    if let Some(config) = static_crt_config(&host) {
+        let cargo_dir = build_dir.join(".cargo");
+        std::fs::create_dir_all(&cargo_dir).ctx(|| format!("create '{}'", cargo_dir.display()))?;
+        std::fs::write(cargo_dir.join("config.toml"), config).ctx(|| "write the backend's .cargo/config.toml".to_string())?;
+        log("   linking the C runtime into the backend, so it starts on a Windows without the Visual C++ Redistributable (the first build compiles the platform for this setting and takes longer)");
+    }
     log(&format!("   generated {}", build_dir.display()));
 
     // 5. cargo. The backend starts from the SDK's `Cargo.lock`, so it links the
@@ -377,6 +395,20 @@ fn metadata_args(host: Option<&str>, offline: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_windows_msvc_backend_carries_its_c_runtime() {
+        let on = static_crt_config("x86_64-pc-windows-msvc").expect("a Windows MSVC host links the runtime in");
+        assert!(on.contains("[target.x86_64-pc-windows-msvc]") && on.contains("rustflags = [\"-C\", \"target-feature=+crt-static\"]"));
+        assert!(static_crt_config("aarch64-pc-windows-msvc").is_some());
+        for host in ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-gnu"] {
+            assert!(static_crt_config(host).is_none(), "{host} must be left as it was");
+        }
+        // The text is valid TOML, so Cargo reads it.
+        let parsed: toml::Value = on.parse().expect("valid TOML");
+        assert_eq!(parsed["target"]["x86_64-pc-windows-msvc"]["rustflags"][1].as_str(), Some("target-feature=+crt-static"));
+        println!("static CRT config: 7 hosts checked, written for 2 (Windows MSVC), absent for 5; TOML parses");
+    }
 
     #[test]
     fn the_sbom_lists_the_packages_of_the_platform_the_binary_is_built_for() {

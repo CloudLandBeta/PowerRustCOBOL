@@ -13,7 +13,8 @@
 //! rcrun check   <file.cbl>            # parse + semantic analysis only
 //! rcrun build   <file.cbl>            # compile a single console program → bin/<name>
 //! rcrun build   [cobolt.toml]         # compile a project → single native binary in bin/
-//! rcrun package [cobolt.toml]         # package project into a zip archive
+//! rcrun package [cobolt.toml]         # package project into a zip archive (a Web project: the two
+//!                                     # files that install it on a server)
 //! rcrun mcp     [--project <path>]    # serve the coding-agent tools over stdio (spec 080)
 //! rcrun version                       # print version and exit
 //! ```
@@ -35,6 +36,10 @@
 //!
 //! ```text
 //! --output <path.zip>   Where to write the archive (default: <project-name>.zip)
+//! --output <folder>     A Web project: the folder for its two files, `<name>.zip` and the
+//!                       install script of this system (default: <project>/dist/install)
+//! --lang <code>         A Web project: the language the install script speaks
+//!                       (en es pt ja zh fr; default en)
 //! ```
 //!
 //! ## Environment variables
@@ -46,7 +51,7 @@
 
 mod form_gui;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use serde::Deserialize;
@@ -715,6 +720,9 @@ fn cmd_help() {
         "         [--no-machine-code]             WebAssembly path: leave the machine code out\n",
         "  rcrun package [cobolt.toml]           Package project into a zip archive\n",
         "         [--output <path.zip>]           Override the output archive path\n",
+        "                                         (a Web project: the folder for its two files,\n",
+        "                                         the zip and the install script for this system)\n",
+        "         [--lang <code>]                 A Web project: language of the install script\n",
         "  rcrun mcp     [--project <path>]      Serve the coding-agent tools (MCP) over stdio\n",
         "                                         for the project file or folder (default: the\n",
         "                                         working directory); opens no network port\n",
@@ -888,6 +896,44 @@ fn rust_install_hint() -> String {
 
 // ── Package command ───────────────────────────────────────────────────────────
 
+/// Package a Web project to install on a server (spec 113): the page and the Backend are built and `dir` gets exactly
+/// two files, `<name>.zip` and the install script of the system this runs on. Exits 1 when the package is not made.
+fn package_web_command(manifest: &Path, output: Option<PathBuf>, lang: &str) {
+    use cobolt_project_tools::web::package::{package_web, PackageError};
+
+    let manifest = manifest.canonicalize().unwrap_or_else(|_| manifest.to_path_buf());
+    let dir = output.unwrap_or_else(|| manifest.parent().map(Path::to_path_buf).unwrap_or_default().join("dist").join("install"));
+    println!("rcrun package: packaging for a server → {}", dir.display());
+    let started = std::time::Instant::now();
+    let result = package_web(&manifest, &dir, lang, &mut |step| println!("  [{:>5.1} s] {}", started.elapsed().as_secs_f64(), step.label()));
+    match result {
+        Ok(p) => {
+            println!("Package ready: exactly two files in {} ({:.1} s)", dir.display(), p.seconds);
+            println!("  {}  {} bytes, {} files inside, sha256 {}", p.zip.display(), p.zip_bytes, p.files_in_zip, p.sha256);
+            println!("  {}", p.script.display());
+            println!("Copy both to the server and run there, with administrator rights:");
+            println!("  {}", p.command());
+            if p.wss {
+                println!("The page's address is wss://: the script needs the certificate and the private key (PEM) of that address.");
+            }
+            if !p.required_secrets.is_empty() {
+                println!("The Backend reads these secrets: {}. Give the script a file of NAME=value lines that defines them.", p.required_secrets.join(", "));
+            }
+            for n in &p.notes {
+                println!("  note: {n}");
+            }
+        }
+        Err(PackageError::Refused(why)) => {
+            eprintln!("rcrun package: this project cannot be installed as it is: {why}");
+            process::exit(1);
+        }
+        Err(PackageError::Failed(why)) => {
+            eprintln!("rcrun package: the package was not made: {why}");
+            process::exit(1);
+        }
+    }
+}
+
 /// Package a Cobolt project into a self-contained zip archive.
 ///
 /// Usage:
@@ -903,10 +949,21 @@ fn cmd_package(args: &[String]) {
 
     let mut manifest_path: Option<PathBuf> = None;
     let mut output_path: Option<PathBuf> = None;
+    let mut lang = String::from("en");
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--lang" => {
+                i += 1;
+                match args.get(i) {
+                    Some(code) => lang = code.clone(),
+                    None => {
+                        eprintln!("rcrun package: --lang requires a language code (en es pt ja zh fr)");
+                        process::exit(2);
+                    }
+                }
+            }
             "--output" | "-o" => {
                 i += 1;
                 if i >= args.len() {
@@ -936,6 +993,14 @@ fn cmd_package(args: &[String]) {
         );
         eprintln!("  Run `rcrun package <path/to/cobolt.toml>` or cd into the project root.");
         process::exit(1);
+    }
+
+    // A Web project is packaged to be installed on a server (spec 113): two files in a folder.
+    if let Ok(view) = cobolt_compiler::project_manifest_view(&manifest_path) {
+        if view.kind == cobolt_compiler::project_kind::ProjectKind::Web {
+            package_web_command(&manifest_path, output_path, &lang);
+            return;
+        }
     }
 
     // ── Load the manifest ─────────────────────────────────────────────────────

@@ -2509,6 +2509,7 @@ dependencies = [
  "ttf-parser",
  "tungstenite 0.28.0",
  "ureq",
+ "zip 9.4.1",
 ]
 
 [[package]]
@@ -2666,6 +2667,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ureq",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

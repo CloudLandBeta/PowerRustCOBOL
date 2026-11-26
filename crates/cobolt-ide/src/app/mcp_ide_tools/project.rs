@@ -354,6 +354,7 @@ impl CoboltApp {
             .as_ref()
             .map(|p| p.project.name.to_ascii_lowercase().replace(' ', "_"))
             .ok_or("no project is open in the IDE")?;
+        let web = self.is_server_web_project();
         let dir = match arg_str(args, "to") {
             Some(to) => {
                 let p = std::path::PathBuf::from(to);
@@ -362,8 +363,25 @@ impl CoboltApp {
                 }
                 p
             }
+            // A Web package is two files made to be copied to a server: they get a folder of their own.
+            None if web => root.join("dist").join("install"),
             None => root,
         };
+        if web {
+            // Spec 113: the page and the Backend are built and the folder gets exactly two files. It takes minutes, so it
+            // answers at once, as run_project does; read_output has each step and the result.
+            if self.web_package.is_some() || self.pending_build_rx.is_some() || self.web_preview.building() {
+                return Err("a build or a package is already under way; read_output says how far it is".to_owned());
+            }
+            let project = self.cobolt_project.as_ref().map(|p| p.project.name.clone()).unwrap_or_default();
+            self.package_web_to(dir.clone());
+            return Ok(json!({
+                "status": "started",
+                "folder": dir.display().to_string(),
+                "files": cobolt_project_tools::web::package::file_names(&project),
+                "note": "the page and the Backend are built first (minutes the first time); read_output says each step and ends with the command that installs",
+            }));
+        }
         let zip = dir.join(format!("{name}.zip"));
         self.package_project_to(zip.clone());
         if !zip.is_file() {

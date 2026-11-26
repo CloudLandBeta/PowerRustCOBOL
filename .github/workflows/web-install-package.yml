@@ -1,0 +1,449 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# Spec 113: the install package of a Web project, proved on the three systems it installs on.
+#   Actions -> "Web install package (spec 113)" -> Run workflow
+#
+# Each job makes the package the way a developer does (`rcrun package`, which is what the IDE's
+# Package Project calls for a Web project), on the system it will install on: the script it writes
+# is the one for that system. The package is of a copy of examples/PowerOficina with a `wss://`
+# address and an `[auth]` section, and the REAL Backend (no stand-in). The job then runs the script
+# with an nginx folder, and checks:
+#
+#   - the service is running and enabled, nginx accepts its configuration, the page answers 200
+#     over https with the security headers, and /ws reaches the Backend through nginx;
+#   - the Backend runs with nothing installed beside it (AC7): no C runtime library is named;
+#   - a process that is killed is started again by the system (AC4);
+#   - a package installed again over the first keeps the records in data/ (AC11), and the same
+#     package twice changes nothing;
+#   - the service stops in under 30 seconds with exit status 0 (AC4; on Windows no error 1053 or 1061);
+#   - a Backend start with a setting a release refuses fails, and the reason is in the log (AC5);
+#   - Windows only: both `powershell.exe` (5.1) and `pwsh` run the script (AC12).
+#
+# Every check prints PASS or FAIL; a FAIL fails the job after all of them have run. The two files the
+# package is, and the logs, are uploaded. A dispatch needs this file on the default branch.
+
+name: Web install package (spec 113)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-install-package-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Rust release the packages are built with (see build-all-platforms.yml).
+  RELEASE_RUST: "1.95.0"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+
+jobs:
+  linux:
+    name: linux-x86_64 (systemd)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      SVC: poweroficina-project
+      INSTALL: /opt/poweroficina-project
+      PKG: PowerOficina.project
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies and nginx
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libxkbcommon-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libasound2-dev nginx openssl
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web-install-package-linux
+
+      - name: Build rcrun
+        run: cargo build --release --locked -p cobolt-cli --bin rcrun
+
+      - name: Package a copy of PowerOficina
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(cd "$RUNNER_TEMP" && pwd)/app"
+          rm -rf "$work"; mkdir -p "$work"
+          cp -R examples/PowerOficina "$work/PowerOficina"
+          rm -rf "$work/PowerOficina/dist"
+          sed -i.bak 's|backend_url = "ws://127.0.0.1:8443"|backend_url = "wss://oficina.example.com/ws"|' "$work/PowerOficina/PowerOficina.project.toml"
+          printf '\n[auth]\nissuer = ["https://login.example.com"]\naudiences = ["api"]\n' >> "$work/PowerOficina/backend/backend.toml"
+          grep -q 'wss://oficina.example.com/ws' "$work/PowerOficina/PowerOficina.project.toml"
+          target/release/rcrun package "$work/PowerOficina/PowerOficina.project.toml" --output "$work/out" 2>&1 | tee "$work/package.log"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          test "$(ls "$work/out" | wc -l)" -eq 2
+          ls -l "$work/out"
+
+      - name: Install, then check
+        shell: bash
+        run: |
+          set -uo pipefail
+          out="$WORK/out"; script="$out/$PKG-install.sh"; host=oficina.example.com
+          fails=0
+          ok()  { echo "PASS  $*"; }
+          bad() { echo "FAIL  $*"; fails=$((fails + 1)); }
+          check() { local what=$1; shift; if "$@" >/dev/null 2>&1; then ok "$what"; else bad "$what"; fi; }
+          curl_site() { curl -sk --resolve "$host:443:127.0.0.1" --resolve "$host:80:127.0.0.1" "$@"; }
+          code_of() { curl_site -o /dev/null -w '%{http_code}' "$@"; }
+
+          sudo openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/site.key -out /tmp/site.crt -subj "/CN=$host" -days 2 2>/dev/null
+          sudo systemctl start nginx || true
+
+          echo "::group::install"
+          sudo bash "$script" /etc/nginx --cert /tmp/site.crt --key /tmp/site.key 2>&1 | tee "$WORK/install.log"
+          [ "${PIPESTATUS[0]}" -eq 0 ] && ok "the script exits 0" || bad "the script exits 0"
+          echo "::endgroup::"
+
+          check "the service is active"  systemctl is-active --quiet "$SVC"
+          check "the service is enabled" systemctl is-enabled --quiet "$SVC"
+          check "nginx accepts its configuration" sudo nginx -t
+          [ "$(code_of "https://$host/")" = 200 ] && ok "the page answers 200 over https" || bad "the page answers 200 over https"
+          curl_site -D - -o /dev/null "https://$host/" | grep -qi '^content-security-policy:' && ok "the page carries its security headers" || bad "the page carries its security headers"
+          ws=$(code_of "https://$host/ws" -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H "Origin: https://$host")
+          case "$ws" in 101|400|401|403|426) ok "/ws reaches the Backend through nginx (answer $ws)" ;; *) bad "/ws reaches the Backend through nginx (answer $ws)" ;; esac
+
+          echo "::group::the Backend's libraries (AC7)"
+          exe=$(ls "$INSTALL"/bin/* | grep -v sbom | head -1); ldd "$exe" || true
+          echo "::endgroup::"
+          ldd "$exe" 2>&1 | grep -q 'not found' && bad "the Backend finds every library it names" || ok "the Backend finds every library it names"
+
+          pid1=$(systemctl show -p MainPID --value "$SVC"); sudo kill -9 "$pid1"
+          restarted=no
+          for _ in $(seq 1 30); do
+            sleep 1; pid2=$(systemctl show -p MainPID --value "$SVC")
+            if systemctl is-active --quiet "$SVC" && [ "$pid2" != "$pid1" ] && [ "$pid2" != 0 ]; then restarted=yes; break; fi
+          done
+          [ "$restarted" = yes ] && ok "a killed Backend is started again ($pid1 -> $pid2)" || bad "a killed Backend is started again"
+
+          rec=$(ls "$INSTALL"/data/*.idx | head -1)
+          printf 'RECORD-EDITED-BY-THE-OPERATOR' | sudo tee -a "$rec" >/dev/null
+          before=$(sudo sha256sum "$rec" | cut -d' ' -f1)
+          snap() { sudo find /etc/nginx "$INSTALL" /etc/$SVC -type f -not -name '*.lck' -not -name '*.bak' 2>/dev/null | sort | sudo xargs sha256sum | sha256sum | cut -c1-16; }
+          sudo bash "$script" /etc/nginx --cert /tmp/site.crt --key /tmp/site.key > "$WORK/update.log" 2>&1 && ok "the same package installed again exits 0" || bad "the same package installed again exits 0"
+          after=$(sudo sha256sum "$rec" | cut -d' ' -f1)
+          [ "$before" = "$after" ] && ok "an update keeps the records in data/" || bad "an update keeps the records in data/"
+          a=$(snap); sudo bash "$script" /etc/nginx --cert /tmp/site.crt --key /tmp/site.key > "$WORK/update2.log" 2>&1; b=$(snap)
+          [ "$a" = "$b" ] && ok "the same package twice changes no file" || bad "the same package twice changes no file"
+          check "the service is active after the updates" systemctl is-active --quiet "$SVC"
+
+          s=$(date +%s); sudo systemctl stop "$SVC"; took=$(( $(date +%s) - s ))
+          [ "$took" -lt 30 ] && ok "the service stops in ${took} s" || bad "the service stops in ${took} s"
+          [ "$(systemctl show -p Result --value "$SVC")" = success ] && ok "the stop is a success" || bad "the stop is a success ($(systemctl show -p Result --value "$SVC"))"
+          [ "$(systemctl show -p ExecMainStatus --value "$SVC")" = 0 ] && ok "the Backend exits with status 0" || bad "the Backend exits with status 0 ($(systemctl show -p ExecMainStatus --value "$SVC"))"
+
+          sudo cp "$INSTALL/backend.toml" "$WORK/backend.toml.good"
+          sudo sed -i 's|^listen = .*|&\nunsafe_allow_any_origin = true|' "$INSTALL/backend.toml"
+          sudo systemctl start "$SVC" && bad "a release start with a refused setting fails" || ok "a release start with a refused setting fails"
+          sleep 2
+          { sudo journalctl -u "$SVC" -n 60 --no-pager; sudo cat /var/log/$SVC/backend.log; } > "$WORK/refused.log" 2>&1 || true
+          grep -qi 'unsafe' "$WORK/refused.log" && ok "the reason is in the journal or the log" || bad "the reason is in the journal or the log"
+          sudo systemctl stop "$SVC" || true
+          sudo cp "$WORK/backend.toml.good" "$INSTALL/backend.toml"; sudo systemctl start "$SVC" && ok "the settings put back, the service starts" || bad "the settings put back, the service starts"
+
+          sudo journalctl -u "$SVC" --no-pager > "$WORK/journal.log" 2>&1 || true
+          echo "checks failed: $fails"
+          test "$fails" -eq 0
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: install-linux
+          path: |
+            ${{ env.WORK }}/out
+            ${{ env.WORK }}/*.log
+          if-no-files-found: warn
+
+  macos:
+    name: macos-aarch64 (launchd)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      SVC: app.poweroficina-project
+      SLUG: poweroficina-project
+      INSTALL: /usr/local/poweroficina-project
+      PKG: PowerOficina.project
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web-install-package-macos
+
+      - name: Install nginx
+        run: brew install nginx
+
+      - name: Build rcrun
+        run: cargo build --release --locked -p cobolt-cli --bin rcrun
+
+      - name: Package a copy of PowerOficina
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(cd "$RUNNER_TEMP" && pwd)/app"
+          rm -rf "$work"; mkdir -p "$work"
+          cp -R examples/PowerOficina "$work/PowerOficina"
+          rm -rf "$work/PowerOficina/dist"
+          sed -i.bak 's|backend_url = "ws://127.0.0.1:8443"|backend_url = "wss://oficina.example.com/ws"|' "$work/PowerOficina/PowerOficina.project.toml"
+          printf '\n[auth]\nissuer = ["https://login.example.com"]\naudiences = ["api"]\n' >> "$work/PowerOficina/backend/backend.toml"
+          grep -q 'wss://oficina.example.com/ws' "$work/PowerOficina/PowerOficina.project.toml"
+          target/release/rcrun package "$work/PowerOficina/PowerOficina.project.toml" --output "$work/out" 2>&1 | tee "$work/package.log"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          test "$(ls "$work/out" | wc -l)" -eq 2
+          ls -l "$work/out"
+
+      - name: Install, then check
+        shell: bash
+        run: |
+          set -uo pipefail
+          out="$WORK/out"; script="$out/$PKG-install.sh"; host=oficina.example.com
+          nginxdir="$(brew --prefix)/etc/nginx"
+          fails=0
+          ok()  { echo "PASS  $*"; }
+          bad() { echo "FAIL  $*"; fails=$((fails + 1)); }
+          curl_site() { curl -sk --resolve "$host:443:127.0.0.1" --resolve "$host:80:127.0.0.1" "$@"; }
+          code_of() { curl_site -o /dev/null -w '%{http_code}' "$@"; }
+          pid_of() { sudo launchctl print "system/$SVC" 2>/dev/null | awk '/^[[:space:]]*pid = /{print $3; exit}'; }
+
+          sudo openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/site.key -out /tmp/site.crt -subj "/CN=$host" -days 2 2>/dev/null
+          sudo "$(brew --prefix)/bin/nginx" -c "$nginxdir/nginx.conf" || true
+
+          echo "::group::install"
+          sudo bash "$script" "$nginxdir" --cert /tmp/site.crt --key /tmp/site.key 2>&1 | tee "$WORK/install.log"
+          [ "${PIPESTATUS[0]}" -eq 0 ] && ok "the script exits 0" || bad "the script exits 0"
+          echo "::endgroup::"
+
+          sleep 3
+          sudo launchctl print "system/$SVC" 2>/dev/null | grep -q 'state = running' && ok "the service is running" || bad "the service is running"
+          sudo "$(brew --prefix)/bin/nginx" -t -c "$nginxdir/nginx.conf" >/dev/null 2>&1 && ok "nginx accepts its configuration" || bad "nginx accepts its configuration"
+          [ "$(code_of "https://$host/")" = 200 ] && ok "the page answers 200 over https" || bad "the page answers 200 over https"
+          curl_site -D - -o /dev/null "https://$host/" | grep -qi '^content-security-policy:' && ok "the page carries its security headers" || bad "the page carries its security headers"
+          ws=$(code_of "https://$host/ws" -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H "Origin: https://$host")
+          case "$ws" in 101|400|401|403|426) ok "/ws reaches the Backend through nginx (answer $ws)" ;; *) bad "/ws reaches the Backend through nginx (answer $ws)" ;; esac
+
+          echo "::group::the Backend's libraries (AC7)"
+          exe=$(ls "$INSTALL"/bin/* | grep -v sbom | head -1); otool -L "$exe" || true
+          echo "::endgroup::"
+          otool -L "$exe" | tail -n +2 | grep -vE '^[[:space:]]*(/usr/lib/|/System/Library/)' | grep -q . && bad "the Backend names only libraries every Mac has" || ok "the Backend names only libraries every Mac has"
+
+          pid1=$(pid_of); sudo kill -9 "$pid1"
+          restarted=no
+          for _ in $(seq 1 40); do
+            sleep 1; pid2=$(pid_of)
+            if [ -n "$pid2" ] && [ "$pid2" != "$pid1" ]; then restarted=yes; break; fi
+          done
+          [ "$restarted" = yes ] && ok "a killed Backend is started again ($pid1 -> $pid2)" || bad "a killed Backend is started again"
+
+          rec=$(ls "$INSTALL"/data/*.idx | head -1)
+          printf 'RECORD-EDITED-BY-THE-OPERATOR' | sudo tee -a "$rec" >/dev/null
+          before=$(sudo shasum -a 256 "$rec" | cut -d' ' -f1)
+          sudo bash "$script" "$nginxdir" --cert /tmp/site.crt --key /tmp/site.key > "$WORK/update.log" 2>&1 && ok "the same package installed again exits 0" || bad "the same package installed again exits 0"
+          after=$(sudo shasum -a 256 "$rec" | cut -d' ' -f1)
+          [ "$before" = "$after" ] && ok "an update keeps the records in data/" || bad "an update keeps the records in data/"
+          sleep 3
+          sudo launchctl print "system/$SVC" 2>/dev/null | grep -q 'state = running' && ok "the service is running after the update" || bad "the service is running after the update"
+
+          pid=$(pid_of); s=$(date +%s); sudo launchctl bootout "system/$SVC"; took=$(( $(date +%s) - s ))
+          [ "$took" -lt 30 ] && ok "the service stops in ${took} s" || bad "the service stops in ${took} s"
+          kill -0 "$pid" 2>/dev/null && bad "the Backend process is gone" || ok "the Backend process is gone"
+
+          sudo cp "$INSTALL/backend.toml" "$WORK/backend.toml.good"
+          sudo sed -i '' 's|^listen = .*|&\
+          unsafe_allow_any_origin = true|' "$INSTALL/backend.toml"
+          sudo launchctl bootstrap system "/Library/LaunchDaemons/$SVC.plist"
+          sleep 5
+          { sudo cat /var/log/$SLUG/backend.log; sudo cat /var/log/$SLUG/launchd.err; } > "$WORK/refused.log" 2>&1 || true
+          grep -qi 'unsafe' "$WORK/refused.log" && ok "a release start with a refused setting fails, and the reason is in the log" || bad "a release start with a refused setting fails, and the reason is in the log"
+          sudo launchctl bootout "system/$SVC" 2>/dev/null || true
+          sudo cp "$WORK/backend.toml.good" "$INSTALL/backend.toml"
+          sudo bash "$script" "$nginxdir" --cert /tmp/site.crt --key /tmp/site.key > "$WORK/restore.log" 2>&1 && ok "the settings put back, the package installs again" || bad "the settings put back, the package installs again"
+
+          sudo plutil -lint "/Library/LaunchDaemons/$SVC.plist" && ok "the launchd plist is valid" || bad "the launchd plist is valid"
+          echo "checks failed: $fails"
+          test "$fails" -eq 0
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: install-macos
+          path: |
+            ${{ env.WORK }}/out
+            ${{ env.WORK }}/*.log
+          if-no-files-found: warn
+
+  windows:
+    name: windows-x86_64 (service control manager)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      SVC: poweroficina-project
+      PKG: PowerOficina.project
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web-install-package-windows
+
+      - name: Install nginx
+        shell: pwsh
+        run: |
+          choco install nginx -y --no-progress
+          $dir = (Get-ChildItem 'C:\tools' -Directory -Filter 'nginx*' | Select-Object -First 1).FullName
+          if (-not (Test-Path (Join-Path $dir 'conf\nginx.conf'))) { throw "no nginx.conf in $dir" }
+          "NGINX_DIR=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Build rcrun
+        shell: bash
+        run: cargo build --release --locked -p cobolt-cli --bin rcrun
+
+      - name: Package a copy of PowerOficina
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(cd "$RUNNER_TEMP" && pwd)/app"
+          rm -rf "$work"; mkdir -p "$work"
+          cp -R examples/PowerOficina "$work/PowerOficina"
+          rm -rf "$work/PowerOficina/dist"
+          sed -i.bak 's|backend_url = "ws://127.0.0.1:8443"|backend_url = "wss://oficina.example.com/ws"|' "$work/PowerOficina/PowerOficina.project.toml"
+          printf '\n[auth]\nissuer = ["https://login.example.com"]\naudiences = ["api"]\n' >> "$work/PowerOficina/backend/backend.toml"
+          grep -q 'wss://oficina.example.com/ws' "$work/PowerOficina/PowerOficina.project.toml"
+          target/release/rcrun.exe package "$work/PowerOficina/PowerOficina.project.toml" --output "$work/out" 2>&1 | tee "$work/package.log"
+          echo "WORK=$(cygpath -w "$work")" >> "$GITHUB_ENV"
+          test "$(ls "$work/out" | wc -l)" -eq 2
+          ls -l "$work/out"
+
+      - name: Install with Windows PowerShell 5.1, update with PowerShell 7, then check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $script:fails = 0
+          function Ok($m)  { Write-Host "PASS  $m" }
+          function Bad($m) { Write-Host "FAIL  $m"; $script:fails++ }
+          function Check($m, [scriptblock]$t) { try { if (& $t) { Ok $m } else { Bad $m } } catch { Bad "$m ($($_.Exception.Message))" } }
+
+          $out = Join-Path $env:WORK 'out'
+          $installScript = Join-Path $out "$($env:PKG)-install.ps1"
+          $nginx = $env:NGINX_DIR
+          $install = Join-Path $env:ProgramFiles $env:PKG
+          $state = Join-Path $env:ProgramData $env:SVC
+          $hostName = 'oficina.example.com'
+          Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value "127.0.0.1 $hostName"
+
+          # A self-signed certificate and its key, as PEM files.
+          $rsa = [System.Security.Cryptography.RSA]::Create(2048)
+          $req = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new("CN=$hostName", $rsa, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+          $crt = $req.CreateSelfSigned([DateTimeOffset]::UtcNow.AddDays(-1), [DateTimeOffset]::UtcNow.AddDays(2))
+          $certFile = Join-Path $env:RUNNER_TEMP 'site.crt'; $keyFile = Join-Path $env:RUNNER_TEMP 'site.key'
+          Set-Content -Path $certFile -Value $crt.ExportCertificatePem() -Encoding ascii
+          Set-Content -Path $keyFile -Value $rsa.ExportPkcs8PrivateKeyPem() -Encoding ascii
+
+          # nginx is running before the package is installed, so the script reloads it.
+          Start-Process -FilePath (Join-Path $nginx 'nginx.exe') -WorkingDirectory $nginx -WindowStyle Hidden
+          Start-Sleep 2
+
+          Write-Host '::group::install with Windows PowerShell 5.1'
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File $installScript -NginxDir $nginx -Cert $certFile -Key $keyFile *>&1 | Tee-Object -FilePath (Join-Path $env:WORK 'install-ps51.log')
+          $code = $LASTEXITCODE
+          Write-Host '::endgroup::'
+          if ($code -eq 0) { Ok 'powershell.exe 5.1 runs the script and exits 0' } else { Bad "powershell.exe 5.1 runs the script and exits 0 (exit $code)" }
+
+          Check 'the service is running' { (Get-Service $env:SVC).Status -eq 'Running' }
+          Check 'the service starts automatically' { (Get-CimInstance Win32_Service -Filter "Name='$($env:SVC)'").StartMode -eq 'Auto' }
+          Check 'nginx accepts its configuration' { & (Join-Path $nginx 'nginx.exe') -t -p ($nginx -replace '\\','/') *> $null; $LASTEXITCODE -eq 0 }
+          Check 'the page answers 200 over https' { (curl.exe -sk -o NUL -w '%{http_code}' "https://$hostName/") -eq '200' }
+          Check 'the page carries its security headers' { (curl.exe -sk -D - -o NUL "https://$hostName/") -match '(?im)^content-security-policy:' }
+          $ws = curl.exe -sk -o NUL -w '%{http_code}' "https://$hostName/ws" -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H "Origin: https://$hostName"
+          if (@('101','400','401','403','426') -contains $ws) { Ok "/ws reaches the Backend through nginx (answer $ws)" } else { Bad "/ws reaches the Backend through nginx (answer $ws)" }
+
+          # AC7: the executable names no C runtime library, so it starts on a Windows that has installed nothing.
+          $exe = (Get-ChildItem (Join-Path $install 'bin') -Filter '*.exe' | Select-Object -First 1).FullName
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          Write-Host '::group::the Backend imports (AC7)'
+          $imports = & $dumpbin /dependents $exe
+          $imports | Write-Host
+          Write-Host '::endgroup::'
+          if ($imports -match '(?i)vcruntime|msvcp|api-ms-win-crt|ucrtbase') { Bad 'the Backend names no C runtime library' } else { Ok 'the Backend names no C runtime library' }
+
+          # AC4: a killed process is started again by the system.
+          $pid1 = (Get-CimInstance Win32_Service -Filter "Name='$($env:SVC)'").ProcessId
+          Stop-Process -Id $pid1 -Force
+          $restarted = $false
+          foreach ($i in 1..60) {
+            Start-Sleep 1
+            $svc = Get-CimInstance Win32_Service -Filter "Name='$($env:SVC)'"
+            if ($svc.State -eq 'Running' -and $svc.ProcessId -ne $pid1 -and $svc.ProcessId -ne 0) { $restarted = $true; break }
+          }
+          if ($restarted) { Ok "a killed Backend is started again ($pid1 -> $($svc.ProcessId))" } else { Bad 'a killed Backend is started again' }
+
+          # AC11 and AC12: PowerShell 7 installs the same package again; the records stay.
+          $rec = (Get-ChildItem (Join-Path $install 'data') -Filter '*.idx' | Select-Object -First 1).FullName
+          [System.IO.File]::AppendAllText($rec, 'RECORD-EDITED-BY-THE-OPERATOR')
+          $before = (Get-FileHash $rec -Algorithm SHA256).Hash
+          pwsh -NoProfile -File $installScript -NginxDir $nginx -Cert $certFile -Key $keyFile *>&1 | Tee-Object -FilePath (Join-Path $env:WORK 'update-pwsh7.log') | Out-Null
+          if ($LASTEXITCODE -eq 0) { Ok 'pwsh 7 runs the script again and exits 0' } else { Bad "pwsh 7 runs the script again and exits 0 (exit $LASTEXITCODE)" }
+          Check 'an update keeps the records in data\' { (Get-FileHash $rec -Algorithm SHA256).Hash -eq $before }
+          Check 'the service is running after the update' { (Get-Service $env:SVC).Status -eq 'Running' }
+
+          # AC4: stop in under 30 seconds, no error 1053 or 1061.
+          $since = Get-Date
+          $sw = [Diagnostics.Stopwatch]::StartNew(); Stop-Service $env:SVC; $sw.Stop()
+          if ($sw.Elapsed.TotalSeconds -lt 30) { Ok ("the service stops in {0:N1} s" -f $sw.Elapsed.TotalSeconds) } else { Bad ("the service stops in {0:N1} s" -f $sw.Elapsed.TotalSeconds) }
+          Check 'the service reports exit code 0' { (Get-CimInstance Win32_Service -Filter "Name='$($env:SVC)'").ExitCode -eq 0 }
+          $events = Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager'; Id = 7000, 7009, 7011; StartTime = $since } -ErrorAction SilentlyContinue
+          if ($events) { Bad "the Service Control Manager reports no start or stop timeout ($($events.Count) event(s))" } else { Ok 'the Service Control Manager reports no start or stop timeout' }
+
+          # AC5: a setting a release refuses stops the start, and the reason is in the log.
+          $toml = Join-Path $install 'backend.toml'
+          Copy-Item $toml (Join-Path $env:WORK 'backend.toml.good')
+          (Get-Content $toml) -replace '^(listen = .*)$', "`$1`nunsafe_allow_any_origin = true" | Set-Content $toml
+          $started = $true; try { Start-Service $env:SVC -ErrorAction Stop } catch { $started = $false }
+          if ($started) { Bad 'a release start with a refused setting fails' } else { Ok 'a release start with a refused setting fails' }
+          Start-Sleep 2
+          $log = Join-Path $state 'logs\backend.log'
+          if ((Test-Path $log) -and ((Get-Content $log -Raw) -match '(?i)unsafe')) { Ok 'the reason is in the log' } else { Bad 'the reason is in the log' }
+          Copy-Item (Join-Path $env:WORK 'backend.toml.good') $toml -Force
+          Start-Service $env:SVC; Check 'the settings put back, the service starts' { (Get-Service $env:SVC).Status -eq 'Running' }
+
+          Copy-Item (Join-Path $state 'logs\*') $env:WORK -ErrorAction SilentlyContinue
+          Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager'; StartTime = $since.AddMinutes(-10) } -ErrorAction SilentlyContinue | Format-List TimeCreated, Id, Message | Out-File (Join-Path $env:WORK 'scm-events.log')
+          Write-Host "checks failed: $script:fails"
+          if ($script:fails -gt 0) { exit 1 }
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: install-windows
+          path: |
+            ${{ env.WORK }}\out
+            ${{ env.WORK }}\*.log
+          if-no-files-found: warn

@@ -104,8 +104,13 @@ pub fn tools() -> Vec<Tool> {
         tool("save_project", "Save every open designer, editor tab and the project, as File ▸ Save Project does. Changes files.", json!({}), &[]),
         tool(
             "package_project",
-            "Package the project as File ▸ Package Project does (a zip of its sources and assets). Writes the zip.",
-            json!({ "to": s("Optional: an absolute folder for the zip; the IDE's own choice when absent.") }),
+            "Package the project as File ▸ Package Project does. A Desktop or Mobile project: a zip of its sources and \
+             assets. A Web project: what is installed on a server, exactly two files in a folder: `<name>.zip` (the \
+             page, the Backend and its production settings) and the install script of the system the IDE runs on, \
+             which takes the nginx folder as its one required parameter. A Web package builds the page and the \
+             Backend, so it answers at once; read_output says each step and ends with the command that installs. \
+             Writes the files, replacing a package made before.",
+            json!({ "to": s("Optional: an absolute, existing folder for the file(s); the project folder for a zip, `dist/install` for a Web package, when absent.") }),
             &[],
         ),
         tool(

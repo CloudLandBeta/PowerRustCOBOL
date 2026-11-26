@@ -33,7 +33,7 @@ server = [
     "dep:cobolt-runtime", "dep:jsonwebtoken", "dep:ureq",
     "dep:sha2", "dep:base64", "dep:getrandom", "dep:tracing-subscriber",
     "dep:chacha20poly1305", "dep:hmac",
-    "dep:redb",
+    "dep:redb", "dep:windows-sys",
     "cobolt-wire/channel",
     "dep:leptos", "dep:leptos_axum", "dep:leptos_router", "dep:axum", "dep:hyper", "dep:hyper-util",
 ]
@@ -110,6 +110,11 @@ rand_core = { version = "0.6", features = ["getrandom"], optional = true }
 rsa       = { version = "0.9", features = ["sha2"], optional = true }
 signature = { version = "2", optional = true }
 
+# The Backend as a Windows service (spec 113): the Service Control Manager's own functions, nothing else.
+# The version already in the lock file (0.61.2); Windows only, and only with `server`.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", default-features = false, features = ["Win32_Foundation", "Win32_System_Services"], optional = true }
+
 [dev-dependencies]
 cobolt-wire = { path = "../cobolt-wire" }
 # WASM-005 T10/T17: the backend programs the Build generates for a web form's
@@ -127,3 +132,8 @@ cobolt-runtime = { path = "../cobolt-runtime", default-features = false, feature
 # for this crate's own tests by the dev-dependency on itself.
 cobolt-server = { path = ".", features = ["testkit"] }
 sha2 = { workspace = true }
+
+# A stand-in for a built backend: the tests of the service options run it as a real process (spec 113).
+[[example]]
+name              = "standalone_probe"
+required-features = ["server"]

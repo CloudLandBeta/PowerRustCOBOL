@@ -23,6 +23,7 @@ pub mod deploy;
 pub mod devserver;
 pub mod hash;
 pub mod hostpage;
+pub mod install;
 pub mod notice;
 pub mod secrets;
 

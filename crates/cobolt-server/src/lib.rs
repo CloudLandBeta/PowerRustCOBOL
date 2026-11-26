@@ -56,7 +56,13 @@ pub mod limits;
 #[cfg(feature = "server")]
 pub mod log;
 #[cfg(feature = "server")]
+pub mod logfile;
+#[cfg(feature = "server")]
 pub mod serve;
+#[cfg(feature = "server")]
+pub mod service;
+#[cfg(all(feature = "server", windows))]
+pub(crate) mod service_windows;
 #[cfg(feature = "server")]
 pub mod standalone;
 #[cfg(feature = "net")]
