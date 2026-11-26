@@ -21,15 +21,15 @@
 //!  8 cells  n operand addresses, in the section's order
 //! ```
 //!
-//! The values go out in the scratch area and the answer comes back over them; the generator sends a
-//! statement the scratch area cannot hold down the Cargo path.
+//! The values go out in the statement's own area (`WS_SQL`, 72 KiB) and the answer comes back over
+//! them; the generator sends a statement that area cannot hold down the Cargo path.
 
 use crate::codec;
 use crate::fd::{K_ALNUM, K_ALNUM_EDITED, K_FLOAT32, K_FLOAT64, K_NATIONAL16, K_NUM_EDITED, K_UTF8};
 use crate::host;
 use crate::mem;
 use crate::opd::{locate, parse, Loc};
-use crate::state::{err, st, SCRATCH_SIZE, WS_SCRATCH};
+use crate::state::{err, st, SQL_SIZE, WS_SQL};
 use crate::val::Val;
 use cobolt_decimal::CobolNumeric;
 
@@ -190,7 +190,7 @@ fn take_cell(loc: &Loc, at: u32) -> u32 {
 pub fn exec(base: u32, spec: u32) -> u32 {
     let stmt = rd(spec);
     let n = rd(spec + 4);
-    let buf = st().ws + WS_SCRATCH;
+    let buf = st().ws + WS_SQL;
     let mut at = buf;
     for k in 0..n {
         at += put_cell(&cell(base, spec, k), at);
@@ -255,8 +255,8 @@ pub fn exec_descriptor(base: u32, spec: u32) -> u32 {
     let (head, per, max, limit) = (rd(t), rd(t + 4), rd(t + 8), rd(t + 12));
     let (data, ind, skip) = (rd(t + 16), rd(t + 20), rd(t + 24));
     let (area, items) = (rd(t + 28), rd(t + 32));
-    let buf = st().ws + WS_SCRATCH;
-    let end = buf + SCRATCH_SIZE;
+    let buf = st().ws + WS_SQL;
+    let end = buf + SQL_SIZE;
     let mut at = buf;
     // The cells cross while the statement's area has room for each; the generator cannot know how
     // many entries a run sends.
@@ -299,8 +299,8 @@ pub fn exec_descriptor(base: u32, spec: u32) -> u32 {
 
 /// Call the runner with the values at `buf..at` and store the cells it answers.
 fn call(base: u32, spec: u32, stmt: u32, n: u32, buf: u32, at: u32) -> u32 {
-    // SAFETY: the runner reads the values and writes the answer within `SCRATCH_SIZE` bytes at `buf`.
-    let got = unsafe { host::sql_exec(stmt, buf, at - buf, SCRATCH_SIZE) };
+    // SAFETY: the runner reads the values and writes the answer within `SQL_SIZE` bytes at `buf`.
+    let got = unsafe { host::sql_exec(stmt, buf, at - buf, SQL_SIZE) };
     if got < 5 {
         crate::fail_text(err::BAD_OPERAND, &[crate::Part::T(b"the runner could not run EXEC SQL statement "), crate::Part::N(stmt)]);
     }

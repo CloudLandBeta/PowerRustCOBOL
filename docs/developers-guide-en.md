@@ -17272,10 +17272,17 @@ These still take the Cargo path, and the Build names the one it met:
 
 > ⚠️ **Caveat — the SQL descriptor area holds fewer entries.** A statement that
 > works on an `SQLDA` carries as many entries as `SQLDA-COUNT` names (for
-> `DESCRIBE`, `SQLDA-CAPACITY`), and a statement's work area is 32 KB, so about
-> 28 entries that hold their value as text in `SQLDA-VALUE`. An entry whose
+> `DESCRIBE`, `SQLDA-CAPACITY`), and a statement's work area is 72 KB, so about
+> 63 entries that hold their value as text in `SQLDA-VALUE`. An entry whose
 > `SQLDA-DATA` pointer is set costs far less. A descriptor that needs more ends
 > the run with an error that names the statement; the Cargo path has no such limit.
+
+> ⚠️ **Caveat — the host variables of one `EXEC SQL` statement share the same
+> work area.** A host variable may be as large as a data item can be (a `PIC X(65535)`
+> is carried whole), and so may the answer a `FETCH` brings back into it, but all the
+> host variables of one statement, with the status items, must fit in the 72 KB. A
+> statement that needs more is not built on the WebAssembly path: the Build names
+> the statement and its line, and the program takes the Cargo path.
 
 > **Note — measured.** The five example projects that have no `EXEC RUST` and no
 > External Crates (PowerCallOfDuty, PowerCloud, PowerCobolCraft, PowerGraphics and

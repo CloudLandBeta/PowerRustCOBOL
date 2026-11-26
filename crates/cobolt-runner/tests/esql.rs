@@ -22,8 +22,9 @@ use cobolt_program_package::Kind;
 /// The suite's programs the WebAssembly path runs: host variables and structures, NULL and
 /// truncation, round trips of every kind of item, the status items with and without an SQLCA,
 /// WHENEVER, cursors (positioned updates, batches), units of work, a named connection, national
-/// and UTF-8 host variables, and dynamic SQL through an SQL descriptor area (T50a5).
-const PROGRAMS: [&str; 12] = [
+/// and UTF-8 host variables, dynamic SQL through an SQL descriptor area (T50a5), and host variables
+/// of 50,000 and 65,535 bytes.
+const PROGRAMS: [&str; 13] = [
     "ac2_host_structure.cbl",
     "ac3_null_truncation.cbl",
     "ac4_round_trips.cbl",
@@ -36,6 +37,7 @@ const PROGRAMS: [&str; 12] = [
     "ac9_named_connection.cbl",
     "ac12_national.cbl",
     "ac11_dynamic.cbl",
+    "ac19_large_host_variable.cbl",
 ];
 
 /// The project `rcrun run` runs the programs in: the connection `SALES`, made on first use.
@@ -223,6 +225,7 @@ fn embedded_sql_matches_the_interpreter() {
     println!("            an SQL descriptor area (T50a5): DESCRIBE into one too small (01005) and one that holds, a pointer in a table of");
     println!("            entries, FETCH USING DESCRIPTOR through the entries' pointers and as text inside them, OPEN USING :host,");
     println!("            EXECUTE IMMEDIATE, EXECUTE USING, EXECUTE of a statement not prepared on this path (07003)");
+    println!("            host variables as large as an item can be: 50000 and 65535 bytes out and back, and a 50000-byte item read as a BLOB");
     for r in &rows {
         println!("{r}");
     }

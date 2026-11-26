@@ -104,7 +104,13 @@ pub const WS_GFX_META: u32 = WS_EV_ARG + 4 + EV_ARG_MAX;
 pub const WS_VOID: u32 = WS_GFX_META + 8;
 pub const VOID_SLOTS: u32 = 4;
 pub const VOID_SLOT_SIZE: u32 = 4096;
-pub const WS_SIZE: u32 = WS_VOID + VOID_SLOTS * VOID_SLOT_SIZE;
+/// Where an `EXEC SQL` statement's values go out and its answer comes back (crate `sql`): a region of
+/// its own, the last of the workspace so that no other address moves. It holds the largest item a
+/// PICTURE can make (65,535 bytes, as [`ANSWER_SIZE`] does) with the status items and the answer's
+/// header beside it; the generator refuses a statement whose values come to more (spec 114 T13a).
+pub const WS_SQL: u32 = WS_VOID + VOID_SLOTS * VOID_SLOT_SIZE;
+pub const SQL_SIZE: u32 = 72 * 1024;
+pub const WS_SIZE: u32 = WS_SQL + SQL_SIZE;
 
 /// Run-time error codes carried by the `ERROR` command (ABI v1 §5). The host
 /// owns the message text, so the IDE and the page can translate it.

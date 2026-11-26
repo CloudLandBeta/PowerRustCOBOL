@@ -184,11 +184,11 @@ impl Lower<'_, '_> {
         // The head cell that says how many entries cross.
         let limit_item: Option<usize> = descriptor.as_ref().map(|(h, _, p)| h[p.limit as usize].0);
 
-        // The values and the answer must fit the routines' scratch area (a descriptor's entries are
-        // checked as they are sent: how many cross is known only when the statement runs).
+        // The values and the answer must fit the statement's own area, `SQL_SIZE` (a descriptor's entries
+        // are checked as they are sent: how many cross is known only when the statement runs).
         let lens: u32 = cells.iter().chain(head_cells.iter()).map(|(i, _)| cobolt_wasm_rt::sql::cell_bound(self.layout.items[*i].size)).sum();
         let answer = 5 + lens + 4 * (cells.len() + head_cells.len()) as u32;
-        if lens.max(answer) > cobolt_wasm_rt::state::SCRATCH_SIZE {
+        if lens.max(answer) > cobolt_wasm_rt::state::SQL_SIZE {
             return refuse(&format!("its host variables hold {lens} bytes, more than a module statement can carry"));
         }
         // The cells in the order they cross: the head, the entries, then the rest.
