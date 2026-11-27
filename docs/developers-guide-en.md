@@ -20096,7 +20096,11 @@ call in a fresh interpreter: no WORKING-STORAGE survives, and files and database
 shared state. `per-connection` keeps one run unit per exported program for the life of a
 connection, so WORKING-STORAGE carries over from one call of that connection to the next; the
 connection's calls run in turn, a connection serves only the user it first served, and nothing
-is kept when it ends.
+is kept when it ends. A call that the server cuts off, that the caller cancels or that ends in a
+run-time error ends that program's run unit, so its next call starts afresh; an answer, a
+refused request and the program's own `WS-FAIL` leave it as it is; `STOP RUN` ends the run and
+not the connection's state; a stream ignores the mode and starts from its initial storage on
+every call. The rules are the same whichever way the Build makes the server (24.11).
 
 ### 24.7 The contract and its versions
 
@@ -20296,7 +20300,7 @@ check, never printing a value.
 
 | Command | What it does |
 |---|---|
-| `rcrun backend run [dir]` | serves the Backend for development on a loopback address (`--listen host:port`, default `127.0.0.1:0`, a free port), prints a development token valid for that run only and each log record as it happens; `--page-origin` lets only that origin connect |
+| `rcrun backend run [dir]` | serves the Backend for development on a loopback address (`--listen host:port`, default `127.0.0.1:0`, a free port), prints a development token valid for that run only and each log record as it happens; `--page-origin` lets only that origin connect; `--engine interpreter` (the default) runs your programs as they are written, `--engine wasm` runs the same programs as the module the Build would make, kept in memory — to compare the two before you build |
 | `rcrun backend describe [dir]` | writes and prints `interface.json` |
 | `rcrun backend check [dir]` | checks the Backend and compares its contract with the released ones |
 | `rcrun backend release [dir]` | records the current contract as released |
@@ -20342,7 +20346,7 @@ software bill of materials — beside it. Your COBOL, your forms, your `exports.
 
 ```mermaid
 flowchart TD
-    B["Build the Backend"] --> Q{"Asked for Cargo, or does the Backend<br/>hold EXEC RUST, External Crates,<br/>an [identity] section, per-connection state,<br/>or something the module does not serve yet?"}
+    B["Build the Backend"] --> Q{"Asked for Cargo, or does the Backend<br/>hold EXEC RUST, External Crates,<br/>an [identity] section, a call of a control's method,<br/>or something the module does not serve yet?"}
     Q -- "no" --> W["WebAssembly module in the<br/>prebuilt runner<br/>seconds, no Rust"]
     Q -- "yes" --> C["Cargo<br/>the Output names every reason"]
     W --> F["bin/&lt;name&gt;-backend<br/>and bin/sbom.cdx.json"]
@@ -20362,7 +20366,7 @@ the language of the IDE):
 
 ```text
    Engine   : WebAssembly module
-   Phases   : check 7 ms, generate 12 ms, machine code 164 ms, assemble 4915 ms, install 4759 ms
+   Phases   : check 2 ms, generate 1 ms, machine code 10 ms, assemble 97 ms, install 82 ms
 ```
 
 ```text
@@ -20375,13 +20379,59 @@ the language of the IDE):
 
 The reasons for Cargo, each worded as the Build writes it: the project chose Cargo; it
 registers **External Crates**; a program holds an **EXEC RUST** block (the file and the line);
-`backend.toml` has an **[identity]** section; the project keeps state **per-connection**; a
-program holds a construct the module does not serve yet (the file, the line and the
-construct); a program needs a capability the runner does not provide (the capability is
-named — `sort`, `agent`, `kb` and `aws` among them); the runner was not found; or the runner
-has no bill of materials beside it. An `[identity]` section, per-connection state and some
-constructs are limits of the module way **today**, not of your program: the Backend builds
-with Cargo until the module serves them.
+`backend.toml` has an **[identity]** section; a program the Build writes for you calls a
+method of a control the Backend holds (a **RestClient**'s, for instance); a program holds a
+construct the module does not serve (the file, the line and the construct — a record of more
+than 512 KiB, or of more than 32 `OCCURS DEPENDING ON` occurrences, is one); a program needs a
+capability the runner does not provide (the capability is named — `sort`, `agent`, `kb` and
+`aws` among them); the runner was not found; or the runner has no bill of materials beside it.
+An `[identity]` section, a control's method and some constructs are limits of the module way
+**today**, not of your program: the Backend builds with Cargo until the module serves them.
+
+A Backend that keeps its state **per-connection** (24.6) builds as a module like any other,
+with one exception: two of its exported programs may not declare the same `EXTERNAL` item.
+On the module way each program has a memory of its own, so they would not share the item as
+they do when the programs are run as they are written; the Build names the item and both
+programs and takes Cargo for that Backend.
+
+**What a Backend program may use on the module way.** The same COBOL your Backend already
+holds — files of every organisation, `EXEC SQL`, `COBOL::SqlDatabase`, HTTP calls, `PARTIQL`,
+`CALL "NAME" USING` between its programs — and the eight verbs that act on the call it is
+answering: `WS-FAIL`, `WS-CLAIM`, `WS-EMIT`, `WS-PROGRESS`, `WS-CANCELLED`, `WS-PAUSE`,
+`WS-FILE-PATH` and `WS-FILE-PUBLISH` (24.6). A verb a *page* calls to talk to a Backend
+(`WS-UPLOAD`, `WS-DOWNLOAD`, `WS-SUBSCRIBE` and the others) has no page to act on in a Backend
+program; a program that uses one takes Cargo, which answers it as it always has. So does
+`AUTH-OP`, the identity operation.
+
+**Where the two ways still answer differently.** The answers of a call are the same: the
+shipped Backends were called on both ways with 176 calls and every answer, refusal and file
+they left was equal. What is left is small, and each one is on the record in
+`specs/WASM-PARITY.md`:
+
+| You will notice | On the module way | As the programs are run as they are written |
+|---|---|---|
+| A call answers a record whose `OCCURS DEPENDING ON` count the program never set | refused, code 4000, naming the table (`odo-out-of-range at RES.CELL`) | the same refusal, and the words add the count and the range |
+| A refused request names a member whose path is longer than 1,024 bytes (a very deep record of long names) | refused with code 4000 naming `unknown-key` | refused with code 4000 naming `wrong-type` |
+| A parameter nested 41 or more groups deep (the language allows 49 levels) | the runner refuses the module, saying it cannot read the Backend's interface (a record this deep has not been tried through a whole Build) | the Backend loads |
+| A call that never ends (`PERFORM UNTIL 1 = 2`) | stopped when the server's time limit ends it, and the next call is served | answered at the limit; the loop itself goes on running in the background |
+| `DISPLAY` | reaches the debug log of the call | the same |
+
+> **Note — measured, not promised.** On an Apple M3 Pro, with the release build of the IDE, the
+> Backends the examples ship built in 0.19 s (PowerMobileHello) to 0.96 s (PowerOficina), the
+> goal being 30 s; a call that reads a file was answered about ten times as fast as when the
+> programs are run as they are written (PowerOficina's catalogue list: 885 calls a second
+> against 86, one caller), a call that waits for SQLite about as fast as before, and a call
+> that does nothing at all costs about 94 microseconds against 6 to 10. No Linux or Windows
+> machine was measured. A Cargo build takes minutes.
+
+> **Note — try your Backend both ways before you build it.** `rcrun backend run --engine wasm`
+> serves the module in memory and `--engine interpreter` (the default) serves the programs as
+> written; call the same program on each and compare. The two are held equal by the same tests
+> for the shipped Backends; yours has not been run through them.
+>
+> 📷 **Screenshot needed — `backend-run-engine-wasm.png`.** In a terminal, in the folder of
+> PowerWebHello, run `rcrun backend run --engine wasm` and capture the lines it prints when it
+> starts, the development token among them.
 
 > **Note.** The runner is the file `prc-backend-runner` and, beside it,
 > `prc-backend-runner.sbom.json`, in the folder of the IDE and of `rcrun`. Set the
@@ -20398,9 +20448,19 @@ with Cargo until the module serves them.
 >
 > **Caveat.** The module way was run here, on a Mac, with the four Backends the examples ship
 > (PowerOficina, PowerAnalyticsWeb, PowerWebHello, PowerMobileHello): each built, started and
-> answered the same checks as a file built with Cargo. The Linux and Windows runners and the
-> installers with a module-built Backend were not run on those systems; try them on a test
-> machine first.
+> answered the same checks as a file built with Cargo, and the three suites that talk to the
+> server over a real connection (calls, the client contract, malformed frames) pass on both
+> ways. The Linux and Windows runners and the installers with a module-built Backend were not
+> run on those systems; try them on a test machine first.
+>
+> **Caveat.** A call that does nothing costs the module way about ten times what it costs when
+> the programs are run as they are written (94 microseconds against 6 to 10): it is a fixed cost
+> of each call, and it only shows on a Backend whose calls are that small, such as a health
+> check.
+>
+> **Caveat.** A request with thousands of members in one object is refused the same way on both
+> ways, but the module way takes much longer to read it (4,000 members: 1.2 seconds against
+> 0.06): the server's time limit bounds it. Keep the objects a page sends small.
 
 To put a Web application on a server, use **Package Project** (section 23.11) and not these
 commands by hand.
