@@ -510,9 +510,16 @@ exit 0
 mod tests {
     use super::super::tests::sample;
     use super::super::{Lang, TargetOs};
+    // The tests that run `bash` are for the systems the script is written for. On a Windows machine `bash` is the
+    // launcher of the Windows Subsystem for Linux (or nothing), the scripts' text is the same on every machine, and
+    // the Linux and macOS jobs of the build workflow run these; a skip line would fail that workflow, so on Windows
+    // they are not compiled at all.
+    #[cfg(unix)]
     use std::io::Write;
+    #[cfg(unix)]
     use std::process::{Command, Stdio};
 
+    #[cfg(unix)]
     fn bash_n(text: &str) -> Result<(), String> {
         let mut c = Command::new("bash").arg("-n").stdin(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
         c.stdin.take().unwrap().write_all(text.as_bytes()).map_err(|e| e.to_string())?;
@@ -524,6 +531,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn every_script_parses_in_every_language() {
         let started = std::time::Instant::now();
@@ -544,6 +552,7 @@ mod tests {
         println!("install.sh: {n} scripts (2 systems x 6 languages x 3 shapes) parse with bash -n in {} ms", started.elapsed().as_millis());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_name_with_a_quote_cannot_break_out() {
         let mut i = sample(TargetOs::Linux, Lang::En, true, true);
@@ -553,22 +562,26 @@ mod tests {
         assert!(text.contains("PROJECT='Bob'\\''s \"shop\" $(touch x)'"), "quoted with the single-quote rule");
     }
 
+    #[cfg(unix)]
     struct Ran {
         code: i32,
         out: String,
         err: String,
     }
 
+    #[cfg(unix)]
     fn run(script: &std::path::Path, cwd: &std::path::Path, args: &[&str]) -> Ran {
         let o = Command::new("bash").arg(script).args(args).current_dir(cwd).stdin(Stdio::null()).output().expect("bash runs");
         Ran { code: o.status.code().unwrap_or(-1), out: String::from_utf8_lossy(&o.stdout).into_owned(), err: String::from_utf8_lossy(&o.stderr).into_owned() }
     }
 
+    #[cfg(unix)]
     fn is_root() -> bool {
         Command::new("id").arg("-u").output().map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0").unwrap_or(false)
     }
 
     /// Every file under `dir` with its bytes, in order: what "changed nothing" is measured against.
+    #[cfg(unix)]
     fn snapshot(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
         fn walk(base: &std::path::Path, dir: &std::path::Path, out: &mut Vec<(String, Vec<u8>)>) {
             let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
@@ -589,6 +602,7 @@ mod tests {
     }
 
     /// The parameter check comes before the root check, so these run here as an ordinary user and prove that a refusal touches nothing.
+    #[cfg(unix)]
     #[test]
     fn the_refusals_that_change_nothing_run_for_real() {
         let started = std::time::Instant::now();
@@ -660,6 +674,7 @@ mod tests {
     }
 
     /// The part of the script that decides which folder nginx already reads sites from, run on the layouts of the systems.
+    #[cfg(unix)]
     #[test]
     fn the_site_goes_where_nginx_already_reads_sites_from() {
         let text = sample(TargetOs::Linux, Lang::En, false, true).script();

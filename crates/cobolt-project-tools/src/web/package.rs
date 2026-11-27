@@ -432,6 +432,10 @@ fn write_zip(path: &Path, mut entries: Vec<Entry>) -> Result<(u64, String, usize
             .compression_method(CompressionMethod::Deflated)
             .last_modified_time(DateTime::default())
             .unix_permissions(e.mode)
+            // The zip is unpacked on a Linux or macOS server whatever machine made it. The zip crate marks an entry
+            // as made on DOS when it runs on Windows, and `unzip` then ignores the permissions: the Backend would
+            // arrive without its executable bit. Say Unix on every host (which also makes the bytes the same on all).
+            .system(zip::System::Unix)
             .large_file(bytes.len() as u64 >= 0xFFFF_FFFF);
         zip.start_file(e.name.as_str(), opts).map_err(|err| format!("zip: {}: {err}", e.name))?;
         zip.write_all(&bytes).map_err(|err| format!("zip: {}: {err}", e.name))?;
@@ -787,6 +791,7 @@ mod tests {
         let mut text = String::new();
         std::io::Read::read_to_string(&mut z.by_name("backend.toml").unwrap(), &mut text).unwrap();
         assert!(text.contains("allowed_origins"));
+        assert_eq!(z.by_name("bin/app-backend").unwrap().system(), zip::System::Unix, "made as a Unix entry on every host, so `unzip` keeps the modes");
         assert_eq!(z.by_name("bin/app-backend").unwrap().unix_mode(), Some(0o100755));
         assert_eq!(z.by_name("web/index.html").unwrap().unix_mode(), Some(0o100644));
         // A project with no Backend: the site only.
