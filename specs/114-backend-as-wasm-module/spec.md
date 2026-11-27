@@ -121,7 +121,7 @@ flowchart LR
 - [x] **AC9 — Permanent compatibility.** A Backend module kept from the first release of this feature runs on the runner of the current one (a fixture committed with the feature, run by every later release's tests). (R3)
 - [ ] **AC10 — Measured, not gated.** The Build time per phase and the throughput of both engines (calls per second for the shipped Backends' commonest call, one connection and N connections) are measured and printed on each of macOS, Linux and Windows runners; the 30 s goal is stated as met or not met per platform. (R16, goal)
 - [x] **AC11 — Secure.** The module and manifest hold no secret; a release module refuses an `unsafe_*` setting; the module's imports equal its declared capabilities. (R21)
-- [ ] **AC12 — Documented.** The Developer's Guide chapter 24 says what the Build now makes, when it falls back and why, `--engine wasm`, and the caveats; the system knowledge base is regenerated; the CHANGELOG says, per system, what was proved and what was not. (§6)
+- [x] **AC12 — Documented.** The Developer's Guide chapter 24 says what the Build now makes, when it falls back and why, `--engine wasm`, and the caveats; the system knowledge base is regenerated; the CHANGELOG says, per system, what was proved and what was not. (§6)
 
 ## 6. Constraints & steering check
 
