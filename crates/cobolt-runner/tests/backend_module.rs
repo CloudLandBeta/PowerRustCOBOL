@@ -151,7 +151,7 @@ fn module(sources: &[&str]) -> Vec<u8> {
 
 /// What a Backend runner provides: everything a desktop console program does, as the data variants name it.
 fn provided() -> Vec<&'static str> {
-    cobolt_runner::headless_capabilities()
+    cobolt_runner::backend::backend_capabilities()
 }
 
 fn load(wasm: &[u8]) -> BackendModule {
@@ -350,4 +350,84 @@ fn calls_from_many_threads_at_once_do_not_meet() {
         u128::from(total * 2) * 1000 / ms
     );
     println!("PASS {:03} FAIL 000", total * 2);
+}
+
+/// A program that reports progress, fails on request and asks whether it was cancelled: the three verbs a call that no server
+/// is serving has no use for (`WS-FAIL` is a run-time error there, the other two do nothing).
+const SERVES: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SERVES.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 ASKED PIC X VALUE "?".
+LINKAGE SECTION.
+01 REQ.
+   05 FAIL-IT PIC X.
+   05 ASKED-OUT PIC X.
+PROCEDURE DIVISION USING REQ.
+MAIN-PARA.
+    COBOL::"WS-PROGRESS" ( 50 "half" )
+    COBOL::"WS-CANCELLED" ( ASKED )
+    MOVE ASKED TO ASKED-OUT
+    IF FAIL-IT = "Y"
+        COBOL::"WS-FAIL" ( 4201 "declined" )
+    END-IF
+    GOBACK.
+"#;
+
+/// Spec 114 T34 (ABI A60): the `backend` capability is the Backend runner's alone. A module that calls a verb requires it, so a
+/// host that serves no call refuses the module by name, and the Web bundler refuses it as it refuses every desktop capability.
+#[test]
+fn a_module_that_calls_a_verb_is_refused_by_every_host_that_serves_no_call() {
+    let started = Instant::now();
+    let wasm = module(&[SERVES]);
+    let mut checked = 0;
+    // The plain console runner and the Desktop runner.
+    let headless = cobolt_runner::headless_capabilities();
+    match BackendModule::load(&wasm, None, &headless, None) {
+        Err(Msg::Capabilities(names)) => assert_eq!(names, vec!["backend".to_string()]),
+        Err(other) => panic!("another refusal: {other:?}"),
+        Ok(_) => panic!("a runner that serves no call loaded a module that calls a verb"),
+    }
+    checked += 1;
+    assert!(!cobolt_runner::PROVIDED_CAPABILITIES.contains(&"backend"), "the Desktop runner serves no call");
+    assert!(!headless.contains(&"backend"), "the console runner serves no call");
+    checked += 2;
+    // The Web bundler, with either memory layout.
+    for single in [true, false] {
+        let problems = cobolt_wasm_abi::scan::bundle_problems(&wasm, single);
+        assert!(problems.iter().any(|p| p.contains("the capability `backend`")), "the bundler does not name `backend`: {problems:?}");
+        checked += 1;
+    }
+    // The Backend runner provides it.
+    assert!(cobolt_runner::backend::backend_capabilities().contains(&"backend"));
+    assert!(BackendModule::load(&wasm, None, &cobolt_runner::backend::backend_capabilities(), None).is_ok());
+    checked += 2;
+    println!("a module that calls a verb: refused by name by the console runner, the Desktop runner and the Web bundler (both layouts), loaded by the Backend runner: {checked} checks in {} ms", started.elapsed().as_millis());
+    println!("PASS {checked:03} FAIL 000");
+}
+
+/// Called directly, with no server behind the call, a verb does what the interpreter does with no hooks: `WS-PROGRESS` does
+/// nothing, `WS-CANCELLED` answers `N`, and `WS-FAIL` is a run-time error that ends the call and not the process.
+#[test]
+fn the_verbs_of_a_call_no_server_is_serving_do_what_the_interpreter_does_with_no_hooks() {
+    let started = Instant::now();
+    let m = load(&module(&[SERVES]));
+    let none = CallControl::none();
+    let called = m.call("SERVES", &[r#"{"FAIL-IT":"N","ASKED-OUT":"?"}"#], &none).unwrap();
+    match &called.outcome {
+        Outcome::Answered(a) => assert!(a.args[0].contains("\"ASKED-OUT\":\"N\""), "WS-CANCELLED says N: {:?}", a.args),
+        other => panic!("not answered: {other:?}"),
+    }
+    assert!(called.failure.is_none() && !called.cancelled);
+    let failed = m.call("SERVES", &[r#"{"FAIL-IT":"Y","ASKED-OUT":"?"}"#], &none).unwrap();
+    match &failed.outcome {
+        Outcome::Trapped(said) => assert!(said.contains("WS-FAIL") && said.contains("not serving a call"), "{said}"),
+        other => panic!("WS-FAIL with no call to fail should trap: {other:?}"),
+    }
+    assert!(failed.failure.is_none(), "no host, so nothing was recorded");
+    // The module goes on after the trap.
+    assert!(matches!(m.call("SERVES", &[r#"{"FAIL-IT":"N","ASKED-OUT":"?"}"#], &none).unwrap().outcome, Outcome::Answered(_)));
+    println!("WS-PROGRESS did nothing, WS-CANCELLED said N, WS-FAIL trapped with the interpreter's words and the module went on: 4 checks in {} ms", started.elapsed().as_millis());
+    println!("PASS 004 FAIL 000");
 }

@@ -982,4 +982,55 @@ pub extern "C" fn rt_json_error_path(out: u32, cap: u32) -> u32 {
     json::error_path_into(out, cap)
 }
 
+// ── A Backend's verbs (ABI A60, spec 114 M5) ───────────────────────────────
+
+/// `COBOL::"WS-FAIL" ( code message [detail] )`: report the call's own failure (`detail` 0: none). The caller ends the run.
+#[no_mangle]
+pub extern "C" fn rt_ws_fail(base: u32, code: u32, message: u32, detail: u32) {
+    ws::fail(base, code, message, detail);
+}
+
+/// `COBOL::"WS-PROGRESS" ( percent [message] )`: 1 when the call must end because its caller asked to cancel.
+#[no_mangle]
+pub extern "C" fn rt_ws_progress(base: u32, percent: u32, message: u32) -> i32 {
+    ws::progress(base, percent, message)
+}
+
+/// `COBOL::"WS-CANCELLED" ( flag )`.
+#[no_mangle]
+pub extern "C" fn rt_ws_cancelled(base: u32, flag: u32) {
+    ws::cancelled(base, flag);
+}
+
+/// `COBOL::"WS-PAUSE" ( milliseconds )`.
+#[no_mangle]
+pub extern "C" fn rt_ws_pause(base: u32, milliseconds: u32) {
+    ws::pause(base, milliseconds);
+}
+
+/// `COBOL::"WS-EMIT" ( group )`, the group described by the JSON descriptor `desc`: 1 when the call must end.
+#[no_mangle]
+pub extern "C" fn rt_ws_emit(base: u32, desc: u32, group: u32) -> i32 {
+    ws::emit(base, desc, group)
+}
+
+/// `COBOL::"WS-CLAIM" ( name value )`.
+#[no_mangle]
+pub extern "C" fn rt_ws_claim(base: u32, name: u32, value: u32) {
+    ws::claim(base, name, value);
+}
+
+/// `COBOL::"WS-FILE-PATH" ( file-id path status )`.
+#[no_mangle]
+pub extern "C" fn rt_ws_file_path(base: u32, id: u32, path: u32, status: u32) {
+    ws::file_path(base, id, path, status);
+}
+
+/// `COBOL::"WS-FILE-PUBLISH" ( path file-id status )`.
+#[no_mangle]
+pub extern "C" fn rt_ws_file_publish(base: u32, path: u32, id: u32, status: u32) {
+    ws::file_publish(base, path, id, status);
+}
+
 pub mod pq;
+pub mod ws;

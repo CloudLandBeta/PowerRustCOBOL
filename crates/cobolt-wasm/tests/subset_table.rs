@@ -508,17 +508,22 @@ fn the_statement_table_is_the_support_match() {
 /// are the rows themselves, which the tests above hold.
 #[test]
 fn every_backend_verb_has_a_backend_class() {
-    use cobolt_wasm::support::{backend_builtin_refusal, BACKEND_SIDE_VERBS, CLIENT_SIDE_VERBS};
+    use cobolt_wasm::support::{backend_builtin_refusal, backend_serves, BACKEND_SERVED_VERBS, BACKEND_SIDE_VERBS, CLIENT_SIDE_VERBS};
     let verbs: Vec<&str> = BUILTIN_TABLE.iter().map(|b| b.name).filter(|n| n.starts_with("WS-") || *n == "AUTH-OP").collect();
     for n in &verbs {
         let (a, b) = (BACKEND_SIDE_VERBS.contains(n), CLIENT_SIDE_VERBS.contains(n));
         assert!(a ^ b, "{n} is in {} of the Backend's lists (it must be in exactly one)", a as u8 + b as u8);
-        assert!(backend_builtin_refusal(n).is_some(), "{n} has no Backend reason");
+        // The eight a Backend module serves have no refusal; every other has one.
+        assert_eq!(backend_builtin_refusal(n).is_none(), backend_serves(n), "{n}: served and refused must agree");
     }
     for n in BACKEND_SIDE_VERBS.iter().chain(CLIENT_SIDE_VERBS) {
         assert!(builtin_entry(n).is_some(), "the Backend list names {n}, which is no row of BUILTIN_TABLE");
     }
     assert_eq!(verbs.len(), BACKEND_SIDE_VERBS.len() + CLIENT_SIDE_VERBS.len());
+    for n in BACKEND_SERVED_VERBS {
+        assert!(BACKEND_SIDE_VERBS.contains(n), "{n} is served but is not a Backend-side verb");
+    }
+    assert_eq!(BACKEND_SERVED_VERBS.len() + 1, BACKEND_SIDE_VERBS.len(), "every Backend-side verb but AUTH-OP is served");
     // A built-in outside the two lists is the Desktop's decision.
     let others = BUILTIN_TABLE.iter().filter(|b| backend_builtin_refusal(b.name).is_none()).count();
     eprintln!(

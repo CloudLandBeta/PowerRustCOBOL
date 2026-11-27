@@ -2553,6 +2553,7 @@ dependencies = [
  "cobolt-runtime",
  "cobolt-wasm",
  "cobolt-wasm-abi",
+ "cobolt-wire",
  "flate2",
  "serde",
  "serde_json",

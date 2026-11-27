@@ -25,7 +25,7 @@ pub mod payload;
 /// is refused when it starts, naming it. The groups of capabilities a variant of the runner leaves out are decided at
 /// spec 114's gate G3, with each variant's measured size.
 pub fn provided() -> Vec<&'static str> {
-    cobolt_runner::headless_capabilities()
+    cobolt_runner::backend::backend_capabilities()
 }
 
 /// Run the Backend this executable carries with the process arguments (without the program's name): the exit code.

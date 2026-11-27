@@ -88,6 +88,8 @@ cobolt-forms     = { path = "../cobolt-forms", features = ["render"], optional =
 cobolt-graphics  = { path = "../cobolt-graphics", optional = true }
 # The file declarations name an INDEXED file's engine choice as the parser does (T38).
 cobolt-ast       = { path = "../cobolt-ast" }
+# The rules of the Backend's verbs (spec 114 T36): the limits, clamps and words the interpreter applies too.
+cobolt-wire      = { path = "../cobolt-wire" }
 
 [dev-dependencies]
 # The graphics pump's tests open a form's tree directly (`host::testing`).

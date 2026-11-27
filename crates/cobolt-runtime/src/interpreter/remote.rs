@@ -657,7 +657,7 @@ impl Interpreter {
         if self.remote.hooks.is_some() {
             Ok(())
         } else {
-            Err(RuntimeError::General { message: format!("COBOL::\"{what}\" belongs to a program the backend exports; this run is not serving a call") })
+            Err(RuntimeError::General { message: cobolt_wire::verbs::not_serving(what) })
         }
     }
 
@@ -669,21 +669,13 @@ impl Interpreter {
         if using.len() < 2 {
             return Err(RuntimeError::General { message: "COBOL::\"WS-FAIL\" needs a code and a message".into() });
         }
-        let code = self.eval_call_arg(&using[0], span)?.as_f64().round();
-        if !(1.0..=codes::APPLICATION_MAX as f64).contains(&code) {
-            return Err(RuntimeError::General {
-                message: format!("COBOL::\"WS-FAIL\": the code must be 1 to {}; {} and above belong to the platform", codes::APPLICATION_MAX, codes::APPLICATION_MAX + 1),
-            });
-        }
-        let message: String = self.eval_call_arg(&using[1], span)?.as_display_string().trim_end().chars().take(200).collect();
+        let code = cobolt_wire::verbs::fail_code(self.eval_call_arg(&using[0], span)?.as_f64()).map_err(|message| RuntimeError::General { message })?;
+        let message = cobolt_wire::verbs::fail_message(&self.eval_call_arg(&using[1], span)?.as_display_string());
         let detail = match using.get(2) {
-            Some(a) => {
-                let d: String = self.eval_call_arg(a, span)?.as_display_string().trim_end().chars().take(4096).collect();
-                (!d.is_empty()).then_some(d)
-            }
+            Some(a) => cobolt_wire::verbs::fail_detail(&self.eval_call_arg(a, span)?.as_display_string()),
             None => None,
         };
-        self.remote.app_failure = Some(AppFailure { code: code as u32, message, detail });
+        self.remote.app_failure = Some(AppFailure { code, message, detail });
         Err(RuntimeError::StopRun)
     }
 
@@ -718,9 +710,9 @@ impl Interpreter {
         if self.remote.hooks.is_none() || using.is_empty() {
             return Ok(());
         }
-        let pct = self.eval_call_arg(&using[0], span)?.as_f64().clamp(0.0, 100.0).round() as u8;
-        let message: String = match using.get(1) {
-            Some(a) => self.eval_call_arg(a, span)?.as_display_string().trim_end().chars().take(120).collect(),
+        let pct = cobolt_wire::verbs::progress_percent(self.eval_call_arg(&using[0], span)?.as_f64());
+        let message = match using.get(1) {
+            Some(a) => cobolt_wire::verbs::progress_message(&self.eval_call_arg(a, span)?.as_display_string()),
             None => String::new(),
         };
         if let Some(h) = &self.remote.hooks {
@@ -748,7 +740,7 @@ impl Interpreter {
     /// caller asks to cancel and stopping at once when the call is cut off.
     pub(super) fn builtin_ws_pause(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
         let Some(a) = using.first() else { return Ok(()) };
-        let ms = self.eval_call_arg(a, span)?.as_f64().clamp(0.0, 600_000.0) as u64;
+        let ms = cobolt_wire::verbs::pause_ms(self.eval_call_arg(a, span)?.as_f64());
         let end = std::time::Instant::now() + std::time::Duration::from_millis(ms);
         loop {
             if self.cancel.as_ref().is_some_and(|c| c.load(Ordering::SeqCst)) {
@@ -761,7 +753,7 @@ impl Interpreter {
             if now >= end {
                 return Ok(());
             }
-            std::thread::sleep((end - now).min(std::time::Duration::from_millis(10)));
+            std::thread::sleep((end - now).min(std::time::Duration::from_millis(cobolt_wire::verbs::PAUSE_SLICE_MS)));
         }
     }
 
@@ -770,13 +762,13 @@ impl Interpreter {
         self.in_backend("WS-EMIT")?;
         let Some(a) = using.first() else { return Ok(()) };
         let name = self.expr_to_name(call_arg_expr(a));
-        let json = self.group_to_json(&name).map_err(|e| RuntimeError::General { message: format!("COBOL::\"WS-EMIT\": {e}") })?;
+        let json = self.group_to_json(&name).map_err(|e| RuntimeError::General { message: cobolt_wire::verbs::emit_unwritable(&e.to_string()) })?;
         let (sent, asked) = match &self.remote.hooks {
             Some(h) => (h.emit.as_ref().map(|f| f(&json)), h.cancel_requested.load(Ordering::SeqCst)),
             None => (None, false),
         };
         match sent {
-            None => Err(RuntimeError::General { message: "COBOL::\"WS-EMIT\" is for a program exported as a stream".into() }),
+            None => Err(RuntimeError::General { message: cobolt_wire::verbs::EMIT_NOT_A_STREAM.into() }),
             Some(true) if !asked => Ok(()),
             Some(_) => {
                 self.remote.cancelled = true;
@@ -792,10 +784,10 @@ impl Interpreter {
         }
         let id = self.eval_call_arg(&using[0], span)?.as_display_string().trim().to_string();
         let (path, status) = match self.remote.hooks.as_ref().and_then(|h| h.files.as_ref()) {
-            None => (String::new(), "NOBACKEND"),
+            None => (String::new(), cobolt_wire::verbs::FILE_NOBACKEND),
             Some(files) => match files.resolve(&id) {
-                Some(p) => (p.display().to_string(), "OK"),
-                None => (String::new(), "NOFILE"),
+                Some(p) => (p.display().to_string(), cobolt_wire::verbs::FILE_OK),
+                None => (String::new(), cobolt_wire::verbs::FILE_NOFILE),
             },
         };
         let (np, ns) = (self.expr_to_name(call_arg_expr(&using[1])), self.expr_to_name(call_arg_expr(&using[2])));
@@ -811,10 +803,10 @@ impl Interpreter {
         }
         let path = self.eval_call_arg(&using[0], span)?.as_display_string().trim().to_string();
         let (id, status) = match self.remote.hooks.as_ref().and_then(|h| h.files.as_ref()) {
-            None => (String::new(), "NOBACKEND"),
+            None => (String::new(), cobolt_wire::verbs::FILE_NOBACKEND),
             Some(files) => match files.publish(std::path::Path::new(&path)) {
-                Ok(id) => (id, "OK"),
-                Err(_) => (String::new(), "NOFILE"),
+                Ok(id) => (id, cobolt_wire::verbs::FILE_OK),
+                Err(_) => (String::new(), cobolt_wire::verbs::FILE_NOFILE),
             },
         };
         let (ni, ns) = (self.expr_to_name(call_arg_expr(&using[1])), self.expr_to_name(call_arg_expr(&using[2])));

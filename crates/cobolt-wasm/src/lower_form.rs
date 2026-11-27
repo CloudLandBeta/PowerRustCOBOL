@@ -370,7 +370,11 @@ impl Lower<'_, '_> {
             if let Some(b) = first.and_then(|n| crate::support::builtin_entry(&n.to_ascii_uppercase())) {
                 // A Backend module reads the Backend's own verbs differently (spec 114 T13).
                 let backend_why = if self.backend_mode { crate::support::backend_builtin_refusal(b.name) } else { None };
+                // A Backend module serves its eight verbs through the `backend` capability (ABI A60); any other module reaches
+                // the row's own class, which sends them to the Cargo path.
+                let served = self.backend_mode && crate::support::backend_serves(b.name);
                 let why = backend_why.or(match b.native {
+                    _ if served => None,
                     crate::support::Native::Cargo(why) => Some(why),
                     crate::support::Native::Form => (!forms_served).then_some(crate::support::D_FORMS),
                     crate::support::Native::Module | crate::support::Native::Host(_) | crate::support::Native::Files => None,
@@ -1301,6 +1305,8 @@ impl Lower<'_, '_> {
             "HTTP-GET" | "HTTP-POST" | "HTTP-PUT" | "HTTP-DELETE" | "HTTP-SET-HEADER" | "HTTP-CLEAR-HEADERS" | "HTTP-DOWNLOAD" if self.native => {
                 self.desktop_http(name, using, line)
             }
+            // A Backend module answers the call it is serving through the runner's `backend` capability (A60).
+            verb if self.backend_mode && crate::support::backend_serves(verb) => self.backend_verb(verb, using, line),
             // On the desktop the module keeps every file's last status (T39c).
             "FILE-STATUS" if self.native => self.desktop_file_status(using, line),
             // On the desktop the runner runs PartiQL on the program's own open files (T48).
@@ -1825,6 +1831,114 @@ impl Lower<'_, '_> {
         }
         self.call_rt("rt_http");
         Ok(())
+    }
+
+    /// The Backend's verbs in a Backend module (ABI A60, spec 114 M5): `COBOL::"WS-FAIL" ( code message [detail] )`,
+    /// `"WS-PROGRESS" ( percent [message] )`, `"WS-CANCELLED" ( flag )`, `"WS-PAUSE" ( milliseconds )`,
+    /// `"WS-EMIT" ( group )`, `"WS-CLAIM" ( name value )`, `"WS-FILE-PATH" ( file-id path status )` and
+    /// `"WS-FILE-PUBLISH" ( path file-id status )`. Each is one routine of the runtime and one import the runner serves for the
+    /// call being answered, by the interpreter's own rules. A verb given fewer arguments than it takes does what the
+    /// interpreter does with them (nothing, as it reads `using.get(n)`), except `WS-FAIL`, whose missing code or message is a
+    /// run-time error there: that one is refused, so the Build takes the Cargo path, where the interpreter reports it.
+    /// `WS-FAIL`, and a `WS-PROGRESS` or `WS-EMIT` that the host says must end the call, end the run as `STOP RUN` does.
+    fn backend_verb(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
+        let subject = format!("COBOL::\"{name}\"");
+        let ex = |a: &CallArg| match a {
+            CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+        };
+        match name {
+            "WS-FAIL" => {
+                if using.len() < 2 {
+                    return self.err_kind(line, crate::error::ErrorKind::Other, subject.clone(), format!("{subject} takes a code and a message"));
+                }
+                let code = self.operand_or_temp(&ex(&using[0]))?;
+                let message = self.operand_or_temp(&ex(&using[1]))?;
+                let detail = match using.get(2) {
+                    Some(a) => self.operand_or_temp(&ex(a))?,
+                    None => 0,
+                };
+                self.base();
+                self.i32c(code as i32);
+                self.i32c(message as i32);
+                self.i32c(detail as i32);
+                self.call_rt("rt_ws_fail");
+                self.stop_run();
+            }
+            "WS-PROGRESS" => {
+                let Some(first) = using.first() else { return Ok(()) };
+                let percent = self.operand_or_temp(&ex(first))?;
+                let message = match using.get(1) {
+                    Some(a) => self.operand_or_temp(&ex(a))?,
+                    None => 0,
+                };
+                self.base();
+                self.i32c(percent as i32);
+                self.i32c(message as i32);
+                self.call_rt("rt_ws_progress");
+                self.end_run_if_asked();
+            }
+            "WS-CANCELLED" => {
+                let Some(first) = using.first() else { return Ok(()) };
+                let flag = self.receiver(&ex(first))?;
+                self.base();
+                self.i32c(flag as i32);
+                self.call_rt("rt_ws_cancelled");
+            }
+            "WS-PAUSE" => {
+                let Some(first) = using.first() else { return Ok(()) };
+                let milliseconds = self.operand_or_temp(&ex(first))?;
+                self.base();
+                self.i32c(milliseconds as i32);
+                self.call_rt("rt_ws_pause");
+            }
+            "WS-EMIT" => {
+                let Some(first) = using.first() else { return Ok(()) };
+                // The group travels as the interpreter's `group_to_json` writes it, by the descriptor of its declaration.
+                let (desc, group) = self.json_group(&ex(first), line)?;
+                self.base();
+                self.i32c(desc as i32);
+                self.i32c(group as i32);
+                self.call_rt("rt_ws_emit");
+                self.end_run_if_asked();
+            }
+            "WS-CLAIM" => {
+                if using.len() < 2 {
+                    return Ok(());
+                }
+                let claim = self.operand_or_temp(&ex(&using[0]))?;
+                let value = self.receiver(&ex(&using[1]))?;
+                self.base();
+                self.i32c(claim as i32);
+                self.i32c(value as i32);
+                self.call_rt("rt_ws_claim");
+            }
+            // `WS-FILE-PATH`: the id is read, the path and the status are written. `WS-FILE-PUBLISH`: the path is read, the
+            // id and the status are written.
+            _ => {
+                if using.len() < 3 {
+                    return Ok(());
+                }
+                let read = self.operand_or_temp(&ex(&using[0]))?;
+                let written = self.receiver(&ex(&using[1]))?;
+                let status = self.receiver(&ex(&using[2]))?;
+                self.base();
+                self.i32c(read as i32);
+                self.i32c(written as i32);
+                self.i32c(status as i32);
+                self.call_rt(if name == "WS-FILE-PATH" { "rt_ws_file_path" } else { "rt_ws_file_publish" });
+            }
+        }
+        Ok(())
+    }
+
+    /// The routine just called answered 1 when the call must end: end the run as `STOP RUN` does; any other answer goes on.
+    fn end_run_if_asked(&mut self) {
+        let ended = self.new_block("backend-call-ended");
+        let go = self.new_block("backend-call-goes-on");
+        self.branch(ended, go);
+        self.begin(ended);
+        self.stop_run();
+        self.begin(go);
     }
 
     /// `COBOL::"PARTIQL" ( file statement count status [arguments] )`, `"PARTIQL-FETCH" ( file row

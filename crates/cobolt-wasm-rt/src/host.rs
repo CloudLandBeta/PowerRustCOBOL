@@ -118,6 +118,29 @@ mod imp {
         /// it without its trailing spaces), and its number (bits 32 to 62) and whole length (bits 0 to
         /// 31) returned, or -1.
         pub fn pq_file(op: u32, req: u32, req_len: u32, buf: u32, cap: u32) -> i64;
+        // A Backend module only (ABI A60): the verbs of the call being answered, run by the Backend runner.
+        /// `WS-FAIL`: the failure `code` (a number the runner holds to 1 to 7999), the `msg_len` bytes at `msg` and the
+        /// `detail_len` at `detail` (0: none). Answers 0; a run-time error is a trap.
+        pub fn ws_fail(code: f64, msg: u32, msg_len: u32, detail: u32, detail_len: u32) -> i32;
+        /// `WS-PROGRESS`: `percent` and the `msg_len` bytes at `msg`. Answers 1 when the call must end (its caller asked to
+        /// cancel), else 0.
+        pub fn ws_progress(percent: f64, msg: u32, msg_len: u32) -> i32;
+        /// `WS-CANCELLED`: 1 when the caller asked to cancel, else 0.
+        pub fn ws_cancelled() -> i32;
+        /// `WS-PAUSE`: wait `ms` milliseconds, ending early when the caller asks to cancel. Answers 0; a call the server
+        /// stops is a trap.
+        pub fn ws_pause(ms: f64) -> i32;
+        /// `WS-EMIT`: the `len` bytes of JSON at `buf` as the stream's next item, or, when `len` is negative, the negated
+        /// code of the mapping that could not write the group. Answers 0 to go on and 1 when the call must end.
+        pub fn ws_emit(buf: u32, len: i32) -> i32;
+        /// `WS-CLAIM`: the value of the claim named by the `name_len` bytes at `name`, written at `buf` (at most `cap`
+        /// bytes); its length is returned.
+        pub fn ws_claim(name: u32, name_len: u32, buf: u32, cap: u32) -> i32;
+        /// `WS-FILE-PATH`: the path of the file the id (`id_len` bytes at `id`) names, then the status word, written at
+        /// `buf` (at most `cap` bytes); returns the status word's length (bits 32 to 47) and the path's (bits 0 to 31), or -1.
+        pub fn ws_file_path(id: u32, id_len: u32, buf: u32, cap: u32) -> i64;
+        /// `WS-FILE-PUBLISH`: the id of the file at the path (`path_len` bytes at `path`), then the status word, as above.
+        pub fn ws_file_publish(path: u32, path_len: u32, buf: u32, cap: u32) -> i64;
     }
 }
 
@@ -356,6 +379,55 @@ mod imp {
         crate::mem::bytes_mut(buf, n as u32).copy_from_slice(&ans[from..from + n]);
         let number = PQ_NUMBER.with(|v| *v.borrow());
         ((u64::from(number) << 32) | ans.len() as u64) as i64
+    }
+    std::thread_local! {
+        /// What the next `ws_progress`, `ws_emit` and `ws_pause` answer, and the claim and the file words the others write
+        /// (A60): the verbs of a Backend, recorded with the built-ins' imports as `("ws_…", [texts], [numbers])`.
+        pub static WS_STOP: RefCell<i32> = const { RefCell::new(0) };
+        pub static WS_CANCEL_ASKED: RefCell<i32> = const { RefCell::new(0) };
+        pub static WS_NUMBERS: RefCell<Vec<f64>> = const { RefCell::new(Vec::new()) };
+        pub static WS_PAIR: RefCell<(Vec<u8>, Vec<u8>)> = const { RefCell::new((Vec::new(), Vec::new())) };
+    }
+    pub unsafe fn ws_fail(code: f64, msg: u32, msg_len: u32, detail: u32, detail_len: u32) -> i32 {
+        WS_NUMBERS.with(|n| n.borrow_mut().push(code));
+        builtin_call("ws_fail", &[(msg, msg_len), (detail, detail_len)], &[], 0, 0);
+        0
+    }
+    pub unsafe fn ws_progress(percent: f64, msg: u32, msg_len: u32) -> i32 {
+        WS_NUMBERS.with(|n| n.borrow_mut().push(percent));
+        builtin_call("ws_progress", &[(msg, msg_len)], &[], 0, 0);
+        WS_STOP.with(|s| *s.borrow())
+    }
+    pub unsafe fn ws_cancelled() -> i32 {
+        WS_CANCEL_ASKED.with(|s| *s.borrow())
+    }
+    pub unsafe fn ws_pause(ms: f64) -> i32 {
+        WS_NUMBERS.with(|n| n.borrow_mut().push(ms));
+        0
+    }
+    pub unsafe fn ws_emit(buf: u32, len: i32) -> i32 {
+        let n = len.max(0) as u32;
+        builtin_call("ws_emit", &[(buf, n)], &[len as i64], 0, 0);
+        WS_STOP.with(|s| *s.borrow())
+    }
+    pub unsafe fn ws_claim(name: u32, name_len: u32, buf: u32, cap: u32) -> i32 {
+        builtin_call("ws_claim", &[(name, name_len)], &[], buf, cap)
+    }
+    /// The answer of a file verb: the text, then the status word (`WS_PAIR`).
+    fn ws_pair(name: &'static str, at: u32, len: u32, buf: u32, cap: u32) -> i64 {
+        builtin_call(name, &[(at, len)], &[], 0, 0);
+        let (text, word) = WS_PAIR.with(|p| p.borrow().clone());
+        let mut all = text.clone();
+        all.extend_from_slice(&word);
+        let n = all.len().min(cap as usize);
+        crate::mem::bytes_mut(buf, n as u32).iter_mut().zip(all.iter()).for_each(|(d, s)| *d = *s);
+        ((word.len() as u64) << 32 | text.len() as u64) as i64
+    }
+    pub unsafe fn ws_file_path(id: u32, id_len: u32, buf: u32, cap: u32) -> i64 {
+        ws_pair("ws_file_path", id, id_len, buf, cap)
+    }
+    pub unsafe fn ws_file_publish(path: u32, path_len: u32, buf: u32, cap: u32) -> i64 {
+        ws_pair("ws_file_publish", path, path_len, buf, cap)
     }
 }
 

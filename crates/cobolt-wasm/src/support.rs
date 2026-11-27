@@ -466,19 +466,25 @@ pub fn desktop_refusal(s: &Stmt, in_form: bool) -> Option<&'static str> {
 
 // ── The Backend column (spec 114 T13) ─────────────────────────────────────────────────────────────
 
-/// The verbs of a Backend program that act on the call it is answering (spec 114 R4): the runner serves them
-/// through its `backend` capability, which a later milestone adds (M5, T35); until then a Backend module refuses
-/// each at its line and the Build takes the Cargo path. `AUTH-OP` is the ninth of the plan's list and has
-/// a reason of its own ([`B_IDENTITY`]). A test holds this list and [`CLIENT_SIDE_VERBS`] equal to the `WS-…`
-/// rows of [`BUILTIN_TABLE`] (and `AUTH-OP`), so a new verb is classified the day it is added.
+/// The verbs of a Backend program that act on the call it is answering (spec 114 R4): the runner serves eight of them
+/// through its `backend` capability (ABI A60, spec 114 M5, [`BACKEND_SERVED_VERBS`]) and a Backend module holds them.
+/// `AUTH-OP` is the ninth of the plan's list and has a reason of its own ([`B_IDENTITY`]). A test holds this list and
+/// [`CLIENT_SIDE_VERBS`] equal to the `WS-…` rows of [`BUILTIN_TABLE`] (and `AUTH-OP`), so a new verb is classified the day it
+/// is added.
 pub const BACKEND_SIDE_VERBS: &[&str] = &["AUTH-OP", "WS-CANCELLED", "WS-CLAIM", "WS-EMIT", "WS-FAIL", "WS-FILE-PATH", "WS-FILE-PUBLISH", "WS-PAUSE", "WS-PROGRESS"];
+/// The eight of [`BACKEND_SIDE_VERBS`] a Backend module serves: each is one import of the `backend` capability (ABI A60).
+pub const BACKEND_SERVED_VERBS: &[&str] = &["WS-CANCELLED", "WS-CLAIM", "WS-EMIT", "WS-FAIL", "WS-FILE-PATH", "WS-FILE-PUBLISH", "WS-PAUSE", "WS-PROGRESS"];
+
+/// Whether a Backend module serves the built-in `name` (as [`BUILTIN_TABLE`] spells it) through the `backend` capability.
+pub fn backend_serves(name: &str) -> bool {
+    BACKEND_SERVED_VERBS.iter().any(|v| v.eq_ignore_ascii_case(name))
+}
+
 /// The verbs a page calls to talk to a Backend. In a Backend program they have no page to act on: the interpreter
 /// answers them inertly or with `NOBACKEND`, and a module that built them in would diverge from it, so a Backend
 /// module refuses them (spec 114 C1).
 pub const CLIENT_SIDE_VERBS: &[&str] = &["WS-DOWNLOAD", "WS-LAST-ERROR", "WS-SHOW-PROGRESS", "WS-STREAM-ITEM", "WS-SUBSCRIBE", "WS-UNSUBSCRIBE", "WS-UPLOAD", "WS-VERSION", "WS-WARNING"];
 
-/// Why a Backend module refuses a verb of [`BACKEND_SIDE_VERBS`] today.
-pub const B_NEEDS_CAPABILITY: &str = "a Backend verb is served by the runner's `backend` capability, which is not built yet (spec 114 M5, T35), so the Build takes the Cargo path for this program";
 /// Why a Backend module refuses `AUTH-OP`.
 pub const B_IDENTITY: &str = "an identity operation runs in an identity program, which a Backend module does not hold in its first release (spec 114 D8), so the Build takes the Cargo path for this program";
 /// Why a Backend module refuses a verb of [`CLIENT_SIDE_VERBS`].
@@ -494,9 +500,7 @@ pub fn backend_builtin_refusal(name: &str) -> Option<&'static str> {
     if n == "AUTH-OP" {
         return Some(B_IDENTITY);
     }
-    if BACKEND_SIDE_VERBS.contains(&n.as_str()) {
-        return Some(B_NEEDS_CAPABILITY);
-    }
+    // The eight others are served by the runner's `backend` capability (ABI A60, spec 114 M5): a module holds them.
     CLIENT_SIDE_VERBS.contains(&n.as_str()).then_some(B_CLIENT_SIDE)
 }
 

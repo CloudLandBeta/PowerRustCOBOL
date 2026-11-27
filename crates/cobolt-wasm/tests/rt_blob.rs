@@ -38,3 +38,30 @@ fn the_blob_exports_every_routine_the_generator_calls() {
         assert!(blob.export(name).is_some(), "the blob has no {name}");
     }
 }
+
+/// The routines a module copies from the blob are in the order of their names, not of the blob's layout (spec 114 M5): a
+/// routine added to the blob can make LLVM move an old one, and that moved every module's bytes before the linker ordered by
+/// name. Prints the closure of every exported routine and of the whole set the generator calls.
+#[test]
+fn the_routines_a_module_copies_are_ordered_by_name_not_by_the_blobs_layout() {
+    let blob = cobolt_wasm::link::Blob::load(include_bytes!("../assets/rt.wasm")).expect("blob");
+    let mut roots: Vec<&str> = Vec::new();
+    for name in ["rt_init", "rt_display", "rt_move", "rt_json_encode", "rt_json_decode", "rt_ws_fail", "rt_ws_emit", "rt_initialize"] {
+        assert!(blob.export(name).is_some(), "the blob has no {name}");
+        roots.push(name);
+    }
+    let closure = blob.closure(&roots).expect("closure");
+    let keys: Vec<(String, u32)> = closure.funcs.iter().map(|&i| (blob.name_of(i), i)).collect();
+    assert!(keys.windows(2).all(|w| w[0] <= w[1]), "the closure is not in the order of the routines' names");
+    assert!(keys.len() > 50, "the closure of {} roots is only {} routines", roots.len(), keys.len());
+    // The same roots in another order give the same closure.
+    let mut reversed = roots.clone();
+    reversed.reverse();
+    let again = blob.closure(&reversed).expect("closure");
+    assert_eq!(closure.funcs, again.funcs, "the closure depends on the order of the roots");
+    println!(
+        "rt closure of {} roots: {} routines in name order, the same for the roots reversed\nPASS 002 FAIL 000",
+        roots.len(),
+        keys.len()
+    );
+}

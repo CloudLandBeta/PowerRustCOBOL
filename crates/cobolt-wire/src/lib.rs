@@ -38,6 +38,7 @@ pub mod retry;
 pub mod seal;
 pub mod sbom;
 pub mod security_txt;
+pub mod verbs;
 
 pub use call::{ArgMode, ArgPayload, BackendFiles, CallObserver, CallReply, CallRequest, DownloadRequest, DownloadResult, NoObserver, Transport, UploadRequest, UploadResult};
 pub use error::{CallError, ErrorClass};

@@ -177,7 +177,7 @@ pub(crate) fn put_number(base: u32, target: u32, n: u64) {
 }
 
 /// Where the runner writes its answer, and how much it may write.
-fn answer_area() -> (u32, u32) {
+pub(crate) fn answer_area() -> (u32, u32) {
     (st().ws + WS_SCRATCH + ANSWER_AT, SCRATCH_SIZE - ANSWER_AT)
 }
 

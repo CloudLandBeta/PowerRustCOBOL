@@ -25,7 +25,17 @@ use cobolt_wasm_abi::backend::{self, result, Answer, BackendSection, Refusal};
 use cobolt_wasm_abi::manifest::MANIFEST_SECTION;
 use wasmtime::{Engine, InstancePre, Store, Trap, UpdateDeadline};
 
+use crate::verbs::{CallHost, Failure, Verbs};
 use crate::{check_with, files, linker_for, sql, Lang, Msg, Pins, State};
+
+/// What a runner of a Backend module provides: what a program with no window can use ([`crate::headless_capabilities`]),
+/// and the `backend` capability (A60), the verbs of the call a server is serving. A plain console runner has no call to
+/// serve, so it does not provide it.
+pub fn backend_capabilities() -> Vec<&'static str> {
+    let mut list = crate::headless_capabilities();
+    list.push(cobolt_wasm_abi::codes::cap::BACKEND);
+    list
+}
 
 /// How one call ended, as far as the module can say.
 #[derive(Debug, PartialEq)]
@@ -54,6 +64,11 @@ pub struct Called {
     pub outcome: Outcome,
     /// What the program `DISPLAY`ed, a line each (the debug log only; never sent to the caller).
     pub display: Vec<String>,
+    /// What `WS-FAIL` reported, when the program ran to its end after it (A60): the server answers it as an application
+    /// failure, whatever else the module says.
+    pub failure: Option<Failure>,
+    /// A `WS-PROGRESS` or `WS-EMIT` ended the call because its caller asked to cancel (A60).
+    pub cancelled: bool,
 }
 
 /// What the runner asks of a call besides its request.
@@ -160,16 +175,29 @@ impl BackendModule {
         self.call_index(index as i32, args, control)
     }
 
+    /// [`BackendModule::call`] for a call whose server hands the program's verbs a `host` (A60).
+    pub fn call_with(&self, name: &str, args: &[&str], control: &CallControl, host: Option<Box<dyn CallHost>>) -> Result<Called, String> {
+        let index = self.section.export(&name.to_ascii_uppercase()).ok_or_else(|| format!("the module exports no program {name}"))?.index;
+        self.call_index_with(index as i32, args, control, host)
+    }
+
     /// [`BackendModule::call`] by the export's index in the module's table.
     pub fn call_index(&self, index: i32, args: &[&str], control: &CallControl) -> Result<Called, String> {
+        self.call_index_with(index, args, control, None)
+    }
+
+    /// [`BackendModule::call_index`] for a call whose server hands the program's verbs a `host` (`WS-PROGRESS`, `WS-EMIT`,
+    /// `WS-CLAIM`, the file verbs, `WS-CANCELLED`; A60). With none, a verb behaves as the interpreter does with no hooks.
+    pub fn call_index_with(&self, index: i32, args: &[&str], control: &CallControl, host: Option<Box<dyn CallHost>>) -> Result<Called, String> {
         let frame = backend::encode_request(args);
         if frame.len() as u32 > self.section.request.cap {
-            return Ok(Called { outcome: Outcome::RequestTooLarge, display: Vec::new() });
+            return Ok(Called { outcome: Outcome::RequestTooLarge, display: Vec::new(), failure: None, cancelled: false });
         }
         let mut state = State::new(self.lang, self.pins);
         state.files = std::rc::Rc::new(std::cell::RefCell::new(files::Files::new(self.files.clone())));
         state.sql = self.sql.clone().map(sql::SqlRun::new);
         state.display = Some(Vec::new());
+        state.verbs = Verbs::new(host, Some(control.stop.clone()));
         let mut store = Store::new(&self.engine, state);
         // A call is interrupted at the next tick of the epoch when its stop says so, and goes on otherwise.
         store.set_epoch_deadline(1);
@@ -221,7 +249,8 @@ impl BackendModule {
         st.db.borrow_mut().end();
         st.http.borrow_mut().end();
         let display = st.display.take().unwrap_or_default();
-        Ok(Called { outcome, display })
+        let (failure, cancelled) = (st.verbs.failure.take(), st.verbs.cancelled);
+        Ok(Called { outcome, display, failure, cancelled })
     }
 }
 

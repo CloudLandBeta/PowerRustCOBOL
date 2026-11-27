@@ -268,14 +268,21 @@ impl Blob {
                 stack.push(c);
             }
         }
-        Ok(Closure { funcs: funcs.into_iter().collect(), imports: imports.into_iter().collect() })
+        // In the order of their names, not of where the blob's build happened to put them: LLVM places a routine next to its
+        // first caller, so a routine added to the blob (spec 114 M5 added the Backend verbs) can move an old one, and with it
+        // the index of every routine after it, in every module the generator writes. A name does not move; the blob index only
+        // breaks a tie.
+        let mut funcs: Vec<u32> = funcs.into_iter().collect();
+        funcs.sort_by_cached_key(|&i| (self.name_of(i), i));
+        Ok(Closure { funcs, imports: imports.into_iter().collect() })
     }
 }
 
 /// The functions to copy.
 #[derive(Debug, Clone)]
 pub struct Closure {
-    /// Defined functions, ascending blob index.
+    /// Defined functions, by name (the blob index breaks a tie): where a routine sits in a module does not depend on where
+    /// the blob's build placed it.
     pub funcs: Vec<u32>,
     /// Imported (glue) functions used, by blob index.
     pub imports: Vec<u32>,

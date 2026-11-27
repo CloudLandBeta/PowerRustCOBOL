@@ -233,6 +233,10 @@ pub mod cap {
     /// The desktop's Viewer: its documents loaded, its conversation written, found in, saved, printed
     /// and shared, and the window's answers carried out, by the interpreter's own rules (A58).
     pub const VIEWER: &str = "viewer";
+    /// The verbs a Backend program answers a call with: `COBOL::"WS-FAIL"`, `"WS-PROGRESS"`, `"WS-CANCELLED"`, `"WS-PAUSE"`,
+    /// `"WS-EMIT"`, `"WS-CLAIM"`, `"WS-FILE-PATH"` and `"WS-FILE-PUBLISH"` (A60). Only a Backend runner provides it: a Web
+    /// page, a Desktop window or an identity program has no call to answer.
+    pub const BACKEND: &str = "backend";
 
     /// Every capability, in the order of the table in ABI v1 §12 (A27). Only the native runner provides
     /// them: everything a page offers is ABI v1 §3, so the Web bundler refuses a module that requires one.
@@ -262,12 +266,13 @@ pub mod cap {
         SEQUENCES,
         LAYOUTS,
         VIEWER,
+        BACKEND,
     ];
 
     /// What the shipped Backend runner provides (spec 114): the capabilities a program with no window can use, with
     /// the database group. The Build checks a Backend module's manifest against this list before it puts the module in
     /// a runner, so that a module the runner would refuse at start is sent to the Cargo path with the capability named.
-    /// The runner's own list (`cobolt_runner::headless_capabilities`, built with `sql`) is held equal to this one by a test.
+    /// The runner's own list (`cobolt_runner::backend::backend_capabilities`, built with `sql`) is held equal to this one by a test.
     pub const BACKEND_RUNNER: &[&str] = &[
         CONSOLE,
         ENV,
@@ -281,6 +286,7 @@ pub mod cap {
         PARTIQL,
         PARTIQL_FILES,
         SQL,
+        BACKEND,
     ];
 }
 
@@ -308,7 +314,14 @@ pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[
     // A56: `COBOL::"PARTIQL"` and its two siblings, run by the runner with the interpreter's own rules
     // (`crate::partiql`).
     (cap::PARTIQL_FILES, &["pq_file"]),
+    // A60: the Backend's verbs, run by the Backend runner for the call it is answering (`cobolt_runner::backend`).
+    (cap::BACKEND, BACKEND_IMPORTS),
 ];
+
+/// The Backend's verbs in [`NATIVE_IMPORT_MODULE`] (A60), one import each: `COBOL::"WS-FAIL"`, `"WS-PROGRESS"`, `"WS-CANCELLED"`,
+/// `"WS-PAUSE"`, `"WS-EMIT"`, `"WS-CLAIM"`, `"WS-FILE-PATH"` and `"WS-FILE-PUBLISH"`. The set is fixed by the release that first
+/// ships the capability, and a name is never retired; `AUTH-OP` has no import until identity is served by a module.
+pub const BACKEND_IMPORTS: &[&str] = &["ws_fail", "ws_progress", "ws_cancelled", "ws_pause", "ws_emit", "ws_claim", "ws_file_path", "ws_file_publish"];
 
 /// The file verbs in [`NATIVE_IMPORT_MODULE`] (A34): a file is named by its number in the module's
 /// `prfiles` section (`crate::files`), and records cross in memory 0.

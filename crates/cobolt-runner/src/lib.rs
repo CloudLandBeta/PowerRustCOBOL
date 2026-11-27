@@ -55,6 +55,7 @@ mod partiql;
 mod sql;
 #[cfg(feature = "forms")]
 mod viewer;
+pub mod verbs;
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -180,6 +181,15 @@ pub const PROVIDED_IMPORTS: &[(u32, &str, &str)] = &[
     (1, NATIVE_IMPORT_MODULE, "http_call"),
     // T48: `COBOL::"PARTIQL"` and its two siblings (A56).
     (1, NATIVE_IMPORT_MODULE, "pq_file"),
+    // A60: the Backend's verbs (spec 114 M5).
+    (1, NATIVE_IMPORT_MODULE, "ws_fail"),
+    (1, NATIVE_IMPORT_MODULE, "ws_progress"),
+    (1, NATIVE_IMPORT_MODULE, "ws_cancelled"),
+    (1, NATIVE_IMPORT_MODULE, "ws_pause"),
+    (1, NATIVE_IMPORT_MODULE, "ws_emit"),
+    (1, NATIVE_IMPORT_MODULE, "ws_claim"),
+    (1, NATIVE_IMPORT_MODULE, "ws_file_path"),
+    (1, NATIVE_IMPORT_MODULE, "ws_file_publish"),
 ];
 
 /// `pr_run`'s answers (the generator's `ret`): the run finished, or `STOP RUN`.
@@ -435,6 +445,8 @@ pub struct State {
     /// When set, what `DISPLAY` writes is kept here, a line each, instead of going to standard output: a Backend's
     /// `DISPLAY` is for its debug log and is never sent to the caller (spec 114 T21).
     pub(crate) display: Option<Vec<String>>,
+    /// The Backend's verbs for the call this run answers (A60, spec 114 T36).
+    pub(crate) verbs: verbs::Verbs,
 }
 
 impl State {
@@ -455,6 +467,7 @@ impl State {
             http: std::rc::Rc::default(),
             pq: std::rc::Rc::default(),
             display: None,
+            verbs: verbs::Verbs::default(),
         }
     }
 }
@@ -557,6 +570,33 @@ fn answer(caller: &mut Caller<'_, State>, buf: i32, cap: i32, bytes: &[u8]) -> i
 fn write_mem(caller: &mut Caller<'_, State>, addr: i32, bytes: &[u8]) -> Option<()> {
     let mem = memory0(caller)?;
     mem.write(&mut *caller, addr as u32 as usize, bytes).ok()
+}
+
+/// The `len` bytes at `addr` as the text a verb reads them as (a character that is not UTF-8 becomes U+FFFD, as the interpreter
+/// reads a value's bytes); empty when memory 0 cannot be read.
+fn text_at(caller: &mut Caller<'_, State>, addr: i32, len: i32) -> String {
+    read_mem(caller, addr, len).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default()
+}
+
+/// A verb ended the run with a run-time error: the words go to the operator's log (as the interpreter's own errors do) and the
+/// import traps.
+fn verb_error(caller: &mut Caller<'_, State>, words: String) -> wasmtime::Error {
+    caller.data_mut().fatal.get_or_insert(Msg::Trapped(words.clone()));
+    wasmtime::Error::msg(words)
+}
+
+/// A file verb's answer: `text`, then the `status` word, at `buf` (at most `cap` bytes between them, the word whole); the
+/// answer carries the word's length as its number and the text's as its length (ABI A60).
+fn file_answer(caller: &mut Caller<'_, State>, buf: i32, cap: i32, text: String, status: &str) -> i64 {
+    let room = (cap.max(0) as usize).saturating_sub(status.len());
+    let mut out = text.into_bytes();
+    out.truncate(room);
+    let text_len = out.len();
+    out.extend_from_slice(status.as_bytes());
+    match write_mem(caller, buf, &out) {
+        Some(()) => cobolt_wasm_abi::http::answer(status.len() as u16, text_len),
+        None => cobolt_wasm_abi::http::FAILED,
+    }
 }
 
 /// A linker with exactly `imports`, each as this runner implements it for a module of `abi`; an
@@ -1051,6 +1091,81 @@ pub fn linker_for(engine: &Engine, abi: u32, imports: &[(String, String)]) -> Re
                             }
                         },
                     )
+                    .map_err(fail)?;
+            }
+            // A60: the Backend's verbs, for the call being answered (`verbs::Verbs`, which applies the interpreter's own rules).
+            // A text the module passes is read where it is, as the interpreter's `as_display_string` reads a value; a run-time
+            // error of a verb is a trap with the interpreter's words, and a call the server stops traps as the epoch does.
+            (NATIVE_IMPORT_MODULE, "ws_fail") => {
+                linker
+                    .func_wrap(
+                        NATIVE_IMPORT_MODULE,
+                        "ws_fail",
+                        |mut caller: Caller<'_, State>, code: f64, msg: i32, msg_len: i32, detail: i32, detail_len: i32| -> wasmtime::Result<i32> {
+                            let message = text_at(&mut caller, msg, msg_len);
+                            let detail = text_at(&mut caller, detail, detail_len);
+                            let said = caller.data_mut().verbs.fail(code, &message, &detail);
+                            said.map(|()| 0).map_err(|m| verb_error(&mut caller, m))
+                        },
+                    )
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "ws_progress") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "ws_progress", |mut caller: Caller<'_, State>, percent: f64, msg: i32, msg_len: i32| -> i32 {
+                        let message = text_at(&mut caller, msg, msg_len);
+                        caller.data_mut().verbs.progress(percent, &message)
+                    })
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "ws_cancelled") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "ws_cancelled", |caller: Caller<'_, State>| -> i32 { i32::from(caller.data().verbs.cancelled_asked()) })
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "ws_pause") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "ws_pause", |caller: Caller<'_, State>, ms: f64| -> wasmtime::Result<i32> {
+                        caller.data().verbs.pause(ms).map(|()| 0).map_err(|()| wasmtime::Error::from(wasmtime::Trap::Interrupt))
+                    })
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "ws_emit") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "ws_emit", |mut caller: Caller<'_, State>, buf: i32, len: i32| -> wasmtime::Result<i32> {
+                        let json = if len < 0 { String::new() } else { text_at(&mut caller, buf, len) };
+                        let item = if len < 0 { Err(-len) } else { Ok(json.as_str()) };
+                        let said = caller.data_mut().verbs.emit(item);
+                        said.map_err(|m| verb_error(&mut caller, m))
+                    })
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "ws_claim") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "ws_claim", |mut caller: Caller<'_, State>, name: i32, name_len: i32, buf: i32, cap: i32| -> i32 {
+                        let name = text_at(&mut caller, name, name_len);
+                        let value = caller.data().verbs.claim(&name);
+                        answer(&mut caller, buf, cap, value.as_bytes())
+                    })
+                    .map_err(fail)?;
+            }
+            // The path (or the id) and then the status word, at `buf`; the answer's number is the word's length, its length the text's.
+            (NATIVE_IMPORT_MODULE, "ws_file_path") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "ws_file_path", |mut caller: Caller<'_, State>, id: i32, id_len: i32, buf: i32, cap: i32| -> i64 {
+                        let id = text_at(&mut caller, id, id_len);
+                        let (text, status) = caller.data().verbs.file_path(&id);
+                        file_answer(&mut caller, buf, cap, text, status)
+                    })
+                    .map_err(fail)?;
+            }
+            (NATIVE_IMPORT_MODULE, "ws_file_publish") => {
+                linker
+                    .func_wrap(NATIVE_IMPORT_MODULE, "ws_file_publish", |mut caller: Caller<'_, State>, path: i32, path_len: i32, buf: i32, cap: i32| -> i64 {
+                        let path = text_at(&mut caller, path, path_len);
+                        let (text, status) = caller.data().verbs.publish(&path);
+                        file_answer(&mut caller, buf, cap, text, status)
+                    })
                     .map_err(fail)?;
             }
             // `missing_imports` let only the rows of PROVIDED_IMPORTS through.

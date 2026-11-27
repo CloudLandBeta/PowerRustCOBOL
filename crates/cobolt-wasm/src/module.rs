@@ -833,7 +833,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // environment ones of a desktop module's. Each is backed by a host import
     // of the same name, in the `pr` namespace or, for a desktop capability, in
     // `prn` (ABI A27, A29).
-    const GLUE_ORDER: [&str; 31] = [
+    const GLUE_ORDER: [&str; 39] = [
         "flush",
         "abort",
         "query",
@@ -865,6 +865,14 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         "sql_obj",
         "http_call",
         "pq_file",
+        "ws_fail",
+        "ws_progress",
+        "ws_cancelled",
+        "ws_pause",
+        "ws_emit",
+        "ws_claim",
+        "ws_file_path",
+        "ws_file_publish",
     ];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
@@ -959,6 +967,15 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             "http_call" => same(&mut types, &[I32; 7], &[I64]),
             // A56: `COBOL::"PARTIQL"` and its two siblings; the answer's number and length cross as one i64.
             "pq_file" => same(&mut types, &[I32; 5], &[I64]),
+            // A60: a Backend's verbs. A number the program computed crosses as an f64 (the runner holds it to the interpreter's limits);
+            // a file verb's answer crosses as one i64 (the status word's length and the text's).
+            "ws_fail" => same(&mut types, &[F64, I32, I32, I32, I32], &[I32]),
+            "ws_progress" => same(&mut types, &[F64, I32, I32], &[I32]),
+            "ws_cancelled" => same(&mut types, &[], &[I32]),
+            "ws_pause" => same(&mut types, &[F64], &[I32]),
+            "ws_emit" => same(&mut types, &[I32, I32], &[I32]),
+            "ws_claim" => same(&mut types, &[I32; 4], &[I32]),
+            "ws_file_path" | "ws_file_publish" => same(&mut types, &[I32; 4], &[I64]),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
         };
         glue_sigs.insert(g, pair);
@@ -1295,6 +1312,14 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         ("sql_obj", 7),
         ("http_call", 7),
         ("pq_file", 5),
+        ("ws_fail", 5),
+        ("ws_progress", 3),
+        ("ws_cancelled", 0),
+        ("ws_pause", 1),
+        ("ws_emit", 2),
+        ("ws_claim", 4),
+        ("ws_file_path", 4),
+        ("ws_file_publish", 4),
     ] {
         if let Some(&at) = glue_final.get(g) {
             let mut f = Function::new([]);

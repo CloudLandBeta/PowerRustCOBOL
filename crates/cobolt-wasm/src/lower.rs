@@ -2668,11 +2668,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             Stmt::Display { operands, upon, no_advancing, .. } => self.display(operands, upon.as_deref(), *no_advancing, line),
             Stmt::Stop { run, .. } => {
                 let _ = run;
-                self.leave_open_tries_first();
-                self.call_rt("rt_flush");
-                self.emit(Ins::RunEnd);
-                self.i32c(ret::STOP);
-                self.finish_raw();
+                self.stop_run();
                 Ok(())
             }
             Stmt::GoBack { .. } => self.exit_program(),
@@ -2754,6 +2750,16 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.jump(exit);
         }
         Ok(())
+    }
+
+    /// End the whole run, from any program: what `STOP RUN` does, and what a Backend verb does when the call must end
+    /// (`WS-FAIL`, a cancel seen by `WS-PROGRESS` or `WS-EMIT`).
+    pub(crate) fn stop_run(&mut self) {
+        self.leave_open_tries_first();
+        self.call_rt("rt_flush");
+        self.emit(Ins::RunEnd);
+        self.i32c(ret::STOP);
+        self.finish_raw();
     }
 
     pub(crate) fn exit(&mut self, kind: ExitKind, line: u32) -> GenResult<()> {
