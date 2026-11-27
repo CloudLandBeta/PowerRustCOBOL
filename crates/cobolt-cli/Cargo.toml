@@ -43,6 +43,8 @@ cobolt-compiler = { path = "../cobolt-compiler" }
 # its contract, release it, build it. `cobolt-wire` carries the contract types.
 cobolt-server = { path = "../cobolt-server" }
 cobolt-wire   = { path = "../cobolt-wire" }
+# Spec 114 R18 — `rcrun backend run --engine wasm`: the development server on the Backend's module, the engine a built Backend has.
+cobolt-backend-runner = { path = "../cobolt-backend-runner" }
 
 # Spec 080 — `rcrun mcp`: the coding-agent tools, served over stdio.
 cobolt-mcp           = { path = "../cobolt-mcp" }

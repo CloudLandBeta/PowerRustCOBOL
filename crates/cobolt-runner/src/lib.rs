@@ -364,6 +364,12 @@ fn check_with(module: &[u8], provided: &[&str], connections: bool) -> Result<Che
     if let Some(name) = missing_imports(manifest.abi, &imports).into_iter().next() {
         return Err(Msg::Import(name));
     }
+    // Spec 114 R21: the imports are exactly what the manifest declares. A module that imports a native function whose
+    // capability it did not declare would be given it by the linker below, and the manifest would no longer say what
+    // the module can reach.
+    if let Some((import, capability)) = undeclared_imports(&imports, &manifest.capabilities).into_iter().next() {
+        return Err(Msg::UndeclaredImport { import, capability });
+    }
     let sections = cobolt_program_package::DesktopSections::decode(|name| scan.custom(name)).map_err(|e| Msg::Damaged(e.to_string()))?;
     let files = files::FileSetup::from_module(scan.custom(cobolt_wasm_abi::files::FILES_SECTION), &sections.settings.indexed_engine)
         .map_err(|e| Msg::Damaged(format!("the program's `{}` section: {e}", cobolt_wasm_abi::files::FILES_SECTION)))?;
@@ -376,6 +382,25 @@ fn check_with(module: &[u8], provided: &[&str], connections: bool) -> Result<Che
         sql::install_connections(&sections.settings.app_name);
     }
     Ok(Checked { abi: manifest.abi, imports, manifest, sections, files, sql })
+}
+
+/// The imports in `imports`, in the native namespace, that no capability in `declared` brings (A27), each as `(module.name, the
+/// capability to declare)`. An import of the ABI's own namespace needs no capability, and a native one that no capability
+/// brings is [`missing_imports`]'s to refuse.
+pub fn undeclared_imports(imports: &[(String, String)], declared: &[String]) -> Vec<(String, String)> {
+    imports
+        .iter()
+        .filter(|(m, _)| m == NATIVE_IMPORT_MODULE)
+        .filter_map(|(m, n)| {
+            let bringing = cobolt_wasm_abi::codes::capabilities_bringing(n);
+            let first = bringing.first()?;
+            if bringing.iter().any(|c| declared.iter().any(|d| d == c)) {
+                None
+            } else {
+                Some((format!("{m}.{n}"), first.to_string()))
+            }
+        })
+        .collect()
 }
 
 /// The imports in `imports` this runner does not provide to a module of `abi`, as `module.name`.
@@ -1192,4 +1217,55 @@ fn env_var(name: &[u8]) -> Option<String> {
         return None;
     }
     std::env::var_os(name).map(|v| v.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod declared_imports {
+    use super::*;
+
+    fn imp(module: &str, name: &str) -> (String, String) {
+        (module.to_string(), name.to_string())
+    }
+
+    /// Spec 114 R21: a module may import only what its manifest declares a capability for.
+    #[test]
+    fn a_native_import_needs_a_capability_that_brings_it_declared() {
+        let started = std::time::Instant::now();
+        let (mut pass, mut fail) = (0u32, 0u32);
+        let mut check = |ok: bool, what: &str| {
+            if ok {
+                pass += 1;
+            } else {
+                fail += 1;
+                eprintln!("FAIL {what}");
+            }
+        };
+        let declared = |c: &[&str]| c.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // Declared: nothing to name.
+        check(undeclared_imports(&[imp("prn", "sql_exec")], &declared(&["sql"])).is_empty(), "sql_exec with `sql` declared");
+        // Not declared: the import and the capability to declare are named.
+        let named = undeclared_imports(&[imp("prn", "sql_exec"), imp("prn", "http_call")], &declared(&["sql"]));
+        check(named == vec![("prn.http_call".to_string(), "http".to_string())], "http_call with only `sql` declared names `http`");
+        // The file verbs are brought by four capabilities: any one declared is enough.
+        use cobolt_wasm_abi::codes::cap;
+        for c in [cap::FILES_SEQUENTIAL, cap::FILES_LINE_SEQUENTIAL, cap::FILES_RELATIVE, cap::FILES_INDEXED] {
+            check(undeclared_imports(&[imp("prn", "f_open")], &declared(&[c])).is_empty(), "f_open with a file capability declared");
+        }
+        check(undeclared_imports(&[imp("prn", "f_open")], &declared(&["sql"])).len() == 1, "f_open with no file capability declared");
+        // `f_tx` is the INDEXED organisation's alone.
+        check(undeclared_imports(&[imp("prn", "f_tx")], &declared(&[cap::FILES_SEQUENTIAL])).len() == 1, "f_tx needs files.indexed");
+        // The ABI's own namespace needs no capability.
+        check(undeclared_imports(&[imp("pr", "flush"), imp("pr", "now")], &[]).is_empty(), "pr imports need none");
+        // Every native import this runner provides is brought by some capability: no module that declares what it uses is refused.
+        let unbrought: Vec<&str> =
+            PROVIDED_IMPORTS.iter().filter(|(_, m, n)| *m == NATIVE_IMPORT_MODULE && cobolt_wasm_abi::codes::capabilities_bringing(n).is_empty()).map(|(_, _, n)| *n).collect();
+        check(unbrought.is_empty(), "every provided native import is brought by a capability");
+        println!(
+            "declared imports: {} provided imports, {} native; PASS {pass:03} FAIL {fail:03} ({} ms)",
+            PROVIDED_IMPORTS.len(),
+            PROVIDED_IMPORTS.iter().filter(|(_, m, _)| *m == NATIVE_IMPORT_MODULE).count(),
+            started.elapsed().as_millis()
+        );
+        assert_eq!(fail, 0, "{fail} checks failed");
+    }
 }

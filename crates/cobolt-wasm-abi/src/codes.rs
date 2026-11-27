@@ -318,6 +318,12 @@ pub const NATIVE_IMPORTS: &[(&str, &[&str])] = &[
     (cap::BACKEND, BACKEND_IMPORTS),
 ];
 
+/// The capabilities that bring `import`, a name in [`NATIVE_IMPORT_MODULE`] (A27): a module that imports it declares at
+/// least one of them. Empty for a name no capability brings.
+pub fn capabilities_bringing(import: &str) -> Vec<&'static str> {
+    NATIVE_IMPORTS.iter().filter(|(_, names)| names.contains(&import)).map(|(c, _)| *c).collect()
+}
+
 /// The Backend's verbs in [`NATIVE_IMPORT_MODULE`] (A60), one import each: `COBOL::"WS-FAIL"`, `"WS-PROGRESS"`, `"WS-CANCELLED"`,
 /// `"WS-PAUSE"`, `"WS-EMIT"`, `"WS-CLAIM"`, `"WS-FILE-PATH"` and `"WS-FILE-PUBLISH"`. The set is fixed by the release that first
 /// ships the capability, and a name is never retired; `AUTH-OP` has no import until identity is served by a module.

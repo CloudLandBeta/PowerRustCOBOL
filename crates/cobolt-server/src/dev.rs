@@ -83,7 +83,15 @@ pub fn mint_dev_token(secret: &str, sub: &str, roles: &[&str], ttl_secs: i64) ->
 }
 
 impl DevServer {
+    /// The development server on the interpreter, as `rcrun backend run` has always run it.
     pub fn start(opts: &DevOptions) -> Result<DevServer, Vec<String>> {
+        Self::start_on(opts, None)
+    }
+
+    /// The development server on `engine`: what runs the exported programs. `None` is the interpreter. `rcrun backend run
+    /// --engine wasm` passes the Backend's module on the Backend engine, so what will ship can be tried before it ships
+    /// (spec 114 R18); the server, its limits and its channel are the same either way.
+    pub fn start_on(opts: &DevOptions, engine: Option<Arc<dyn crate::engine::Engine>>) -> Result<DevServer, Vec<String>> {
         let mut backend = Backend::load(&opts.backend_dir)?;
         backend.state = opts.state;
         let secret = fresh_secret();
@@ -109,7 +117,7 @@ impl DevServer {
         let tls = resolved.tls.is_some();
         let sink = MemorySink::new();
         let to: Arc<dyn LogSink> = if opts.echo { Arc::new(EchoSink(sink.clone())) } else { Arc::new(sink.clone()) };
-        let handle = crate::serve::start(resolved, backend, Options { sink: Some(to), fetcher: None, identity_http: None, engine: None }).map_err(|e| vec![e])?;
+        let handle = crate::serve::start(resolved, backend, Options { sink: Some(to), fetcher: None, identity_http: None, engine }).map_err(|e| vec![e])?;
         let url = format!("{}://{}/ws", if tls { "wss" } else { "ws" }, handle.addr);
         Ok(DevServer { handle, sink, secret, url })
     }

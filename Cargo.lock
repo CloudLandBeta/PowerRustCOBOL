@@ -2100,9 +2100,12 @@ dependencies = [
  "cobolt-wasm-abi",
  "cobolt-wasm-rt",
  "cobolt-wire",
+ "flate2",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "toml 0.8.23",
  "tracing",
 ]
 
@@ -2135,6 +2138,7 @@ version = "0.2.0"
 dependencies = [
  "bincode",
  "cobolt-ast",
+ "cobolt-backend-runner",
  "cobolt-codegen",
  "cobolt-compiler",
  "cobolt-form-host",

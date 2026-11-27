@@ -347,3 +347,97 @@ fn backend_build_takes_its_way_by_flag_and_wasm_refuses_what_the_module_does_not
     }
     println!("rcrun backend build: both flags exit 2; --wasm on EXEC RUST exits 1 naming raw.cbl; --wasm with no runner {}; PASS 007 FAIL 000", if runner_beside { "skipped (a runner is beside rcrun)" } else { "exits 1 naming the runner" });
 }
+
+// ── `--engine wasm` (spec 114 R18, T41) ────────────────────────────────────────────────────────────────────────────────
+
+/// `rcrun backend run <dir>` with `extra` flags, started: its address, its development token and the lines it writes to
+/// standard error as they come.
+fn serve(dir: &Path, extra: &[&str]) -> (std::process::Child, String, String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rcrun"))
+        .args(["backend", "run"])
+        .args(extra)
+        .arg(dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("starts");
+    let said = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let (sink, err) = (said.clone(), child.stderr.take().unwrap());
+    std::thread::spawn(move || {
+        for line in BufReader::new(err).lines().map_while(Result::ok) {
+            sink.lock().unwrap().push(line);
+        }
+    });
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let (mut url, mut token) = (String::new(), String::new());
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while Instant::now() < deadline {
+        match lines.next() {
+            Some(Ok(l)) if l.starts_with("backend listening on ") => url = l["backend listening on ".len()..].to_string(),
+            Some(Ok(l)) if l.starts_with("development token") => {
+                token = lines.next().and_then(|t| t.ok()).unwrap_or_default();
+                break;
+            }
+            Some(_) => {}
+            None => break,
+        }
+    }
+    (child, url, token, said)
+}
+
+/// One call of `PING`, through the client an application uses.
+fn ping_answer(url: &str, token: &str) -> Result<String, String> {
+    use cobolt_wire::{CallRequest, Transport};
+    let mut cfg = cobolt_server::client::ClientConfig::new(url, "1.0.0");
+    cfg.token = Some(std::sync::Arc::new(cobolt_server::client::StaticToken(token.to_string())));
+    let mut client = cobolt_server::client::WsClient::new(cfg);
+    let reply = client.call(&CallRequest { program: "PING".into(), args: Vec::new(), wants_returning: true, idempotency_key: None }).map_err(|e| format!("{e:?}"))?;
+    reply.returning.ok_or_else(|| "no RETURNING".to_string())
+}
+
+#[test]
+fn the_development_server_runs_the_backends_module_with_engine_wasm_and_answers_as_the_interpreter_does() {
+    let started = Instant::now();
+    let dir = project("engine");
+    let mut answers = Vec::new();
+    let mut engine_lines = Vec::new();
+    for flags in [&[][..], &["--engine", "interpreter"][..], &["--engine", "wasm"][..]] {
+        let (mut child, url, token, said) = serve(&dir, flags);
+        assert!(url.starts_with("ws://127.0.0.1:"), "{flags:?}: a development run listens on loopback: {url:?}");
+        let answer = ping_answer(&url, &token).unwrap_or_else(|e| panic!("{flags:?}: the call failed: {e}"));
+        let engine = said.lock().unwrap().iter().find(|l| l.starts_with("engine:")).cloned();
+        let _ = child.kill();
+        let _ = child.wait();
+        engine_lines.push(engine);
+        answers.push(answer);
+    }
+    assert_eq!(answers[0], answers[1], "the default is the interpreter");
+    assert_eq!(answers[0], answers[2], "the module answers what the interpreter answers");
+    assert!(answers[0].contains("\"REPLY\"") && answers[0].contains("pong"), "{}", answers[0]);
+    assert_eq!((engine_lines[0].as_ref(), engine_lines[1].as_ref()), (None, None), "the interpreter prints no engine line");
+    let line = engine_lines[2].as_ref().expect("--engine wasm says which engine it runs");
+    let hex = line.strip_prefix("engine: WebAssembly module, sha256 ").and_then(|r| r.split(',').next()).unwrap_or_default();
+    assert!(hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit()), "the line carries the module's sha256: {line}");
+    assert!(line.contains("1 exported program(s)"), "{line}");
+    let _ = std::fs::remove_dir_all(&dir);
+    println!("rcrun backend run: default, --engine interpreter and --engine wasm answered the same call ({}); the module's line: {line}; PASS 005 FAIL 000 ({} ms)", answers[0], started.elapsed().as_millis());
+}
+
+#[test]
+fn engine_wasm_refuses_a_backend_the_module_does_not_serve_naming_why_and_is_for_run_only() {
+    let dir = project("engine-refused");
+    // An `[identity]` section: its sign-in programs stay on the Cargo path.
+    std::fs::write(dir.join("backend").join("backend.toml"), "[identity]\nname = \"hello\"\n").unwrap();
+    let (code, _, err) = rcrun(&["run", "--engine", "wasm"], &dir);
+    assert_eq!(code, 1, "{err}");
+    assert!(err.contains("cannot run on the WebAssembly module engine") && err.contains("[identity]"), "{err}");
+    // A value that is neither engine, and the flag on a verb that has no engine.
+    let (code, _, err) = rcrun(&["run", "--engine", "bogus"], &dir);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("`interpreter` or `wasm`"), "{err}");
+    let (code, _, err) = rcrun(&["build", "--engine", "wasm"], &dir);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("--cargo or --wasm"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+    println!("rcrun backend: --engine wasm on a Backend with [identity] refused naming it; a bad value and --engine on build refused (exit 2); PASS 004 FAIL 000");
+}

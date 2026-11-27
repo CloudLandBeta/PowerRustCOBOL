@@ -16,6 +16,8 @@
 #   - the service is running and enabled, nginx accepts its configuration, the page answers 200
 #     over https with the security headers, and /ws reaches the Backend through nginx;
 #   - the Backend runs with nothing installed beside it (AC7): no C runtime library is named;
+#   - (spec 114 T43) the Backend is the WebAssembly module inside the Backend runner, which the job builds beside
+#     rcrun, and not a Cargo build: its bill of materials lists the module;
 #   - a process that is killed is started again by the system (AC4);
 #   - a package installed again over the first keeps the records in data/ (AC11), and the same
 #     package twice changes nothing;
@@ -79,6 +81,14 @@ jobs:
       - name: Build rcrun
         run: cargo build --release --locked -p cobolt-cli --bin rcrun
 
+      # Spec 114 T43 (R14, R19): the Backend runner and its bill of materials go beside rcrun, where the Build looks for
+      # them, so the Package's Backend is the WebAssembly module inside the runner and not a Cargo build. It is built in a
+      # command of its own, so Cargo does not unify its features with rcrun's and give it the window system.
+      - name: Build the Backend runner beside rcrun
+        run: |
+          cargo build --release --locked -p cobolt-backend-runner
+          cargo run --release --locked -p cobolt-compiler --example runner_sbom -- target/release/prc-backend-runner
+
       - name: Package a copy of PowerOficina
         shell: bash
         run: |
@@ -127,6 +137,9 @@ jobs:
           exe=$(ls "$INSTALL"/bin/* | grep -v sbom | head -1); ldd "$exe" || true
           echo "::endgroup::"
           ldd "$exe" 2>&1 | grep -q 'not found' && bad "the Backend finds every library it names" || ok "the Backend finds every library it names"
+          # Spec 114 T43: the file installed is the Backend runner with the module inside, not a Cargo build; its bill of
+          # materials lists the module.
+          grep -q 'module\.wasm' "$INSTALL/bin/sbom.cdx.json" && ok "the Backend is the WebAssembly module in the runner" || bad "the Backend is the WebAssembly module in the runner"
 
           pid1=$(systemctl show -p MainPID --value "$SVC"); sudo kill -9 "$pid1"
           restarted=no
@@ -200,6 +213,14 @@ jobs:
       - name: Build rcrun
         run: cargo build --release --locked -p cobolt-cli --bin rcrun
 
+      # Spec 114 T43 (R14, R19): the Backend runner and its bill of materials go beside rcrun, where the Build looks for
+      # them, so the Package's Backend is the WebAssembly module inside the runner and not a Cargo build. It is built in a
+      # command of its own, so Cargo does not unify its features with rcrun's and give it the window system.
+      - name: Build the Backend runner beside rcrun
+        run: |
+          cargo build --release --locked -p cobolt-backend-runner
+          cargo run --release --locked -p cobolt-compiler --example runner_sbom -- target/release/prc-backend-runner
+
       - name: Package a copy of PowerOficina
         shell: bash
         run: |
@@ -249,6 +270,9 @@ jobs:
           exe=$(ls "$INSTALL"/bin/* | grep -v sbom | head -1); otool -L "$exe" || true
           echo "::endgroup::"
           otool -L "$exe" | tail -n +2 | grep -vE '^[[:space:]]*(/usr/lib/|/System/Library/)' | grep -q . && bad "the Backend names only libraries every Mac has" || ok "the Backend names only libraries every Mac has"
+          # Spec 114 T43: the file installed is the Backend runner with the module inside, not a Cargo build; its bill of
+          # materials lists the module.
+          grep -q 'module\.wasm' "$INSTALL/bin/sbom.cdx.json" && ok "the Backend is the WebAssembly module in the runner" || bad "the Backend is the WebAssembly module in the runner"
 
           pid1=$(pid_of); sudo kill -9 "$pid1"
           restarted=no
@@ -325,6 +349,19 @@ jobs:
         shell: bash
         run: cargo build --release --locked -p cobolt-cli --bin rcrun
 
+      # Spec 114 T43 (R14, R19, C7): the Backend runner and its bill of materials go beside rcrun, where the Build looks for
+      # them, so the Package's Backend is the WebAssembly module inside the runner and not a Cargo build. The C runtime is
+      # linked in, so the file starts on a Windows that has installed nothing (the dependents check below is on this file);
+      # `--target` keeps that flag off the build scripts and proc macros.
+      - name: Build the Backend runner beside rcrun
+        shell: bash
+        run: |
+          set -euo pipefail
+          t=x86_64-pc-windows-msvc
+          RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --locked --target "$t" -p cobolt-backend-runner
+          cargo run --release --locked --target "$t" -p cobolt-compiler --example runner_sbom -- "target/$t/release/prc-backend-runner.exe"
+          cp "target/$t/release/prc-backend-runner.exe" "target/$t/release/prc-backend-runner.sbom.json" target/release/
+
       - name: Package a copy of PowerOficina
         shell: bash
         run: |
@@ -393,6 +430,9 @@ jobs:
           $imports | Write-Host
           Write-Host '::endgroup::'
           if ($imports -match '(?i)vcruntime|msvcp|api-ms-win-crt|ucrtbase') { Bad 'the Backend names no C runtime library' } else { Ok 'the Backend names no C runtime library' }
+          # Spec 114 T43: the file installed is the Backend runner with the module inside, not a Cargo build; its bill of
+          # materials lists the module.
+          if (Select-String -Path (Join-Path $install 'bin\sbom.cdx.json') -Pattern 'module\.wasm' -Quiet) { Ok 'the Backend is the WebAssembly module in the runner' } else { Bad 'the Backend is the WebAssembly module in the runner' }
 
           # AC4: a killed process is started again by the system.
           $pid1 = (Get-CimInstance Win32_Service -Filter "Name='$($env:SVC)'").ProcessId

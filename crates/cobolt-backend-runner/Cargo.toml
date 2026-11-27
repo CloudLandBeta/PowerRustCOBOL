@@ -63,3 +63,7 @@ cobolt-runtime = { path = "../cobolt-runtime", default-features = false }
 # The module-path Build (T28): `build_backend` is run with this crate's runner and the file it installs is started.
 cobolt-compiler = { path = "../cobolt-compiler" }
 tokio     = { workspace = true }
+# The permanent fixture (T40b, `tests/module-corpus/backend/`): its index and call table are TOML, its payload is compressed.
+serde = { workspace = true }
+toml  = { workspace = true }
+flate2 = { workspace = true }

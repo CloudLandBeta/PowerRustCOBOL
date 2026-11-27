@@ -1,0 +1,20 @@
+# The Backend corpus (spec 114 R3, AC9): every Backend a release's Build packed from the fixtures in fixtures/, kept for
+# ever. A Backend of any release must run on every later runner and answer what its calls.toml recorded
+# (`cargo test -p cobolt-backend-runner --test permanent`).
+#
+# APPEND-ONLY. An entry is never deleted or edited: each names its files with their sha256, and its `chain` covers the
+# previous entry's chain, so a removed or changed entry fails the test. A release adds its entry with
+# `cargo run -p cobolt-backend-runner --example backend_corpus_add`, within 256 KiB.
+
+[[entry]]
+release = "2.1.64"
+added = "2026-11-27"
+chain = "d282c63e0bcd2b512dcea149aa66f836333e9872c7c63f076cbbe3665fed4948"
+
+[[entry.files]]
+path = "releases/2.1.64/ledger.backend.gz"
+sha256 = "9c0dc45912879d740795c8e3f670d01ad064e56ff42c9e05d7fed9f240f0b77e"
+
+[[entry.files]]
+path = "releases/2.1.64/ledger.calls.toml"
+sha256 = "67b04b20486b2743c51db256f0a3ec1d154b44208012b2bac17813f502aaed0e"

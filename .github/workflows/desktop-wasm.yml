@@ -14,6 +14,9 @@
 #   Deviation, recorded in tasks.md: it uses the tools this run built, laid out as the package lays
 #   them out, rather than installing a package made by build-all-platforms.yml (a separate
 #   workflow, whose artifacts this one cannot rely on).
+#   Spec 114 T43: the same machines, with Rust still gone, then build the four shipped Backends with
+#   `rcrun backend build --wasm` into the one file a server runs (the module inside the Backend runner the
+#   tools job lays beside rcrun), and the file starts and describes itself.
 # - determinism: the generator built by Rust 1.95.0 and by Rust stable, on the same machine type,
 #   writes the sha256 of every module it makes (the fixtures, the reference projects, every
 #   program of tests/cobol) with the same SOURCE_DATE_EPOCH; the lists must be identical (AC2).
@@ -98,6 +101,25 @@ jobs:
             for f in tools/*; do codesign --force --sign - "$f"; done
           fi
 
+      # The headless Backend runner and its bill of materials (spec 114 T43), laid out beside rcrun as a package lays
+      # them out (the Build finds the runner next to rcrun: `backend_runner_near`). A command of its own: built with
+      # prc-runner, Cargo would unify their features and give it the window system it exists to leave out. On Windows
+      # the C runtime is linked in (spec 114 C7); `--target` keeps that flag off the build scripts and proc macros.
+      - name: Build the Backend runner and its bill of materials
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --locked --target "$host" -p cobolt-backend-runner
+          else
+            cargo build --release --locked --target "$host" -p cobolt-backend-runner
+          fi
+          cargo run --release --locked --target "$host" -p cobolt-compiler --example runner_sbom -- "target/$host/release/prc-backend-runner$ext"
+          cp "target/$host/release/prc-backend-runner$ext" "target/$host/release/prc-backend-runner.sbom.json" tools/
+          if [ "$RUNNER_OS" = "macOS" ]; then codesign --force --sign - "tools/prc-backend-runner"; fi
+
       # This platform's modules, made by its own Build (with Rust still here: the path is the same).
       - name: Build the fixtures' modules
         shell: bash
@@ -176,6 +198,42 @@ jobs:
             --fixtures tests/module-corpus/fixtures
           "tools/desktop_wasm_ci$ext" reference --rcrun "tools/rcrun$ext" --work "$RUNNER_TEMP/reference" \
             examples/PowerCallOfDuty examples/PowerCloud examples/PowerCobolCraft examples/PowerGraphics examples/PowerSpatial
+
+      # Spec 114 T43 (R14, AC1): the same machine, Rust still gone (it was removed from disk in the step above), builds
+      # each shipped Backend into the one file a server runs: its WebAssembly module inside the Backend runner, which
+      # `rcrun` finds beside itself. `--wasm` refuses to take Cargo, so a Backend that fell back would fail here with its
+      # reason rather than with "cargo not found". The file then starts and describes itself, which loads its module
+      # (`--check` is left out: it needs the configuration of a real deployment, a TLS identity and a token issuer).
+      # Each Backend is built in a copy: a Build writes `bin/` and the interface into the project's folder.
+      - name: Build the Backends with no Rust on the machine
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xf "tools-${{ matrix.name }}.tar"
+          ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          if command -v rustc || command -v cargo; then echo "::error::Rust is on PATH"; exit 1; fi
+          test ! -e "$HOME/.cargo" && test ! -e "$HOME/.rustup"
+          test -s "tools/prc-backend-runner$ext" && test -s tools/prc-backend-runner.sbom.json
+          built=0
+          for name in PowerOficina PowerAnalyticsWeb PowerWebHello PowerMobileHello; do
+            work="$RUNNER_TEMP/backends/$name"
+            rm -rf "$work"; mkdir -p "$work"
+            cp "examples/$name/$name.project.toml" "$work/"
+            for sub in backend COPYBOOKS; do
+              if [ -d "examples/$name/$sub" ]; then cp -R "examples/$name/$sub" "$work/$sub"; fi
+            done
+            out=$("tools/rcrun$ext" backend build "$work" --wasm 2>&1) || { echo "$out"; echo "::error::$name did not build with no Rust on the machine"; exit 1; }
+            echo "$out"
+            echo "$out" | grep -q "Engine   : WebAssembly module" || { echo "::error::$name did not take the WebAssembly module path"; exit 1; }
+            file=$(ls "$work"/bin/*-backend"$ext" | head -n 1)
+            test -x "$file" || { echo "::error::$name: no file in bin/"; exit 1; }
+            "$file" --version
+            "$file" --describe > "$work/described.json"
+            test -s "$work/described.json" || { echo "::error::$name: --describe printed nothing"; exit 1; }
+            built=$((built + 1))
+          done
+          echo "Backend Build with no Rust on the machine: $built of 4 built on the module path, started and described on ${{ matrix.name }}"
+          test "$built" = 4
 
   determinism:
     name: determinism (Rust ${{ matrix.rust }})

@@ -21,12 +21,13 @@ use cobolt_compiler::backend_build::build_backend;
 use cobolt_compiler::backend_module::{BackendCargoReason, BackendEngine, BackendPath, BACKEND_RUNNER_SBOM};
 
 mod common;
-use common::{options, project, run, runner_with_sbom, sources};
+use common::{one_build_at_a_time, options, project, run, runner_with_sbom, sources};
 
 const SHIPPED: [&str; 4] = ["PowerOficina", "PowerAnalyticsWeb", "PowerWebHello", "PowerMobileHello"];
 
 #[test]
 fn the_four_shipped_backends_build_as_modules_and_answer_what_a_backend_answers() {
+    let _one = one_build_at_a_time();
     let scratch = std::env::temp_dir().join(format!("prc-backend-build-runner-{}", std::process::id()));
     let runner = runner_with_sbom(&scratch);
     let mut rows = Vec::new();
@@ -119,6 +120,7 @@ fn a_backend_the_module_does_not_serve_is_refused_by_wasm_with_each_reason() {
 /// (the runner checks the module's state against the configuration's before it serves anything).
 #[test]
 fn a_backend_with_per_connection_state_builds_as_a_module_and_starts() {
+    let _one = one_build_at_a_time();
     let runner = runner_with_sbom(&std::env::temp_dir().join(format!("prc-backend-build-perconn-{}", std::process::id())));
     let dir = project("PowerWebHello", "perconn");
     let manifest = dir.join("PowerWebHello.project.toml");
@@ -199,6 +201,7 @@ fn get(port: u16, path: &str) -> Option<(u16, String)> {
 /// setting refused naming it, a good configuration accepted, and the health probe answered by the running file.
 #[test]
 fn the_file_a_build_makes_answers_what_a_cargo_built_one_answers() {
+    let _one = one_build_at_a_time();
     let dir = std::env::temp_dir().join(format!("prc-backend-build-iface-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("backend").join("src")).unwrap();
@@ -292,4 +295,33 @@ fn a_runner_without_its_bill_of_materials_or_not_found_is_named_by_the_refusal()
     println!("--wasm with a runner that has no bill of materials, and with no runner: refused naming each; PASS 004 FAIL 000");
     let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     let _ = std::fs::remove_dir_all(&scratch);
+}
+
+/// An exported program the Build generated to call a control the Backend seeds is not served by the module (the runner
+/// refuses such a call, spec 114 T40): the Build names it as a reason, so `--wasm` refuses and `auto` takes Cargo.
+#[test]
+fn a_generated_program_that_seeds_a_control_is_a_reason_the_module_does_not_serve() {
+    let _one = one_build_at_a_time();
+    let runner = runner_with_sbom(&std::env::temp_dir().join(format!("prc-backend-build-control-{}", std::process::id())));
+    let dir = project("PowerWebHello", "control");
+    let generated = dir.join("backend").join("generated");
+    std::fs::create_dir_all(&generated).unwrap();
+    std::fs::write(
+        generated.join("call-crm.cbl"),
+        "IDENTIFICATION DIVISION.\nPROGRAM-ID. CALL-CRM.\nDATA DIVISION.\nLINKAGE SECTION.\n01 LK.\n    05 N PIC 9(4).\nPROCEDURE DIVISION USING LK.\nMAIN-PARA.\n    ADD 1 TO N\n    GOBACK.\n",
+    )
+    .unwrap();
+    std::fs::write(generated.join("exports.toml"), "[[export]]\nprogram = \"CALL-CRM\"\n\n[export.control]\nid = \"REST-1\"\nclass = \"RestClient\"\n").unwrap();
+
+    let err = build_backend(&dir, &options(&runner, Some(BackendPath::Wasm))).expect_err("--wasm must refuse a Backend with a control-seeding program");
+    let message = err.to_string();
+    let named = BackendCargoReason::ControlProgram { program: "CALL-CRM".into() }.to_string();
+    assert!(message.contains(named.as_str()), "the refusal names the program and why: {message}");
+    assert!(!dir.join("bin").join("poweriwebhello-backend").exists());
+    // Without the generated program the same Backend builds as a module: the reason is this program's, not the Backend's.
+    std::fs::remove_dir_all(&generated).unwrap();
+    let built = build_backend(&dir, &options(&runner, Some(BackendPath::Wasm))).expect("the same Backend without it builds as a module");
+    assert_eq!(built.engine, BackendEngine::Module);
+    println!("a generated program that seeds a control: --wasm refused naming CALL-CRM; the same Backend without it builds as a module (engine {}); PASS 002 FAIL 000", built.engine.name());
+    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
 }

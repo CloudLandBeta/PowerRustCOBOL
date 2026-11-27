@@ -103,6 +103,10 @@ pub enum BackendCargoReason {
     ExecRust { file: String, line: u32 },
     /// `backend.toml` has an `[identity]` section: its sign-in programs are not served by the module in this release.
     Identity,
+    /// An exported program the Build generated to call a method of a control the Backend seeds before it runs (a
+    /// RestClient-class control of a web form): the module path does not seed controls yet, and the runner refuses such a
+    /// call, so the Backend would build as a module and fail when called.
+    ControlProgram { program: String },
     /// A construct the generator does not take, and why (its reason as the Desktop's Build words it). `line` is 0 when
     /// the construct is a whole file.
     Refused { construct: String, reason: String, file: String, line: u32 },
@@ -122,6 +126,9 @@ impl std::fmt::Display for BackendCargoReason {
             BackendCargoReason::ExternalCrate => f.write_str("the project uses External Crates, which only Cargo links"),
             BackendCargoReason::ExecRust { file, line } => write!(f, "{} holds an EXEC RUST block, Rust compiled into the program", at(file, *line)),
             BackendCargoReason::Identity => f.write_str("backend.toml has an [identity] section, whose sign-in programs the module path does not serve yet"),
+            BackendCargoReason::ControlProgram { program } => {
+                write!(f, "{program} is a generated program that calls a method of a control the Backend seeds, which the module path does not serve yet")
+            }
             BackendCargoReason::Refused { construct, reason, file, line } => write!(f, "{}: {construct}: {reason}", at(file, *line)),
             BackendCargoReason::RunnerCapability { capability } => {
                 write!(f, "the program needs the capability `{capability}`, which the Backend runner ({BACKEND_RUNNER_NAME}) does not provide")
@@ -151,6 +158,8 @@ pub struct ClassifyInput {
     pub exec_rust: Vec<(String, u32)>,
     /// `backend.toml` has an `[identity]` section.
     pub identity: bool,
+    /// The exported programs that seed a control (the Build declares one in `generated/exports.toml`), by PROGRAM-ID.
+    pub control_programs: Vec<String>,
 }
 
 /// The reasons, before the generator is asked, that a Backend takes the Cargo path (plan D8, first half). Empty means the
@@ -168,6 +177,9 @@ pub fn classify_backend(input: &ClassifyInput) -> Vec<BackendCargoReason> {
     }
     if input.identity {
         reasons.push(BackendCargoReason::Identity);
+    }
+    for program in &input.control_programs {
+        reasons.push(BackendCargoReason::ControlProgram { program: program.clone() });
     }
     reasons
 }
@@ -321,6 +333,21 @@ pub fn module_sbom(application: &str, exe_name: &str, exe: &[u8], module: &[u8],
     Ok(cobolt_wire::sbom::cyclonedx(application, out, None))
 }
 
+/// The Backend a payload carries (spec 114 R3): its interface, its table of exports, the released interfaces, the upload
+/// slots, the state mode and the module. The Build puts it into the runner's copy; the permanent fixture of
+/// `tests/module-corpus/backend/` is this container as a release made it, so both are made by this one function.
+pub fn backend_container(backend: &Backend, wasm: &[u8], state: StateMode, application: &str) -> Result<cobolt_program_package::backend::BackendContainer, CompilerError> {
+    Ok(cobolt_program_package::backend::BackendContainer {
+        state: state.as_str().to_string(),
+        interface: backend.interface.to_json().into_bytes(),
+        exports: serde_json::to_vec(&backend.export_entries()).map_err(|e| CompilerError::Serialize(e.to_string()))?,
+        history: serde_json::to_vec(&backend.history).map_err(|e| CompilerError::Serialize(e.to_string()))?,
+        slots: serde_json::to_vec(&backend.slots).map_err(|e| CompilerError::Serialize(e.to_string()))?,
+        module: wasm.to_vec(),
+        name: application.to_string(),
+    })
+}
+
 /// What a Backend module build needs besides the module.
 pub struct ModuleBuild<'a> {
     pub backend: &'a Backend,
@@ -354,7 +381,6 @@ pub struct ModuleBuilt {
 /// first starts when it cannot), then the container, the payload, the copy, and the file installed by renaming it into
 /// place.
 pub fn build_module(b: &ModuleBuild<'_>, log: &impl Fn(&str)) -> Result<ModuleBuilt, CompilerError> {
-    use cobolt_program_package::backend::BackendContainer;
     use cobolt_program_package::Kind;
     let mut phases = Vec::new();
     let mut notes = Vec::new();
@@ -383,15 +409,7 @@ pub fn build_module(b: &ModuleBuild<'_>, log: &impl Fn(&str)) -> Result<ModuleBu
 
     let began = Instant::now();
     let runner_failure = |detail: String| CompilerError::Runner { path: b.runner.runner.display().to_string(), detail };
-    let container = BackendContainer {
-        state: b.state.as_str().to_string(),
-        interface: b.backend.interface.to_json().into_bytes(),
-        exports: serde_json::to_vec(&b.backend.export_entries()).map_err(|e| CompilerError::Serialize(e.to_string()))?,
-        history: serde_json::to_vec(&b.backend.history).map_err(|e| CompilerError::Serialize(e.to_string()))?,
-        slots: serde_json::to_vec(&b.backend.slots).map_err(|e| CompilerError::Serialize(e.to_string()))?,
-        module: wasm.to_vec(),
-        name: b.application.to_string(),
-    };
+    let container = backend_container(b.backend, wasm, b.state, b.application)?;
     let container_bytes = container.encode();
     let mut parts: Vec<(Kind, &[u8])> = vec![(Kind::Backend, container_bytes.as_slice())];
     if let Some(code) = &code {
@@ -427,7 +445,7 @@ mod tests {
     use super::*;
 
     fn input(path: BackendPath) -> ClassifyInput {
-        ClassifyInput { path, external_crates: false, exec_rust: Vec::new(), identity: false }
+        ClassifyInput { path, external_crates: false, exec_rust: Vec::new(), identity: false, control_programs: Vec::new() }
     }
 
     #[test]
@@ -466,12 +484,20 @@ mod tests {
         one.identity = true;
         assert_eq!(classify_backend(&one), vec![BackendCargoReason::Identity]);
 
+        // Each program that seeds a control is named, in the order given.
+        let mut one = input(BackendPath::Auto);
+        one.control_programs = vec!["FETCH-RATES".into(), "SEND-MAIL".into()];
+        let reasons = classify_backend(&one);
+        assert_eq!(reasons, vec![BackendCargoReason::ControlProgram { program: "FETCH-RATES".into() }, BackendCargoReason::ControlProgram { program: "SEND-MAIL".into() }]);
+        assert!(reasons[0].to_string().contains("FETCH-RATES") && reasons[0].to_string().contains("seeds"), "{}", reasons[0]);
+
         // The developer's choice is the only reason, whatever else holds.
         let mut chosen = input(BackendPath::Cargo);
         chosen.external_crates = true;
         chosen.identity = true;
+        chosen.control_programs = vec!["FETCH-RATES".into()];
         assert_eq!(classify_backend(&chosen), vec![BackendCargoReason::Chosen]);
-        println!("classify_backend: 4 rules, each alone names itself, and Chosen stands alone; PASS 004 FAIL 000");
+        println!("classify_backend: 5 rules, each alone names itself, and Chosen stands alone; PASS 005 FAIL 000");
     }
 
     #[test]

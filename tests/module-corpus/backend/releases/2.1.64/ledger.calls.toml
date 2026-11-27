@@ -1,0 +1,132 @@
+# The calls made to the `ledger` Backend and what each must answer (spec 114 T40b). `expect_args` is the final JSON of each
+# parameter, `expect_returning` that of RETURNING, compared as JSON; `expect_error` is "<class> <code>" for a call that fails.
+# Recorded from the interpreter and the module, which agreed on every one, before the release's entry was made.
+
+[[call]]
+name = "an ordinary add"
+program = "ADD-TWO"
+args = ['{"A":40,"B":2}']
+expect_args = ['{"A":40,"B":2}']
+expect_returning = '{"TOTAL":42}'
+
+[[call]]
+name = "an add at the picture's limit"
+program = "ADD-TWO"
+args = ['{"A":9999,"B":9999}']
+expect_args = ['{"A":9999,"B":9999}']
+expect_returning = '{"TOTAL":19998}'
+
+[[call]]
+name = "an add with zeros"
+program = "ADD-TWO"
+args = ['{"A":0,"B":0}']
+expect_args = ['{"A":0,"B":0}']
+expect_returning = '{"TOTAL":0}'
+
+[[call]]
+name = "an add over the picture is refused"
+program = "ADD-TWO"
+args = ['{"A":10000,"B":1}']
+expect_error = "validation 4000"
+
+[[call]]
+name = "a text where a number goes is refused"
+program = "ADD-TWO"
+args = ['{"A":"x","B":1}']
+expect_error = "validation 4000"
+
+[[call]]
+name = "a member the layout does not have is refused"
+program = "ADD-TWO"
+args = ['{"A":1,"B":1,"C":9}']
+expect_error = "validation 4000"
+
+[[call]]
+name = "a greeting"
+program = "GREET"
+args = ['"BOB"', '""']
+expect_args = ['"BOB"', '"HELLO BOB"']
+
+[[call]]
+name = "a greeting of a full name field"
+program = "GREET"
+args = ['"ABCDEFGHIJ"', '""']
+expect_args = ['"ABCDEFGHIJ"', '"HELLO ABCDEFGHIJ"']
+
+[[call]]
+name = "a greeting over the picture is refused"
+program = "GREET"
+args = ['"ABCDEFGHIJK"', '""']
+expect_error = "validation 4000"
+
+[[call]]
+name = "a table of three"
+program = "TABLE-ECHO"
+args = ['{"N":3,"ITEM":[1,2,3]}']
+expect_args = ['{"N":3,"ITEM":[2,4,6]}']
+
+[[call]]
+name = "a table at its maximum"
+program = "TABLE-ECHO"
+args = ['{"N":4,"ITEM":[100,200,300,400]}']
+expect_args = ['{"N":4,"ITEM":[200,400,600,800]}']
+
+[[call]]
+name = "a table over its maximum is refused"
+program = "TABLE-ECHO"
+args = ['{"N":5,"ITEM":[1,2,3,4,5]}']
+expect_error = "validation 4000"
+
+[[call]]
+name = "a table whose count and items disagree is refused"
+program = "TABLE-ECHO"
+args = ['{"N":3,"ITEM":[1,2]}']
+expect_error = "validation 4000"
+
+[[call]]
+name = "a counter starts afresh"
+program = "COUNTER"
+args = ['{"WHO":"x","SEEN":0}']
+expect_args = ['{"WHO":"x","SEEN":1}']
+
+[[call]]
+name = "a counter starts afresh again: nothing is kept between calls"
+program = "COUNTER"
+args = ['{"WHO":"x","SEEN":0}']
+expect_args = ['{"WHO":"x","SEEN":1}']
+
+[[call]]
+name = "WS-FAIL 4201 is the program's own failure"
+program = "FAILER"
+args = ['{"CODE-IN":4201,"NOTE":"untouched"}']
+expect_error = "application 4201"
+
+[[call]]
+name = "WS-FAIL 1, the lowest code"
+program = "FAILER"
+args = ['{"CODE-IN":1,"NOTE":""}']
+expect_error = "application 1"
+
+[[call]]
+name = "WS-FAIL 7999, the highest code"
+program = "FAILER"
+args = ['{"CODE-IN":7999,"NOTE":""}']
+expect_error = "application 7999"
+
+[[call]]
+name = "WS-FAIL 0: a code outside 1 to 7999 is the program's fault"
+program = "FAILER"
+args = ['{"CODE-IN":0,"NOTE":""}']
+expect_error = "server 9001"
+
+[[call]]
+name = "WS-FAIL 8000: the platform's codes are not the program's"
+program = "FAILER"
+args = ['{"CODE-IN":8000,"NOTE":""}']
+expect_error = "server 9001"
+
+[[call]]
+name = "a division by zero with no SIZE ERROR clause does not stop the program"
+program = "BOOM"
+args = ['{"NN":7}']
+expect_args = ['{"NN":7}']

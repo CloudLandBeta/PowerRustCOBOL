@@ -1,0 +1,21 @@
+# The permanent Backend fixture (spec 114 T40b): six programs, each a thing a Backend does on every call.
+[contract]
+version = "1.0.0"
+
+[[export]]
+program = "ADD-TWO"
+
+[[export]]
+program = "GREET"
+
+[[export]]
+program = "TABLE-ECHO"
+
+[[export]]
+program = "COUNTER"
+
+[[export]]
+program = "FAILER"
+
+[[export]]
+program = "BOOM"

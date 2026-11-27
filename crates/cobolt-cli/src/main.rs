@@ -533,8 +533,21 @@ fn cmd_backend(args: &[String]) {
     let mut accept_breaking = false;
     // `--cargo` / `--wasm` (spec 114 R13): which path the Backend Build takes; neither follows `[backend] build_path`.
     let mut path: Option<cobolt_compiler::backend_module::BackendPath> = None;
+    // `--engine interpreter|wasm` (spec 114 R18): what `run` runs the programs on; the interpreter when it is not given.
+    let mut engine_wasm = false;
     while i < args.len() {
         match args[i].as_str() {
+            "--engine" => {
+                i += 1;
+                match args.get(i).map(String::as_str) {
+                    Some("interpreter") => engine_wasm = false,
+                    Some("wasm") => engine_wasm = true,
+                    _ => {
+                        eprintln!("rcrun backend: --engine needs `interpreter` or `wasm`");
+                        process::exit(2);
+                    }
+                }
+            }
             "--listen" => {
                 i += 1;
                 match args.get(i) {
@@ -576,6 +589,10 @@ fn cmd_backend(args: &[String]) {
     }
     if !matches!(verb, "run" | "describe" | "check" | "release" | "build" | "auth-test") {
         eprintln!("usage: rcrun backend <run|describe|check|release|build|auth test> [dir]");
+        process::exit(2);
+    }
+    if engine_wasm && verb != "run" {
+        eprintln!("rcrun backend: --engine belongs to `run`; `build` chooses its path with --cargo or --wasm");
         process::exit(2);
     }
 
@@ -666,7 +683,22 @@ fn cmd_backend(args: &[String]) {
             // The log goes to standard error as it is written, so a terminal and
             // the IDE's Output panel (which runs this as a child) both see it live.
             let opts = cobolt_server::dev::DevOptions { backend_dir: backend_dir.clone(), listen, state, echo: true, page_origin };
-            let server = cobolt_server::dev::DevServer::start(&opts).unwrap_or_else(|e| fail(e));
+            // `--engine wasm`: the Backend's module, made in memory as the Build makes it (no runner, nothing written, no
+            // toolchain), run on the Backend engine the built file has. A Backend the module does not serve is refused,
+            // naming why: the Build would take the Cargo path for it.
+            let engine: Option<std::sync::Arc<dyn cobolt_server::engine::Engine>> = if engine_wasm {
+                let made = cobolt_compiler::backend_build::dev_module(&project_dir).unwrap_or_else(|reasons| {
+                    let mut lines = vec!["the Backend cannot run on the WebAssembly module engine:".to_string()];
+                    lines.extend(reasons.into_iter().map(|r| format!("  - {r}")));
+                    fail(lines)
+                });
+                let engine = cobolt_backend_runner::engine::WasmEngine::start(&made.compiled.wasm, None, &cobolt_backend_runner::provided()).unwrap_or_else(|e| fail(vec![e]));
+                eprintln!("engine: WebAssembly module, sha256 {}, {} exported program(s)", engine.module_sha256, made.backend.interface.programs.len());
+                Some(std::sync::Arc::new(engine))
+            } else {
+                None
+            };
+            let server = cobolt_server::dev::DevServer::start_on(&opts, engine).unwrap_or_else(|e| fail(e));
             let token = server.dev_token("developer", &["user", "admin"]);
             println!("backend listening on {}", server.url);
             println!("development token (valid for this run only; HS256, roles user and admin):");
@@ -745,6 +777,8 @@ fn cmd_help() {
         "                                         loopback address, a development token printed)\n",
         "         [--listen host:port]            Default 127.0.0.1:0 (a free port)\n",
         "         [--page-origin origin]          The page's origin; only it may connect (default: any, warned)\n",
+        "         [--engine interpreter|wasm]     What runs the programs: the interpreter (default) or the\n",
+        "                                         Backend's WebAssembly module, as a built file runs it\n",
         "  rcrun backend describe [dir]          Write and print the interface description\n",
         "  rcrun backend check   [dir]           Check the backend and compare its contract with\n",
         "                                         the released ones\n",

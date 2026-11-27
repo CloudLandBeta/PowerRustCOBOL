@@ -35,6 +35,14 @@ pub fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
+/// The Build stages its files in a folder named after the project's folder (`cobolt-build-<name>-backend`), and every
+/// scratch copy here is a folder named after the shipped project, so two tests that finish a Build of the same project
+/// would write into, and clear, one folder. A test that completes a Build holds this for its length.
+pub fn one_build_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static BUILD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    BUILD.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// A copy of a shipped project's Backend in a scratch folder: its manifest, `backend/` and `COPYBOOKS/`.
 pub fn project(name: &str, tag: &str) -> PathBuf {
     let from = examples().join(name);

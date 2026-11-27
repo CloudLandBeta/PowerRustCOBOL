@@ -243,6 +243,26 @@ The module engine now serves everything a per-call or per-connection Backend ask
 | Memory growth | `StoreLimits` at the declared size (unit test in `cobolt-runner`) | a module with one page and no maximum grows 3 pages without the guard, -1 with it |
 | Members in a request | objects of 500, 1,000, 2,000, 4,000 members | same refusal; interpreter 3, 7, 17, 57 ms; module 20, 72, 293, 1,200 ms (8,000: 220 ms and 4.8 s): quadratic on both, `json::check_object` on the module. **Open, for the operator:** the fix moves the AC16 pin and the eight player fixtures |
 
+**T40, T40b and T41 (2026-11-27, 2.1.64):**
+
+| Task | What | Measured |
+|---|---|---|
+| T40 | `classify_backend` loses the reason M5 served (per-connection state) and gains one the runner refuses: a program the Build generates to call a control the Backend seeds (`ControlProgram`, named with the program). `Identity` stays. The Build and the development server read the generated programs with one helper | unit test 5 rules, PASS 005; Build test `--wasm` refuses naming `CALL-CRM` and the same Backend without it builds as a module, PASS 002 |
+| T40b | The Backend corpus: `tests/module-corpus/backend/` in the Desktop corpus's format (index with a hash chain, one release per entry, never edited), first entry 2.1.64: `ledger`, six programs, 21 calls, 74,197 bytes compressed. `cargo run -p cobolt-backend-runner --example backend_corpus_add` adds one | `permanent` 2 passed: the index only grows (a file changed by one byte, and a last entry removed, are each reported) and 21 of 21 calls equal on the current runner |
+| T41 | `rcrun backend run --engine wasm`: the development server on the Backend's module made in memory (no runner file, nothing written to the project, no Rust); the interpreter stays the default; a Backend the module does not serve is refused naming why; stderr says which engine | `backend_cli` 9 passed: the same `PING` answered `{"REPLY":"pong"}` by no flag, `--engine interpreter` and `--engine wasm` (PASS 005); refusal and exit 2 cases (PASS 004) |
+
+**A test I wrote collided with another of mine, found by the sweep:** every Build test copies `PowerWebHello` into a folder of that name, and the Build stages in `cobolt-build-<name>-backend`, so two tests that finish a Build of it wrote into one folder and the second cleared it under the first (`could not write the Backend ... No such file or directory`). The tests that finish a Build now hold one lock (`one_build_at_a_time`). The Build itself has the same property for two projects of one name built at once; it was not changed here.
+
+**T42, T43 and T44 (2026-11-27, 2.1.65):**
+
+| Task | What | Measured |
+|---|---|---|
+| T42 | The release workflows: one runner built alone on each platform (`+crt-static` with `--target` on Windows), its bill of materials, staged beside `prc-runner`, checked by name, signed on macOS; the installers take the staged tree by folder | edits made at M4, read again; **not dispatched, not verified on any runner** |
+| T43 | `desktop-wasm.yml`: the runner beside `rcrun`; with Rust removed from disk, the four shipped Backends built with `rcrun backend build --wasm` on four platforms; `web-install-package.yml`: the runner beside `rcrun` on three systems and the installed bill of materials names the module | dry run on this Mac with a `PATH` of `/usr/bin:/bin`: 4 of 4 built on the module path, each file described itself; `rcrun package` of PowerOficina ready in 50.5 s (61 files, 154,764,704 bytes); both files parse as YAML; **not verified on Linux, Windows or a runner** |
+| T44 | The runner refuses a module that imports a native function whose capability its manifest does not declare (it did not before: a gap in R21); `secure.rs`: a secret in `backend.toml` or the environment reaches none of the files a Build writes, the Build-made file refuses `unsafe_*` settings, the module's imports against its manifest | `secure` 3 passed (PASS 022, 004, 008); unit test PASS 010; 9 files and 272,984,512 bytes scanned; negative check run; the Desktop module corpus still runs (`corpus_runs_on_this_runner`, 177.9 s) |
+
+**Sweep after T44 (`cargo test --no-fail-fast`, the final tree):** `cobolt-runner`, `cobolt-backend-runner`, `cobolt-wasm-abi`: 35 result lines, 97 passed, 0 failed. The four `cobolt-cli` form tests that run a program on both engines, re-run on it: 4 passed.
+
 ## DESKTOP-WASM-001 — the M6 close and the acceptance audit (measured 2026-11-21, versions 2.0.640 to 2.0.643)
 
 The Desktop Build's default is the WebAssembly path, and **every reference project takes it with no Rust toolchain on the machine.** Measured on an 11-core Apple M3 Pro with 18 GB (not the reference box), macOS arm64, at `4db4e98f` (2.0.639) with the M6-close changes in the tree. The commands are in `specs/DESKTOP-WASM-001-portable-program-format-and-native-runner/tasks.md`, T51.

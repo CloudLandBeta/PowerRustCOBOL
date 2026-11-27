@@ -49,3 +49,21 @@ The tool does the following:
 5. Writes `releases/<release>/`, appends the entry, and prints the line to add to `KNOWN` in `crates/cobolt-runner/tests/module_corpus.rs`.
 
 By default, the release is the IDE's version and the date is today. A new fixture added to `fixtures/` joins the next release's entry. The entries already made never change.
+
+## The Backend corpus (`backend/`, spec 114 T40b)
+
+A Backend built as a WebAssembly module is a payload inside the Backend runner (`prc-backend-runner`), and a Backend built by any release must keep answering on every later runner (R3, AC9). `backend/` holds the evidence, in the same style and with the same chain as the Desktop corpus above:
+
+| Path | What it is |
+|---|---|
+| `backend/fixtures/<name>/` | A Backend's folder (`exports.toml`, `src/*.cbl`) and `calls.toml`: the calls made to it, with the final JSON each must answer or the `<class> <code>` it must fail with. |
+| `backend/releases/<release>/<name>.backend.gz` | The Backend as that release's Build packs it for the runner (the interface, the table of exports, the state mode and the module, made by `backend_module::backend_container`), compressed. |
+| `backend/releases/<release>/<name>.calls.toml` | The fixture's `calls.toml` as it was at that release. |
+| `backend/index.toml` | One entry per release: its files with their sha256, and a `chain`. |
+
+```
+cargo test -p cobolt-backend-runner --test permanent -- --nocapture     # load every committed Backend and make its calls
+cargo run -p cobolt-backend-runner --example backend_corpus_add         # this release's entry
+```
+
+The tool refuses unless the interpreter, and then the module on this checkout's runner, answer every call as the table says; it writes `releases/<release>/`, appends the entry and prints the line for `KNOWN` in `crates/cobolt-backend-runner/tests/permanent.rs`. The rules are the Desktop corpus's: append-only, one entry per release, at most 256 KiB of compressed Backends, kept byte for byte on every platform.

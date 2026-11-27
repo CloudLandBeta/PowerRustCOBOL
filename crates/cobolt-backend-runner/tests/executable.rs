@@ -146,12 +146,19 @@ fn the_packed_runner_starts_as_a_cargo_built_backend_does() {
     std::fs::write(&env_ok, format!("{var}=s3cr3t-value\n")).unwrap();
     std::fs::set_permissions(&env_ok, std::fs::Permissions::from_mode(0o600)).unwrap();
     let env_s = env_ok.to_str().unwrap().to_string();
+    // A release refuses every `unsafe_*` setting (WASM-013 R11, spec 114 R21): the same configuration with one added.
+    let cfg_unsafe = dir.join("backend-unsafe.toml");
+    let text = std::fs::read_to_string(&cfg).unwrap().replacen("[server]\n", "[server]\nunsafe_allow_any_origin = true\n", 1);
+    assert!(text.contains("unsafe_allow_any_origin"), "the unsafe setting was added");
+    std::fs::write(&cfg_unsafe, text).unwrap();
+    let cfg_unsafe_s = cfg_unsafe.to_str().unwrap().to_string();
 
     // The same arguments, the same standard output, the same exit code.
     let cases: Vec<(&str, Vec<&str>)> = vec![
         ("--version", vec!["--version"]),
         ("--describe", vec!["--describe"]),
         ("--check, accepted", vec!["--check", "--config", &cfg_s, "--env-file", &env_s]),
+        ("--check, an unsafe_* setting", vec!["--check", "--config", &cfg_unsafe_s, "--env-file", &env_s]),
         ("--check, a secret missing", vec!["--check", "--config", &cfg_s]),
         ("--check, no such configuration", vec!["--check", "--config", "nope.toml"]),
         ("--service, where there is no Service Control Manager", vec!["--service", "--config", &cfg_s]),

@@ -22,6 +22,8 @@
 //! The clock and the random seed are pinned (`PRC_TEST_CLOCK`, `PRC_TEST_SEED`) so that a program that stamps a record or
 //! draws a number gives the same value on both paths.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -549,4 +551,113 @@ fn the_four_shipped_backends_answer_and_leave_behind_the_same_on_the_module() {
     println!("PASS {:03} FAIL {failures:03}", tally.equal + tally.files_equal + tally.parallel_equal);
     let _ = std::fs::remove_dir_all(&scratch);
     assert!(differences.is_empty(), "{} difference(s):\n{}", differences.len(), differences.join("\n"));
+}
+
+// ── T45: the measurements ─────────────────────────────────────────────────────
+
+/// The calls per second of `callers` threads that each make `each` calls of `prog` with `args`, after three that are not counted
+/// (the first call of an engine compiles, opens and warms). Returns the milliseconds the counted calls took and how many failed.
+fn rate(engine: &dyn Engine, prog: &ExportedProgram, args: &[String], callers: usize, each: usize) -> (u128, usize) {
+    for _ in 0..3 {
+        let _ = engine.execute(prog, args, options());
+    }
+    let began = Instant::now();
+    let failed: usize = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..callers).map(|_| s.spawn(|| (0..each).filter(|_| engine.execute(prog, args, options()).is_err()).count())).collect();
+        handles.into_iter().map(|h| h.join().expect("a caller thread")).sum()
+    });
+    (began.elapsed().as_millis().max(1), failed)
+}
+
+/// Spec 114 T45 (R16, AC10): the Build's time per phase against the 30 s goal, and the throughput of each shipped Backend's
+/// commonest call (the program that reads its data) on both engines, with one caller and with eight. It is a measurement: it never
+/// fails on a number, only when something could not be measured. Run it on request, in release for numbers that mean something:
+/// `cargo test -p cobolt-backend-runner --release --test parity -- --ignored --nocapture measured_build_and_throughput`
+#[test]
+#[ignore = "a measurement, run on request"]
+fn measured_build_and_throughput_on_both_engines() {
+    use cobolt_compiler::backend_build::build_backend;
+    use cobolt_compiler::backend_module::BackendPath;
+    std::env::set_var("PRC_TEST_CLOCK", "2026-01-15T10:00:00-03:00");
+    std::env::set_var("PRC_TEST_SEED", "20260115");
+    let _one = common::one_build_at_a_time();
+    const GOAL_MS: u128 = 30_000;
+    const ONE: usize = 200;
+    const EACH: usize = 50;
+    let scratch = std::env::temp_dir().join(format!("prc-backend-measure-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    let runner = common::runner_with_sbom(&scratch.join("runner"));
+    let profile = if cfg!(debug_assertions) { "debug profile: the runner is not the shipped one, the numbers are not a release's" } else { "release profile" };
+    let started = Instant::now();
+    let (mut measured, mut failed) = (0u32, 0u32);
+    let mut rows: Vec<String> = Vec::new();
+
+    for name in SHIPPED {
+        // The Build, phase by phase.
+        let dir = copy_project(name, &scratch, "build");
+        let began = Instant::now();
+        let build = match build_backend(&dir, &common::options(&runner, Some(BackendPath::Wasm))) {
+            Ok(b) => {
+                measured += 1;
+                let ms = began.elapsed().as_millis();
+                let phases = b.phases.iter().map(|p| format!("{} {} ms", p.name, p.millis)).collect::<Vec<_>>().join(", ");
+                format!("Build {ms} ms ({}): {phases}; the file is {} bytes", if ms <= GOAL_MS { "within the 30 s goal" } else { "OVER the 30 s goal" }, std::fs::metadata(&b.binary).map(|m| m.len()).unwrap_or(0))
+            }
+            Err(e) => {
+                failed += 1;
+                format!("Build FAILED: {e}")
+            }
+        };
+
+        // The call, on each engine in its own copy.
+        let interp_dir = copy_project(name, &scratch, "interp");
+        let module_dir = copy_project(name, &scratch, "module");
+        enter(&interp_dir, name);
+        let interp = Backend::load(&interp_dir.join("backend")).unwrap_or_else(|e| panic!("{name} does not load: {e:#?}"));
+        enter(&module_dir, name);
+        let source = Backend::load(&module_dir.join("backend")).unwrap_or_else(|e| panic!("{name} does not load: {e:#?}"));
+        let (loaded, module_bytes, compile_ms) = module_backend(name, &source);
+        let loaded = loaded.unwrap_or_else(|e| panic!("the runner refuses {name}: {e:?}"));
+        let wasm_engine = loaded.engine.clone().expect("the runner's engine");
+        let on_module = loaded.backend;
+        let reader = READERS.iter().find(|(n, _)| *n == name).and_then(|(_, r)| r.last().copied()).expect("a reader");
+        let prog_i = interp.program(reader).expect("the reader exists");
+        // A request the interpreter answers: one written for the application when there is one, else the ordinary one.
+        enter(&interp_dir, name);
+        let mut candidates: Vec<Vec<String>> =
+            DOMAIN.iter().filter(|(p, n, _)| *p == name && *n == reader).map(|(_, _, a)| a.iter().map(|s| s.to_string()).collect()).collect();
+        candidates.push(request(prog_i, Shape::Typical));
+        let Some(args) = candidates.into_iter().find(|a| matches!(call(&InterpreterEngine, prog_i, a), Seen::Answered { .. })) else {
+            failed += 1;
+            rows.push(format!("{name}: no request of {reader} is answered by the interpreter; {build}"));
+            continue;
+        };
+        let prog_m = on_module.program(reader).expect("the reader exists on the module");
+        let (ia, ib) = (rate(&InterpreterEngine, prog_i, &args, 1, ONE), rate(&InterpreterEngine, prog_i, &args, PARALLEL, EACH));
+        enter(&module_dir, name);
+        let (ma, mb) = (rate(wasm_engine.as_ref(), prog_m, &args, 1, ONE), rate(wasm_engine.as_ref(), prog_m, &args, PARALLEL, EACH));
+        let per_sec = |calls: usize, ms: u128| calls as f64 * 1000.0 / ms as f64;
+        let errors = ia.1 + ib.1 + ma.1 + mb.1;
+        if errors == 0 {
+            measured += 1;
+        } else {
+            failed += 1;
+        }
+        rows.push(format!(
+            "{name} {reader}: {build}; one caller ({ONE} calls) interpreter {:.0} calls/sec, module {:.0}; {PARALLEL} callers ({} calls) interpreter {:.0}, module {:.0}; the module is {module_bytes} bytes, compiled in {compile_ms} ms{}",
+            per_sec(ONE, ia.0),
+            per_sec(ONE, ma.0),
+            PARALLEL * EACH,
+            per_sec(PARALLEL * EACH, ib.0),
+            per_sec(PARALLEL * EACH, mb.0),
+            if errors == 0 { String::new() } else { format!("; {errors} calls FAILED") }
+        ));
+    }
+    println!("== spec 114 T45, {profile}, {} cores:", std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0));
+    for r in &rows {
+        println!("  {r}");
+    }
+    println!("measured, not gated: {measured} measurements in {} ms; PASS {measured:03} FAIL {failed:03}", started.elapsed().as_millis());
+    let _ = std::fs::remove_dir_all(&scratch);
+    assert_eq!(failed, 0, "{failed} measurements could not be made");
 }

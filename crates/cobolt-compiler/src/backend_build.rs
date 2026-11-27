@@ -231,6 +231,57 @@ fn reason_lines(reasons: &[BackendCargoReason]) -> String {
     reasons.iter().map(|r| format!("  - {r}")).collect::<Vec<_>>().join("\n")
 }
 
+/// The first `EXEC RUST` line of each program that has one: its file relative to the project (`files` gives it by PROGRAM-ID),
+/// and the line. What `classify_backend` takes as `exec_rust`.
+fn exec_rust_of(programs: &[cobolt_ast::program::Program], files: &[(String, String)]) -> Vec<(String, u32)> {
+    programs
+        .iter()
+        .filter_map(|p| {
+            crate::first_exec_rust_line(p).map(|line| {
+                let id = p.identification.program_id.to_ascii_uppercase();
+                (files.iter().find(|(f, _)| *f == id).map_or("backend".to_string(), |(_, rel)| rel.clone()), line)
+            })
+        })
+        .collect()
+}
+
+/// The exported programs that seed a control, by PROGRAM-ID, in order. What `classify_backend` takes as `control_programs`.
+fn control_programs_of(backend: &cobolt_server::backend::Backend) -> Vec<String> {
+    let mut names: Vec<String> = backend.programs().filter(|p| p.control.is_some()).map(|p| p.sig.name.clone()).collect();
+    names.sort();
+    names
+}
+
+/// A Backend and its module, made in memory.
+pub struct DevModule {
+    pub backend: cobolt_server::backend::Backend,
+    pub compiled: cobolt_wasm::Compiled,
+}
+
+/// The module of the Backend in `project_dir`, made in memory for `rcrun backend run --engine wasm` (spec 114 R18): the same
+/// reading, the same reasons and the same generator as the Build's module path, with no runner, nothing written and no
+/// toolchain, so what will ship can be tried before it ships. `Err` says, line by line, why the module does not serve this
+/// Backend (the Build would take the Cargo path for it).
+pub fn dev_module(project_dir: &Path) -> Result<DevModule, Vec<String>> {
+    let backend_dir = project_dir.join("backend");
+    let one = |e: CompilerError| vec![e.to_string()];
+    let state = backend_state(project_dir).map_err(one)?;
+    let (_, external_crates) = path_settings(project_dir).map_err(one)?;
+    regenerate_identity(&backend_dir).map_err(one)?;
+    let mut bundle = cobolt_server::bundle::Bundle::from_dir(&backend_dir)?;
+    bundle.state = state;
+    let files = backend_module::program_files(project_dir);
+    let exec_rust = exec_rust_of(&bundle.programs, &files);
+    let backend = bundle.into_backend()?;
+    let control_programs = control_programs_of(&backend);
+    let reasons = backend_module::classify_backend(&ClassifyInput { path: BackendPath::Auto, external_crates, exec_rust, identity: backend_has_identity(&backend_dir), control_programs });
+    if !reasons.is_empty() {
+        return Err(reasons.iter().map(ToString::to_string).collect());
+    }
+    let compiled = backend_module::generate(&backend, &files).map_err(|refused| refused.iter().map(ToString::to_string).collect::<Vec<_>>())?;
+    Ok(DevModule { backend, compiled })
+}
+
 /// Build the backend of the project in `project_dir`.
 ///
 /// The Build reads and checks the Backend, writes the interface and compares the contract, then chooses a path (spec 114
@@ -262,16 +313,7 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     bundle.state = state;
     log(&format!("   state: {}", state.as_str()));
     let files = backend_module::program_files(project_dir);
-    let exec_rust: Vec<(String, u32)> = bundle
-        .programs
-        .iter()
-        .filter_map(|p| {
-            crate::first_exec_rust_line(p).map(|line| {
-                let id = p.identification.program_id.to_ascii_uppercase();
-                (files.iter().find(|(f, _)| *f == id).map_or("backend".to_string(), |(_, rel)| rel.clone()), line)
-            })
-        })
-        .collect();
+    let exec_rust = exec_rust_of(&bundle.programs, &files);
     let bytes = bundle.to_bytes().map_err(CompilerError::Serialize)?;
     let mut features = runtime_features::RuntimeFeatures::default();
     for p in &bundle.programs {
@@ -323,7 +365,8 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     phases.push(BackendPhase { name: "check", millis: began.elapsed().as_millis() });
 
     // 4. Which path (spec 114 R13, plan D8): the reasons that stop the module, in order, each named.
-    let mut reasons = backend_module::classify_backend(&ClassifyInput { path, external_crates, exec_rust, identity: backend_has_identity(&backend_dir) });
+    let control_programs = control_programs_of(&backend);
+    let mut reasons = backend_module::classify_backend(&ClassifyInput { path, external_crates, exec_rust, identity: backend_has_identity(&backend_dir), control_programs });
     let mut module = None;
     if reasons.is_empty() {
         let began = Instant::now();

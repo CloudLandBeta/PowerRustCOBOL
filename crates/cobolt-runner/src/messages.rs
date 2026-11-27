@@ -64,6 +64,9 @@ pub enum Msg {
     Capabilities(Vec<String>),
     /// The program imports something this runner does not provide, `module.name`.
     Import(String),
+    /// The program imports something its own manifest does not declare a capability for: the import, `module.name`, and the
+    /// capability it would have to declare (spec 114 R21).
+    UndeclaredImport { import: String, capability: String },
     /// The engine could not load or start the module.
     CannotStart(String),
     /// A run-time error the program reported, ending the run.
@@ -120,6 +123,14 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             Fr => format!("Ce programme utilise {name}, que cet exécuteur PowerRustCOBOL ne fournit pas. Recompilez-le avec une version actuelle de PowerRustCOBOL."),
             Ja => format!("このプログラムは {name} を使用しますが、この PowerRustCOBOL ランナーはそれを提供していません。最新の PowerRustCOBOL でもう一度ビルドしてください。"),
             Zh => format!("此程序使用了 {name}，但此 PowerRustCOBOL 运行器未提供它。请使用当前版本的 PowerRustCOBOL 重新构建。"),
+        },
+        Msg::UndeclaredImport { import, capability } => match lang {
+            En => format!("This program uses {import} but does not declare the capability {capability} that brings it, so this PowerRustCOBOL runner does not run it. Build it again with a current PowerRustCOBOL release."),
+            Es => format!("Este programa usa {import} pero no declara la capacidad {capability} que lo aporta, por lo que este ejecutor de PowerRustCOBOL no lo ejecuta. Vuelva a compilarlo con una versión actual de PowerRustCOBOL."),
+            Pt => format!("Este programa usa {import} mas não declara o recurso {capability} que o traz, por isso este executor do PowerRustCOBOL não o executa. Compile-o novamente com uma versão atual do PowerRustCOBOL."),
+            Fr => format!("Ce programme utilise {import} mais ne déclare pas la capacité {capability} qui l'apporte ; cet exécuteur PowerRustCOBOL ne l'exécute donc pas. Recompilez-le avec une version actuelle de PowerRustCOBOL."),
+            Ja => format!("このプログラムは {import} を使用しますが、それをもたらす機能 {capability} を宣言していないため、この PowerRustCOBOL ランナーは実行しません。最新の PowerRustCOBOL でもう一度ビルドしてください。"),
+            Zh => format!("此程序使用了 {import}，但没有声明提供它的功能 {capability}，因此此 PowerRustCOBOL 运行器不会运行它。请使用当前版本的 PowerRustCOBOL 重新构建。"),
         },
         Msg::CannotStart(detail) => match lang {
             En => format!("The program could not start: {detail}"),
