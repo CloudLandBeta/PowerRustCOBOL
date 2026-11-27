@@ -1128,6 +1128,10 @@ pub struct CoboltApp {
     /// When every IDE window was last re-blurred under a see-through theme:
     /// a Form Designer opened since then has no blur until the next sync.
     blur_synced_at: Option<std::time::Instant>,
+    /// When the title bars of the IDE's windows were last given the system's own background (macOS): a
+    /// transparent window's title bar shows the desktop through it, whatever the theme, and a window
+    /// opened since the last sync has not been given one yet.
+    title_bars_synced_at: Option<std::time::Instant>,
 
     /// Currently selected UI language.
     lang: Language,
@@ -2522,6 +2526,7 @@ impl CoboltApp {
             glass_visuals_applied: false,
             window_blur: None,
             blur_synced_at: None,
+            title_bars_synced_at: None,
             lang: crate::ui_prefs::load_language(),
             lang_persisted: crate::ui_prefs::load_language(),
             welcome_quote_index: 0,
@@ -17144,6 +17149,13 @@ impl eframe::App for CoboltApp {
             // A window opened since the last sync starts unblurred.
             cobolt_os_blur::set_all_windows(true);
             self.blur_synced_at = Some(std::time::Instant::now());
+        }
+        // The IDE's windows are created transparent in every theme, and on macOS a transparent window's title
+        // bar is clear: the desktop shows through it. Lay the system's own background under each bar (the
+        // call does nothing where the bar is already opaque, and on the other systems).
+        if self.title_bars_synced_at.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(1)) {
+            cobolt_os_blur::fill_title_bars();
+            self.title_bars_synced_at = Some(std::time::Instant::now());
         }
         // The whole IDE is laid out with Context-level panels (top bar, side
         // panels, central canvas), so the per-frame entry point only needs the

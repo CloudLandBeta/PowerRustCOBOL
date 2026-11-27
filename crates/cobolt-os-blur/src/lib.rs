@@ -126,6 +126,26 @@ pub fn usable_screen_area(window: (f64, f64, f64, f64), scale: f64) -> Option<(f
     }
 }
 
+/// Give the title bar of every see-through window of this application the operating system's own
+/// background. A transparent window has no background of its own, and since macOS 11 a plain title
+/// bar is nothing but the window's background, so the bar shows the desktop (blurred or not) behind
+/// it. On macOS this lays the system's window-background colour, which follows light and dark, under
+/// the bar of each titled, non-full-screen, non-opaque window, once per window; the content under it
+/// stays see-through. Returns how many windows were given one in this call. Windows and Linux draw
+/// the title bar themselves: nothing is done and `0` comes back.
+///
+/// Call it on the thread that owns the windows, like [`set_all_windows`]; it is idempotent.
+pub fn fill_title_bars() -> usize {
+    #[cfg(target_os = "macos")]
+    {
+        macos_group::fill_title_bars()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        0
+    }
+}
+
 /// `frame`, in points at `scale` pixels to the point, as the pixel edges
 /// `(left, top, right, bottom)` Windows measures screens in.
 #[cfg(any(target_os = "windows", test))]
@@ -335,6 +355,115 @@ mod macos_group {
             }
             let v = rect_of(main, c"visibleFrame");
             (v.w > 0.0 && v.h > 0.0).then(|| (v.x, screen_h - (v.y + v.h), v.w, v.h))
+        }
+    }
+
+    // `NSWindowStyleMask` bits that decide whether a window has a title bar of its own to fill.
+    const STYLE_TITLED: usize = 1 << 0;
+    const STYLE_FULL_SCREEN: usize = 1 << 14;
+    const STYLE_FULL_SIZE_CONTENT: usize = 1 << 15;
+    // `NSBox`: a custom box with no border and no title is a plain filled rectangle; `NSWindowBelow`
+    // puts a view under its siblings; `NSViewWidthSizable | NSViewMinYMargin` keeps a strip glued to
+    // the top of its parent and as wide as it.
+    const BOX_CUSTOM: usize = 4;
+    const BOX_NO_BORDER: usize = 0;
+    const BOX_NO_TITLE: usize = 0;
+    const WINDOW_BELOW: isize = -1;
+    const STICK_TO_TOP_AND_WIDTH: usize = 2 | 8;
+    /// The identifier of the view [`fill_title_bars`] adds, so a window is given one only once.
+    const FILL_ID: &std::ffi::CStr = c"prc-title-bar-fill";
+
+    /// The strip a window's title bar takes at the top of its frame view, as `(x, y, width, height)` with
+    /// the bottom-left origin Cocoa uses: the frame view is `frame_h` tall and the content below the bar
+    /// `content_h`. `None` where there is no bar to speak of (the bar would be nothing, or the content
+    /// would be taller than the frame).
+    pub(super) fn title_strip(frame_w: f64, frame_h: f64, content_h: f64) -> Option<(f64, f64, f64, f64)> {
+        let h = frame_h - content_h;
+        (frame_w > 0.0 && content_h >= 0.0 && h > 0.0 && h < frame_h).then_some((0.0, content_h, frame_w, h))
+    }
+
+    /// See [`super::fill_title_bars`]. The view is an `NSBox` (a custom one, no border, no title) filled with
+    /// `windowBackgroundColor`, a dynamic colour that follows light and dark, added to the window's frame
+    /// view BELOW its other subviews: the content view and the system's own title bar (buttons, title) draw
+    /// above it, and in full screen, where the content covers the frame, it is not seen.
+    pub(super) fn fill_title_bars() -> usize {
+        unsafe {
+            let send_id: extern "C" fn(Id, Sel) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let send_usize: extern "C" fn(Id, Sel) -> usize = std::mem::transmute(objc_msgSend as *const ());
+            let send_bool: extern "C" fn(Id, Sel) -> i8 = std::mem::transmute(objc_msgSend as *const ());
+            let send_bool_id: extern "C" fn(Id, Sel, Id) -> i8 = std::mem::transmute(objc_msgSend as *const ());
+            let send_index: extern "C" fn(Id, Sel, usize) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let send_cstr: extern "C" fn(Id, Sel, *const c_char) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let send_set_usize: extern "C" fn(Id, Sel, usize) = std::mem::transmute(objc_msgSend as *const ());
+            let send_set_id: extern "C" fn(Id, Sel, Id) = std::mem::transmute(objc_msgSend as *const ());
+            let send_frame: extern "C" fn(Id, Sel, Rect) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let send_add: extern "C" fn(Id, Sel, Id, isize, Id) = std::mem::transmute(objc_msgSend as *const ());
+            let send_void: extern "C" fn(Id, Sel) = std::mem::transmute(objc_msgSend as *const ());
+
+            let app = send_id(objc_getClass(c"NSApplication".as_ptr()), sel_registerName(c"sharedApplication".as_ptr()));
+            let box_class = objc_getClass(c"NSBox".as_ptr());
+            let color_class = objc_getClass(c"NSColor".as_ptr());
+            let string_class = objc_getClass(c"NSString".as_ptr());
+            if app.is_null() || box_class.is_null() || color_class.is_null() || string_class.is_null() {
+                return 0;
+            }
+            let windows = send_id(app, sel_registerName(c"windows".as_ptr()));
+            if windows.is_null() {
+                return 0;
+            }
+            let (count, at) = (sel_registerName(c"count".as_ptr()), sel_registerName(c"objectAtIndex:".as_ptr()));
+            let name = send_cstr(string_class, sel_registerName(c"stringWithUTF8String:".as_ptr()), FILL_ID.as_ptr());
+            let mut given = 0;
+            for i in 0..send_usize(windows, count) {
+                let window = send_index(windows, at, i);
+                if window.is_null() {
+                    continue;
+                }
+                let style = send_usize(window, sel_registerName(c"styleMask".as_ptr()));
+                if style & STYLE_TITLED == 0 || style & (STYLE_FULL_SCREEN | STYLE_FULL_SIZE_CONTENT) != 0 {
+                    continue;
+                }
+                // An opaque window's title bar already has its background.
+                if send_bool(window, sel_registerName(c"isOpaque".as_ptr())) != 0 {
+                    continue;
+                }
+                let content = send_id(window, sel_registerName(c"contentView".as_ptr()));
+                let frame_view = if content.is_null() { content } else { send_id(content, sel_registerName(c"superview".as_ptr())) };
+                if frame_view.is_null() {
+                    continue;
+                }
+                let subviews = send_id(frame_view, sel_registerName(c"subviews".as_ptr()));
+                let ident = sel_registerName(c"identifier".as_ptr());
+                let is_equal = sel_registerName(c"isEqualToString:".as_ptr());
+                let already = !subviews.is_null()
+                    && (0..send_usize(subviews, count)).any(|k| {
+                        let id = send_id(send_index(subviews, at, k), ident);
+                        !id.is_null() && send_bool_id(id, is_equal, name) != 0
+                    });
+                if already {
+                    continue;
+                }
+                let bounds = rect_of(frame_view, c"bounds");
+                let layout = rect_of(window, c"contentLayoutRect");
+                let Some((x, y, w, h)) = title_strip(bounds.w, bounds.h, layout.h) else {
+                    continue;
+                };
+                let strip = send_frame(send_id(box_class, sel_registerName(c"alloc".as_ptr())), sel_registerName(c"initWithFrame:".as_ptr()), Rect { x, y, w, h });
+                if strip.is_null() {
+                    continue;
+                }
+                send_set_usize(strip, sel_registerName(c"setBoxType:".as_ptr()), BOX_CUSTOM);
+                send_set_usize(strip, sel_registerName(c"setBorderType:".as_ptr()), BOX_NO_BORDER);
+                send_set_usize(strip, sel_registerName(c"setTitlePosition:".as_ptr()), BOX_NO_TITLE);
+                send_set_id(strip, sel_registerName(c"setFillColor:".as_ptr()), send_id(color_class, sel_registerName(c"windowBackgroundColor".as_ptr())));
+                send_set_usize(strip, sel_registerName(c"setAutoresizingMask:".as_ptr()), STICK_TO_TOP_AND_WIDTH);
+                send_set_id(strip, sel_registerName(c"setIdentifier:".as_ptr()), name);
+                send_add(frame_view, sel_registerName(c"addSubview:positioned:relativeTo:".as_ptr()), strip, WINDOW_BELOW, std::ptr::null_mut());
+                // `alloc` gave one reference and the frame view took its own.
+                send_void(strip, sel_registerName(c"release".as_ptr()));
+                given += 1;
+            }
+            given
         }
     }
 
@@ -643,6 +772,27 @@ mod tests {
     #[test]
     fn nothing_is_rounded_where_no_window_matches() {
         assert!(!super::round_window((0.0, 0.0, 10.0, 10.0), 35.0));
+    }
+
+    /// The title bar is what the content leaves at the top of the frame view, with the bottom-left origin of
+    /// Cocoa, and nothing where the two are as tall as each other or the numbers make no sense.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_title_bar_is_what_the_content_leaves_at_the_top_of_the_frame() {
+        use super::macos_group::title_strip;
+        assert_eq!(title_strip(1280.0, 828.0, 800.0), Some((0.0, 800.0, 1280.0, 28.0)));
+        assert_eq!(title_strip(1280.0, 800.0, 800.0), None, "no bar when the content is the whole frame");
+        assert_eq!(title_strip(1280.0, 800.0, 810.0), None, "content taller than the frame is no bar");
+        assert_eq!(title_strip(0.0, 828.0, 800.0), None, "an empty frame is no frame");
+        assert_eq!(title_strip(1280.0, 28.0, 0.0), None, "a frame that is all bar has no content to sit under it");
+    }
+
+    /// With no window (a test binary has no AppKit and no windows) no title bar is given a background, and
+    /// asking is harmless.
+    #[test]
+    fn no_title_bar_is_filled_where_there_is_no_window() {
+        assert_eq!(super::fill_title_bars(), 0);
+        assert_eq!(super::fill_title_bars(), 0, "asking again is as harmless");
     }
 
     /// The layer a window shows is clipped to the arc: its corner radius is the
