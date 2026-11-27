@@ -447,6 +447,8 @@ pub struct State {
     pub(crate) display: Option<Vec<String>>,
     /// The Backend's verbs for the call this run answers (A60, spec 114 T36).
     pub(crate) verbs: verbs::Verbs,
+    /// The limits of a Backend call's store (spec 114 T39): none for a program run on its own.
+    pub(crate) limits: wasmtime::StoreLimits,
 }
 
 impl State {
@@ -468,6 +470,7 @@ impl State {
             pq: std::rc::Rc::default(),
             display: None,
             verbs: verbs::Verbs::default(),
+            limits: wasmtime::StoreLimits::default(),
         }
     }
 }

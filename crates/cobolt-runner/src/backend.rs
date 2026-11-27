@@ -28,7 +28,7 @@ use std::sync::Arc;
 use cobolt_runner_engine::{Cache, MachineCode};
 use cobolt_wasm_abi::backend::{self, result, Answer, BackendSection, Refusal, CALL_EXPORT, RESUME_EXPORT, STATE_PER_CONNECTION};
 use cobolt_wasm_abi::manifest::MANIFEST_SECTION;
-use wasmtime::{Engine, Instance, InstancePre, Memory, Store, Trap, UpdateDeadline};
+use wasmtime::{Engine, Instance, InstancePre, Memory, Store, StoreLimits, StoreLimitsBuilder, Trap, UpdateDeadline};
 
 use crate::verbs::{CallHost, Failure, Verbs};
 use crate::{check_with, files, linker_for, sql, Lang, Msg, Pins, State};
@@ -127,6 +127,8 @@ pub struct BackendModule {
     sql: Option<sql::SqlSetup>,
     lang: Lang,
     pins: Pins,
+    /// The most a linear memory of the module may ever hold, in bytes: what the module declares for it (see [`static_memory_bytes`]).
+    memory_cap: usize,
     /// How the module was reached, for the operator's log: `MachineCode`, `Cache` or `Compiled`.
     pub load_path: String,
 }
@@ -150,6 +152,7 @@ impl BackendModule {
         let loaded = cobolt_runner_engine::load(&engine, module, code, cache.as_ref()).map_err(Msg::CannotStart)?;
         let linker = linker_for(&engine, checked.abi, &checked.imports)?;
         let pre = linker.instantiate_pre(&loaded.module).map_err(|e| Msg::CannotStart(format!("{e:#}")))?;
+        let memory_cap = static_memory_bytes(&loaded.module);
         let (pins, said) = Pins::from_env();
         for s in said {
             eprintln!("{s}");
@@ -163,6 +166,7 @@ impl BackendModule {
             sql: checked.sql,
             lang: Lang::En,
             pins,
+            memory_cap,
             load_path: format!("{:?}", loaded.path),
         })
     }
@@ -276,6 +280,10 @@ impl BackendModule {
         state.files = std::rc::Rc::new(std::cell::RefCell::new(files::Files::new(self.files.clone())));
         state.sql = self.sql.clone().map(sql::SqlRun::new);
         let mut store = Store::new(&self.engine, state);
+        // A second guard behind the module's own types: its memories are static (the same minimum and maximum), and no
+        // memory of a call's instance may grow past what the module declares, whatever the module says it can reach.
+        store.data_mut().limits = memory_limits(self.memory_cap);
+        store.limiter(|state| &mut state.limits);
         // Starting the module runs its code (`pr_arena_base`) before any call has a stop to check: a store's own deadline is
         // 0 ticks, which interrupts at once, so the start-up is given a deadline it cannot reach. Each call sets its own.
         store.set_epoch_deadline(u64::MAX / 4);
@@ -383,4 +391,78 @@ pub struct Resident {
 fn assert_shareable() {
     fn is<T: Send + Sync>() {}
     is::<BackendModule>();
+}
+
+/// What the module declares for its linear memories, in bytes: the largest minimum of the memories it exports. The generator
+/// makes every memory of a Backend module static (the same minimum and maximum), so this is the most any of them ever holds;
+/// a module that declares none this runner can read is left without a cap (`usize::MAX`) rather than refused every byte.
+fn static_memory_bytes(module: &wasmtime::Module) -> usize {
+    let most = module.exports().filter_map(|e| e.ty().memory().map(|m| m.minimum().saturating_mul(m.page_size()))).max().unwrap_or(0);
+    if most == 0 {
+        usize::MAX
+    } else {
+        usize::try_from(most).unwrap_or(usize::MAX)
+    }
+}
+
+/// The limits of one call's store: no memory grows past `cap` bytes (a `memory.grow` past it answers -1, as it does when the
+/// operating system refuses). A second guard behind the module's own types, which already fix its memories' sizes.
+fn memory_limits(cap: usize) -> StoreLimits {
+    StoreLimitsBuilder::new().memory_size(cap).build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wasm_encoder::{CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, MemorySection, MemoryType, Module, TypeSection, ValType};
+
+    /// A module with one exported memory of one page and no maximum, and `grow(pages)`, which grows it and answers the old size
+    /// in pages, or -1 when it cannot: the kind of module the generator never makes and a guard must still hold against.
+    fn growing_module() -> Vec<u8> {
+        let mut m = Module::new();
+        let mut types = TypeSection::new();
+        types.ty().function([ValType::I32], [ValType::I32]);
+        m.section(&types);
+        let mut funcs = FunctionSection::new();
+        funcs.function(0);
+        m.section(&funcs);
+        let mut mems = MemorySection::new();
+        mems.memory(MemoryType { minimum: 1, maximum: None, memory64: false, shared: false, page_size_log2: None });
+        m.section(&mems);
+        let mut exports = ExportSection::new();
+        exports.export("memory", ExportKind::Memory, 0);
+        exports.export("grow", ExportKind::Func, 0);
+        m.section(&exports);
+        let mut code = CodeSection::new();
+        let mut f = Function::new([]);
+        f.instruction(&Instruction::LocalGet(0));
+        f.instruction(&Instruction::MemoryGrow(0));
+        f.instruction(&Instruction::End);
+        code.function(&f);
+        m.section(&code);
+        m.finish()
+    }
+
+    fn grow(limits: Option<StoreLimits>, pages: i32) -> i32 {
+        let engine = Engine::default();
+        let module = wasmtime::Module::new(&engine, growing_module()).expect("a module");
+        let mut store = Store::new(&engine, limits.unwrap_or_else(|| StoreLimitsBuilder::new().build()));
+        store.limiter(|l| l);
+        let instance = Instance::new(&mut store, &module, &[]).expect("an instance");
+        instance.get_typed_func::<i32, i32>(&mut store, "grow").expect("grow").call(&mut store, pages).expect("a call")
+    }
+
+    #[test]
+    fn a_memory_may_not_grow_past_what_the_module_declares() {
+        let started = std::time::Instant::now();
+        let engine = Engine::default();
+        let module = wasmtime::Module::new(&engine, growing_module()).expect("a module");
+        let cap = static_memory_bytes(&module);
+        assert_eq!(cap, 65536, "the declared size is the exported memory's minimum, in bytes");
+        // Without the guard the module (which declares no maximum) grows; with it, it cannot: the answer is -1.
+        assert_eq!(grow(None, 3), 1, "no limit: grows, answering the old size in pages");
+        assert_eq!(grow(Some(memory_limits(cap)), 3), -1, "the cap: refused");
+        assert_eq!(grow(Some(memory_limits(cap)), 0), 1, "the cap: growing by nothing is not growing");
+        println!("memory guard: a module declaring one page and no maximum grows 3 pages without the guard and is refused with it (cap {cap} bytes); PASS 004 FAIL 000 ({} ms)", started.elapsed().as_millis());
+    }
 }

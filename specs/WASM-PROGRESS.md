@@ -232,6 +232,17 @@ The module engine now serves everything a per-call or per-connection Backend ask
 
 **Sweep 5 (`cargo test --no-fail-fast`, after the last change):** `cobolt-runner` 17 binaries, 32 passed, 0 failed, 2 ignored; `cobolt-backend-runner` 13 binaries, 21 passed, 0 failed; `cobolt-server` 29 binaries, 195 passed, 0 failed (the interpreter run); `cobolt-web-tests` compiles. **Not verified:** the module run of the suites on Linux, Windows and a second macOS machine; the CI job that runs each suite once per engine (T42).
 
+**T39, the server's limits on the module (2026-11-27, 2.1.63), `cobolt-backend-runner/tests/limits.rs`, 5 passed, 0 failed:**
+
+| Limit | Setting | Result on the module (and the interpreter where it was run) |
+|---|---|---|
+| Calls at once | `max_calls_total = 3`, 8 callers, `call_timeout_ms = 600` | 3 ran until stopped (7003), 5 refused at once with 7002 (slowest 110 ms), threads back 17 ms later, next call served |
+| A flood | `user_rate_per_sec = 20`, 4 connections x 100 calls | 21 served, 379 refused 7001 on both engines; the other caller's 10 of 10 answered (4 ms interpreter, 6 ms module) |
+| A request that does not fit | default limits; `max_frame_bytes = 4096` | 4 shapes refused 4000, one frame refused 7000, the same words on both engines, 5 of 5 equal |
+| Storage in a call | six calls of `BIGMEM` (16,000,000 bytes written 20 times) | 6 of 6 right on both engines, the other caller's 30 calls right (slowest 1 ms interpreter, 4 ms module); module process 814 to 924 MB while they ran |
+| Memory growth | `StoreLimits` at the declared size (unit test in `cobolt-runner`) | a module with one page and no maximum grows 3 pages without the guard, -1 with it |
+| Members in a request | objects of 500, 1,000, 2,000, 4,000 members | same refusal; interpreter 3, 7, 17, 57 ms; module 20, 72, 293, 1,200 ms (8,000: 220 ms and 4.8 s): quadratic on both, `json::check_object` on the module. **Open, for the operator:** the fix moves the AC16 pin and the eight player fixtures |
+
 ## DESKTOP-WASM-001 — the M6 close and the acceptance audit (measured 2026-11-21, versions 2.0.640 to 2.0.643)
 
 The Desktop Build's default is the WebAssembly path, and **every reference project takes it with no Rust toolchain on the machine.** Measured on an 11-core Apple M3 Pro with 18 GB (not the reference box), macOS arm64, at `4db4e98f` (2.0.639) with the M6-close changes in the tree. The commands are in `specs/DESKTOP-WASM-001-portable-program-format-and-native-runner/tasks.md`, T51.
