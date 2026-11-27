@@ -81,16 +81,18 @@ pub fn load(package: Package, provided: &[&str]) -> Result<Loaded, Vec<String>> 
         serde_json::from_slice(&c.slots).map_err(|e| vec![format!("the Backend's upload slots cannot be read: {e}")])?
     };
     let state = StateMode::parse(&c.state).map_err(|e| vec![e])?;
-    if state == StateMode::PerConnection {
-        // A run unit kept for a connection is not served by this runner yet (spec 114 T37): refused here, in words, rather
-        // than answered as if the state were fresh.
-        return Err(vec![
-            "this Backend keeps its WORKING-STORAGE for the connection ([backend] state = \"per-connection\"): the Backend runner serves per-call Backends in this release. Build it with `rcrun backend build --cargo`".into(),
-        ]);
-    }
     let backend = Backend::from_parts(interface, history, entries, state, slots)?;
     let began = std::time::Instant::now();
     let engine = WasmEngine::start(&c.module, package.code.as_ref(), provided).map_err(|e| vec![e])?;
+    // The server's state mode and the module's must be the same: a Backend that asks for its state to be kept over a module
+    // that starts every call afresh (or the reverse) would answer as if the state were what it is not.
+    let module_keeps = engine.module().per_connection();
+    if module_keeps != (state == StateMode::PerConnection) {
+        let (asked, built) = if module_keeps { ("per-call", "per-connection") } else { ("per-connection", "per-call") };
+        return Err(vec![format!(
+            "the Backend's configuration says `[backend] state = \"{asked}\"` but its module was built for `{built}` state: build it again so that the two agree"
+        )]);
+    }
     // For the operator only, in the log and on standard error: which engine runs this Backend (R12).
     let notice = format!(
         "engine: WebAssembly module, sha256 {}, {} exported program(s), loaded by {} in {:.1} ms",

@@ -15,15 +15,20 @@
 //!
 //! The data capabilities are the Desktop runner's own functions, so a Backend and a Desktop program that name the same file
 //! or statement meet the same code.
+//!
+//! A Backend whose state is `per-connection` (spec 114 T37, ABI A61) keeps one [`Resident`] instance per exported program for
+//! the life of a connection: the first call enters it with `pr_backend_call`, every later one with `pr_backend_resume`, which
+//! does not start the module up again nor put the program's storage back in its initial state, so what the program held
+//! (its `WORKING-STORAGE`, a file it left open, a database connection) is what the next call finds.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use cobolt_runner_engine::{Cache, MachineCode};
-use cobolt_wasm_abi::backend::{self, result, Answer, BackendSection, Refusal};
+use cobolt_wasm_abi::backend::{self, result, Answer, BackendSection, Refusal, CALL_EXPORT, RESUME_EXPORT, STATE_PER_CONNECTION};
 use cobolt_wasm_abi::manifest::MANIFEST_SECTION;
-use wasmtime::{Engine, InstancePre, Store, Trap, UpdateDeadline};
+use wasmtime::{Engine, Instance, InstancePre, Memory, Store, Trap, UpdateDeadline};
 
 use crate::verbs::{CallHost, Failure, Verbs};
 use crate::{check_with, files, linker_for, sql, Lang, Msg, Pins, State};
@@ -69,6 +74,18 @@ pub struct Called {
     pub failure: Option<Failure>,
     /// A `WS-PROGRESS` or `WS-EMIT` ended the call because its caller asked to cancel (A60).
     pub cancelled: bool,
+    /// The instance the call ran on may be called again, as far as the module can tell: the interpreter's rule for a run unit
+    /// (`cobolt_server::exec`), that an answer, a refused request and the program's own failure leave it fit and a cut-off, a
+    /// cancel or a run-time error do not. The server's own flags (a call it stopped, a cancel the caller asked for) are
+    /// the runner's to add.
+    pub keep: bool,
+}
+
+impl Called {
+    /// A call that never reached the module: the request does not fit its area, so nothing ran and nothing changed.
+    fn too_large() -> Called {
+        Called { outcome: Outcome::RequestTooLarge, display: Vec::new(), failure: None, cancelled: false, keep: true }
+    }
 }
 
 /// What the runner asks of a call besides its request.
@@ -191,18 +208,68 @@ impl BackendModule {
     pub fn call_index_with(&self, index: i32, args: &[&str], control: &CallControl, host: Option<Box<dyn CallHost>>) -> Result<Called, String> {
         let frame = backend::encode_request(args);
         if frame.len() as u32 > self.section.request.cap {
-            return Ok(Called { outcome: Outcome::RequestTooLarge, display: Vec::new(), failure: None, cancelled: false });
+            return Ok(Called::too_large());
         }
+        let (mut store, instance, memory) = self.open()?;
+        self.enter(&mut store, &instance, memory, CALL_EXPORT, index, &frame, control, host)
+    }
+
+    /// Whether the module keeps a program's state for the life of a connection (`[backend] state = "per-connection"`): it then
+    /// has the second entry, and a connection's calls go through a [`Resident`] per program.
+    pub fn per_connection(&self) -> bool {
+        self.section.state == STATE_PER_CONNECTION
+    }
+
+    /// A new instance for a connection's calls to one program ([`BackendModule::call_resident`]): its provider state (the open
+    /// files, the database connection) lives as long as it does. It is not `Send`: the thread that makes it is the one that
+    /// calls it and drops it. `Err` when the module's state is `per-call`, or the module cannot be started.
+    pub fn resident(&self) -> Result<Resident, String> {
+        if !self.per_connection() {
+            return Err("this module keeps no state for a connection: its Backend section says `per-call`".into());
+        }
+        let (store, instance, memory) = self.open()?;
+        Ok(Resident { store, instance, memory, program: None, entered: false })
+    }
+
+    /// Call the export `name` on `resident`, entering it the first time and resuming it after. What `resident` kept is what
+    /// the program finds; a [`Called::keep`] of `false` says the instance must not be called again (drop it: the next call
+    /// of the program starts afresh on a new one). A resident serves one program: another name is the runner's error.
+    pub fn call_resident(
+        &self,
+        resident: &mut Resident,
+        name: &str,
+        args: &[&str],
+        control: &CallControl,
+        host: Option<Box<dyn CallHost>>,
+    ) -> Result<Called, String> {
+        let index = self.section.export(&name.to_ascii_uppercase()).ok_or_else(|| format!("the module exports no program {name}"))?.index as i32;
+        if resident.program.is_some_and(|p| p != index) {
+            return Err(format!("this instance serves another program than {name}"));
+        }
+        let frame = backend::encode_request(args);
+        if frame.len() as u32 > self.section.request.cap {
+            return Ok(Called::too_large());
+        }
+        let entry = if resident.entered { RESUME_EXPORT } else { CALL_EXPORT };
+        let called = self.enter(&mut resident.store, &resident.instance, resident.memory, entry, index, &frame, control, host)?;
+        // The module's start-up and the program's initial image are done once the entry got as far as reading the request:
+        // a frame it refused before that (`BadRequest`) did not get there.
+        if !matches!(called.outcome, Outcome::BadRequest) {
+            resident.program = Some(index);
+            resident.entered = true;
+        }
+        Ok(called)
+    }
+
+    /// The store, the instance and the memory of a new instance, with the provider state of a call's imports.
+    fn open(&self) -> Result<(Store<State>, Instance, Memory), String> {
         let mut state = State::new(self.lang, self.pins);
         state.files = std::rc::Rc::new(std::cell::RefCell::new(files::Files::new(self.files.clone())));
         state.sql = self.sql.clone().map(sql::SqlRun::new);
-        state.display = Some(Vec::new());
-        state.verbs = Verbs::new(host, Some(control.stop.clone()));
         let mut store = Store::new(&self.engine, state);
-        // A call is interrupted at the next tick of the epoch when its stop says so, and goes on otherwise.
-        store.set_epoch_deadline(1);
-        let stop = control.stop.clone();
-        store.epoch_deadline_callback(move |_| if stop() { Err(wasmtime::Error::from(Trap::Interrupt)) } else { Ok(UpdateDeadline::Continue(1)) });
+        // Starting the module runs its code (`pr_arena_base`) before any call has a stop to check: a store's own deadline is
+        // 0 ticks, which interrupts at once, so the start-up is given a deadline it cannot reach. Each call sets its own.
+        store.set_epoch_deadline(u64::MAX / 4);
         let instance = self.pre.instantiate(&mut store).map_err(|e| format!("cannot instantiate the module: {e:#}"))?;
         let arena = instance.get_memory(&mut store, "arena").ok_or("the module exports no `arena` memory")?;
         let base =
@@ -210,13 +277,40 @@ impl BackendModule {
         store.data_mut().arena = Some(arena);
         store.data_mut().arena_base = base as u32;
         let memory = instance.get_memory(&mut store, "memory").ok_or("the module exports no `memory`")?;
-        memory.write(&mut store, self.section.request.at as usize, &frame).map_err(|e| e.to_string())?;
-        let call = instance.get_typed_func::<i32, i32>(&mut store, "pr_backend_call").map_err(|e| e.to_string())?;
-        let status = call.call(&mut store, index);
+        Ok((store, instance, memory))
+    }
+
+    /// One call of the entry `entry` on an instance: the verbs' host and the stop of this call, the request frame, the entry,
+    /// and what the call leaves of the run unit's work.
+    #[allow(clippy::too_many_arguments)]
+    fn enter(
+        &self,
+        store: &mut Store<State>,
+        instance: &Instance,
+        memory: Memory,
+        entry: &str,
+        index: i32,
+        frame: &[u8],
+        control: &CallControl,
+        host: Option<Box<dyn CallHost>>,
+    ) -> Result<Called, String> {
+        {
+            let state = store.data_mut();
+            state.display = Some(Vec::new());
+            state.fatal = None;
+            state.verbs = Verbs::new(host, Some(control.stop.clone()));
+        }
+        // A call is interrupted at the next tick of the epoch when its stop says so, and goes on otherwise.
+        store.set_epoch_deadline(1);
+        let stop = control.stop.clone();
+        store.epoch_deadline_callback(move |_| if stop() { Err(wasmtime::Error::from(Trap::Interrupt)) } else { Ok(UpdateDeadline::Continue(1)) });
+        memory.write(&mut *store, self.section.request.at as usize, frame).map_err(|e| e.to_string())?;
+        let call = instance.get_typed_func::<i32, i32>(&mut *store, entry).map_err(|e| format!("{entry}: {e}"))?;
+        let status = call.call(&mut *store, index);
 
         let outcome = match status {
             Ok(status) => {
-                let data = memory.data(&store);
+                let data = memory.data(&*store);
                 let at = self.section.response.at as usize;
                 match data.get(at..at + self.section.response.cap as usize) {
                     None => return Err("the response area is outside the module's memory".into()),
@@ -226,7 +320,7 @@ impl BackendModule {
                         result::UNWRITABLE => Outcome::Unwritable(backend::decode_refusal(area)?),
                         result::TOO_LARGE => Outcome::TooLarge,
                         result::BAD_REQUEST => Outcome::BadRequest,
-                        other => return Err(format!("pr_backend_call answered {other}, which ABI A59 does not define")),
+                        other => return Err(format!("{entry} answered {other}, which ABI A59 does not define")),
                     },
                 }
             }
@@ -250,8 +344,28 @@ impl BackendModule {
         st.http.borrow_mut().end();
         let display = st.display.take().unwrap_or_default();
         let (failure, cancelled) = (st.verbs.failure.take(), st.verbs.cancelled);
-        Ok(Called { outcome, display, failure, cancelled })
+        // The interpreter's rule for a run unit that may be entered again (`cobolt_server::exec::run_call`): the program's own
+        // failure leaves it fit whatever else is said, a cancel does not, and so a cut-off or a run-time error.
+        let keep = match &outcome {
+            Outcome::Interrupted | Outcome::Trapped(_) | Outcome::BadRequest => false,
+            _ => failure.is_some() || !cancelled,
+        };
+        Ok(Called { outcome, display, failure, cancelled, keep })
     }
+}
+
+/// One instance of a Backend module that outlives a call (state `per-connection`, ABI A61): the memory, the files left open
+/// and the database connection of one program for one connection. [`BackendModule::resident`] makes it and
+/// [`BackendModule::call_resident`] calls it. It is not `Send`: the provider state holds `Rc`s, so the thread that made it is
+/// the one that calls it and drops it (`cobolt-backend-runner`'s session worker).
+pub struct Resident {
+    store: Store<State>,
+    instance: Instance,
+    memory: Memory,
+    /// The program this instance serves, once it has been entered.
+    program: Option<i32>,
+    /// The module's start-up and the program's initial image have been done: the next call is `pr_backend_resume`.
+    entered: bool,
 }
 
 /// Whether a type can be shared between threads: asserted at compile time for [`BackendModule`].

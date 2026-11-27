@@ -109,22 +109,30 @@ fn distinct(r: &BackendLowered) -> Vec<&BackendRecord> {
     v
 }
 
-/// The body of `pr_backend_call`.
-pub(crate) fn emit(ctx: &EntryCtx<'_>, programs: &[EntryProgram<'_>]) -> Function {
+/// The body of `pr_backend_call` (`resume` false) or of `pr_backend_resume` (`resume` true, ABI A61).
+///
+/// The resumed entry is the first one without what a first call does once: the module's start-up (`pr_init`: the rt's
+/// workspace, the heap), the copy of the program's initial image over its region, and the initial state of its records.
+/// Everything else is the same, so what a program held at the end of the last call (its `WORKING-STORAGE`, a file left
+/// open, a table the heap holds) is what the next call finds, and a parameter the request leaves out keeps the value
+/// the last call gave it, as for a `LINKAGE` item of a program `CALL`ed again.
+pub(crate) fn emit(ctx: &EntryCtx<'_>, programs: &[EntryProgram<'_>], resume: bool) -> Function {
     // locals: 0 export (parameter) · 1 region base · 2 cursor · 3 count · 4 length · 5 result of a call
     let mut f = Function::new([(5, ValType::I32)]);
     f.instruction(&I::LocalGet(0));
     c(&mut f, programs.len() as u32);
     f.instruction(&I::I32GeU);
     return_if(&mut f, result::BAD_REQUEST);
-    f.instruction(&I::Call(ctx.pr_init));
-    f.instruction(&I::Drop);
+    if !resume {
+        f.instruction(&I::Call(ctx.pr_init));
+        f.instruction(&I::Drop);
+    }
     for (k, p) in programs.iter().enumerate() {
         f.instruction(&I::LocalGet(0));
         c(&mut f, k as u32);
         f.instruction(&I::I32Eq);
         f.instruction(&I::If(BlockType::Empty));
-        program(&mut f, ctx, p);
+        program(&mut f, ctx, p, resume);
         f.instruction(&I::End);
     }
     ci(&mut f, result::BAD_REQUEST);
@@ -132,7 +140,7 @@ pub(crate) fn emit(ctx: &EntryCtx<'_>, programs: &[EntryProgram<'_>]) -> Functio
     f
 }
 
-fn program(f: &mut Function, ctx: &EntryCtx<'_>, p: &EntryProgram<'_>) {
+fn program(f: &mut Function, ctx: &EntryCtx<'_>, p: &EntryProgram<'_>, resume: bool) {
     let req_end = ctx.request_at + ctx.request_cap;
     let resp_end = ctx.response_at + ctx.response_cap;
     let records = distinct(p.records);
@@ -143,8 +151,10 @@ fn program(f: &mut Function, ctx: &EntryCtx<'_>, p: &EntryProgram<'_>) {
     f.instruction(&I::LocalSet(BASE_LOCAL));
     c(f, p.region_start);
     f.instruction(&I::GlobalSet(1));
-    f.instruction(&I::LocalGet(BASE_LOCAL));
-    f.instruction(&I::Call(p.init_fn));
+    if !resume {
+        f.instruction(&I::LocalGet(BASE_LOCAL));
+        f.instruction(&I::Call(p.init_fn));
+    }
     c(f, p.region_start + p.stack_off);
     f.instruction(&I::GlobalSet(2));
 
@@ -166,9 +176,11 @@ fn program(f: &mut Function, ctx: &EntryCtx<'_>, p: &EntryProgram<'_>) {
         c(f, r.store);
         f.instruction(&I::I32Add);
         store(f);
-        f.instruction(&I::LocalGet(BASE_LOCAL));
-        c(f, r.init);
-        f.instruction(&I::Call((ctx.rt)("rt_initialize")));
+        if !resume {
+            f.instruction(&I::LocalGet(BASE_LOCAL));
+            c(f, r.init);
+            f.instruction(&I::Call((ctx.rt)("rt_initialize")));
+        }
     }
 
     // Each text the host sent, into its record.

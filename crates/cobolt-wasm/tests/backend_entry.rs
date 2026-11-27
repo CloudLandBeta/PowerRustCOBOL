@@ -226,7 +226,7 @@ fn the_paths_of_the_entry_that_a_server_does_not_reach() {
 fn an_answer_that_does_not_fit_the_response_area_is_too_large_and_a_short_call_is_filled_in() {
     let started = Instant::now();
     // The smallest response area (1,032 bytes): a request this small fits, an answer carrying a 2,000-byte text does not.
-    let tight = Options { native: true, backend: Some(BackendOptions { request_cap: 4096, response_cap: 1032 }), ..Options::default() };
+    let tight = Options { native: true, backend: Some(BackendOptions { request_cap: 4096, response_cap: 1032, ..BackendOptions::default() }), ..Options::default() };
     let wide = r#"
 IDENTIFICATION DIVISION.
 PROGRAM-ID. WIDE.

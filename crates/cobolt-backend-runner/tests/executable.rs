@@ -262,16 +262,16 @@ fn a_file_with_no_backend_a_damaged_one_and_a_module_the_runner_cannot_serve_are
     assert!(!r.stderr.trim().is_empty() && r.stdout.is_empty(), "the refusal is said on standard error: {}", r.stderr);
     refused += 1;
 
-    // A Backend that keeps its state for the connection: this runner serves per-call Backends, and says so.
+    // A configuration that asks for the state to be kept over a module built to start every call afresh: refused, in words.
     c = container(&dir, module());
     c.state = "per-connection".into();
     let path = packed(&dir, "perconn", &c);
     let r = run(&path, &dir, &["--describe"], var);
     assert_eq!(r.code, Some(1));
-    assert!(r.stderr.contains("per-connection") && r.stderr.contains("--cargo"), "{}", r.stderr);
+    assert!(r.stderr.contains("per-connection") && r.stderr.contains("per-call") && r.stderr.contains("build it again"), "{}", r.stderr);
     refused += 1;
 
-    println!("{refused} files refused with exit 1 and a sentence on standard error: no payload, a Desktop payload, a module that is not one, a Backend that keeps its state per connection ({} ms)", started.elapsed().as_millis());
+    println!("{refused} files refused with exit 1 and a sentence on standard error: no payload, a Desktop payload, a module that is not one, a configuration whose state the module was not built for ({} ms)", started.elapsed().as_millis());
     println!("PASS {refused:03} FAIL 000");
     let _ = std::fs::remove_dir_all(&dir);
 }

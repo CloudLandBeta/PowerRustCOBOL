@@ -28,9 +28,21 @@ use serde::{Deserialize, Serialize};
 /// The key the section has in the manifest.
 pub const SECTION: &str = "backend";
 
-/// The only state mode A59 defines: every call starts from the program's initial image (A60 adds the
-/// per-connection one).
+/// The state mode A59 defines: every call starts from the program's initial image.
 pub const STATE_PER_CALL: &str = "per-call";
+
+/// The state mode A61 adds: a connection's calls to one exported program run on one instance of the module, which is
+/// entered with [`CALL_EXPORT`] the first time and with [`RESUME_EXPORT`] after, so the program's storage, its open files
+/// and its database connection are what the next call finds. A module of this mode exports both entries.
+pub const STATE_PER_CONNECTION: &str = "per-connection";
+
+/// The entry of a call that starts the program from its initial image (A59): the module's start-up, the program's image and
+/// its parameters' initial state, then the request.
+pub const CALL_EXPORT: &str = "pr_backend_call";
+
+/// The entry of a call that finds the program as the last call left it (A61, state [`STATE_PER_CONNECTION`] only): the
+/// request, as for [`CALL_EXPORT`], but no start-up, no image and no initial state of the parameters.
+pub const RESUME_EXPORT: &str = "pr_backend_resume";
 
 /// The result of `pr_backend_call` (ABI A59).
 pub mod result {
@@ -77,7 +89,7 @@ pub struct BackendExport {
 pub struct BackendSection {
     pub request: Area,
     pub response: Area,
-    /// [`STATE_PER_CALL`].
+    /// [`STATE_PER_CALL`] or [`STATE_PER_CONNECTION`].
     pub state: String,
     pub exports: Vec<BackendExport>,
 }
@@ -90,8 +102,8 @@ impl BackendSection {
 
     /// What is wrong with the section, in words for the person who built the Backend; `Ok` when it is usable.
     pub fn check(&self) -> Result<(), String> {
-        if self.state != STATE_PER_CALL {
-            return Err(format!("the Backend section names the state mode `{}`, which ABI A59 does not define", self.state));
+        if self.state != STATE_PER_CALL && self.state != STATE_PER_CONNECTION {
+            return Err(format!("the Backend section names the state mode `{}`, which ABI A59 and A61 do not define", self.state));
         }
         if self.request.cap == 0 || self.response.cap == 0 {
             return Err("the Backend section has an empty request or response area".into());
@@ -236,8 +248,10 @@ mod tests {
     #[test]
     fn a_section_that_names_something_a59_does_not_define_is_refused_in_words() {
         let mut s = section();
-        s.state = "per-connection".into();
-        assert!(s.check().unwrap_err().contains("per-connection"));
+        s.state = STATE_PER_CONNECTION.into();
+        assert!(s.check().is_ok(), "A61 defines the per-connection mode");
+        s.state = "per-session".into();
+        assert!(s.check().unwrap_err().contains("per-session"));
         let mut s = section();
         s.exports[1].index = 7;
         assert!(s.check().unwrap_err().contains("ORDER-TOTAL"));

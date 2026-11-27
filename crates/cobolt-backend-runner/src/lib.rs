@@ -15,11 +15,14 @@
 //! * [`payload`] reads the Backend out of the executable and refuses, by name, a module that needs a capability this
 //!   runner does not provide.
 //! * [`engine`] is the server's engine for a module: one call, one instance, the answer the interpreter would give.
+//! * `session` holds the instances a connection keeps when the Backend's state is `per-connection` (ABI A61): one worker
+//!   thread per connection, one instance per program it has called.
 //! * [`epoch`] is the clock that ends a call nothing else ends.
 
 pub mod engine;
 pub mod epoch;
 pub mod payload;
+mod session;
 
 /// The capabilities this runner provides: what a program with no window can use. A Backend whose module declares another
 /// is refused when it starts, naming it. The groups of capabilities a variant of the runner leaves out are decided at

@@ -323,7 +323,7 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     phases.push(BackendPhase { name: "check", millis: began.elapsed().as_millis() });
 
     // 4. Which path (spec 114 R13, plan D8): the reasons that stop the module, in order, each named.
-    let mut reasons = backend_module::classify_backend(&ClassifyInput { path, external_crates, exec_rust, identity: backend_has_identity(&backend_dir), state });
+    let mut reasons = backend_module::classify_backend(&ClassifyInput { path, external_crates, exec_rust, identity: backend_has_identity(&backend_dir) });
     let mut module = None;
     if reasons.is_empty() {
         let began = Instant::now();

@@ -13,15 +13,15 @@
 //!
 //! [`classify_backend`] says which path a Backend takes and, for the Cargo path, **every** reason, so that a Backend that
 //! falls back is never a surprise (R13). The reasons that stop the module path are checked in a fixed order (plan D8): the
-//! developer chose Cargo; the project registers External Crates; an `EXEC RUST` block; `[identity]`; `per-connection`
-//! state (until the runner serves it); a construct the generator refuses; then the runner: its file, its capabilities
-//! and its software bill of materials. A Backend the module does not serve in full is never built as a module.
+//! developer chose Cargo; the project registers External Crates; an `EXEC RUST` block; `[identity]`; a construct the
+//! generator refuses (an `EXTERNAL` item two exported programs share, under `per-connection` state, is one); then the
+//! runner: its file, its capabilities and its software bill of materials. A Backend the module does not serve in full is never built as a module.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use cobolt_server::backend::{Backend, StateMode};
-use cobolt_wasm::{compile_backend, BackendProgram, Compiled, Options};
+use cobolt_wasm::{compile_backend, BackendOptions, BackendProgram, Compiled, Options};
 
 use crate::{CompilerError, IoContext};
 
@@ -103,8 +103,6 @@ pub enum BackendCargoReason {
     ExecRust { file: String, line: u32 },
     /// `backend.toml` has an `[identity]` section: its sign-in programs are not served by the module in this release.
     Identity,
-    /// `[backend] state = "per-connection"`: the runner serves per-call Backends in this release.
-    PerConnection,
     /// A construct the generator does not take, and why (its reason as the Desktop's Build words it). `line` is 0 when
     /// the construct is a whole file.
     Refused { construct: String, reason: String, file: String, line: u32 },
@@ -124,9 +122,6 @@ impl std::fmt::Display for BackendCargoReason {
             BackendCargoReason::ExternalCrate => f.write_str("the project uses External Crates, which only Cargo links"),
             BackendCargoReason::ExecRust { file, line } => write!(f, "{} holds an EXEC RUST block, Rust compiled into the program", at(file, *line)),
             BackendCargoReason::Identity => f.write_str("backend.toml has an [identity] section, whose sign-in programs the module path does not serve yet"),
-            BackendCargoReason::PerConnection => {
-                f.write_str("the project's `[backend] state = \"per-connection\"` keeps WORKING-STORAGE for the life of a connection, which the module path does not serve yet")
-            }
             BackendCargoReason::Refused { construct, reason, file, line } => write!(f, "{}: {construct}: {reason}", at(file, *line)),
             BackendCargoReason::RunnerCapability { capability } => {
                 write!(f, "the program needs the capability `{capability}`, which the Backend runner ({BACKEND_RUNNER_NAME}) does not provide")
@@ -156,8 +151,6 @@ pub struct ClassifyInput {
     pub exec_rust: Vec<(String, u32)>,
     /// `backend.toml` has an `[identity]` section.
     pub identity: bool,
-    /// `[backend] state`.
-    pub state: StateMode,
 }
 
 /// The reasons, before the generator is asked, that a Backend takes the Cargo path (plan D8, first half). Empty means the
@@ -175,9 +168,6 @@ pub fn classify_backend(input: &ClassifyInput) -> Vec<BackendCargoReason> {
     }
     if input.identity {
         reasons.push(BackendCargoReason::Identity);
-    }
-    if input.state == StateMode::PerConnection {
-        reasons.push(BackendCargoReason::PerConnection);
     }
     reasons
 }
@@ -243,7 +233,12 @@ pub fn generate(backend: &Backend, files: &[(String, String)]) -> Result<Compile
             }
         }
     }
-    compile_backend(&list, &Options { native: true, ..Options::default() }).map_err(|e| {
+    let options = Options {
+        native: true,
+        backend: Some(BackendOptions { per_connection: backend.state == StateMode::PerConnection, ..BackendOptions::default() }),
+        ..Options::default()
+    };
+    compile_backend(&list, &options).map_err(|e| {
         e.all_kinded()
             .into_iter()
             .map(|e| {
@@ -432,7 +427,7 @@ mod tests {
     use super::*;
 
     fn input(path: BackendPath) -> ClassifyInput {
-        ClassifyInput { path, external_crates: false, exec_rust: Vec::new(), identity: false, state: StateMode::PerCall }
+        ClassifyInput { path, external_crates: false, exec_rust: Vec::new(), identity: false }
     }
 
     #[test]
@@ -471,16 +466,12 @@ mod tests {
         one.identity = true;
         assert_eq!(classify_backend(&one), vec![BackendCargoReason::Identity]);
 
-        let mut one = input(BackendPath::Auto);
-        one.state = StateMode::PerConnection;
-        assert_eq!(classify_backend(&one), vec![BackendCargoReason::PerConnection]);
-
         // The developer's choice is the only reason, whatever else holds.
         let mut chosen = input(BackendPath::Cargo);
         chosen.external_crates = true;
         chosen.identity = true;
         assert_eq!(classify_backend(&chosen), vec![BackendCargoReason::Chosen]);
-        println!("classify_backend: 5 rules, each alone names itself, and Chosen stands alone; PASS 005 FAIL 000");
+        println!("classify_backend: 4 rules, each alone names itself, and Chosen stands alone; PASS 004 FAIL 000");
     }
 
     #[test]
@@ -489,7 +480,6 @@ mod tests {
         many.external_crates = true;
         many.exec_rust = vec![("backend/src/a.cbl".into(), 3), ("backend/src/b.cbl".into(), 9)];
         many.identity = true;
-        many.state = StateMode::PerConnection;
         let got = classify_backend(&many);
         assert_eq!(
             got,
@@ -498,14 +488,13 @@ mod tests {
                 BackendCargoReason::ExecRust { file: "backend/src/a.cbl".into(), line: 3 },
                 BackendCargoReason::ExecRust { file: "backend/src/b.cbl".into(), line: 9 },
                 BackendCargoReason::Identity,
-                BackendCargoReason::PerConnection,
             ]
         );
         for r in &got {
             assert!(!r.to_string().is_empty());
             assert!(!r.to_string().to_ascii_lowercase().contains("cobolt"), "no user-facing text says cobolt: {r}");
         }
-        println!("classify_backend: 5 reasons from 4 rules listed in order, each worded; PASS 007 FAIL 000");
+        println!("classify_backend: 4 reasons from 3 rules listed in order, each worded; PASS 006 FAIL 000");
     }
 
     #[test]

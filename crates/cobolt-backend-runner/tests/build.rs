@@ -10,7 +10,8 @@
 //! installs is started and asked what a Cargo-built file is asked: `--version`, `--describe`, `--check`. The Build must
 //! choose the module path for each (no construct to refuse), write `bin/sbom.cdx.json` with the module's hash, and leave
 //! the developer's sources as they were (R22). A Backend that holds a construct the module does not serve (`EXEC RUST`,
-//! `[identity]`, `per-connection`) goes the Cargo path with each reason named, and `--wasm` on it refuses.
+//! `[identity]`) goes the Cargo path with each reason named, and `--wasm` on it refuses. A Backend whose state is
+//! `per-connection` is served by the module (ABI A60) and builds like any other.
 
 use std::path::Path;
 use std::process::Command;
@@ -94,15 +95,7 @@ fn the_four_shipped_backends_build_as_modules_and_answer_what_a_backend_answers(
 fn a_backend_the_module_does_not_serve_is_refused_by_wasm_with_each_reason() {
     let runner = runner_with_sbom(&std::env::temp_dir().join(format!("prc-backend-build-refuse-{}", std::process::id())));
     let dir = project("PowerWebHello", "refuse");
-    // `per-connection` state and an identity section: two reasons the module path does not serve yet.
-    let manifest = dir.join("PowerWebHello.project.toml");
-    let mut text = std::fs::read_to_string(&manifest).unwrap();
-    if !text.contains("[backend]") {
-        text.push_str("\n[backend]\nstate = \"per-connection\"\n");
-    } else {
-        text = text.replacen("[backend]", "[backend]\nstate = \"per-connection\"", 1);
-    }
-    std::fs::write(&manifest, text).unwrap();
+    // An identity section: a reason the module path does not serve yet (the sign-in programs).
     let toml = dir.join("backend").join("backend.toml");
     let mut config = std::fs::read_to_string(&toml).unwrap_or_default();
     config.push_str("\n[identity]\nname = \"hello\"\n");
@@ -110,15 +103,52 @@ fn a_backend_the_module_does_not_serve_is_refused_by_wasm_with_each_reason() {
 
     let err = build_backend(&dir, &options(&runner, Some(BackendPath::Wasm))).expect_err("--wasm must refuse a Backend the module does not serve");
     let message = err.to_string();
-    let named = [BackendCargoReason::Identity.to_string(), BackendCargoReason::PerConnection.to_string()];
+    let named = [BackendCargoReason::Identity.to_string()];
     let mut passed = 0u32;
     for n in &named {
         assert!(message.contains(n.as_str()), "the refusal names `{n}`: {message}");
         passed += 1;
     }
     assert!(!dir.join("bin").join("poweriwebhello-backend").exists());
-    println!("--wasm on a Backend with `per-connection` state and an [identity] section: refused, {passed} reasons named; PASS {passed:03} FAIL 000");
+    println!("--wasm on a Backend with an [identity] section: refused, {passed} reason named; PASS {passed:03} FAIL 000");
     let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+}
+
+/// `[backend] state = "per-connection"` is served by the module (ABI A60, spec 114 T37): the Build chooses the module path
+/// with no reason, the module it makes says `per-connection` and has the second entry, and the file it installs starts
+/// (the runner checks the module's state against the configuration's before it serves anything).
+#[test]
+fn a_backend_with_per_connection_state_builds_as_a_module_and_starts() {
+    let runner = runner_with_sbom(&std::env::temp_dir().join(format!("prc-backend-build-perconn-{}", std::process::id())));
+    let dir = project("PowerWebHello", "perconn");
+    let manifest = dir.join("PowerWebHello.project.toml");
+    let mut text = std::fs::read_to_string(&manifest).unwrap();
+    if text.contains("[backend]") {
+        text = text.replacen("[backend]", "[backend]\nstate = \"per-connection\"", 1);
+    } else {
+        text.push_str("\n[backend]\nstate = \"per-connection\"\n");
+    }
+    std::fs::write(&manifest, text).unwrap();
+
+    let began = Instant::now();
+    let built = build_backend(&dir, &options(&runner, Some(BackendPath::Auto))).unwrap_or_else(|e| panic!("the Build refuses per-connection state: {e}"));
+    let ms = began.elapsed().as_millis();
+    let (mut passed, mut failed) = (0u32, 0u32);
+    let mut check = |ok: bool, what: String| {
+        if ok {
+            passed += 1;
+        } else {
+            failed += 1;
+            eprintln!("FAIL {what}");
+        }
+    };
+    check(built.engine == BackendEngine::Module, format!("the engine is the module, not {:?} ({:?})", built.engine, built.reasons));
+    check(built.reasons.is_empty(), format!("no reason to name: {:?}", built.reasons));
+    let describe = run(&built.binary, &dir, &["--describe"]);
+    check(describe.code == Some(0), format!("the file starts and describes itself: {:?} {}", describe.code, describe.stderr));
+    println!("a Backend with per-connection state, built on the module path in {ms} ms; PASS {passed:03} FAIL {failed:03}");
+    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+    assert_eq!(failed, 0, "{failed} checks failed");
 }
 
 /// The Build decides from `cap::BACKEND_RUNNER` whether a module fits the runner; the runner refuses at start by what it

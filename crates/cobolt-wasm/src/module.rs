@@ -106,6 +106,9 @@ pub struct Options {
 pub struct BackendOptions {
     pub request_cap: u32,
     pub response_cap: u32,
+    /// `[backend] state = "per-connection"` (ABI A61): the manifest says so and the module has a second entry,
+    /// `pr_backend_resume`, for the calls of a connection after its first. `false` is `per-call` (A59).
+    pub per_connection: bool,
 }
 
 /// Bytes of one frame unless the Build says otherwise: the interpreter's largest text
@@ -114,7 +117,7 @@ pub const DEFAULT_FRAME_CAP: u32 = cobolt_wire::mapping::DEFAULT_MAX_BYTES as u3
 
 impl Default for BackendOptions {
     fn default() -> Self {
-        BackendOptions { request_cap: DEFAULT_FRAME_CAP, response_cap: DEFAULT_FRAME_CAP }
+        BackendOptions { request_cap: DEFAULT_FRAME_CAP, response_cap: DEFAULT_FRAME_CAP, per_connection: false }
     }
 }
 
@@ -423,7 +426,64 @@ pub fn compile_backend(programs: &[BackendProgram<'_>], opts: &Options) -> GenRe
     if o.backend.is_none() {
         o.backend = Some(BackendOptions::default());
     }
+    if o.backend.is_some_and(|b| b.per_connection) {
+        external_items_shared_between_programs(programs)?;
+    }
     compile_forms(&specs, &o, false)
+}
+
+/// Under `per-connection` state the interpreter's session shares one copy of every `EXTERNAL` item between the programs a
+/// connection calls (`cobolt_server::exec::Session`). The module keeps one instance per exported program, each with a memory
+/// of its own, so two exported programs that declare the same `EXTERNAL` name would not see each other's writes: refused at
+/// generation, naming the item and both programs, so that the Build takes the Cargo path (whose engine shares them) rather than
+/// serve a Backend that answers differently. An `EXTERNAL` item one program declares, or that the programs of a per-call
+/// Backend declare (every call starts from the initial image), is not affected.
+fn external_items_shared_between_programs(programs: &[BackendProgram<'_>]) -> GenResult<()> {
+    use cobolt_ast::program::DataSection;
+    // name in capitals -> the first program that declares it
+    let mut first: BTreeMap<String, &str> = BTreeMap::new();
+    let mut found: Vec<GenError> = Vec::new();
+    for p in programs {
+        let mut mine: Vec<(String, u32)> = Vec::new();
+        for section in p.program.data.iter().flat_map(|d| d.sections.iter()) {
+            match section {
+                DataSection::WorkingStorage(decls) | DataSection::LocalStorage(decls) => {
+                    mine.extend(decls.iter().filter(|d| d.is_external).filter_map(|d| d.name.as_ref().map(|n| (n.to_ascii_uppercase(), d.span.line))));
+                }
+                DataSection::FileSection(fds) => mine.extend(fds.iter().filter(|fd| fd.is_external).map(|fd| (fd.name.to_ascii_uppercase(), fd.span.line))),
+                DataSection::Linkage(_) | DataSection::Screen(_) => {}
+            }
+        }
+        for (name, line) in mine {
+            match first.get(&name) {
+                Some(other) if *other != p.name.as_str() => {
+                    let mut e = GenError::kinded(
+                        line,
+                        crate::error::ErrorKind::Other,
+                        "EXTERNAL",
+                        format!(
+                            "EXTERNAL: {name} is declared by {other} and by {}: under `[backend] state = \"per-connection\"` each exported program keeps a memory of its own, so the two would not share it",
+                            p.name
+                        ),
+                    );
+                    e.program = p.name.to_ascii_uppercase();
+                    found.push(e);
+                }
+                Some(_) => {}
+                None => {
+                    first.insert(name, p.name.as_str());
+                }
+            }
+        }
+    }
+    let mut found = found.into_iter();
+    match found.next() {
+        None => Ok(()),
+        Some(mut first_error) => {
+            first_error.more = found.collect();
+            Err(first_error)
+        }
+    }
 }
 
 /// Compile the forms of a project into one module with the form exports of
@@ -734,7 +794,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             Some(cobolt_wasm_abi::backend::BackendSection {
                 request: cobolt_wasm_abi::backend::Area { at: request_at, cap: b.request_cap },
                 response: cobolt_wasm_abi::backend::Area { at: response_at, cap: b.response_cap },
-                state: cobolt_wasm_abi::backend::STATE_PER_CALL.into(),
+                state: if b.per_connection { cobolt_wasm_abi::backend::STATE_PER_CONNECTION } else { cobolt_wasm_abi::backend::STATE_PER_CALL }.into(),
                 exports: Vec::new(),
             })
         }
@@ -1546,6 +1606,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     }
     // A Backend module's entry (ABI A59): `pr_backend_call(export) -> i32`.
     let mut backend_section = backend_areas;
+    let mut backend_resume_idx: Option<u32> = None;
     let backend_call_idx = match backend_section.as_mut() {
         Some(section) => {
             let mut entry_programs: Vec<crate::backend_entry::EntryProgram<'_>> = Vec::new();
@@ -1579,9 +1640,15 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
                 response_at: section.response.at,
                 response_cap: section.response.cap,
             };
-            let f = crate::backend_entry::emit(&ctx, &entry_programs);
+            let f = crate::backend_entry::emit(&ctx, &entry_programs, false);
             let idx = n_imports + defs.len() as u32;
             defs.push(Def { name: "pr_backend_call".into(), ty: ty_i32_ret1, body: Body::Encoded(f) });
+            // A Backend that keeps a connection's state (ABI A61) has a second entry, for the calls after the first.
+            if opts.backend.is_some_and(|b| b.per_connection) {
+                let f = crate::backend_entry::emit(&ctx, &entry_programs, true);
+                backend_resume_idx = Some(n_imports + defs.len() as u32);
+                defs.push(Def { name: "pr_backend_resume".into(), ty: ty_i32_ret1, body: Body::Encoded(f) });
+            }
             Some(idx)
         }
         None => None,
@@ -1720,7 +1787,10 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         }
     }
     if let Some(idx) = backend_call_idx {
-        exports.export("pr_backend_call", ExportKind::Func, idx);
+        exports.export(cobolt_wasm_abi::backend::CALL_EXPORT, ExportKind::Func, idx);
+    }
+    if let Some(idx) = backend_resume_idx {
+        exports.export(cobolt_wasm_abi::backend::RESUME_EXPORT, ExportKind::Func, idx);
     }
     module.section(&exports);
 

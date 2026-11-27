@@ -10,18 +10,21 @@
 //! asks of an engine is one thing: run this exported program with these arguments (one JSON text per parameter) and answer
 //! the final JSON of each parameter and of `RETURNING`. Here a call is one run of `pr_backend_call` on an instance of the
 //! module of its own, with a provider state of its own: the data capabilities are the Desktop runner's functions
-//! (`cobolt_runner`), and nothing is shared between two calls but what they write to disk or to a database.
+//! (`cobolt_runner`), and nothing is shared between two calls but what they write to disk or to a database. A Backend
+//! whose state is `per-connection` keeps one instance per program for the life of a connection ([`crate::session`]): the
+//! connection's later calls enter it with `pr_backend_resume` and find what the last call left, and a call that is cut off,
+//! cancelled or ends in a run-time error ends that program's instance (the interpreter's engine does the same).
 //!
 //! Every answer is the one the interpreter's engine gives: a refused request is a `validation` error naming the member
 //! (`INVALID_PAYLOAD`), a run-time error is the program's fault (`PROGRAM_FAULT`, the cause in the log only), a call the
 //! server stopped is `CALL_TIMEOUT` or `CANCELLED` by the same rule `exec.rs` applies, and the declared `status` group of
 //! `RETURNING` is read with the very function the interpreter's engine uses (`engine::status_failure`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use cobolt_runner::backend::{BackendModule, CallControl, Outcome};
+use cobolt_runner::backend::{BackendModule, CallControl, Called, Outcome};
 use cobolt_runner::verbs::{CallHost, FileReply};
 use cobolt_server::backend::ExportedProgram;
 use cobolt_server::engine::{check_arity, status_failure, Admission, Engine, EngineSession, ExecOptions, ExecResult};
@@ -31,6 +34,7 @@ use cobolt_wire::error::{codes, CallError, ErrorClass};
 use sha2::{Digest, Sha256};
 
 use crate::epoch::Ticker;
+use crate::session::Worker;
 
 /// The engine that runs a Backend built as a module.
 pub struct WasmEngine {
@@ -85,16 +89,27 @@ impl Engine for WasmEngine {
     }
 
     fn session(&self) -> Box<dyn EngineSession> {
-        Box::new(Session { module: self.module.clone(), in_flight: self.in_flight.clone(), admission: Admission::default() })
+        Box::new(Session {
+            module: self.module.clone(),
+            in_flight: self.in_flight.clone(),
+            admission: Admission::default(),
+            worker: None,
+            kept: HashSet::new(),
+        })
     }
 }
 
-/// One connection's calls. This runner keeps no run unit across calls (a Backend that asks for that is refused when it
-/// loads, in words), so a session only holds who it is bound to.
+/// One connection's calls. With state `per-call` the session only holds who it is bound to, and every call runs on an
+/// instance of its own. With `per-connection` (the module's Backend section says which) it also owns the worker that holds one
+/// instance per program the connection has called ([`crate::session`]), and a call goes there.
 struct Session {
     module: Arc<BackendModule>,
     in_flight: Arc<AtomicUsize>,
     admission: Admission,
+    /// Started at the first call of a `per-connection` Backend, ended with the session.
+    worker: Option<Worker>,
+    /// The programs whose instance the worker holds, as of the last call.
+    kept: HashSet<String>,
 }
 
 /// One call counted while its thread is in the module.
@@ -120,11 +135,33 @@ impl EngineSession for Session {
 
     fn execute(&mut self, prog: &ExportedProgram, args: &[String], opts: ExecOptions) -> Result<ExecResult, CallError> {
         let _running = Running::start(&self.in_flight);
-        run(&self.module, prog, args, opts)
+        if !self.module.per_connection() {
+            return run(&self.module, prog, args, opts);
+        }
+        if self.worker.is_none() {
+            match Worker::start(self.module.clone()) {
+                Ok(w) => self.worker = Some(w),
+                Err(e) => {
+                    tracing::error!(target: "exec", program = %prog.sig.name, "the session's worker could not be started: {e}");
+                    return Err(fault("the program could not be run"));
+                }
+            }
+        }
+        let worker = self.worker.as_ref().expect("the worker was just started");
+        let name = prog.sig.name.clone();
+        let finished = run_with(prog, args, opts, |texts, control, host| worker.call(&name, texts, control, host));
+        // An instance that is not fit to be called again ends here; the program's next call starts afresh on a new one.
+        if finished.sound {
+            self.kept.insert(name);
+        } else {
+            worker.forget(&name);
+            self.kept.remove(&name);
+        }
+        finished.result
     }
 
     fn programs(&self) -> usize {
-        0
+        self.kept.len()
     }
 }
 
@@ -209,26 +246,59 @@ impl CallHost for Host {
     }
 }
 
+/// How a call ended: what the caller is told, and whether the instance that ran it may be called again (the interpreter's
+/// engine keeps the run unit of a connection by the same rule, `cobolt_server::exec`: an answer, a refused request and the
+/// program's own failure leave it fit; a cut-off, a cancel and a run-time error do not).
+struct Finished {
+    result: Result<ExecResult, CallError>,
+    sound: bool,
+}
+
+/// One call on a fresh instance (state `per-call`).
 fn run(module: &BackendModule, prog: &ExportedProgram, args: &[String], opts: ExecOptions) -> Result<ExecResult, CallError> {
-    check_arity(prog, args)?;
+    run_with(prog, args, opts, |texts, control, host| module.call_with(&prog.sig.name, texts, control, Some(host))).result
+}
+
+/// One call, made by `call` (a fresh instance, or the connection's resident one), answered as the interpreter's engine
+/// answers it.
+fn run_with(
+    prog: &ExportedProgram,
+    args: &[String],
+    opts: ExecOptions,
+    call: impl FnOnce(&[&str], &CallControl, Box<dyn CallHost>) -> Result<Called, String>,
+) -> Finished {
+    // A request refused before anything runs changes nothing, so the instance is as fit as it was.
+    let untouched = |e: CallError| Finished { result: Err(e), sound: true };
+    if let Err(e) = check_arity(prog, args) {
+        return untouched(e);
+    }
     if prog.control.is_some() {
-        return Err(unsupported("a program that seeds a control"));
+        return untouched(unsupported("a program that seeds a control"));
     }
     if opts.identity.is_some() {
-        return Err(unsupported("an identity program"));
+        return untouched(unsupported("an identity program"));
     }
     let cancel = opts.cancel.clone();
     let requested = opts.cancel_requested.clone();
     let host = Host { claims: opts.claims, progress: opts.progress, emit: opts.emit, files: opts.files, requested: requested.clone() };
     let texts: Vec<&str> = args.iter().map(String::as_str).collect();
-    let called = match module.call_with(&prog.sig.name, &texts, &CallControl::on(cancel.clone()), Some(Box::new(host))) {
+    let called = match call(&texts, &CallControl::on(cancel.clone()), Box::new(host)) {
         Ok(c) => c,
         Err(e) => {
-            // The runner's own failure (the module could not be started), not the program's: the detail is for the log.
+            // The runner's own failure (the module could not be started), not the program's: the detail is for the log. The
+            // instance is not trusted again.
             tracing::error!(target: "exec", program = %prog.sig.name, "the module could not be run: {e}");
-            return Err(fault("the program could not be run"));
+            return Finished { result: Err(fault("the program could not be run")), sound: false };
         }
     };
+    // What the interpreter's engine reads, in its order, for whether the run unit may be entered again: a call the server
+    // stopped is not fit; the program's own failure is; a cancel the program saw or the caller asked for is not.
+    let sound = called.keep && !cancel.load(Ordering::SeqCst) && (called.failure.is_some() || !(called.cancelled || requested.load(Ordering::SeqCst)));
+    Finished { result: answer(prog, called, &cancel, &requested), sound }
+}
+
+/// What the caller is told of a finished call.
+fn answer(prog: &ExportedProgram, called: Called, cancel: &AtomicBool, requested: &AtomicBool) -> Result<ExecResult, CallError> {
     // The flags are what tell a cut-off from an answer, as in the interpreter's engine: a call that finished while the
     // server was stopping it is stopped.
     if cancel.load(Ordering::SeqCst) {
