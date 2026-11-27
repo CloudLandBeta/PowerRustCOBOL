@@ -8191,8 +8191,9 @@ unsaturated accents. It is the one **see-through** theme:
   title bar, which would then show the desktop behind it; the IDE therefore
   gives the title bar of each of its windows the colour macOS uses for a
   window — light or dark, following the system — while everything below the
-  bar stays see-through. Windows and Linux draw their own title bars and are
-  not touched.
+  bar stays see-through. The buttons and the title stay exactly where macOS
+  puts them; only the colour behind them is added. Windows and Linux draw
+  their own title bars and are not touched.
 
 ```text
 Project-wide   Settings ▸ Appearance ▸ Default form theme ▸ Spatial

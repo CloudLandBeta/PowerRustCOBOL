@@ -16,3 +16,10 @@ repository.workspace   = true
 # No dependencies on purpose: the platform calls are declared here, so the
 # crate type-checks for every target from any machine (spec 083 AC3).
 [dependencies]
+
+# A real, hidden window: AppKit makes windows on the main thread only, which the default test harness
+# (one thread per test) is not. This test is its own `main`.
+[[test]]
+name    = "title_bar"
+path    = "tests/title_bar.rs"
+harness = false

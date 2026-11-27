@@ -129,10 +129,12 @@ pub fn usable_screen_area(window: (f64, f64, f64, f64), scale: f64) -> Option<(f
 /// Give the title bar of every see-through window of this application the operating system's own
 /// background. A transparent window has no background of its own, and since macOS 11 a plain title
 /// bar is nothing but the window's background, so the bar shows the desktop (blurred or not) behind
-/// it. On macOS this lays the system's window-background colour, which follows light and dark, under
-/// the bar of each titled, non-full-screen, non-opaque window, once per window; the content under it
-/// stays see-through. Returns how many windows were given one in this call. Windows and Linux draw
-/// the title bar themselves: nothing is done and `0` comes back.
+/// it. On macOS this lays the system's window-background colour, which follows light and dark, inside
+/// the title bar's own container of each titled, non-full-screen, non-opaque window, once per window,
+/// under the system's buttons and title; the content under the bar stays see-through. (Never as a
+/// view of the window's frame view: AppKit then dissolves the title bar and lays the title out again,
+/// at the left edge, under the buttons.) Returns how many windows were given one in this call.
+/// Windows and Linux draw the title bar themselves: nothing is done and `0` comes back.
 ///
 /// Call it on the thread that owns the windows, like [`set_all_windows`]; it is idempotent.
 pub fn fill_title_bars() -> usize {
@@ -363,29 +365,24 @@ mod macos_group {
     const STYLE_FULL_SCREEN: usize = 1 << 14;
     const STYLE_FULL_SIZE_CONTENT: usize = 1 << 15;
     // `NSBox`: a custom box with no border and no title is a plain filled rectangle; `NSWindowBelow`
-    // puts a view under its siblings; `NSViewWidthSizable | NSViewMinYMargin` keeps a strip glued to
-    // the top of its parent and as wide as it.
+    // puts a view under its siblings; `NSViewWidthSizable | NSViewHeightSizable` keeps it as large as
+    // its parent.
     const BOX_CUSTOM: usize = 4;
     const BOX_NO_BORDER: usize = 0;
     const BOX_NO_TITLE: usize = 0;
     const WINDOW_BELOW: isize = -1;
-    const STICK_TO_TOP_AND_WIDTH: usize = 2 | 8;
+    const SIZE_WITH_PARENT: usize = 2 | 16;
     /// The identifier of the view [`fill_title_bars`] adds, so a window is given one only once.
     const FILL_ID: &std::ffi::CStr = c"prc-title-bar-fill";
-
-    /// The strip a window's title bar takes at the top of its frame view, as `(x, y, width, height)` with
-    /// the bottom-left origin Cocoa uses: the frame view is `frame_h` tall and the content below the bar
-    /// `content_h`. `None` where there is no bar to speak of (the bar would be nothing, or the content
-    /// would be taller than the frame).
-    pub(super) fn title_strip(frame_w: f64, frame_h: f64, content_h: f64) -> Option<(f64, f64, f64, f64)> {
-        let h = frame_h - content_h;
-        (frame_w > 0.0 && content_h >= 0.0 && h > 0.0 && h < frame_h).then_some((0.0, content_h, frame_w, h))
-    }
+    /// The view of the frame view that holds the system's title bar: its background, buttons and title.
+    const TITLE_BAR_CONTAINER: &std::ffi::CStr = c"NSTitlebarContainerView";
 
     /// See [`super::fill_title_bars`]. The view is an `NSBox` (a custom one, no border, no title) filled with
-    /// `windowBackgroundColor`, a dynamic colour that follows light and dark, added to the window's frame
-    /// view BELOW its other subviews: the content view and the system's own title bar (buttons, title) draw
-    /// above it, and in full screen, where the content covers the frame, it is not seen.
+    /// `windowBackgroundColor`, a dynamic colour that follows light and dark, added to the title bar's
+    /// container BELOW its other subviews: the system's buttons and title draw above it. It is not added to
+    /// the frame view: there it makes AppKit dissolve the container and lay the title out again, at the left
+    /// edge, under the buttons (found by looking at the views of a window before and after). Where the
+    /// container is not found (AppKit names it privately) the window is left as it is.
     pub(super) fn fill_title_bars() -> usize {
         unsafe {
             let send_id: extern "C" fn(Id, Sel) -> Id = std::mem::transmute(objc_msgSend as *const ());
@@ -404,9 +401,11 @@ mod macos_group {
             let box_class = objc_getClass(c"NSBox".as_ptr());
             let color_class = objc_getClass(c"NSColor".as_ptr());
             let string_class = objc_getClass(c"NSString".as_ptr());
-            if app.is_null() || box_class.is_null() || color_class.is_null() || string_class.is_null() {
+            let bar_class = objc_getClass(TITLE_BAR_CONTAINER.as_ptr());
+            if app.is_null() || box_class.is_null() || color_class.is_null() || string_class.is_null() || bar_class.is_null() {
                 return 0;
             }
+            let is_kind = sel_registerName(c"isKindOfClass:".as_ptr());
             let windows = send_id(app, sel_registerName(c"windows".as_ptr()));
             if windows.is_null() {
                 return 0;
@@ -432,7 +431,19 @@ mod macos_group {
                 if frame_view.is_null() {
                     continue;
                 }
-                let subviews = send_id(frame_view, sel_registerName(c"subviews".as_ptr()));
+                let frame_views = send_id(frame_view, sel_registerName(c"subviews".as_ptr()));
+                let bar = if frame_views.is_null() {
+                    frame_views
+                } else {
+                    (0..send_usize(frame_views, count))
+                        .map(|k| send_index(frame_views, at, k))
+                        .find(|&v| send_bool_id(v, is_kind, bar_class) != 0)
+                        .unwrap_or(std::ptr::null_mut())
+                };
+                if bar.is_null() {
+                    continue;
+                }
+                let subviews = send_id(bar, sel_registerName(c"subviews".as_ptr()));
                 let ident = sel_registerName(c"identifier".as_ptr());
                 let is_equal = sel_registerName(c"isEqualToString:".as_ptr());
                 let already = !subviews.is_null()
@@ -443,12 +454,11 @@ mod macos_group {
                 if already {
                     continue;
                 }
-                let bounds = rect_of(frame_view, c"bounds");
-                let layout = rect_of(window, c"contentLayoutRect");
-                let Some((x, y, w, h)) = title_strip(bounds.w, bounds.h, layout.h) else {
+                let bounds = rect_of(bar, c"bounds");
+                if bounds.w <= 0.0 || bounds.h <= 0.0 {
                     continue;
-                };
-                let strip = send_frame(send_id(box_class, sel_registerName(c"alloc".as_ptr())), sel_registerName(c"initWithFrame:".as_ptr()), Rect { x, y, w, h });
+                }
+                let strip = send_frame(send_id(box_class, sel_registerName(c"alloc".as_ptr())), sel_registerName(c"initWithFrame:".as_ptr()), bounds);
                 if strip.is_null() {
                     continue;
                 }
@@ -456,10 +466,10 @@ mod macos_group {
                 send_set_usize(strip, sel_registerName(c"setBorderType:".as_ptr()), BOX_NO_BORDER);
                 send_set_usize(strip, sel_registerName(c"setTitlePosition:".as_ptr()), BOX_NO_TITLE);
                 send_set_id(strip, sel_registerName(c"setFillColor:".as_ptr()), send_id(color_class, sel_registerName(c"windowBackgroundColor".as_ptr())));
-                send_set_usize(strip, sel_registerName(c"setAutoresizingMask:".as_ptr()), STICK_TO_TOP_AND_WIDTH);
+                send_set_usize(strip, sel_registerName(c"setAutoresizingMask:".as_ptr()), SIZE_WITH_PARENT);
                 send_set_id(strip, sel_registerName(c"setIdentifier:".as_ptr()), name);
-                send_add(frame_view, sel_registerName(c"addSubview:positioned:relativeTo:".as_ptr()), strip, WINDOW_BELOW, std::ptr::null_mut());
-                // `alloc` gave one reference and the frame view took its own.
+                send_add(bar, sel_registerName(c"addSubview:positioned:relativeTo:".as_ptr()), strip, WINDOW_BELOW, std::ptr::null_mut());
+                // `alloc` gave one reference and the title bar's container took its own.
                 send_void(strip, sel_registerName(c"release".as_ptr()));
                 given += 1;
             }
@@ -774,21 +784,9 @@ mod tests {
         assert!(!super::round_window((0.0, 0.0, 10.0, 10.0), 35.0));
     }
 
-    /// The title bar is what the content leaves at the top of the frame view, with the bottom-left origin of
-    /// Cocoa, and nothing where the two are as tall as each other or the numbers make no sense.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn the_title_bar_is_what_the_content_leaves_at_the_top_of_the_frame() {
-        use super::macos_group::title_strip;
-        assert_eq!(title_strip(1280.0, 828.0, 800.0), Some((0.0, 800.0, 1280.0, 28.0)));
-        assert_eq!(title_strip(1280.0, 800.0, 800.0), None, "no bar when the content is the whole frame");
-        assert_eq!(title_strip(1280.0, 800.0, 810.0), None, "content taller than the frame is no bar");
-        assert_eq!(title_strip(0.0, 828.0, 800.0), None, "an empty frame is no frame");
-        assert_eq!(title_strip(1280.0, 28.0, 0.0), None, "a frame that is all bar has no content to sit under it");
-    }
-
     /// With no window (a test binary has no AppKit and no windows) no title bar is given a background, and
-    /// asking is harmless.
+    /// asking is harmless. (The windows themselves are checked by `tests/title_bar.rs`, which needs the
+    /// main thread.)
     #[test]
     fn no_title_bar_is_filled_where_there_is_no_window() {
         assert_eq!(super::fill_title_bars(), 0);
