@@ -94,17 +94,26 @@ pub struct CallControl {
     /// Asked at every tick of the engine's epoch: `true` ends the call (`Outcome::Interrupted`). A call that nothing
     /// stops runs to its end.
     pub stop: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// How long an `OPEN` waits for a file another run unit holds, and the exclusive-writer policy that goes with it (the
+    /// server's `file_lock_wait_ms`; WASM-003 R19). `None`: a program run on its own, no waiting and no policy.
+    pub file_lock_wait: Option<std::time::Duration>,
 }
 
 impl CallControl {
     /// No call is stopped.
     pub fn none() -> CallControl {
-        CallControl { stop: Arc::new(|| false) }
+        CallControl { stop: Arc::new(|| false), file_lock_wait: None }
     }
 
     /// A call stopped when `flag` is set.
     pub fn on(flag: Arc<AtomicBool>) -> CallControl {
-        CallControl { stop: Arc::new(move || flag.load(Ordering::SeqCst)) }
+        CallControl { stop: Arc::new(move || flag.load(Ordering::SeqCst)), file_lock_wait: None }
+    }
+
+    /// This control with the Backend's file policy on: an `OPEN` waits up to `wait` for another run unit's lock.
+    pub fn with_file_lock_wait(mut self, wait: std::time::Duration) -> CallControl {
+        self.file_lock_wait = Some(wait);
+        self
     }
 }
 
@@ -299,6 +308,7 @@ impl BackendModule {
             state.display = Some(Vec::new());
             state.fatal = None;
             state.verbs = Verbs::new(host, Some(control.stop.clone()));
+            state.files.borrow_mut().set_lock_wait(control.file_lock_wait);
         }
         // A call is interrupted at the next tick of the epoch when its stop says so, and goes on otherwise.
         store.set_epoch_deadline(1);

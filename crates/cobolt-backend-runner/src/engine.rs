@@ -31,6 +31,8 @@ use cobolt_server::engine::{check_arity, status_failure, Admission, Engine, Engi
 use cobolt_wasm_abi::backend::Refusal;
 use cobolt_wire::call::BackendFiles;
 use cobolt_wire::error::{codes, CallError, ErrorClass};
+use cobolt_wire::mapping;
+use cobolt_wire::node::Node;
 use sha2::{Digest, Sha256};
 
 use crate::epoch::Ticker;
@@ -176,10 +178,27 @@ fn unsupported(what: &str) -> CallError {
 }
 
 /// The error of a request the mapping refused, as the interpreter words it: the code's name, the member, and the member
-/// as the detail. (The interpreter adds the mapping's own sentence after the member; the module's routines answer the
-/// code and the member only: a recorded difference, `specs/WASM-PARITY.md`.)
+/// as the detail. The module's routines answer the code and the member only; the interpreter adds the mapping's own
+/// sentence after them (`unknown-key at LK-A.EXTRA: LK-A has no member named "EXTRA"`). A call's refusal gets that
+/// sentence from [`request_refusal`]; this short form is what an answer the program holds and could not write gets, a
+/// recorded difference (`specs/WASM-PARITY.md`): the record that failed to encode is in the module's memory, not here.
 pub fn refusal_error(r: &Refusal) -> CallError {
     CallError::validation(format!("{} at {}", refusal_name(r.code), r.path), r.path.clone())
+}
+
+/// The error of a request the module refused, worded exactly as the interpreter's engine words it: the request is read
+/// again by the mapping the interpreter uses (`cobolt_wire::mapping`), which writes the sentence a caller sees. The reading
+/// is only used when it agrees with the module on what was wrong and where; when it does not, the module's own verdict
+/// stands (short), so a disagreement between the two readers is never hidden behind the other's text.
+fn request_refusal(prog: &ExportedProgram, args: &[String], r: &Refusal) -> CallError {
+    for (param, text) in prog.sig.params.iter().zip(args) {
+        if let Err(e) = mapping::decode(&param.layout, &Node::initial(&param.layout), text, mapping::DEFAULT_MAX_BYTES) {
+            if e.kind.code() == refusal_name(r.code) && e.path == r.path {
+                return CallError::validation(e.to_string(), e.path);
+            }
+        }
+    }
+    refusal_error(r)
 }
 
 /// The word the rules use for a mapping error code (the interpreter's `ErrorKind::code`); a code the module does not
@@ -280,9 +299,11 @@ fn run_with(
     }
     let cancel = opts.cancel.clone();
     let requested = opts.cancel_requested.clone();
+    // The server's file policy (`file_lock_wait_ms`): writers hold a file alone until they close it, and an OPEN waits.
+    let control = CallControl::on(cancel.clone()).with_file_lock_wait(opts.file_lock_wait);
     let host = Host { claims: opts.claims, progress: opts.progress, emit: opts.emit, files: opts.files, requested: requested.clone() };
     let texts: Vec<&str> = args.iter().map(String::as_str).collect();
-    let called = match call(&texts, &CallControl::on(cancel.clone()), Box::new(host)) {
+    let called = match call(&texts, &control, Box::new(host)) {
         Ok(c) => c,
         Err(e) => {
             // The runner's own failure (the module could not be started), not the program's: the detail is for the log. The
@@ -294,11 +315,11 @@ fn run_with(
     // What the interpreter's engine reads, in its order, for whether the run unit may be entered again: a call the server
     // stopped is not fit; the program's own failure is; a cancel the program saw or the caller asked for is not.
     let sound = called.keep && !cancel.load(Ordering::SeqCst) && (called.failure.is_some() || !(called.cancelled || requested.load(Ordering::SeqCst)));
-    Finished { result: answer(prog, called, &cancel, &requested), sound }
+    Finished { result: answer(prog, args, called, &cancel, &requested), sound }
 }
 
 /// What the caller is told of a finished call.
-fn answer(prog: &ExportedProgram, called: Called, cancel: &AtomicBool, requested: &AtomicBool) -> Result<ExecResult, CallError> {
+fn answer(prog: &ExportedProgram, args: &[String], called: Called, cancel: &AtomicBool, requested: &AtomicBool) -> Result<ExecResult, CallError> {
     // The flags are what tell a cut-off from an answer, as in the interpreter's engine: a call that finished while the
     // server was stopping it is stopped.
     if cancel.load(Ordering::SeqCst) {
@@ -317,7 +338,7 @@ fn answer(prog: &ExportedProgram, called: Called, cancel: &AtomicBool, requested
         // A record the program holds cannot be written, or its answer is too large: said only if nothing above outranks it.
         Outcome::Unwritable(r) => Err(refusal_error(&r)),
         Outcome::TooLarge => Err(CallError::new(ErrorClass::Limit, codes::FRAME_TOO_LARGE, "the answer is larger than this Backend can send")),
-        Outcome::Refused(r) => return Err(refusal_error(&r)),
+        Outcome::Refused(r) => return Err(request_refusal(prog, args, &r)),
         Outcome::RequestTooLarge => return Err(CallError::new(ErrorClass::Limit, codes::FRAME_TOO_LARGE, "the request is larger than this Backend can take")),
         Outcome::BadRequest => {
             tracing::error!(target: "exec", program = %prog.sig.name, "the module refused the request frame the runner wrote");

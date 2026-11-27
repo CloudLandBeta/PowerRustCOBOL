@@ -275,36 +275,66 @@ impl Rig {
 pub const AUDIENCE: &str = "prc-api";
 pub const ORIGIN: &str = "https://app.example.test";
 
-/// The engines a suite can run on, by name; the first is the default. One today: a second engine is one
-/// line here (spec 114 T38), and the same suites then run against it with `PRC_TEST_ENGINE=<name>`.
+/// The engine this crate has in its own build, by name: the interpreter's, when the `interpreter` feature is on.
 #[cfg(feature = "interpreter")]
-pub fn engines() -> Vec<Arc<dyn ProgramEngine>> {
+fn built_in_engines() -> Vec<Arc<dyn ProgramEngine>> {
     vec![Arc::new(crate::exec::InterpreterEngine)]
 }
 
-/// The engines a suite can run on (see above): none in a build that has no `interpreter`.
 #[cfg(not(feature = "interpreter"))]
-pub fn engines() -> Vec<Arc<dyn ProgramEngine>> {
+fn built_in_engines() -> Vec<Arc<dyn ProgramEngine>> {
     Vec::new()
 }
 
-/// The engine the plain rigs use: the one `PRC_TEST_ENGINE` names, else the first of [`engines`].
-/// A name that is not one of them stops the test, naming the ones that are.
-pub fn test_engine() -> Arc<dyn ProgramEngine> {
-    let all = engines();
+/// What makes an engine for the Backend in a folder, under a state mode: an engine that is made *from* the Backend (the
+/// module engine compiles its programs) is made here, where the Backend is known.
+pub type EngineFactory = fn(&std::path::Path, crate::backend::StateMode) -> Arc<dyn ProgramEngine>;
+
+static FACTORIES: Mutex<Vec<(&'static str, EngineFactory)>> = Mutex::new(Vec::new());
+
+/// Add an engine to the ones a suite can run on (spec 114 T38): a test crate that has one registers it once, and the same
+/// suites then run on it with `PRC_TEST_ENGINE=<name>`. A name already registered is kept as it was.
+pub fn register_engine(name: &'static str, factory: EngineFactory) {
+    let mut all = FACTORIES.lock().unwrap_or_else(|p| p.into_inner());
+    if !all.iter().any(|(n, _)| *n == name) {
+        all.push((name, factory));
+    }
+}
+
+/// The names of the engines a suite can run on, the default first: this crate's own, then the registered ones.
+pub fn engine_names() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = built_in_engines().iter().map(|e| e.name()).collect();
+    names.extend(FACTORIES.lock().unwrap_or_else(|p| p.into_inner()).iter().map(|(n, _)| *n));
+    names
+}
+
+/// The name of the engine the suites run on: the one `PRC_TEST_ENGINE` names, else the default (the first of
+/// [`engine_names`]). A name that is not one of them stops the test, naming the ones that are.
+pub fn selected_engine_name() -> &'static str {
+    let all = engine_names();
     match std::env::var("PRC_TEST_ENGINE") {
         Ok(name) if !name.trim().is_empty() => all
             .iter()
-            .find(|e| e.name() == name.trim())
-            .cloned()
-            .unwrap_or_else(|| panic!("PRC_TEST_ENGINE={name:?} is not an engine of this build; known: {:?}", all.iter().map(|e| e.name()).collect::<Vec<_>>())),
-        _ => all.into_iter().next().expect("this build of the test kit has no engine: build it with the `interpreter` feature"),
+            .find(|n| **n == name.trim())
+            .copied()
+            .unwrap_or_else(|| panic!("PRC_TEST_ENGINE={name:?} is not an engine of this build; known: {all:?}")),
+        _ => all.first().copied().expect("this build of the test kit has no engine: build it with the `interpreter` feature"),
     }
+}
+
+/// The engine the plain rigs use for the Backend in `dir`: the one [`selected_engine_name`] gives.
+pub fn engine_for(dir: &std::path::Path, state: crate::backend::StateMode) -> Arc<dyn ProgramEngine> {
+    let name = selected_engine_name();
+    if let Some(engine) = built_in_engines().into_iter().find(|e| e.name() == name) {
+        return engine;
+    }
+    let factory = FACTORIES.lock().unwrap_or_else(|p| p.into_inner()).iter().find(|(n, _)| *n == name).map(|(_, f)| *f);
+    (factory.expect("a registered engine has a factory"))(dir, state)
 }
 
 /// Start a TLS server with the backend in `dir`, trusting `issuer`.
 pub fn rig(dir: std::path::PathBuf, extra_toml: &str) -> Rig {
-    rig_on(test_engine(), dir, extra_toml)
+    rig_with_state(dir, extra_toml, crate::backend::StateMode::PerCall)
 }
 
 /// [`rig`] on the engine given.
@@ -314,7 +344,7 @@ pub fn rig_on(engine: Arc<dyn ProgramEngine>, dir: std::path::PathBuf, extra_tom
 
 /// [`rig`], with the project's `[backend] state` (WASM-003 Q2).
 pub fn rig_with_state(dir: std::path::PathBuf, extra_toml: &str, state: crate::backend::StateMode) -> Rig {
-    rig_with_state_on(test_engine(), dir, extra_toml, state)
+    rig_with_state_on(engine_for(&dir, state), dir, extra_toml, state)
 }
 
 /// [`rig_with_state`] on the engine given.
@@ -325,7 +355,7 @@ pub fn rig_with_state_on(engine: Arc<dyn ProgramEngine>, dir: std::path::PathBuf
 /// [`rig`] with an `[identity]` section in `extra_toml`, its provider and reCAPTCHA reached through
 /// `http` (WASM-009: the mocks of `idp_mock.rs`).
 pub fn rig_with_identity(dir: std::path::PathBuf, extra_toml: &str, http: Arc<dyn crate::identity::client::Http>) -> Rig {
-    rig_with_identity_on(test_engine(), dir, extra_toml, http)
+    rig_with_identity_on(engine_for(&dir, crate::backend::StateMode::PerCall), dir, extra_toml, http)
 }
 
 /// [`rig_with_identity`] on the engine given.
@@ -336,7 +366,7 @@ pub fn rig_with_identity_on(engine: Arc<dyn ProgramEngine>, dir: std::path::Path
 /// [`rig`] as a **development** run with a development token secret (`unsafe_dev_token_secret`, WASM-013 R11):
 /// the server accepts HS256 tokens minted with [`crate::dev::mint_dev_token`]. A release start refuses the secret.
 pub fn rig_dev(dir: std::path::PathBuf, dev_secret: &str) -> Rig {
-    rig_dev_on(test_engine(), dir, dev_secret)
+    rig_dev_on(engine_for(&dir, crate::backend::StateMode::PerCall), dir, dev_secret)
 }
 
 /// [`rig_dev`] on the engine given.
@@ -682,9 +712,9 @@ pub fn rand_bytes<const N: usize>() -> [u8; N] {
 /// The line a suite prints about its engine (spec 114 T8): which engine ran it, which this build has, and how
 /// long a rig took to start. A suite run with `PRC_TEST_ENGINE=<name>` names that engine here.
 pub fn print_engine_block(suite: &str, rig: &Rig, started: std::time::Duration) {
-    let known: Vec<&'static str> = engines().iter().map(|e| e.name()).collect();
+    let known = engine_names();
     println!("=== {suite} ENGINE ===");
     println!("engine: {} (PRC_TEST_ENGINE: {}; engines of this build: {})", rig.engine_name(), std::env::var("PRC_TEST_ENGINE").unwrap_or_else(|_| "not set".into()), known.join(", "));
     println!("rig: started in {:.1} ms", started.as_secs_f64() * 1000.0);
-    assert_eq!(rig.engine_name(), test_engine().name(), "the rig runs on the engine the suite selected");
+    assert_eq!(rig.engine_name(), selected_engine_name(), "the rig runs on the engine the suite selected");
 }

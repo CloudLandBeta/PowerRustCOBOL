@@ -2654,6 +2654,7 @@ dependencies = [
  "bincode",
  "chacha20poly1305",
  "cobolt-ast",
+ "cobolt-backend-runner",
  "cobolt-codegen",
  "cobolt-compiler",
  "cobolt-forms",

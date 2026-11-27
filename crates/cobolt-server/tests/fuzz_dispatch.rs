@@ -30,6 +30,10 @@ use std::sync::Once;
 use std::time::{Duration, Instant};
 
 use cobolt_server::testkit::*;
+
+// The rigs that can run on the module engine too (spec 114 T38): `PRC_TEST_ENGINE=wasm`.
+mod wasm_engine;
+use wasm_engine::rig;
 use cobolt_wire::error::{codes, ErrorClass};
 use cobolt_wire::proto;
 use futures_util::{SinkExt, StreamExt};

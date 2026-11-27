@@ -100,6 +100,9 @@ pub struct Files {
     locked: HashSet<u32>,
     /// The cross-run-unit lock an INDEXED file holds while it is open.
     share_locks: HashMap<u32, std::fs::File>,
+    /// How long an `OPEN` waits for another run unit's conflicting lock (a Backend that serves several callers at once sets it:
+    /// WASM-003 R19). `None`: no waiting and no policy, as a program run on its own has it.
+    lock_wait: Option<std::time::Duration>,
     /// The form instance the program thread is calling into, so an OPEN knows its owner.
     calling: Option<u32>,
     /// The slots opened during the current call, which an `OpenForm` gives to the new instance.
@@ -192,6 +195,13 @@ impl Files {
         Files { decls: setup.decls, engine: setup.engine, ..Files::default() }
     }
 
+    /// Turn the Backend's file policy on (`Some(wait)`) or off: while it is on, a program that opens a file for anything but
+    /// `INPUT` holds it exclusively until its `CLOSE`, readers share it, and an `OPEN` that cannot get the file within `wait`
+    /// is status 93 (the interpreter's `acquire_share_lock_for`; the server's `file_lock_wait_ms`).
+    pub fn set_lock_wait(&mut self, wait: Option<std::time::Duration>) {
+        self.lock_wait = wait;
+    }
+
     fn decl(&self, id: u32) -> Option<&FileDecl> {
         self.decls.get(id as usize)
     }
@@ -244,7 +254,8 @@ impl Files {
                 // Sharing between run units is decided before the engine is built: a refused open
                 // must not create or touch the container.
                 if !self.share_locks.contains_key(&slot) {
-                    match file_core::share_lock(&path, exclusive, None) {
+                    let policy_exclusive = self.lock_wait.is_some() && mode != OpenMode::Input;
+                    match file_core::share_lock(&path, exclusive || policy_exclusive, self.lock_wait) {
                         ShareLock::Held(h) => {
                             self.share_locks.insert(slot, h);
                         }
@@ -264,16 +275,25 @@ impl Files {
                 code(status)
             }
             Org::Relative => {
+                if let Err(refused) = self.take_policy_lock(slot, &path, mode) {
+                    return refused;
+                }
                 let mut engine = file_core::relative_engine(&path, d.slot_len as usize, d.memory, d.persist);
                 let status = file_core::open_keyed(d.optional, existed, mode, |m| engine.open(m));
                 if status.starts_with('0') {
                     self.open.insert(slot, Open { handle: Handle::Relative(Box::new(engine)), mode, owner, canon: None });
                     self.opened_in_call.push(slot);
+                } else {
+                    self.share_locks.remove(&slot);
                 }
                 code(status)
             }
             Org::Sequential | Org::LineSequential => {
+                if let Err(refused) = self.take_policy_lock(slot, &path, mode) {
+                    return refused;
+                }
                 if SequentialFile::refuses_absent(existed, d.optional, mode) {
+                    self.share_locks.remove(&slot);
                     return 35;
                 }
                 match SequentialFile::open(&path, mode, d.optional, d.org == Org::LineSequential) {
@@ -282,9 +302,29 @@ impl Files {
                         self.opened_in_call.push(slot);
                         code(SequentialFile::opened_status(existed, d.optional, mode))
                     }
-                    Err(e) => code(SequentialFile::failed_status(mode, &e)),
+                    Err(e) => {
+                        self.share_locks.remove(&slot);
+                        code(SequentialFile::failed_status(mode, &e))
+                    }
                 }
             }
+        }
+    }
+
+    /// The Backend's lock on a file that is not INDEXED (the keyed engine takes its own): exclusive for a writer, shared for a reader,
+    /// waited for, held until the `CLOSE` (the interpreter does this for every other organisation while its policy is on).
+    /// `Err(93)` when another run unit keeps it past the wait. Nothing happens while the policy is off.
+    fn take_policy_lock(&mut self, slot: u32, path: &str, mode: OpenMode) -> Result<(), i32> {
+        if self.lock_wait.is_none() || self.share_locks.contains_key(&slot) {
+            return Ok(());
+        }
+        match file_core::share_lock(path, mode != OpenMode::Input, self.lock_wait) {
+            ShareLock::Held(h) => {
+                self.share_locks.insert(slot, h);
+                Ok(())
+            }
+            ShareLock::NotLocked => Ok(()),
+            ShareLock::Refused => Err(93),
         }
     }
 

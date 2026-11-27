@@ -15,6 +15,10 @@ use std::time::{Duration, Instant};
 use serde_json::json;
 use cobolt_server::testkit::*;
 
+// The rigs that can run on the module engine too (spec 114 T38): `PRC_TEST_ENGINE=wasm`.
+mod wasm_engine;
+use wasm_engine::rig;
+
 use cobolt_server::client::{ClientConfig, StaticToken, StreamItem, WsClient};
 use cobolt_wire::call::{ArgMode, ArgPayload, CallObserver, CallRequest, DownloadRequest, Transport, UploadRequest};
 use cobolt_wire::error::{codes, CallError, ErrorClass};

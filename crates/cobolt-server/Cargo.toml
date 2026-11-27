@@ -131,6 +131,9 @@ cobolt-codegen = { path = "../cobolt-codegen" }
 cobolt-forms   = { path = "../cobolt-forms" }
 # Spec 111: the web build's lowering of an IndexedFile control's verbs, run against the programs it generates.
 cobolt-compiler = { path = "../cobolt-compiler" }
+# Spec 114 T38: the suites run on the Backend as a module too (`tests/wasm_engine`); a dev-dependency cycle, which cargo allows:
+# `dependency_guards` reads normal edges, and the server itself still depends on no runner.
+cobolt-backend-runner = { path = "../cobolt-backend-runner" }
 # WASM-005 T15: the remote-binding test writes the `.cidx` the desktop path reads.
 cobolt-indexed = { path = "../cobolt-indexed" }
 cobolt-runtime = { path = "../cobolt-runtime", default-features = false, features = ["sql", "http"] }

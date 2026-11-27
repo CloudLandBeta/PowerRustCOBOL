@@ -19,6 +19,10 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use cobolt_server::testkit::*;
 
+// The rigs that can run on the module engine too (spec 114 T38): `PRC_TEST_ENGINE=wasm`.
+mod wasm_engine;
+use wasm_engine::{rig, rig_with_identity, rig_with_state};
+
 const EXPORTS: &str = r#"
 [contract]
 version = "1.2.0"
@@ -548,6 +552,13 @@ fn cookie_pair(headers: &[(String, String)], name: &str) -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_identity_routes_log_no_token_password_code_or_cookie() {
     use idp_mock::{IdpMock, CLIENT_ID, CLIENT_SECRET, COGNITO_DOMAIN, MFA_CODE};
+    // The identity programs (`AUTH-*`) run on the interpreter's engine only: the module engine refuses them by name (error 9001),
+    // and a Backend with an `[identity]` section takes the Cargo path (spec 114 R13: `BackendCargoReason::Identity`, the one
+    // reason that stays). The test is about the log the identity routes write, so it says plainly that it did not run.
+    if selected_engine_name() != "interpreter" {
+        println!("\n  SKIPPED on the {} engine: the identity programs run on the interpreter's engine only (a Backend with [identity] takes the Cargo path)", selected_engine_name());
+        return;
+    }
     const COOKIE_KEY: &str = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
     std::env::set_var("PRC_AC7_SECRET", CLIENT_SECRET);
     std::env::set_var("PRC_AC7_COOKIE", COOKIE_KEY);
