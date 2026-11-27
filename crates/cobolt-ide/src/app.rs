@@ -2942,9 +2942,12 @@ impl CoboltApp {
         let tr = self.lang.tr();
         let mobile = p.mobile_settings();
         // `[web]` or, for a Mobile project's fallback, `[mobile]` (WASM-008 C15).
-        let setting = match mobile {
-            Some(m) => m.preview_browser.clone(),
-            None => p.web_settings().preview_browser,
+        let (setting, port_setting) = match mobile {
+            Some(m) => (m.preview_browser.clone(), m.preview_port),
+            None => {
+                let web = p.web_settings();
+                (web.preview_browser, web.preview_port)
+            }
         };
         // WASM-012: a Mobile project runs on its Android device or emulator and builds its
         // package; a Web project has no device.
@@ -2967,6 +2970,8 @@ impl CoboltApp {
             page_strings: crate::panels::web_preview::page_strings(&tr),
             language: self.lang,
             backend_url: None,
+            // The project's own port, else the default of its name: the page's address is the same on every run.
+            page_port: cobolt_compiler::project_kind::preview_port_of(port_setting, &p.project.name),
         })
     }
 

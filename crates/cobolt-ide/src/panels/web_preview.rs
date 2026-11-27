@@ -58,6 +58,9 @@ const CHATTER_PER_POLL: usize = 40;
 /// How long a Preview waits for the Backend it started to say where it
 /// listens (the first start of a Backend reads its programs; a few seconds).
 pub const BACKEND_WAIT: Duration = Duration::from_secs(60);
+
+/// How long a start waits for the page's port after it stopped the Preview's own server that held it.
+const PAGE_PORT_HANDOVER: Duration = Duration::from_secs(2);
 /// The Backend's last lines kept while it starts, to say why when it fails.
 const BACKEND_TAIL: usize = 8;
 
@@ -102,6 +105,9 @@ pub enum Note {
     BackendPortBusy { port: u16 },
     /// The project defines no port for the Backend: it is not started.
     BackendNoPort,
+    /// The port the page is served on (the project's `preview_port`, or its default) is taken by another process:
+    /// nothing is started and no other port is tried, so the page's address never changes between runs.
+    PagePortBusy { port: u16 },
     /// The manifest's loopback address is taken: no Backend is started.
     BackendTaken { url: String },
     /// The manifest names another machine: no local Backend is started.
@@ -273,6 +279,7 @@ impl Note {
             | Note::BackendFailed { .. }
             | Note::BackendPortBusy { .. }
             | Note::BackendNoPort
+            | Note::PagePortBusy { .. }
             | Note::BackendTimeout { .. } => {
                 Severity::Error
             }
@@ -350,6 +357,7 @@ impl Note {
             Note::BackendReady { url } => vec![fill(tr.pk_prev_backend_ready, &[url])],
             Note::BackendPortBusy { port } => vec![fill(tr.pk_prev_backend_port_busy, &[&port.to_string()])],
             Note::BackendNoPort => vec![tr.pk_prev_backend_no_port.to_owned()],
+            Note::PagePortBusy { port } => vec![fill(tr.pk_prev_page_port_busy, &[&port.to_string()])],
             Note::BackendTaken { url } => vec![fill(tr.pk_prev_backend_taken, &[url])],
             Note::BackendRemote { url } => vec![fill(tr.pk_prev_backend_remote, &[url])],
             Note::BackendMismatch { running, page } => vec![fill(tr.pk_prev_backend_mismatch, &[running, page])],
@@ -626,6 +634,9 @@ pub struct Launch {
     /// The Backend address the page is built for instead of `[web] backend_url`:
     /// the one the Backend the Preview started reports (the manifest names none).
     pub backend_url: Option<String>,
+    /// The port the page is served on: the project's `preview_port`, else the default of its name
+    /// ([`cobolt_compiler::project_kind::preview_port_of`]). The same on every run.
+    pub page_port: u16,
 }
 
 enum JobKind {
@@ -683,8 +694,8 @@ pub struct WebPreview {
     /// The application runs on a device, or its package is being built: the
     /// runner's log is read each poll.
     on_device: bool,
-    /// The port the page is served on, chosen before the Backend started so it could be told the page's origin
-    /// (WASM-013 R12); `None` = any free port.
+    /// The port the page is served on: the project's own ([`Launch::page_port`]), claimed before the Backend starts so
+    /// that it is told the page's origin (WASM-013 R12); `None` until a start that shows the page claims it.
     page_port: Option<u16>,
     /// The target chosen in the Run on device window, per project manifest, for this session of
     /// the IDE (WASM-012 D-Preview): never written to the project, kept across Previews.
@@ -807,9 +818,29 @@ impl WebPreview {
         if self.reuse(&launch, intent) {
             return true;
         }
-        self.begin(intent);
+        let served = self.begin(intent);
+        if !self.claim_page_port(&launch, intent, served) {
+            return true;
+        }
         self.build(launch, intent);
         true
+    }
+
+    /// The page of a start that shows it is served on the project's port, the same on every run: claimed here, once the
+    /// server of the Preview this start replaces is gone (`replaced`). A port another program holds refuses the start —
+    /// it is said in the Output, nothing is built and no other port is tried. `false` = refused.
+    fn claim_page_port(&mut self, launch: &Launch, intent: Intent, replaced: bool) -> bool {
+        if intent == Intent::Build {
+            return true;
+        }
+        self.page_port = Some(launch.page_port);
+        // A system may keep a port for a moment after the server that held it stopped (Windows, while the browser's last
+        // connection to it closes): the Preview's own server is given that moment, a stranger is refused at once.
+        let free = if replaced { devbackend::wait_for_loopback_port(launch.page_port, PAGE_PORT_HANDOVER) } else { devbackend::loopback_port_is_free(launch.page_port) };
+        if !free {
+            self.say(Note::PagePortBusy { port: launch.page_port });
+        }
+        free
     }
 
     /// Open the page being served again, when `launch` is the project it serves.
@@ -819,6 +850,10 @@ impl WebPreview {
         }
         let same = self.launch.as_ref().is_some_and(|l| l.manifest == launch.manifest);
         if !same {
+            return false;
+        }
+        // The port may have been changed in the project's settings since: the page is then served again, on the new one.
+        if self.page_port != Some(launch.page_port) {
             return false;
         }
         // The browser setting may have changed since; the server and the watcher stay.
@@ -835,17 +870,20 @@ impl WebPreview {
         true
     }
 
-    /// A start that shows the page is a new Preview: the old one goes.
-    fn begin(&mut self, intent: Intent) {
+    /// A start that shows the page is a new Preview: the old one goes. Answers whether a server was serving, which this
+    /// start has just stopped.
+    fn begin(&mut self, intent: Intent) -> bool {
+        let mut stopped = false;
         if intent != Intent::Build {
             // A Preview of another project is replaced, not stacked.
-            self.live = None;
+            stopped = self.live.take().is_some();
             self.notes.clear();
             self.opened = None;
             self.backend_for = None;
             self.dev_backend = None;
             self.on_device = false;
         }
+        stopped
     }
 
     fn build(&mut self, launch: Launch, intent: Intent) {
@@ -884,15 +922,26 @@ impl WebPreview {
         if !backend_gone && self.reuse(&launch, intent) {
             return Some(false);
         }
-        // Chosen again below when this start runs a Backend of its own.
-        self.page_port = None;
         if intent == Intent::Build || !exports.is_file() {
             return self.start(launch, intent).then_some(false);
         }
         let manifest_url = WebBuildRequest::from_manifest(&launch.manifest).map(|r| r.web.backend_url).unwrap_or_default();
-        let plan = devbackend::plan(&manifest_url, devbackend::configured_listen(&project_dir).as_deref(), devbackend::loopback_port_is_free);
         launch.backend_url = None;
-        self.begin(intent);
+        let served = self.begin(intent);
+        // The page's port is the project's, the same on every run, claimed before the Backend starts so that it is
+        // told the page's origin and accepts that one and no other.
+        if !self.claim_page_port(&launch, intent, served) {
+            return Some(false);
+        }
+        let page_port = launch.page_port;
+        let same_project = |run: &BackendRun| std::fs::canonicalize(&run.project_dir).ok() == std::fs::canonicalize(&project_dir).ok();
+        // A Backend of this project that was told another page's origin (the port was changed in the project's
+        // settings since) is stopped now: it holds the Backend's port, which the plan below must find free again.
+        let told_another_page = |run: &BackendRun| run.page_origin.as_deref().and_then(devbackend::page_port_of).is_some_and(|p| p != page_port);
+        if let Some(stale) = ide_backend.as_mut().filter(|r| r.is_running() && same_project(r) && told_another_page(r)) {
+            stale.stop();
+        }
+        let plan = devbackend::plan(&manifest_url, devbackend::configured_listen(&project_dir).as_deref(), devbackend::loopback_port_is_free);
         let mut refusal = None;
         let (listen, bake) = match plan {
             // The project's port is the Backend's address: busy or missing, the Backend is not started, and nothing
@@ -918,16 +967,9 @@ impl WebPreview {
             DevBackendPlan::Start { listen, bake_reported } => (listen, bake_reported),
         };
         let wait = |intent| AwaitBackend { intent, deadline: Instant::now() + BACKEND_WAIT, bake, manifest_url: manifest_url.clone(), tail: Vec::new() };
-        // The Backend the IDE already runs for this project is used as it is.
-        // If it was told a page origin, the page must be served on that port: free again, it is taken back; held by
-        // something else, the Backend is started afresh for a new port.
-        let same = |run: &BackendRun| {
-            run.is_running()
-                && std::fs::canonicalize(&run.project_dir).ok() == std::fs::canonicalize(&project_dir).ok()
-                && run.page_origin.as_deref().and_then(devbackend::page_port_of).is_none_or(devbackend::loopback_port_is_free)
-        };
-        if let Some(run) = ide_backend.as_ref().filter(|r| same(r)) {
-            self.page_port = run.page_origin.as_deref().and_then(devbackend::page_port_of);
+        // The Backend the IDE already runs for this project is used as it is: it was told the page's origin it still
+        // has (one told another was stopped above), or none at all and accepts any.
+        if let Some(run) = ide_backend.as_ref().filter(|r| r.is_running() && same_project(r)) {
             match run.url().map(str::to_owned) {
                 Some(url) => self.listening(launch, wait(intent), &url),
                 None => {
@@ -944,10 +986,9 @@ impl WebPreview {
             self.say(note);
             return Some(false);
         }
-        // The page's port is chosen now so the Backend accepts that origin and no other port of this machine.
-        self.page_port = devbackend::free_loopback_port();
-        let origin = self.page_port.map(devbackend::page_origin_of);
-        match BackendRun::spawn_with(rcrun, &project_dir, Some(&listen), origin.as_deref()) {
+        // The Backend accepts the page's origin, the project's port, and no other port of this machine.
+        let origin = devbackend::page_origin_of(page_port);
+        match BackendRun::spawn_with(rcrun, &project_dir, Some(&listen), Some(&origin)) {
             Ok(run) => {
                 if let Some(mut other) = ide_backend.replace(run) {
                     other.stop();
@@ -1448,6 +1489,20 @@ mod tests {
         }
     }
 
+    /// A free port for the project of `manifest`, the same every time a test asks for it: a Run again is the same
+    /// project on the same port, as the settings make it. Tests that serve side by side have manifests of their own,
+    /// so they never ask for the same one.
+    fn test_page_port(manifest: &Path) -> u16 {
+        static PORTS: Mutex<Vec<(PathBuf, u16)>> = Mutex::new(Vec::new());
+        let mut ports = PORTS.lock().unwrap();
+        if let Some((_, port)) = ports.iter().find(|(m, _)| m == manifest) {
+            return *port;
+        }
+        let port = devbackend::free_loopback_port().expect("a free port");
+        ports.push((manifest.to_path_buf(), port));
+        port
+    }
+
     fn launch(manifest: &Path, backend: Arc<dyn WebBuildBackend>) -> Launch {
         Launch {
             manifest: manifest.to_path_buf(),
@@ -1464,6 +1519,7 @@ mod tests {
             page_strings: page_strings(&Language::English.tr()),
             language: Language::English,
             backend_url: None,
+            page_port: test_page_port(manifest),
         }
     }
 
@@ -1770,6 +1826,137 @@ mod tests {
         out.split_once("\r\n\r\n").map(|(_, body)| body.to_owned()).unwrap_or(out)
     }
 
+    // ── the page's port: the project's, the same on every run ──
+
+    /// The report this fix answers: Run twice gave `http://127.0.0.1:63813/` and then `http://127.0.0.1:51605/`. The page
+    /// is served on the project's port every time, stopped and started again as often as it is run.
+    #[test]
+    fn the_page_is_served_on_the_projects_port_run_after_run() {
+        quiet();
+        let manifest = project("fixed-port");
+        let port = devbackend::free_loopback_port().expect("a free port");
+        let fake = Fake::new();
+        let mut p = WebPreview::default();
+        let (mut urls, mut ms) = (Vec::new(), Vec::new());
+        for _ in 0..5 {
+            let t = Instant::now();
+            let mut ide = None;
+            let l = Launch { page_port: port, ..launch(&manifest, fake.clone()) };
+            assert!(p.start_with_backend(l, Intent::Show, &mut ide, Path::new("/nonexistent/rcrun")).is_some());
+            wait_until(&mut p, "the page to be served", |p| p.serving());
+            assert_eq!(p.page_port(), Some(port));
+            urls.push(p.url().unwrap());
+            ms.push(t.elapsed().as_millis());
+            p.close();
+            assert!(!p.serving());
+        }
+        let expected = format!("http://127.0.0.1:{port}/");
+        assert!(urls.iter().all(|u| *u == expected), "{urls:?}");
+        // Run again while the page is served: the same address is opened again, nothing is built or restarted.
+        let mut ide = None;
+        let l = Launch { page_port: port, ..launch(&manifest, fake.clone()) };
+        p.start_with_backend(l, Intent::Show, &mut ide, Path::new("/nonexistent/rcrun"));
+        wait_until(&mut p, "the page to be served", |p| p.serving());
+        let builds = fake.builds.load(Ordering::SeqCst);
+        let l = Launch { page_port: port, ..launch(&manifest, fake.clone()) };
+        assert_eq!(p.start_with_backend(l, Intent::Show, &mut ide, Path::new("/nonexistent/rcrun")), Some(false));
+        assert_eq!((p.url().as_deref(), fake.builds.load(Ordering::SeqCst)), (Some(expected.as_str()), builds), "a second Run reuses the served page");
+        p.close();
+        println!("page served on {expected} in all 5 runs (stopped between them); a run while served reused it; run to served in {ms:?} ms");
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+    }
+
+    /// The port is changed in the project's settings while the page is served: the next Run serves it on the new one,
+    /// and the old one is free again.
+    #[test]
+    fn a_new_page_port_in_the_settings_is_served_at_the_next_run() {
+        quiet();
+        let manifest = project("changed-port");
+        let first = devbackend::free_loopback_port().expect("a free port");
+        let second = (0..50).filter_map(|_| devbackend::free_loopback_port()).find(|p| *p != first).expect("another free port");
+        let fake = Fake::new();
+        let mut p = WebPreview::default();
+        let mut ide = None;
+        for port in [first, second] {
+            let l = Launch { page_port: port, ..launch(&manifest, fake.clone()) };
+            assert!(p.start_with_backend(l, Intent::Show, &mut ide, Path::new("/nonexistent/rcrun")).is_some());
+            wait_until(&mut p, "the page to be served", |p| p.serving() && p.page_port() == Some(port));
+            assert_eq!(p.url().unwrap(), format!("http://127.0.0.1:{port}/"));
+        }
+        assert!(devbackend::loopback_port_is_free(first), "the old port was given back");
+        assert!(!devbackend::loopback_port_is_free(second), "the new one is served");
+        println!("port {first} served, then {second} after the setting changed; {first} free again");
+        p.close();
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+    }
+
+    /// The page's port is held by another program: nothing is started (no Backend, no build) and no other port is tried,
+    /// for a project with a Backend and for one without.
+    #[test]
+    fn a_page_port_in_use_is_refused_and_no_random_port_is_tried() {
+        quiet();
+        let held = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let busy = held.local_addr().unwrap().port();
+        let fake = Fake::new();
+        // Without a Backend.
+        let manifest = project("page-busy");
+        let (mut p, mut ide) = (WebPreview::default(), None);
+        let l = Launch { page_port: busy, ..launch(&manifest, fake.clone()) };
+        let t = Instant::now();
+        assert!(p.start_with_backend(l, Intent::Show, &mut ide, Path::new("/nonexistent/rcrun")).is_some());
+        let refused_in = t.elapsed();
+        assert!(p.notes().contains(&Note::PagePortBusy { port: busy }), "{:?}", p.notes());
+        assert!(!p.serving() && !p.active() && fake.builds.load(Ordering::SeqCst) == 0, "no server, no build");
+        assert_eq!(Note::PagePortBusy { port: busy }.severity(), Severity::Error);
+        assert!(refused_in < Duration::from_millis(500), "a stranger's port is refused at once: {refused_in:?}");
+        // With a Backend: it is not started either.
+        let with = backend_project("page-busy-be", &free_listen(), "");
+        let (mut p, mut ide) = (WebPreview::default(), None);
+        let l = Launch { page_port: busy, ..launch(&with, fake.clone()) };
+        assert_eq!(p.start_with_backend(l, Intent::Show, &mut ide, Path::new("/nonexistent/rcrun")), Some(false));
+        assert!(p.notes().contains(&Note::PagePortBusy { port: busy }) && !p.notes().iter().any(|n| matches!(n, Note::BackendStarting { .. })), "{:?}", p.notes());
+        assert!(ide.is_none() && !p.awaiting_backend() && fake.builds.load(Ordering::SeqCst) == 0, "no Backend, no build");
+        let en = Language::English.tr();
+        let said = Note::PagePortBusy { port: busy }.text(&en);
+        assert!(said.contains(&busy.to_string()) && said.contains("no other port"), "{said}");
+        println!("port {busy} held by another program: refused in {} ms with and without a Backend, nothing started, nothing random tried", refused_in.as_millis());
+        drop(held);
+    }
+
+    /// The page's port changes in the settings while the Backend runs: that Backend was told the old origin, so it is
+    /// stopped (it holds the Backend's port) and started again, on the same port, told the new one.
+    #[test]
+    fn changing_the_page_port_restarts_the_backend_told_the_new_origin() {
+        quiet();
+        let rcrun = built_rcrun();
+        let listen = free_test_port(8465..8470);
+        let manifest = backend_project("page-port-change", &format!("127.0.0.1:{listen}"), "");
+        let first = devbackend::free_loopback_port().expect("a free port");
+        let second = (0..50).filter_map(|_| devbackend::free_loopback_port()).find(|p| *p != first).expect("another free port");
+        let fake = Fake::new();
+        let (mut p, mut ide) = (WebPreview::default(), None);
+        let mut pids = Vec::new();
+        for (n, port) in [first, second].into_iter().enumerate() {
+            let l = Launch { page_port: port, ..launch(&manifest, fake.clone()) };
+            let started = p.start_with_backend(l, Intent::Show, &mut ide, &rcrun);
+            assert_eq!(started, Some(true), "run {n}: the Backend is started");
+            pump_until(&mut p, &mut ide, "the page to be served", 90, |p| p.serving() && !p.awaiting_backend());
+            assert_eq!(p.url().unwrap(), format!("http://127.0.0.1:{port}/"));
+            assert_eq!(ide.as_ref().unwrap().page_origin.as_deref(), Some(devbackend::page_origin_of(port).as_str()), "run {n}: told the page's origin");
+            assert!(get_health(&format!("ws://127.0.0.1:{listen}/ws")).starts_with("HTTP/1.1 200"), "run {n}: the Backend answers");
+            pids.push(ide.as_ref().unwrap().pid());
+        }
+        assert_ne!(pids[0], pids[1], "the second run started the Backend again, told the new origin");
+        // The same port, the same Backend: a Run that changes nothing reuses it.
+        let l = Launch { page_port: second, ..launch(&manifest, fake.clone()) };
+        assert_eq!(p.start_with_backend(l, Intent::Show, &mut ide, &rcrun), Some(false));
+        assert_eq!(ide.as_ref().unwrap().pid(), pids[1], "a Run that changes nothing keeps the Backend it has");
+        println!("Backend on {listen} told http://127.0.0.1:{first}, then http://127.0.0.1:{second} after the setting changed; a Run with no change reused it");
+        p.close();
+        ide.take().unwrap().stop();
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap().parent().unwrap());
+    }
+
     // ── notes ──
 
     #[test]
@@ -1910,6 +2097,7 @@ mod tests {
             Note::PackageStarted,
             Note::ChooseDevice,
             Note::BackendNoPort,
+            Note::PagePortBusy { port: 24680 },
         ];
         let mut shown = 0;
         for &lang in Language::ALL {
@@ -1951,6 +2139,9 @@ mod tests {
         assert!(failed[0].contains("exit 1") && failed[1] == "  rcrun backend: no exports.toml", "{failed:?}");
         assert_eq!(notes[32].severity(), Severity::Error);
         assert_eq!(notes[34].severity(), Severity::Error);
+        // The page's port in use: the port is in the sentence and the run is refused, in every language.
+        let page_busy = notes.last().unwrap();
+        assert!(page_busy.text(&en).contains("24680") && page_busy.text(&en).contains("no other port") && page_busy.severity() == Severity::Error);
         println!("web preview: {shown} note renderings ({} notes x 6 languages), none empty, none with a gap", notes.len());
     }
 
@@ -2257,6 +2448,9 @@ mod tests {
         assert_eq!(used, BrowserChoice::System);
         assert!(p.notes().contains(&Note::Opened { browser: String::new(), url: url.clone() }));
         println!("no setting      -> the system browser at {url}");
+        // One Preview serves the project's page at a time (its port is the project's): the one that is done is closed
+        // before the next runs, as the IDE does.
+        drop(p);
 
         let firefox = preview::KnownBrowser::Firefox;
         let p = run(BrowserChoice::Named(firefox), false);
@@ -2268,6 +2462,7 @@ mod tests {
             assert!(p.notes().iter().any(|n| matches!(n, Note::BrowserFailed { name, .. } if name == "Firefox")), "{:?}", p.notes());
             println!("firefox         -> not on this machine: BrowserFailed, then the system browser");
         }
+        drop(p);
         if let Some(present) = preview::KnownBrowser::ALL.into_iter().find(|b| b.is_present()) {
             let p = run(BrowserChoice::Named(present), false);
             assert_eq!(p.opened().unwrap().1, BrowserChoice::Named(present));
@@ -2280,12 +2475,14 @@ mod tests {
         assert_eq!(p.opened().unwrap().1, BrowserChoice::System);
         assert!(p.notes().iter().any(|n| matches!(n, Note::BrowserFailed { name, .. } if name == "/definitely/not/a/browser")), "{:?}", p.notes());
         println!("a missing path  -> BrowserFailed naming it, then the system browser");
+        drop(p);
 
         let unconfirmed = BrowserChoice::Path(std::env::current_exe().unwrap());
         let p = run(unconfirmed, false);
         assert_eq!(p.opened().unwrap().1, BrowserChoice::System, "an unconfirmed path is never started");
         assert!(p.notes().iter().any(|n| matches!(n, Note::BrowserNotConfirmed { .. })), "{:?}", p.notes());
         println!("unconfirmed path -> BrowserNotConfirmed, then the system browser");
+        drop(p);
 
         // Preview again: the same address, no new build, no new server.
         let mut p = run(BrowserChoice::System, false);
@@ -3017,6 +3214,7 @@ mod tests {
             page_strings: page_strings(&en),
             language: Language::English,
             backend_url: None,
+            page_port: devbackend::free_loopback_port().expect("a free port"),
         };
         let (mut p, mut ide) = (WebPreview::default(), None);
         let t = Instant::now();

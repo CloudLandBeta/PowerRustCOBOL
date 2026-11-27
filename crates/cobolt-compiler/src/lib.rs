@@ -8013,8 +8013,17 @@ view) start the project's Backend first — `rcrun backend run`, its log in the
 Output panel — wait for it to say where it listens (at most 60 s, said in the
 Output panel and the Preview window), and only then build and serve the page.
 With `backend_url` empty, the Backend listens on this machine at the port of
-`backend/backend.toml` `[server] listen` (or on a free port when that one is in
-use or none is set), and the page is built for the address the Backend reports.
+`backend/backend.toml` `[server] listen` (Project Properties → Backend port; when
+that port is in use or none is set the IDE starts no Backend and says so — it never
+tries a random one), and the page is built for the address the Backend reports.
+The page itself is served on the project's own port, the same on every run: Project
+Properties → Page port (Preview), `preview_port` in `[web]` (or `[mobile]`); left empty, the
+project gets a port of 20000 to 29999 derived from its name, so a tab or a bookmark
+of the page keeps working between runs and on every machine. The Backend is told
+that page's origin and accepts it and no other. A port another program holds ends
+the Run with a message; no other port is tried, and changing the port in the
+settings makes the next Run serve the page there (the Backend is restarted to be
+told the new origin).
 With `backend_url` set, it is honoured: on this machine the Backend is started at
 that port (when the port is already in use the IDE starts none and the page calls
 whatever listens there); elsewhere no local Backend is started. A Backend the IDE

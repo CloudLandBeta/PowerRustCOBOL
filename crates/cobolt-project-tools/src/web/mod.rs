@@ -154,6 +154,7 @@ impl WebBuildRequest {
                     single_memory_fallback: true,
                     stylesheet: mobile.stylesheet.clone(),
                     theme_file: mobile.theme_file.clone(),
+                    preview_port: mobile.preview_port,
                     preview_browser: mobile.preview_browser.clone(),
                     sign_in_form: None,
                     unsafe_: mobile.unsafe_.clone(),

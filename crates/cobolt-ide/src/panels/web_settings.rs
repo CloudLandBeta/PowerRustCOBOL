@@ -932,6 +932,30 @@ fn browser_row(ui: &mut Ui, lay: RowLayout, tr: &Tr, setting: &mut String) {
 /// What the path box shows while it is empty: the shape of a path.
 const BROWSER_PATH_HINT: &str = "/\u{2026}";
 
+/// The port the box holds after the developer edited it to `typed`: the digits of it, as a whole number from 1 to
+/// 65535; none (or only zeros) is `0`, the project's default; a number past 65535 is not taken, and the port stays
+/// what it was.
+pub fn preview_port_from_text(typed: &str, previous: u16) -> u16 {
+    let digits: String = typed.chars().filter(char::is_ascii_digit).collect();
+    match digits.parse::<u32>() {
+        Ok(n) => u16::try_from(n).unwrap_or(previous),
+        Err(_) if digits.is_empty() => 0,
+        Err(_) => previous,
+    }
+}
+
+/// The row of the Preview's page port: `setting` is `[web]` or `[mobile]` `preview_port`, `0` while none is set,
+/// and the empty box shows `default`, the port the project then gets.
+fn preview_port_row(ui: &mut Ui, lay: RowLayout, tr: &Tr, setting: &mut u16, default: u16) {
+    row(ui, lay, tr.pk_set_preview_port, |ui| {
+        let mut text = if *setting == 0 { String::new() } else { setting.to_string() };
+        let w = ui.available_width();
+        if ui.add(egui::TextEdit::singleline(&mut text).hint_text(default.to_string()).char_limit(8).desired_width(w)).changed() {
+            *setting = preview_port_from_text(&text, *setting);
+        }
+    });
+}
+
 /// The outer width of the path confirmation.
 pub const CONFIRM_W: f32 = 460.0;
 
@@ -1295,6 +1319,18 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
         }
     }
     note(ui, lay, tr.pk_set_preview_browser_hint, dim);
+
+    // The port the Preview serves the page on: the project's own, the same on every run.
+    let default_port = cobolt_compiler::project_kind::default_preview_port(&draft.name);
+    match draft.kind {
+        ProjectKind::Web => preview_port_row(ui, lay, tr, &mut draft.web.preview_port, default_port),
+        _ => {
+            if let Some(m) = &mut draft.mobile {
+                preview_port_row(ui, lay, tr, &mut m.preview_port, default_port);
+            }
+        }
+    }
+    note(ui, lay, &tr.pk_set_preview_port_hint.replacen("{}", &default_port.to_string(), 1), dim);
 
     if draft.kind == ProjectKind::Web {
         row(ui, lay, tr.pk_set_isolation, |ui| {
@@ -2032,5 +2068,38 @@ mod tests {
         assert!(std::fs::read_to_string(&path).unwrap().contains("listen = \"127.0.0.1:8450\""));
         println!("backend port: read 8443, wrote 9100 (comments and [contract] kept), refused 5 bad values, created [server] for 8450");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The Preview's page port is typed as digits: a whole number from 1 to 65535 is taken, an empty box means "the
+    /// project's default", and what cannot be a port never replaces the port that was there. The row reads in six languages.
+    #[test]
+    fn the_preview_port_box_takes_a_port_or_nothing_and_reads_in_six_languages() {
+        let cases: [(&str, u16, u16); 12] = [
+            ("24680", 0, 24680),
+            ("1", 0, 1),
+            ("65535", 0, 65535),
+            ("", 24680, 0),
+            ("0", 24680, 0),
+            ("000", 24680, 0),
+            ("00012", 0, 12),
+            ("65536", 6553, 6553),
+            ("70000", 7000, 7000),
+            ("99999999999999999999", 8, 8),
+            ("24a80", 0, 2480),
+            ("-5", 9, 5),
+        ];
+        for (typed, previous, expected) in cases {
+            assert_eq!(preview_port_from_text(typed, previous), expected, "{typed:?} over {previous}");
+        }
+        for lang in Language::ALL {
+            let tr = lang.tr();
+            assert!(!tr.pk_set_preview_port.trim().is_empty() && !tr.pk_prev_page_port_busy.trim().is_empty(), "{lang:?}");
+            assert_eq!(tr.pk_set_preview_port_hint.matches("{}").count(), 1, "{lang:?}: the hint names the default port once");
+            assert_eq!(tr.pk_prev_page_port_busy.matches("{}").count(), 1, "{lang:?}: the refusal names the port once");
+            assert!(tr.pk_set_preview_port_hint.contains("65535"), "{lang:?}: the range is told");
+            let shown = tr.pk_set_preview_port_hint.replacen("{}", "24856", 1);
+            assert!(shown.contains("24856") && !shown.contains("{}"), "{lang:?}: {shown}");
+        }
+        println!("preview port box: {} typed values handled, the row reads in {} languages", cases.len(), Language::ALL.len());
     }
 }

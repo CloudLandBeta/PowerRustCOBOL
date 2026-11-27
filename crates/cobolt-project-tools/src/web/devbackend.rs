@@ -28,6 +28,7 @@
 
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 /// What a Preview does about the project's Backend before it builds.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,8 +65,24 @@ pub fn loopback_port_is_free(port: u16) -> bool {
     TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).is_ok()
 }
 
-/// A free loopback port for the Preview's page, chosen before the Backend starts so that the Backend can be told the
-/// page's origin (WASM-013 R12). The port is released at once; the dev server binds it next.
+/// Wait up to `allowance` for a socket to be bindable on `127.0.0.1:port`; `true` as soon as one is (the port is
+/// looked at least once, whatever the allowance). For the moment a system keeps a port after the server that held it
+/// has stopped.
+pub fn wait_for_loopback_port(port: u16, allowance: Duration) -> bool {
+    let end = Instant::now() + allowance;
+    loop {
+        if loopback_port_is_free(port) {
+            return true;
+        }
+        if Instant::now() >= end {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// Any free loopback port. The Preview's page does not use one: its port is the project's, the same on every run.
+/// The port is released at once.
 pub fn free_loopback_port() -> Option<u16> {
     TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).ok().and_then(|l| l.local_addr().ok()).map(|a| a.port())
 }
@@ -236,6 +253,40 @@ mod tests {
         assert!(!loopback_port_is_free(port));
         drop(held);
         assert!(loopback_port_is_free(port));
+    }
+
+    /// A port held for a moment is waited for; one held for good is refused when the allowance is spent; a free one
+    /// answers at once. Measured, not assumed.
+    #[test]
+    fn a_port_that_is_released_during_the_wait_is_given_and_one_that_is_not_is_refused() {
+        let free = free_loopback_port().expect("a free port");
+        let t = Instant::now();
+        assert!(wait_for_loopback_port(free, Duration::from_secs(5)));
+        let on_free = t.elapsed();
+        assert!(on_free < Duration::from_millis(500), "a free port answers at once: {on_free:?}");
+
+        let held = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
+        let port = held.local_addr().unwrap().port();
+        let t = Instant::now();
+        assert!(!wait_for_loopback_port(port, Duration::from_millis(300)));
+        let refused = t.elapsed();
+        assert!(refused >= Duration::from_millis(300) && refused < Duration::from_secs(3), "refused after the allowance: {refused:?}");
+
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(250));
+            drop(held);
+        });
+        let t = Instant::now();
+        assert!(wait_for_loopback_port(port, Duration::from_secs(5)));
+        let released = t.elapsed();
+        release.join().unwrap();
+        assert!(released >= Duration::from_millis(150) && released < Duration::from_secs(2), "given once released: {released:?}");
+        println!(
+            "wait_for_loopback_port: a free port in {} ms; a held one refused after {} ms (allowance 300); one released after 250 ms given in {} ms",
+            on_free.as_millis(),
+            refused.as_millis(),
+            released.as_millis()
+        );
     }
 
     #[test]

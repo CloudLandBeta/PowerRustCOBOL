@@ -19665,10 +19665,34 @@ same server in the system browser.
 Run and Preview start the project's Backend first (`rcrun backend run`, its log in the Output
 panel), wait for it to say where it listens — at most 60 seconds — and only then build and
 serve the page. With `backend_url` empty the Backend listens on this machine at the port of
-`backend/backend.toml`, or on a free one; with it set, it is honoured. A Backend you started
-yourself (**Run ▸ Start Backend**) is used as it is, and **Stop**, closing the Preview, the
-project or the IDE stops the one the Run started. No token is put into the page: a page
-started this way reaches the exports marked `public = true`.
+`backend/backend.toml` (the *Backend port (IDE run)* of the project's settings); with it set,
+it is honoured. A Backend you started yourself (**Run ▸ Start Backend**) is used as it is, and
+**Stop**, closing the Preview, the project or the IDE stops the one the Run started. No token
+is put into the page: a page started this way reaches the exports marked `public = true`.
+
+**The address of the page.** The page is served on **one port per project, the same on every
+run**: `http://127.0.0.1:` followed by the number in the *Page port (Preview)* box of the project's
+settings (the **Web** page of a Web project, **Mobile application** of a Mobile one; it is
+saved as `preview_port` in the project file). Leave the box empty and the project uses a
+port between 20000 and 29999 worked out from its name — the empty box shows which — so the
+address you bookmarked yesterday still opens the page today, and your team gets the same one
+from the same project. The Backend is told that address and accepts a page from it and from
+no other. Run the project five times, stop it between runs, and the page is at the same
+address five times.
+
+> 📷 **Screenshot needed — `web-page-port.png`.** Open PowerOficina, choose **Project
+> Properties** and look at the **Page port (Preview)** box: capture it empty, with the hint that shows the
+> port the page uses by default, and again after typing a port of your own.
+
+> **Note** — changing the port in the settings takes effect at the next **Run**: the page is
+> served on the new port, the old one is released, and a running Backend is stopped and
+> started again so that it is told the new address.
+
+> **Caveat** — if another program already holds the port, the Run stops with a message that
+> names it, and nothing is started. The IDE never picks a different port in its place, since
+> that would change the address of the page between runs. Stop the other program, or choose
+> another port in the settings. Two projects whose names give the same default port cannot be
+> run at the same time; give one of them a port of its own.
 
 **What the Output says while the page starts.** The Backend and the frontend are two things
 that start one after the other, and the Output names each. First the Backend's own lines (where

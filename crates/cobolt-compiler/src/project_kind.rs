@@ -314,6 +314,38 @@ fn is_true(b: &bool) -> bool {
     *b
 }
 
+/// The ports a project's Preview page gets by default: 20000 to 29999, below the ports the systems hand out for
+/// outgoing connections (Linux from 32768, macOS and Windows from 49152), so a program that is just connecting
+/// somewhere never holds one of them.
+pub const DEFAULT_PREVIEW_PORT_FIRST: u16 = 20_000;
+const DEFAULT_PREVIEW_PORT_SPAN: u32 = 10_000;
+
+/// The port the Preview serves a project's page on when the project sets none: derived from the project's name, so it
+/// is the same on every run and on every machine, and two projects rarely share one. FNV-1a over the name's letters
+/// in lower case, so a change of case does not move it.
+pub fn default_preview_port(project_name: &str) -> u16 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in project_name.trim().to_lowercase().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    DEFAULT_PREVIEW_PORT_FIRST + (hash % DEFAULT_PREVIEW_PORT_SPAN) as u16
+}
+
+/// The port the Preview serves the page of the project called `project_name` on: the project's own setting
+/// (`preview_port`) when it has one (`0` = none), else [`default_preview_port`].
+pub fn preview_port_of(setting: u16, project_name: &str) -> u16 {
+    if setting == 0 {
+        default_preview_port(project_name)
+    } else {
+        setting
+    }
+}
+
+fn is_unset_port(port: &u16) -> bool {
+    *port == 0
+}
+
 /// The project stylesheet's file name in the forms folder (WASM-007 Q3, Q3a).
 pub const APPLICATION_STYLESHEET: &str = "application.css";
 
@@ -591,6 +623,12 @@ pub struct WebSettings {
     /// Written only when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_file: Option<String>,
+    /// The port the IDE serves the Preview's page on, and tells the Backend the page's origin by: always this one,
+    /// run after run, so a tab or a bookmark of the page keeps working. `0` = none set: the project's own default,
+    /// [`default_preview_port`] of its name. A port another program holds stops the run with a message; no other
+    /// port is tried. Written only when set, so an existing manifest is saved unchanged.
+    #[serde(default, skip_serializing_if = "is_unset_port")]
+    pub preview_port: u16,
     /// The browser Preview and Run open the page in (WASM-008 R12, Q7):
     /// empty = the system's default browser; a known id (`chrome`,
     /// `chromium`, `edge`, `firefox`, `safari`, `brave`); anything else = an
@@ -622,6 +660,7 @@ impl Default for WebSettings {
             single_memory_fallback: true,
             stylesheet: web_stylesheet(),
             theme_file: None,
+            preview_port: 0,
             preview_browser: String::new(),
             sign_in_form: None,
             unsafe_: UnsafeSettings::default(),
@@ -712,6 +751,9 @@ pub struct MobileSettings {
     /// The whole-theme file, as [`WebSettings::theme_file`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_file: Option<String>,
+    /// The Preview's page port, as [`WebSettings::preview_port`]. Written only when set.
+    #[serde(default, skip_serializing_if = "is_unset_port")]
+    pub preview_port: u16,
     /// The browser of the fallback Preview at a phone width (WASM-008 R15,
     /// C15), as [`WebSettings::preview_browser`]. Written only when set.
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -949,6 +991,7 @@ impl MobileSettings {
             loading_effect: LoadingEffect::default(),
             stylesheet: mobile_stylesheet(),
             theme_file: None,
+            preview_port: 0,
             preview_browser: String::new(),
             unsafe_: UnsafeSettings::default(),
             pinning: None,
@@ -1360,6 +1403,53 @@ mod tests {
             println!("preview_browser {value:?} round-trips in [web] and [mobile]");
         }
         println!("preview_browser: existing [web] ({} bytes) and [mobile] ({} bytes) saved byte for byte", old_web.len(), old_mobile.len());
+    }
+
+    /// The Preview's page port is a setting of the project (`preview_port` in `[web]` and `[mobile]`), and a project that
+    /// sets none gets the same port on every run: derived from its name, inside the default range, never random.
+    #[test]
+    fn the_preview_port_is_a_setting_with_a_stable_default_and_only_written_when_set() {
+        // An existing table (no key) loads and saves byte for byte, and has no port of its own.
+        let old_web = "style = \"spa\"\nmulti_memory = true\nisolation = \"require-corp\"\nbackend_url = \"\"\n\n[browsers]\nchromium = true\nfirefox = true\nsafari = true\nios_webview = true\nandroid_webview = true\n";
+        let web: WebSettings = toml::from_str(old_web).unwrap();
+        assert_eq!(web.preview_port, 0);
+        assert_eq!(toml::to_string(&web).unwrap(), old_web, "an existing [web] table is saved unchanged");
+        let old_mobile = "platform = \"android\"\ndevice = \"phone\"\norientation = \"portrait\"\nmin_os = \"auto\"\nstyle = \"spa\"\nmulti_memory = true\nbackend_url = \"\"\n";
+        let mobile: MobileSettings = toml::from_str(old_mobile).unwrap();
+        assert_eq!(mobile.preview_port, 0);
+        assert_eq!(toml::to_string(&mobile).unwrap(), old_mobile, "an existing [mobile] table is saved unchanged");
+
+        // A port that is set is written, read back, and wins over the default.
+        let set = WebSettings { preview_port: 24680, ..WebSettings::default() };
+        let text = toml::to_string(&set).unwrap();
+        assert!(text.contains("preview_port = 24680"), "{text}");
+        assert_eq!(toml::from_str::<WebSettings>(&text).unwrap(), set);
+        let set = MobileSettings { preview_port: 24681, ..MobileSettings::new(MobilePlatform::Android, DeviceClass::Phone) };
+        let text = toml::to_string(&set).unwrap();
+        assert!(text.contains("preview_port = 24681"), "{text}");
+        assert_eq!(toml::from_str::<MobileSettings>(&text).unwrap(), set);
+        assert_eq!(preview_port_of(24680, "Shop"), 24680);
+
+        // The default: the same for the same name, in the range, and not tied to the letters' case.
+        let started = std::time::Instant::now();
+        let shop = default_preview_port("Shop");
+        assert_eq!(preview_port_of(0, "Shop"), shop);
+        assert_eq!(default_preview_port("Shop"), shop, "the same name, the same port, run after run");
+        assert_eq!(default_preview_port("  SHOP "), shop, "case and the spaces around the name do not move it");
+        let names: Vec<String> = (0..2000).map(|i| format!("Project{i}")).collect();
+        let ports: std::collections::BTreeSet<u16> = names.iter().map(|n| default_preview_port(n)).collect();
+        let (low, high) = (*ports.iter().next().unwrap(), *ports.iter().next_back().unwrap());
+        assert!(low >= DEFAULT_PREVIEW_PORT_FIRST && high < DEFAULT_PREVIEW_PORT_FIRST + 10_000, "{low}..{high}");
+        assert!(ports.len() > 1700, "2000 names spread over {} ports", ports.len());
+        // A pin: the port of a project is part of what a developer has bookmarked, so the derivation never changes.
+        assert_eq!(default_preview_port("PowerAnalyticsWeb"), 24856, "the derivation moved: every project's default port would move with it");
+        println!(
+            "preview_port: existing [web] ({} bytes) and [mobile] ({} bytes) saved byte for byte; set ports round-trip; default of \"Shop\" = {shop}; 2000 names -> {} distinct ports in {low}..={high} ({} us)",
+            old_web.len(),
+            old_mobile.len(),
+            ports.len(),
+            started.elapsed().as_micros()
+        );
     }
 
     #[test]
