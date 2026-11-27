@@ -556,17 +556,25 @@ fn the_four_shipped_backends_answer_and_leave_behind_the_same_on_the_module() {
 // ── T45: the measurements ─────────────────────────────────────────────────────
 
 /// The calls per second of `callers` threads that each make `each` calls of `prog` with `args`, after three that are not counted
-/// (the first call of an engine compiles, opens and warms). Returns the milliseconds the counted calls took and how many failed.
-fn rate(engine: &dyn Engine, prog: &ExportedProgram, args: &[String], callers: usize, each: usize) -> (u128, usize) {
+/// (the first call of an engine compiles, opens and warms). The batch is repeated until at least 250 ms have passed, so a call that
+/// takes microseconds is not measured over one clock tick. Returns the calls per second and how many calls failed.
+fn rate(engine: &dyn Engine, prog: &ExportedProgram, args: &[String], callers: usize, each: usize) -> (f64, usize) {
     for _ in 0..3 {
         let _ = engine.execute(prog, args, options());
     }
     let began = Instant::now();
-    let failed: usize = std::thread::scope(|s| {
-        let handles: Vec<_> = (0..callers).map(|_| s.spawn(|| (0..each).filter(|_| engine.execute(prog, args, options()).is_err()).count())).collect();
-        handles.into_iter().map(|h| h.join().expect("a caller thread")).sum()
-    });
-    (began.elapsed().as_millis().max(1), failed)
+    let (mut calls, mut failed) = (0usize, 0usize);
+    loop {
+        failed += std::thread::scope(|s| {
+            let handles: Vec<_> = (0..callers).map(|_| s.spawn(|| (0..each).filter(|_| engine.execute(prog, args, options()).is_err()).count())).collect();
+            handles.into_iter().map(|h| h.join().expect("a caller thread")).sum::<usize>()
+        });
+        calls += callers * each;
+        if began.elapsed() >= Duration::from_millis(250) {
+            break;
+        }
+    }
+    (calls as f64 / began.elapsed().as_secs_f64().max(1e-6), failed)
 }
 
 /// Spec 114 T45 (R16, AC10): the Build's time per phase against the 30 s goal, and the throughput of each shipped Backend's
@@ -636,7 +644,6 @@ fn measured_build_and_throughput_on_both_engines() {
         let (ia, ib) = (rate(&InterpreterEngine, prog_i, &args, 1, ONE), rate(&InterpreterEngine, prog_i, &args, PARALLEL, EACH));
         enter(&module_dir, name);
         let (ma, mb) = (rate(wasm_engine.as_ref(), prog_m, &args, 1, ONE), rate(wasm_engine.as_ref(), prog_m, &args, PARALLEL, EACH));
-        let per_sec = |calls: usize, ms: u128| calls as f64 * 1000.0 / ms as f64;
         let errors = ia.1 + ib.1 + ma.1 + mb.1;
         if errors == 0 {
             measured += 1;
@@ -644,12 +651,12 @@ fn measured_build_and_throughput_on_both_engines() {
             failed += 1;
         }
         rows.push(format!(
-            "{name} {reader}: {build}; one caller ({ONE} calls) interpreter {:.0} calls/sec, module {:.0}; {PARALLEL} callers ({} calls) interpreter {:.0}, module {:.0}; the module is {module_bytes} bytes, compiled in {compile_ms} ms{}",
-            per_sec(ONE, ia.0),
-            per_sec(ONE, ma.0),
+            "{name} {reader}: {build}; one caller (batches of {ONE} calls, at least 250 ms) interpreter {:.0} calls/sec, module {:.0}; {PARALLEL} callers (batches of {} calls) interpreter {:.0}, module {:.0}; the module is {module_bytes} bytes, compiled in {compile_ms} ms{}",
+            ia.0,
+            ma.0,
             PARALLEL * EACH,
-            per_sec(PARALLEL * EACH, ib.0),
-            per_sec(PARALLEL * EACH, mb.0),
+            ib.0,
+            mb.0,
             if errors == 0 { String::new() } else { format!("; {errors} calls FAILED") }
         ));
     }

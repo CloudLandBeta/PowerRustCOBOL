@@ -263,6 +263,17 @@ The module engine now serves everything a per-call or per-connection Backend ask
 
 **Sweep after T44 (`cargo test --no-fail-fast`, the final tree):** `cobolt-runner`, `cobolt-backend-runner`, `cobolt-wasm-abi`: 35 result lines, 97 passed, 0 failed. The four `cobolt-cli` form tests that run a program on both engines, re-run on it: 4 passed.
 
+**T45, the Build and the throughput of the Backend (2026-11-27, 2.1.66):** `cargo test -p cobolt-backend-runner --release --test parity -- --ignored --nocapture measured_build_and_throughput`, **PASS 008 FAIL 000**, 16.9 s. Release profile, Apple M3 Pro with 11 cores, macOS arm64, **a machine that was not idle** (load average about 2 before the run); run twice, the file and SQL calls differ by under 3% between the runs, the Build totals of the two larger projects by 8% and 9%; the table is the second run. The Build is measured with the runner already built; the goal of 30 s is **met on every project**. **Not measured: Linux, Windows** (the container runtime was not running, and no CI job runs the test).
+
+| Project, call | Build (ms): total (check, generate, machine code, assemble, install) | File (bytes) | Module (bytes), compiled in | 1 caller, calls/sec: interpreter / module | 8 callers: interpreter / module |
+|---|---|---|---|---|---|
+| PowerOficina `CATALOG-LIST` | 961 (137, 267, 217, 184, 132) | 57,323,552 | 5,946,871, 268 ms | 86 / 885 | 361 / 2,845 |
+| PowerAnalyticsWeb `FUND-TOTALS` | 870 (50, 171, 198, 231, 179) | 67,944,704 | 17,324,284, 164 ms | 111 / 137 | 217 / 228 |
+| PowerWebHello `HEALTH` | 195 (2, 1, 10, 97, 82) | 38,986,880 | 116,997, 1 ms | 100,379 / 10,581 | 337,670 / 15,179 |
+| PowerMobileHello `HEALTH` | 193 (2, 1, 9, 97, 82) | 38,954,048 | 111,913, 1 ms | 169,189 / 10,659 | 546,867 / 15,385 |
+
+A call that reads a file is about 10 times faster on the module with one caller and 7.9 times with eight; a call bound by SQL (SQLite) is equal; a call that does nothing costs the module about 94 µs against 6 to 10 µs on the interpreter, a floor that grows 1.4 times with eight callers (T2: 60 to 79 µs, 2.4 to 2.6 times). **The floor is not investigated; it is not a requirement.** The first run of the test counted whole milliseconds and printed 400,000 calls/sec for the two `HEALTH` rows: a clock floor, fixed (batches repeated for at least 250 ms).
+
 ## DESKTOP-WASM-001 — the M6 close and the acceptance audit (measured 2026-11-21, versions 2.0.640 to 2.0.643)
 
 The Desktop Build's default is the WebAssembly path, and **every reference project takes it with no Rust toolchain on the machine.** Measured on an 11-core Apple M3 Pro with 18 GB (not the reference box), macOS arm64, at `4db4e98f` (2.0.639) with the M6-close changes in the tree. The commands are in `specs/DESKTOP-WASM-001-portable-program-format-and-native-runner/tasks.md`, T51.
