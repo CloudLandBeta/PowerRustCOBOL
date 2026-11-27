@@ -274,6 +274,13 @@ The module engine now serves everything a per-call or per-connection Backend ask
 
 A call that reads a file is about 10 times faster on the module with one caller and 7.9 times with eight; a call bound by SQL (SQLite) is equal; a call that does nothing costs the module about 94 µs against 6 to 10 µs on the interpreter, a floor that grows 1.4 times with eight callers (T2: 60 to 79 µs, 2.4 to 2.6 times). **The floor is not investigated; it is not a requirement.** The first run of the test counted whole milliseconds and printed 400,000 calls/sec for the two `HEALTH` rows: a clock floor, fixed (batches repeated for at least 250 ms).
 
+**T46 and T47 (2026-11-27, 2.1.67 and 2.1.68):**
+
+| Task | What | Measured |
+|---|---|---|
+| T46 | The System KB text: the backend-build paragraph (per-connection is served, the control-program reason, `--engine`) and a section on what a Backend module serves, from the generator's own lists | new test PASS 032 FAIL 000; `cobolt-compiler` lib 282 passed, 0 failed, 2 ignored. **Not done: `chunked.data` is not regenerated** (the semantic model, about 470 MB, is absent and its download was not authorised); the freshness test is red until then |
+| T47 | The parity record: `WASM-PARITY.md` rows 84 to 93, each measured on both engines first (`differences.rs`, PASS 011 FAIL 000), a row in `WASM-INDEX.md`, ten dated corrections in `plan.md` §9 | `DISPLAY` is equal on both engines (the draft was wrong); a refusal halfway through a flat parameter leaves nothing; the unwritable answer's words are shorter on the module; a refusal path past 1,024 bytes names another reason; a parameter 41 groups deep builds and the runner refuses to start it |
+
 ## DESKTOP-WASM-001 — the M6 close and the acceptance audit (measured 2026-11-21, versions 2.0.640 to 2.0.643)
 
 The Desktop Build's default is the WebAssembly path, and **every reference project takes it with no Rust toolchain on the machine.** Measured on an 11-core Apple M3 Pro with 18 GB (not the reference box), macOS arm64, at `4db4e98f` (2.0.639) with the M6-close changes in the tree. The commands are in `specs/DESKTOP-WASM-001-portable-program-format-and-native-runner/tasks.md`, T51.
