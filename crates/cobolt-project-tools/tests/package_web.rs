@@ -55,8 +55,23 @@ fn project(tag: &str, backend_url: &str, auth: bool) -> (PathBuf, PathBuf) {
     }
     let manifest = dir.join("PowerOficina.project.toml");
     let text = std::fs::read_to_string(&manifest).unwrap();
-    assert!(text.contains("backend_url = \"ws://127.0.0.1:8443\""), "the example's address changed: update the test");
-    std::fs::write(&manifest, text.replace("backend_url = \"ws://127.0.0.1:8443\"", &format!("backend_url = \"{backend_url}\""))).unwrap();
+    // The example's own address is whatever the committed manifest holds (empty at the time of writing; the IDE writes
+    // `ws://127.0.0.1:8443` when it saves the project), so the test sets the line instead of matching a value: a test that
+    // matched the value passed on a developer's re-saved copy and failed on a clean checkout.
+    let mut set = 0;
+    let lines: Vec<String> = text
+        .lines()
+        .map(|line| {
+            if line.starts_with("backend_url = ") {
+                set += 1;
+                format!("backend_url = \"{backend_url}\"")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    assert_eq!(set, 1, "the example's manifest must have exactly one `backend_url` line");
+    std::fs::write(&manifest, lines.join("\n") + "\n").unwrap();
     if auth {
         let toml = dir.join("backend").join("backend.toml");
         let mut text = std::fs::read_to_string(&toml).unwrap();
