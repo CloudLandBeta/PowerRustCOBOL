@@ -50,6 +50,8 @@ pub mod model_search;
 pub mod models_modal;
 /// The New Project dialog (WASM-001).
 pub mod new_project;
+/// The window of Package Project: the system the package is for (spec 115).
+pub mod package_modal;
 pub mod objects_list;
 pub mod output;
 pub mod project;

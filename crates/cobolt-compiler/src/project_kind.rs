@@ -636,6 +636,13 @@ pub struct WebSettings {
     /// only when set.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub preview_browser: String,
+    /// The system the last Package Project of this project was for (spec 115 D11), spelled as `rcrun package --target`
+    /// spells it (`linux-x86_64`). Empty = the system of the machine that packages, which is also what a project made
+    /// before this field means. It is the window's starting choice, never a command: `rcrun package` and the tool use
+    /// the machine's own system unless they are told another. Written only when set, so an existing manifest is saved
+    /// unchanged.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub package_system: String,
     /// The form a signed-out user is sent to when they open a form that requires sign-in
     /// (WASM-009 R11, D11). `None`: the first form holding an Authentication control.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -662,6 +669,7 @@ impl Default for WebSettings {
             theme_file: None,
             preview_port: 0,
             preview_browser: String::new(),
+            package_system: String::new(),
             sign_in_form: None,
             unsafe_: UnsafeSettings::default(),
         }
@@ -1304,6 +1312,28 @@ mod tests {
         assert_eq!(mobile.max_payload_bytes, DEFAULT_MAX_PAYLOAD_BYTES);
         assert_eq!(MobileSettings::new(MobilePlatform::Android, DeviceClass::Phone).max_payload_bytes, DEFAULT_MAX_PAYLOAD_BYTES);
         println!("payload limit: old table 393216, set 524288 round-trips, mobile default 393216");
+    }
+
+    /// Spec 115 T12 (D11): the system the last package was for is remembered in the project; a manifest made before has no
+    /// such line, loads as the machine's own system and is saved again byte for byte as it was.
+    #[test]
+    fn the_system_of_the_last_package_is_written_only_when_chosen() {
+        let old_text = "style = \"spa\"\nbackend_url = \"wss://api.example.com/ws\"\n";
+        let old: WebSettings = toml::from_str(old_text).unwrap();
+        assert_eq!(old.package_system, "", "no line is the machine's own system");
+        let saved = toml::to_string_pretty(&old).unwrap();
+        assert!(!saved.contains("package_system"), "an old manifest is saved unchanged: {saved}");
+        // Saved again, the loaded settings are the same settings and the same text (a second round changes nothing).
+        let again: WebSettings = toml::from_str(&saved).unwrap();
+        assert_eq!(again, old);
+        assert_eq!(toml::to_string_pretty(&again).unwrap(), saved);
+        let chosen: WebSettings = toml::from_str("package_system = \"linux-x86_64\"").unwrap();
+        assert_eq!(chosen.package_system, "linux-x86_64");
+        let saved = toml::to_string_pretty(&chosen).unwrap();
+        assert!(saved.contains("package_system = \"linux-x86_64\""), "{saved}");
+        assert_eq!(toml::from_str::<WebSettings>(&saved).unwrap(), chosen, "the choice round-trips");
+        assert_eq!(WebSettings::default().package_system, "");
+        println!("package system: an old table has none and is saved unchanged; linux-x86_64 round-trips");
     }
 
     /// 2.0.413: the loading effect is a project setting. An old `[web]`/`[mobile]` table reads "moving stripes" and is

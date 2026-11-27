@@ -73,7 +73,9 @@ jobs:
           # the glob handed to gh can only ever name the archives.
           packages="$RUNNER_TEMP/packages"
           mkdir -p "$packages"
-          find "$RUNNER_TEMP/incoming" -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+          # The Backend runner of linux-x86_64 and its bill of materials come along when that run made them (spec 115):
+          # they are what a package made on another system for a Linux server is joined to. A run made before it has none.
+          find "$RUNNER_TEMP/incoming" -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name 'prc-backend-runner-*' \) \
             -exec mv -t "$packages/" {} +
           ( cd "$packages" && sha256sum *.tar.gz *.zip ) > "$RUNNER_TEMP/SHA256SUMS"
           mv "$RUNNER_TEMP/SHA256SUMS" "$packages/"

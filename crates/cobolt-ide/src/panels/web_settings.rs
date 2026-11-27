@@ -39,6 +39,7 @@ use egui::{RichText, Ui};
 use cobolt_compiler::project_kind::{
     backend_url_problem, ApplicationStyle, BackendUrlProblem, Isolation, LoadingEffect, MobilePlatform, ModuleVariants, Orientation, BACKEND_FOLDER,
 };
+use cobolt_compiler::backend_runners::System;
 use cobolt_compiler::ProjectKind;
 use cobolt_project_tools::templates;
 use cobolt_project_tools::web::preview::{BrowserChoice, KnownBrowser};
@@ -956,6 +957,39 @@ fn preview_port_row(ui: &mut Ui, lay: RowLayout, tr: &Tr, setting: &mut u16, def
     });
 }
 
+/// What the package-system row lists, as `(label, stored value)`: this computer first (stored as nothing), then each
+/// other offered system by its word, then the project's own value when it is neither, so it can be seen and changed.
+fn package_system_options(tr: &Tr, offered: &[System], host: Option<System>, setting: &str) -> Vec<(String, String)> {
+    let mut out = vec![(tr.pkgsys_this_computer.to_owned(), String::new())];
+    for s in offered.iter().filter(|s| Some(**s) != host) {
+        out.push((s.to_string(), s.to_string()));
+    }
+    let named = System::parse(setting);
+    let known = setting.is_empty() || (named.is_some() && named == host) || out.iter().any(|(_, v)| v == setting);
+    if !known {
+        out.push((setting.to_owned(), setting.to_owned()));
+    }
+    out
+}
+
+/// The row of the system the package is for: `setting` is `[web]` `package_system`, empty for this computer's own.
+fn package_system_row(ui: &mut Ui, lay: RowLayout, tr: &Tr, offered: &[System], setting: &mut String) {
+    let host = System::host();
+    let options = package_system_options(tr, offered, host, setting);
+    let own = setting.is_empty() || (System::parse(setting).is_some() && System::parse(setting) == host);
+    let shown = if own { tr.pkgsys_this_computer.to_owned() } else { setting.clone() };
+    row(ui, lay, tr.pk_set_package_system, |ui| {
+        egui::ComboBox::from_id_salt("kind_package_system").selected_text(shown).show_ui(ui, |ui| {
+            for (label, value) in &options {
+                let on = if value.is_empty() { own } else { !own && setting == value };
+                if ui.selectable_label(on, label).clicked() {
+                    *setting = value.clone();
+                }
+            }
+        });
+    });
+}
+
 /// The outer width of the path confirmation.
 pub const CONFIRM_W: f32 = 460.0;
 
@@ -1331,6 +1365,16 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
         }
     }
     note(ui, lay, &tr.pk_set_preview_port_hint.replacen("{}", &default_port.to_string(), 1), dim);
+
+    // The system Package Project makes the package for (spec 115 R1): a Web project only, and only when there is a
+    // choice (this installation has another system's runner) or the project already names one.
+    if draft.kind == ProjectKind::Web {
+        let offered = crate::web_package::offered_systems();
+        if offered.len() > 1 || !draft.web.package_system.is_empty() {
+            package_system_row(ui, lay, tr, offered, &mut draft.web.package_system);
+            note(ui, lay, tr.pk_set_package_system_hint, dim);
+        }
+    }
 
     if draft.kind == ProjectKind::Web {
         row(ui, lay, tr.pk_set_isolation, |ui| {
@@ -1834,6 +1878,65 @@ mod tests {
         assert!(notes.iter().any(|n| matches!(n, crate::panels::web_preview::Note::Opened { browser, .. } if *browser == path.display().to_string())), "{notes:?}");
         println!("browser confirmation: asked once for {} in {}, kept in {}; a copy in another folder asks again", path.display(), project.display(), file.display());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Spec 115 T12: the row of the system the package is for lists this computer first (stored as nothing), then each
+    /// other offered system, keeps a stored value that is not offered, and reads in six languages with the
+    /// settings-row text and the texts of the window of Package Project all present and free of the product's build name.
+    #[test]
+    fn the_package_system_row_lists_the_systems_and_reads_in_six_languages_115() {
+        let mac = System::parse("macos-aarch64").unwrap();
+        let linux = System::parse("linux-x86_64").unwrap();
+        let mut cases = 0;
+        let mut languages = 0;
+        let mut texts = 0;
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            let host = Some(mac);
+            let offered = [mac, linux];
+
+            let plain = package_system_options(&tr, &offered, host, "");
+            assert_eq!(plain, vec![(tr.pkgsys_this_computer.to_owned(), String::new()), ("linux-x86_64".to_owned(), "linux-x86_64".to_owned())], "{lang:?}");
+
+            let chosen = package_system_options(&tr, &offered, host, "linux-x86_64");
+            assert_eq!(chosen, plain, "{lang:?}: a stored system that is offered is not listed twice");
+
+            let own = package_system_options(&tr, &offered, host, "macos-aarch64");
+            assert_eq!(own, plain, "{lang:?}: the word of this computer's own system is this computer, not an extra line");
+
+            let kept = package_system_options(&tr, &offered, host, "linux-aarch64");
+            assert_eq!(kept.len(), 3, "{lang:?}: a stored system this installation has no runner for is kept to be seen");
+            assert_eq!(kept[2], ("linux-aarch64".to_owned(), "linux-aarch64".to_owned()));
+            assert_eq!(package_system_options(&tr, &[mac], host, "")[1..].len(), 0, "{lang:?}: only this computer offered, one line");
+            cases += 5;
+
+            for t in [
+                tr.pk_set_package_system,
+                tr.pk_set_package_system_hint,
+                tr.webpack_started_for,
+                tr.webpack_not_run,
+                tr.pkgsys_title,
+                tr.pkgsys_intro,
+                tr.pkgsys_system_label,
+                tr.pkgsys_this_computer,
+                tr.pkgsys_lang_label,
+                tr.pkgsys_continue,
+                tr.pkgsys_fetch_question,
+                tr.pkgsys_fetch_yes,
+                tr.pkgsys_fetch_no,
+                tr.pkgsys_cannot,
+            ] {
+                assert!(!t.trim().is_empty() && !t.contains("{}") && !t.to_lowercase().contains("cobolt"), "{lang:?}: {t:?}");
+                texts += 1;
+            }
+            for t in [tr.webpack_started_for, tr.webpack_not_run, tr.pkgsys_fetch_question] {
+                assert!(t.contains("{system}"), "{lang:?}: names the system: {t:?}");
+            }
+            assert!(tr.webpack_started_for.contains("{name}") && tr.pkgsys_cannot.contains("{why}"), "{lang:?}");
+            languages += 1;
+        }
+        println!("spec 115 T12: package-system row | {cases} list cases and {texts} texts in {languages} languages | all pass");
+        assert_eq!(languages, 6);
     }
 
     /// WASM-008 T37: the browser row and the confirmation read in six

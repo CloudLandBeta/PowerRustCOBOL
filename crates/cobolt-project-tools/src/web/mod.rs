@@ -158,6 +158,8 @@ impl WebBuildRequest {
                     preview_browser: mobile.preview_browser.clone(),
                     sign_in_form: None,
                     unsafe_: mobile.unsafe_.clone(),
+                    // Only a Web project is packaged for another system (spec 115).
+                    package_system: String::new(),
                 };
                 (web, mobile.module_variants())
             }

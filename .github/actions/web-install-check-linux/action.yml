@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# Spec 113 / spec 115: install a Web package on this Linux machine with its own script, then check it.
+#
+# One copy of the checks, used by every job that installs a package on Linux: the one that made the package here
+# (`linux`) and the ones that were handed a package made on a macOS or a Windows machine for linux-x86_64
+# (`linux-from-*`). A package made on another system has to pass exactly what a package made here passes.
+#
+# It reads what the job sets: WORK (the folder that holds `out/`, the two files of the package), PKG (the project's
+# file stem), SVC (the service name) and INSTALL (where the script installs).
+name: Install a Web package on Linux, then check it
+description: Runs the package's install script with nginx, then checks the service, the page, the Backend, an update and a stop.
+runs:
+  using: composite
+  steps:
+    - name: Install, then check
+      shell: bash
+      run: |
+        set -uo pipefail
+        out="$WORK/out"; script="$out/$PKG-install.sh"; host=oficina.example.com
+        fails=0
+        ok()  { echo "PASS  $*"; }
+        bad() { echo "FAIL  $*"; fails=$((fails + 1)); }
+        check() { local what=$1; shift; if "$@" >/dev/null 2>&1; then ok "$what"; else bad "$what"; fi; }
+        curl_site() { curl -sk --resolve "$host:443:127.0.0.1" --resolve "$host:80:127.0.0.1" "$@"; }
+        code_of() { curl_site -o /dev/null -w '%{http_code}' "$@"; }
+
+        sudo openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/site.key -out /tmp/site.crt -subj "/CN=$host" -days 2 2>/dev/null
+        sudo systemctl start nginx || true
+
+        echo "::group::install"
+        sudo bash "$script" /etc/nginx --cert /tmp/site.crt --key /tmp/site.key 2>&1 | tee "$WORK/install.log"
+        [ "${PIPESTATUS[0]}" -eq 0 ] && ok "the script exits 0" || bad "the script exits 0"
+        echo "::endgroup::"
+
+        check "the service is active"  systemctl is-active --quiet "$SVC"
+        check "the service is enabled" systemctl is-enabled --quiet "$SVC"
+        check "nginx accepts its configuration" sudo nginx -t
+        [ "$(code_of "https://$host/")" = 200 ] && ok "the page answers 200 over https" || bad "the page answers 200 over https"
+        curl_site -D - -o /dev/null "https://$host/" | grep -qi '^content-security-policy:' && ok "the page carries its security headers" || bad "the page carries its security headers"
+        ws=$(code_of "https://$host/ws" -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H "Origin: https://$host")
+        case "$ws" in 101|400|401|403|426) ok "/ws reaches the Backend through nginx (answer $ws)" ;; *) bad "/ws reaches the Backend through nginx (answer $ws)" ;; esac
+
+        echo "::group::the Backend's libraries (AC7)"
+        exe=$(ls "$INSTALL"/bin/* | grep -v sbom | head -1); ldd "$exe" || true
+        echo "::endgroup::"
+        ldd "$exe" 2>&1 | grep -q 'not found' && bad "the Backend finds every library it names" || ok "the Backend finds every library it names"
+        # Spec 114 T43: the file installed is the Backend runner with the module inside, not a Cargo build; its bill of
+        # materials lists the module.
+        grep -q 'module\.wasm' "$INSTALL/bin/sbom.cdx.json" && ok "the Backend is the WebAssembly module in the runner" || bad "the Backend is the WebAssembly module in the runner"
+
+        pid1=$(systemctl show -p MainPID --value "$SVC"); sudo kill -9 "$pid1"
+        restarted=no
+        for _ in $(seq 1 30); do
+          sleep 1; pid2=$(systemctl show -p MainPID --value "$SVC")
+          if systemctl is-active --quiet "$SVC" && [ "$pid2" != "$pid1" ] && [ "$pid2" != 0 ]; then restarted=yes; break; fi
+        done
+        [ "$restarted" = yes ] && ok "a killed Backend is started again ($pid1 -> $pid2)" || bad "a killed Backend is started again"
+
+        rec=$(ls "$INSTALL"/data/*.idx | head -1)
+        printf 'RECORD-EDITED-BY-THE-OPERATOR' | sudo tee -a "$rec" >/dev/null
+        before=$(sudo sha256sum "$rec" | cut -d' ' -f1)
+        snap() { sudo find /etc/nginx "$INSTALL" /etc/$SVC -type f -not -name '*.lck' -not -name '*.bak' 2>/dev/null | sort | sudo xargs sha256sum | sha256sum | cut -c1-16; }
+        sudo bash "$script" /etc/nginx --cert /tmp/site.crt --key /tmp/site.key > "$WORK/update.log" 2>&1 && ok "the same package installed again exits 0" || bad "the same package installed again exits 0"
+        after=$(sudo sha256sum "$rec" | cut -d' ' -f1)
+        [ "$before" = "$after" ] && ok "an update keeps the records in data/" || bad "an update keeps the records in data/"
+        a=$(snap); sudo bash "$script" /etc/nginx --cert /tmp/site.crt --key /tmp/site.key > "$WORK/update2.log" 2>&1; b=$(snap)
+        [ "$a" = "$b" ] && ok "the same package twice changes no file" || bad "the same package twice changes no file"
+        check "the service is active after the updates" systemctl is-active --quiet "$SVC"
+
+        s=$(date +%s); sudo systemctl stop "$SVC"; took=$(( $(date +%s) - s ))
+        [ "$took" -lt 30 ] && ok "the service stops in ${took} s" || bad "the service stops in ${took} s"
+        [ "$(systemctl show -p Result --value "$SVC")" = success ] && ok "the stop is a success" || bad "the stop is a success ($(systemctl show -p Result --value "$SVC"))"
+        [ "$(systemctl show -p ExecMainStatus --value "$SVC")" = 0 ] && ok "the Backend exits with status 0" || bad "the Backend exits with status 0 ($(systemctl show -p ExecMainStatus --value "$SVC"))"
+
+        sudo cp "$INSTALL/backend.toml" "$WORK/backend.toml.good"
+        sudo sed -i 's|^listen = .*|&\nunsafe_allow_any_origin = true|' "$INSTALL/backend.toml"
+        sudo systemctl start "$SVC" && bad "a release start with a refused setting fails" || ok "a release start with a refused setting fails"
+        sleep 2
+        { sudo journalctl -u "$SVC" -n 60 --no-pager; sudo cat /var/log/$SVC/backend.log; } > "$WORK/refused.log" 2>&1 || true
+        grep -qi 'unsafe' "$WORK/refused.log" && ok "the reason is in the journal or the log" || bad "the reason is in the journal or the log"
+        sudo systemctl stop "$SVC" || true
+        sudo cp "$WORK/backend.toml.good" "$INSTALL/backend.toml"; sudo systemctl start "$SVC" && ok "the settings put back, the service starts" || bad "the settings put back, the service starts"
+
+        sudo journalctl -u "$SVC" --no-pager > "$WORK/journal.log" 2>&1 || true
+        echo "checks failed: $fails"
+        test "$fails" -eq 0

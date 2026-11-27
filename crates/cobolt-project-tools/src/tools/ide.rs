@@ -31,6 +31,38 @@ fn s(description: &str) -> Value {
     json!({ "type": "string", "description": description })
 }
 
+/// `package_project`: the one tool whose description and argument say which systems a Web package can be made for. `offered`
+/// is [`System::offered`](cobolt_compiler::backend_runners::System::offered) of this installation's list of runners (spec 115
+/// R2): the computer's own system, then every one the list has a runner for, spelled as `rcrun package --target` spells it.
+fn package_project_tool(offered: &[cobolt_compiler::backend_runners::System]) -> Tool {
+    let systems: Vec<String> = offered.iter().map(|s| s.to_string()).collect();
+    let list = if systems.is_empty() { "none on this computer".to_owned() } else { systems.join(", ") };
+    tool(
+        "package_project",
+        &format!(
+            "Package the project as File ▸ Package Project does. A Desktop or Mobile project: a zip of its sources and \
+             assets. A Web project: what is installed on a server, exactly two files in a folder: `<name>.zip` (the \
+             page, the Backend and its production settings) and the install script, which takes the nginx folder as its \
+             one required parameter. The package is for the system the IDE runs on unless `target` names another: \
+             the systems this installation offers are {list}. The Backend of another system is the application's \
+             payload joined to that system's runner, which must be the one the release published (it is checked); \
+             `runner_dir` names a folder that holds it and `fetch_runner` allows the download from the release, which \
+             is never made otherwise. A Backend that needs Cargo is packaged on the system it runs on, not for another. \
+             The Backend file of another system is not run on this computer: the production settings and the module \
+             are checked with this computer's own runner, and read_output says so. A Web package builds the page and \
+             the Backend, so it answers at once; read_output says each step and ends with the command that installs. \
+             Writes the files, replacing a package made before."
+        ),
+        json!({
+            "to": s("Optional: an absolute, existing folder for the file(s); the project folder for a zip, `dist/install` for a Web package, when absent."),
+            "target": s(&format!("Optional, a Web project only: the system the package is for, one of {list}; the system the IDE runs on when absent.")),
+            "runner_dir": s("Optional, with `target`: an absolute, existing folder that holds the Backend runner of that system, as `<folder>/<system>/prc-backend-runner` and its bill of materials."),
+            "fetch_runner": { "type": "boolean", "description": "Optional, with `target`: allow the download of the runner from the release when it is not on this computer. Default false: nothing is downloaded." },
+        }),
+        &[],
+    )
+}
+
 /// Every IDE tool, in the order the catalogue shows them.
 pub fn tools() -> Vec<Tool> {
     vec![
@@ -102,17 +134,7 @@ pub fn tools() -> Vec<Tool> {
             &["name"],
         ),
         tool("save_project", "Save every open designer, editor tab and the project, as File ▸ Save Project does. Changes files.", json!({}), &[]),
-        tool(
-            "package_project",
-            "Package the project as File ▸ Package Project does. A Desktop or Mobile project: a zip of its sources and \
-             assets. A Web project: what is installed on a server, exactly two files in a folder: `<name>.zip` (the \
-             page, the Backend and its production settings) and the install script of the system the IDE runs on, \
-             which takes the nginx folder as its one required parameter. A Web package builds the page and the \
-             Backend, so it answers at once; read_output says each step and ends with the command that installs. \
-             Writes the files, replacing a package made before.",
-            json!({ "to": s("Optional: an absolute, existing folder for the file(s); the project folder for a zip, `dist/install` for a Web package, when absent.") }),
-            &[],
-        ),
+        package_project_tool(&cobolt_compiler::backend_runners::System::offered(&cobolt_compiler::backend_runners::RunnerManifest::find())),
         tool(
             "upgrade_project",
             "Upgrade a project made by an older version of PowerRustCOBOL AI to this version's layout, as the IDE \
@@ -306,4 +328,42 @@ pub fn project_free(name: &str) -> bool {
         name,
         "ide_settings" | "set_ide_settings" | "ide_state" | "ide_picture" | "ide_command" | "ide_widget" | "read_output" | "read_diagnostics"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cobolt_compiler::backend_runners::{Arch, Os, RunnerManifest, System};
+    use std::time::Instant;
+
+    const LINUX: System = System { os: Os::Linux, arch: Arch::X86_64 };
+
+    /// Spec 115 T11 (R2, AC8): the tool names the systems of the one list, and its three arguments are in its schema.
+    #[test]
+    fn package_project_names_the_systems_of_the_one_list_and_takes_three_arguments() {
+        let began = Instant::now();
+        let list = RunnerManifest::parse(&format!("{}  {LINUX}/prc-backend-runner\n{}  {LINUX}/prc-backend-runner.sbom.json\n", "a".repeat(64), "b".repeat(64)));
+        let offered = System::offered(&list);
+        let tool = package_project_tool(&offered);
+        let words: Vec<String> = offered.iter().map(System::to_string).collect();
+        assert!(words.contains(&LINUX.to_string()), "{words:?}");
+        let description = tool.description.clone().unwrap();
+        let properties = &tool.input_schema["properties"];
+        for word in &words {
+            assert!(description.contains(word.as_str()), "the description names {word}");
+            assert!(properties["target"]["description"].as_str().unwrap().contains(word.as_str()), "the argument names {word}");
+        }
+        let mut keys: Vec<&str> = properties.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["fetch_runner", "runner_dir", "target", "to"]);
+        assert_eq!(properties["fetch_runner"]["type"], "boolean");
+        assert_eq!(tool.input_schema["required"], json!([]), "no argument is required: no choice is today's behaviour");
+        // With no list of runners, only this computer's own system is offered, and the tool says so.
+        let own = package_project_tool(&System::offered(&RunnerManifest::default()));
+        let own_words: Vec<String> = System::offered(&RunnerManifest::default()).iter().map(System::to_string).collect();
+        assert!(own_words.len() <= 1 && own_words.iter().all(|w| own.description.clone().unwrap().contains(w.as_str())));
+        // The catalogue holds the tool once, under its name.
+        assert_eq!(tools().iter().filter(|t| t.name == "package_project").count(), 1);
+        println!("package_project: {} systems named from the list ({}), 4 arguments, none required; {} ms", words.len(), words.join(", "), began.elapsed().as_millis());
+    }
 }

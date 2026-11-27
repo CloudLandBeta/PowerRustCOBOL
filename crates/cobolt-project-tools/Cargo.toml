@@ -33,6 +33,8 @@ cobolt-wasm       = { path = "../cobolt-wasm" }
 cobolt-web-bundle = { path = "../cobolt-web-bundle" }
 # The host-API version a pinned player must speak (WASM-016 R11).
 cobolt-wasm-abi = { path = "../cobolt-wasm-abi" }
+# A package for another system: Prove runs the payload of that system's Backend on this machine's runner (spec 115 R6).
+cobolt-program-package = { path = "../cobolt-program-package" }
 cobolt-ast        = { path = "../cobolt-ast" }
 # For `builtins::BUILTINS` only — the kb_lookup tool's built-in entries.
 cobolt-runtime  = { path = "../cobolt-runtime" }

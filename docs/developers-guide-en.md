@@ -15179,7 +15179,7 @@ So the tools cover what the IDE offers you:
 | The Form Designer | `apply_change_set` — every designer operation, plus deleting and renaming a control, applied whole or not at all; a form open in a designer shows the change at once and **Undo** takes it back in one step |
 | The Indexed File Editor | `edit_indexed` — the record as its text view writes it, the keys by field name, the file's properties; a **Finalized** file keeps its schema unless you agree to change it, and the stored data is never deleted |
 | Project Settings and SQL Connections | `project_settings`, `set_project_settings`, `sql_connections`, `set_sql_connection`, `remove_sql_connection`, `test_sql_connection` — a password or a key goes to the IDE's secret store and is never answered back |
-| Save, package, upgrade | `save_project`, `package_project` (a Web project: the zip and the install script of section 23.11; the answer comes at once and the steps arrive in the Output), `upgrade_project` |
+| Save, package, upgrade | `save_project`, `package_project` (a Web project: the zip and the install script of section 23.11, for this computer's system or, with `target`, `runner_dir` and `fetch_runner`, for another; the answer comes at once and the steps arrive in the Output), `upgrade_project` |
 | Run, the Backend, the Web Preview, a device | `run_project`, `run_status`, `stop_run`, `start_backend`, `backend_status`, `stop_backend`, `start_web_preview`, `run_mobile`, `create_android_studio_project` |
 | The debugger | `debug_start`, `debug_breakpoints`, `debug_control` (continue, pause, step over, into or out, stop), `debug_state` |
 | Output, problems, Beautify | `read_output`, `read_diagnostics`, `beautify` |
@@ -16933,6 +16933,9 @@ today does not have, so they stop with "manifest not found": name the file.
 | `build`        | `--no-machine-code`                | WebAssembly path: leave the machine code out of the file; the program makes it the first time it starts                                                                                                                         |
 | `package`      | `--output <path.zip>`              | Override the output archive path. On a **Web** project the value is the **folder** that receives the two files (default `dist/install`) — see section 23.11                                                                     |
 | `package`      | `--lang <code>`                    | Web project only: the language (`en es pt ja zh fr`) in which the install script speaks. Default: English                                                                                                                                                                   |
+| `package`      | `--target <system>`                | Web project only: the system the package is for, for example `linux-x86_64`. Default: the system of this computer. Naming a system this installation does not list stops with the list — see section 23.11                                                                |
+| `package`      | `--runner-dir <folder>`            | With `--target`: a folder that holds that system's Backend runner (`<folder>/linux-x86_64/prc-backend-runner`, or the release's attachments as downloaded). It is only read                                                                                                  |
+| `package`      | `--fetch-runner`                   | With `--target`: download the runner from the release when it is not on this computer. Without it nothing is downloaded                                                                                                                                                    |
 | `mcp`          | `--project <file\|folder>`         | The project the coding-agent tools act on — its project file, or the folder holding it. Without it, the project in Claude Code's folder (`CLAUDE_PROJECT_DIR`, else the current folder), searched upward. See **Working with a coding agent** |
 
 > **Exit codes.** `rcrun run-form` returns **3** when the application is
@@ -19752,7 +19755,7 @@ On a Web project **Package Project** does not make a folder of loose files: it m
 | File | What it holds |
 |---|---|
 | `<name>.zip` | the page (the bundle without `hosting/`), the Backend executable and its software bill of materials in `bin/`, the production `backend.toml`, the seed `data/` of your indexed files, `assets/KB/` when the project has one, and `LICENSE`, `NOTICE` and `NOTICE-RUNTIME.txt` |
-| `<name>-install.sh` or `<name>-install.ps1` | the installer for the **operating system of the machine that runs the IDE**: a shell script for Linux and macOS, a PowerShell script for Windows |
+| `<name>-install.sh` or `<name>-install.ps1` | the installer for the **system the package is for**: a shell script for Linux and macOS, a PowerShell script for Windows. That is the system of the machine that runs the IDE unless you choose another (see *A package for another system* below) |
 
 The installer takes **one mandatory parameter: the folder where nginx lives** (nginx is the
 only server the package targets). Everything else has a default.
@@ -19837,14 +19840,77 @@ certificate and the key — is the default of the next, so an update needs only 
 an option you give wins. A first install stops, naming the port, when something already listens
 on the Backend's port. There is no uninstaller — the folders above are yours to remove.
 
+**A package for another system.** Unless you choose another, the package is for the system of
+the computer you are working on. A developer on a Mac or on Windows who answers to a Linux
+server does not need a Linux computer to make its package: choose the system, and the two
+files come out for that server. Three places say the same thing:
+
+| Where | How you choose |
+|---|---|
+| The IDE | **Package Project** opens a small window first — *System* (this computer, or another system this installation can package for) and *Language of the install script* — and then asks for the folder. The window opens only when there is something to choose; what you chose is remembered by the project, and shown again on the Settings page of the Web project as *Package for* |
+| `rcrun` | `rcrun package app.project.toml --target linux-x86_64 --output out` |
+| The coding agent | `package_project` with `target` set to `linux-x86_64` |
+
+The systems you can name are the ones this installation lists, and every place reads that one
+list; naming any other stops with the list in the message. The first system a release offers
+for another computer is `linux-x86_64`.
+
+```mermaid
+flowchart LR
+    A["Choose the system<br/>linux-x86_64"] --> B["Find that system's<br/>Backend runner"]
+    B --> C{"The same file the<br/>release published?"}
+    C -- "no" --> X["Refused: nothing is built,<br/>nothing is written"]
+    C -- "yes" --> D["Build the page and<br/>the Backend's module"]
+    D --> E["Join the module to<br/>that system's runner"]
+    E --> F["Check the settings with<br/>this computer's own runner"]
+    F --> G["Write the zip and<br/>that system's script"]
+```
+
+> 📷 **Screenshot needed — `package-project-system.png`.** Open PowerOficina on a Mac or a
+> Windows computer, choose **Package Project** and capture the window with *System* open and
+> `linux-x86_64` among its choices.
+
+**What the Backend in the zip is.** For another system it is **that system's runner with your
+application joined to it**, so the server needs nothing but the two files. The runner is a file
+of the release, and it is compared with the SHA-256 that the list of the installation
+(`runners/manifest.txt`, beside `libs/`) records for it before anything else happens: a
+different file is refused, naming the value expected and the value found, and nothing is built or
+written. The runner is taken from the first of these that has it:
+
+1. the folder you name (`--runner-dir FOLDER`; the `runner_dir` argument of the tool), which is read and never changed;
+2. the cache the earlier packages filled;
+3. the release's attachments, **only when you allow it** (`--fetch-runner`; `fetch_runner` true in the tool; *Download and package* in the window, which asks first). Nothing is downloaded otherwise, and what is downloaded is compared with the list before it is kept.
+
+**What is checked on your computer.** The Check is the same as for this computer's own system.
+The **Prove** step starts a *twin* of the Backend — the same application joined to **this
+computer's** own runner — with the production settings, and shows the refusal of a setting the
+Backend would not accept. The Linux file itself is **not run** on your computer, and the Output
+says so. The real start happens on the server, where the script waits until the service answers on
+its port and puts the previous state back when it does not.
+
+| What stops a package for another system | What it says, in short | What to do |
+|---|---|---|
+| The installation has no list of runners | *no runner is offered for linux-x86_64 … carries no list of runners* | Use the program the release installs; an installation built from the source has none |
+| The runner differs from the release's | *the runner file … is not the one the release published (expected SHA-256 …, found …)* | Download the runner again, or name a folder that holds the release's file |
+| The runner is not on this computer | *the runner for linux-x86_64 is not on this computer* | Name the folder that holds it, or allow the download |
+| The download failed | *could not be downloaded from …* | Download it by hand from the release and name its folder |
+| The Backend needs the Cargo way | *this Backend cannot be built for linux-x86_64: it needs the Cargo path* | Make that package on the system it will run on (section 24.11 says when a Backend needs it) |
+
+> **Note.** A project with no Backend has no runner to join: its package is the site and the
+> script, and choosing another system changes only the script.
+
+> **Note.** The window and the *Package for* setting exist only for a Web project. A Desktop or
+> Mobile project is packaged as before, a zip of its sources, with nothing to choose.
+
 > **Note.** The Backend knows how to be a service: `--env-file FILE` reads its secrets from a
 > file only its account can read, `--log-file FILE` writes its log there, and on Windows
 > `--service` (with `--service-name NAME`) makes it answer the Service Control Manager. The
 > script passes them; you rarely need to.
 
-> **Caveat.** Only the system the packaging machine runs gets a script: package on Windows
-> for a Windows server, on a Mac for a macOS server. The Backend executable in the zip is
-> built for that same system.
+> **Caveat.** A package is for **one** system, and the Backend executable in the zip and the
+> script are both for it. Of the systems other than the computer you work on, only
+> `linux-x86_64` can be made elsewhere: a Windows server is packaged on Windows, a macOS
+> server on a Mac.
 >
 > **Caveat.** Only **nginx** is configured. A server already serving other sites keeps them:
 > the script adds one site and includes it, and does not touch the others. On Linux with
@@ -19858,6 +19924,32 @@ on the Backend's port. There is no uninstaller — the folders above are yours t
 > end on Linux. The Windows installer was checked
 > for syntax and usage but not run as a Windows service, and the macOS installer was not run
 > as the administrator on a Mac — try both on a test machine first.
+
+**Which Linux servers start the Backend.** The Linux runner of the release is a dynamically
+linked program of the standard C library, built on Ubuntu 22.04, and it needs **glibc 2.34 or
+newer**. It needs no other library of the server — not OpenSSL, not a sound library. It was
+started with no arguments, once, in a container of each system, and what it did is written here
+as it was measured (an x86-64 container; a bare runner answers *this is a bare Backend runner*
+and ends with code 1, which is the proof that it started):
+
+| Server | glibc | Does the runner start? | What the refusal said |
+|---|---|---|---|
+| Debian 12 | 2.36 | Yes | — |
+| Ubuntu 22.04 | 2.35 | Yes | — |
+| Amazon Linux 2023 | 2.34 | Yes | — |
+| Ubuntu 20.04 | 2.31 | **No** | `version 'GLIBC_2.34' not found` |
+| Debian 11 | 2.31 | **No** | `version 'GLIBC_2.34' not found` |
+
+A server with a glibc older than 2.34 — Ubuntu 20.04, Debian 11, and the Red Hat family of
+version 8 (glibc 2.28) among them — cannot start the Backend of a package made for
+`linux-x86_64`: the system's loader refuses the file, as the two rows marked **No** show. Use a newer
+system for the server. Red Hat family 9, Fedora, Debian 13 and Ubuntu 24.04 carry a glibc of
+2.34 or newer by what their distributions publish, but the runner was not started on them.
+
+> **Caveat.** The package made for another system has no precompiled machine code for it: the
+> Backend compiles its module the first time it starts, which took 9 to 51 ms in the
+> measurements made for the Backend as a module, and the same module is then used on every
+> start.
 ---
 
 ## 24. The Backend and the secure channel
@@ -20472,9 +20564,10 @@ they left was equal. What is left is small, and each one is on the record in
 > A **Package Project** run (section 23.11) takes the same way, so the zip's Backend is a module
 > too, and the server needs nothing of Rust: only the zip and the install script.
 
-> **Caveat.** The Backend is built for the **operating system of the machine that builds**, as
-> before: a package for another system is made on that system. A runner for each system is part
-> of the IDE of that system.
+> **Caveat.** The Build makes the Backend for the **system of the machine that builds**. A
+> package for another system is the one case that goes beyond it (section 23.11): the module is
+> made here and joined to that system's runner. A Backend that needs the Cargo way cannot be
+> packaged for another system, because Cargo builds for the computer it runs on.
 >
 > **Caveat.** `--debug` asks for a Cargo debug build and means nothing for a module: the Build
 > ignores it on that way. A debug build of the Backend needs the Rust toolchain.

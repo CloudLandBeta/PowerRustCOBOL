@@ -361,6 +361,9 @@ pub struct ModuleBuild<'a> {
     pub bin_dir: &'a Path,
     /// Where the file is made before it is installed.
     pub staging: &'a Path,
+    /// Make the module's machine code, for this machine. `false` for a Backend that is built for another system (spec 115 R10):
+    /// the machine code is for the CPU that made it, so the Backend compiles its module when it first starts.
+    pub machine_code: bool,
 }
 
 /// What a module build made.
@@ -393,16 +396,20 @@ pub fn build_module(b: &ModuleBuild<'_>, log: &impl Fn(&str)) -> Result<ModuleBu
 
     let began = Instant::now();
     let host = cobolt_runner_engine::Target::host().triple();
-    let code = match cobolt_runner_engine::Target::baseline(&host).and_then(|t| cobolt_runner_engine::precompile_backend(wasm, &t)) {
-        Ok(code) => {
-            log(&format!("   machine code for {host}: {} bytes", code.bytes.len()));
-            Some(code)
-        }
-        Err(e) => {
-            let n = format!("no machine code was made ({e}): the Backend compiles its module when it first starts");
-            log(&format!("   note: {n}"));
-            notes.push(n);
-            None
+    let code = if !b.machine_code {
+        None
+    } else {
+        match cobolt_runner_engine::Target::baseline(&host).and_then(|t| cobolt_runner_engine::precompile_backend(wasm, &t)) {
+            Ok(code) => {
+                log(&format!("   machine code for {host}: {} bytes", code.bytes.len()));
+                Some(code)
+            }
+            Err(e) => {
+                let n = format!("no machine code was made ({e}): the Backend compiles its module when it first starts");
+                log(&format!("   note: {n}"));
+                notes.push(n);
+                None
+            }
         }
     };
     phases.push(BackendPhase { name: "machine code", millis: began.elapsed().as_millis() });

@@ -367,20 +367,34 @@ impl CoboltApp {
             None if web => root.join("dist").join("install"),
             None => root,
         };
+        // Spec 115: the system a Web package is for, and where the runner of another system comes from. The same list the
+        // command line reads (R2): a word that is not in it is refused naming it.
+        use cobolt_compiler::backend_runners::{RunnerManifest, System};
+        let choice = crate::web_package::Choice::from_tool_args(args, web, &System::offered(&RunnerManifest::find()))?;
         if web {
             // Spec 113: the page and the Backend are built and the folder gets exactly two files. It takes minutes, so it
             // answers at once, as run_project does; read_output has each step and the result.
             if self.web_package.is_some() || self.pending_build_rx.is_some() || self.web_preview.building() {
                 return Err("a build or a package is already under way; read_output says how far it is".to_owned());
             }
+            let system = choice.system;
             let project = self.cobolt_project.as_ref().map(|p| p.project.name.clone()).unwrap_or_default();
-            self.package_web_to(dir.clone());
-            return Ok(json!({
+            self.package_web_to(dir.clone(), choice);
+            let other = system.filter(|s| Some(*s) != System::host());
+            let mut reply = json!({
                 "status": "started",
                 "folder": dir.display().to_string(),
-                "files": cobolt_project_tools::web::package::file_names(&project),
+                "files": cobolt_project_tools::web::package::file_names(&project, system),
                 "note": "the page and the Backend are built first (minutes the first time); read_output says each step and ends with the command that installs",
-            }));
+            });
+            if let Some(system) = other {
+                reply["system"] = json!(system.to_string());
+                reply["executable_run"] = json!(false);
+                reply["proven"] = json!(format!(
+                    "the production settings and the module are checked with this computer's own runner; the {system} executable in the package is not run on this computer"
+                ));
+            }
+            return Ok(reply);
         }
         let zip = dir.join(format!("{name}.zip"));
         self.package_project_to(zip.clone());

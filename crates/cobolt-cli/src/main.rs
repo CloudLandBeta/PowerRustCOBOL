@@ -40,6 +40,13 @@
 //!                       install script of this system (default: <project>/dist/install)
 //! --lang <code>         A Web project: the language the install script speaks
 //!                       (en es pt ja zh fr; default en)
+//! --target <system>     A Web project: the system the package is for, spelled as the error
+//!                       message lists them (`linux-x86_64`); default: the system this runs on
+//! --runner-dir <folder> With --target: a folder that holds the Backend runner of that system
+//!                       (`<folder>/<system>/prc-backend-runner` and its bill of materials);
+//!                       the variable PRC_BACKEND_RUNNER_DIR names one when the flag is absent
+//! --fetch-runner        With --target: download the runner from the release when it is not
+//!                       on this computer (never done without the flag)
 //! ```
 //!
 //! ## Environment variables
@@ -770,6 +777,10 @@ fn cmd_help() {
         "                                         (a Web project: the folder for its two files,\n",
         "                                         the zip and the install script for this system)\n",
         "         [--lang <code>]                 A Web project: language of the install script\n",
+        "         [--target <system>]             A Web project: the system the package is for\n",
+        "                                         (linux-x86_64; default: the system this runs on)\n",
+        "         [--runner-dir <folder>]         With --target: a folder holding that system's Backend runner\n",
+        "         [--fetch-runner]                With --target: download the runner when it is not here\n",
         "  rcrun mcp     [--project <path>]      Serve the coding-agent tools (MCP) over stdio\n",
         "                                         for the project file or folder (default: the\n",
         "                                         working directory); opens no network port\n",
@@ -948,17 +959,26 @@ fn rust_install_hint() -> String {
 
 /// Package a Web project to install on a server (spec 113): the page and the Backend are built and `dir` gets exactly
 /// two files, `<name>.zip` and the install script of the system this runs on. Exits 1 when the package is not made.
-fn package_web_command(manifest: &Path, output: Option<PathBuf>, lang: &str) {
+fn package_web_command(manifest: &Path, output: Option<PathBuf>, options: cobolt_project_tools::web::package::PackageOptions) {
+    use cobolt_compiler::backend_runners::System;
     use cobolt_project_tools::web::package::{package_web, PackageError};
 
     let manifest = manifest.canonicalize().unwrap_or_else(|_| manifest.to_path_buf());
     let dir = output.unwrap_or_else(|| manifest.parent().map(Path::to_path_buf).unwrap_or_default().join("dist").join("install"));
-    println!("rcrun package: packaging for a server → {}", dir.display());
+    // A package for another system than this one's says which: the host's own package prints what it always did.
+    let other = options.system.filter(|s| Some(*s) != System::host());
+    match other {
+        Some(system) => println!("rcrun package: packaging for a server running {system} → {}", dir.display()),
+        None => println!("rcrun package: packaging for a server → {}", dir.display()),
+    }
     let started = std::time::Instant::now();
-    let result = package_web(&manifest, &dir, lang, &mut |step| println!("  [{:>5.1} s] {}", started.elapsed().as_secs_f64(), step.label()));
+    let result = package_web(&manifest, &dir, &options, &mut |step| println!("  [{:>5.1} s] {}", started.elapsed().as_secs_f64(), step.label()));
     match result {
         Ok(p) => {
-            println!("Package ready: exactly two files in {} ({:.1} s)", dir.display(), p.seconds);
+            match other {
+                Some(system) => println!("Package ready for {system}: exactly two files in {} ({:.1} s)", dir.display(), p.seconds),
+                None => println!("Package ready: exactly two files in {} ({:.1} s)", dir.display(), p.seconds),
+            }
             println!("  {}  {} bytes, {} files inside, sha256 {}", p.zip.display(), p.zip_bytes, p.files_in_zip, p.sha256);
             println!("  {}", p.script.display());
             println!("Copy both to the server and run there, with administrator rights:");
@@ -1000,10 +1020,34 @@ fn cmd_package(args: &[String]) {
     let mut manifest_path: Option<PathBuf> = None;
     let mut output_path: Option<PathBuf> = None;
     let mut lang = String::from("en");
+    let mut target: Option<String> = None;
+    let mut runner_dir: Option<PathBuf> = None;
+    let mut fetch_runner = false;
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--target" => {
+                i += 1;
+                match args.get(i) {
+                    Some(word) => target = Some(word.clone()),
+                    None => {
+                        eprintln!("rcrun package: --target requires a system (for example linux-x86_64)");
+                        process::exit(2);
+                    }
+                }
+            }
+            "--runner-dir" => {
+                i += 1;
+                match args.get(i) {
+                    Some(dir) => runner_dir = Some(PathBuf::from(dir)),
+                    None => {
+                        eprintln!("rcrun package: --runner-dir requires a folder");
+                        process::exit(2);
+                    }
+                }
+            }
+            "--fetch-runner" => fetch_runner = true,
             "--lang" => {
                 i += 1;
                 match args.get(i) {
@@ -1045,12 +1089,43 @@ fn cmd_package(args: &[String]) {
         process::exit(1);
     }
 
+    if target.is_none() && (runner_dir.is_some() || fetch_runner) {
+        eprintln!("rcrun package: --runner-dir and --fetch-runner say where the runner of another system comes from: they need --target");
+        process::exit(2);
+    }
+
     // A Web project is packaged to be installed on a server (spec 113): two files in a folder.
     if let Ok(view) = cobolt_compiler::project_manifest_view(&manifest_path) {
         if view.kind == cobolt_compiler::project_kind::ProjectKind::Web {
-            package_web_command(&manifest_path, output_path, &lang);
+            // The systems a package can be made for are the one list every entry point reads (spec 115 R2).
+            let system = match target.as_deref() {
+                Some(word) => {
+                    let offered = cobolt_compiler::backend_runners::System::offered(&cobolt_compiler::backend_runners::RunnerManifest::find());
+                    match cobolt_compiler::backend_runners::System::choose(word, &offered) {
+                        Ok(system) => Some(system),
+                        Err(why) => {
+                            eprintln!("rcrun package: {why}");
+                            process::exit(1);
+                        }
+                    }
+                }
+                None => None,
+            };
+            let options = cobolt_project_tools::web::package::PackageOptions {
+                lang: lang.clone(),
+                system,
+                runner_dir,
+                fetch_runner,
+                version: product_version::VERSION.to_string(),
+                cache_root: None,
+            };
+            package_web_command(&manifest_path, output_path, options);
             return;
         }
+    }
+    if target.is_some() {
+        eprintln!("rcrun package: only a Web project is packaged for another system");
+        process::exit(1);
     }
 
     // ── Load the manifest ─────────────────────────────────────────────────────

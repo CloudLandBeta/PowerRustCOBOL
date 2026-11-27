@@ -39,9 +39,24 @@ use crate::{
     CompilerError, IoContext,
 };
 
+/// A Backend built for another system than this machine's (spec 115 R3, R5, R10): the application's payload joined to that
+/// system's runner, installed in a folder of its own so the project's `bin/` (the Backend Run and Preview start) is not touched.
+#[derive(Debug, Clone)]
+pub struct BackendTarget {
+    pub system: crate::backend_runners::System,
+    /// The runner of that system, already verified ([`crate::backend_runners::runner_for`]).
+    pub runner: backend_module::RunnerFiles,
+    /// Where the executable and its bill of materials are installed.
+    pub bin_dir: PathBuf,
+}
+
 /// What a backend build is told.
 #[derive(Debug, Clone, Default)]
 pub struct BackendBuildOptions {
+    /// A Backend for another system, which only the module path can make: a Cargo reason is refused
+    /// ([`CompilerError::BackendForeignRefused`]), no machine code is made, and `bin/` of the project is left as it was.
+    /// `None` is the Build of this machine's own system, as it has always been.
+    pub target: Option<BackendTarget>,
     /// A debug build (the default is release).
     pub debug: bool,
     /// Print what it is doing.
@@ -378,27 +393,46 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     }
     let mut runner = None;
     if let Some(m) = &module {
-        match backend_module::find_runner(opts.runner.as_deref(), m) {
+        // For another system the runner is the one that system's package is made with (verified by the caller): the module's
+        // capabilities are checked against the same list, and its bill of materials is the file beside it.
+        let given = opts.target.as_ref().map(|t| t.runner.runner.as_path()).or(opts.runner.as_deref());
+        match backend_module::find_runner(given, m) {
             Ok(found) => runner = Some(found),
             Err(missing) => reasons.extend(missing),
         }
+    }
+    // Only the module path is portable (spec 115 R5): a Backend that needs Cargo is built on the system it will run on.
+    if let (Some(target), false) = (&opts.target, reasons.is_empty()) {
+        return Err(CompilerError::BackendForeignRefused { system: target.system.to_string(), reasons: reason_lines(&reasons) });
     }
     if path == BackendPath::Wasm && !reasons.is_empty() {
         return Err(CompilerError::BackendWasmRefused { reasons: reason_lines(&reasons) });
     }
     let name = sanitize_package_name(&project_dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "app".into()));
     let bin_name = format!("{name}-backend");
-    let exe = if cfg!(windows) { format!("{bin_name}.exe") } else { bin_name.clone() };
+    let exe = match &opts.target {
+        Some(target) => format!("{bin_name}{}", target.system.exe_suffix()),
+        None if cfg!(windows) => format!("{bin_name}.exe"),
+        None => bin_name.clone(),
+    };
 
     if let (Some(module), Some(runner), true) = (&module, &runner, reasons.is_empty()) {
         log(&format!("🧩 WebAssembly module path: {} bytes of module, the Backend runner {}", module.wasm.len(), runner.runner.display()));
-        let staging = build_staging_dir(None, &bin_name).join("module");
+        let (bin_dir, staging) = match &opts.target {
+            Some(target) => (target.bin_dir.clone(), build_staging_dir(None, &bin_name).join(format!("module-{}", target.system))),
+            None => (project_dir.join("bin"), build_staging_dir(None, &bin_name).join("module")),
+        };
         let made = backend_module::build_module(
-            &ModuleBuild { backend: &backend, module, state, application: &name, runner, exe_name: &exe, bin_dir: &project_dir.join("bin"), staging: &staging },
+            &ModuleBuild { backend: &backend, module, state, application: &name, runner, exe_name: &exe, bin_dir: &bin_dir, staging: &staging, machine_code: opts.target.is_none() },
             &log,
         )?;
         phases.extend(made.phases);
         notes.extend(made.notes);
+        if let Some(target) = &opts.target {
+            let n = format!("no machine code is made for {}: the Backend compiles its module when it first starts", target.system);
+            log(&format!("   note: {n}"));
+            notes.push(n);
+        }
         return Ok(BackendBuildResult {
             binary: made.binary,
             interface: interface_path,

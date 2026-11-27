@@ -43,7 +43,7 @@ const MANIFEST: &str = "manifest.txt";
 /// In the cache: the size and date each shipped file had when it last matched.
 const VERIFIED: &str = "verified.tsv";
 /// Where a release's attachments live.
-const RELEASES_URL: &str = "https://github.com/CloudLandBeta/PowerRustCOBOL/releases/download";
+pub(crate) const RELEASES_URL: &str = "https://github.com/CloudLandBeta/PowerRustCOBOL/releases/download";
 
 static CURRENT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -432,7 +432,7 @@ pub fn libs_asset_name(version: &str) -> String {
     format!("PowerRustCOBOL-{version}-{}-{}-libs.tar.gz", os_name(), std::env::consts::ARCH)
 }
 
-fn sha256_file(path: &Path) -> std::io::Result<String> {
+pub(crate) fn sha256_file(path: &Path) -> std::io::Result<String> {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     std::io::copy(&mut std::fs::File::open(path)?, &mut hasher)?;
@@ -463,7 +463,7 @@ fn manifest_text(target: &Path) -> std::io::Result<String> {
     Ok(text)
 }
 
-fn parse_manifest(text: &str) -> Vec<(&str, &str)> {
+pub(crate) fn parse_manifest(text: &str) -> Vec<(&str, &str)> {
     text.lines().filter_map(|l| l.split_once("  ")).filter(|(h, _)| h.len() == 64).collect()
 }
 
@@ -571,7 +571,7 @@ pub fn repair_libs(sdk_root: &Path, version: &str, log: &mut dyn FnMut(&str)) ->
     result
 }
 
-fn run(program: &str, args: &[&str]) -> Result<(), String> {
+pub(crate) fn run(program: &str, args: &[&str]) -> Result<(), String> {
     let out = Command::new(program).args(args).output().map_err(|e| format!("cannot run {program}: {e}"))?;
     if out.status.success() {
         Ok(())

@@ -27,6 +27,12 @@
 #
 # Every check prints PASS or FAIL; a FAIL fails the job after all of them have run. The two files the
 # package is, and the logs, are uploaded. A dispatch needs this file on the default branch.
+#
+# Spec 115 adds the package made on ANOTHER system for a Linux server: `macos-package-for-linux` and
+# `windows-package-for-linux` make it (`rcrun package --target linux-x86_64`, with the Linux runner and the list that
+# names it, built by `runner-linux`), check that the script is the Linux one and the Backend in the zip is an ELF file,
+# and `linux-from-macos` and `linux-from-windows` install each on Linux with the same checks `linux` makes
+# (`.github/actions/web-install-check-linux`, one copy of them).
 
 name: Web install package (spec 113)
 
@@ -105,78 +111,9 @@ jobs:
           test "$(ls "$work/out" | wc -l)" -eq 2
           ls -l "$work/out"
 
+      # The checks are one copy, shared with the jobs below that install a package made on another system (spec 115).
       - name: Install, then check
-        shell: bash
-        run: |
-          set -uo pipefail
-          out="$WORK/out"; script="$out/$PKG-install.sh"; host=oficina.example.com
-          fails=0
-          ok()  { echo "PASS  $*"; }
-          bad() { echo "FAIL  $*"; fails=$((fails + 1)); }
-          check() { local what=$1; shift; if "$@" >/dev/null 2>&1; then ok "$what"; else bad "$what"; fi; }
-          curl_site() { curl -sk --resolve "$host:443:127.0.0.1" --resolve "$host:80:127.0.0.1" "$@"; }
-          code_of() { curl_site -o /dev/null -w '%{http_code}' "$@"; }
-
-          sudo openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/site.key -out /tmp/site.crt -subj "/CN=$host" -days 2 2>/dev/null
-          sudo systemctl start nginx || true
-
-          echo "::group::install"
-          sudo bash "$script" /etc/nginx --cert /tmp/site.crt --key /tmp/site.key 2>&1 | tee "$WORK/install.log"
-          [ "${PIPESTATUS[0]}" -eq 0 ] && ok "the script exits 0" || bad "the script exits 0"
-          echo "::endgroup::"
-
-          check "the service is active"  systemctl is-active --quiet "$SVC"
-          check "the service is enabled" systemctl is-enabled --quiet "$SVC"
-          check "nginx accepts its configuration" sudo nginx -t
-          [ "$(code_of "https://$host/")" = 200 ] && ok "the page answers 200 over https" || bad "the page answers 200 over https"
-          curl_site -D - -o /dev/null "https://$host/" | grep -qi '^content-security-policy:' && ok "the page carries its security headers" || bad "the page carries its security headers"
-          ws=$(code_of "https://$host/ws" -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H "Origin: https://$host")
-          case "$ws" in 101|400|401|403|426) ok "/ws reaches the Backend through nginx (answer $ws)" ;; *) bad "/ws reaches the Backend through nginx (answer $ws)" ;; esac
-
-          echo "::group::the Backend's libraries (AC7)"
-          exe=$(ls "$INSTALL"/bin/* | grep -v sbom | head -1); ldd "$exe" || true
-          echo "::endgroup::"
-          ldd "$exe" 2>&1 | grep -q 'not found' && bad "the Backend finds every library it names" || ok "the Backend finds every library it names"
-          # Spec 114 T43: the file installed is the Backend runner with the module inside, not a Cargo build; its bill of
-          # materials lists the module.
-          grep -q 'module\.wasm' "$INSTALL/bin/sbom.cdx.json" && ok "the Backend is the WebAssembly module in the runner" || bad "the Backend is the WebAssembly module in the runner"
-
-          pid1=$(systemctl show -p MainPID --value "$SVC"); sudo kill -9 "$pid1"
-          restarted=no
-          for _ in $(seq 1 30); do
-            sleep 1; pid2=$(systemctl show -p MainPID --value "$SVC")
-            if systemctl is-active --quiet "$SVC" && [ "$pid2" != "$pid1" ] && [ "$pid2" != 0 ]; then restarted=yes; break; fi
-          done
-          [ "$restarted" = yes ] && ok "a killed Backend is started again ($pid1 -> $pid2)" || bad "a killed Backend is started again"
-
-          rec=$(ls "$INSTALL"/data/*.idx | head -1)
-          printf 'RECORD-EDITED-BY-THE-OPERATOR' | sudo tee -a "$rec" >/dev/null
-          before=$(sudo sha256sum "$rec" | cut -d' ' -f1)
-          snap() { sudo find /etc/nginx "$INSTALL" /etc/$SVC -type f -not -name '*.lck' -not -name '*.bak' 2>/dev/null | sort | sudo xargs sha256sum | sha256sum | cut -c1-16; }
-          sudo bash "$script" /etc/nginx --cert /tmp/site.crt --key /tmp/site.key > "$WORK/update.log" 2>&1 && ok "the same package installed again exits 0" || bad "the same package installed again exits 0"
-          after=$(sudo sha256sum "$rec" | cut -d' ' -f1)
-          [ "$before" = "$after" ] && ok "an update keeps the records in data/" || bad "an update keeps the records in data/"
-          a=$(snap); sudo bash "$script" /etc/nginx --cert /tmp/site.crt --key /tmp/site.key > "$WORK/update2.log" 2>&1; b=$(snap)
-          [ "$a" = "$b" ] && ok "the same package twice changes no file" || bad "the same package twice changes no file"
-          check "the service is active after the updates" systemctl is-active --quiet "$SVC"
-
-          s=$(date +%s); sudo systemctl stop "$SVC"; took=$(( $(date +%s) - s ))
-          [ "$took" -lt 30 ] && ok "the service stops in ${took} s" || bad "the service stops in ${took} s"
-          [ "$(systemctl show -p Result --value "$SVC")" = success ] && ok "the stop is a success" || bad "the stop is a success ($(systemctl show -p Result --value "$SVC"))"
-          [ "$(systemctl show -p ExecMainStatus --value "$SVC")" = 0 ] && ok "the Backend exits with status 0" || bad "the Backend exits with status 0 ($(systemctl show -p ExecMainStatus --value "$SVC"))"
-
-          sudo cp "$INSTALL/backend.toml" "$WORK/backend.toml.good"
-          sudo sed -i 's|^listen = .*|&\nunsafe_allow_any_origin = true|' "$INSTALL/backend.toml"
-          sudo systemctl start "$SVC" && bad "a release start with a refused setting fails" || ok "a release start with a refused setting fails"
-          sleep 2
-          { sudo journalctl -u "$SVC" -n 60 --no-pager; sudo cat /var/log/$SVC/backend.log; } > "$WORK/refused.log" 2>&1 || true
-          grep -qi 'unsafe' "$WORK/refused.log" && ok "the reason is in the journal or the log" || bad "the reason is in the journal or the log"
-          sudo systemctl stop "$SVC" || true
-          sudo cp "$WORK/backend.toml.good" "$INSTALL/backend.toml"; sudo systemctl start "$SVC" && ok "the settings put back, the service starts" || bad "the settings put back, the service starts"
-
-          sudo journalctl -u "$SVC" --no-pager > "$WORK/journal.log" 2>&1 || true
-          echo "checks failed: $fails"
-          test "$fails" -eq 0
+        uses: ./.github/actions/web-install-check-linux
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -486,4 +423,290 @@ jobs:
           path: |
             ${{ env.WORK }}\out
             ${{ env.WORK }}\*.log
+          if-no-files-found: warn
+
+  # ───────────────────────────── spec 115: a package made on another system ─────────────────────────────
+  #
+  # A developer on a Mac or a Windows machine makes the package of a Linux server (`rcrun package --target
+  # linux-x86_64`, or Package Project in the IDE with that system chosen). The Backend in it is the Linux runner joined
+  # to the application, the script is the Linux one, and nothing of it runs on the machine that made it except the check
+  # of the settings, which uses that machine's own runner. These jobs make that package on each host and install it on
+  # Linux with the same checks `linux` makes of a package made there.
+
+  # The Linux runner and the list that names it, as build-all-platforms.yml's `runners-linux` job makes them for a
+  # release: `runners-out/linux-x86_64/…` and `runners-out/manifest.txt` (`<sha256>  <system>/<file>`).
+  runner-linux:
+    name: Backend runner (linux-x86_64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev libasound2-dev
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web-install-package-runner-linux
+
+      - name: Build the runner, its bill of materials and the list that names them
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p cobolt-backend-runner
+          cargo run --release --locked -p cobolt-compiler --example runner_sbom -- target/release/prc-backend-runner
+          out=runners-out
+          mkdir -p "$out/linux-x86_64"
+          cp target/release/prc-backend-runner target/release/prc-backend-runner.sbom.json "$out/linux-x86_64/"
+          ( cd "$out" && sha256sum linux-x86_64/prc-backend-runner linux-x86_64/prc-backend-runner.sbom.json ) > "$out/manifest.txt"
+          cat "$out/manifest.txt"
+          test "$(wc -l < "$out/manifest.txt")" = 2
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: runner-linux-x86_64
+          path: runners-out/
+          if-no-files-found: error
+
+  macos-package-for-linux:
+    name: package for linux-x86_64, made on macos-aarch64
+    needs: runner-linux
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      PKG: PowerOficina.project
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web-install-package-macos
+
+      - name: Build rcrun
+        run: cargo build --release --locked -p cobolt-cli --bin rcrun
+
+      # This machine's own Backend runner, beside rcrun: the Build makes the Backend's module with it and the check of the
+      # production settings starts the Backend's twin on it (the same payload as the Linux file, on a program that runs here).
+      - name: Build this machine's Backend runner beside rcrun
+        run: |
+          cargo build --release --locked -p cobolt-backend-runner
+          cargo run --release --locked -p cobolt-compiler --example runner_sbom -- target/release/prc-backend-runner
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: runner-linux-x86_64
+          path: runners-in
+
+      - name: Package a copy of PowerOficina for linux-x86_64
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(cd "$RUNNER_TEMP" && pwd)/app"
+          rm -rf "$work"; mkdir -p "$work"
+          cp -R examples/PowerOficina "$work/PowerOficina"
+          rm -rf "$work/PowerOficina/dist"
+          sed -i.bak 's|backend_url = "ws://127.0.0.1:8443"|backend_url = "wss://oficina.example.com/ws"|' "$work/PowerOficina/PowerOficina.project.toml"
+          printf '\n[auth]\nissuer = ["https://login.example.com"]\naudiences = ["api"]\n' >> "$work/PowerOficina/backend/backend.toml"
+          grep -q 'wss://oficina.example.com/ws' "$work/PowerOficina/PowerOficina.project.toml"
+          # The list of runners and the folder that holds the Linux runner: what a release installs beside the program,
+          # and what `--runner-dir` names when the runner was downloaded by hand.
+          export PRC_RUNNERS_MANIFEST="$PWD/runners-in/manifest.txt"
+          target/release/rcrun package "$work/PowerOficina/PowerOficina.project.toml" --target linux-x86_64 --runner-dir "$PWD/runners-in" --output "$work/out" 2>&1 | tee "$work/package.log"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          test "$(ls "$work/out" | wc -l)" -eq 2
+          ls -l "$work/out"
+          # The script is the Linux one, and the Backend in the zip is a Linux program (an ELF file), not this Mac's.
+          script="$work/out/$PKG-install.sh"
+          test -f "$script"
+          grep -q systemctl "$script" || { echo "::error::the install script is not the Linux one"; exit 1; }
+          if grep -q launchctl "$script"; then echo "::error::the install script is the macOS one"; exit 1; fi
+          unzip -Z1 "$work/out/$PKG.zip" > "$work/zip-list.txt"
+          entry=$(grep '^bin/' "$work/zip-list.txt" | grep -v sbom | head -1)
+          test -n "$entry"
+          unzip -p "$work/out/$PKG.zip" "$entry" > "$work/backend.bin"
+          magic=$(head -c 4 "$work/backend.bin" | od -An -tx1 | tr -d ' \n')
+          test "$magic" = 7f454c46 || { echo "::error::$entry starts with $magic, not the ELF magic 7f454c46"; exit 1; }
+          echo "PASS  $entry is an ELF file, and the script is the Linux one"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: package-for-linux-from-macos
+          path: |
+            ${{ env.WORK }}/out
+            ${{ env.WORK }}/*.log
+          if-no-files-found: warn
+
+  windows-package-for-linux:
+    name: package for linux-x86_64, made on windows-x86_64
+    needs: runner-linux
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      PKG: PowerOficina.project
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web-install-package-windows
+
+      - name: Build rcrun
+        shell: bash
+        run: cargo build --release --locked -p cobolt-cli --bin rcrun
+
+      # This machine's own Backend runner beside rcrun, with the C runtime linked in, as the `windows` job builds it.
+      - name: Build this machine's Backend runner beside rcrun
+        shell: bash
+        run: |
+          set -euo pipefail
+          t=x86_64-pc-windows-msvc
+          RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --locked --target "$t" -p cobolt-backend-runner
+          cargo run --release --locked --target "$t" -p cobolt-compiler --example runner_sbom -- "target/$t/release/prc-backend-runner.exe"
+          cp "target/$t/release/prc-backend-runner.exe" "target/$t/release/prc-backend-runner.sbom.json" target/release/
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: runner-linux-x86_64
+          path: runners-in
+
+      - name: Package a copy of PowerOficina for linux-x86_64
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(cd "$RUNNER_TEMP" && pwd)/app"
+          rm -rf "$work"; mkdir -p "$work"
+          cp -R examples/PowerOficina "$work/PowerOficina"
+          rm -rf "$work/PowerOficina/dist"
+          sed -i.bak 's|backend_url = "ws://127.0.0.1:8443"|backend_url = "wss://oficina.example.com/ws"|' "$work/PowerOficina/PowerOficina.project.toml"
+          printf '\n[auth]\nissuer = ["https://login.example.com"]\naudiences = ["api"]\n' >> "$work/PowerOficina/backend/backend.toml"
+          grep -q 'wss://oficina.example.com/ws' "$work/PowerOficina/PowerOficina.project.toml"
+          # rcrun is a Windows program: it is given Windows paths.
+          runners="$(cygpath -w "$PWD/runners-in")"
+          export PRC_RUNNERS_MANIFEST="$runners\\manifest.txt"
+          target/release/rcrun.exe package "$work/PowerOficina/PowerOficina.project.toml" --target linux-x86_64 --runner-dir "$runners" --output "$work/out" 2>&1 | tee "$work/package.log"
+          echo "WORK=$(cygpath -w "$work")" >> "$GITHUB_ENV"
+          test "$(ls "$work/out" | wc -l)" -eq 2
+          ls -l "$work/out"
+
+      # The script is the Linux one (`.sh`, with systemctl), and the Backend in the zip is a Linux program (an ELF file):
+      # read from the zip without unpacking it, since a Windows runner has no `unzip` to rely on.
+      - name: Check the two files are for Linux
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:WORK 'out'
+          $script = Join-Path $out "$($env:PKG)-install.sh"
+          if (-not (Test-Path $script)) { throw "no $script: the install script is not the Linux one" }
+          $text = Get-Content $script -Raw
+          if ($text -notmatch 'systemctl') { throw 'the install script does not use systemctl: it is not the Linux one' }
+          if ($text -match 'launchctl') { throw 'the install script is the macOS one' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Join-Path $out "$($env:PKG).zip"))
+          try {
+            $entry = $zip.Entries | Where-Object { $_.FullName -like 'bin/*' -and $_.FullName -notlike '*sbom*' } | Select-Object -First 1
+            if (-not $entry) { throw 'the zip has no Backend under bin/' }
+            $stream = $entry.Open()
+            $head = New-Object byte[] 4
+            $read = $stream.Read($head, 0, 4)
+            $stream.Dispose()
+          } finally { $zip.Dispose() }
+          $magic = ($head | ForEach-Object { '{0:x2}' -f $_ }) -join ''
+          if ($read -ne 4 -or $magic -ne '7f454c46') { throw "$($entry.FullName) starts with $magic, not the ELF magic 7f454c46" }
+          Write-Host "PASS  $($entry.FullName) is an ELF file, and the script is the Linux one"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: package-for-linux-from-windows
+          path: |
+            ${{ env.WORK }}\out
+            ${{ env.WORK }}\*.log
+          if-no-files-found: warn
+
+  # The packages made on the two other systems, installed here and checked with exactly what `linux` checks.
+  linux-from-macos:
+    name: linux-x86_64 (systemd), package made on macos-aarch64
+    needs: macos-package-for-linux
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      SVC: poweroficina-project
+      INSTALL: /opt/poweroficina-project
+      PKG: PowerOficina.project
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install nginx
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nginx openssl
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: package-for-linux-from-macos
+          path: ${{ runner.temp }}/app
+
+      - name: Where the package is
+        run: echo "WORK=$RUNNER_TEMP/app" >> "$GITHUB_ENV"
+
+      - name: Install, then check
+        uses: ./.github/actions/web-install-check-linux
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: install-linux-from-macos
+          path: ${{ env.WORK }}/*.log
+          if-no-files-found: warn
+
+  linux-from-windows:
+    name: linux-x86_64 (systemd), package made on windows-x86_64
+    needs: windows-package-for-linux
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      SVC: poweroficina-project
+      INSTALL: /opt/poweroficina-project
+      PKG: PowerOficina.project
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install nginx
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nginx openssl
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: package-for-linux-from-windows
+          path: ${{ runner.temp }}/app
+
+      - name: Where the package is
+        run: echo "WORK=$RUNNER_TEMP/app" >> "$GITHUB_ENV"
+
+      - name: Install, then check
+        uses: ./.github/actions/web-install-check-linux
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: install-linux-from-windows
+          path: ${{ env.WORK }}/*.log
           if-no-files-found: warn

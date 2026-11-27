@@ -2516,6 +2516,7 @@ dependencies = [
  "cobolt-lexer",
  "cobolt-mcp",
  "cobolt-parser",
+ "cobolt-program-package",
  "cobolt-runtime",
  "cobolt-semantic",
  "cobolt-wasm",

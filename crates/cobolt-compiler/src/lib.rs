@@ -58,6 +58,7 @@ mod build_cache;
 pub mod warmup;
 pub mod backend_build;
 pub mod backend_module;
+pub mod backend_runners;
 pub mod identity_rules;
 pub mod exec_rust;
 pub mod runtime_features;
@@ -836,6 +837,14 @@ pub enum CompilerError {
          Build it with `rcrun backend build --cargo`, or leave `[backend] build_path` at \"auto\" to let the Build choose."
     )]
     BackendWasmRefused { reasons: String },
+
+    /// A Backend was to be built for another system (spec 115 R5) and the module does not serve it. Only the module path
+    /// is portable: a Backend that needs Cargo is built on the system it will run on. `reasons` is one line per reason, as
+    /// the Build words them. Nothing is staged or installed.
+    #[error(
+        "this Backend cannot be built for {system}: it needs the Cargo path, and a Backend that needs Cargo is packaged on the system it will run on. The Build's reasons:\n{reasons}"
+    )]
+    BackendForeignRefused { system: String, reasons: String },
 
     /// The Backend takes the Cargo path, for the `reasons` given (one per line), and the Rust toolchain is missing or
     /// unusable (spec 114 D8). The module path needs none; this Backend is one it does not serve.
@@ -7821,6 +7830,7 @@ max_payload_bytes = 393216   # the largest text or JSON frame between page, prog
 call_timeout_ms = 60000      # how long a remote call waits for the Backend's answer (60 s); then TRANSPORT 1002
 loading_effect = "moving-stripes"  # what a control with LoadingEffect on shows during a Backend call: "none" or "moving-stripes"
 # player     = "2.0.0"       # pin an older player this IDE keeps; absent = the player this IDE ships
+# package_system = "linux-x86_64"  # the system Package Project makes the install package for; absent = this computer's own (a Web project only)
 [web.browsers]               # the browsers the build promises to run in; all true
 chromium        = true
 firefox         = true
@@ -8092,6 +8102,30 @@ never shipped, and a description holds no handler code and no credential value.
 | `form_events` | the form's own events that are bound (`OnLoad`, `OnClose` …); the code is in the program module |
 | `data_bindings`, `animations`, `layout`, `breakpoints` | as the form file has them |
 | `stylesheet` | the bundle path of the form's stylesheet, when it has one |
+
+**Packaging a Web project for a server.** *File ▸ Package Project*, `rcrun package
+<project>.project.toml --output <folder>` and the `package_project` tool make exactly two
+files in the folder: `<name>.zip` (the site, the Backend, its settings and `data/`) and the
+install script of the system the package is for (`<name>-install.sh` for Linux and macOS,
+`<name>-install.ps1` for Windows). Unless another system is named, the package is for **this
+computer's own system**, and its Backend is the prebuilt Backend runner with the Backend's
+WebAssembly module inside. A package for **another system** (the first one released is
+`linux-x86_64`, made on a Mac or a Windows computer) is made with `--target linux-x86_64`, with
+the `target` argument of `package_project`, or by choosing the system in the window of Package
+Project, which opens only when this installation can package for more than one system; the
+system chosen there is remembered in `[web] package_system` (absent means this computer's own).
+The Backend in that package is the other system's runner joined to the application's payload,
+and the script is that system's. A runner is a release file that is checked against the SHA-256
+list the installation carries (`runners/manifest.txt`) before it is used, and a package that
+cannot be checked is refused before anything is built; a runner that is not on this computer is
+downloaded from the release's attachments only when the developer allows it (`--fetch-runner`,
+`fetch_runner: true`, or yes in the window's question), and a folder that already holds it is
+named with `--runner-dir` (`runner_dir`). A Backend that needs Cargo (an `[identity]` section or
+an `EXEC RUST` block) is not packaged for another system: package it on the system it will run on.
+For another system the Output says what was and was not proven: the production settings and the
+module are checked here with this computer's own runner, and the other system's executable in the
+package is not run here. A Desktop or Mobile project has no system to choose: its package stays a
+zip of its sources.
 
 **Build and Preview.** On a Web or Mobile project the Build button (and the
 `build` tool) builds the bundle instead of a binary, and says how long it took,

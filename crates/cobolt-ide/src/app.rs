@@ -1275,6 +1275,10 @@ pub struct CoboltApp {
         Option<std::sync::mpsc::Receiver<Result<cobolt_compiler::BuildResult, crate::build_path_report::BuildFailure>>>,
     /// A Web project's package being made on a background thread (spec 113): the zip and the install script.
     web_package: Option<crate::web_package::Run>,
+    /// The window of Package Project while it is open: the system the package is for (spec 115).
+    package_modal: Option<crate::panels::package_modal::PackageModal>,
+    /// What that window chose, between its answer and the answer of the folder dialog that follows it.
+    package_pending: Option<crate::web_package::Choice>,
     /// Set when *Run* started a build because the program contains `EXEC RUST`
     /// (spec 041 T13): the form whose run is waiting for that build.
     ///
@@ -2571,6 +2575,8 @@ impl CoboltApp {
             agent_debug_open: false,
             pending_build_rx: None,
             web_package: None,
+            package_modal: None,
+            package_pending: None,
             pending_build_then_run: None,
             kb_reindex_rx: None,
             kb_reindex_phase: (0.0, String::new()),
@@ -6111,6 +6117,16 @@ impl CoboltApp {
                 self.output.push_status(self.lang.tr().status_build_already_running.to_owned());
                 return;
             }
+            // Another system's package (spec 115): the window comes first, then the folder dialog. It opens only when
+            // there is something to choose (this installation has another system's runner, or the project remembers one);
+            // otherwise this is spec 113's flow, the folder dialog and the package of this computer's own system.
+            self.package_pending = None;
+            let remembered = self.cobolt_project.as_ref().map(|p| p.web_settings().package_system).unwrap_or_default();
+            let offered = crate::web_package::offered_systems();
+            if offered.len() > 1 || !remembered.is_empty() {
+                self.package_modal = Some(crate::panels::package_modal::PackageModal::new(offered, &remembered, self.lang));
+                return;
+            }
             self.begin_file_dialog(FileRequest::PackageWebProject, crate::file_dialog::DialogSpec::folder());
             return;
         }
@@ -6137,7 +6153,7 @@ impl CoboltApp {
     /// Package the open Web project into `dir` once the developer has chosen the folder (spec 113): the page and the Backend
     /// are built, and the folder gets exactly two files. The work runs on a thread; each step is said in the Output panel
     /// as it begins, and the result when it ends ([`Self::poll_web_package`]).
-    fn package_web_to(&mut self, dir: PathBuf) {
+    fn package_web_to(&mut self, dir: PathBuf, choice: crate::web_package::Choice) {
         if !self.is_server_web_project() {
             return;
         }
@@ -6155,8 +6171,41 @@ impl CoboltApp {
         }
         self.apply_main_form_invariant();
         let tr = self.lang.tr();
-        self.output.push_status(crate::web_package::started_line(&tr, &name));
-        self.web_package = Some(crate::web_package::Run::start(manifest, dir, self.lang.code(), self.egui_ctx.clone()));
+        self.output.push_status(crate::web_package::started_line(&tr, &name, choice.system));
+        self.web_package = Some(crate::web_package::Run::start(manifest, dir, self.lang.code(), choice, self.egui_ctx.clone()));
+    }
+
+    /// Once a frame: the window of Package Project, while it is open (spec 115). *Choose the folder…* writes the system the
+    /// developer chose into the project (`[web] package_system`, so the next package starts there) and opens the folder
+    /// dialog; the answer of the dialog starts the package with what the window chose. Cancel and the close button leave
+    /// the project as it was.
+    fn show_package_modal(&mut self, ctx: &Context) {
+        let Some(mut modal) = self.package_modal.take() else { return };
+        if !self.is_server_web_project() {
+            return;
+        }
+        let manifest = self.project_path.clone().unwrap_or_default();
+        let tr = self.lang.tr();
+        let answer = modal.show(ctx, &tr, |system| {
+            let options = cobolt_project_tools::web::package::PackageOptions { system, version: crate::version::VERSION.to_string(), ..Default::default() };
+            cobolt_project_tools::web::package::needs_runner_download(&manifest, &options)
+        });
+        match answer {
+            None => self.package_modal = Some(modal),
+            Some(crate::panels::package_modal::Answer::Cancel) => {}
+            Some(crate::panels::package_modal::Answer::Go(choice)) => {
+                let word = choice.system.map(|s| s.to_string()).unwrap_or_default();
+                let changed = self.cobolt_project.as_ref().is_some_and(|p| p.web_settings().package_system != word);
+                if changed {
+                    if let Some(p) = self.cobolt_project.as_mut() {
+                        p.web_settings_mut().package_system = word;
+                    }
+                    self.do_save_project();
+                }
+                self.package_pending = Some(choice);
+                self.begin_file_dialog(FileRequest::PackageWebProject, crate::file_dialog::DialogSpec::folder());
+            }
+        }
     }
 
     /// Once a frame: what the packaging thread said, into the Output panel.
@@ -16433,7 +16482,10 @@ impl CoboltApp {
                 self.do_save_project();
             }
             FileRequest::PackageProject => self.package_project_to(path),
-            FileRequest::PackageWebProject => self.package_web_to(path),
+            FileRequest::PackageWebProject => {
+                let choice = self.package_pending.take().unwrap_or_default();
+                self.package_web_to(path, choice)
+            }
             FileRequest::AddFile(kind) => self.add_file_to_project_path(kind, path),
             FileRequest::NewForm(form) => self.save_new_form_to(*form, path),
             FileRequest::PickBackgroundImage => self.set_background_image(path),
@@ -17653,6 +17705,7 @@ impl eframe::App for CoboltApp {
         self.show_new_project_dialog(ctx);
         self.show_native_project_step(ctx);
         self.show_web_preview(ctx);
+        self.show_package_modal(ctx);
         self.poll_web_package();
         self.poll_backend(ctx);
         // Images a property picker copied into Assets/: list them in the project.

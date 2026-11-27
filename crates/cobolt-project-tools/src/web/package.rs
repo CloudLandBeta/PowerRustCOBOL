@@ -7,8 +7,13 @@
 //! **Packaging a Web project to install** (spec 113): one function, [`package_web`], that the IDE, `rcrun package` and the
 //! MCP tool all call. It checks the project, builds the page and the Backend through the paths the Build already has, makes
 //! the production `backend.toml`, runs the new Backend with `--check` against it, and writes **exactly two files** into the
-//! folder it is given: `<name>.zip` (what the running application reads) and the install script of the system it runs on
+//! folder it is given: `<name>.zip` (what the running application reads) and the install script of the system it is for
 //! (`<name>-install.sh`, or `<name>-install.ps1` on Windows).
+//!
+//! The system is the machine's own unless [`PackageOptions::system`] names another (spec 115): the Backend in the zip is then
+//! the application's payload joined to **that system's** runner, which is verified against the list the installer brought
+//! and never made on this machine; Prove runs the same payload on this machine's own runner (the "twin"), since the file
+//! for the other system cannot run here, and the notes of the result say so.
 //!
 //! ```text
 //! <name>.zip
@@ -29,11 +34,62 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
+use cobolt_compiler::backend_build::{BackendBuildOptions, BackendTarget};
+use cobolt_compiler::backend_module::RunnerFiles;
+use cobolt_compiler::backend_runners::{CurlFetch, Fetch, Os, RunnerError, RunnerManifest, RunnerSource, System, RUNNER_DIR_ENV};
 use cobolt_compiler::project_kind::ProjectKind;
+use cobolt_compiler::CompilerError;
 use cobolt_web_bundle::install::{BackendFacts, Install, Lang, TargetOs};
 use toml_edit::{Array, DocumentMut, Item, Value};
 
 use super::{BuildProfile, WebBuildError, WebBuildRequest};
+
+/// What a package is asked to be, besides the project: the language of the script and the system it is for. `Default` is
+/// the package of this machine's own system, in English, as it has always been made.
+#[derive(Debug, Clone, Default)]
+pub struct PackageOptions {
+    /// The language code of the script (`en es pt ja zh fr`; `jp` and `cn` are read too; any other is English).
+    pub lang: String,
+    /// The system the package is for; `None`, or this machine's own, is the package of this machine (the code path that
+    /// reads no list of runners, no cache and no network).
+    pub system: Option<System>,
+    /// A folder holding the runner of that system (`--runner-dir`); [`RUNNER_DIR_ENV`] names one when this is `None`.
+    pub runner_dir: Option<PathBuf>,
+    /// The caller was told to download the runner when it is not on this machine (`--fetch-runner`). Never set on the
+    /// caller's own initiative (spec 115 R8).
+    pub fetch_runner: bool,
+    /// The version of the release these programs belong to: it names the runner's cache and its download. Not read for
+    /// this machine's own system.
+    pub version: String,
+    /// The folder a verified runner is kept in (`<it>/runners/<version>/<system>/`); `None` is the folder the Build keeps
+    /// its builds in.
+    pub cache_root: Option<PathBuf>,
+}
+
+/// The operating system of a package's script: the system's, or this machine's.
+fn target_os(system: Option<System>) -> TargetOs {
+    match system.map(|s| s.os) {
+        Some(Os::Linux) => TargetOs::Linux,
+        Some(Os::MacOs) => TargetOs::MacOs,
+        Some(Os::Windows) => TargetOs::Windows,
+        None => TargetOs::host(),
+    }
+}
+
+/// A scratch folder that goes away when it is dropped, on the way out of a refusal as much as after a success.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new(what: &str) -> Result<Self, String> {
+        scratch_dir(what).map(Self)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 
 /// One step of the packaging, for the progress line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +178,11 @@ pub struct Packaged {
     pub files_in_zip: usize,
     /// The package carries a Backend (a project with none gets the site only).
     pub has_backend: bool,
+    /// The system the package is for; `None` only on a machine the release has no system for.
+    pub system: Option<System>,
+    /// The Backend's executable in the zip was started on this machine. `false` for a package for another system that
+    /// carries a Backend: Prove started its twin (this machine's runner with the same payload), not the file shipped.
+    pub executable_run: bool,
     /// The page's Backend address is `wss://`: the script asks for a certificate and a key.
     pub wss: bool,
     /// The secrets the Backend reads, by name; the script wants each in its environment file.
@@ -468,10 +529,24 @@ pub fn file_stem(project: &str) -> String {
     }
 }
 
-/// The names of the two files a package of `project` is: the zip and the install script of the system this runs on.
-pub fn file_names(project: &str) -> [String; 2] {
+/// The names of the two files a package of `project` is: the zip and the install script of the system it is for (`None`, or
+/// the machine's own, is the script of the system this runs on).
+pub fn file_names(project: &str, system: Option<System>) -> [String; 2] {
     let stem = file_stem(project);
-    [format!("{stem}.zip"), format!("{stem}-install.{}", TargetOs::host().script_ext())]
+    [format!("{stem}.zip"), format!("{stem}-install.{}", target_os(system).script_ext())]
+}
+
+/// The Backend's twin for Prove: the payload of `target_exe` (the executable of another system) joined to **this machine's**
+/// runner, in `work`. The file for the other system cannot run here; the twin is what proves the settings and the module.
+fn twin_of(target_exe: &Path, runner_path: &Path, work: &Path) -> Result<PathBuf, String> {
+    let bytes = std::fs::read(target_exe).map_err(|e| format!("cannot read {}: {e}", target_exe.display()))?;
+    let payload = cobolt_program_package::locate(&bytes).map_err(|e| format!("the Backend built for the other system holds no payload: {e}"))?;
+    let runner = std::fs::read(runner_path).map_err(|e| format!("cannot read {}: {e}", runner_path.display()))?;
+    let name = format!("twin-backend{}", System::host().map(System::exe_suffix).unwrap_or(""));
+    let joined = cobolt_program_package::embed(&runner, payload, &name).map_err(|e| format!("cannot join the payload to this machine's runner: {e}"))?;
+    let twin = work.join(&name);
+    cobolt_program_package::write_executable(&twin, &joined).map_err(|e| format!("cannot write {}: {e}", twin.display()))?;
+    Ok(twin)
 }
 
 /// Everything the zip holds, from the project's folder, the bundle, the Backend and the production settings.
@@ -516,12 +591,60 @@ fn zip_entries(project_dir: &Path, bundle: &Path, backend: Option<(&Path, &Produ
 
 // ───────────────────────────── the function ─────────────────────────────
 
-/// Package the Web project at `manifest` into `out_dir`: the zip and the install script, and nothing else. `lang` is the code of
-/// the language the script speaks (`en es pt ja zh fr`; `jp` and `cn` are read too; any other is English). `progress` is called
-/// as each [`Step`] begins.
+/// Package the Web project at `manifest` into `out_dir`: the zip and the install script, and nothing else, for the system
+/// and in the language `options` name. `progress` is called as each [`Step`] begins.
 ///
 /// The caller has saved what is open (the Build reads the files); this regenerates nothing of the project's.
-pub fn package_web(manifest: &Path, out_dir: &Path, lang: &str, progress: &mut dyn FnMut(Step)) -> Result<Packaged, PackageError> {
+pub fn package_web(manifest: &Path, out_dir: &Path, options: &PackageOptions, progress: &mut dyn FnMut(Step)) -> Result<Packaged, PackageError> {
+    // This machine's own system reads no list of runners (spec 115 D10): the code path is the one of spec 113.
+    let runners = if options.system.is_some_and(|s| Some(s) != System::host()) { RunnerManifest::find() } else { RunnerManifest::default() };
+    package_web_with(manifest, out_dir, options, &runners, &CurlFetch, progress)
+}
+
+/// What a package for another system says was proven and what was not (spec 115 R6). One text, so the window that
+/// shows the sentence in the developer's own language can leave this one out by comparing against it.
+pub fn twin_note(system: System) -> String {
+    format!(
+        "Proven on this machine: the production settings and the module, started with this machine's own runner (the same payload the {system} executable carries). Not run on this machine: the {system} executable in the package itself; the install script starts it on the {system} machine."
+    )
+}
+
+/// The runner of `system`, verified against `runners`: in the folder `options` or the environment name, else in the cache,
+/// else downloaded when `fetch` is given. The one lookup the package and the question before a download both make.
+fn find_runner(system: System, runners: &RunnerManifest, options: &PackageOptions, fetch: Option<&dyn Fetch>) -> Result<RunnerFiles, RunnerError> {
+    let cache_root = options.cache_root.clone().unwrap_or_else(|| cobolt_compiler::resolve_build_root(None).0);
+    let runner_dir = options.runner_dir.clone().or_else(|| std::env::var_os(RUNNER_DIR_ENV).map(PathBuf::from).filter(|p| !p.as_os_str().is_empty()));
+    let source = RunnerSource { version: &options.version, runner_dir: runner_dir.as_deref(), cache_root: &cache_root, fetch };
+    cobolt_compiler::backend_runners::runner_for(system, runners, &source)
+}
+
+/// Whether making the package `options` describe for the project at `manifest` would have to download a runner (spec 115
+/// D5): the package is for another system, the project has a Backend to join it to, and the runner is neither in the
+/// folder named nor in the cache. The window of Package Project asks before it says yes; nothing is downloaded here, and a
+/// runner that is here but cannot be trusted is not "to download": the package itself refuses it, in words.
+pub fn needs_runner_download(manifest: &Path, options: &PackageOptions) -> bool {
+    needs_runner_download_with(manifest, options, &RunnerManifest::find())
+}
+
+/// [`needs_runner_download`] with the list of runners given: for a caller that holds its own (a test).
+pub fn needs_runner_download_with(manifest: &Path, options: &PackageOptions, runners: &RunnerManifest) -> bool {
+    let Some(system) = options.system.filter(|s| Some(*s) != System::host()) else { return false };
+    let has_backend = manifest.parent().is_some_and(|dir| dir.join("backend").join("exports.toml").is_file());
+    has_backend && !options.version.is_empty() && matches!(find_runner(system, runners, options, None), Err(RunnerError::Missing { .. }))
+}
+
+/// [`package_web`] with the list of runners and the download it uses given: for a caller that holds its own (a test).
+pub fn package_web_with(
+    manifest: &Path,
+    out_dir: &Path,
+    options: &PackageOptions,
+    runners: &RunnerManifest,
+    fetch: &dyn Fetch,
+    progress: &mut dyn FnMut(Step),
+) -> Result<Packaged, PackageError> {
+    let lang = options.lang.as_str();
+    // The system the package is for, when it is not this machine's own.
+    let foreign: Option<System> = options.system.filter(|s| Some(*s) != System::host());
     let started = Instant::now();
     let mut timings: Vec<(Step, f64)> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
@@ -553,6 +676,19 @@ pub fn package_web(manifest: &Path, out_dir: &Path, lang: &str, progress: &mut d
         None
     };
 
+    // The runner of another system: found and verified before anything is built, since a Backend with no runner to join
+    // cannot be packaged. A project with no Backend needs none: its package is the site and a script.
+    let mut runner: Option<RunnerFiles> = None;
+    if let (Some(system), true) = (foreign, production.is_some()) {
+        if options.version.is_empty() {
+            return Err(PackageError::Failed(format!("the release this program belongs to is not known, so the runner of {system} cannot be looked for")));
+        }
+        runner = Some(find_runner(system, runners, options, options.fetch_runner.then_some(fetch)).map_err(|e| match e {
+            RunnerError::Fetch { .. } | RunnerError::Io { .. } => PackageError::Failed(e.to_string()),
+            _ => PackageError::Refused(e.to_string()),
+        })?);
+    }
+
     // ── Page: the complete Web Build, as the Build button runs it ──
     mark(Step::Page, progress, &mut clock);
     let report = match super::backend().build(&request) {
@@ -571,10 +707,21 @@ pub fn package_web(manifest: &Path, out_dir: &Path, lang: &str, progress: &mut d
     let mut exe: Option<PathBuf> = None;
     let mut made: Option<BackendMade> = None;
     let mut addr = String::new();
+    // The Backend of another system is installed in a folder of its own, never the project's `bin/` (Run and Preview start
+    // that one); the folder is gone when this function returns, whatever the outcome.
+    let mut _target_bin: Option<Scratch> = None;
     if let Some(production) = &production {
         mark(Step::Backend, progress, &mut clock);
-        let opts = cobolt_compiler::backend_build::BackendBuildOptions::default();
-        let built = cobolt_compiler::backend_build::build_backend(&project_dir, &opts).map_err(|e| PackageError::Failed(format!("the Backend did not build: {e}")))?;
+        let mut opts = BackendBuildOptions::default();
+        if let (Some(system), Some(runner)) = (foreign, &runner) {
+            let bin = Scratch::new("target-bin").map_err(PackageError::Failed)?;
+            opts.target = Some(BackendTarget { system, runner: runner.clone(), bin_dir: bin.0.clone() });
+            _target_bin = Some(bin);
+        }
+        let built = cobolt_compiler::backend_build::build_backend(&project_dir, &opts).map_err(|e| match e {
+            CompilerError::BackendForeignRefused { .. } => PackageError::Refused(e.to_string()),
+            e => PackageError::Failed(format!("the Backend did not build: {e}")),
+        })?;
         // Only the Cargo path links the C runtime in (spec 113 R13); the module path carries it in the prebuilt runner.
         if cfg!(windows) && built.engine == cobolt_compiler::backend_module::BackendEngine::Cargo {
             notes.push("The Backend is built with its C runtime inside, so it starts on a Windows that has not installed the Visual C++ Redistributable; the first package compiles the platform for that and takes longer.".into());
@@ -586,7 +733,24 @@ pub fn package_web(manifest: &Path, out_dir: &Path, lang: &str, progress: &mut d
             phases: built.phases.iter().map(|p| (p.name.to_string(), p.millis)).collect(),
         });
         mark(Step::Prove, progress, &mut clock);
-        addr = prove(production, &built.binary).map_err(PackageError::Refused)?;
+        // The file for another system cannot run here: its twin does (the same payload on this machine's own runner), and the
+        // result says what was proven and what was not (spec 115 R6).
+        let twin_dir = match foreign {
+            Some(_) => Some(Scratch::new("twin").map_err(PackageError::Failed)?),
+            None => None,
+        };
+        let proven = match &twin_dir {
+            Some(dir) => {
+                let own = cobolt_compiler::backend_module::backend_runner_path(None)
+                    .map_err(|why| PackageError::Failed(format!("this machine's own Backend runner is needed to check the settings of a package for another system, and it was not found: {why}")))?;
+                twin_of(&built.binary, &own, &dir.0).map_err(PackageError::Failed)?
+            }
+            None => built.binary.clone(),
+        };
+        addr = prove(production, &proven).map_err(PackageError::Refused)?;
+        if let Some(system) = foreign {
+            notes.push(twin_note(system));
+        }
         exe = Some(built.binary);
     }
 
@@ -616,7 +780,7 @@ pub fn package_web(manifest: &Path, out_dir: &Path, lang: &str, progress: &mut d
             project: &request.name,
             stem: stem.clone(),
             slug: cobolt_web_bundle::deploy::slug(&request.name),
-            os: TargetOs::host(),
+            os: target_os(foreign),
             lang: Lang::from_code(lang),
             zip_sha256: sha256.clone(),
             headers: &headers,
@@ -655,6 +819,8 @@ pub fn package_web(manifest: &Path, out_dir: &Path, lang: &str, progress: &mut d
             sha256,
             files_in_zip,
             has_backend: production.is_some(),
+            system: foreign.or_else(System::host),
+            executable_run: !(foreign.is_some() && production.is_some()),
             wss: install.wss,
             required_secrets: production.as_ref().map(|p| p.required_secrets.clone()).unwrap_or_default(),
             backend: made.clone(),
@@ -807,6 +973,56 @@ mod tests {
         );
     }
 
+    fn elf_stand_in(tag: u8) -> Vec<u8> {
+        let mut bytes = vec![0x7f, b'E', b'L', b'F'];
+        bytes.extend((0..2048u32).map(|i| (i as u8).wrapping_add(tag)));
+        bytes
+    }
+
+    #[test]
+    fn the_twin_is_the_same_payload_on_this_machines_runner() {
+        let started = Instant::now();
+        let tmp = tempfile::tempdir().unwrap();
+        let (other_runner, own_runner) = (elf_stand_in(1), elf_stand_in(2));
+        let payload: Vec<u8> = b"the application's payload ".repeat(64);
+        let shipped = cobolt_program_package::embed(&other_runner, &payload, "app-backend").unwrap();
+        let (shipped_path, own_path) = (tmp.path().join("app-backend"), tmp.path().join("prc-backend-runner"));
+        std::fs::write(&shipped_path, &shipped).unwrap();
+        std::fs::write(&own_path, &own_runner).unwrap();
+        let work = tmp.path().join("work");
+        std::fs::create_dir_all(&work).unwrap();
+
+        let twin = twin_of(&shipped_path, &own_path, &work).unwrap();
+        let twin_bytes = std::fs::read(&twin).unwrap();
+        assert!(twin_bytes.starts_with(&own_runner), "the twin begins with this machine's runner, whole");
+        assert!(!twin_bytes.starts_with(&other_runner), "and not with the other system's");
+        assert_eq!(cobolt_program_package::locate(&twin_bytes).unwrap(), payload.as_slice(), "the payload inside the twin is the one the shipped file carries");
+        assert_eq!(cobolt_program_package::locate(&shipped).unwrap(), payload.as_slice());
+        assert_eq!(std::fs::read(&shipped_path).unwrap(), shipped, "the shipped file is not touched");
+
+        // A file with no payload is said so, not run.
+        let bare = tmp.path().join("bare");
+        std::fs::write(&bare, &other_runner).unwrap();
+        let why = twin_of(&bare, &own_path, &work).unwrap_err();
+        assert!(why.contains("holds no payload"), "{why}");
+        // A runner that is not there is said so.
+        let why = twin_of(&shipped_path, &tmp.path().join("nowhere"), &work).unwrap_err();
+        assert!(why.contains("cannot read"), "{why}");
+        println!("twin: payload of {} bytes, {} bytes shipped, {} bytes twin, same payload; no payload and no runner are refused; {} ms", payload.len(), shipped.len(), twin_bytes.len(), started.elapsed().as_millis());
+    }
+
+    #[test]
+    fn the_two_files_are_named_for_the_system_the_package_is_for() {
+        let linux = System { os: Os::Linux, arch: cobolt_compiler::backend_runners::Arch::X86_64 };
+        let mac = System { os: Os::MacOs, arch: cobolt_compiler::backend_runners::Arch::Aarch64 };
+        let windows = System { os: Os::Windows, arch: cobolt_compiler::backend_runners::Arch::X86_64 };
+        for (system, ext) in [(Some(linux), "sh"), (Some(mac), "sh"), (Some(windows), "ps1"), (None, TargetOs::host().script_ext())] {
+            assert_eq!(file_names("Power Oficina", system), ["Power-Oficina.zip".to_string(), format!("Power-Oficina-install.{ext}")], "{system:?}");
+        }
+        assert_eq!(target_os(Some(linux)), TargetOs::Linux);
+        assert_eq!(target_os(None), TargetOs::host());
+    }
+
     #[test]
     fn the_file_stem_is_one_a_file_can_hold() {
         for (project, want) in [("PowerOficina", "PowerOficina"), ("Power Oficina", "Power-Oficina"), ("a/b:c", "a-b-c"), ("***", "app"), ("Ação", "A-o")] {
@@ -820,7 +1036,7 @@ mod tests {
         let out = tmp.path().join("out");
         let missing = tmp.path().join("nope.project.toml");
         let mut steps = Vec::new();
-        let e = package_web(&missing, &out, "en", &mut |s| steps.push(s)).unwrap_err();
+        let e = package_web(&missing, &out, &PackageOptions { lang: "en".into(), ..Default::default() }, &mut |s| steps.push(s)).unwrap_err();
         assert!(matches!(e, PackageError::Refused(_)), "{e}");
         assert_eq!(steps, [Step::Check], "a refusal stops at the first step");
         assert!(!out.exists(), "and the chosen folder was not made");

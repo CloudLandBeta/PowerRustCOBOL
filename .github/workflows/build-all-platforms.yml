@@ -94,8 +94,100 @@ env:
   # dynamic-CRT link arguments live. Setting it would break the Windows link.
 
 jobs:
+  # The Backend runner of linux-x86_64, built once and ahead of every installer (spec 115 R13). A package made on a Mac or
+  # a Windows machine for a Linux server joins the application's payload to THIS file, so it is built on the oldest
+  # system the release supports (ubuntu-22.04, glibc 2.35, like the Linux archive), its SHA-256 goes into the list
+  # `runners/manifest.txt` that every installer carries beside its `libs/` (the IDE and `rcrun` verify a runner against
+  # that list before they use it), and the file itself is attached to the release. `build` needs this job: a runner that
+  # cannot be built stops the release before any installer is made.
+  runners-linux:
+    name: Backend runner (linux-x86_64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      # What the runner needs to link: OpenSSL statically (the package must not depend on the server's OpenSSL), and the
+      # ALSA headers the workspace's sound crates look for. The same three variables as the `build` job's.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev libasound2-dev
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: runners-linux
+
+      # The commands the `build` job runs for its own runner (a command of its own, so Cargo does not unify its features
+      # with prc-runner's and give it the window system it exists to leave out).
+      - name: Build the Backend runner and its bill of materials
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --target x86_64-unknown-linux-gnu -p cobolt-backend-runner
+          cargo run --release --locked --target x86_64-unknown-linux-gnu -p cobolt-compiler --example runner_sbom -- \
+            target/x86_64-unknown-linux-gnu/release/prc-backend-runner
+
+      # Check it is what a Linux x86-64 server can run, then make the three things the rest of the release uses: the folder
+      # `linux-x86_64/` the list names (`<sha256>  <system>/<file>`, one line per file, as `sha256sum` writes them), the
+      # attachments named as the release names them (`prc-backend-runner-<version>-<system>[.sbom.json]`, what the IDE
+      # downloads when the developer allows it), and the list itself.
+      - name: Check the runner and write the list of runners
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^pub const VERSION: &str = "\(.*\)";/\1/p' crates/cobolt-ide/src/version.rs)
+          test -n "$version"
+          r=target/x86_64-unknown-linux-gnu/release/prc-backend-runner
+          test -f "$r" && test -s "$r.sbom.json"
+          # Taken once into a file and read there: a pipe into an early-exiting `grep -q` fails under pipefail.
+          file "$r" > "$RUNNER_TEMP/runner-file.txt"
+          cat "$RUNNER_TEMP/runner-file.txt"
+          grep -q "ELF 64-bit LSB .*x86-64" "$RUNNER_TEMP/runner-file.txt"
+          if ldd "$r" | grep -E 'libssl|libcrypto' >/dev/null; then
+            echo "::error::OpenSSL is linked dynamically in the Backend runner — the package would depend on the server's"
+            exit 1
+          fi
+          # The newest glibc symbol it needs: the release says Linux needs glibc 2.35 or newer, and this is the proof.
+          need=$(objdump -T "$r" | grep -o 'GLIBC_[0-9.]*' | sort -u -V | tail -1)
+          echo "the runner needs $need"
+          test "$(printf '%s\nGLIBC_2.35\n' "$need" | sort -V | tail -1)" = "GLIBC_2.35" \
+            || { echo "::error::the Backend runner needs $need, newer than the glibc 2.35 the release states"; exit 1; }
+          set +e
+          msg=$("$r" 2>&1)
+          code=$?
+          set -e
+          echo "$msg (exit $code)"
+          test "$code" = 1 && echo "$msg" | grep -q "bare Backend runner" \
+            || { echo "::error::the Backend runner did not start (exit $code)"; exit 1; }
+          out=runners-out
+          mkdir -p "$out/linux-x86_64" "$out/attach"
+          cp "$r" "$out/linux-x86_64/prc-backend-runner"
+          cp "$r.sbom.json" "$out/linux-x86_64/prc-backend-runner.sbom.json"
+          cp "$r" "$out/attach/prc-backend-runner-${version}-linux-x86_64"
+          cp "$r.sbom.json" "$out/attach/prc-backend-runner-${version}-linux-x86_64.sbom.json"
+          ( cd "$out" && sha256sum linux-x86_64/prc-backend-runner linux-x86_64/prc-backend-runner.sbom.json ) > "$out/manifest.txt"
+          cat "$out/manifest.txt"
+          test "$(wc -l < "$out/manifest.txt")" = 2
+          ls -l "$out" "$out/linux-x86_64" "$out/attach"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-runner-linux-x86_64
+          path: runners-out/
+          if-no-files-found: error
+
   build:
     name: ${{ matrix.name }}
+    needs: runners-linux
     runs-on: ${{ matrix.os }}
     # The Intel Mac is the slow one. Run 53 took 106 min there (build 46, staging 43). Since 2.0.468 the staging step
     # pre-compiles the platform libraries a third way, for programs that draw (on Apple silicon staging went from 20 to
@@ -128,6 +220,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      # The list of Backend runners the `runners-linux` job made (spec 115 R13): it goes into every package's SDK, so the
+      # IDE and `rcrun` on any system can package for linux-x86_64 and verify the runner they use. Inside the workspace
+      # (not the runner's temp folder), so the path means the same thing to bash on every system.
+      - uses: actions/download-artifact@v8
+        with:
+          name: backend-runner-linux-x86_64
+          path: runners-in
 
       # openssl-sys links the system OpenSSL (native-tls), and eframe needs the
       # xcb/xkbcommon headers. alsa-sys (the sound built-ins, through rodio and
@@ -289,6 +389,9 @@ jobs:
             -p cobolt-compiler --example stage_sdk -- "dist/$PKG/sdk"
           test -f "dist/$PKG/sdk/Cargo.toml"
           test -d "dist/$PKG/sdk/crates/cobolt-ast"
+          # The list of Backend runners beside `libs/`, where `RunnerManifest::find` looks (spec 115 R13).
+          mkdir -p "dist/$PKG/sdk/runners"
+          cp runners-in/manifest.txt "dist/$PKG/sdk/runners/manifest.txt"
 
       # The platform's third-party libraries, compiled once here and shipped in
       # <sdk>/libs/<os>/<arch>/target, so a developer's first build never
@@ -378,6 +481,9 @@ jobs:
             -p cobolt-compiler --example stage_sdk -- "$app/Contents/Resources/sdk"
           test -f "$app/Contents/Resources/sdk/Cargo.toml"
           test -d "$app/Contents/Resources/sdk/crates/cobolt-ast"
+          # The list of Backend runners (spec 115 R13), before the signature like everything else in the bundle.
+          mkdir -p "$app/Contents/Resources/sdk/runners"
+          cp runners-in/manifest.txt "$app/Contents/Resources/sdk/runners/manifest.txt"
           # Third-party libraries compiled once, shipped in sdk/libs/macos/<arch>
           # (see "Compile the platform libraries" above). Before the signature.
           cargo run --release --locked --target ${{ matrix.target }} \
@@ -453,6 +559,13 @@ jobs:
           for c in cobolt-ast cobolt-runtime cobolt-forms cobolt-form-host; do
             test -d "$sdk/crates/$c" || { echo "::error::the platform SDK is incomplete: crates/$c"; exit 1; }
           done
+          # The list of Backend runners (spec 115 R13): without it a package for another system is refused at its first
+          # step, which is invisible until a developer tries one. Both lines, in the form `RunnerManifest` reads.
+          test -s "$sdk/runners/manifest.txt" || { echo "::error::the package has no runners/manifest.txt in its SDK"; exit 1; }
+          grep -Eq '^[0-9a-f]{64}  linux-x86_64/prc-backend-runner$' "$sdk/runners/manifest.txt" \
+            || { echo "::error::runners/manifest.txt does not list the linux-x86_64 runner"; exit 1; }
+          grep -Eq '^[0-9a-f]{64}  linux-x86_64/prc-backend-runner\.sbom\.json$' "$sdk/runners/manifest.txt" \
+            || { echo "::error::runners/manifest.txt does not list the linux-x86_64 runner's bill of materials"; exit 1; }
 
           # The example project, checked the same way and for the same reason:
           # a missing one is invisible until a user opens Help -> Examples and
@@ -859,6 +972,7 @@ jobs:
           codesign --verify --strict "$mnt2/PowerRustCOBOL.app"
           test -d "$mnt2/PowerRustCOBOL.app/Contents/Resources/assets/themes"
           test -f "$mnt2/PowerRustCOBOL.app/Contents/Resources/sdk/Cargo.toml"
+          test -s "$mnt2/PowerRustCOBOL.app/Contents/Resources/sdk/runners/manifest.txt"
           test -f "$mnt2/.background/background.png"
           hdiutil detach "$mnt2"
 
@@ -1041,6 +1155,7 @@ jobs:
           dpkg-deb -c "dist/${PKG}.deb" > dist/_deb-contents.txt
           grep -q "./opt/powerrustcobol/assets/themes/" dist/_deb-contents.txt
           grep -q "./opt/powerrustcobol/sdk/Cargo.toml" dist/_deb-contents.txt
+          grep -q "./opt/powerrustcobol/sdk/runners/manifest.txt" dist/_deb-contents.txt
           grep -q "./opt/powerrustcobol/prc-runner" dist/_deb-contents.txt
           grep -q "./opt/powerrustcobol/prc-backend-runner" dist/_deb-contents.txt
           grep -q "./opt/powerrustcobol/prc-backend-runner.sbom.json" dist/_deb-contents.txt
@@ -1191,6 +1306,7 @@ jobs:
           rpm -qlp "dist/${PKG}.rpm" > dist/_rpm-contents.txt
           grep -q "^/opt/powerrustcobol/assets/themes/" dist/_rpm-contents.txt
           grep -q "^/opt/powerrustcobol/sdk/Cargo.toml$" dist/_rpm-contents.txt
+          grep -q "^/opt/powerrustcobol/sdk/runners/manifest.txt$" dist/_rpm-contents.txt
           grep -q "^/opt/powerrustcobol/prc-runner$" dist/_rpm-contents.txt
           grep -q "^/opt/powerrustcobol/prc-backend-runner$" dist/_rpm-contents.txt
           grep -q "^/opt/powerrustcobol/prc-backend-runner.sbom.json$" dist/_rpm-contents.txt
@@ -1490,8 +1606,13 @@ jobs:
           mkdir -p "$packages"
           find "$RUNNER_TEMP/incoming" -type f \
             \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*.dmg' \
-               -o -name '*.deb' -o -name '*.rpm' \) \
+               -o -name '*.deb' -o -name '*.rpm' -o -name 'prc-backend-runner-*' \) \
             -exec mv -t "$packages/" {} +
+          # The Backend runner of linux-x86_64 and its bill of materials (spec 115 R13), under the names the IDE and
+          # `rcrun` download them by: the manifest every installer carries names exactly these two files' SHA-256.
+          for want in "prc-backend-runner-${version}-linux-x86_64" "prc-backend-runner-${version}-linux-x86_64.sbom.json"; do
+            test -s "$packages/$want" || { echo "::error::$want did not reach the release"; exit 1; }
+          done
           # Every platform must have contributed BOTH its archive and its
           # installer. A release that quietly offers four downloads where it
           # should offer eight is the failure this catches: the installer steps
@@ -1554,6 +1675,8 @@ jobs:
             "| PowerRustCOBOL-$VERSION-linux-x86_64.tar.gz | Linux 64-bit, any desktop |" \
             "" \
             "SHA256SUMS lists the checksum of every archive." \
+            "" \
+            "**Backend runner** — prc-backend-runner-$VERSION-linux-x86_64 and its .sbom.json are what Package Project joins to a Web application's Backend when the package is made on another system for a Linux x86-64 server. Nothing here is for you to download by hand: the IDE and rcrun fetch it when you allow it, and check it against the list every installer carries before they use it." \
             "" \
             "First run on macOS: the app is not notarised, so macOS quarantines what you downloaded. Right-click PowerRustCOBOL.app and choose Open, or clear it with: xattr -dr com.apple.quarantine PowerRustCOBOL.app" \
             "" \
