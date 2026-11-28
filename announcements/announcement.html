@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>What's going on — PowerRustCOBOL AI 2</title>
+<title>What's going on — PowerRustCOBOL AI 2.1</title>
 <style>
   body { font-family: sans-serif; color: #1f2933; background: #ffffff; margin: 0; padding: 0; }
   .band { background: #1d3557; color: #ffffff; padding: 22px 28px; }
@@ -27,137 +27,98 @@
 <body>
 
 <div class="band">
-  <h1>PowerRustCOBOL AI 2: Web and Mobile</h1>
-  <p>The COBOL you already write and the Form Designer you already use, now for the browser and the phone.</p>
+  <h1>PowerRustCOBOL AI 2.1: what is new</h1>
+  <p>Builds with nothing extra to install, and one package for your server. This is what changed since 2.0.613, the last published release.</p>
 </div>
 
 <div class="wrap">
 
-<p>Version 2 adds two <strong>project kinds</strong> beside the Desktop project: <strong>Web</strong> and
-<strong>Mobile</strong>. Choose one in <strong>File &#9656; New Project</strong>. Every project you wrote
-before is a Desktop project and opens unchanged. Here is what is new.</p>
+<p>Six things are worth knowing. The rest is a short list.</p>
 
-<h2>What you can do now</h2>
+<h2>What is new</h2>
 
 <div class="grid">
 
   <div class="card">
-    <h3>Web applications</h3>
-    <p>Build compiles your COBOL straight to <strong>WebAssembly</strong>: no interpreter in the page,
-    and no Rust toolchain needed for a Web build, because the IDE copies a prebuilt player beside your
-    program. The result is a static bundle in <code>dist/web/</code> that any web server can host.</p>
+    <h3>Desktop Build without Rust</h3>
+    <p><strong>Build</strong> compiles your COBOL to WebAssembly and packs it into a prebuilt runner: one executable in
+    <code>bin/</code>, in about a second for the example projects, with no Rust on your machine. A Debug build,
+    <code>EXEC RUST</code>, External Crates and a few rarer constructs still go through Cargo; the Build says which
+    way it took and why.</p>
   </div>
 
   <div class="card">
-    <h3>Mobile applications</h3>
-    <p>Android phone and tablet, iOS iPhone and iPad. <strong>Run</strong> builds, installs and starts the
-    app on a connected phone or an Android emulator and shows its log in the Output panel; an Android
-    release is signed with your own key. For iOS the app for the <strong>simulator</strong> is built today.</p>
+    <h3>A Backend without Rust</h3>
+    <p>A Web or Mobile Backend is built the same way: your COBOL becomes a WebAssembly module that a prebuilt runner
+    serves. The four example Backends answer the same on both ways (176 calls, 176 equal). The Cargo way stays for
+    what the module does not serve, and the Backend setting <code>build_path</code> can force either one.</p>
   </div>
 
   <div class="card">
-    <h3>A COBOL Backend</h3>
-    <p>Files, databases and secrets live in the project's <code>backend/</code> folder, on the native
-    runtime. The page calls the programs the Backend exports with
-    <code>CALL "NAME" WITH WEBSOCKET LINKAGE</code>: JSON over TLS with a bearer token, reconnection and
-    token refresh done for you. <code>COBOL::SqlDatabase</code> reaches SQLite, PostgreSQL and MySQL
-    without <code>EXEC SQL</code>.</p>
+    <h3>Two files for your server</h3>
+    <p><strong>File &#9656; Package Project</strong> of a Web project makes the application and an installer script
+    for the server (<code>.sh</code> on Linux and macOS, <code>.ps1</code> on Windows). The script takes one parameter,
+    the folder of nginx, and runs the Backend as a service. Before anything is written, the package checks your
+    settings for a server and proves that the Backend starts.</p>
   </div>
 
   <div class="card">
-    <h3>Sign-in and links</h3>
-    <p>The <strong>Authentication</strong> control signs users in and up, recovers a password and answers
-    a second factor, through your Backend, with Cognito, Keycloak or Entra. The <strong>Hyperlink</strong>
-    control is a real link on the page.</p>
+    <h3>A package for another system</h3>
+    <p>In the Package window, choose the <strong>System</strong> of the server: today <code>linux-x86_64</code>, made
+    from a Mac or a Windows machine, so you no longer have to package on the server itself. The Backend of that
+    package is a prebuilt Linux runner with your module joined to it. On the command line:
+    <code>rcrun package --target</code>.</p>
   </div>
 
   <div class="card">
-    <h3>CSS3 and responsive pages</h3>
-    <p>An application stylesheet and one per form style the page, and the stylesheet wins over a property.
-    A single-page application is the default; standalone form pages are the alternative.</p>
+    <h3>The Preview keeps its address</h3>
+    <p>The Preview and the Run of a Web or Mobile project serve the page on the same port every time, so a bookmark
+    or an open tab finds it again. Set it in the project's settings, <em>Page port (Preview)</em>; the box shows the
+    default.</p>
   </div>
 
   <div class="card">
-    <h3>Preview in a web view</h3>
-    <p>The designer's <strong>Preview</strong> shows the bundle in the system web view. Pick a phone, tablet
-    or desktop size, the orientation, the pixel ratio, the colour scheme and the page language; a change to
-    a form, a stylesheet or the Backend reaches the open page.</p>
-  </div>
-
-  <div class="card">
-    <h3>Canvas and graphics</h3>
-    <p><strong>Canvas 2D</strong>, <strong>Canvas 3D</strong> and the ImageBuffer, Plot, Scene3D, Physics2D
-    and Physics3D objects, on every platform.</p>
-  </div>
-
-  <div class="card">
-    <h3>Secure by default</h3>
-    <p>Build scans your project's own files for secrets and stops on one; the bundle carries a
-    Content-Security-Policy; a Mobile project can pin certificates; a release Backend refuses a literal
-    secret in its configuration.</p>
-  </div>
-
-  <div class="card">
-    <h3>Claude Code and Grace know the kinds</h3>
-    <p>The Claude Code plugin now has seventeen tools and thirteen skills, including ones for Web
-    applications and the Backend, and Grace, the IDE's assistant, knows them, and
-    <code>COBOL::SqlDatabase</code> too.</p>
-  </div>
-
-  <div class="card">
-    <h3>The same COBOL underneath</h3>
-    <p>The generated WebAssembly is held equal to the interpreter by the conformance runs: the NIST CCVS85
-    NC, IF and IC modules run to zero failures on it.</p>
+    <h3>A Windows setup that gets you ready</h3>
+    <p>The Windows setup installs Microsoft's C++ build tools when they are missing and, if you say yes on its
+    preparation page, Rust 1.95.0 and PowerRustCOBOL's own parts compiled once, so your first Debug build compiles
+    only your program. <em>Skip</em> installs what the setup always installed.</p>
   </div>
 
 </div>
 
-<h2>Start here</h2>
+<h2>Smaller changes</h2>
 
-<ol>
-  <li><strong>File &#9656; New Project</strong>, and choose <em>Web</em> (or an Android or iOS device).</li>
-  <li>Open a form and press <strong>Preview</strong> to see it in a web view.</li>
-  <li>Add a Backend program, list it in <code>backend/exports.toml</code>, and <code>CALL</code> it from a handler.</li>
-  <li>Press <strong>Build</strong>.</li>
-</ol>
+<ul>
+  <li>A canvas can hide the mouse pointer, bring it back to its middle and report Escape: <code>Cursor</code> =
+  <code>None</code>, <code>CenterPointer()</code> and <code>onEscapePressed</code>. PowerCallOfDuty uses all three.</li>
+  <li>A <code>LINE SEQUENTIAL</code> file keeps the bytes of a record as they are, and a Viewer's
+  <code>LoadBytes</code> shows its document in the browser.</li>
+  <li>The nginx files a Web Build writes now start, serve every file with the right type and keep the security headers.</li>
+  <li>A pressed toolbar button looks pressed under Spatial and the other Aurora themes, and on macOS the title of the
+  IDE's windows sits next to the window buttons.</li>
+  <li>PowerOficina opens with its data on a clean install.</li>
+</ul>
 
-<p>Or open an example from <strong>File &#9656; Open Project</strong>:</p>
-
-<table>
-  <tr><th>Example</th><th>What it shows</th></tr>
-  <tr><td><code>examples/PowerWebHello</code></td><td>the smallest Web project: a form with a side menu, and a Backend</td></tr>
-  <tr><td><code>examples/PowerMobileHello</code></td><td>the smallest Mobile project</td></tr>
-  <tr><td><code>examples/PowerOficina</code></td><td>a workshop-management application with a Backend over indexed files</td></tr>
-  <tr><td><code>examples/PowerAnalyticsWeb</code></td><td>the look of the desktop PowerAnalytics dashboard on the web</td></tr>
-</table>
-
-<h2>What each target needs</h2>
+<h2>What you need</h2>
 
 <table>
   <tr><th>You build</th><th>You need</th></tr>
-  <tr><td>a Web application</td><td>nothing beyond the IDE</td></tr>
-  <tr><td>a Backend release binary</td><td>the same toolchain a Desktop Build needs: Rust and the platform linker</td></tr>
-  <tr><td>an Android package</td><td>the Android SDK and NDK, Java 17 to 21, the Rust target of the phone and the Tauri command line; the Build names each one that is missing</td></tr>
-  <tr><td>an iOS app for the simulator</td><td>a Mac with Xcode 16 or later</td></tr>
+  <tr><td>a Desktop or Web application</td><td>nothing beyond the IDE: the runner is installed beside it</td></tr>
+  <tr><td>a Debug build, an <code>EXEC RUST</code> block or External Crates</td><td>Rust and the platform linker, as before; on Windows the setup can prepare them</td></tr>
+  <tr><td>a package for a Linux server</td><td>a Linux x86-64 server with glibc 2.34 or newer: Debian 12, Ubuntu 22.04 and Amazon Linux 2023 start it; Ubuntu 20.04 and Debian 11 do not</td></tr>
 </table>
 
 <div class="note">
-  <strong>Honest scope.</strong> A release archive of an iOS app for a device or the store is
-  <strong>not built yet</strong>. Browser coverage has been measured in Chromium and in the system web
-  views; Safari on a Mac and the Android web view on a physical device are not measured yet. A web form's
-  COBOL is a subset: files, SQL and other server-side work belong in the Backend, and the Build tells you
-  the line it cannot run in a page. Some acceptance criteria of the WebAssembly specs are still open; the
-  list is in <code>specs/WASM-OPEN-ACS.md</code>.
+  <strong>Honest scope.</strong> A package for another system exists for Linux x86-64 only (a Windows server's
+  package is still made on Windows), and it was proven in an x86-64 container, not yet on a real server. Build times
+  were measured on a Mac with Apple silicon.
 </div>
 
 <h2>Read more</h2>
 
-<p>The Developer's Guide has the whole story in four new chapters: <em>Web and Mobile applications</em>,
-<em>The Backend and the secure channel</em>, <em>Mobile applications: Android and iOS</em> and
-<em>Graphics: Canvas 2D, Canvas 3D and the graphics objects</em>. Open it from
-the <strong>Documentation</strong> button in the menu bar, or read <code>docs/developers-guide-en.md</code> in the repository at
-<code>https://github.com/CloudLandBeta/PowerRustCOBOL</code>. The README there has a short tour
-under <em>Version 2: Web and Mobile applications</em>.</p>
+<p>The Developer's Guide has the details. Open it from the <strong>Documentation</strong> button in the menu bar, or
+read <code>docs/developers-guide-en.md</code> in the repository at
+<code>https://github.com/CloudLandBeta/PowerRustCOBOL</code>, where <code>CHANGELOG.md</code> lists every change, one entry each.</p>
 
 <p class="small">This window shows once for each version of this page. Close it when you are done.</p>
 

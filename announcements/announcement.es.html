@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>Novedades — PowerRustCOBOL AI 2</title>
+<title>Novedades — PowerRustCOBOL AI 2.1</title>
 <style>
   body { font-family: sans-serif; color: #1f2933; background: #ffffff; margin: 0; padding: 0; }
   .band { background: #1d3557; color: #ffffff; padding: 22px 28px; }
@@ -27,141 +27,101 @@
 <body>
 
 <div class="band">
-  <h1>PowerRustCOBOL AI 2: Web y Móvil</h1>
-  <p>El COBOL que ya escribes y el Form Designer que ya usas, ahora para el navegador y el teléfono.</p>
+  <h1>PowerRustCOBOL AI 2.1: qué hay de nuevo</h1>
+  <p>Compilaciones sin instalar nada más y un paquete para tu servidor. Esto es lo que cambió desde la 2.0.613, la última versión publicada.</p>
 </div>
 
 <div class="wrap">
 
-<p>La versión 2 añade dos <strong>tipos de proyecto</strong> junto al proyecto Desktop: <strong>Web</strong> y
-<strong>Mobile</strong>. Elige uno en <strong>File &#9656; New Project</strong>. Todos los proyectos que escribiste
-antes son proyectos Desktop y se abren sin cambios. Esto es lo nuevo.</p>
+<p>Seis cosas merecen tu atención. El resto es una lista corta.</p>
 
-<h2>Lo que ya puedes hacer</h2>
+<h2>Qué hay de nuevo</h2>
 
 <div class="grid">
 
   <div class="card">
-    <h3>Aplicaciones web</h3>
-    <p>Build compila tu COBOL directamente a <strong>WebAssembly</strong>: sin intérprete en la página y
-    sin necesidad de la cadena de herramientas de Rust para un Build web, porque el IDE copia un reproductor
-    precompilado junto a tu programa. El resultado es un paquete estático en <code>dist/web/</code> que
-    cualquier servidor web puede alojar.</p>
+    <h3>Build de escritorio sin Rust</h3>
+    <p><strong>Build</strong> compila tu COBOL a WebAssembly y lo empaqueta en un ejecutor ya compilado: un único
+    ejecutable en <code>bin/</code>, en alrededor de un segundo para los proyectos de ejemplo, sin Rust en tu equipo.
+    Un Build de Debug, <code>EXEC RUST</code>, las External Crates y algunas construcciones poco frecuentes siguen
+    pasando por Cargo; el Build te dice qué camino tomó y por qué.</p>
   </div>
 
   <div class="card">
-    <h3>Aplicaciones móviles</h3>
-    <p>Teléfono y tableta Android, iPhone y iPad con iOS. <strong>Run</strong> compila, instala e inicia la
-    aplicación en un teléfono conectado o en un emulador Android y muestra su registro en el panel Output; una
-    versión de lanzamiento para Android se firma con tu propia clave. Para iOS, hoy se compila la aplicación
-    para el <strong>simulador</strong>.</p>
+    <h3>Un Backend sin Rust</h3>
+    <p>El Backend de un proyecto Web o Mobile se construye igual: tu COBOL se convierte en un módulo WebAssembly que
+    sirve un ejecutor ya compilado. Los cuatro Backends de ejemplo responden igual por ambos caminos (176 llamadas,
+    176 iguales). El camino de Cargo se mantiene para lo que el módulo no sirve, y el ajuste
+    <code>build_path</code> del Backend puede forzar uno u otro.</p>
   </div>
 
   <div class="card">
-    <h3>Un Backend en COBOL</h3>
-    <p>Los archivos, las bases de datos y los secretos viven en la carpeta <code>backend/</code> del proyecto,
-    sobre el entorno de ejecución nativo. La página llama a los programas que exporta el Backend con
-    <code>CALL "NAME" WITH WEBSOCKET LINKAGE</code>: JSON sobre TLS con un token bearer; la reconexión y la
-    renovación del token las hace el sistema por ti. <code>COBOL::SqlDatabase</code> llega a SQLite, PostgreSQL
-    y MySQL sin <code>EXEC SQL</code>.</p>
+    <h3>Dos archivos para tu servidor</h3>
+    <p><strong>File &#9656; Package Project</strong> de un proyecto Web genera la aplicación y un script de instalación
+    para el servidor (<code>.sh</code> en Linux y macOS, <code>.ps1</code> en Windows). El script recibe un solo
+    parámetro, la carpeta de nginx, y ejecuta el Backend como un servicio. Antes de escribir nada, el paquete revisa tus
+    ajustes para un servidor y comprueba que el Backend arranca.</p>
   </div>
 
   <div class="card">
-    <h3>Inicio de sesión y enlaces</h3>
-    <p>El control <strong>Authentication</strong> inicia sesión y registra usuarios, recupera una contraseña
-    y responde a un segundo factor, a través de tu Backend, con Cognito, Keycloak o Entra. El control
-    <strong>Hyperlink</strong> es un enlace de verdad en la página.</p>
+    <h3>Un paquete para otro sistema</h3>
+    <p>En la ventana Package elige el <strong>System</strong> del servidor: hoy <code>linux-x86_64</code>, desde un Mac
+    o un equipo con Windows, de modo que ya no tienes que empaquetar en el propio servidor. El Backend de ese paquete
+    es un ejecutor de Linux ya compilado con tu módulo unido a él. En la línea de comandos:
+    <code>rcrun package --target</code>.</p>
   </div>
 
   <div class="card">
-    <h3>CSS3 y páginas adaptables</h3>
-    <p>Una hoja de estilo de la aplicación y una por formulario dan estilo a la página, y la hoja de estilo
-    prevalece sobre una propiedad. La aplicación de una sola página es la opción predeterminada; las páginas
-    de formulario independientes son la alternativa.</p>
+    <h3>El Preview conserva su dirección</h3>
+    <p>El Preview y el Run de un proyecto Web o Mobile sirven la página siempre en el mismo puerto, así que un marcador
+    o una pestaña abierta la vuelve a encontrar. Se define en los ajustes del proyecto, <em>Page port (Preview)</em>; la
+    casilla muestra el valor por defecto.</p>
   </div>
 
   <div class="card">
-    <h3>Vista previa en una vista web</h3>
-    <p>La <strong>Preview</strong> del diseñador muestra el paquete en la vista web del sistema. Elige un
-    tamaño de teléfono, tableta o escritorio, la orientación, la densidad de píxeles, el esquema de color y el
-    idioma de la página; un cambio en un formulario, una hoja de estilo o el Backend llega a la página
-    abierta.</p>
-  </div>
-
-  <div class="card">
-    <h3>Canvas y gráficos</h3>
-    <p><strong>Canvas 2D</strong>, <strong>Canvas 3D</strong> y los objetos ImageBuffer, Plot, Scene3D,
-    Physics2D y Physics3D, en todas las plataformas.</p>
-  </div>
-
-  <div class="card">
-    <h3>Seguro por defecto</h3>
-    <p>Build revisa los archivos de tu proyecto en busca de secretos y se detiene si encuentra uno; el
-    paquete lleva una Content-Security-Policy; un proyecto Mobile puede fijar certificados; un Backend de
-    lanzamiento rechaza un secreto escrito literalmente en su configuración.</p>
-  </div>
-
-  <div class="card">
-    <h3>Claude Code y Grace conocen los tipos</h3>
-    <p>El complemento de Claude Code tiene ahora diecisiete herramientas y trece habilidades, entre ellas
-    algunas para aplicaciones web y para el Backend, y Grace, la asistente del IDE, las conoce, y
-    <code>COBOL::SqlDatabase</code> también.</p>
-  </div>
-
-  <div class="card">
-    <h3>El mismo COBOL por debajo</h3>
-    <p>El WebAssembly generado se mantiene igual al intérprete mediante las pruebas de conformidad: los
-    módulos NC, IF e IC de NIST CCVS85 se ejecutan con cero fallos sobre él.</p>
+    <h3>Una instalación de Windows que te deja listo</h3>
+    <p>La instalación de Windows instala las herramientas de compilación de C++ de Microsoft cuando faltan y, si dices
+    que sí en su página de preparación, Rust 1.95.0 y las piezas propias de PowerRustCOBOL compiladas una sola vez, de
+    modo que tu primer Build de Debug compila solo tu programa. <em>Skip</em> instala lo que la instalación siempre
+    instaló.</p>
   </div>
 
 </div>
 
-<h2>Empieza aquí</h2>
+<h2>Cambios menores</h2>
 
-<ol>
-  <li><strong>File &#9656; New Project</strong>, y elige <em>Web</em> (o un dispositivo Android o iOS).</li>
-  <li>Abre un formulario y pulsa <strong>Preview</strong> para verlo en una vista web.</li>
-  <li>Añade un programa de Backend, inclúyelo en <code>backend/exports.toml</code> y llámalo con <code>CALL</code> desde un manejador.</li>
-  <li>Pulsa <strong>Build</strong>.</li>
-</ol>
+<ul>
+  <li>Un canvas puede ocultar el puntero del ratón, devolverlo a su centro e informar de Escape: <code>Cursor</code> =
+  <code>None</code>, <code>CenterPointer()</code> y <code>onEscapePressed</code>. PowerCallOfDuty usa los tres.</li>
+  <li>Un archivo <code>LINE SEQUENTIAL</code> conserva los bytes de un registro tal cual, y el
+  <code>LoadBytes</code> de un Viewer muestra su documento en el navegador.</li>
+  <li>Los archivos de nginx que escribe el Build de un proyecto Web ahora arrancan, sirven cada archivo con el tipo
+  correcto y conservan las cabeceras de seguridad.</li>
+  <li>Un botón pulsado de la barra de herramientas se ve pulsado con Spatial y con los demás temas Aurora, y en macOS
+  el título de las ventanas del IDE queda junto a los botones de la ventana.</li>
+  <li>PowerOficina se abre con sus datos en una instalación limpia.</li>
+</ul>
 
-<p>O abre un ejemplo desde <strong>File &#9656; Open Project</strong>:</p>
-
-<table>
-  <tr><th>Ejemplo</th><th>Qué muestra</th></tr>
-  <tr><td><code>examples/PowerWebHello</code></td><td>el proyecto Web más pequeño: un formulario con un menú lateral y un Backend</td></tr>
-  <tr><td><code>examples/PowerMobileHello</code></td><td>el proyecto Mobile más pequeño</td></tr>
-  <tr><td><code>examples/PowerOficina</code></td><td>una aplicación de gestión de taller con un Backend sobre archivos indexados</td></tr>
-  <tr><td><code>examples/PowerAnalyticsWeb</code></td><td>el aspecto del panel PowerAnalytics de escritorio, en la web</td></tr>
-</table>
-
-<h2>Lo que necesita cada destino</h2>
+<h2>Lo que necesitas</h2>
 
 <table>
-  <tr><th>Compilas</th><th>Necesitas</th></tr>
-  <tr><td>una aplicación web</td><td>nada más que el IDE</td></tr>
-  <tr><td>un binario de lanzamiento del Backend</td><td>la misma cadena de herramientas que un Build de escritorio: Rust y el enlazador de la plataforma</td></tr>
-  <tr><td>un paquete Android</td><td>el SDK y el NDK de Android, Java 17 a 21, el destino de Rust del teléfono y la línea de comandos de Tauri; el Build nombra cada pieza que falta</td></tr>
-  <tr><td>una aplicación iOS para el simulador</td><td>un Mac con Xcode 16 o posterior</td></tr>
+  <tr><th>Tú compilas</th><th>Necesitas</th></tr>
+  <tr><td>una aplicación de escritorio o Web</td><td>nada más que el IDE: el ejecutor se instala a su lado</td></tr>
+  <tr><td>un Build de Debug, un bloque <code>EXEC RUST</code> o External Crates</td><td>Rust y el enlazador de la plataforma, como antes; en Windows la instalación puede prepararlos</td></tr>
+  <tr><td>un paquete para un servidor Linux</td><td>un servidor Linux x86-64 con glibc 2.34 o posterior: Debian 12, Ubuntu 22.04 y Amazon Linux 2023 lo arrancan; Ubuntu 20.04 y Debian 11 no</td></tr>
 </table>
 
 <div class="note">
-  <strong>Alcance, con honestidad.</strong> Todavía <strong>no se compila</strong> un archivo de lanzamiento de una
-  aplicación iOS para un dispositivo o para la tienda. La cobertura de navegadores se ha medido en Chromium y en las
-  vistas web del sistema; Safari en un Mac y la vista web de Android en un teléfono físico aún no se han medido. El
-  COBOL de un formulario web es un subconjunto: los archivos, el SQL y demás trabajo del lado del servidor
-  corresponden al Backend, y el Build te indica la línea que no puede ejecutarse en una página. Algunos criterios de
-  aceptación de las especificaciones de WebAssembly siguen abiertos; la lista está en <code>specs/WASM-OPEN-ACS.md</code>.
+  <strong>Alcance, con honestidad.</strong> Un paquete para otro sistema existe solo para Linux x86-64 (el paquete de
+  un servidor Windows se sigue haciendo en Windows), y se probó en un contenedor x86-64, todavía no en un servidor
+  real. Los tiempos de compilación se midieron en un Mac con Apple silicon.
 </div>
 
 <h2>Leer más</h2>
 
-<p>La Guía del desarrollador cuenta toda la historia en cuatro capítulos nuevos: <em>Web and Mobile applications</em>,
-<em>The Backend and the secure channel</em>, <em>Mobile applications: Android and iOS</em> y
-<em>Graphics: Canvas 2D, Canvas 3D and the graphics objects</em>. Ábrela con
-el botón <strong>Documentation</strong> de la barra de menús, o lee <code>docs/developers-guide-en.md</code> en el repositorio, en
-<code>https://github.com/CloudLandBeta/PowerRustCOBOL</code>. El README de allí incluye un recorrido breve
-en <em>Version 2: Web and Mobile applications</em>.</p>
+<p>La Guía del desarrollador tiene los detalles. Ábrela con el botón <strong>Documentation</strong> de la barra de menús,
+o lee <code>docs/developers-guide-en.md</code> en el repositorio de
+<code>https://github.com/CloudLandBeta/PowerRustCOBOL</code>, donde <code>CHANGELOG.md</code> lista cada cambio, una entrada por cambio.</p>
 
 <p class="small">Esta ventana se muestra una vez por cada versión de esta página. Ciérrala cuando termines.</p>
 
